@@ -11,13 +11,14 @@ mod sync_aggregate_id;
 
 pub use crate::bls_to_execution_changes::ReceivedPreCapella;
 pub use attestation::{earliest_attestation_validators, AttMaxCover};
-pub use attestation_storage::{AttestationRef, SplitAttestation};
+pub use attestation_storage::{CompactAttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
 pub use persistence::{
-    PersistedOperationPool, PersistedOperationPoolV12, PersistedOperationPoolV14,
-    PersistedOperationPoolV15, PersistedOperationPoolV5,
+    PersistedOperationPool, PersistedOperationPoolV15, PersistedOperationPoolV20,
 };
 pub use reward_cache::RewardCache;
+use state_processing::epoch_cache::is_epoch_cache_initialized;
+use types::EpochCacheError;
 
 use crate::attestation_storage::{AttestationMap, CheckpointKey};
 use crate::bls_to_execution_changes::BlsToExecutionChanges;
@@ -42,25 +43,25 @@ use types::{
     SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution, Validator,
 };
 
-type SyncContributions<T> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeContribution<T>>>>;
+type SyncContributions<E> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeContribution<E>>>>;
 
 #[derive(Default, Debug)]
-pub struct OperationPool<T: EthSpec + Default> {
+pub struct OperationPool<E: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
-    attestations: RwLock<AttestationMap<T>>,
+    attestations: RwLock<AttestationMap<E>>,
     /// Map from sync aggregate ID to the best `SyncCommitteeContribution`s seen for that ID.
-    sync_contributions: SyncContributions<T>,
+    sync_contributions: SyncContributions<E>,
     /// Set of attester slashings, and the fork version they were verified against.
-    attester_slashings: RwLock<HashSet<SigVerifiedOp<AttesterSlashing<T>, T>>>,
+    attester_slashings: RwLock<HashSet<SigVerifiedOp<AttesterSlashing<E>, E>>>,
     /// Map from proposer index to slashing.
-    proposer_slashings: RwLock<HashMap<u64, SigVerifiedOp<ProposerSlashing, T>>>,
+    proposer_slashings: RwLock<HashMap<u64, SigVerifiedOp<ProposerSlashing, E>>>,
     /// Map from exiting validator to their exit data.
-    voluntary_exits: RwLock<HashMap<u64, SigVerifiedOp<SignedVoluntaryExit, T>>>,
+    voluntary_exits: RwLock<HashMap<u64, SigVerifiedOp<SignedVoluntaryExit, E>>>,
     /// Map from credential changing validator to their position in the queue.
-    bls_to_execution_changes: RwLock<BlsToExecutionChanges<T>>,
+    bls_to_execution_changes: RwLock<BlsToExecutionChanges<E>>,
     /// Reward cache for accelerating attestation packing.
     reward_cache: RwLock<RewardCache>,
-    _phantom: PhantomData<T>,
+    _phantom: PhantomData<E>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -75,6 +76,8 @@ pub enum OpPoolError {
     RewardCacheValidatorUnknown(BeaconStateError),
     RewardCacheOutOfBounds,
     IncorrectOpPoolVariant,
+    EpochCacheNotInitialized,
+    EpochCacheError(EpochCacheError),
 }
 
 #[derive(Default)]
@@ -93,7 +96,7 @@ impl From<SyncAggregateError> for OpPoolError {
     }
 }
 
-impl<T: EthSpec> OperationPool<T> {
+impl<E: EthSpec> OperationPool<E> {
     /// Create a new operation pool.
     pub fn new() -> Self {
         Self::default()
@@ -107,7 +110,7 @@ impl<T: EthSpec> OperationPool<T> {
     /// This function assumes the given `contribution` is valid.
     pub fn insert_sync_contribution(
         &self,
-        contribution: SyncCommitteeContribution<T>,
+        contribution: SyncCommitteeContribution<E>,
     ) -> Result<(), OpPoolError> {
         let aggregate_id = SyncAggregateId::new(contribution.slot, contribution.beacon_block_root);
         let mut contributions = self.sync_contributions.write();
@@ -153,8 +156,8 @@ impl<T: EthSpec> OperationPool<T> {
     /// contributions exist at this slot, or else `None`.
     pub fn get_sync_aggregate(
         &self,
-        state: &BeaconState<T>,
-    ) -> Result<Option<SyncAggregate<T>>, OpPoolError> {
+        state: &BeaconState<E>,
+    ) -> Result<Option<SyncAggregate<E>>, OpPoolError> {
         // Sync aggregates are formed from the contributions from the previous slot.
         let slot = state.slot().saturating_sub(1u64);
         let block_root = *state
@@ -197,7 +200,7 @@ impl<T: EthSpec> OperationPool<T> {
     /// This function assumes the given `attestation` is valid.
     pub fn insert_attestation(
         &self,
-        attestation: Attestation<T>,
+        attestation: Attestation<E>,
         attesting_indices: Vec<u64>,
     ) -> Result<(), AttestationValidationError> {
         self.attestations
@@ -220,18 +223,18 @@ impl<T: EthSpec> OperationPool<T> {
     fn get_valid_attestations_for_epoch<'a>(
         &'a self,
         checkpoint_key: &'a CheckpointKey,
-        all_attestations: &'a AttestationMap<T>,
-        state: &'a BeaconState<T>,
+        all_attestations: &'a AttestationMap<E>,
+        state: &'a BeaconState<E>,
         reward_cache: &'a RewardCache,
         total_active_balance: u64,
-        validity_filter: impl FnMut(&AttestationRef<'a, T>) -> bool + Send,
+        validity_filter: impl FnMut(&CompactAttestationRef<'a, E>) -> bool + Send,
         spec: &'a ChainSpec,
-    ) -> impl Iterator<Item = AttMaxCover<'a, T>> + Send {
+    ) -> impl Iterator<Item = AttMaxCover<'a, E>> + Send {
         all_attestations
             .get_attestations(checkpoint_key)
             .filter(|att| {
                 att.data.slot + spec.min_attestation_inclusion_delay <= state.slot()
-                    && state.slot() <= att.data.slot + T::slots_per_epoch()
+                    && state.slot() <= att.data.slot + E::slots_per_epoch()
             })
             .filter(validity_filter)
             .filter_map(move |att| {
@@ -247,14 +250,23 @@ impl<T: EthSpec> OperationPool<T> {
     /// in the operation pool.
     pub fn get_attestations(
         &self,
-        state: &BeaconState<T>,
-        prev_epoch_validity_filter: impl for<'a> FnMut(&AttestationRef<'a, T>) -> bool + Send,
-        curr_epoch_validity_filter: impl for<'a> FnMut(&AttestationRef<'a, T>) -> bool + Send,
+        state: &BeaconState<E>,
+        prev_epoch_validity_filter: impl for<'a> FnMut(&CompactAttestationRef<'a, E>) -> bool + Send,
+        curr_epoch_validity_filter: impl for<'a> FnMut(&CompactAttestationRef<'a, E>) -> bool + Send,
         spec: &ChainSpec,
-    ) -> Result<Vec<Attestation<T>>, OpPoolError> {
+    ) -> Result<Vec<Attestation<E>>, OpPoolError> {
+        let fork_name = state.fork_name_unchecked();
+        if !matches!(state, BeaconState::Base(_)) {
+            // Epoch cache must be initialized to fetch base reward values in the max cover `score`
+            // function. Currently max cover ignores items on errors. If epoch cache is not
+            // initialized, this function returns an error.
+            if !is_epoch_cache_initialized(state).map_err(OpPoolError::EpochCacheError)? {
+                return Err(OpPoolError::EpochCacheNotInitialized);
+            }
+        }
+
         // Attestations for the current fork, which may be from the current or previous epoch.
         let (prev_epoch_key, curr_epoch_key) = CheckpointKey::keys_for_state(state);
-        let all_attestations = self.attestations.read();
         let total_active_balance = state
             .get_total_active_balance()
             .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
@@ -270,6 +282,16 @@ impl<T: EthSpec> OperationPool<T> {
         // can optimise them individually in parallel.
         let mut num_prev_valid = 0_i64;
         let mut num_curr_valid = 0_i64;
+
+        // TODO(electra): Work out how to do this more elegantly. This is a bit of a hack.
+        let mut all_attestations = self.attestations.write();
+
+        if fork_name.electra_enabled() {
+            all_attestations.aggregate_across_committees(prev_epoch_key);
+            all_attestations.aggregate_across_committees(curr_epoch_key);
+        }
+
+        let all_attestations = parking_lot::RwLockWriteGuard::downgrade(all_attestations);
 
         let prev_epoch_att = self
             .get_valid_attestations_for_epoch(
@@ -294,14 +316,19 @@ impl<T: EthSpec> OperationPool<T> {
             )
             .inspect(|_| num_curr_valid += 1);
 
+        let curr_epoch_limit = if fork_name.electra_enabled() {
+            E::MaxAttestationsElectra::to_usize()
+        } else {
+            E::MaxAttestations::to_usize()
+        };
         let prev_epoch_limit = if let BeaconState::Base(base_state) = state {
             std::cmp::min(
-                T::MaxPendingAttestations::to_usize()
+                E::MaxPendingAttestations::to_usize()
                     .saturating_sub(base_state.previous_epoch_attestations.len()),
-                T::MaxAttestations::to_usize(),
+                E::MaxAttestations::to_usize(),
             )
         } else {
-            T::MaxAttestations::to_usize()
+            curr_epoch_limit
         };
 
         let (prev_cover, curr_cover) = rayon::join(
@@ -316,11 +343,7 @@ impl<T: EthSpec> OperationPool<T> {
             },
             move || {
                 let _timer = metrics::start_timer(&metrics::ATTESTATION_CURR_EPOCH_PACKING_TIME);
-                maximum_cover(
-                    curr_epoch_att,
-                    T::MaxAttestations::to_usize(),
-                    "curr_epoch_attestations",
-                )
+                maximum_cover(curr_epoch_att, curr_epoch_limit, "curr_epoch_attestations")
             },
         );
 
@@ -330,7 +353,7 @@ impl<T: EthSpec> OperationPool<T> {
         Ok(max_cover::merge_solutions(
             curr_cover,
             prev_cover,
-            T::MaxAttestations::to_usize(),
+            curr_epoch_limit,
         ))
     }
 
@@ -342,7 +365,7 @@ impl<T: EthSpec> OperationPool<T> {
     /// Insert a proposer slashing into the pool.
     pub fn insert_proposer_slashing(
         &self,
-        verified_proposer_slashing: SigVerifiedOp<ProposerSlashing, T>,
+        verified_proposer_slashing: SigVerifiedOp<ProposerSlashing, E>,
     ) {
         self.proposer_slashings.write().insert(
             verified_proposer_slashing.as_inner().proposer_index(),
@@ -353,7 +376,7 @@ impl<T: EthSpec> OperationPool<T> {
     /// Insert an attester slashing into the pool.
     pub fn insert_attester_slashing(
         &self,
-        verified_slashing: SigVerifiedOp<AttesterSlashing<T>, T>,
+        verified_slashing: SigVerifiedOp<AttesterSlashing<E>, E>,
     ) {
         self.attester_slashings.write().insert(verified_slashing);
     }
@@ -365,11 +388,11 @@ impl<T: EthSpec> OperationPool<T> {
     /// earlier in the block.
     pub fn get_slashings_and_exits(
         &self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> (
         Vec<ProposerSlashing>,
-        Vec<AttesterSlashing<T>>,
+        Vec<AttesterSlashing<E>>,
         Vec<SignedVoluntaryExit>,
     ) {
         let proposer_slashings = filter_limit_operations(
@@ -382,7 +405,7 @@ impl<T: EthSpec> OperationPool<T> {
                         .map_or(false, |validator| !validator.slashed)
             },
             |slashing| slashing.as_inner().clone(),
-            T::MaxProposerSlashings::to_usize(),
+            E::MaxProposerSlashings::to_usize(),
         );
 
         // Set of validators to be slashed, so we don't attempt to construct invalid attester
@@ -408,14 +431,14 @@ impl<T: EthSpec> OperationPool<T> {
     /// This function *must* remain private.
     fn get_attester_slashings(
         &self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         to_be_slashed: &mut HashSet<u64>,
-    ) -> Vec<AttesterSlashing<T>> {
+    ) -> Vec<AttesterSlashing<E>> {
         let reader = self.attester_slashings.read();
 
         let relevant_attester_slashings = reader.iter().flat_map(|slashing| {
             if slashing.signature_is_still_valid(&state.fork()) {
-                AttesterSlashingMaxCover::new(slashing.as_inner(), to_be_slashed, state)
+                AttesterSlashingMaxCover::new(slashing.as_inner().to_ref(), to_be_slashed, state)
             } else {
                 None
             }
@@ -423,19 +446,19 @@ impl<T: EthSpec> OperationPool<T> {
 
         maximum_cover(
             relevant_attester_slashings,
-            T::MaxAttesterSlashings::to_usize(),
+            E::MaxAttesterSlashings::to_usize(),
             "attester_slashings",
         )
         .into_iter()
         .map(|cover| {
             to_be_slashed.extend(cover.covering_set().keys());
-            cover.intermediate().clone()
+            AttesterSlashingMaxCover::convert_to_object(cover.intermediate())
         })
         .collect()
     }
 
     /// Prune proposer slashings for validators which are exited in the finalized epoch.
-    pub fn prune_proposer_slashings(&self, head_state: &BeaconState<T>) {
+    pub fn prune_proposer_slashings(&self, head_state: &BeaconState<E>) {
         prune_validator_hash_map(
             &mut self.proposer_slashings.write(),
             |_, validator| validator.exit_epoch <= head_state.finalized_checkpoint().epoch,
@@ -445,21 +468,24 @@ impl<T: EthSpec> OperationPool<T> {
 
     /// Prune attester slashings for all slashed or withdrawn validators, or attestations on another
     /// fork.
-    pub fn prune_attester_slashings(&self, head_state: &BeaconState<T>) {
+    pub fn prune_attester_slashings(&self, head_state: &BeaconState<E>) {
         self.attester_slashings.write().retain(|slashing| {
             // Check that the attestation's signature is still valid wrt the fork version.
             let signature_ok = slashing.signature_is_still_valid(&head_state.fork());
             // Slashings that don't slash any validators can also be dropped.
-            let slashing_ok =
-                get_slashable_indices_modular(head_state, slashing.as_inner(), |_, validator| {
+            let slashing_ok = get_slashable_indices_modular(
+                head_state,
+                slashing.as_inner().to_ref(),
+                |_, validator| {
                     // Declare that a validator is still slashable if they have not exited prior
                     // to the finalized epoch.
                     //
                     // We cannot check the `slashed` field since the `head` is not finalized and
                     // a fork could un-slash someone.
                     validator.exit_epoch > head_state.finalized_checkpoint().epoch
-                })
-                .map_or(false, |indices| !indices.is_empty());
+                },
+            )
+            .map_or(false, |indices| !indices.is_empty());
 
             signature_ok && slashing_ok
         });
@@ -476,7 +502,7 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Insert a voluntary exit that has previously been checked elsewhere.
-    pub fn insert_voluntary_exit(&self, exit: SigVerifiedOp<SignedVoluntaryExit, T>) {
+    pub fn insert_voluntary_exit(&self, exit: SigVerifiedOp<SignedVoluntaryExit, E>) {
         self.voluntary_exits
             .write()
             .insert(exit.as_inner().message.validator_index, exit);
@@ -485,7 +511,7 @@ impl<T: EthSpec> OperationPool<T> {
     /// Get a list of voluntary exits for inclusion in a block.
     fn get_voluntary_exits<F>(
         &self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         filter: F,
         spec: &ChainSpec,
     ) -> Vec<SignedVoluntaryExit>
@@ -501,12 +527,12 @@ impl<T: EthSpec> OperationPool<T> {
                         .is_ok()
             },
             |exit| exit.as_inner().clone(),
-            T::MaxVoluntaryExits::to_usize(),
+            E::MaxVoluntaryExits::to_usize(),
         )
     }
 
     /// Prune if validator has already exited at or before the finalized checkpoint of the head.
-    pub fn prune_voluntary_exits(&self, head_state: &BeaconState<T>) {
+    pub fn prune_voluntary_exits(&self, head_state: &BeaconState<E>) {
         prune_validator_hash_map(
             &mut self.voluntary_exits.write(),
             // This condition is slightly too loose, since there will be some finalized exits that
@@ -536,7 +562,7 @@ impl<T: EthSpec> OperationPool<T> {
     /// Return `true` if the change was inserted.
     pub fn insert_bls_to_execution_change(
         &self,
-        verified_change: SigVerifiedOp<SignedBlsToExecutionChange, T>,
+        verified_change: SigVerifiedOp<SignedBlsToExecutionChange, E>,
         received_pre_capella: ReceivedPreCapella,
     ) -> bool {
         self.bls_to_execution_changes
@@ -549,7 +575,7 @@ impl<T: EthSpec> OperationPool<T> {
     /// They're in random `HashMap` order, which isn't exactly fair, but isn't unfair either.
     pub fn get_bls_to_execution_changes(
         &self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Vec<SignedBlsToExecutionChange> {
         filter_limit_operations(
@@ -563,7 +589,7 @@ impl<T: EthSpec> OperationPool<T> {
                         })
             },
             |address_change| address_change.as_inner().clone(),
-            T::MaxBlsToExecutionChanges::to_usize(),
+            E::MaxBlsToExecutionChanges::to_usize(),
         )
     }
 
@@ -573,7 +599,7 @@ impl<T: EthSpec> OperationPool<T> {
     /// broadcast of messages.
     pub fn get_bls_to_execution_changes_received_pre_capella(
         &self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Vec<SignedBlsToExecutionChange> {
         let mut changes = filter_limit_operations(
@@ -589,7 +615,7 @@ impl<T: EthSpec> OperationPool<T> {
                         })
             },
             |address_change| address_change.as_inner().clone(),
-            usize::max_value(),
+            usize::MAX,
         );
         changes.shuffle(&mut thread_rng());
         changes
@@ -604,10 +630,10 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Prune BLS to execution changes that have been applied to the state more than 1 block ago.
-    pub fn prune_bls_to_execution_changes<Payload: AbstractExecPayload<T>>(
+    pub fn prune_bls_to_execution_changes<Payload: AbstractExecPayload<E>>(
         &self,
-        head_block: &SignedBeaconBlock<T, Payload>,
-        head_state: &BeaconState<T>,
+        head_block: &SignedBeaconBlock<E, Payload>,
+        head_state: &BeaconState<E>,
         spec: &ChainSpec,
     ) {
         self.bls_to_execution_changes
@@ -616,10 +642,10 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Prune all types of transactions given the latest head state and head fork.
-    pub fn prune_all<Payload: AbstractExecPayload<T>>(
+    pub fn prune_all<Payload: AbstractExecPayload<E>>(
         &self,
-        head_block: &SignedBeaconBlock<T, Payload>,
-        head_state: &BeaconState<T>,
+        head_block: &SignedBeaconBlock<E, Payload>,
+        head_state: &BeaconState<E>,
         current_epoch: Epoch,
         spec: &ChainSpec,
     ) {
@@ -639,7 +665,7 @@ impl<T: EthSpec> OperationPool<T> {
     /// Returns all known `Attestation` objects.
     ///
     /// This method may return objects that are invalid for block inclusion.
-    pub fn get_all_attestations(&self) -> Vec<Attestation<T>> {
+    pub fn get_all_attestations(&self) -> Vec<Attestation<E>> {
         self.attestations
             .read()
             .iter()
@@ -650,7 +676,7 @@ impl<T: EthSpec> OperationPool<T> {
     /// Returns all known `Attestation` objects that pass the provided filter.
     ///
     /// This method may return objects that are invalid for block inclusion.
-    pub fn get_filtered_attestations<F>(&self, filter: F) -> Vec<Attestation<T>>
+    pub fn get_filtered_attestations<F>(&self, filter: F) -> Vec<Attestation<E>>
     where
         F: Fn(&AttestationData) -> bool,
     {
@@ -665,7 +691,7 @@ impl<T: EthSpec> OperationPool<T> {
     /// Returns all known `AttesterSlashing` objects.
     ///
     /// This method may return objects that are invalid for block inclusion.
-    pub fn get_all_attester_slashings(&self) -> Vec<AttesterSlashing<T>> {
+    pub fn get_all_attester_slashings(&self) -> Vec<AttesterSlashing<E>> {
         self.attester_slashings
             .read()
             .iter()
@@ -708,7 +734,7 @@ impl<T: EthSpec> OperationPool<T> {
 }
 
 /// Filter up to a maximum number of operations out of an iterator.
-fn filter_limit_operations<'a, T: 'a, V: 'a, I, F, G>(
+fn filter_limit_operations<'a, T, V: 'a, I, F, G>(
     operations: I,
     filter: F,
     mapping: G,
@@ -718,7 +744,7 @@ where
     I: IntoIterator<Item = &'a T>,
     F: Fn(&T) -> bool,
     G: Fn(&T) -> V,
-    T: Clone,
+    T: Clone + 'a,
 {
     operations
         .into_iter()
@@ -751,7 +777,7 @@ fn prune_validator_hash_map<T, F, E: EthSpec>(
 }
 
 /// Compare two operation pools.
-impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
+impl<E: EthSpec + Default> PartialEq for OperationPool<E> {
     fn eq(&self, other: &Self) -> bool {
         if ptr::eq(self, other) {
             return true;
@@ -773,6 +799,7 @@ mod release_tests {
     };
     use lazy_static::lazy_static;
     use maplit::hashset;
+    use state_processing::epoch_cache::initialize_epoch_cache;
     use state_processing::{common::get_attesting_indices_from_state, VerifyOperation};
     use std::collections::BTreeSet;
     use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
@@ -814,6 +841,15 @@ mod release_tests {
         (harness, spec)
     }
 
+    fn get_current_state_initialize_epoch_cache<E: EthSpec>(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+        spec: &ChainSpec,
+    ) -> BeaconState<E> {
+        let mut state = harness.get_current_state();
+        initialize_epoch_cache(&mut state, spec).unwrap();
+        state
+    }
+
     /// Test state for sync contribution-related tests.
     async fn sync_contribution_test_state<E: EthSpec>(
         num_committees: usize,
@@ -847,7 +883,7 @@ mod release_tests {
             return;
         }
 
-        let mut state = harness.get_current_state();
+        let mut state = get_current_state_initialize_epoch_cache(&harness, &spec);
         let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
@@ -868,7 +904,7 @@ mod release_tests {
         );
 
         for (atts, aggregate) in &attestations {
-            let att2 = aggregate.as_ref().unwrap().message.aggregate.clone();
+            let att2 = aggregate.as_ref().unwrap().message().aggregate().clone();
 
             let att1 = atts
                 .into_iter()
@@ -876,7 +912,7 @@ mod release_tests {
                 .take(2)
                 .fold::<Option<Attestation<MainnetEthSpec>>, _>(None, |att, new_att| {
                     if let Some(mut a) = att {
-                        a.aggregate(&new_att);
+                        a.aggregate(new_att.to_ref());
                         Some(a)
                     } else {
                         Some(new_att.clone())
@@ -884,13 +920,13 @@ mod release_tests {
                 })
                 .unwrap();
 
-            let att1_indices = get_attesting_indices_from_state(&state, &att1).unwrap();
-            let att2_indices = get_attesting_indices_from_state(&state, &att2).unwrap();
+            let att1_indices = get_attesting_indices_from_state(&state, att1.to_ref()).unwrap();
+            let att2_indices = get_attesting_indices_from_state(&state, att2).unwrap();
             let att1_split = SplitAttestation::new(att1.clone(), att1_indices);
-            let att2_split = SplitAttestation::new(att2.clone(), att2_indices);
+            let att2_split = SplitAttestation::new(att2.clone_as_attestation(), att2_indices);
 
             assert_eq!(
-                att1.aggregation_bits.num_set_bits(),
+                att1.num_set_aggregation_bits(),
                 earliest_attestation_validators(
                     &att1_split.as_ref(),
                     &state,
@@ -904,8 +940,8 @@ mod release_tests {
                 .unwrap()
                 .current_epoch_attestations
                 .push(PendingAttestation {
-                    aggregation_bits: att1.aggregation_bits.clone(),
-                    data: att1.data.clone(),
+                    aggregation_bits: att1.aggregation_bits_base().unwrap().clone(),
+                    data: att1.data().clone(),
                     inclusion_delay: 0,
                     proposer_index: 0,
                 })
@@ -929,7 +965,7 @@ mod release_tests {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
-        let mut state = harness.get_current_state();
+        let mut state = get_current_state_initialize_epoch_cache(&harness, &spec);
 
         let slot = state.slot();
         let committees = state
@@ -958,7 +994,8 @@ mod release_tests {
 
         for (atts, _) in attestations {
             for (att, _) in atts {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                let attesting_indices =
+                    get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         }
@@ -984,7 +1021,7 @@ mod release_tests {
 
         let agg_att = &block_attestations[0];
         assert_eq!(
-            agg_att.aggregation_bits.num_set_bits(),
+            agg_att.num_set_aggregation_bits(),
             spec.target_committee_size as usize
         );
 
@@ -1004,7 +1041,7 @@ mod release_tests {
     fn attestation_duplicate() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
-        let state = harness.get_current_state();
+        let state = get_current_state_initialize_epoch_cache(&harness, &spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1027,12 +1064,15 @@ mod release_tests {
         );
 
         for (_, aggregate) in attestations {
-            let att = aggregate.unwrap().message.aggregate;
-            let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+            let agg = aggregate.unwrap();
+            let att = agg.message().aggregate();
+            let attesting_indices = get_attesting_indices_from_state(&state, att).unwrap();
             op_pool
-                .insert_attestation(att.clone(), attesting_indices.clone())
+                .insert_attestation(att.clone_as_attestation(), attesting_indices.clone())
                 .unwrap();
-            op_pool.insert_attestation(att, attesting_indices).unwrap();
+            op_pool
+                .insert_attestation(att.clone_as_attestation(), attesting_indices)
+                .unwrap();
         }
 
         assert_eq!(op_pool.num_attestations(), committees.len());
@@ -1044,7 +1084,7 @@ mod release_tests {
     fn attestation_pairwise_overlapping() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
-        let state = harness.get_current_state();
+        let state = get_current_state_initialize_epoch_cache(&harness, &spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1081,7 +1121,7 @@ mod release_tests {
                         None,
                         |att, new_att| {
                             if let Some(mut a) = att {
-                                a.aggregate(new_att);
+                                a.aggregate(new_att.to_ref());
                                 Some(a)
                             } else {
                                 Some(new_att.clone())
@@ -1104,7 +1144,7 @@ mod release_tests {
                         None,
                         |att, new_att| {
                             if let Some(mut a) = att {
-                                a.aggregate(new_att);
+                                a.aggregate(new_att.to_ref());
                                 Some(a)
                             } else {
                                 Some(new_att.clone())
@@ -1116,7 +1156,8 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs1.into_iter().chain(aggs2.into_iter()) {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                let attesting_indices =
+                    get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         }
@@ -1142,7 +1183,7 @@ mod release_tests {
 
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(num_committees);
 
-        let mut state = harness.get_current_state();
+        let mut state = get_current_state_initialize_epoch_cache(&harness, &spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1180,7 +1221,7 @@ mod release_tests {
                         .fold::<Attestation<MainnetEthSpec>, _>(
                             att_0.clone(),
                             |mut att, new_att| {
-                                att.aggregate(new_att);
+                                att.aggregate(new_att.to_ref());
                                 att
                             },
                         )
@@ -1188,7 +1229,8 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                let attesting_indices =
+                    get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         };
@@ -1205,7 +1247,17 @@ mod release_tests {
         let num_big = target_committee_size / big_step_size;
 
         let stats = op_pool.attestation_stats();
-        assert_eq!(stats.num_attestation_data, committees.len());
+        let fork_name = state.fork_name_unchecked();
+
+        match fork_name {
+            ForkName::Electra => {
+                assert_eq!(stats.num_attestation_data, 1);
+            }
+            _ => {
+                assert_eq!(stats.num_attestation_data, committees.len());
+            }
+        };
+
         assert_eq!(
             stats.num_attestations,
             (num_small + num_big) * committees.len()
@@ -1216,11 +1268,25 @@ mod release_tests {
         let best_attestations = op_pool
             .get_attestations(&state, |_| true, |_| true, spec)
             .expect("should have best attestations");
-        assert_eq!(best_attestations.len(), max_attestations);
+        match fork_name {
+            ForkName::Electra => {
+                assert_eq!(best_attestations.len(), 8);
+            }
+            _ => {
+                assert_eq!(best_attestations.len(), max_attestations);
+            }
+        };
 
         // All the best attestations should be signed by at least `big_step_size` (4) validators.
         for att in &best_attestations {
-            assert!(att.aggregation_bits.num_set_bits() >= big_step_size);
+            match fork_name {
+                ForkName::Electra => {
+                    assert!(att.num_set_aggregation_bits() >= small_step_size);
+                }
+                _ => {
+                    assert!(att.num_set_aggregation_bits() >= big_step_size);
+                }
+            };
         }
     }
 
@@ -1232,7 +1298,7 @@ mod release_tests {
 
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(num_committees);
 
-        let mut state = harness.get_current_state();
+        let mut state = get_current_state_initialize_epoch_cache(&harness, &spec);
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
         let slot = state.slot();
@@ -1249,7 +1315,7 @@ mod release_tests {
         // Each validator will have a multiple of 1_000_000_000 wei.
         // Safe from overflow unless there are about 18B validators (2^64 / 1_000_000_000).
         for i in 0..state.validators().len() {
-            state.validators_mut()[i].effective_balance = 1_000_000_000 * i as u64;
+            state.validators_mut().get_mut(i).unwrap().effective_balance = 1_000_000_000 * i as u64;
         }
 
         let num_validators = num_committees
@@ -1275,7 +1341,7 @@ mod release_tests {
                         .fold::<Attestation<MainnetEthSpec>, _>(
                             att_0.clone(),
                             |mut att, new_att| {
-                                att.aggregate(new_att);
+                                att.aggregate(new_att.to_ref());
                                 att
                             },
                         )
@@ -1283,7 +1349,8 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                let attesting_indices =
+                    get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         };
@@ -1298,11 +1365,20 @@ mod release_tests {
 
         let num_small = target_committee_size / small_step_size;
         let num_big = target_committee_size / big_step_size;
+        let fork_name = state.fork_name_unchecked();
 
-        assert_eq!(
-            op_pool.attestation_stats().num_attestation_data,
-            committees.len()
-        );
+        match fork_name {
+            ForkName::Electra => {
+                assert_eq!(op_pool.attestation_stats().num_attestation_data, 1);
+            }
+            _ => {
+                assert_eq!(
+                    op_pool.attestation_stats().num_attestation_data,
+                    committees.len()
+                );
+            }
+        };
+
         assert_eq!(
             op_pool.num_attestations(),
             (num_small + num_big) * committees.len()
@@ -1313,20 +1389,28 @@ mod release_tests {
         let best_attestations = op_pool
             .get_attestations(&state, |_| true, |_| true, spec)
             .expect("should have valid best attestations");
-        assert_eq!(best_attestations.len(), max_attestations);
+
+        match fork_name {
+            ForkName::Electra => {
+                assert_eq!(best_attestations.len(), 8);
+            }
+            _ => {
+                assert_eq!(best_attestations.len(), max_attestations);
+            }
+        };
 
         let total_active_balance = state.get_total_active_balance().unwrap();
 
         // Set of indices covered by previous attestations in `best_attestations`.
         let mut seen_indices = BTreeSet::<u64>::new();
         // Used for asserting that rewards are in decreasing order.
-        let mut prev_reward = u64::max_value();
+        let mut prev_reward = u64::MAX;
 
         let mut reward_cache = RewardCache::default();
         reward_cache.update(&state).unwrap();
 
         for att in best_attestations {
-            let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+            let attesting_indices = get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
             let split_attestation = SplitAttestation::new(att, attesting_indices);
             let mut fresh_validators_rewards = AttMaxCover::new(
                 split_attestation.as_ref(),
@@ -1507,9 +1591,9 @@ mod release_tests {
         let spec = &harness.spec;
         let mut state = harness.get_current_state();
         let op_pool = OperationPool::<MainnetEthSpec>::new();
-        state.validators_mut()[1].effective_balance = 17_000_000_000;
-        state.validators_mut()[2].effective_balance = 17_000_000_000;
-        state.validators_mut()[3].effective_balance = 17_000_000_000;
+        state.validators_mut().get_mut(1).unwrap().effective_balance = 17_000_000_000;
+        state.validators_mut().get_mut(2).unwrap().effective_balance = 17_000_000_000;
+        state.validators_mut().get_mut(3).unwrap().effective_balance = 17_000_000_000;
 
         let slashing_1 = harness.make_attester_slashing(vec![1, 2, 3]);
         let slashing_2 = harness.make_attester_slashing(vec![4, 5, 6]);

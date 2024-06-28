@@ -16,7 +16,9 @@ validator client or the slasher**.
 
 | Lighthouse version | Release date | Schema version | Downgrade available? |
 |--------------------|--------------|----------------|----------------------|
-
+| v5.2.0             | Jun 2024     | v19            | yes before Deneb     |
+| v5.1.0             | Mar 2024     | v19            | yes before Deneb     |
+| v5.0.0             | Feb 2024     | v19            | yes before Deneb     |
 | v4.6.0             | Dec 2023     | v19            | yes before Deneb     |
 | v4.6.0-rc.0        | Dec 2023     | v18            | yes before Deneb     |
 | v4.5.0             | Sep 2023     | v17            | yes                  |
@@ -52,13 +54,13 @@ To apply a downgrade you need to use the `lighthouse db migrate` command with th
 5. After stopping the beacon node, run the migrate command with the `--to` parameter set to the
    schema version you would like to downgrade to.
 
-```
+```bash
 sudo -u "$LH_USER" lighthouse db migrate --to "$VERSION" --datadir "$LH_DATADIR" --network "$NET"
 ```
 
 For example if you want to downgrade to Lighthouse v4.0.1 from v4.2.0 and you followed Somer Esat's guide, you would run:
 
-```
+```bash
 sudo -u lighthousebeacon lighthouse db migrate --to 16 --datadir /var/lib/lighthouse --network mainnet
 ```
 
@@ -112,7 +114,7 @@ The `schema_version` key indicates that this database is using schema version 16
 
 Alternatively, you can check the schema version with the `lighthouse db` command.
 
-```
+```bash
 sudo -u lighthousebeacon lighthouse db version --datadir /var/lib/lighthouse --network mainnet
 ```
 
@@ -127,29 +129,31 @@ Several conditions need to be met in order to run `lighthouse db`:
 2. The command must run as the user that owns the beacon node database. If you are using systemd then
    your beacon node might run as a user called `lighthousebeacon`.
 3. The `--datadir` flag must be set to the location of the Lighthouse data directory.
-4. The `--network` flag must be set to the correct network, e.g. `mainnet`, `goerli` or `sepolia`.
+4. The `--network` flag must be set to the correct network, e.g. `mainnet`, `holesky` or `sepolia`.
 
 The general form for a `lighthouse db` command is:
 
-```
+```bash
 sudo -u "$LH_USER" lighthouse db version --datadir "$LH_DATADIR" --network "$NET"
 ```
 
 If you followed Somer Esat's guide for mainnet:
 
-```
+```bash
 sudo systemctl stop lighthousebeacon
 ```
-```
+
+```bash
 sudo -u lighthousebeacon lighthouse db version --datadir /var/lib/lighthouse --network mainnet
 ```
 
 If you followed the CoinCashew guide for mainnet:
 
-```
+```bash
 sudo systemctl stop beacon-chain
 ```
-```
+
+```bash
 lighthouse db version --network mainnet
 ```
 
@@ -177,7 +181,7 @@ Here are the steps to prune historic states:
 
    If pruning is available, Lighthouse will log:
 
-   ```
+   ```text
    INFO Ready to prune states
    WARN Pruning states is irreversible
    WARN Re-run this command with --confirm to commit to state deletion
@@ -192,10 +196,10 @@ Here are the steps to prune historic states:
 
    The `--confirm` flag ensures that you are aware the action is irreversible, and historic states will be permanently removed. Lighthouse will log:
 
-   ```
+   ```text
    INFO Historic states pruned successfully
    ```
-   
+
 4. After successfully pruning the historic states, you can restart the Lighthouse beacon node:
 
    ```bash

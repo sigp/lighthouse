@@ -685,7 +685,16 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
                     let maybe_graffiti = body.graffiti.clone().map(Into::into);
                     let initialized_validators_rw_lock = validator_store.initialized_validators();
-                    let mut initialized_validators = initialized_validators_rw_lock.write();
+                    let initialized_validators = initialized_validators_rw_lock.upgradable_read();
+
+                    // Do not make any changes if all fields are identical or unchanged.
+                    fn equal_or_none<T: PartialEq>(
+                        current_value: Option<T>,
+                        new_value: Option<T>,
+                    ) -> bool {
+                        new_value.is_none() || current_value == new_value
+                    }
+
                     match (
                         initialized_validators.is_enabled(&validator_pubkey),
                         initialized_validators.validator(&validator_pubkey.compress()),
@@ -694,32 +703,65 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                             "no validator for {:?}",
                             validator_pubkey
                         ))),
+                        // If all specified parameters match their existing settings, then this
+                        // change is a no-op.
                         (Some(is_enabled), Some(initialized_validator))
-                            if Some(is_enabled) == body.enabled
-                                && initialized_validator.get_gas_limit() == body.gas_limit
-                                && initialized_validator.get_builder_boost_factor()
-                                    == body.builder_boost_factor
-                                && initialized_validator.get_builder_proposals()
-                                    == body.builder_proposals
-                                && initialized_validator.get_prefer_builder_proposals()
-                                    == body.prefer_builder_proposals
-                                && initialized_validator.get_graffiti() == maybe_graffiti =>
+                            if equal_or_none(Some(is_enabled), body.enabled)
+                                && equal_or_none(
+                                    initialized_validator.get_gas_limit(),
+                                    body.gas_limit,
+                                )
+                                && equal_or_none(
+                                    initialized_validator.get_builder_boost_factor(),
+                                    body.builder_boost_factor,
+                                )
+                                && equal_or_none(
+                                    initialized_validator.get_builder_proposals(),
+                                    body.builder_proposals,
+                                )
+                                && equal_or_none(
+                                    initialized_validator.get_prefer_builder_proposals(),
+                                    body.prefer_builder_proposals,
+                                )
+                                && equal_or_none(
+                                    initialized_validator.get_graffiti(),
+                                    maybe_graffiti,
+                                ) =>
+                        {
+                            Ok(())
+                        }
+                        // Disabling an already disabled validator *with no other changes* is a
+                        // no-op.
+                        (Some(false), None)
+                            if body.enabled.map_or(true, |enabled| !enabled)
+                                && body.gas_limit.is_none()
+                                && body.builder_boost_factor.is_none()
+                                && body.builder_proposals.is_none()
+                                && body.prefer_builder_proposals.is_none()
+                                && maybe_graffiti.is_none() =>
                         {
                             Ok(())
                         }
                         (Some(_), _) => {
+                            // Upgrade read lock only in the case where a write is actually
+                            // required.
+                            let mut initialized_validators_write =
+                                parking_lot::RwLockUpgradableReadGuard::upgrade(
+                                    initialized_validators,
+                                );
                             if let Some(handle) = task_executor.handle() {
                                 handle
                                     .block_on(
-                                        initialized_validators.set_validator_definition_fields(
-                                            &validator_pubkey,
-                                            body.enabled,
-                                            body.gas_limit,
-                                            body.builder_proposals,
-                                            body.builder_boost_factor,
-                                            body.prefer_builder_proposals,
-                                            body.graffiti,
-                                        ),
+                                        initialized_validators_write
+                                            .set_validator_definition_fields(
+                                                &validator_pubkey,
+                                                body.enabled,
+                                                body.gas_limit,
+                                                body.builder_proposals,
+                                                body.builder_boost_factor,
+                                                body.prefer_builder_proposals,
+                                                body.graffiti,
+                                            ),
                                     )
                                     .map_err(|e| {
                                         warp_utils::reject::custom_server_error(format!(

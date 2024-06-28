@@ -4,6 +4,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy, SyncCommitteeStrategy},
     ChainConfig,
 };
+use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
 use eth2::types::ProduceBlockV3Response;
 use eth2::types::{DepositContractData, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
@@ -418,7 +419,7 @@ pub async fn proposer_boost_re_org_test(
         None,
         Some(Box::new(move |builder| {
             builder
-                .proposer_re_org_threshold(Some(ReOrgThreshold(re_org_threshold)))
+                .proposer_re_org_head_threshold(Some(ReOrgThreshold(re_org_threshold)))
                 .proposer_re_org_max_epochs_since_finalization(Epoch::new(
                     max_epochs_since_finalization,
                 ))
@@ -609,6 +610,7 @@ pub async fn proposer_boost_re_org_test(
     assert_eq!(state_b.slot(), slot_b);
     let pre_advance_withdrawals = get_expected_withdrawals(&state_b, &harness.chain.spec)
         .unwrap()
+        .0
         .to_vec();
     complete_state_advance(&mut state_b, None, slot_c, &harness.chain.spec).unwrap();
 
@@ -695,6 +697,7 @@ pub async fn proposer_boost_re_org_test(
         get_expected_withdrawals(&state_b, &harness.chain.spec)
     }
     .unwrap()
+    .0
     .to_vec();
     let payload_attribs_withdrawals = payload_attribs.withdrawals().unwrap();
     assert_eq!(expected_withdrawals, *payload_attribs_withdrawals);
@@ -839,4 +842,79 @@ pub async fn fork_choice_before_proposal() {
     );
     // D's parent is B.
     assert_eq!(block_d.parent_root(), block_root_b.into());
+}
+
+// Test that attestations to unknown blocks are requeued and processed when their block arrives.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_attestations_from_http() {
+    let validator_count = 128;
+    let all_validators = (0..validator_count).collect::<Vec<_>>();
+
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let harness = &tester.harness;
+    let client = tester.client.clone();
+
+    let num_initial = 5;
+
+    // Slot of the block attested to.
+    let attestation_slot = Slot::new(num_initial) + 1;
+
+    // Make some initial blocks.
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+    assert_eq!(harness.get_current_slot(), attestation_slot);
+
+    // Make the attested-to block without applying it.
+    let pre_state = harness.get_current_state();
+    let (block, post_state) = harness.make_block(pre_state, attestation_slot).await;
+    let block_root = block.0.canonical_root();
+
+    // Make attestations to the block and POST them to the beacon node on a background thread.
+    let attestations = harness
+        .make_unaggregated_attestations(
+            &all_validators,
+            &post_state,
+            block.0.state_root(),
+            block_root.into(),
+            attestation_slot,
+        )
+        .into_iter()
+        .flat_map(|attestations| attestations.into_iter().map(|(att, _subnet)| att))
+        .collect::<Vec<_>>();
+
+    let attestation_future = tokio::spawn(async move {
+        client
+            .post_beacon_pool_attestations(&attestations)
+            .await
+            .expect("attestations should be processed successfully")
+    });
+
+    // In parallel, apply the block. We need to manually notify the reprocess queue, because the
+    // `beacon_chain` does not know about the queue and will not update it for us.
+    let parent_root = block.0.parent_root();
+    harness
+        .process_block(attestation_slot, block_root, block)
+        .await
+        .unwrap();
+    tester
+        .ctx
+        .beacon_processor_reprocess_send
+        .as_ref()
+        .unwrap()
+        .send(ReprocessQueueMessage::BlockImported {
+            block_root,
+            parent_root,
+        })
+        .await
+        .unwrap();
+
+    attestation_future.await.unwrap();
 }

@@ -22,12 +22,12 @@ use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::Context;
 use std::time::Duration;
 use strum::AsRefStr;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::time::error::Error as TimeError;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
 use types::{EthSpec, Hash256, Slot};
 
@@ -159,10 +159,10 @@ pub struct IgnoredRpcBlock {
 /// A backfill batch work that has been queued for processing later.
 pub struct QueuedBackfillBatch(pub AsyncFn);
 
-impl<T: EthSpec> TryFrom<WorkEvent<T>> for QueuedBackfillBatch {
-    type Error = WorkEvent<T>;
+impl<E: EthSpec> TryFrom<WorkEvent<E>> for QueuedBackfillBatch {
+    type Error = WorkEvent<E>;
 
-    fn try_from(event: WorkEvent<T>) -> Result<Self, WorkEvent<T>> {
+    fn try_from(event: WorkEvent<E>) -> Result<Self, WorkEvent<E>> {
         match event {
             WorkEvent {
                 work: Work::ChainSegmentBackfill(process_fn),
@@ -173,8 +173,8 @@ impl<T: EthSpec> TryFrom<WorkEvent<T>> for QueuedBackfillBatch {
     }
 }
 
-impl<T: EthSpec> From<QueuedBackfillBatch> for WorkEvent<T> {
-    fn from(queued_backfill_batch: QueuedBackfillBatch) -> WorkEvent<T> {
+impl<E: EthSpec> From<QueuedBackfillBatch> for WorkEvent<E> {
+    fn from(queued_backfill_batch: QueuedBackfillBatch) -> WorkEvent<E> {
         WorkEvent {
             drop_during_sync: false,
             work: Work::ChainSegmentBackfill(queued_backfill_batch.0),
@@ -195,8 +195,6 @@ enum InboundEvent {
     ReadyLightClientUpdate(QueuedLightClientUpdateId),
     /// A backfill batch that was queued is ready for processing.
     ReadyBackfillSync(QueuedBackfillBatch),
-    /// A `DelayQueue` returned an error.
-    DelayQueueError(TimeError, &'static str),
     /// A message sent to the `ReprocessQueue`
     Msg(ReprocessQueueMessage),
 }
@@ -243,7 +241,7 @@ struct ReprocessQueue<S> {
     attestation_delay_debounce: TimeLatch,
     lc_update_delay_debounce: TimeLatch,
     next_backfill_batch_event: Option<Pin<Box<tokio::time::Sleep>>>,
-    slot_clock: Pin<Box<S>>,
+    slot_clock: Arc<S>,
 }
 
 pub type QueuedLightClientUpdateId = usize;
@@ -278,13 +276,10 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
         // The sequential nature of blockchains means it is generally better to try and import all
         // existing blocks before new ones.
         match self.gossip_block_delay_queue.poll_expired(cx) {
-            Poll::Ready(Some(Ok(queued_block))) => {
+            Poll::Ready(Some(queued_block)) => {
                 return Poll::Ready(Some(InboundEvent::ReadyGossipBlock(
                     queued_block.into_inner(),
                 )));
-            }
-            Poll::Ready(Some(Err(e))) => {
-                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "gossip_block_queue")));
             }
             // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
             // will continue to get this result until something else is added into the queue.
@@ -292,11 +287,8 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
         }
 
         match self.rpc_block_delay_queue.poll_expired(cx) {
-            Poll::Ready(Some(Ok(queued_block))) => {
+            Poll::Ready(Some(queued_block)) => {
                 return Poll::Ready(Some(InboundEvent::ReadyRpcBlock(queued_block.into_inner())));
-            }
-            Poll::Ready(Some(Err(e))) => {
-                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "rpc_block_queue")));
             }
             // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
             // will continue to get this result until something else is added into the queue.
@@ -304,13 +296,10 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
         }
 
         match self.attestations_delay_queue.poll_expired(cx) {
-            Poll::Ready(Some(Ok(attestation_id))) => {
+            Poll::Ready(Some(attestation_id)) => {
                 return Poll::Ready(Some(InboundEvent::ReadyAttestation(
                     attestation_id.into_inner(),
                 )));
-            }
-            Poll::Ready(Some(Err(e))) => {
-                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "attestations_queue")));
             }
             // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
             // will continue to get this result until something else is added into the queue.
@@ -318,13 +307,10 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
         }
 
         match self.lc_updates_delay_queue.poll_expired(cx) {
-            Poll::Ready(Some(Ok(lc_id))) => {
+            Poll::Ready(Some(lc_id)) => {
                 return Poll::Ready(Some(InboundEvent::ReadyLightClientUpdate(
                     lc_id.into_inner(),
                 )));
-            }
-            Poll::Ready(Some(Err(e))) => {
-                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "lc_updates_queue")));
             }
             // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
             // will continue to get this result until something else is added into the queue.
@@ -362,7 +348,7 @@ pub fn spawn_reprocess_scheduler<S: SlotClock + 'static>(
     ready_work_tx: Sender<ReadyWork>,
     work_reprocessing_rx: Receiver<ReprocessQueueMessage>,
     executor: &TaskExecutor,
-    slot_clock: S,
+    slot_clock: Arc<S>,
     log: Logger,
     maximum_gossip_clock_disparity: Duration,
 ) -> Result<(), String> {
@@ -370,34 +356,12 @@ pub fn spawn_reprocess_scheduler<S: SlotClock + 'static>(
     if ADDITIONAL_QUEUED_BLOCK_DELAY >= maximum_gossip_clock_disparity {
         return Err("The block delay and gossip disparity don't match.".to_string());
     }
-    let mut queue = ReprocessQueue {
-        work_reprocessing_rx,
-        ready_work_tx,
-        gossip_block_delay_queue: DelayQueue::new(),
-        rpc_block_delay_queue: DelayQueue::new(),
-        attestations_delay_queue: DelayQueue::new(),
-        lc_updates_delay_queue: DelayQueue::new(),
-        queued_gossip_block_roots: HashSet::new(),
-        queued_lc_updates: FnvHashMap::default(),
-        queued_aggregates: FnvHashMap::default(),
-        queued_unaggregates: FnvHashMap::default(),
-        awaiting_attestations_per_root: HashMap::new(),
-        awaiting_lc_updates_per_parent_root: HashMap::new(),
-        queued_backfill_batches: Vec::new(),
-        next_attestation: 0,
-        next_lc_update: 0,
-        early_block_debounce: TimeLatch::default(),
-        rpc_block_debounce: TimeLatch::default(),
-        attestation_delay_debounce: TimeLatch::default(),
-        lc_update_delay_debounce: TimeLatch::default(),
-        next_backfill_batch_event: None,
-        slot_clock: Box::pin(slot_clock.clone()),
-    };
+    let mut queue = ReprocessQueue::new(ready_work_tx, work_reprocessing_rx, slot_clock);
 
     executor.spawn(
         async move {
             while let Some(msg) = queue.next().await {
-                queue.handle_message(msg, &slot_clock, &log);
+                queue.handle_message(msg, &log);
             }
 
             debug!(
@@ -412,7 +376,37 @@ pub fn spawn_reprocess_scheduler<S: SlotClock + 'static>(
 }
 
 impl<S: SlotClock> ReprocessQueue<S> {
-    fn handle_message(&mut self, msg: InboundEvent, slot_clock: &S, log: &Logger) {
+    fn new(
+        ready_work_tx: Sender<ReadyWork>,
+        work_reprocessing_rx: Receiver<ReprocessQueueMessage>,
+        slot_clock: Arc<S>,
+    ) -> Self {
+        ReprocessQueue {
+            work_reprocessing_rx,
+            ready_work_tx,
+            gossip_block_delay_queue: DelayQueue::new(),
+            rpc_block_delay_queue: DelayQueue::new(),
+            attestations_delay_queue: DelayQueue::new(),
+            lc_updates_delay_queue: DelayQueue::new(),
+            queued_gossip_block_roots: HashSet::new(),
+            queued_lc_updates: FnvHashMap::default(),
+            queued_aggregates: FnvHashMap::default(),
+            queued_unaggregates: FnvHashMap::default(),
+            awaiting_attestations_per_root: HashMap::new(),
+            awaiting_lc_updates_per_parent_root: HashMap::new(),
+            queued_backfill_batches: Vec::new(),
+            next_attestation: 0,
+            next_lc_update: 0,
+            early_block_debounce: TimeLatch::default(),
+            rpc_block_debounce: TimeLatch::default(),
+            attestation_delay_debounce: TimeLatch::default(),
+            lc_update_delay_debounce: TimeLatch::default(),
+            next_backfill_batch_event: None,
+            slot_clock,
+        }
+    }
+
+    fn handle_message(&mut self, msg: InboundEvent, log: &Logger) {
         use ReprocessQueueMessage::*;
         match msg {
             // Some block has been indicated as "early" and should be processed when the
@@ -426,7 +420,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     return;
                 }
 
-                if let Some(duration_till_slot) = slot_clock.duration_to_slot(block_slot) {
+                if let Some(duration_till_slot) = self.slot_clock.duration_to_slot(block_slot) {
                     // Check to ensure this won't over-fill the queue.
                     if self.queued_gossip_block_roots.len() >= MAXIMUM_QUEUED_BLOCKS {
                         if self.early_block_debounce.elapsed() {
@@ -459,7 +453,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     // This logic is slightly awkward since `SlotClock::duration_to_slot`
                     // doesn't distinguish between a slot that has already arrived and an
                     // error reading the slot clock.
-                    if let Some(now) = slot_clock.now() {
+                    if let Some(now) = self.slot_clock.now() {
                         if block_slot <= now
                             && self
                                 .ready_work_tx
@@ -777,14 +771,6 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     );
                 }
             }
-            InboundEvent::DelayQueueError(e, queue_name) => {
-                crit!(
-                    log,
-                    "Failed to poll queue";
-                    "queue" => queue_name,
-                    "e" => ?e
-                )
-            }
             InboundEvent::ReadyAttestation(queued_id) => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS,
@@ -860,7 +846,8 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
             }
             InboundEvent::ReadyBackfillSync(queued_backfill_batch) => {
-                let millis_from_slot_start = slot_clock
+                let millis_from_slot_start = self
+                    .slot_clock
                     .millis_from_current_slot_start()
                     .map_or("null".to_string(), |duration| {
                         duration.as_millis().to_string()
@@ -886,7 +873,12 @@ impl<S: SlotClock> ReprocessQueue<S> {
                             "Failed to send scheduled backfill work";
                             "info" => "sending work back to queue"
                         );
-                        self.queued_backfill_batches.insert(0, batch)
+                        self.queued_backfill_batches.insert(0, batch);
+
+                        // only recompute if there is no `next_backfill_batch_event` already scheduled
+                        if self.next_backfill_batch_event.is_none() {
+                            self.recompute_next_backfill_batch_event();
+                        }
                     }
                     // The message was not sent and we didn't get the correct
                     // return result. This is a logic error.
@@ -963,8 +955,11 @@ impl<S: SlotClock> ReprocessQueue<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use slot_clock::TestingSlotClock;
-    use types::Slot;
+    use logging::test_logger;
+    use slot_clock::{ManualSlotClock, TestingSlotClock};
+    use std::ops::Add;
+    use std::sync::Arc;
+    use task_executor::test_utils::TestRuntime;
 
     #[test]
     fn backfill_processing_schedule_calculation() {
@@ -1002,5 +997,85 @@ mod tests {
             duration_to_next_event,
             duration_to_next_slot + event_times[0]
         );
+    }
+
+    // Regression test for issue #5504.
+    // See: https://github.com/sigp/lighthouse/issues/5504#issuecomment-2050930045
+    #[tokio::test]
+    async fn backfill_schedule_failed_should_reschedule() {
+        let runtime = TestRuntime::default();
+        let log = test_logger();
+        let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(1);
+        let (ready_work_tx, mut ready_work_rx) = mpsc::channel(1);
+        let slot_duration = 12;
+        let slot_clock = Arc::new(testing_slot_clock(slot_duration));
+
+        spawn_reprocess_scheduler(
+            ready_work_tx.clone(),
+            work_reprocessing_rx,
+            &runtime.task_executor,
+            slot_clock.clone(),
+            log,
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        // Send some random work to `ready_work_tx` to fill up the capacity first.
+        ready_work_tx
+            .try_send(ReadyWork::IgnoredRpcBlock(IgnoredRpcBlock {
+                process_fn: Box::new(|| {}),
+            }))
+            .unwrap();
+
+        // Now queue a backfill sync batch.
+        work_reprocessing_tx
+            .try_send(ReprocessQueueMessage::BackfillSync(QueuedBackfillBatch(
+                Box::pin(async {}),
+            )))
+            .unwrap();
+        tokio::task::yield_now().await;
+
+        // Advance the time by more than 1/2 the slot to trigger a scheduled backfill batch to be sent.
+        // This should fail as the `ready_work` channel is at capacity, and it should be rescheduled.
+        let duration_to_next_event =
+            ReprocessQueue::duration_until_next_backfill_batch_event(slot_clock.as_ref());
+        let one_ms = Duration::from_millis(1);
+        advance_time(&slot_clock, duration_to_next_event.add(one_ms)).await;
+
+        // Now drain the `ready_work` channel.
+        assert!(matches!(
+            ready_work_rx.try_recv(),
+            Ok(ReadyWork::IgnoredRpcBlock { .. })
+        ));
+        assert!(ready_work_rx.try_recv().is_err());
+
+        // Advance time again, and assert that the re-scheduled batch is successfully sent.
+        let duration_to_next_event =
+            ReprocessQueue::duration_until_next_backfill_batch_event(slot_clock.as_ref());
+        advance_time(&slot_clock, duration_to_next_event.add(one_ms)).await;
+        assert!(matches!(
+            ready_work_rx.try_recv(),
+            Ok(ReadyWork::BackfillSync { .. })
+        ));
+    }
+
+    /// Advances slot clock and test clock time by the same duration.
+    async fn advance_time(slot_clock: &ManualSlotClock, duration: Duration) {
+        slot_clock.advance_time(duration);
+        tokio::time::advance(duration).await;
+        // NOTE: The `tokio::time::advance` fn actually calls `yield_now()` after advancing the
+        // clock. Why do we need an extra `yield_now`?
+        tokio::task::yield_now().await;
+    }
+
+    fn testing_slot_clock(slot_duration: u64) -> ManualSlotClock {
+        TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            Duration::from_secs(slot_duration),
+        )
     }
 }

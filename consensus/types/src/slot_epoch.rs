@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use std::fmt;
 use std::hash::Hash;
-use std::iter::Iterator;
 
 #[cfg(feature = "legacy-arith")]
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
@@ -71,7 +70,7 @@ impl Slot {
     }
 
     pub fn max_value() -> Slot {
-        Slot(u64::max_value())
+        Slot(u64::MAX)
     }
 }
 
@@ -81,7 +80,7 @@ impl Epoch {
     }
 
     pub fn max_value() -> Epoch {
-        Epoch(u64::max_value())
+        Epoch(u64::MAX)
     }
 
     /// The first slot in the epoch.
@@ -177,10 +176,10 @@ mod epoch_tests {
         let slots_per_epoch = 32;
 
         // The last epoch which can be represented by u64.
-        let epoch = Epoch::new(u64::max_value() / slots_per_epoch);
+        let epoch = Epoch::new(u64::MAX / slots_per_epoch);
 
         // A slot number on the epoch should be equal to u64::max_value.
-        assert_eq!(epoch.end_slot(slots_per_epoch), Slot::new(u64::max_value()));
+        assert_eq!(epoch.end_slot(slots_per_epoch), Slot::new(u64::MAX));
     }
 
     #[test]

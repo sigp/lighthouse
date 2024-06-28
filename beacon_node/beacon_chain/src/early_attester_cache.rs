@@ -6,7 +6,6 @@ use crate::{
 use parking_lot::RwLock;
 use proto_array::Block as ProtoBlock;
 use std::sync::Arc;
-use types::blob_sidecar::BlobSidecarList;
 use types::*;
 
 pub struct CacheItem<E: EthSpec> {
@@ -123,18 +122,16 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             item.committee_lengths
                 .get_committee_length::<E>(request_slot, request_index, spec)?;
 
-        let attestation = Attestation {
-            aggregation_bits: BitList::with_capacity(committee_len)
-                .map_err(BeaconStateError::from)?,
-            data: AttestationData {
-                slot: request_slot,
-                index: request_index,
-                beacon_block_root: item.beacon_block_root,
-                source: item.source,
-                target: item.target,
-            },
-            signature: AggregateSignature::empty(),
-        };
+        let attestation = Attestation::empty_for_signing(
+            request_index,
+            committee_len,
+            request_slot,
+            item.beacon_block_root,
+            item.source,
+            item.target,
+            spec,
+        )
+        .map_err(Error::AttestationError)?;
 
         metrics::inc_counter(&metrics::BEACON_EARLY_ATTESTER_CACHE_HITS);
 

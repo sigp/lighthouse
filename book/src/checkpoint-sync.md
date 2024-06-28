@@ -1,6 +1,6 @@
 # Checkpoint Sync
 
-Lighthouse supports syncing from a recent finalized checkpoint. This is substantially faster than syncing from genesis, while still providing all the same features. Checkpoint sync is also safer as it protects the node from long-range attacks. Since 4.6.0, checkpoint sync is required by default and genesis sync will no longer work without the use of `--allow-insecure-genesis-sync`.
+Lighthouse supports syncing from a recent finalized checkpoint. This is substantially faster than syncing from genesis, while still providing all the same features. Checkpoint sync is also safer as it protects the node from long-range attacks. Since [v4.6.0](https://github.com/sigp/lighthouse/releases/tag/v4.6.0), checkpoint sync is required by default and genesis sync will no longer work without the use of `--allow-insecure-genesis-sync`.
 
 To quickly get started with checkpoint sync, read the sections below on:
 
@@ -15,20 +15,20 @@ To begin checkpoint sync you will need HTTP API access to another synced beacon 
 checkpoint sync by providing the other beacon node's URL to `--checkpoint-sync-url`, alongside any
 other flags:
 
-```
+```bash
 lighthouse bn --checkpoint-sync-url "http://remote-bn:5052" ...
 ```
 
 Lighthouse will print a message to indicate that checkpoint sync is being used:
 
-```
+```text
 INFO Starting checkpoint sync                remote_url: http://remote-bn:8000/, service: beacon
 ```
 
 After a short time (usually less than a minute), it will log the details of the checkpoint
 loaded from the remote beacon node:
 
-```
+```text
 INFO Loaded checkpoint block and state       state_root: 0xe8252c68784a8d5cc7e5429b0e95747032dd1dcee0d1dc9bdaf6380bf90bc8a6, block_root: 0x5508a20147299b1a7fe9dbea1a8b3bf979f74c52e7242039bd77cbff62c0695a, slot: 2034720, service: beacon
 ```
 
@@ -43,7 +43,8 @@ as soon as forwards sync completes.
 ### Use a community checkpoint sync endpoint
 
 The Ethereum community provides various [public endpoints](https://eth-clients.github.io/checkpoint-sync-endpoints/) for you to choose from for your initial checkpoint state. Select one for your network and use it as the url for the `--checkpoint-sync-url` flag.  e.g.
-```
+
+```bash
 lighthouse bn --checkpoint-sync-url https://example.com/ ...
 ```
 
@@ -52,7 +53,7 @@ lighthouse bn --checkpoint-sync-url https://example.com/ ...
 If the beacon node fails to start due to a timeout from the checkpoint sync server, you can try
 running it again with a longer timeout by adding the flag `--checkpoint-sync-url-timeout`.
 
-```
+```bash
 lighthouse bn --checkpoint-sync-url-timeout 300 --checkpoint-sync-url https://example.com/ ...
 ```
 
@@ -66,7 +67,7 @@ from the checkpoint back to genesis.
 The beacon node will log messages similar to the following each minute while it completes backfill
 sync:
 
-```
+```text
 INFO Downloading historical blocks  est_time: 5 hrs 0 mins, speed: 111.96 slots/sec, distance: 2020451 slots (40 weeks 0 days), service: slot_notifier
 ```
 
@@ -80,21 +81,16 @@ Once backfill is complete, a `INFO Historical block download complete` log will 
 
 1. What if I have an existing database? How can I use checkpoint sync?
 
-The existing beacon database needs to be deleted before Lighthouse will attempt checkpoint sync.
-You can do this by providing the `--purge-db` flag, or by manually deleting `<DATADIR>/beacon`.
+    The existing beacon database needs to be deleted before Lighthouse will attempt checkpoint sync.
+    You can do this by providing the `--purge-db` flag, or by manually deleting `<DATADIR>/beacon`.
 
-2. Why is checkpoint sync faster?
+1. Why is checkpoint sync faster?
 
-Checkpoint sync prioritises syncing to the head of the chain quickly so that the node can perform
-its duties. Additionally, it only has to perform lightweight verification of historic blocks:
-it checks the hash chain integrity & proposer signature rather than computing the full state
-transition.
+    Checkpoint sync prioritises syncing to the head of the chain quickly so that the node can perform its duties. Additionally, it only has to perform lightweight verification of historic blocks: it checks the hash chain integrity & proposer signature rather than computing the full state transition.
 
-3. Is checkpoint sync less secure?
+1. Is checkpoint sync less secure?
 
-No, in fact it is more secure! Checkpoint sync guards against long-range attacks that
-genesis sync does not. This is due to a property of Proof of Stake consensus known as [Weak
-Subjectivity][weak-subj].
+    No, in fact it is more secure! Checkpoint sync guards against long-range attacks that genesis sync does not. This is due to a property of Proof of Stake consensus known as [Weak Subjectivity][weak-subj].
 
 ## Reconstructing States
 
@@ -122,7 +118,7 @@ states:
 Reconstruction runs from the state lower limit to the upper limit, narrowing the window of
 unavailable states as it goes. It will log messages like the following to show its progress:
 
-```
+```text
 INFO State reconstruction in progress        remaining: 747519, slot: 466944, service: freezer_db
 ```
 
@@ -150,8 +146,19 @@ For more information on historic state storage see the
 
 To manually specify a checkpoint use the following two flags:
 
-* `--checkpoint-state`: accepts an SSZ-encoded `BeaconState` blob
-* `--checkpoint-block`: accepts an SSZ-encoded `SignedBeaconBlock` blob
+* `--checkpoint-state`: accepts an SSZ-encoded `BeaconState` file
+* `--checkpoint-block`: accepts an SSZ-encoded `SignedBeaconBlock` file
+* `--checkpoint-blobs`: accepts an SSZ-encoded `Blobs` file
+
+The command is as following:
+
+```bash
+curl -H "Accept: application/octet-stream" "http://localhost:5052/eth/v2/debug/beacon/states/$SLOT" > state.ssz
+curl -H "Accept: application/octet-stream" "http://localhost:5052/eth/v2/beacon/blocks/$SLOT" > block.ssz
+curl -H "Accept: application/octet-stream" "http://localhost:5052/eth/v1/beacon/blob_sidecars/$SLOT" > blobs.ssz
+```
+
+where `$SLOT` is the slot number. It can be specified as `head` or `finalized` as well.
 
 _Both_ the state and block must be provided and the state **must** match the block. The
 state may be from the same slot as the block (unadvanced), or advanced to an epoch boundary,

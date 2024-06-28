@@ -1,4 +1,4 @@
-FROM rust:1.73.0-bullseye AS builder
+FROM rust:1.78.0-bullseye AS builder
 RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev
 COPY . lighthouse
 ARG FEATURES

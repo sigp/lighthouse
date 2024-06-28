@@ -81,14 +81,10 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
-                    // Verify the block hash here in Lighthouse and immediately mark the block as
-                    // optimistically imported. This saves a lot of roundtrips to the EL.
-                    let execution_layer = chain
-                        .execution_layer
-                        .as_ref()
-                        .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-
-                    if let Err(e) = execution_layer.verify_payload_block_hash(block_message) {
+                    // Create a NewPayloadRequest (no clones required) and check optimistic sync verifications
+                    let new_payload_request: NewPayloadRequest<T::EthSpec> =
+                        block_message.try_into()?;
+                    if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
                         warn!(
                             chain.log,
                             "Falling back to slow block hash verification";
@@ -143,11 +139,8 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
-    let new_payload_request: NewPayloadRequest<T::EthSpec> = block.try_into()?;
-    let execution_block_hash = new_payload_request.block_hash();
-    let new_payload_response = execution_layer
-        .notify_new_payload(new_payload_request)
-        .await;
+    let execution_block_hash = block.execution_payload()?.block_hash();
+    let new_payload_response = execution_layer.notify_new_payload(block.try_into()?).await;
 
     match new_payload_response {
         Ok(status) => match status {
@@ -343,7 +336,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
     block: BeaconBlockRef<'_, T::EthSpec>,
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError<T::EthSpec>> {
-    // Only apply this validation if this is a merge beacon block.
+    // Only apply this validation if this is a Bellatrix beacon block.
     if let Ok(execution_payload) = block.body().execution_payload() {
         // This logic should match `is_execution_enabled`. We use only the execution block hash of
         // the parent here in order to avoid loading the parent state during gossip verification.
@@ -392,7 +385,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
 /// ## Errors
 ///
 /// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
-/// after the merge fork.
+/// after the Bellatrix fork.
 ///
 /// ## Specification
 ///
@@ -419,16 +412,16 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     let latest_execution_payload_header_block_hash =
         state.latest_execution_payload_header()?.block_hash();
     let withdrawals = match state {
-        &BeaconState::Capella(_) | &BeaconState::Deneb(_) => {
-            Some(get_expected_withdrawals(state, spec)?.into())
+        &BeaconState::Capella(_) | &BeaconState::Deneb(_) | &BeaconState::Electra(_) => {
+            Some(get_expected_withdrawals(state, spec)?.0.into())
         }
-        &BeaconState::Merge(_) => None,
+        &BeaconState::Bellatrix(_) => None,
         // These shouldn't happen but they're here to make the pattern irrefutable
         &BeaconState::Base(_) | &BeaconState::Altair(_) => None,
     };
     let parent_beacon_block_root = match state {
-        BeaconState::Deneb(_) => Some(parent_block_root),
-        BeaconState::Merge(_) | BeaconState::Capella(_) => None,
+        BeaconState::Deneb(_) | BeaconState::Electra(_) => Some(parent_block_root),
+        BeaconState::Bellatrix(_) | BeaconState::Capella(_) => None,
         // These shouldn't happen but they're here to make the pattern irrefutable
         BeaconState::Base(_) | BeaconState::Altair(_) => None,
     };
@@ -464,12 +457,12 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
 
 /// Prepares an execution payload for inclusion in a block.
 ///
-/// Will return `Ok(None)` if the merge fork has occurred, but a terminal block has not been found.
+/// Will return `Ok(None)` if the Bellatrix fork has occurred, but a terminal block has not been found.
 ///
 /// ## Errors
 ///
-/// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
-/// after the merge fork.
+/// Will return an error when using a pre-Bellatrix fork `state`. Ensure to only run this function
+/// after the Bellatrix fork.
 ///
 /// ## Specification
 ///
@@ -567,9 +560,6 @@ where
         parent_beacon_block_root,
     );
 
-    // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
-    //
-    // This future is not executed here, it's up to the caller to await it.
     let block_contents = execution_layer
         .get_payload(
             parent_hash,

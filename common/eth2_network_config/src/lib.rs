@@ -29,14 +29,14 @@ use url::Url;
 
 pub use eth2_config::GenesisStateSource;
 
-pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
+pub const DEPLOY_BLOCK_FILE: &str = "deposit_contract_block.txt";
 pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
 pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
 pub const BASE_CONFIG_FILE: &str = "config.yaml";
 
 // Creates definitions for:
 //
-// - Each of the `HardcodedNet` values (e.g., `MAINNET`, `PRATER`, etc).
+// - Each of the `HardcodedNet` values (e.g., `MAINNET`, `HOLESKY`, etc).
 // - `HARDCODED_NETS: &[HardcodedNet]`
 // - `HARDCODED_NET_NAMES: &[&'static str]`
 instantiate_hardcoded_nets!(eth2_config);
@@ -462,7 +462,7 @@ mod tests {
     use super::*;
     use ssz::Encode;
     use tempfile::Builder as TempBuilder;
-    use types::{Config, Eth1Data, GnosisEthSpec, Hash256, MainnetEthSpec};
+    use types::{Eth1Data, GnosisEthSpec, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -500,13 +500,6 @@ mod tests {
             .genesis_state::<E>(None, Duration::from_secs(1), &logging::test_logger())
             .await
             .expect("beacon state can decode");
-    }
-
-    #[test]
-    fn prater_and_goerli_are_equal() {
-        let goerli = Eth2NetworkConfig::from_hardcoded_net(&GOERLI).unwrap();
-        let prater = Eth2NetworkConfig::from_hardcoded_net(&PRATER).unwrap();
-        assert_eq!(goerli, prater);
     }
 
     #[test]
@@ -583,6 +576,8 @@ mod tests {
         } else {
             GenesisStateSource::Unknown
         };
+        // With Deneb enabled by default we must set a trusted setup here.
+        let kzg_trusted_setup = get_trusted_setup_from_config(&config).unwrap();
 
         let testnet = Eth2NetworkConfig {
             deposit_contract_deploy_block,
@@ -593,7 +588,7 @@ mod tests {
                 .map(Encode::as_ssz_bytes)
                 .map(Into::into),
             config,
-            kzg_trusted_setup: None,
+            kzg_trusted_setup: Some(kzg_trusted_setup),
         };
 
         testnet

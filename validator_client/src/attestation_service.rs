@@ -14,10 +14,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
-use types::{
-    AggregateSignature, Attestation, AttestationData, BitList, ChainSpec, CommitteeIndex, EthSpec,
-    Slot,
-};
+use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
 
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
@@ -363,9 +360,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let attestation_data = attestation_data_ref;
 
             // Ensure that the attestation matches the duties.
-            #[allow(clippy::suspicious_operation_groupings)]
-            if duty.slot != attestation_data.slot || duty.committee_index != attestation_data.index
-            {
+            if !duty.match_attestation_data::<E>(attestation_data, &self.context.eth2_config.spec) {
                 crit!(
                     log,
                     "Inconsistent validator duties during signing";
@@ -378,10 +373,26 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 return None;
             }
 
-            let mut attestation = Attestation {
-                aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
-                data: attestation_data.clone(),
-                signature: AggregateSignature::infinity(),
+            let mut attestation = match Attestation::<E>::empty_for_signing(
+                duty.committee_index,
+                duty.committee_length as usize,
+                attestation_data.slot,
+                attestation_data.beacon_block_root,
+                attestation_data.source,
+                attestation_data.target,
+                &self.context.eth2_config.spec,
+            ) {
+                Ok(attestation) => attestation,
+                Err(err) => {
+                    crit!(
+                        log,
+                        "Invalid validator duties during signing";
+                        "validator" => ?duty.pubkey,
+                        "duty" => ?duty,
+                        "err" => ?err,
+                    );
+                    return None;
+                }
             };
 
             match self
@@ -429,6 +440,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .into_iter()
             .flatten()
             .unzip();
+
+        if attestations.is_empty() {
+            warn!(log, "No attestations were published");
+            return Ok(None);
+        }
 
         // Post the attestations to the BN.
         match self
@@ -531,10 +547,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let duty = &duty_and_proof.duty;
             let selection_proof = duty_and_proof.selection_proof.as_ref()?;
 
-            let slot = attestation_data.slot;
-            let committee_index = attestation_data.index;
-
-            if duty.slot != slot || duty.committee_index != committee_index {
+            if !duty.match_attestation_data::<E>(attestation_data, &self.context.eth2_config.spec) {
                 crit!(log, "Inconsistent validator duties during signing");
                 return None;
             }
@@ -600,29 +613,29 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             {
                 Ok(()) => {
                     for signed_aggregate_and_proof in signed_aggregate_and_proofs {
-                        let attestation = &signed_aggregate_and_proof.message.aggregate;
+                        let attestation = signed_aggregate_and_proof.message().aggregate();
                         info!(
                             log,
                             "Successfully published attestation";
-                            "aggregator" => signed_aggregate_and_proof.message.aggregator_index,
-                            "signatures" => attestation.aggregation_bits.num_set_bits(),
-                            "head_block" => format!("{:?}", attestation.data.beacon_block_root),
-                            "committee_index" => attestation.data.index,
-                            "slot" => attestation.data.slot.as_u64(),
+                            "aggregator" => signed_aggregate_and_proof.message().aggregator_index(),
+                            "signatures" => attestation.num_set_aggregation_bits(),
+                            "head_block" => format!("{:?}", attestation.data().beacon_block_root),
+                            "committee_index" => attestation.committee_index(),
+                            "slot" => attestation.data().slot.as_u64(),
                             "type" => "aggregated",
                         );
                     }
                 }
                 Err(e) => {
                     for signed_aggregate_and_proof in signed_aggregate_and_proofs {
-                        let attestation = &signed_aggregate_and_proof.message.aggregate;
+                        let attestation = &signed_aggregate_and_proof.message().aggregate();
                         crit!(
                             log,
                             "Failed to publish attestation";
                             "error" => %e,
-                            "aggregator" => signed_aggregate_and_proof.message.aggregator_index,
-                            "committee_index" => attestation.data.index,
-                            "slot" => attestation.data.slot.as_u64(),
+                            "aggregator" => signed_aggregate_and_proof.message().aggregator_index(),
+                            "committee_index" => attestation.committee_index(),
+                            "slot" => attestation.data().slot.as_u64(),
                             "type" => "aggregated",
                         );
                     }

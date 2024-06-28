@@ -6,7 +6,7 @@
 //! The `DutiesService` is also responsible for sending events to the `BlockService` which trigger
 //! block production.
 
-mod sync;
+pub mod sync;
 
 use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback, OfflineOnFailure, RequireSynced};
 use crate::http_metrics::metrics::{get_int_gauge, set_int_gauge, ATTESTATION_DUTY};
@@ -41,6 +41,9 @@ const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
 ///
 /// At start-up selection proofs will be computed with less lookahead out of necessity.
 const SELECTION_PROOF_SLOT_LOOKAHEAD: u64 = 8;
+
+/// The attestation selection proof lookahead for those running with the --distributed flag.
+const SELECTION_PROOF_SLOT_LOOKAHEAD_DVT: u64 = 1;
 
 /// Fraction of a slot at which selection proof signing should happen (2 means half way).
 const SELECTION_PROOF_SCHEDULE_DENOM: u32 = 2;
@@ -85,14 +88,15 @@ const _: () = assert!({
 /// bringing in the entire crate.
 const _: () = assert!(ATTESTATION_SUBSCRIPTION_OFFSETS[0] > 2);
 
+// The info in the enum variants is displayed in logging, clippy thinks it's dead code.
 #[derive(Debug)]
 pub enum Error {
     UnableToReadSlotClock,
-    FailedToDownloadAttesters(String),
-    FailedToProduceSelectionProof(ValidatorStoreError),
-    InvalidModulo(ArithError),
-    Arith(ArithError),
-    SyncDutiesNotFound(u64),
+    FailedToDownloadAttesters(#[allow(dead_code)] String),
+    FailedToProduceSelectionProof(#[allow(dead_code)] ValidatorStoreError),
+    InvalidModulo(#[allow(dead_code)] ArithError),
+    Arith(#[allow(dead_code)] ArithError),
+    SyncDutiesNotFound(#[allow(dead_code)] u64),
 }
 
 impl From<ArithError> for Error {
@@ -119,43 +123,37 @@ pub struct SubscriptionSlots {
     slots: Vec<(Slot, AtomicBool)>,
 }
 
-impl DutyAndProof {
-    /// Instantiate `Self`, computing the selection proof as well.
-    pub async fn new_with_selection_proof<T: SlotClock + 'static, E: EthSpec>(
-        duty: AttesterData,
-        validator_store: &ValidatorStore<T, E>,
-        spec: &ChainSpec,
-    ) -> Result<Self, Error> {
-        let selection_proof = validator_store
-            .produce_selection_proof(duty.pubkey, duty.slot)
-            .await
-            .map_err(Error::FailedToProduceSelectionProof)?;
+/// Create a selection proof for `duty`.
+///
+/// Return `Ok(None)` if the attesting validator is not an aggregator.
+async fn make_selection_proof<T: SlotClock + 'static, E: EthSpec>(
+    duty: &AttesterData,
+    validator_store: &ValidatorStore<T, E>,
+    spec: &ChainSpec,
+) -> Result<Option<SelectionProof>, Error> {
+    let selection_proof = validator_store
+        .produce_selection_proof(duty.pubkey, duty.slot)
+        .await
+        .map_err(Error::FailedToProduceSelectionProof)?;
 
-        let selection_proof = selection_proof
-            .is_aggregator(duty.committee_length as usize, spec)
-            .map_err(Error::InvalidModulo)
-            .map(|is_aggregator| {
-                if is_aggregator {
-                    Some(selection_proof)
-                } else {
-                    // Don't bother storing the selection proof if the validator isn't an
-                    // aggregator, we won't need it.
-                    None
-                }
-            })?;
-
-        let subscription_slots = SubscriptionSlots::new(duty.slot);
-
-        Ok(Self {
-            duty,
-            selection_proof,
-            subscription_slots,
+    selection_proof
+        .is_aggregator(duty.committee_length as usize, spec)
+        .map_err(Error::InvalidModulo)
+        .map(|is_aggregator| {
+            if is_aggregator {
+                Some(selection_proof)
+            } else {
+                // Don't bother storing the selection proof if the validator isn't an
+                // aggregator, we won't need it.
+                None
+            }
         })
-    }
+}
 
+impl DutyAndProof {
     /// Create a new `DutyAndProof` with the selection proof waiting to be filled in.
-    pub fn new_without_selection_proof(duty: AttesterData) -> Self {
-        let subscription_slots = SubscriptionSlots::new(duty.slot);
+    pub fn new_without_selection_proof(duty: AttesterData, current_slot: Slot) -> Self {
+        let subscription_slots = SubscriptionSlots::new(duty.slot, current_slot);
         Self {
             duty,
             selection_proof: None,
@@ -165,10 +163,13 @@ impl DutyAndProof {
 }
 
 impl SubscriptionSlots {
-    fn new(duty_slot: Slot) -> Arc<Self> {
+    fn new(duty_slot: Slot, current_slot: Slot) -> Arc<Self> {
         let slots = ATTESTATION_SUBSCRIPTION_OFFSETS
             .into_iter()
             .filter_map(|offset| duty_slot.safe_sub(offset).ok())
+            // Keep only scheduled slots that haven't happened yet. This avoids sending expired
+            // subscriptions.
+            .filter(|scheduled_slot| *scheduled_slot > current_slot)
             .map(|scheduled_slot| (scheduled_slot, AtomicBool::new(false)))
             .collect();
         Arc::new(Self { slots })
@@ -211,16 +212,23 @@ pub struct DutiesService<T, E: EthSpec> {
     /// proposals for any validators which are not registered locally.
     pub proposers: RwLock<ProposerMap>,
     /// Map from validator index to sync committee duties.
-    pub sync_duties: SyncDutiesMap,
+    pub sync_duties: SyncDutiesMap<E>,
     /// Provides the canonical list of locally-managed validators.
     pub validator_store: Arc<ValidatorStore<T, E>>,
+    /// Maps unknown validator pubkeys to the next slot time when a poll should be conducted again.
+    pub unknown_validator_next_poll_slots: RwLock<HashMap<PublicKeyBytes, Slot>>,
     /// Tracks the current slot.
     pub slot_clock: T,
     /// Provides HTTP access to remote beacon nodes.
     pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-    pub enable_high_validator_count_metrics: bool,
+    /// The runtime for spawning tasks.
     pub context: RuntimeContext<E>,
+    /// The current chain spec.
     pub spec: ChainSpec,
+    //// Whether we permit large validator counts in the metrics.
+    pub enable_high_validator_count_metrics: bool,
+    /// If this validator is running in distributed mode.
+    pub distributed: bool,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> DutiesService<T, E> {
@@ -483,6 +491,24 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
             .is_some();
 
         if !is_known {
+            let current_slot_opt = duties_service.slot_clock.now();
+
+            if let Some(current_slot) = current_slot_opt {
+                let is_first_slot_of_epoch = current_slot % E::slots_per_epoch() == 0;
+
+                // Query an unknown validator later if it was queried within the last epoch, or if
+                // the current slot is the first slot of an epoch.
+                let poll_later = duties_service
+                    .unknown_validator_next_poll_slots
+                    .read()
+                    .get(&pubkey)
+                    .map(|&poll_slot| poll_slot > current_slot || is_first_slot_of_epoch)
+                    .unwrap_or(false);
+                if poll_later {
+                    continue;
+                }
+            }
+
             // Query the remote BN to resolve a pubkey to a validator index.
             let download_result = duties_service
                 .beacon_nodes
@@ -527,10 +553,23 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                         .initialized_validators()
                         .write()
                         .set_index(&pubkey, response.data.index);
+
+                    duties_service
+                        .unknown_validator_next_poll_slots
+                        .write()
+                        .remove(&pubkey);
                 }
                 // This is not necessarily an error, it just means the validator is not yet known to
                 // the beacon chain.
                 Ok(None) => {
+                    if let Some(current_slot) = current_slot_opt {
+                        let next_poll_slot = current_slot.saturating_add(E::slots_per_epoch());
+                        duties_service
+                            .unknown_validator_next_poll_slots
+                            .write()
+                            .insert(pubkey, next_poll_slot);
+                    }
+
                     debug!(
                         log,
                         "Validator without index";
@@ -779,14 +818,14 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     // request for extra data unless necessary in order to save on network bandwidth.
     let uninitialized_validators =
         get_uninitialized_validators(duties_service, &epoch, local_pubkeys);
-    let indices_to_request = if !uninitialized_validators.is_empty() {
+    let initial_indices_to_request = if !uninitialized_validators.is_empty() {
         uninitialized_validators.as_slice()
     } else {
         &local_indices[0..min(INITIAL_DUTIES_QUERY_SIZE, local_indices.len())]
     };
 
     let response =
-        post_validator_duties_attester(duties_service, epoch, indices_to_request).await?;
+        post_validator_duties_attester(duties_service, epoch, initial_indices_to_request).await?;
     let dependent_root = response.dependent_root;
 
     // Find any validators which have conflicting (epoch, dependent_root) values or missing duties for the epoch.
@@ -810,24 +849,29 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         return Ok(());
     }
 
-    // Filter out validators which have already been requested.
-    let initial_duties = &response.data;
+    // Make a request for all indices that require updating which we have not already made a request
+    // for.
     let indices_to_request = validators_to_update
         .iter()
-        .filter(|&&&pubkey| !initial_duties.iter().any(|duty| duty.pubkey == pubkey))
         .filter_map(|pubkey| duties_service.validator_store.validator_index(pubkey))
+        .filter(|validator_index| !initial_indices_to_request.contains(validator_index))
         .collect::<Vec<_>>();
 
-    let new_duties = if !indices_to_request.is_empty() {
+    // Filter the initial duties by their relevance so that we don't hit the warning below about
+    // overwriting duties. There was previously a bug here.
+    let new_initial_duties = response
+        .data
+        .into_iter()
+        .filter(|duty| validators_to_update.contains(&&duty.pubkey));
+
+    let mut new_duties = if !indices_to_request.is_empty() {
         post_validator_duties_attester(duties_service, epoch, indices_to_request.as_slice())
             .await?
             .data
-            .into_iter()
-            .chain(response.data)
-            .collect::<Vec<_>>()
     } else {
-        response.data
+        vec![]
     };
+    new_duties.extend(new_initial_duties);
 
     drop(fetch_timer);
 
@@ -846,26 +890,53 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     // Update the duties service with the new `DutyAndProof` messages.
     let mut attesters = duties_service.attesters.write();
     let mut already_warned = Some(());
+    let current_slot = duties_service
+        .slot_clock
+        .now_or_genesis()
+        .unwrap_or_default();
     for duty in &new_duties {
         let attester_map = attesters.entry(duty.pubkey).or_default();
 
         // Create initial entries in the map without selection proofs. We'll compute them in the
         // background later to avoid creating a thundering herd of signing threads whenever new
         // duties are computed.
-        let duty_and_proof = DutyAndProof::new_without_selection_proof(duty.clone());
+        let duty_and_proof = DutyAndProof::new_without_selection_proof(duty.clone(), current_slot);
 
-        if let Some((prior_dependent_root, _)) =
-            attester_map.insert(epoch, (dependent_root, duty_and_proof))
-        {
-            // Using `already_warned` avoids excessive logs.
-            if dependent_root != prior_dependent_root && already_warned.take().is_some() {
-                warn!(
-                    log,
-                    "Attester duties re-org";
-                    "prior_dependent_root" => %prior_dependent_root,
-                    "dependent_root" => %dependent_root,
-                    "msg" => "this may happen from time to time"
-                )
+        match attester_map.entry(epoch) {
+            hash_map::Entry::Occupied(mut occupied) => {
+                let mut_value = occupied.get_mut();
+                let (prior_dependent_root, prior_duty_and_proof) = &mut_value;
+
+                // Guard against overwriting an existing value for the same duty. If we did
+                // overwrite we could lose a selection proof or information from
+                // `subscription_slots`. Hitting this branch should be prevented by our logic for
+                // fetching duties only for unknown indices.
+                if dependent_root == *prior_dependent_root
+                    && prior_duty_and_proof.duty == duty_and_proof.duty
+                {
+                    warn!(
+                        log,
+                        "Redundant attester duty update";
+                        "dependent_root" => %dependent_root,
+                        "validator_index" => duty.validator_index,
+                    );
+                    continue;
+                }
+
+                // Using `already_warned` avoids excessive logs.
+                if dependent_root != *prior_dependent_root && already_warned.take().is_some() {
+                    warn!(
+                        log,
+                        "Attester duties re-org";
+                        "prior_dependent_root" => %prior_dependent_root,
+                        "dependent_root" => %dependent_root,
+                        "note" => "this may happen from time to time"
+                    )
+                }
+                *mut_value = (dependent_root, duty_and_proof);
+            }
+            hash_map::Entry::Vacant(vacant) => {
+                vacant.insert((dependent_root, duty_and_proof));
             }
         }
     }
@@ -997,7 +1068,13 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
                 continue;
             };
 
-            let lookahead_slot = current_slot + SELECTION_PROOF_SLOT_LOOKAHEAD;
+            let selection_lookahead = if duties_service.distributed {
+                SELECTION_PROOF_SLOT_LOOKAHEAD_DVT
+            } else {
+                SELECTION_PROOF_SLOT_LOOKAHEAD
+            };
+
+            let lookahead_slot = current_slot + selection_lookahead;
 
             let mut relevant_duties = duties_by_slot.split_off(&lookahead_slot);
             std::mem::swap(&mut relevant_duties, &mut duties_by_slot);
@@ -1016,12 +1093,13 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
             // Sign selection proofs (serially).
             let duty_and_proof_results = stream::iter(relevant_duties.into_values().flatten())
                 .then(|duty| async {
-                    DutyAndProof::new_with_selection_proof(
-                        duty,
+                    let opt_selection_proof = make_selection_proof(
+                        &duty,
                         &duties_service.validator_store,
                         &duties_service.spec,
                     )
-                    .await
+                    .await?;
+                    Ok((duty, opt_selection_proof))
                 })
                 .collect::<Vec<_>>()
                 .await;
@@ -1029,7 +1107,7 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
             // Add to attesters store.
             let mut attesters = duties_service.attesters.write();
             for result in duty_and_proof_results {
-                let duty_and_proof = match result {
+                let (duty, selection_proof) = match result {
                     Ok(duty_and_proof) => duty_and_proof,
                     Err(Error::FailedToProduceSelectionProof(
                         ValidatorStoreError::UnknownPubkey(pubkey),
@@ -1057,12 +1135,12 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
                     }
                 };
 
-                let attester_map = attesters.entry(duty_and_proof.duty.pubkey).or_default();
-                let epoch = duty_and_proof.duty.slot.epoch(E::slots_per_epoch());
+                let attester_map = attesters.entry(duty.pubkey).or_default();
+                let epoch = duty.slot.epoch(E::slots_per_epoch());
                 match attester_map.entry(epoch) {
                     hash_map::Entry::Occupied(mut entry) => {
                         // No need to update duties for which no proof was computed.
-                        let Some(selection_proof) = duty_and_proof.selection_proof else {
+                        let Some(selection_proof) = selection_proof else {
                             continue;
                         };
 
@@ -1083,6 +1161,14 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
                         }
                     }
                     hash_map::Entry::Vacant(entry) => {
+                        // This probably shouldn't happen, but we have enough info to fill in the
+                        // entry so we may as well.
+                        let subscription_slots = SubscriptionSlots::new(duty.slot, current_slot);
+                        let duty_and_proof = DutyAndProof {
+                            duty,
+                            selection_proof,
+                            subscription_slots,
+                        };
                         entry.insert((dependent_root, duty_and_proof));
                     }
                 }
@@ -1306,13 +1392,15 @@ mod test {
 
     #[test]
     fn subscription_slots_exact() {
+        // Set current slot in the past so no duties are considered expired.
+        let current_slot = Slot::new(0);
         for duty_slot in [
-            Slot::new(32),
+            Slot::new(33),
             Slot::new(47),
             Slot::new(99),
             Slot::new(1002003),
         ] {
-            let subscription_slots = SubscriptionSlots::new(duty_slot);
+            let subscription_slots = SubscriptionSlots::new(duty_slot, current_slot);
 
             // Run twice to check idempotence (subscription slots shouldn't be marked as done until
             // we mark them manually).
@@ -1346,8 +1434,9 @@ mod test {
     #[test]
     fn subscription_slots_mark_multiple() {
         for (i, offset) in ATTESTATION_SUBSCRIPTION_OFFSETS.into_iter().enumerate() {
+            let current_slot = Slot::new(0);
             let duty_slot = Slot::new(64);
-            let subscription_slots = SubscriptionSlots::new(duty_slot);
+            let subscription_slots = SubscriptionSlots::new(duty_slot, current_slot);
 
             subscription_slots.record_successful_subscription_at(duty_slot - offset);
 
@@ -1361,5 +1450,23 @@ mod test {
                 );
             }
         }
+    }
+
+    /// Test the boundary condition where all subscription slots are *just* expired.
+    #[test]
+    fn subscription_slots_expired() {
+        let current_slot = Slot::new(100);
+        let duty_slot = current_slot + ATTESTATION_SUBSCRIPTION_OFFSETS[0];
+        let subscription_slots = SubscriptionSlots::new(duty_slot, current_slot);
+        for offset in ATTESTATION_SUBSCRIPTION_OFFSETS.into_iter() {
+            let slot = duty_slot - offset;
+            assert!(!subscription_slots.should_send_subscription_at(slot));
+        }
+        assert!(subscription_slots.slots.is_empty());
+
+        // If the duty slot is 1 later, we get a non-empty set of duties.
+        let subscription_slots = SubscriptionSlots::new(duty_slot + 1, current_slot);
+        assert_eq!(subscription_slots.slots.len(), 1);
+        assert!(subscription_slots.should_send_subscription_at(current_slot + 1),);
     }
 }

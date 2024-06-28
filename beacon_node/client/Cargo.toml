@@ -16,8 +16,6 @@ store = { workspace = true }
 network = { workspace = true }
 timer = { path = "../timer" }
 lighthouse_network = { workspace = true }
-logging = { workspace = true }
-parking_lot = { workspace = true }
 types = { workspace = true }
 eth2_config = { workspace = true }
 slot_clock = { workspace = true }
@@ -44,4 +42,4 @@ slasher_service = { path = "../../slasher/service" }
 monitoring_api = { workspace = true }
 execution_layer = { workspace = true }
 beacon_processor = { workspace = true }
-num_cpus = { workspace = true }
+ethereum_ssz = { workspace = true }

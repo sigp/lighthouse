@@ -23,12 +23,12 @@ The rustup installer provides an easy way to update the Rust compiler, and works
 With Rust installed, follow the instructions below to install dependencies relevant to your
 operating system.
 
-#### Ubuntu
+### Ubuntu
 
 Install the following packages:
 
 ```bash
-sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
+sudo apt update && sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
 ```
 
 > Tips:
@@ -42,7 +42,17 @@ sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clan
 
 After this, you are ready to [build Lighthouse](#build-lighthouse).
 
-#### macOS
+### Fedora/RHEL/CentOS
+
+Install the following packages:
+
+```bash
+yum -y install git make perl clang cmake
+```
+
+After this, you are ready to [build Lighthouse](#build-lighthouse).
+
+### macOS
 
 1. Install the [Homebrew][] package manager.
 1. Install CMake using Homebrew:
@@ -51,21 +61,22 @@ After this, you are ready to [build Lighthouse](#build-lighthouse).
 brew install cmake
 ```
 
-
 [Homebrew]: https://brew.sh/
 
 After this, you are ready to [build Lighthouse](#build-lighthouse).
 
-#### Windows
+### Windows
 
 1. Install [Git](https://git-scm.com/download/win).
 1. Install the [Chocolatey](https://chocolatey.org/install) package manager for Windows.
     > Tips:
     > - Use PowerShell to install. In Windows, search for PowerShell and run as administrator.
     > - You must ensure `Get-ExecutionPolicy` is not Restricted. To test this, run `Get-ExecutionPolicy` in PowerShell. If it returns `restricted`, then run `Set-ExecutionPolicy AllSigned`, and then run
+
     ```bash
     Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
     ```
+
     > - To verify that Chocolatey is ready, run `choco` and it should return the version.
 1. Install Make, CMake and LLVM using Chocolatey:
 
@@ -148,14 +159,14 @@ FEATURES=gnosis,slasher-lmdb make
 
 Commonly used features include:
 
-* `gnosis`: support for the Gnosis Beacon Chain.
-* `portable`: support for legacy hardware.
-* `modern`: support for exclusively modern hardware.
-* `slasher-lmdb`: support for the LMDB slasher backend. Enabled by default.
-* `slasher-mdbx`: support for the MDBX slasher backend.
-* `jemalloc`: use [`jemalloc`][jemalloc] to allocate memory. Enabled by default on Linux and macOS.
+- `gnosis`: support for the Gnosis Beacon Chain.
+- `portable`: support for legacy hardware.
+- `modern`: support for exclusively modern hardware.
+- `slasher-lmdb`: support for the LMDB slasher backend. Enabled by default.
+- `slasher-mdbx`: support for the MDBX slasher backend.
+- `jemalloc`: use [`jemalloc`][jemalloc] to allocate memory. Enabled by default on Linux and macOS.
   Not supported on Windows.
-* `spec-minimal`: support for the minimal preset (useful for testing).
+- `spec-minimal`: support for the minimal preset (useful for testing).
 
 Default features (e.g. `slasher-lmdb`) may be opted out of using the `--no-default-features`
 argument for `cargo`, which can be plumbed in via the `CARGO_INSTALL_EXTRA_FLAGS` environment variable.
@@ -174,9 +185,9 @@ You can customise the compiler settings used to compile Lighthouse via
 
 Lighthouse includes several profiles which can be selected via the `PROFILE` environment variable.
 
-* `release`: default for source builds, enables most optimisations while not taking too long to
+- `release`: default for source builds, enables most optimisations while not taking too long to
   compile.
-* `maxperf`: default for binary releases, enables aggressive optimisations including full LTO.
+- `maxperf`: default for binary releases, enables aggressive optimisations including full LTO.
   Although compiling with this profile improves some benchmarks by around 20% compared to `release`,
   it imposes a _significant_ cost at compile time and is only recommended if you have a fast CPU.
 

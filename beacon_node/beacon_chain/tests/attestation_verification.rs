@@ -3,6 +3,7 @@
 use beacon_chain::attestation_verification::{
     batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations, Error,
 };
+use beacon_chain::observed_aggregates::ObservedAttestationKey;
 use beacon_chain::test_utils::{MakeAttestationOptions, HARNESS_GENESIS_TIME};
 use beacon_chain::{
     attestation_verification::Error as AttnError,
@@ -14,14 +15,17 @@ use beacon_chain::{
 use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use lazy_static::lazy_static;
+use ssz_types::BitVector;
 use state_processing::{
     per_block_processing::errors::AttestationValidationError, per_slot_processing,
 };
 use tree_hash::TreeHash;
 use types::{
+    signed_aggregate_and_proof::SignedAggregateAndProofRefMut,
     test_utils::generate_deterministic_keypair, Address, AggregateSignature, Attestation,
-    BeaconStateError, BitList, ChainSpec, Epoch, EthSpec, ForkName, Hash256, Keypair,
-    MainnetEthSpec, SecretKey, SelectionProof, SignedAggregateAndProof, Slot, SubnetId, Unsigned,
+    AttestationRef, AttestationRefMut, BeaconStateError, BitList, ChainSpec, Epoch, EthSpec,
+    ForkName, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof, SignedAggregateAndProof,
+    Slot, SubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -125,7 +129,12 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
     let validator_committee_index = 0;
     let validator_index = *head
         .beacon_state
-        .get_beacon_committee(current_slot, valid_attestation.data.index)
+        .get_beacon_committee(
+            current_slot,
+            valid_attestation
+                .committee_index()
+                .expect("should get committee index"),
+        )
         .expect("should get committees")
         .committee
         .get(validator_committee_index)
@@ -143,8 +152,8 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
         )
         .expect("should sign attestation");
 
-    let subnet_id = SubnetId::compute_subnet_for_attestation_data::<E>(
-        &valid_attestation.data,
+    let subnet_id = SubnetId::compute_subnet_for_attestation::<T::EthSpec>(
+        valid_attestation.to_ref(),
         head.beacon_state
             .get_committee_count_at_slot(current_slot)
             .expect("should get committee count"),
@@ -170,7 +179,12 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
     let current_slot = chain.slot().expect("should get slot");
 
     let committee = state
-        .get_beacon_committee(current_slot, aggregate.data.index)
+        .get_beacon_committee(
+            current_slot,
+            aggregate
+                .committee_index()
+                .expect("should get committee index"),
+        )
         .expect("should get committees");
     let committee_len = committee.committee.len();
 
@@ -181,7 +195,7 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
             let aggregator_sk = generate_deterministic_keypair(val_index).sk;
 
             let proof = SelectionProof::new::<T::EthSpec>(
-                aggregate.data.slot,
+                aggregate.data().slot,
                 &aggregator_sk,
                 &state.fork(),
                 chain.genesis_validators_root,
@@ -198,7 +212,7 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
 
     let signed_aggregate = SignedAggregateAndProof::from_aggregate(
         aggregator_index as u64,
-        aggregate,
+        aggregate.to_ref(),
         None,
         &aggregator_sk,
         &state.fork(),
@@ -213,14 +227,19 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
 /// attestation.
 fn get_non_aggregator<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    aggregate: &Attestation<T::EthSpec>,
+    aggregate: AttestationRef<T::EthSpec>,
 ) -> (usize, SecretKey) {
     let head = chain.head_snapshot();
     let state = &head.beacon_state;
     let current_slot = chain.slot().expect("should get slot");
 
     let committee = state
-        .get_beacon_committee(current_slot, aggregate.data.index)
+        .get_beacon_committee(
+            current_slot,
+            aggregate
+                .committee_index()
+                .expect("should get committee index"),
+        )
         .expect("should get committees");
     let committee_len = committee.committee.len();
 
@@ -231,7 +250,7 @@ fn get_non_aggregator<T: BeaconChainTypes>(
             let aggregator_sk = generate_deterministic_keypair(val_index).sk;
 
             let proof = SelectionProof::new::<T::EthSpec>(
-                aggregate.data.slot,
+                aggregate.data().slot,
                 &aggregator_sk,
                 &state.fork(),
                 chain.genesis_validators_root,
@@ -301,15 +320,19 @@ impl GossipTester {
             get_valid_aggregated_attestation(&harness.chain, valid_attestation.clone());
 
         let mut invalid_attestation = valid_attestation.clone();
-        invalid_attestation.data.beacon_block_root = Hash256::repeat_byte(13);
+        invalid_attestation.data_mut().beacon_block_root = Hash256::repeat_byte(13);
 
         let (mut invalid_aggregate, _, _) =
             get_valid_aggregated_attestation(&harness.chain, invalid_attestation.clone());
-        invalid_aggregate.message.aggregator_index = invalid_aggregate
-            .message
-            .aggregator_index
-            .checked_sub(1)
-            .unwrap();
+
+        match invalid_aggregate.to_mut() {
+            SignedAggregateAndProofRefMut::Base(att) => {
+                att.message.aggregator_index = att.message.aggregator_index.checked_sub(1).unwrap();
+            }
+            SignedAggregateAndProofRefMut::Electra(att) => {
+                att.message.aggregator_index = att.message.aggregator_index.checked_sub(1).unwrap();
+            }
+        }
 
         Self {
             harness,
@@ -336,13 +359,13 @@ impl GossipTester {
 
     pub fn earliest_valid_attestation_slot(&self) -> Slot {
         let offset = match self.harness.spec.fork_name_at_epoch(self.epoch()) {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
                 // Subtract an additional slot since the harness will be exactly on the start of the
                 // slot and the propagation tolerance will allow an extra slot.
                 E::slots_per_epoch() + 1
             }
             // EIP-7045
-            ForkName::Deneb => {
+            ForkName::Deneb | ForkName::Electra => {
                 let epoch_slot_offset = (self.slot() % E::slots_per_epoch()).as_u64();
                 if epoch_slot_offset != 0 {
                     E::slots_per_epoch() + epoch_slot_offset
@@ -361,7 +384,10 @@ impl GossipTester {
     }
 
     pub fn non_aggregator(&self) -> (usize, SecretKey) {
-        get_non_aggregator(&self.harness.chain, &self.valid_aggregate.message.aggregate)
+        get_non_aggregator(
+            &self.harness.chain,
+            self.valid_aggregate.message().aggregate(),
+        )
     }
 
     pub fn import_valid_aggregate(self) -> Self {
@@ -418,6 +444,7 @@ impl GossipTester {
                 vec![&self.invalid_aggregate, &aggregate].into_iter(),
             )
             .unwrap();
+
         assert_eq!(results.len(), 2);
         let batch_err = results.pop().unwrap().err().expect(&format!(
             "{} should error during batch_verify_aggregated_attestations_for_gossip",
@@ -490,7 +517,14 @@ async fn aggregated_gossip_verification() {
          */
         .inspect_aggregate_err(
             "aggregate from future slot",
-            |tester, a| a.message.aggregate.data.slot = tester.slot() + 1,
+            |tester, a| match a.to_mut() {
+                SignedAggregateAndProofRefMut::Base(att) => {
+                    att.message.aggregate.data.slot = tester.slot() + 1
+                }
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.slot = tester.slot() + 1
+                }
+            },
             |tester, err| {
                 assert!(matches!(
                     err,
@@ -504,8 +538,18 @@ async fn aggregated_gossip_verification() {
             "aggregate from past slot",
             |tester, a| {
                 let too_early_slot = tester.earliest_valid_attestation_slot() - 1;
-                a.message.aggregate.data.slot = too_early_slot;
-                a.message.aggregate.data.target.epoch = too_early_slot.epoch(E::slots_per_epoch());
+                match a.to_mut() {
+                    SignedAggregateAndProofRefMut::Base(att) => {
+                        att.message.aggregate.data.slot = too_early_slot;
+                        att.message.aggregate.data.target.epoch =
+                            too_early_slot.epoch(E::slots_per_epoch());
+                    }
+                    SignedAggregateAndProofRefMut::Electra(att) => {
+                        att.message.aggregate.data.slot = too_early_slot;
+                        att.message.aggregate.data.target.epoch =
+                            too_early_slot.epoch(E::slots_per_epoch());
+                    }
+                }
             },
             |tester, err| {
                 let valid_early_slot = tester.earliest_valid_attestation_slot();
@@ -529,7 +573,14 @@ async fn aggregated_gossip_verification() {
          */
         .inspect_aggregate_err(
             "attestation with invalid target epoch",
-            |_, a| a.message.aggregate.data.target.epoch += 1,
+            |_, a| match a.to_mut() {
+                SignedAggregateAndProofRefMut::Base(att) => {
+                    att.message.aggregate.data.target.epoch += 1
+                }
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.target.epoch += 1
+                }
+            },
             |_, err| assert!(matches!(err, AttnError::InvalidTargetEpoch { .. })),
         )
         /*
@@ -538,7 +589,14 @@ async fn aggregated_gossip_verification() {
          */
         .inspect_aggregate_err(
             "attestation with invalid target root",
-            |_, a| a.message.aggregate.data.target.root = Hash256::repeat_byte(42),
+            |_, a| match a.to_mut() {
+                SignedAggregateAndProofRefMut::Base(att) => {
+                    att.message.aggregate.data.target.root = Hash256::repeat_byte(42)
+                }
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.target.root = Hash256::repeat_byte(42)
+                }
+            },
             |_, err| assert!(matches!(err, AttnError::InvalidTargetRoot { .. })),
         )
         /*
@@ -548,7 +606,14 @@ async fn aggregated_gossip_verification() {
          */
         .inspect_aggregate_err(
             "aggregate with unknown head block",
-            |_, a| a.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42),
+            |_, a| match a.to_mut() {
+                SignedAggregateAndProofRefMut::Base(att) => {
+                    att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
+                }
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
+                }
+            },
             |_, err| {
                 assert!(matches!(
                     err,
@@ -566,11 +631,19 @@ async fn aggregated_gossip_verification() {
          */
         .inspect_aggregate_err(
             "aggregate with no participants",
-            |_, a| {
-                let aggregation_bits = &mut a.message.aggregate.aggregation_bits;
-                aggregation_bits.difference_inplace(&aggregation_bits.clone());
-                assert!(aggregation_bits.is_zero());
-                a.message.aggregate.signature = AggregateSignature::infinity();
+            |_, a| match a.to_mut() {
+                SignedAggregateAndProofRefMut::Base(att) => {
+                    let aggregation_bits = &mut att.message.aggregate.aggregation_bits;
+                    aggregation_bits.difference_inplace(&aggregation_bits.clone());
+                    assert!(aggregation_bits.is_zero());
+                    att.message.aggregate.signature = AggregateSignature::infinity()
+                }
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    let aggregation_bits = &mut att.message.aggregate.aggregation_bits;
+                    aggregation_bits.difference_inplace(&aggregation_bits.clone());
+                    assert!(aggregation_bits.is_zero());
+                    att.message.aggregate.signature = AggregateSignature::infinity()
+                }
             },
             |_, err| assert!(matches!(err, AttnError::EmptyAggregationBitfield)),
         )
@@ -581,7 +654,14 @@ async fn aggregated_gossip_verification() {
          */
         .inspect_aggregate_err(
             "aggregate with bad signature",
-            |tester, a| a.signature = tester.aggregator_sk.sign(Hash256::repeat_byte(42)),
+            |tester, a| match a.to_mut() {
+                SignedAggregateAndProofRefMut::Base(att) => {
+                    att.signature = tester.aggregator_sk.sign(Hash256::repeat_byte(42))
+                }
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.signature = tester.aggregator_sk.sign(Hash256::repeat_byte(42))
+                }
+            },
             |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
         )
         /*
@@ -598,7 +678,7 @@ async fn aggregated_gossip_verification() {
                     .chain
                     .head_snapshot()
                     .beacon_state
-                    .get_beacon_committee(tester.slot(), a.message.aggregate.data.index)
+                    .get_beacon_committee(tester.slot(), a.message().aggregate().committee_index().expect("should get committee index"))
                     .expect("should get committees")
                     .committee
                     .len();
@@ -608,19 +688,38 @@ async fn aggregated_gossip_verification() {
                 //
                 // Could run for ever, but that seems _really_ improbable.
                 let mut i: u64 = 0;
-                a.message.selection_proof = loop {
-                    i += 1;
-                    let proof: SelectionProof = tester
-                        .aggregator_sk
-                        .sign(Hash256::from_slice(&int_to_bytes32(i)))
-                        .into();
-                    if proof
-                        .is_aggregator(committee_len, &tester.harness.chain.spec)
-                        .unwrap()
-                    {
-                        break proof.into();
+                match a.to_mut() {
+                    SignedAggregateAndProofRefMut::Base(att) => {
+                        att.message.selection_proof = loop {
+                            i += 1;
+                            let proof: SelectionProof = tester
+                                .aggregator_sk
+                                .sign(Hash256::from_slice(&int_to_bytes32(i)))
+                                .into();
+                            if proof
+                                .is_aggregator(committee_len, &tester.harness.chain.spec)
+                                .unwrap()
+                            {
+                                break proof.into();
+                            }
+                        };
                     }
-                };
+                    SignedAggregateAndProofRefMut::Electra(att) => {
+                        att.message.selection_proof = loop {
+                            i += 1;
+                            let proof: SelectionProof = tester
+                                .aggregator_sk
+                                .sign(Hash256::from_slice(&int_to_bytes32(i)))
+                                .into();
+                            if proof
+                                .is_aggregator(committee_len, &tester.harness.chain.spec)
+                                .unwrap()
+                            {
+                                break proof.into();
+                            }
+                        };
+                    }
+                }
             },
             |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
         )
@@ -634,7 +733,14 @@ async fn aggregated_gossip_verification() {
             |tester, a| {
                 let mut agg_sig = AggregateSignature::infinity();
                 agg_sig.add_assign(&tester.aggregator_sk.sign(Hash256::repeat_byte(42)));
-                a.message.aggregate.signature = agg_sig;
+                match a.to_mut() {
+                    SignedAggregateAndProofRefMut::Base(att) => {
+                        att.message.aggregate.signature = agg_sig;
+                    }
+                    SignedAggregateAndProofRefMut::Electra(att) => {
+                        att.message.aggregate.signature = agg_sig;
+                    }
+                }
             },
             |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
         )
@@ -643,8 +749,15 @@ async fn aggregated_gossip_verification() {
          */
         .inspect_aggregate_err(
             "aggregate with too-high aggregator index",
-            |_, a| {
-                a.message.aggregator_index = <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1
+            |_, a| match a.to_mut() {
+                SignedAggregateAndProofRefMut::Base(att) => {
+                    att.message.aggregator_index =
+                        <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1
+                }
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregator_index =
+                        <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1
+                }
             },
             |_, err| {
                 assert!(matches!(
@@ -663,7 +776,14 @@ async fn aggregated_gossip_verification() {
          */
         .inspect_aggregate_err(
             "aggregate with unknown aggregator index",
-            |_, a| a.message.aggregator_index = VALIDATOR_COUNT as u64,
+            |_, a| match a.to_mut() {
+                SignedAggregateAndProofRefMut::Base(att) => {
+                    att.message.aggregator_index = VALIDATOR_COUNT as u64
+                }
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregator_index = VALIDATOR_COUNT as u64
+                }
+            },
             |_, err| {
                 assert!(matches!(
                     err,
@@ -671,7 +791,7 @@ async fn aggregated_gossip_verification() {
                     //
                     // AttnError::AggregatorPubkeyUnknown(unknown_validator)
                     //
-                    // However the following error is triggered first:
+                    // However, the following error is triggered first:
                     AttnError::AggregatorNotInCommittee {
                         aggregator_index
                     }
@@ -683,7 +803,7 @@ async fn aggregated_gossip_verification() {
          * The following test ensures:
          *
          * aggregate_and_proof.selection_proof selects the validator as an aggregator for the slot --
-         * i.e. is_aggregator(state, aggregate.data.slot, aggregate.data.index,
+         * i.e. is_aggregator(state, aggregate.data.slot, aggregate.committee_index(),
          * aggregate_and_proof.selection_proof) returns True.
          */
         .inspect_aggregate_err(
@@ -693,7 +813,7 @@ async fn aggregated_gossip_verification() {
                 let (index, sk) = tester.non_aggregator();
                 *a = SignedAggregateAndProof::from_aggregate(
                     index as u64,
-                    tester.valid_aggregate.message.aggregate.clone(),
+                    tester.valid_aggregate.message().aggregate().clone(),
                     None,
                     &sk,
                     &chain.canonical_head.cached_head().head_fork(),
@@ -703,6 +823,7 @@ async fn aggregated_gossip_verification() {
             },
             |tester, err| {
                 let (val_index, _) = tester.non_aggregator();
+
                 assert!(matches!(
                     err,
                     AttnError::InvalidSelectionProof {
@@ -729,7 +850,12 @@ async fn aggregated_gossip_verification() {
                 assert!(matches!(
                     err,
                     AttnError::AttestationSupersetKnown(hash)
-                    if hash == tester.valid_aggregate.message.aggregate.data.tree_hash_root()
+                    if hash == ObservedAttestationKey {
+                        committee_index: tester.valid_aggregate.message().aggregate()
+                            .committee_index()
+                            .expect("should get committee index"),
+                        attestation_data: tester.valid_aggregate.message().aggregate().data().clone(),
+                    }.tree_hash_root()
                 ))
             },
         )
@@ -741,7 +867,14 @@ async fn aggregated_gossip_verification() {
          */
         .inspect_aggregate_err(
             "aggregate from aggregator that has already been seen",
-            |_, a| a.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42),
+            |_, a| match a.to_mut() {
+                SignedAggregateAndProofRefMut::Base(att) => {
+                    att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
+                }
+                SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
+                }
+            },
             |tester, err| {
                 assert!(matches!(
                     err,
@@ -766,13 +899,29 @@ async fn unaggregated_gossip_verification() {
         .inspect_unaggregate_err(
             "attestation with invalid committee index",
             |tester, a, _| {
-                a.data.index = tester
-                    .harness
-                    .chain
-                    .head_snapshot()
-                    .beacon_state
-                    .get_committee_count_at_slot(a.data.slot)
-                    .unwrap()
+                match a.to_mut() {
+                    AttestationRefMut::Base(attn) => {
+                        attn.data.index =  tester
+                            .harness
+                            .chain
+                            .head_snapshot()
+                            .beacon_state
+                            .get_committee_count_at_slot(attn.data.slot)
+                            .unwrap();
+                    }
+                    AttestationRefMut::Electra(attn) => {
+                        let committee_index = tester
+                            .harness
+                            .chain
+                            .head_snapshot()
+                            .beacon_state
+                            .get_committee_count_at_slot(attn.data.slot)
+                            .unwrap();
+                        // overwrite the existing committee bits before setting
+                        attn.committee_bits = BitVector::default();
+                        attn.committee_bits.set(committee_index as usize, true).unwrap();
+                    }
+                }
             },
             |_, err| assert!(matches!(err, AttnError::NoCommitteeForSlotAndIndex { .. })),
         )
@@ -806,7 +955,7 @@ async fn unaggregated_gossip_verification() {
          */
         .inspect_unaggregate_err(
             "attestation from future slot",
-            |tester, a, _| a.data.slot = tester.slot() + 1,
+            |tester, a, _| a.data_mut().slot = tester.slot() + 1,
             |tester, err| {
                 assert!(matches!(
                     err,
@@ -822,8 +971,8 @@ async fn unaggregated_gossip_verification() {
             "attestation from past slot",
             |tester, a, _| {
                 let too_early_slot = tester.earliest_valid_attestation_slot() - 1;
-                a.data.slot = too_early_slot;
-                a.data.target.epoch = too_early_slot.epoch(E::slots_per_epoch());
+                a.data_mut().slot = too_early_slot;
+                a.data_mut().target.epoch = too_early_slot.epoch(E::slots_per_epoch());
             },
             |tester, err| {
                 let valid_early_slot = tester.earliest_valid_attestation_slot();
@@ -847,7 +996,7 @@ async fn unaggregated_gossip_verification() {
          */
         .inspect_unaggregate_err(
             "attestation with invalid target epoch",
-            |_, a, _| a.data.target.epoch += 1,
+            |_, a, _| a.data_mut().target.epoch += 1,
             |_, err| {
                 assert!(matches!(
                     err,
@@ -863,15 +1012,29 @@ async fn unaggregated_gossip_verification() {
          */
         .inspect_unaggregate_err(
             "attestation without any aggregation bits set",
-            |tester, a, _| {
-                a.aggregation_bits
-                    .set(tester.attester_committee_index, false)
-                    .expect("should unset aggregation bit");
-                assert_eq!(
-                    a.aggregation_bits.num_set_bits(),
-                    0,
-                    "test requires no set bits"
-                );
+            |tester, mut a, _| {
+                match &mut a {
+                    Attestation::Base(ref mut att) => {
+                        att.aggregation_bits
+                            .set(tester.attester_committee_index, false)
+                            .expect("should unset aggregation bit");
+                        assert_eq!(
+                            att.aggregation_bits.num_set_bits(),
+                            0,
+                            "test requires no set bits"
+                        );
+                    }
+                    Attestation::Electra(ref mut att) => {
+                        att.aggregation_bits
+                            .set(tester.attester_committee_index, false)
+                            .expect("should unset aggregation bit");
+                        assert_eq!(
+                            att.aggregation_bits.num_set_bits(),
+                            0,
+                            "test requires no set bits"
+                        );
+                    }
+                }
             },
             |_, err| {
                 assert!(matches!(
@@ -882,10 +1045,19 @@ async fn unaggregated_gossip_verification() {
         )
         .inspect_unaggregate_err(
             "attestation with two aggregation bits set",
-            |tester, a, _| {
-                a.aggregation_bits
-                    .set(tester.attester_committee_index + 1, true)
-                    .expect("should set second aggregation bit");
+            |tester, mut a, _| {
+                match &mut a {
+                    Attestation::Base(ref mut att) => {
+                        att.aggregation_bits
+                            .set(tester.attester_committee_index + 1, true)
+                            .expect("should set second aggregation bit");
+                    }
+                    Attestation::Electra(ref mut att) => {
+                        att.aggregation_bits
+                            .set(tester.attester_committee_index + 1, true)
+                            .expect("should set second aggregation bit");
+                    }
+                }
             },
             |_, err| {
                 assert!(matches!(
@@ -903,11 +1075,22 @@ async fn unaggregated_gossip_verification() {
          */
         .inspect_unaggregate_err(
             "attestation with invalid bitfield",
-            |_, a, _| {
-                let bits = a.aggregation_bits.iter().collect::<Vec<_>>();
-                a.aggregation_bits = BitList::with_capacity(bits.len() + 1).unwrap();
-                for (i, bit) in bits.into_iter().enumerate() {
-                    a.aggregation_bits.set(i, bit).unwrap();
+            |_, mut a, _| {
+                match &mut a {
+                    Attestation::Base(ref mut att) => {
+                        let bits = att.aggregation_bits.iter().collect::<Vec<_>>();
+                        att.aggregation_bits = BitList::with_capacity(bits.len() + 1).unwrap();
+                        for (i, bit) in bits.into_iter().enumerate() {
+                            att.aggregation_bits.set(i, bit).unwrap();
+                        }
+                    }
+                    Attestation::Electra(ref mut att) => {
+                        let bits = att.aggregation_bits.iter().collect::<Vec<_>>();
+                        att.aggregation_bits = BitList::with_capacity(bits.len() + 1).unwrap();
+                        for (i, bit) in bits.into_iter().enumerate() {
+                            att.aggregation_bits.set(i, bit).unwrap();
+                        }
+                    }
                 }
             },
             |_, err| {
@@ -927,7 +1110,7 @@ async fn unaggregated_gossip_verification() {
         .inspect_unaggregate_err(
             "attestation with unknown head block",
             |_, a, _| {
-                a.data.beacon_block_root = Hash256::repeat_byte(42);
+                a.data_mut().beacon_block_root = Hash256::repeat_byte(42);
             },
             |_, err| {
                 assert!(matches!(
@@ -949,7 +1132,7 @@ async fn unaggregated_gossip_verification() {
         .inspect_unaggregate_err(
             "attestation with invalid target root",
             |_, a, _| {
-                a.data.target.root = Hash256::repeat_byte(42);
+                a.data_mut().target.root = Hash256::repeat_byte(42);
             },
             |_, err| {
                 assert!(matches!(
@@ -968,7 +1151,7 @@ async fn unaggregated_gossip_verification() {
             |tester, a, _| {
                 let mut agg_sig = AggregateSignature::infinity();
                 agg_sig.add_assign(&tester.attester_sk.sign(Hash256::repeat_byte(42)));
-                a.signature = agg_sig;
+                *a.signature_mut() = agg_sig;
             },
             |_, err| {
                 assert!(matches!(
@@ -1055,7 +1238,7 @@ async fn attestation_that_skips_epochs() {
         .cloned()
         .expect("should have at least one attestation in committee");
 
-    let block_root = attestation.data.beacon_block_root;
+    let block_root = attestation.data().beacon_block_root;
     let block_slot = harness
         .chain
         .store
@@ -1066,7 +1249,7 @@ async fn attestation_that_skips_epochs() {
         .slot();
 
     assert!(
-        attestation.data.slot - block_slot > E::slots_per_epoch() * 2,
+        attestation.data().slot - block_slot > E::slots_per_epoch() * 2,
         "the attestation must skip more than two epochs"
     );
 
@@ -1228,14 +1411,14 @@ async fn attestation_to_finalized_block() {
         .first()
         .cloned()
         .expect("should have at least one attestation in committee");
-    assert_eq!(attestation.data.beacon_block_root, earlier_block_root);
+    assert_eq!(attestation.data().beacon_block_root, earlier_block_root);
 
     // Attestation should be rejected for attesting to a pre-finalization block.
     let res = harness
         .chain
         .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
     assert!(
-        matches!(res, Err(AttnError:: HeadBlockFinalized { beacon_block_root })
+        matches!(res, Err(AttnError::HeadBlockFinalized { beacon_block_root })
                       if beacon_block_root == earlier_block_root
         )
     );
@@ -1281,8 +1464,8 @@ async fn verify_aggregate_for_gossip_doppelganger_detection() {
         .verify_aggregated_attestation_for_gossip(&valid_aggregate)
         .expect("should verify aggregate attestation");
 
-    let epoch = valid_aggregate.message.aggregate.data.target.epoch;
-    let index = valid_aggregate.message.aggregator_index as usize;
+    let epoch = valid_aggregate.message().aggregate().data().target.epoch;
+    let index = valid_aggregate.message().aggregator_index() as usize;
     assert!(harness.chain.validator_seen_at_epoch(index, epoch));
 
     // Check the correct beacon cache is populated
@@ -1338,7 +1521,7 @@ async fn verify_attestation_for_gossip_doppelganger_detection() {
         .verify_unaggregated_attestation_for_gossip(&valid_attestation, Some(subnet_id))
         .expect("should verify attestation");
 
-    let epoch = valid_attestation.data.target.epoch;
+    let epoch = valid_attestation.data().target.epoch;
     assert!(harness.chain.validator_seen_at_epoch(index, epoch));
 
     // Check the correct beacon cache is populated
@@ -1382,7 +1565,10 @@ async fn attestation_verification_use_head_state_fork() {
         .block_at_slot(pre_capella_slot, WhenSlotSkipped::Prev)
         .expect("should not error getting block at slot")
         .expect("should find block at slot");
-    assert_eq!(pre_capella_block.fork_name(&spec).unwrap(), ForkName::Merge);
+    assert_eq!(
+        pre_capella_block.fork_name(&spec).unwrap(),
+        ForkName::Bellatrix
+    );
 
     // Advance slot clock to Capella fork.
     harness.advance_slot();
@@ -1427,7 +1613,7 @@ async fn attestation_verification_use_head_state_fork() {
     // Scenario 2: other node forgot to update their node and signed attestations using bellatrix fork
     {
         let attesters = (VALIDATOR_COUNT / 2..VALIDATOR_COUNT).collect::<Vec<_>>();
-        let merge_fork = spec.fork_for_name(ForkName::Merge).unwrap();
+        let bellatrix_fork = spec.fork_for_name(ForkName::Bellatrix).unwrap();
         let committee_attestations = harness
             .make_unaggregated_attestations_with_opts(
                 attesters.as_slice(),
@@ -1436,7 +1622,7 @@ async fn attestation_verification_use_head_state_fork() {
                 pre_capella_block.canonical_root().into(),
                 first_capella_slot,
                 MakeAttestationOptions {
-                    fork: merge_fork,
+                    fork: bellatrix_fork,
                     limit: None,
                 },
             )
@@ -1483,7 +1669,10 @@ async fn aggregated_attestation_verification_use_head_state_fork() {
         .block_at_slot(pre_capella_slot, WhenSlotSkipped::Prev)
         .expect("should not error getting block at slot")
         .expect("should find block at slot");
-    assert_eq!(pre_capella_block.fork_name(&spec).unwrap(), ForkName::Merge);
+    assert_eq!(
+        pre_capella_block.fork_name(&spec).unwrap(),
+        ForkName::Bellatrix
+    );
 
     // Advance slot clock to Capella fork.
     harness.advance_slot();
@@ -1525,7 +1714,7 @@ async fn aggregated_attestation_verification_use_head_state_fork() {
     // Scenario 2: other node forgot to update their node and signed attestations using bellatrix fork
     {
         let attesters = (VALIDATOR_COUNT / 2..VALIDATOR_COUNT).collect::<Vec<_>>();
-        let merge_fork = spec.fork_for_name(ForkName::Merge).unwrap();
+        let bellatrix_fork = spec.fork_for_name(ForkName::Bellatrix).unwrap();
         let aggregates = harness
             .make_attestations_with_opts(
                 attesters.as_slice(),
@@ -1534,7 +1723,7 @@ async fn aggregated_attestation_verification_use_head_state_fork() {
                 pre_capella_block.canonical_root().into(),
                 first_capella_slot,
                 MakeAttestationOptions {
-                    fork: merge_fork,
+                    fork: bellatrix_fork,
                     limit: None,
                 },
             )

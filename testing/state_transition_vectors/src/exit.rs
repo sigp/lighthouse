@@ -1,10 +1,9 @@
 use super::*;
-use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use state_processing::{
     per_block_processing, per_block_processing::errors::ExitInvalid, BlockProcessingError,
-    BlockSignatureStrategy, ConsensusContext, StateProcessingStrategy, VerifyBlockRoot,
+    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
 };
-use types::{BeaconBlock, BeaconState, Epoch, EthSpec, SignedBeaconBlock};
+use types::{BeaconBlock, Epoch};
 
 // Default validator index to exit.
 pub const VALIDATOR_INDEX: u64 = 0;
@@ -69,7 +68,6 @@ impl ExitTest {
             state,
             block,
             BlockSignatureStrategy::VerifyIndividual,
-            StateProcessingStrategy::Accurate,
             VerifyBlockRoot::True,
             &mut ctxt,
             &E::default_spec(),
@@ -333,7 +331,7 @@ mod custom_tests {
     fn assert_exited(state: &BeaconState<E>, validator_index: usize) {
         let spec = E::default_spec();
 
-        let validator = &state.validators()[validator_index];
+        let validator = &state.validators().get(validator_index).unwrap();
         assert_eq!(
             validator.exit_epoch,
             // This is correct until we exceed the churn limit. If that happens, we

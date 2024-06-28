@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 tokio = { workspace = true }
+itertools = { workspace = true }
 
 [dependencies]
 tree_hash = { workspace = true }
@@ -30,7 +31,6 @@ directory = { workspace = true }
 lockfile = { workspace = true }
 environment = { workspace = true }
 parking_lot = { workspace = true }
-exit-future = { workspace = true }
 filesystem = { workspace = true }
 hex = { workspace = true }
 deposit_contract = { workspace = true }
@@ -51,7 +51,6 @@ ring = { workspace = true }
 rand = { workspace = true, features = ["small_rng"] }
 lighthouse_metrics = { workspace = true }
 lazy_static = { workspace = true }
-itertools = { workspace = true }
 monitoring_api = { workspace = true }
 sensitive_url = { workspace = true }
 task_executor = { workspace = true }
@@ -62,3 +61,4 @@ sysinfo = { workspace = true }
 system_health = { path = "../common/system_health" }
 logging = { workspace = true }
 strum = { workspace = true }
+fdlimit = "0.3.0"

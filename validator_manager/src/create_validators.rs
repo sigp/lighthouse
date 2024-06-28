@@ -1,7 +1,8 @@
 use super::common::*;
 use crate::DumpConfig;
 use account_utils::{random_password_string, read_mnemonic_from_cli, read_password_from_user};
-use clap::{App, Arg, ArgMatches};
+use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use eth2::{
     lighthouse_vc::std_types::KeystoreJsonStr,
     types::{StateId, ValidatorId},
@@ -35,8 +36,8 @@ pub const DEPOSITS_FILENAME: &str = "deposits.json";
 
 const BEACON_NODE_HTTP_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
+pub fn cli_app() -> Command {
+    Command::new(CMD)
         .about(
             "Creates new validators from BIP-39 mnemonic. A JSON file will be created which \
                 contains all the validator keystores and other validator data. This file can then \
@@ -45,7 +46,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 deposits in the same format as the \"ethereum/staking-deposit-cli\" tool.",
         )
         .arg(
-            Arg::with_name(OUTPUT_PATH_FLAG)
+            Arg::new("help")
+                .long("help")
+                .short('h')
+                .help("Prints help information")
+                .action(ArgAction::HelpLong)
+                .display_order(0)
+                .help_heading(FLAG_HEADER),
+        )
+        .arg(
+            Arg::new(OUTPUT_PATH_FLAG)
                 .long(OUTPUT_PATH_FLAG)
                 .value_name("DIRECTORY")
                 .help(
@@ -53,10 +63,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     files will be created. The directory will be created if it does not exist.",
                 )
                 .required(true)
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(DEPOSIT_GWEI_FLAG)
+            Arg::new(DEPOSIT_GWEI_FLAG)
                 .long(DEPOSIT_GWEI_FLAG)
                 .value_name("DEPOSIT_GWEI")
                 .help(
@@ -64,51 +75,60 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     required for an active validator (MAX_EFFECTIVE_BALANCE)",
                 )
                 .conflicts_with(DISABLE_DEPOSITS_FLAG)
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(FIRST_INDEX_FLAG)
+            Arg::new(FIRST_INDEX_FLAG)
                 .long(FIRST_INDEX_FLAG)
                 .value_name("FIRST_INDEX")
                 .help("The first of consecutive key indexes you wish to create.")
-                .takes_value(true)
+                .action(ArgAction::Set)
                 .required(false)
-                .default_value("0"),
+                .default_value("0")
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(COUNT_FLAG)
+            Arg::new(COUNT_FLAG)
                 .long(COUNT_FLAG)
                 .value_name("VALIDATOR_COUNT")
                 .help("The number of validators to create, regardless of how many already exist")
                 .conflicts_with("at-most")
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(MNEMONIC_FLAG)
+            Arg::new(MNEMONIC_FLAG)
                 .long(MNEMONIC_FLAG)
                 .value_name("MNEMONIC_PATH")
                 .help("If present, the mnemonic will be read in from this file.")
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
-                .takes_value(false)
-                .hidden(cfg!(windows))
+            Arg::new(STDIN_INPUTS_FLAG)
+                .action(ArgAction::SetTrue)
+                .hide(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
+                .help("If present, read all user inputs from stdin instead of tty.")
+                .display_order(0)
+                .help_heading(FLAG_HEADER),
         )
         .arg(
-            Arg::with_name(DISABLE_DEPOSITS_FLAG)
+            Arg::new(DISABLE_DEPOSITS_FLAG)
                 .long(DISABLE_DEPOSITS_FLAG)
                 .help(
                     "When provided don't generate the deposits JSON file that is \
                     commonly used for submitting validator deposits via a web UI. \
                     Using this flag will save several seconds per validator if the \
                     user has an alternate strategy for submitting deposits.",
-                ),
+                )
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG)
+            Arg::new(SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG)
                 .long(SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG)
                 .help(
                     "If present, the user will be prompted to enter the voting keystore \
@@ -116,10 +136,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     flag is not provided, a random password will be used. It is not \
                     necessary to keep backups of voting keystore passwords if the \
                     mnemonic is safely backed up.",
-                ),
+                )
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(ETH1_WITHDRAWAL_ADDRESS_FLAG)
+            Arg::new(ETH1_WITHDRAWAL_ADDRESS_FLAG)
                 .long(ETH1_WITHDRAWAL_ADDRESS_FLAG)
                 .value_name("ETH1_ADDRESS")
                 .help(
@@ -128,10 +151,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     with the mnemonic-derived withdrawal public key in EIP-2334 format.",
                 )
                 .conflicts_with(DISABLE_DEPOSITS_FLAG)
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(GAS_LIMIT_FLAG)
+            Arg::new(GAS_LIMIT_FLAG)
                 .long(GAS_LIMIT_FLAG)
                 .value_name("UINT64")
                 .help(
@@ -139,10 +163,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     to leave this as the default value by not specifying this flag.",
                 )
                 .required(false)
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(FEE_RECIPIENT_FLAG)
+            Arg::new(FEE_RECIPIENT_FLAG)
                 .long(FEE_RECIPIENT_FLAG)
                 .value_name("ETH1_ADDRESS")
                 .help(
@@ -150,21 +175,23 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     fee recipient. Omit this flag to use the default value from the VC.",
                 )
                 .required(false)
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(BUILDER_PROPOSALS_FLAG)
+            Arg::new(BUILDER_PROPOSALS_FLAG)
                 .long(BUILDER_PROPOSALS_FLAG)
                 .help(
                     "When provided, all created validators will attempt to create \
                     blocks via builder rather than the local EL.",
                 )
                 .required(false)
-                .possible_values(&["true", "false"])
-                .takes_value(true),
+                .value_parser(["true", "false"])
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(BEACON_NODE_FLAG)
+            Arg::new(BEACON_NODE_FLAG)
                 .long(BEACON_NODE_FLAG)
                 .value_name("HTTP_ADDRESS")
                 .help(
@@ -174,21 +201,24 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     prevent the same validator being created twice and therefore slashable \
                     conditions.",
                 )
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(FORCE_BLS_WITHDRAWAL_CREDENTIALS)
-                .takes_value(false)
+            Arg::new(FORCE_BLS_WITHDRAWAL_CREDENTIALS)
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .long(FORCE_BLS_WITHDRAWAL_CREDENTIALS)
                 .help(
                     "If present, allows BLS withdrawal credentials rather than an execution \
                     address. This is not recommended.",
-                ),
+                )
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(BUILDER_BOOST_FACTOR_FLAG)
+            Arg::new(BUILDER_BOOST_FACTOR_FLAG)
                 .long(BUILDER_BOOST_FACTOR_FLAG)
-                .takes_value(true)
+                .action(ArgAction::Set)
                 .value_name("UINT64")
                 .required(false)
                 .help(
@@ -196,18 +226,20 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     a percentage multiplier to apply to the builder's payload value \
                     when choosing between a builder payload header and payload from \
                     the local execution node.",
-                ),
+                )
+                .display_order(0),
         )
         .arg(
-            Arg::with_name(PREFER_BUILDER_PROPOSALS_FLAG)
+            Arg::new(PREFER_BUILDER_PROPOSALS_FLAG)
                 .long(PREFER_BUILDER_PROPOSALS_FLAG)
                 .help(
                     "If this flag is set, Lighthouse will always prefer blocks \
                     constructed by builders, regardless of payload value.",
                 )
                 .required(false)
-                .possible_values(&["true", "false"])
-                .takes_value(true),
+                .value_parser(["true", "false"])
+                .action(ArgAction::Set)
+                .display_order(0),
         )
 }
 
@@ -242,10 +274,10 @@ impl CreateConfig {
             first_index: clap_utils::parse_required(matches, FIRST_INDEX_FLAG)?,
             count: clap_utils::parse_required(matches, COUNT_FLAG)?,
             mnemonic_path: clap_utils::parse_optional(matches, MNEMONIC_FLAG)?,
-            stdin_inputs: cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG),
-            disable_deposits: matches.is_present(DISABLE_DEPOSITS_FLAG),
+            stdin_inputs: cfg!(windows) || matches.get_flag(STDIN_INPUTS_FLAG),
+            disable_deposits: matches.get_flag(DISABLE_DEPOSITS_FLAG),
             specify_voting_keystore_password: matches
-                .is_present(SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG),
+                .get_flag(SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG),
             eth1_withdrawal_address: clap_utils::parse_optional(
                 matches,
                 ETH1_WITHDRAWAL_ADDRESS_FLAG,
@@ -259,7 +291,7 @@ impl CreateConfig {
             fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?,
             gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?,
             bn_url: clap_utils::parse_optional(matches, BEACON_NODE_FLAG)?,
-            force_bls_withdrawal_credentials: matches.is_present(FORCE_BLS_WITHDRAWAL_CREDENTIALS),
+            force_bls_withdrawal_credentials: matches.get_flag(FORCE_BLS_WITHDRAWAL_CREDENTIALS),
         })
     }
 }
@@ -270,7 +302,7 @@ struct ValidatorsAndDeposits {
 }
 
 impl ValidatorsAndDeposits {
-    async fn new<'a, T: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<Self, String> {
+    async fn new<'a, E: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<Self, String> {
         let CreateConfig {
             // The output path is handled upstream.
             output_path: _,
@@ -330,7 +362,7 @@ impl ValidatorsAndDeposits {
                 eprintln!("Beacon node is on {} network", config_name)
             }
             let bn_spec = bn_config
-                .apply_to_chain_spec::<T>(&T::default_spec())
+                .apply_to_chain_spec::<E>(&E::default_spec())
                 .ok_or("Beacon node appears to be on an incorrect network")?;
             if bn_spec.genesis_fork_version != spec.genesis_fork_version {
                 if let Some(config_name) = bn_spec.config_name {
@@ -516,8 +548,8 @@ impl ValidatorsAndDeposits {
     }
 }
 
-pub async fn cli_run<'a, T: EthSpec>(
-    matches: &'a ArgMatches<'a>,
+pub async fn cli_run<E: EthSpec>(
+    matches: &ArgMatches,
     spec: &ChainSpec,
     dump_config: DumpConfig,
 ) -> Result<(), String> {
@@ -525,11 +557,11 @@ pub async fn cli_run<'a, T: EthSpec>(
     if dump_config.should_exit_early(&config)? {
         Ok(())
     } else {
-        run::<T>(config, spec).await
+        run::<E>(config, spec).await
     }
 }
 
-async fn run<'a, T: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(), String> {
+async fn run<'a, E: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(), String> {
     let output_path = config.output_path.clone();
 
     if !output_path.exists() {
@@ -554,7 +586,7 @@ async fn run<'a, T: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(
         ));
     }
 
-    let validators_and_deposits = ValidatorsAndDeposits::new::<T>(config, spec).await?;
+    let validators_and_deposits = ValidatorsAndDeposits::new::<E>(config, spec).await?;
 
     eprintln!("Keystore generation complete");
 
@@ -581,7 +613,7 @@ pub mod tests {
 
     type E = MainnetEthSpec;
 
-    const TEST_VECTOR_DEPOSIT_CLI_VERSION: &str = "2.3.0";
+    const TEST_VECTOR_DEPOSIT_CLI_VERSION: &str = "2.7.0";
 
     fn junk_execution_address() -> Option<Address> {
         Some(Address::from_str("0x0f51bb10119727a7e5ea3538074fb341f56b09ad").unwrap())
@@ -933,12 +965,6 @@ pub mod tests {
             for deposit in &mut deposits {
                 // Ensures we can match test vectors.
                 deposit.deposit_cli_version = TEST_VECTOR_DEPOSIT_CLI_VERSION.to_string();
-
-                // We use "prater" and the vectors use "goerli" now. The two names refer to the same
-                // network so there should be no issue here.
-                if deposit.network_name == "prater" {
-                    deposit.network_name = "goerli".to_string();
-                }
             }
             deposits
         };

@@ -145,24 +145,24 @@ impl TryInto<ProtoNode> for ProtoNodeV16 {
     }
 }
 
-impl Into<ProtoNodeV16> for ProtoNode {
-    fn into(self) -> ProtoNodeV16 {
+impl From<ProtoNode> for ProtoNodeV16 {
+    fn from(from: ProtoNode) -> ProtoNodeV16 {
         ProtoNodeV16 {
-            slot: self.slot,
-            state_root: self.state_root,
-            target_root: self.target_root,
-            current_epoch_shuffling_id: self.current_epoch_shuffling_id,
-            next_epoch_shuffling_id: self.next_epoch_shuffling_id,
-            root: self.root,
-            parent: self.parent,
-            justified_checkpoint: Some(self.justified_checkpoint),
-            finalized_checkpoint: Some(self.finalized_checkpoint),
-            weight: self.weight,
-            best_child: self.best_child,
-            best_descendant: self.best_descendant,
-            execution_status: self.execution_status,
-            unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
-            unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
+            slot: from.slot,
+            state_root: from.state_root,
+            target_root: from.target_root,
+            current_epoch_shuffling_id: from.current_epoch_shuffling_id,
+            next_epoch_shuffling_id: from.next_epoch_shuffling_id,
+            root: from.root,
+            parent: from.parent,
+            justified_checkpoint: Some(from.justified_checkpoint),
+            finalized_checkpoint: Some(from.finalized_checkpoint),
+            weight: from.weight,
+            best_child: from.best_child,
+            best_descendant: from.best_descendant,
+            execution_status: from.execution_status,
+            unrealized_justified_checkpoint: from.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: from.unrealized_finalized_checkpoint,
         }
     }
 }
@@ -961,16 +961,9 @@ impl ProtoArray {
             node_justified_checkpoint
         };
 
-        let mut correct_justified = self.justified_checkpoint.epoch == genesis_epoch
-            || voting_source.epoch == self.justified_checkpoint.epoch;
-
-        if let Some(node_unrealized_justified_checkpoint) = node.unrealized_justified_checkpoint {
-            if !correct_justified && self.justified_checkpoint.epoch + 1 == current_epoch {
-                correct_justified = node_unrealized_justified_checkpoint.epoch
-                    >= self.justified_checkpoint.epoch
-                    && voting_source.epoch + 2 >= current_epoch;
-            }
-        }
+        let correct_justified = self.justified_checkpoint.epoch == genesis_epoch
+            || voting_source.epoch == self.justified_checkpoint.epoch
+            || voting_source.epoch + 2 >= current_epoch;
 
         let correct_finalized = self.finalized_checkpoint.epoch == genesis_epoch
             || self.is_finalized_checkpoint_or_descendant::<E>(node.root);

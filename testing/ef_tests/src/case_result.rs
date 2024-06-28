@@ -32,13 +32,16 @@ impl CaseResult {
 
 /// Same as `compare_result_detailed`, however it drops the caches on both states before
 /// comparison.
-pub fn compare_beacon_state_results_without_caches<T: EthSpec, E: Debug>(
-    result: &mut Result<BeaconState<T>, E>,
-    expected: &mut Option<BeaconState<T>>,
+pub fn compare_beacon_state_results_without_caches<E: EthSpec, T: Debug>(
+    result: &mut Result<BeaconState<E>, T>,
+    expected: &mut Option<BeaconState<E>>,
 ) -> Result<(), Error> {
     if let (Ok(ref mut result), Some(ref mut expected)) = (result.as_mut(), expected.as_mut()) {
         result.drop_all_caches().unwrap();
         expected.drop_all_caches().unwrap();
+
+        result.apply_pending_mutations().unwrap();
+        expected.apply_pending_mutations().unwrap();
     }
 
     compare_result_detailed(result, expected)
@@ -46,13 +49,13 @@ pub fn compare_beacon_state_results_without_caches<T: EthSpec, E: Debug>(
 
 /// Same as `compare_result`, however utilizes the `CompareFields` trait to give a list of
 /// mismatching fields when `Ok(result) != Some(expected)`.
-pub fn compare_result_detailed<T, E>(
-    result: &Result<T, E>,
+pub fn compare_result_detailed<T, U>(
+    result: &Result<T, U>,
     expected: &Option<T>,
 ) -> Result<(), Error>
 where
     T: PartialEq<T> + Debug + CompareFields,
-    E: Debug,
+    U: Debug,
 {
     match (result, expected) {
         (Ok(result), Some(expected)) => {
@@ -84,10 +87,10 @@ where
 ///
 /// If `expected.is_none()` then `result` is expected to be `Err`. Otherwise, `T` in `result` and
 /// `expected` must be equal.
-pub fn compare_result<T, E>(result: &Result<T, E>, expected: &Option<T>) -> Result<(), Error>
+pub fn compare_result<T, U>(result: &Result<T, U>, expected: &Option<T>) -> Result<(), Error>
 where
     T: PartialEq<T> + Debug,
-    E: Debug,
+    U: Debug,
 {
     match (result, expected) {
         // Pass: The should have failed and did fail.

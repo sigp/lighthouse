@@ -5,7 +5,7 @@ use eth1::{DepositLog, Eth1Block, Service as Eth1Service};
 use slog::{debug, error, info, trace, Logger};
 use state_processing::{
     eth2_genesis_time, initialize_beacon_state_from_eth1, is_valid_genesis_state,
-    per_block_processing::process_operations::process_deposit, process_activations,
+    per_block_processing::process_operations::apply_deposit, process_activations,
 };
 use std::sync::{
     atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -432,8 +432,14 @@ impl Eth1GenesisService {
                 // Such an optimization would only be useful in a scenario where `MIN_GENESIS_TIME`
                 // is reached _prior_ to `MIN_ACTIVE_VALIDATOR_COUNT`. I suspect this won't be the
                 // case for mainnet, so we defer this optimization.
+                let Deposit { proof, data } = deposit;
+                let proof = if PROOF_VERIFICATION {
+                    Some(proof)
+                } else {
+                    None
+                };
 
-                process_deposit(&mut state, &deposit, spec, PROOF_VERIFICATION)
+                apply_deposit(&mut state, data, proof, true, spec)
                     .map_err(|e| format!("Error whilst processing deposit: {:?}", e))
             })?;
 

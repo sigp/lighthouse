@@ -17,8 +17,8 @@ use warp::{http::Response, Filter};
 
 #[derive(Debug)]
 pub enum Error {
-    Warp(warp::Error),
-    Other(String),
+    Warp(#[allow(dead_code)] warp::Error),
+    Other(#[allow(dead_code)] String),
 }
 
 impl From<warp::Error> for Error {
@@ -34,18 +34,18 @@ impl From<String> for Error {
 }
 
 /// Contains objects which have shared access from inside/outside of the metrics server.
-pub struct Shared<T: EthSpec> {
-    pub validator_store: Option<Arc<ValidatorStore<SystemTimeSlotClock, T>>>,
-    pub duties_service: Option<Arc<DutiesService<SystemTimeSlotClock, T>>>,
+pub struct Shared<E: EthSpec> {
+    pub validator_store: Option<Arc<ValidatorStore<SystemTimeSlotClock, E>>>,
+    pub duties_service: Option<Arc<DutiesService<SystemTimeSlotClock, E>>>,
     pub genesis_time: Option<u64>,
 }
 
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
-pub struct Context<T: EthSpec> {
+pub struct Context<E: EthSpec> {
     pub config: Config,
-    pub shared: RwLock<Shared<T>>,
+    pub shared: RwLock<Shared<E>>,
     pub log: Logger,
 }
 
@@ -86,8 +86,8 @@ impl Default for Config {
 ///
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
-pub fn serve<T: EthSpec>(
-    ctx: Arc<Context<T>>,
+pub fn serve<E: EthSpec>(
+    ctx: Arc<Context<E>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
@@ -118,7 +118,7 @@ pub fn serve<T: EthSpec>(
     let routes = warp::get()
         .and(warp::path("metrics"))
         .map(move || inner_ctx.clone())
-        .and_then(|ctx: Arc<Context<T>>| async move {
+        .and_then(|ctx: Arc<Context<E>>| async move {
             Ok::<_, warp::Rejection>(
                 metrics::gather_prometheus_metrics(&ctx)
                     .map(|body| {

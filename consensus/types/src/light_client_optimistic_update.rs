@@ -1,83 +1,199 @@
-use super::{EthSpec, ForkName, ForkVersionDeserialize, Slot, SyncAggregate};
-use crate::light_client_header::LightClientHeader;
+use super::{EthSpec, ForkName, ForkVersionDeserialize, LightClientHeader, Slot, SyncAggregate};
+use crate::test_utils::TestRandom;
 use crate::{
-    light_client_update::Error, test_utils::TestRandom, BeaconState, ChainSpec, SignedBeaconBlock,
+    light_client_update::*, ChainSpec, LightClientHeaderAltair, LightClientHeaderCapella,
+    LightClientHeaderDeneb, LightClientHeaderElectra, SignedBeaconBlock,
 };
+use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssz_derive::{Decode, Encode};
+use ssz::{Decode, Encode};
+use ssz_derive::Decode;
+use ssz_derive::Encode;
+use superstruct::superstruct;
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
+use tree_hash::Hash256;
+use tree_hash_derive::TreeHash;
 
 /// A LightClientOptimisticUpdate is the update we send on each slot,
 /// it is based off the current unfinalized epoch is verified only against BLS signature.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TestRandom,
-    arbitrary::Arbitrary,
+#[superstruct(
+    variants(Altair, Capella, Deneb, Electra),
+    variant_attributes(
+        derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Serialize,
+            Deserialize,
+            Derivative,
+            Decode,
+            Encode,
+            TestRandom,
+            arbitrary::Arbitrary,
+            TreeHash,
+        ),
+        serde(bound = "E: EthSpec", deny_unknown_fields),
+        arbitrary(bound = "E: EthSpec"),
+    )
 )]
-#[serde(bound = "T: EthSpec")]
-#[arbitrary(bound = "T: EthSpec")]
-pub struct LightClientOptimisticUpdate<T: EthSpec> {
+#[derive(
+    Debug, Clone, Serialize, Encode, TreeHash, Deserialize, arbitrary::Arbitrary, PartialEq,
+)]
+#[serde(untagged)]
+#[tree_hash(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "transparent")]
+#[serde(bound = "E: EthSpec", deny_unknown_fields)]
+#[arbitrary(bound = "E: EthSpec")]
+pub struct LightClientOptimisticUpdate<E: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
-    pub attested_header: LightClientHeader,
-    /// current sync aggreggate
-    pub sync_aggregate: SyncAggregate<T>,
-    /// Slot of the sync aggregated singature
+    #[superstruct(only(Altair), partial_getter(rename = "attested_header_altair"))]
+    pub attested_header: LightClientHeaderAltair<E>,
+    #[superstruct(only(Capella), partial_getter(rename = "attested_header_capella"))]
+    pub attested_header: LightClientHeaderCapella<E>,
+    #[superstruct(only(Deneb), partial_getter(rename = "attested_header_deneb"))]
+    pub attested_header: LightClientHeaderDeneb<E>,
+    #[superstruct(only(Electra), partial_getter(rename = "attested_header_electra"))]
+    pub attested_header: LightClientHeaderElectra<E>,
+    /// current sync aggregate
+    pub sync_aggregate: SyncAggregate<E>,
+    /// Slot of the sync aggregated signature
     pub signature_slot: Slot,
 }
 
-impl<T: EthSpec> LightClientOptimisticUpdate<T> {
+impl<E: EthSpec> LightClientOptimisticUpdate<E> {
     pub fn new(
+        attested_block: &SignedBeaconBlock<E>,
+        sync_aggregate: SyncAggregate<E>,
+        signature_slot: Slot,
         chain_spec: &ChainSpec,
-        block: &SignedBeaconBlock<T>,
-        attested_state: &BeaconState<T>,
     ) -> Result<Self, Error> {
-        let altair_fork_epoch = chain_spec
-            .altair_fork_epoch
-            .ok_or(Error::AltairForkNotActive)?;
-        if attested_state.slot().epoch(T::slots_per_epoch()) < altair_fork_epoch {
-            return Err(Error::AltairForkNotActive);
-        }
+        let optimistic_update = match attested_block
+            .fork_name(chain_spec)
+            .map_err(|_| Error::InconsistentFork)?
+        {
+            ForkName::Altair | ForkName::Bellatrix => {
+                Self::Altair(LightClientOptimisticUpdateAltair {
+                    attested_header: LightClientHeaderAltair::block_to_light_client_header(
+                        attested_block,
+                    )?,
+                    sync_aggregate,
+                    signature_slot,
+                })
+            }
+            ForkName::Capella => Self::Capella(LightClientOptimisticUpdateCapella {
+                attested_header: LightClientHeaderCapella::block_to_light_client_header(
+                    attested_block,
+                )?,
+                sync_aggregate,
+                signature_slot,
+            }),
+            ForkName::Deneb => Self::Deneb(LightClientOptimisticUpdateDeneb {
+                attested_header: LightClientHeaderDeneb::block_to_light_client_header(
+                    attested_block,
+                )?,
+                sync_aggregate,
+                signature_slot,
+            }),
+            ForkName::Electra => Self::Electra(LightClientOptimisticUpdateElectra {
+                attested_header: LightClientHeaderElectra::block_to_light_client_header(
+                    attested_block,
+                )?,
+                sync_aggregate,
+                signature_slot,
+            }),
+            ForkName::Base => return Err(Error::AltairForkNotActive),
+        };
 
-        let sync_aggregate = block.message().body().sync_aggregate()?;
-        if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
-            return Err(Error::NotEnoughSyncCommitteeParticipants);
-        }
+        Ok(optimistic_update)
+    }
 
-        // Compute and validate attested header.
-        let mut attested_header = attested_state.latest_block_header().clone();
-        attested_header.state_root = attested_state.tree_hash_root();
-        Ok(Self {
-            attested_header: attested_header.into(),
-            sync_aggregate: sync_aggregate.clone(),
-            signature_slot: block.slot(),
+    pub fn map_with_fork_name<F, R>(&self, func: F) -> R
+    where
+        F: Fn(ForkName) -> R,
+    {
+        match self {
+            Self::Altair(_) => func(ForkName::Altair),
+            Self::Capella(_) => func(ForkName::Capella),
+            Self::Deneb(_) => func(ForkName::Deneb),
+            Self::Electra(_) => func(ForkName::Electra),
+        }
+    }
+
+    pub fn get_slot<'a>(&'a self) -> Slot {
+        map_light_client_optimistic_update_ref!(&'a _, self.to_ref(), |inner, cons| {
+            cons(inner);
+            inner.attested_header.beacon.slot
         })
+    }
+
+    pub fn get_canonical_root<'a>(&'a self) -> Hash256 {
+        map_light_client_optimistic_update_ref!(&'a _, self.to_ref(), |inner, cons| {
+            cons(inner);
+            inner.attested_header.beacon.canonical_root()
+        })
+    }
+
+    pub fn get_parent_root<'a>(&'a self) -> Hash256 {
+        map_light_client_optimistic_update_ref!(&'a _, self.to_ref(), |inner, cons| {
+            cons(inner);
+            inner.attested_header.beacon.parent_root
+        })
+    }
+
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        let optimistic_update = match fork_name {
+            ForkName::Altair | ForkName::Bellatrix => {
+                Self::Altair(LightClientOptimisticUpdateAltair::from_ssz_bytes(bytes)?)
+            }
+            ForkName::Capella => {
+                Self::Capella(LightClientOptimisticUpdateCapella::from_ssz_bytes(bytes)?)
+            }
+            ForkName::Deneb => {
+                Self::Deneb(LightClientOptimisticUpdateDeneb::from_ssz_bytes(bytes)?)
+            }
+            ForkName::Electra => {
+                Self::Electra(LightClientOptimisticUpdateElectra::from_ssz_bytes(bytes)?)
+            }
+            ForkName::Base => {
+                return Err(ssz::DecodeError::BytesInvalid(format!(
+                    "LightClientOptimisticUpdate decoding for {fork_name} not implemented"
+                )))
+            }
+        };
+
+        Ok(optimistic_update)
+    }
+
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
+        let fixed_len = match fork_name {
+            ForkName::Base => 0,
+            ForkName::Altair | ForkName::Bellatrix => {
+                <LightClientOptimisticUpdateAltair<E> as Encode>::ssz_fixed_len()
+            }
+            ForkName::Capella => <LightClientOptimisticUpdateCapella<E> as Encode>::ssz_fixed_len(),
+            ForkName::Deneb => <LightClientOptimisticUpdateDeneb<E> as Encode>::ssz_fixed_len(),
+            ForkName::Electra => <LightClientOptimisticUpdateElectra<E> as Encode>::ssz_fixed_len(),
+        };
+        fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }
 }
 
-impl<T: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<T> {
+impl<E: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<E> {
     fn deserialize_by_fork<'de, D: Deserializer<'de>>(
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
         match fork_name {
-            ForkName::Altair | ForkName::Merge => Ok(serde_json::from_value::<
-                LightClientOptimisticUpdate<T>,
-            >(value)
-            .map_err(serde::de::Error::custom))?,
-            ForkName::Base | ForkName::Capella | ForkName::Deneb => {
-                Err(serde::de::Error::custom(format!(
-                    "LightClientOptimisticUpdate failed to deserialize: unsupported fork '{}'",
-                    fork_name
-                )))
-            }
+            ForkName::Base => Err(serde::de::Error::custom(format!(
+                "LightClientOptimisticUpdate failed to deserialize: unsupported fork '{}'",
+                fork_name
+            ))),
+            _ => Ok(
+                serde_json::from_value::<LightClientOptimisticUpdate<E>>(value)
+                    .map_err(serde::de::Error::custom),
+            )?,
         }
     }
 }
@@ -87,5 +203,5 @@ mod tests {
     use super::*;
     use crate::MainnetEthSpec;
 
-    ssz_tests!(LightClientOptimisticUpdate<MainnetEthSpec>);
+    ssz_tests!(LightClientOptimisticUpdateDeneb<MainnetEthSpec>);
 }

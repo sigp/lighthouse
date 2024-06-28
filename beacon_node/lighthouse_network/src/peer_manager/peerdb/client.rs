@@ -33,6 +33,8 @@ pub enum ClientKind {
     Prysm,
     /// A lodestar node.
     Lodestar,
+    /// A Caplin node.
+    Caplin,
     /// An unknown client.
     Unknown,
 }
@@ -88,6 +90,7 @@ impl std::fmt::Display for Client {
                 self.version, self.os_version
             ),
             ClientKind::Lodestar => write!(f, "Lodestar: version: {}", self.version),
+            ClientKind::Caplin => write!(f, "Caplin"),
             ClientKind::Unknown => {
                 if let Some(agent_string) = &self.agent_string {
                     write!(f, "Unknown: {}", agent_string)
@@ -109,11 +112,11 @@ impl std::fmt::Display for ClientKind {
 // kind and it's associated version and the OS kind.
 fn client_from_agent_version(agent_version: &str) -> (ClientKind, String, String) {
     let mut agent_split = agent_version.split('/');
+    let mut version = String::from("unknown");
+    let mut os_version = String::from("unknown");
     match agent_split.next() {
         Some("Lighthouse") => {
             let kind = ClientKind::Lighthouse;
-            let mut version = String::from("unknown");
-            let mut os_version = version.clone();
             if let Some(agent_version) = agent_split.next() {
                 version = agent_version.into();
                 if let Some(agent_os_version) = agent_split.next() {
@@ -124,8 +127,6 @@ fn client_from_agent_version(agent_version: &str) -> (ClientKind, String, String
         }
         Some("teku") => {
             let kind = ClientKind::Teku;
-            let mut version = String::from("unknown");
-            let mut os_version = version.clone();
             if agent_split.next().is_some() {
                 if let Some(agent_version) = agent_split.next() {
                     version = agent_version.into();
@@ -138,13 +139,10 @@ fn client_from_agent_version(agent_version: &str) -> (ClientKind, String, String
         }
         Some("github.com") => {
             let kind = ClientKind::Prysm;
-            let unknown = String::from("unknown");
-            (kind, unknown.clone(), unknown)
+            (kind, version, os_version)
         }
         Some("Prysm") => {
             let kind = ClientKind::Prysm;
-            let mut version = String::from("unknown");
-            let mut os_version = version.clone();
             if agent_split.next().is_some() {
                 if let Some(agent_version) = agent_split.next() {
                     version = agent_version.into();
@@ -157,8 +155,6 @@ fn client_from_agent_version(agent_version: &str) -> (ClientKind, String, String
         }
         Some("nimbus") => {
             let kind = ClientKind::Nimbus;
-            let mut version = String::from("unknown");
-            let mut os_version = version.clone();
             if agent_split.next().is_some() {
                 if let Some(agent_version) = agent_split.next() {
                     version = agent_version.into();
@@ -171,8 +167,6 @@ fn client_from_agent_version(agent_version: &str) -> (ClientKind, String, String
         }
         Some("nim-libp2p") => {
             let kind = ClientKind::Nimbus;
-            let mut version = String::from("unknown");
-            let mut os_version = version.clone();
             if let Some(agent_version) = agent_split.next() {
                 version = agent_version.into();
                 if let Some(agent_os_version) = agent_split.next() {
@@ -183,8 +177,6 @@ fn client_from_agent_version(agent_version: &str) -> (ClientKind, String, String
         }
         Some("js-libp2p") | Some("lodestar") => {
             let kind = ClientKind::Lodestar;
-            let mut version = String::from("unknown");
-            let mut os_version = version.clone();
             if let Some(agent_version) = agent_split.next() {
                 version = agent_version.into();
                 if let Some(agent_os_version) = agent_split.next() {
@@ -192,6 +184,14 @@ fn client_from_agent_version(agent_version: &str) -> (ClientKind, String, String
                 }
             }
             (kind, version, os_version)
+        }
+        Some("erigon") => {
+            let client_kind = if let Some("caplin") = agent_split.next() {
+                ClientKind::Caplin
+            } else {
+                ClientKind::Unknown
+            };
+            (client_kind, version, os_version)
         }
         _ => {
             let unknown = String::from("unknown");

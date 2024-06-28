@@ -10,7 +10,7 @@ use libp2p::swarm::{
     handler::ConnectionHandler, CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler,
     ToSwarm,
 };
-use libp2p::swarm::{FromSwarm, SubstreamProtocol, THandlerInEvent};
+use libp2p::swarm::{ConnectionClosed, FromSwarm, SubstreamProtocol, THandlerInEvent};
 use libp2p::PeerId;
 use rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr};
 use slog::{crit, debug, o};
@@ -51,41 +51,41 @@ impl<T> ReqId for T where T: Send + 'static + std::fmt::Debug + Copy + Clone {}
 
 /// RPC events sent from Lighthouse.
 #[derive(Debug, Clone)]
-pub enum RPCSend<Id, TSpec: EthSpec> {
+pub enum RPCSend<Id, E: EthSpec> {
     /// A request sent from Lighthouse.
     ///
     /// The `Id` is given by the application making the request. These
     /// go over *outbound* connections.
-    Request(Id, OutboundRequest<TSpec>),
+    Request(Id, OutboundRequest<E>),
     /// A response sent from Lighthouse.
     ///
     /// The `SubstreamId` must correspond to the RPC-given ID of the original request received from the
     /// peer. The second parameter is a single chunk of a response. These go over *inbound*
     /// connections.
-    Response(SubstreamId, RPCCodedResponse<TSpec>),
+    Response(SubstreamId, RPCCodedResponse<E>),
     /// Lighthouse has requested to terminate the connection with a goodbye message.
     Shutdown(Id, GoodbyeReason),
 }
 
 /// RPC events received from outside Lighthouse.
 #[derive(Debug, Clone)]
-pub enum RPCReceived<Id, T: EthSpec> {
+pub enum RPCReceived<Id, E: EthSpec> {
     /// A request received from the outside.
     ///
     /// The `SubstreamId` is given by the `RPCHandler` as it identifies this request with the
     /// *inbound* substream over which it is managed.
-    Request(SubstreamId, InboundRequest<T>),
+    Request(SubstreamId, InboundRequest<E>),
     /// A response received from the outside.
     ///
     /// The `Id` corresponds to the application given ID of the original request sent to the
     /// peer. The second parameter is a single chunk of a response. These go over *outbound*
     /// connections.
-    Response(Id, RPCResponse<T>),
+    Response(Id, RPCResponse<E>),
     /// Marks a request as completed
     EndOfStream(Id, ResponseTermination),
 }
 
-impl<T: EthSpec, Id: std::fmt::Debug> std::fmt::Display for RPCSend<Id, T> {
+impl<E: EthSpec, Id: std::fmt::Debug> std::fmt::Display for RPCSend<Id, E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCSend::Request(id, req) => write!(f, "RPC Request(id: {:?}, {})", id, req),
@@ -97,16 +97,16 @@ impl<T: EthSpec, Id: std::fmt::Debug> std::fmt::Display for RPCSend<Id, T> {
 
 /// Messages sent to the user from the RPC protocol.
 #[derive(Debug)]
-pub struct RPCMessage<Id, TSpec: EthSpec> {
+pub struct RPCMessage<Id, E: EthSpec> {
     /// The peer that sent the message.
     pub peer_id: PeerId,
     /// Handler managing this message.
     pub conn_id: ConnectionId,
     /// The message that was sent.
-    pub event: HandlerEvent<Id, TSpec>,
+    pub event: HandlerEvent<Id, E>,
 }
 
-type BehaviourAction<Id, TSpec> = ToSwarm<RPCMessage<Id, TSpec>, RPCSend<Id, TSpec>>;
+type BehaviourAction<Id, E> = ToSwarm<RPCMessage<Id, E>, RPCSend<Id, E>>;
 
 pub struct NetworkParams {
     pub max_chunk_size: usize,
@@ -116,13 +116,13 @@ pub struct NetworkParams {
 
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
-pub struct RPC<Id: ReqId, TSpec: EthSpec> {
+pub struct RPC<Id: ReqId, E: EthSpec> {
     /// Rate limiter
     limiter: Option<RateLimiter>,
     /// Rate limiter for our own requests.
-    self_limiter: Option<SelfRateLimiter<Id, TSpec>>,
+    self_limiter: Option<SelfRateLimiter<Id, E>>,
     /// Queue of events to be processed.
-    events: Vec<BehaviourAction<Id, TSpec>>,
+    events: Vec<BehaviourAction<Id, E>>,
     fork_context: Arc<ForkContext>,
     enable_light_client_server: bool,
     /// Slog logger for RPC behaviour.
@@ -131,7 +131,7 @@ pub struct RPC<Id: ReqId, TSpec: EthSpec> {
     network_params: NetworkParams,
 }
 
-impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
+impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     pub fn new(
         fork_context: Arc<ForkContext>,
         enable_light_client_server: bool,
@@ -170,7 +170,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
         &mut self,
         peer_id: PeerId,
         id: (ConnectionId, SubstreamId),
-        event: RPCCodedResponse<TSpec>,
+        event: RPCCodedResponse<E>,
     ) {
         self.events.push(ToSwarm::NotifyHandler {
             peer_id,
@@ -182,7 +182,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
     /// Submits an RPC request.
     ///
     /// The peer must be connected for this to succeed.
-    pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: OutboundRequest<TSpec>) {
+    pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: OutboundRequest<E>) {
         let event = if let Some(self_limiter) = self.self_limiter.as_mut() {
             match self_limiter.allows(peer_id, request_id, req) {
                 Ok(event) => event,
@@ -213,17 +213,17 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
     }
 }
 
-impl<Id, TSpec> NetworkBehaviour for RPC<Id, TSpec>
+impl<Id, E> NetworkBehaviour for RPC<Id, E>
 where
-    TSpec: EthSpec,
+    E: EthSpec,
     Id: ReqId,
 {
-    type ConnectionHandler = RPCHandler<Id, TSpec>;
-    type ToSwarm = RPCMessage<Id, TSpec>;
+    type ConnectionHandler = RPCHandler<Id, E>;
+    type ToSwarm = RPCMessage<Id, E>;
 
     fn handle_established_inbound_connection(
         &mut self,
-        _connection_id: ConnectionId,
+        connection_id: ConnectionId,
         peer_id: PeerId,
         _local_addr: &libp2p::Multiaddr,
         _remote_addr: &libp2p::Multiaddr,
@@ -238,9 +238,9 @@ where
             },
             (),
         );
-        // NOTE: this is needed because PeerIds have interior mutability.
-        let peer_repr = peer_id.to_string();
-        let log = self.log.new(slog::o!("peer_id" => peer_repr));
+        let log = self
+            .log
+            .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
         let handler = RPCHandler::new(
             protocol,
             self.fork_context.clone(),
@@ -253,7 +253,7 @@ where
 
     fn handle_established_outbound_connection(
         &mut self,
-        _connection_id: ConnectionId,
+        connection_id: ConnectionId,
         peer_id: PeerId,
         _addr: &libp2p::Multiaddr,
         _role_override: libp2p::core::Endpoint,
@@ -269,9 +269,10 @@ where
             (),
         );
 
-        // NOTE: this is needed because PeerIds have interior mutability.
-        let peer_repr = peer_id.to_string();
-        let log = self.log.new(slog::o!("peer_id" => peer_repr));
+        let log = self
+            .log
+            .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
+
         let handler = RPCHandler::new(
             protocol,
             self.fork_context.clone(),
@@ -282,9 +283,61 @@ where
         Ok(handler)
     }
 
-    fn on_swarm_event(&mut self, _event: FromSwarm) {
+    fn on_swarm_event(&mut self, event: FromSwarm) {
         // NOTE: FromSwarm is a non exhaustive enum so updates should be based on release notes more
         // than compiler feedback
+        // The self rate limiter holds on to requests and attempts to process them within our rate
+        // limits. If a peer disconnects whilst we are self-rate limiting, we want to terminate any
+        // pending requests and return an error response to the application.
+
+        if let FromSwarm::ConnectionClosed(ConnectionClosed {
+            peer_id,
+            remaining_established,
+            connection_id,
+            ..
+        }) = event
+        {
+            // If there are still connections remaining, do nothing.
+            if remaining_established > 0 {
+                return;
+            }
+            // Get a list of pending requests from the self rate limiter
+            if let Some(limiter) = self.self_limiter.as_mut() {
+                for (id, proto) in limiter.peer_disconnected(peer_id) {
+                    let error_msg = ToSwarm::GenerateEvent(RPCMessage {
+                        peer_id,
+                        conn_id: connection_id,
+                        event: HandlerEvent::Err(HandlerErr::Outbound {
+                            id,
+                            proto,
+                            error: RPCError::Disconnected,
+                        }),
+                    });
+                    self.events.push(error_msg);
+                }
+            }
+
+            // Replace the pending Requests to the disconnected peer
+            // with reports of failed requests.
+            self.events.iter_mut().for_each(|event| match &event {
+                ToSwarm::NotifyHandler {
+                    peer_id: p,
+                    event: RPCSend::Request(request_id, req),
+                    ..
+                } if *p == peer_id => {
+                    *event = ToSwarm::GenerateEvent(RPCMessage {
+                        peer_id,
+                        conn_id: connection_id,
+                        event: HandlerEvent::Err(HandlerErr::Outbound {
+                            id: *request_id,
+                            proto: req.versioned_protocol().protocol(),
+                            error: RPCError::Disconnected,
+                        }),
+                    });
+                }
+                _ => {}
+            });
+        }
     }
 
     fn on_connection_handler_event(
@@ -309,11 +362,16 @@ where
                         Err(RateLimitedErr::TooLarge) => {
                             // we set the batch sizes, so this is a coding/config err for most protocols
                             let protocol = req.versioned_protocol().protocol();
-                            if matches!(protocol, Protocol::BlocksByRange)
-                                || matches!(protocol, Protocol::BlobsByRange)
-                            {
-                                debug!(self.log, "By range request will never be processed"; "request" => %req, "protocol" => %protocol);
+                            if matches!(
+                                protocol,
+                                Protocol::BlocksByRange
+                                    | Protocol::BlobsByRange
+                                    | Protocol::BlocksByRoot
+                                    | Protocol::BlobsByRoot
+                            ) {
+                                debug!(self.log, "Request too large to process"; "request" => %req, "protocol" => %protocol);
                             } else {
+                                // Other protocols shouldn't be sending large messages, we should flag the peer kind
                                 crit!(self.log, "Request size too large to ever be processed"; "protocol" => %protocol);
                             }
                             // send an error code to the peer.
@@ -388,9 +446,9 @@ where
     }
 }
 
-impl<Id, TSpec> slog::KV for RPCMessage<Id, TSpec>
+impl<Id, E> slog::KV for RPCMessage<Id, E>
 where
-    TSpec: EthSpec,
+    E: EthSpec,
     Id: ReqId,
 {
     fn serialize(

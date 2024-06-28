@@ -13,27 +13,130 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use types::{
-    AttesterSlashing, BeaconState, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, ProposerSlashing,
+    AttesterSlashing, AttesterSlashingBase, AttesterSlashingOnDisk, AttesterSlashingRefOnDisk,
+};
+use types::{
+    BeaconState, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, ProposerSlashing,
     SignedBlsToExecutionChange, SignedVoluntaryExit,
 };
 
 const MAX_FORKS_VERIFIED_AGAINST: usize = 2;
 
+pub trait TransformPersist {
+    type Persistable: Encode + Decode;
+    type PersistableRef<'a>: Encode
+    where
+        Self: 'a;
+
+    /// Returns a reference to the object in a form that implements `Encode`
+    fn as_persistable_ref(&self) -> Self::PersistableRef<'_>;
+
+    /// Converts the object back into its original form.
+    fn from_persistable(persistable: Self::Persistable) -> Self;
+}
+
 /// Wrapper around an operation type that acts as proof that its signature has been checked.
 ///
 /// The inner `op` field is private, meaning instances of this type can only be constructed
 /// by calling `validate`.
-#[derive(Derivative, Debug, Clone, Encode, Decode)]
+#[derive(Derivative, Debug, Clone)]
 #[derivative(
     PartialEq,
     Eq,
-    Hash(bound = "T: Encode + Decode + std::hash::Hash, E: EthSpec")
+    Hash(bound = "T: TransformPersist + std::hash::Hash, E: EthSpec")
 )]
-pub struct SigVerifiedOp<T: Encode + Decode, E: EthSpec> {
+pub struct SigVerifiedOp<T: TransformPersist, E: EthSpec> {
     op: T,
     verified_against: VerifiedAgainst,
-    #[ssz(skip_serializing, skip_deserializing)]
     _phantom: PhantomData<E>,
+}
+
+impl<T: TransformPersist, E: EthSpec> Encode for SigVerifiedOp<T, E> {
+    fn is_ssz_fixed_len() -> bool {
+        <T::Persistable as Encode>::is_ssz_fixed_len()
+            && <VerifiedAgainst as Encode>::is_ssz_fixed_len()
+    }
+
+    #[allow(clippy::expect_used)]
+    fn ssz_fixed_len() -> usize {
+        if <Self as Encode>::is_ssz_fixed_len() {
+            <T::Persistable as Encode>::ssz_fixed_len()
+                .checked_add(<VerifiedAgainst as Encode>::ssz_fixed_len())
+                .expect("encode ssz_fixed_len length overflow")
+        } else {
+            ssz::BYTES_PER_LENGTH_OFFSET
+        }
+    }
+
+    #[allow(clippy::expect_used)]
+    fn ssz_bytes_len(&self) -> usize {
+        if <Self as Encode>::is_ssz_fixed_len() {
+            <Self as Encode>::ssz_fixed_len()
+        } else {
+            let persistable = self.op.as_persistable_ref();
+            persistable
+                .ssz_bytes_len()
+                .checked_add(self.verified_against.ssz_bytes_len())
+                .expect("ssz_bytes_len length overflow")
+        }
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        let mut encoder = ssz::SszEncoder::container(buf, <Self as Encode>::ssz_fixed_len());
+        let persistable = self.op.as_persistable_ref();
+        encoder.append(&persistable);
+        encoder.append(&self.verified_against);
+        encoder.finalize();
+    }
+}
+
+impl<T: TransformPersist, E: EthSpec> Decode for SigVerifiedOp<T, E> {
+    fn is_ssz_fixed_len() -> bool {
+        <T::Persistable as Decode>::is_ssz_fixed_len()
+            && <VerifiedAgainst as Decode>::is_ssz_fixed_len()
+    }
+
+    #[allow(clippy::expect_used)]
+    fn ssz_fixed_len() -> usize {
+        if <Self as Decode>::is_ssz_fixed_len() {
+            <T::Persistable as Decode>::ssz_fixed_len()
+                .checked_add(<VerifiedAgainst as Decode>::ssz_fixed_len())
+                .expect("decode ssz_fixed_len length overflow")
+        } else {
+            ssz::BYTES_PER_LENGTH_OFFSET
+        }
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+
+        // Register types based on whether they are fixed or variable length
+        if <T::Persistable as Decode>::is_ssz_fixed_len() {
+            builder.register_type::<T::Persistable>()?;
+        } else {
+            builder.register_anonymous_variable_length_item()?;
+        }
+
+        if <VerifiedAgainst as Decode>::is_ssz_fixed_len() {
+            builder.register_type::<VerifiedAgainst>()?;
+        } else {
+            builder.register_anonymous_variable_length_item()?;
+        }
+
+        let mut decoder = builder.build()?;
+        // Decode each component
+        let persistable: T::Persistable = decoder.decode_next()?;
+        let verified_against: VerifiedAgainst = decoder.decode_next()?;
+
+        // Use TransformPersist to convert persistable back into the original type
+        let op = T::from_persistable(persistable);
+
+        Ok(SigVerifiedOp {
+            op,
+            verified_against,
+            _phantom: PhantomData,
+        })
+    }
 }
 
 /// Information about the fork versions that this message was verified against.
@@ -109,7 +212,7 @@ where
 }
 
 /// Trait for operations that can be verified and transformed into a `SigVerifiedOp`.
-pub trait VerifyOperation<E: EthSpec>: Encode + Decode + Sized {
+pub trait VerifyOperation<E: EthSpec>: TransformPersist + Sized {
     type Error;
 
     fn validate(
@@ -152,15 +255,15 @@ impl<E: EthSpec> VerifyOperation<E> for AttesterSlashing<E> {
         state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<SigVerifiedOp<Self, E>, Self::Error> {
-        verify_attester_slashing(state, &self, VerifySignatures::True, spec)?;
+        verify_attester_slashing(state, self.to_ref(), VerifySignatures::True, spec)?;
         Ok(SigVerifiedOp::new(self, state))
     }
 
     #[allow(clippy::arithmetic_side_effects)]
     fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
         smallvec![
-            self.attestation_1.data.target.epoch,
-            self.attestation_2.data.target.epoch
+            self.attestation_1().data().target.epoch,
+            self.attestation_2().data().target.epoch
         ]
     }
 }
@@ -235,5 +338,100 @@ impl<E: EthSpec> VerifyOperationAt<E> for SignedVoluntaryExit {
             spec,
         )?;
         Ok(SigVerifiedOp::new(self, state))
+    }
+}
+
+impl TransformPersist for SignedVoluntaryExit {
+    type Persistable = Self;
+    type PersistableRef<'a> = &'a Self;
+
+    fn as_persistable_ref(&self) -> Self::PersistableRef<'_> {
+        self
+    }
+
+    fn from_persistable(persistable: Self::Persistable) -> Self {
+        persistable
+    }
+}
+
+impl<E: EthSpec> TransformPersist for AttesterSlashing<E> {
+    type Persistable = AttesterSlashingOnDisk<E>;
+    type PersistableRef<'a> = AttesterSlashingRefOnDisk<'a, E>;
+
+    fn as_persistable_ref(&self) -> Self::PersistableRef<'_> {
+        self.to_ref().into()
+    }
+
+    fn from_persistable(persistable: Self::Persistable) -> Self {
+        persistable.into()
+    }
+}
+
+// TODO: Remove this once we no longer support DB schema version 17
+impl<E: EthSpec> TransformPersist for types::AttesterSlashingBase<E> {
+    type Persistable = Self;
+    type PersistableRef<'a> = &'a Self;
+
+    fn as_persistable_ref(&self) -> Self::PersistableRef<'_> {
+        self
+    }
+
+    fn from_persistable(persistable: Self::Persistable) -> Self {
+        persistable
+    }
+}
+// TODO: Remove this once we no longer support DB schema version 17
+impl<E: EthSpec> From<SigVerifiedOp<AttesterSlashingBase<E>, E>>
+    for SigVerifiedOp<AttesterSlashing<E>, E>
+{
+    fn from(base: SigVerifiedOp<AttesterSlashingBase<E>, E>) -> Self {
+        SigVerifiedOp {
+            op: AttesterSlashing::Base(base.op),
+            verified_against: base.verified_against,
+            _phantom: PhantomData,
+        }
+    }
+}
+// TODO: Remove this once we no longer support DB schema version 17
+impl<E: EthSpec> TryFrom<SigVerifiedOp<AttesterSlashing<E>, E>>
+    for SigVerifiedOp<AttesterSlashingBase<E>, E>
+{
+    type Error = String;
+
+    fn try_from(slashing: SigVerifiedOp<AttesterSlashing<E>, E>) -> Result<Self, Self::Error> {
+        match slashing.op {
+            AttesterSlashing::Base(base) => Ok(SigVerifiedOp {
+                op: base,
+                verified_against: slashing.verified_against,
+                _phantom: PhantomData,
+            }),
+            AttesterSlashing::Electra(_) => Err("non-base attester slashing".to_string()),
+        }
+    }
+}
+
+impl TransformPersist for ProposerSlashing {
+    type Persistable = Self;
+    type PersistableRef<'a> = &'a Self;
+
+    fn as_persistable_ref(&self) -> Self::PersistableRef<'_> {
+        self
+    }
+
+    fn from_persistable(persistable: Self::Persistable) -> Self {
+        persistable
+    }
+}
+
+impl TransformPersist for SignedBlsToExecutionChange {
+    type Persistable = Self;
+    type PersistableRef<'a> = &'a Self;
+
+    fn as_persistable_ref(&self) -> Self::PersistableRef<'_> {
+        self
+    }
+
+    fn from_persistable(persistable: Self::Persistable) -> Self {
+        persistable
     }
 }

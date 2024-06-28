@@ -1,31 +1,33 @@
-use crate::common::get_indexed_attestation;
+use crate::common::{attesting_indices_base, attesting_indices_electra};
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
-use ssz_derive::{Decode, Encode};
+use crate::EpochCacheError;
 use std::collections::{hash_map::Entry, HashMap};
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, Attestation, AttestationData, BeaconState, BeaconStateError, BitList,
-    ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, SignedBeaconBlock, Slot,
+    AbstractExecPayload, AttestationRef, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec,
+    Hash256, IndexedAttestation, IndexedAttestationRef, SignedBeaconBlock, Slot,
 };
 
-#[derive(Debug, PartialEq, Clone, Encode, Decode)]
-pub struct ConsensusContext<T: EthSpec> {
+#[derive(Debug, PartialEq, Clone)]
+pub struct ConsensusContext<E: EthSpec> {
     /// Slot to act as an identifier/safeguard
-    slot: Slot,
+    pub slot: Slot,
+    /// Previous epoch of the `slot` precomputed for optimization purpose.
+    pub previous_epoch: Epoch,
+    /// Current epoch of the `slot` precomputed for optimization purpose.
+    pub current_epoch: Epoch,
     /// Proposer index of the block at `slot`.
-    proposer_index: Option<u64>,
+    pub proposer_index: Option<u64>,
     /// Block root of the block at `slot`.
-    current_block_root: Option<Hash256>,
+    pub current_block_root: Option<Hash256>,
     /// Cache of indexed attestations constructed during block processing.
-    /// We can skip serializing / deserializing this as the cache will just be rebuilt
-    #[ssz(skip_serializing, skip_deserializing)]
-    indexed_attestations:
-        HashMap<(AttestationData, BitList<T::MaxValidatorsPerCommittee>), IndexedAttestation<T>>,
+    pub indexed_attestations: HashMap<Hash256, IndexedAttestation<E>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ContextError {
     BeaconState(BeaconStateError),
+    EpochCache(EpochCacheError),
     SlotMismatch { slot: Slot, expected: Slot },
     EpochMismatch { epoch: Epoch, expected: Epoch },
 }
@@ -36,16 +38,27 @@ impl From<BeaconStateError> for ContextError {
     }
 }
 
-impl<T: EthSpec> ConsensusContext<T> {
+impl From<EpochCacheError> for ContextError {
+    fn from(e: EpochCacheError) -> Self {
+        Self::EpochCache(e)
+    }
+}
+
+impl<E: EthSpec> ConsensusContext<E> {
     pub fn new(slot: Slot) -> Self {
+        let current_epoch = slot.epoch(E::slots_per_epoch());
+        let previous_epoch = current_epoch.saturating_sub(1u64);
         Self {
             slot,
+            previous_epoch,
+            current_epoch,
             proposer_index: None,
             current_block_root: None,
             indexed_attestations: HashMap::new(),
         }
     }
 
+    #[must_use]
     pub fn set_proposer_index(mut self, proposer_index: u64) -> Self {
         self.proposer_index = Some(proposer_index);
         self
@@ -58,7 +71,7 @@ impl<T: EthSpec> ConsensusContext<T> {
     /// required. If the slot check is too restrictive, see `get_proposer_index_from_epoch_state`.
     pub fn get_proposer_index(
         &mut self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<u64, ContextError> {
         self.check_slot(state.slot())?;
@@ -72,7 +85,7 @@ impl<T: EthSpec> ConsensusContext<T> {
     /// we want to extract the proposer index from a single state for every slot in the epoch.
     pub fn get_proposer_index_from_epoch_state(
         &mut self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<u64, ContextError> {
         self.check_epoch(state.current_epoch())?;
@@ -81,7 +94,7 @@ impl<T: EthSpec> ConsensusContext<T> {
 
     fn get_proposer_index_no_checks(
         &mut self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<u64, ContextError> {
         if let Some(proposer_index) = self.proposer_index {
@@ -93,14 +106,15 @@ impl<T: EthSpec> ConsensusContext<T> {
         Ok(proposer_index)
     }
 
+    #[must_use]
     pub fn set_current_block_root(mut self, block_root: Hash256) -> Self {
         self.current_block_root = Some(block_root);
         self
     }
 
-    pub fn get_current_block_root<Payload: AbstractExecPayload<T>>(
+    pub fn get_current_block_root<Payload: AbstractExecPayload<E>>(
         &mut self,
-        block: &SignedBeaconBlock<T, Payload>,
+        block: &SignedBeaconBlock<E, Payload>,
     ) -> Result<Hash256, ContextError> {
         self.check_slot(block.slot())?;
 
@@ -125,7 +139,7 @@ impl<T: EthSpec> ConsensusContext<T> {
     }
 
     fn check_epoch(&self, epoch: Epoch) -> Result<(), ContextError> {
-        let expected = self.slot.epoch(T::slots_per_epoch());
+        let expected = self.slot.epoch(E::slots_per_epoch());
         if epoch == expected {
             Ok(())
         } else {
@@ -133,29 +147,44 @@ impl<T: EthSpec> ConsensusContext<T> {
         }
     }
 
-    pub fn get_indexed_attestation(
-        &mut self,
-        state: &BeaconState<T>,
-        attestation: &Attestation<T>,
-    ) -> Result<&IndexedAttestation<T>, BlockOperationError<AttestationInvalid>> {
-        let key = (
-            attestation.data.clone(),
-            attestation.aggregation_bits.clone(),
-        );
-
-        match self.indexed_attestations.entry(key) {
-            Entry::Occupied(occupied) => Ok(occupied.into_mut()),
-            Entry::Vacant(vacant) => {
-                let committee =
-                    state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
-                let indexed_attestation =
-                    get_indexed_attestation(committee.committee, attestation)?;
-                Ok(vacant.insert(indexed_attestation))
-            }
+    pub fn get_indexed_attestation<'a>(
+        &'a mut self,
+        state: &BeaconState<E>,
+        attestation: AttestationRef<'a, E>,
+    ) -> Result<IndexedAttestationRef<E>, BlockOperationError<AttestationInvalid>> {
+        let key = attestation.tree_hash_root();
+        match attestation {
+            AttestationRef::Base(attn) => match self.indexed_attestations.entry(key) {
+                Entry::Occupied(occupied) => Ok(occupied.into_mut()),
+                Entry::Vacant(vacant) => {
+                    let committee = state.get_beacon_committee(attn.data.slot, attn.data.index)?;
+                    let indexed_attestation =
+                        attesting_indices_base::get_indexed_attestation(committee.committee, attn)?;
+                    Ok(vacant.insert(indexed_attestation))
+                }
+            },
+            AttestationRef::Electra(attn) => match self.indexed_attestations.entry(key) {
+                Entry::Occupied(occupied) => Ok(occupied.into_mut()),
+                Entry::Vacant(vacant) => {
+                    let indexed_attestation =
+                        attesting_indices_electra::get_indexed_attestation_from_state(state, attn)?;
+                    Ok(vacant.insert(indexed_attestation))
+                }
+            },
         }
+        .map(|indexed_attestation| (*indexed_attestation).to_ref())
     }
 
     pub fn num_cached_indexed_attestations(&self) -> usize {
         self.indexed_attestations.len()
+    }
+
+    #[must_use]
+    pub fn set_indexed_attestations(
+        mut self,
+        attestations: HashMap<Hash256, IndexedAttestation<E>>,
+    ) -> Self {
+        self.indexed_attestations = attestations;
+        self
     }
 }

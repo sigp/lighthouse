@@ -16,14 +16,11 @@
 //!
 //! This implementation passes the [reference implementation
 //! tests](https://github.com/ethereum/eth2.0-pm/blob/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start/keygen_test_vector.yaml).
-#[macro_use]
-extern crate lazy_static;
-
 use bls::{Keypair, PublicKey, SecretKey};
 use ethereum_hashing::hash;
+use lazy_static::lazy_static;
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
-use std::convert::TryInto;
 use std::fs::File;
 use std::path::PathBuf;
 

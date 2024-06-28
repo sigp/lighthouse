@@ -29,6 +29,31 @@ env:
   # Enable portable to prevent issues with caching `blst` for the wrong CPU type
   TEST_FEATURES: portable
 jobs:
+  check-labels:
+    runs-on: ubuntu-latest
+    name: Check for 'skip-ci' label
+    outputs:
+      skip_ci: ${{ steps.set-output.outputs.SKIP_CI }}
+    steps:
+     - name: check for skip-ci label
+       id: set-output
+       env:
+         LABELS: ${{ toJson(github.event.pull_request.labels) }}
+       run: |
+         SKIP_CI="false"
+         if [ -z "${LABELS}" ]  || [ "${LABELS}" = "null" ]; then
+           LABELS="none";
+         else
+           LABELS=$(echo ${LABELS} | jq -r '.[].name')
+         fi
+         for label in ${LABELS}; do
+           if [ "$label" = "skip-ci" ]; then
+             SKIP_CI="true"
+             break
+           fi
+         done
+         echo "skip_ci=$SKIP_CI" >> $GITHUB_OUTPUT
+
   target-branch-check:
     name: target-branch-check
     runs-on: ubuntu-latest
@@ -38,10 +63,12 @@ jobs:
           run: test ${{ github.base_ref }} != "stable"
   release-tests-ubuntu:
     name: release-tests-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
@@ -63,9 +90,11 @@ jobs:
       run: sccache --show-stats
   release-tests-windows:
     name: release-tests-windows
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "CI"]') || 'windows-2019'  }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
@@ -83,11 +112,6 @@ jobs:
     - name: Install make
       if: env.SELF_HOSTED_RUNNERS == 'false'
       run: choco install -y make
-#    - uses: KyleMayes/install-llvm-action@v1
-#         if: env.SELF_HOSTED_RUNNERS == 'false'
-#      with:
-#        version: "15.0"
-#        directory: ${{ runner.temp }}/llvm
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Run tests in release
@@ -97,12 +121,14 @@ jobs:
       run: sccache --show-stats
   beacon-chain-tests:
     name: beacon-chain-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
@@ -117,11 +143,13 @@ jobs:
       run: sccache --show-stats
   op-pool-tests:
     name: op-pool-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -132,11 +160,13 @@ jobs:
       run: make test-op-pool
   network-tests:
     name: network-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -147,11 +177,13 @@ jobs:
       run: make test-network
   slasher-tests:
     name: slasher-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -162,12 +194,14 @@ jobs:
       run: make test-slasher
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
@@ -186,9 +220,11 @@ jobs:
       run: sccache --show-stats
   state-transition-vectors-ubuntu:
     name: state-transition-vectors-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -198,12 +234,14 @@ jobs:
       run: make run-state-transition-tests
   ef-tests-ubuntu:
     name: ef-tests-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
@@ -211,119 +249,46 @@ jobs:
           channel: stable
           cache-target: release
           bins: cargo-nextest
-    - name: Run consensus-spec-tests with blst, milagro and fake_crypto
+    - name: Run consensus-spec-tests with blst and fake_crypto
       run: make nextest-ef
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
       run: sccache --show-stats
-  dockerfile-ubuntu:
-    name: dockerfile-ubuntu
+  basic-simulator-ubuntu:
+    name: basic-simulator-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - name: Build the root Dockerfile
-      run: docker build --build-arg FEATURES=portable -t lighthouse:local .
-    - name: Test the built image
-      run: docker run -t lighthouse:local lighthouse --version
-  eth1-simulator-ubuntu:
-    name: eth1-simulator-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
           cache-target: release
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-    - name: Run the beacon chain sim that starts from an eth1 contract
-      run: cargo run --release --bin simulator eth1-sim
-  merge-transition-ubuntu:
-    name: merge-transition-ubuntu
+    - name: Run a basic beacon chain sim that starts from Bellatrix
+      run: cargo run --release --bin simulator basic-sim
+  fallback-simulator-ubuntu:
+    name: fallback-simulator-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
           cache-target: release
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-    - name: Run the beacon chain sim and go through the merge transition
-      run: cargo run --release --bin simulator eth1-sim --post-merge
-  no-eth1-simulator-ubuntu:
-    name: no-eth1-simulator-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-    - name: Run the beacon chain sim without an eth1 connection
-      run: cargo run --release --bin simulator no-eth1-sim
-  syncing-simulator-ubuntu:
-    name: syncing-simulator-ubuntu
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-    - name: Install Foundry (anvil)
-      uses: foundry-rs/foundry-toolchain@v1
-      with:
-        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
-    - name: Run the syncing simulator
-      run: cargo run --release --bin simulator syncing-sim
-  doppelganger-protection-test:
-    name: doppelganger-protection-test
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
-    env:
-      # Enable portable to prevent issues with caching `blst` for the wrong CPU type
-      FEATURES: jemalloc,portable
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == 'false'
-      uses: moonrepo/setup-rust@v1
-      with:
-          channel: stable
-          cache-target: release
-    - name: Install geth
-      if: env.SELF_HOSTED_RUNNERS == 'false'
-      run: |
-          sudo add-apt-repository -y ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install ethereum
-    - name: Install lighthouse
-      run: |
-          make
-    - name: Install lcli
-      if: env.SELF_HOSTED_RUNNERS == 'false'
-      run: make install-lcli
-    - name: Run the doppelganger protection failure test script
-      run: |
-          cd scripts/tests
-          ./doppelganger_protection.sh failure genesis.json
-    - name: Run the doppelganger protection success test script
-      run: |
-          cd scripts/tests
-          ./doppelganger_protection.sh success genesis.json
+    - name: Run a beacon chain sim which tests VC fallback behaviour
+      run: cargo run --release --bin simulator fallback-sim
   execution-engine-integration-ubuntu:
     name: execution-engine-integration-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
@@ -344,7 +309,7 @@ jobs:
     env:
       CARGO_INCREMENTAL: 1
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -366,11 +331,13 @@ jobs:
       run: make audit-CI
     - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
       run:  CARGO_HOME=$(readlink -f $HOME) make vendor
+    - name: Markdown-linter
+      run: make mdlint
   check-msrv:
     name: check-msrv
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install Rust at Minimum Supported Rust Version (MSRV)
       run: |
         metadata=$(cargo metadata --no-deps --format-version 1)
@@ -380,9 +347,11 @@ jobs:
       run: cargo check --workspace
   cargo-udeps:
     name: cargo-udeps
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of nightly Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -402,20 +371,24 @@ jobs:
       RUSTFLAGS: ""
   compile-with-beta-compiler:
     name: compile-with-beta-compiler
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install dependencies
-      run: sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
+      run: sudo apt update && sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
     - name: Use Rust beta
       run: rustup override set beta
     - name: Run make
       run: make
   cli-check:
     name: cli-check
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -427,8 +400,10 @@ jobs:
   # a PR is safe to merge. New jobs should be added here.
   test-suite-success:
     name: test-suite-success
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     needs: [
+      'check-labels',
       'target-branch-check',
       'release-tests-ubuntu',
       'release-tests-windows',
@@ -439,12 +414,8 @@ jobs:
       'debug-tests-ubuntu',
       'state-transition-vectors-ubuntu',
       'ef-tests-ubuntu',
-      'dockerfile-ubuntu',
-      'eth1-simulator-ubuntu',
-      'merge-transition-ubuntu',
-      'no-eth1-simulator-ubuntu',
-      'syncing-simulator-ubuntu',
-      'doppelganger-protection-test',
+      'basic-simulator-ubuntu',
+      'fallback-simulator-ubuntu',
       'execution-engine-integration-ubuntu',
       'check-code',
       'check-msrv',
@@ -453,6 +424,6 @@ jobs:
       'cli-check',
     ]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Check that success job is dependent on all others
         run: ./scripts/ci/check-success-job.sh ./.github/workflows/test-suite.yml test-suite-success

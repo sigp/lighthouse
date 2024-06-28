@@ -6,14 +6,13 @@ edition = { workspace = true }
 
 [dependencies]
 discv5 = { workspace = true }
-unsigned-varint = { version = "0.6", features = ["codec"] }
+gossipsub = { workspace = true }
+unsigned-varint = { version = "0.8", features = ["codec"] }
 ssz_types = { workspace = true }
 types = { workspace = true }
 serde = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
-tree_hash = { workspace = true }
-tree_hash_derive = { workspace = true }
 slog = { workspace = true }
 lighthouse_version = { workspace = true }
 tokio = { workspace = true }
@@ -42,39 +41,26 @@ superstruct = { workspace = true }
 prometheus-client = "0.22.0"
 unused_port = { workspace = true }
 delay_map = { workspace = true }
-tracing = { workspace = true }
-byteorder = { workspace = true }
 bytes = { workspace = true }
 either = { workspace = true }
 
 # Local dependencies
-futures-ticker = "0.0.3"
-futures-timer = "3.0.2"
-getrandom = "0.2.11"
-hex_fmt = "0.3.0"
-instant = "0.1.12"
-quick-protobuf = "0.8"
 void = "1.0.2"
-async-channel = "1.9.0"
-asynchronous-codec = "0.7.0"
-base64 = "0.21.5"
 libp2p-mplex = "0.41"
-quick-protobuf-codec = "0.3"
 
 [dependencies.libp2p]
 version = "0.53"
 default-features = false
-features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "metrics", "quic"]
+features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "metrics", "quic", "upnp"]
 
 [dev-dependencies]
 slog-term = { workspace = true }
 slog-async = { workspace = true }
 tempfile = { workspace = true }
-exit-future = { workspace = true }
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
-async-std = { version = "1.6.3", features = ["unstable"] }
+async-channel = { workspace = true }
+logging = { workspace = true }
 
 [features]
 libp2p-websocket = []
-

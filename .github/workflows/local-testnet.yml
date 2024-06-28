@@ -13,88 +13,155 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  run-local-testnet:
-    strategy:
-      matrix:
-        os:
-          - ubuntu-22.04
-          - macos-12
-    runs-on: ${{ matrix.os }}
-    env:
-      # Enable portable to prevent issues with caching `blst` for the wrong CPU type
-      FEATURES: portable,jemalloc
+  dockerfile-ubuntu:
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: Get latest version of stable Rust
-        run: rustup update stable
-      - name: Install geth (ubuntu)
-        if: matrix.os == 'ubuntu-22.04'
+      - name: Build Docker image
         run: |
-          sudo add-apt-repository -y ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install ethereum
-      - name: Install geth (mac)
-        if: matrix.os == 'macos-12'
-        run: |
-          brew tap ethereum/ethereum
-          brew install ethereum
-      - name: Install GNU sed & GNU grep
-        if: matrix.os == 'macos-12'
-        run: |
-          brew install gnu-sed grep
-          echo "$(brew --prefix)/opt/gnu-sed/libexec/gnubin" >> $GITHUB_PATH
-          echo "$(brew --prefix)/opt/grep/libexec/gnubin" >> $GITHUB_PATH
-      # https://github.com/actions/cache/blob/main/examples.md#rust---cargo
-      - uses: actions/cache@v3
-        id: cache-cargo
+          docker build --build-arg FEATURES=portable -t lighthouse:local .
+          docker save lighthouse:local -o lighthouse-docker.tar
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
         with:
-          path: |
-              ~/.cargo/bin/
-              ~/.cargo/registry/index/
-              ~/.cargo/registry/cache/
-              ~/.cargo/git/db/
-              target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          name: lighthouse-docker
+          path: lighthouse-docker.tar
+          retention-days: 3
 
-      - name: Install lighthouse
-        run: make && make install-lcli
+  run-local-testnet:
+    runs-on: ubuntu-22.04
+    needs: dockerfile-ubuntu
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo add-apt-repository ppa:rmescandon/yq
+          echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
+          sudo apt update
+          sudo apt install -y kurtosis-cli yq
+          kurtosis analytics disable
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lighthouse-docker
+          path: .
+
+      - name: Load Docker image
+        run: docker load -i lighthouse-docker.tar
 
       - name: Start local testnet
-        run: ./start_local_testnet.sh genesis.json && sleep 60
+        run: ./start_local_testnet.sh -e local -c -b false && sleep 60
         working-directory: scripts/local_testnet
 
-      - name: Print logs
-        run: ./dump_logs.sh
-        working-directory: scripts/local_testnet
-
-      - name: Stop local testnet
-        run: ./stop_local_testnet.sh
-        working-directory: scripts/local_testnet
-
-      - name: Clean-up testnet
-        run: ./clean.sh
+      - name: Stop local testnet and dump logs
+        run: ./stop_local_testnet.sh local
         working-directory: scripts/local_testnet
 
       - name: Start local testnet with blinded block production
-        run: ./start_local_testnet.sh -p genesis.json && sleep 60
+        run: ./start_local_testnet.sh -e local-blinded -c -p -b false && sleep 60
         working-directory: scripts/local_testnet
 
-      - name: Print logs for blinded block testnet
-        run: ./dump_logs.sh
+      - name: Stop local testnet and dump logs
+        run: ./stop_local_testnet.sh local-blinded
         working-directory: scripts/local_testnet
 
-      - name: Stop local testnet with blinded block production
-        run: ./stop_local_testnet.sh
-        working-directory: scripts/local_testnet
+      - name: Upload logs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-local-testnet
+          path: |
+            scripts/local_testnet/logs
+          retention-days: 3
+
+  doppelganger-protection-success-test:
+    needs: dockerfile-ubuntu
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo add-apt-repository ppa:rmescandon/yq
+          echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
+          sudo apt update
+          sudo apt install -y kurtosis-cli yq
+          kurtosis analytics disable
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lighthouse-docker
+          path: .
+
+      - name: Load Docker image
+        run: docker load -i lighthouse-docker.tar
+
+      - name: Run the doppelganger protection success test script
+        run: |
+          ./doppelganger_protection.sh success
+        working-directory: scripts/tests
+
+      - name: Upload logs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-doppelganger-protection-success
+          path: |
+            scripts/local_testnet/logs
+          retention-days: 3
+
+  doppelganger-protection-failure-test:
+    needs: dockerfile-ubuntu
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo add-apt-repository ppa:rmescandon/yq
+          echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
+          sudo apt update
+          sudo apt install -y kurtosis-cli yq
+          kurtosis analytics disable
+
+      - name: Download Docker image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lighthouse-docker
+          path: .
+
+      - name: Load Docker image
+        run: docker load -i lighthouse-docker.tar
+
+      - name: Run the doppelganger protection failure test script
+        run: |
+          ./doppelganger_protection.sh failure
+        working-directory: scripts/tests
+
+      - name: Upload logs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-doppelganger-protection-failure
+          path: |
+            scripts/local_testnet/logs
+          retention-days: 3
+
 
   # This job succeeds ONLY IF all others succeed. It is used by the merge queue to determine whether
   # a PR is safe to merge. New jobs should be added here.
   local-testnet-success:
     name: local-testnet-success
     runs-on: ubuntu-latest
-    needs: ["run-local-testnet"]
+    needs: [
+      'dockerfile-ubuntu',
+      'run-local-testnet',
+      'doppelganger-protection-success-test',
+      'doppelganger-protection-failure-test',
+    ]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Check that success job is dependent on all others
         run: ./scripts/ci/check-success-job.sh ./.github/workflows/local-testnet.yml local-testnet-success

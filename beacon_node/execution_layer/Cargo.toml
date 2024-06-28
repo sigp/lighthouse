@@ -8,9 +8,7 @@ edition = { workspace = true }
 [dependencies]
 types = { workspace = true }
 tokio = { workspace = true }
-async-trait = "0.1.51"
 slog = { workspace = true }
-futures = { workspace = true }
 sensitive_url = { workspace = true }
 reqwest = { workspace = true }
 ethereum_serde_utils = { workspace = true }
@@ -29,7 +27,6 @@ kzg = { workspace = true }
 state_processing = { workspace = true }
 superstruct = { workspace = true }
 lru = { workspace = true }
-exit-future = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 parking_lot = { workspace = true }
@@ -51,3 +48,6 @@ hash-db = "0.15.2"
 pretty_reqwest_error = { workspace = true }
 arc-swap = "1.6.0"
 eth2_network_config = { workspace = true }
+alloy-rlp = "0.3"
+alloy-consensus = { git = "https://github.com/alloy-rs/alloy.git", rev = "974d488bab5e21e9f17452a39a4bfa56677367b2" }
+lighthouse_version = { workspace = true }

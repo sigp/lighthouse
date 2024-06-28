@@ -7,7 +7,6 @@ edition = { workspace = true }
 [features]
 # `ef_tests` feature must be enabled to actually run the tests
 ef_tests = []
-milagro = ["bls/milagro"]
 fake_crypto = ["bls/fake_crypto"]
 portable = ["beacon_chain/portable"]
 
@@ -25,19 +24,16 @@ serde_json = { workspace = true }
 serde_repr = { workspace = true }
 serde_yaml = { workspace = true }
 eth2_network_config = { workspace = true }
-ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
-cached_tree_hash = { workspace = true }
 state_processing = { workspace = true }
 swap_or_not_shuffle = { workspace = true }
 types = { workspace = true }
 snap = { workspace = true }
 fs2 = { workspace = true }
 beacon_chain = { workspace = true }
-store = { workspace = true }
 fork_choice = { workspace = true }
 execution_layer = { workspace = true }
 logging = { workspace = true }

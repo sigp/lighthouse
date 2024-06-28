@@ -1,11 +1,9 @@
 use super::methods::*;
-use crate::rpc::{
-    codec::{base::BaseInboundCodec, ssz_snappy::SSZSnappyInboundCodec, InboundCodec},
-    methods::{MaxErrorLen, ResponseTermination, MAX_ERROR_LEN},
-};
+use crate::rpc::codec::{base::BaseInboundCodec, ssz_snappy::SSZSnappyInboundCodec, InboundCodec};
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, StreamExt};
+use lazy_static::lazy_static;
 use libp2p::core::{InboundUpgrade, UpgradeInfo};
 use ssz::Encode;
 use ssz_types::VariableList;
@@ -20,9 +18,11 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName, MainnetEthSpec, Signature,
-    SignedBeaconBlock,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockCapella,
+    BeaconBlockElectra, BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName,
+    LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
+    LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
+    LightClientOptimisticUpdateAltair, MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
 lazy_static! {
@@ -54,8 +54,8 @@ lazy_static! {
     .as_ssz_bytes()
     .len();
 
-    pub static ref SIGNED_BEACON_BLOCK_MERGE_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Merge(BeaconBlockMerge::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec())),
+    pub static ref SIGNED_BEACON_BLOCK_BELLATRIX_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Bellatrix(BeaconBlockBellatrix::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec())),
         Signature::empty(),
     )
     .as_ssz_bytes()
@@ -68,14 +68,21 @@ lazy_static! {
     .as_ssz_bytes()
     .len();
 
-    /// The `BeaconBlockMerge` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
+    pub static ref SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Electra(BeaconBlockElectra::full(&MainnetEthSpec::default_spec())),
+        Signature::empty(),
+    )
+    .as_ssz_bytes()
+    .len();
+
+    /// The `BeaconBlockBellatrix` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
     /// We calculate the value from its fields instead of constructing the block and checking the length.
     /// Note: This is only the theoretical upper bound. We further bound the max size we receive over the network
     /// with `max_chunk_size`.
-    pub static ref SIGNED_BEACON_BLOCK_MERGE_MAX: usize =
+    pub static ref SIGNED_BEACON_BLOCK_BELLATRIX_MAX: usize =
     // Size of a full altair block
     *SIGNED_BEACON_BLOCK_ALTAIR_MAX
-    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_merge_size() // adding max size of execution payload (~16gb)
+    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_bellatrix_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET; // Adding the additional ssz offset for the `ExecutionPayload` field
 
     pub static ref SIGNED_BEACON_BLOCK_CAPELLA_MAX: usize = *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
@@ -85,6 +92,12 @@ lazy_static! {
     pub static ref SIGNED_BEACON_BLOCK_DENEB_MAX: usize = *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_deneb_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
+    + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
+    + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
+                                    //
+    pub static ref SIGNED_BEACON_BLOCK_ELECTRA_MAX: usize = *SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD
+    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_electra_size() // adding max size of execution payload (~16gb)
+    + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional ssz offset for the `ExecutionPayload` field
     + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
     + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
 
@@ -100,6 +113,16 @@ lazy_static! {
         ])
     .as_ssz_bytes()
     .len();
+
+    pub static ref LIGHT_CLIENT_FINALITY_UPDATE_CAPELLA_MAX: usize = LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella);
+    pub static ref LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX: usize = LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb);
+    pub static ref LIGHT_CLIENT_FINALITY_UPDATE_ELECTRA_MAX: usize = LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra);
+    pub static ref LIGHT_CLIENT_OPTIMISTIC_UPDATE_CAPELLA_MAX: usize = LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella);
+    pub static ref LIGHT_CLIENT_OPTIMISTIC_UPDATE_DENEB_MAX: usize = LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb);
+    pub static ref LIGHT_CLIENT_OPTIMISTIC_UPDATE_ELECTRA_MAX: usize = LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra);
+    pub static ref LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX: usize = LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella);
+    pub static ref LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX: usize = LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb);
+    pub static ref LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX: usize = LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra);
 }
 
 /// The protocol prefix the RPC protocol id.
@@ -112,9 +135,10 @@ const REQUEST_TIMEOUT: u64 = 15;
 pub fn max_rpc_size(fork_context: &ForkContext, max_chunk_size: usize) -> usize {
     match fork_context.current_fork() {
         ForkName::Altair | ForkName::Base => max_chunk_size / 10,
-        ForkName::Merge => max_chunk_size,
+        ForkName::Bellatrix => max_chunk_size,
         ForkName::Capella => max_chunk_size,
         ForkName::Deneb => max_chunk_size,
+        ForkName::Electra => max_chunk_size,
     }
 }
 
@@ -131,18 +155,78 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair blocks
             *SIGNED_BEACON_BLOCK_ALTAIR_MAX, // Altair block is larger than base blocks
         ),
-        ForkName::Merge => RpcLimits::new(
-            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
-            *SIGNED_BEACON_BLOCK_MERGE_MAX, // Merge block is larger than base and altair blocks
+        ForkName::Bellatrix => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
+            *SIGNED_BEACON_BLOCK_BELLATRIX_MAX, // Bellatrix block is larger than base and altair blocks
         ),
         ForkName::Capella => RpcLimits::new(
-            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
             *SIGNED_BEACON_BLOCK_CAPELLA_MAX, // Capella block is larger than base, altair and merge blocks
         ),
         ForkName::Deneb => RpcLimits::new(
-            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
-            *SIGNED_BEACON_BLOCK_DENEB_MAX, // EIP 4844 block is larger than all prior fork blocks
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
+            *SIGNED_BEACON_BLOCK_DENEB_MAX, // Deneb block is larger than all prior fork blocks
         ),
+        ForkName::Electra => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
+            *SIGNED_BEACON_BLOCK_ELECTRA_MAX, // Electra block is larger than Deneb block
+        ),
+    }
+}
+
+fn rpc_light_client_finality_update_limits_by_fork(current_fork: ForkName) -> RpcLimits {
+    let altair_fixed_len = LightClientFinalityUpdateAltair::<MainnetEthSpec>::ssz_fixed_len();
+
+    match &current_fork {
+        ForkName::Base => RpcLimits::new(0, 0),
+        ForkName::Altair | ForkName::Bellatrix => {
+            RpcLimits::new(altair_fixed_len, altair_fixed_len)
+        }
+        ForkName::Capella => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_CAPELLA_MAX)
+        }
+        ForkName::Deneb => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX)
+        }
+        ForkName::Electra => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_ELECTRA_MAX)
+        }
+    }
+}
+
+fn rpc_light_client_optimistic_update_limits_by_fork(current_fork: ForkName) -> RpcLimits {
+    let altair_fixed_len = LightClientOptimisticUpdateAltair::<MainnetEthSpec>::ssz_fixed_len();
+
+    match &current_fork {
+        ForkName::Base => RpcLimits::new(0, 0),
+        ForkName::Altair | ForkName::Bellatrix => {
+            RpcLimits::new(altair_fixed_len, altair_fixed_len)
+        }
+        ForkName::Capella => RpcLimits::new(
+            altair_fixed_len,
+            *LIGHT_CLIENT_OPTIMISTIC_UPDATE_CAPELLA_MAX,
+        ),
+        ForkName::Deneb => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_OPTIMISTIC_UPDATE_DENEB_MAX)
+        }
+        ForkName::Electra => RpcLimits::new(
+            altair_fixed_len,
+            *LIGHT_CLIENT_OPTIMISTIC_UPDATE_ELECTRA_MAX,
+        ),
+    }
+}
+
+fn rpc_light_client_bootstrap_limits_by_fork(current_fork: ForkName) -> RpcLimits {
+    let altair_fixed_len = LightClientBootstrapAltair::<MainnetEthSpec>::ssz_fixed_len();
+
+    match &current_fork {
+        ForkName::Base => RpcLimits::new(0, 0),
+        ForkName::Altair | ForkName::Bellatrix => {
+            RpcLimits::new(altair_fixed_len, altair_fixed_len)
+        }
+        ForkName::Capella => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX),
+        ForkName::Deneb => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX),
+        ForkName::Electra => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX),
     }
 }
 
@@ -174,6 +258,12 @@ pub enum Protocol {
     /// The `LightClientBootstrap` protocol name.
     #[strum(serialize = "light_client_bootstrap")]
     LightClientBootstrap,
+    /// The `LightClientOptimisticUpdate` protocol name.
+    #[strum(serialize = "light_client_optimistic_update")]
+    LightClientOptimisticUpdate,
+    /// The `LightClientFinalityUpdate` protocol name.
+    #[strum(serialize = "light_client_finality_update")]
+    LightClientFinalityUpdate,
 }
 
 impl Protocol {
@@ -188,6 +278,8 @@ impl Protocol {
             Protocol::Ping => None,
             Protocol::MetaData => None,
             Protocol::LightClientBootstrap => None,
+            Protocol::LightClientOptimisticUpdate => None,
+            Protocol::LightClientFinalityUpdate => None,
         }
     }
 }
@@ -213,6 +305,8 @@ pub enum SupportedProtocol {
     MetaDataV1,
     MetaDataV2,
     LightClientBootstrapV1,
+    LightClientOptimisticUpdateV1,
+    LightClientFinalityUpdateV1,
 }
 
 impl SupportedProtocol {
@@ -230,6 +324,8 @@ impl SupportedProtocol {
             SupportedProtocol::MetaDataV1 => "1",
             SupportedProtocol::MetaDataV2 => "2",
             SupportedProtocol::LightClientBootstrapV1 => "1",
+            SupportedProtocol::LightClientOptimisticUpdateV1 => "1",
+            SupportedProtocol::LightClientFinalityUpdateV1 => "1",
         }
     }
 
@@ -247,6 +343,10 @@ impl SupportedProtocol {
             SupportedProtocol::MetaDataV1 => Protocol::MetaData,
             SupportedProtocol::MetaDataV2 => Protocol::MetaData,
             SupportedProtocol::LightClientBootstrapV1 => Protocol::LightClientBootstrap,
+            SupportedProtocol::LightClientOptimisticUpdateV1 => {
+                Protocol::LightClientOptimisticUpdate
+            }
+            SupportedProtocol::LightClientFinalityUpdateV1 => Protocol::LightClientFinalityUpdate,
         }
     }
 
@@ -283,15 +383,15 @@ impl std::fmt::Display for Encoding {
 }
 
 #[derive(Debug, Clone)]
-pub struct RPCProtocol<TSpec: EthSpec> {
+pub struct RPCProtocol<E: EthSpec> {
     pub fork_context: Arc<ForkContext>,
     pub max_rpc_size: usize,
     pub enable_light_client_server: bool,
-    pub phantom: PhantomData<TSpec>,
+    pub phantom: PhantomData<E>,
     pub ttfb_timeout: Duration,
 }
 
-impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
+impl<E: EthSpec> UpgradeInfo for RPCProtocol<E> {
     type Info = ProtocolId;
     type InfoIter = Vec<Self::Info>;
 
@@ -301,6 +401,14 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
         if self.enable_light_client_server {
             supported_protocols.push(ProtocolId::new(
                 SupportedProtocol::LightClientBootstrapV1,
+                Encoding::SSZSnappy,
+            ));
+            supported_protocols.push(ProtocolId::new(
+                SupportedProtocol::LightClientOptimisticUpdateV1,
+                Encoding::SSZSnappy,
+            ));
+            supported_protocols.push(ProtocolId::new(
+                SupportedProtocol::LightClientFinalityUpdateV1,
                 Encoding::SSZSnappy,
             ));
         }
@@ -377,12 +485,14 @@ impl ProtocolId {
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
             ),
+            Protocol::LightClientOptimisticUpdate => RpcLimits::new(0, 0),
+            Protocol::LightClientFinalityUpdate => RpcLimits::new(0, 0),
             Protocol::MetaData => RpcLimits::new(0, 0), // Metadata requests are empty
         }
     }
 
     /// Returns min and max size for messages of given protocol id responses.
-    pub fn rpc_response_limits<T: EthSpec>(&self, fork_context: &ForkContext) -> RpcLimits {
+    pub fn rpc_response_limits<E: EthSpec>(&self, fork_context: &ForkContext) -> RpcLimits {
         match self.versioned_protocol.protocol() {
             Protocol::Status => RpcLimits::new(
                 <StatusMessage as Encode>::ssz_fixed_len(),
@@ -391,20 +501,25 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
-            Protocol::BlobsByRange => rpc_blob_limits::<T>(),
-            Protocol::BlobsByRoot => rpc_blob_limits::<T>(),
+            Protocol::BlobsByRange => rpc_blob_limits::<E>(),
+            Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
             ),
             Protocol::MetaData => RpcLimits::new(
-                <MetaDataV1<T> as Encode>::ssz_fixed_len(),
-                <MetaDataV2<T> as Encode>::ssz_fixed_len(),
+                <MetaDataV1<E> as Encode>::ssz_fixed_len(),
+                <MetaDataV2<E> as Encode>::ssz_fixed_len(),
             ),
-            Protocol::LightClientBootstrap => RpcLimits::new(
-                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
-                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
-            ),
+            Protocol::LightClientBootstrap => {
+                rpc_light_client_bootstrap_limits_by_fork(fork_context.current_fork())
+            }
+            Protocol::LightClientOptimisticUpdate => {
+                rpc_light_client_optimistic_update_limits_by_fork(fork_context.current_fork())
+            }
+            Protocol::LightClientFinalityUpdate => {
+                rpc_light_client_finality_update_limits_by_fork(fork_context.current_fork())
+            }
         }
     }
 
@@ -416,7 +531,9 @@ impl ProtocolId {
             | SupportedProtocol::BlocksByRootV2
             | SupportedProtocol::BlobsByRangeV1
             | SupportedProtocol::BlobsByRootV1
-            | SupportedProtocol::LightClientBootstrapV1 => true,
+            | SupportedProtocol::LightClientBootstrapV1
+            | SupportedProtocol::LightClientOptimisticUpdateV1
+            | SupportedProtocol::LightClientFinalityUpdateV1 => true,
             SupportedProtocol::StatusV1
             | SupportedProtocol::BlocksByRootV1
             | SupportedProtocol::BlocksByRangeV1
@@ -447,10 +564,10 @@ impl ProtocolId {
     }
 }
 
-pub fn rpc_blob_limits<T: EthSpec>() -> RpcLimits {
+pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
     RpcLimits::new(
-        BlobSidecar::<T>::empty().as_ssz_bytes().len(),
-        BlobSidecar::<T>::max_size(),
+        BlobSidecar::<E>::empty().as_ssz_bytes().len(),
+        BlobSidecar::<E>::max_size(),
     )
 }
 
@@ -459,16 +576,16 @@ pub fn rpc_blob_limits<T: EthSpec>() -> RpcLimits {
 // The inbound protocol reads the request, decodes it and returns the stream to the protocol
 // handler to respond to once ready.
 
-pub type InboundOutput<TSocket, TSpec> = (InboundRequest<TSpec>, InboundFramed<TSocket, TSpec>);
-pub type InboundFramed<TSocket, TSpec> =
-    Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, InboundCodec<TSpec>>;
+pub type InboundOutput<TSocket, E> = (InboundRequest<E>, InboundFramed<TSocket, E>);
+pub type InboundFramed<TSocket, E> =
+    Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, InboundCodec<E>>;
 
-impl<TSocket, TSpec> InboundUpgrade<TSocket> for RPCProtocol<TSpec>
+impl<TSocket, E> InboundUpgrade<TSocket> for RPCProtocol<E>
 where
     TSocket: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-    TSpec: EthSpec,
+    E: EthSpec,
 {
-    type Output = InboundOutput<TSocket, TSpec>;
+    type Output = InboundOutput<TSocket, E>;
     type Error = RPCError;
     type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
 
@@ -500,6 +617,12 @@ where
                 SupportedProtocol::MetaDataV2 => {
                     Ok((InboundRequest::MetaData(MetadataRequest::new_v2()), socket))
                 }
+                SupportedProtocol::LightClientOptimisticUpdateV1 => {
+                    Ok((InboundRequest::LightClientOptimisticUpdate, socket))
+                }
+                SupportedProtocol::LightClientFinalityUpdateV1 => {
+                    Ok((InboundRequest::LightClientFinalityUpdate, socket))
+                }
                 _ => {
                     match tokio::time::timeout(
                         Duration::from_secs(REQUEST_TIMEOUT),
@@ -520,7 +643,7 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum InboundRequest<TSpec: EthSpec> {
+pub enum InboundRequest<E: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
@@ -528,26 +651,30 @@ pub enum InboundRequest<TSpec: EthSpec> {
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
+    LightClientOptimisticUpdate,
+    LightClientFinalityUpdate,
     Ping(Ping),
-    MetaData(MetadataRequest<TSpec>),
+    MetaData(MetadataRequest<E>),
 }
 
 /// Implements the encoding per supported protocol for `RPCRequest`.
-impl<TSpec: EthSpec> InboundRequest<TSpec> {
+impl<E: EthSpec> InboundRequest<E> {
     /* These functions are used in the handler for stream management */
 
-    /// Number of responses expected for this request.
-    pub fn expected_responses(&self) -> u64 {
+    /// Maximum number of responses expected for this request.
+    pub fn max_responses(&self) -> u64 {
         match self {
             InboundRequest::Status(_) => 1,
             InboundRequest::Goodbye(_) => 0,
             InboundRequest::BlocksByRange(req) => *req.count(),
             InboundRequest::BlocksByRoot(req) => req.block_roots().len() as u64,
-            InboundRequest::BlobsByRange(req) => req.max_blobs_requested::<TSpec>(),
+            InboundRequest::BlobsByRange(req) => req.max_blobs_requested::<E>(),
             InboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
             InboundRequest::LightClientBootstrap(_) => 1,
+            InboundRequest::LightClientOptimisticUpdate => 1,
+            InboundRequest::LightClientFinalityUpdate => 1,
         }
     }
 
@@ -572,6 +699,12 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
                 MetadataRequest::V2(_) => SupportedProtocol::MetaDataV2,
             },
             InboundRequest::LightClientBootstrap(_) => SupportedProtocol::LightClientBootstrapV1,
+            InboundRequest::LightClientOptimisticUpdate => {
+                SupportedProtocol::LightClientOptimisticUpdateV1
+            }
+            InboundRequest::LightClientFinalityUpdate => {
+                SupportedProtocol::LightClientFinalityUpdateV1
+            }
         }
     }
 
@@ -590,6 +723,8 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Ping(_) => unreachable!(),
             InboundRequest::MetaData(_) => unreachable!(),
             InboundRequest::LightClientBootstrap(_) => unreachable!(),
+            InboundRequest::LightClientFinalityUpdate => unreachable!(),
+            InboundRequest::LightClientOptimisticUpdate => unreachable!(),
         }
     }
 }
@@ -684,7 +819,7 @@ impl std::error::Error for RPCError {
     }
 }
 
-impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
+impl<E: EthSpec> std::fmt::Display for InboundRequest<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             InboundRequest::Status(status) => write!(f, "Status Message: {}", status),
@@ -696,7 +831,13 @@ impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
             InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
             InboundRequest::LightClientBootstrap(bootstrap) => {
-                write!(f, "LightClientBootstrap: {}", bootstrap.root)
+                write!(f, "Light client boostrap: {}", bootstrap.root)
+            }
+            InboundRequest::LightClientOptimisticUpdate => {
+                write!(f, "Light client optimistic update request")
+            }
+            InboundRequest::LightClientFinalityUpdate => {
+                write!(f, "Light client finality update request")
             }
         }
     }

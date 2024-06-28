@@ -86,8 +86,8 @@ pub fn decode_eth1_tx_data(
 mod tests {
     use super::*;
     use types::{
-        test_utils::generate_deterministic_keypair, ChainSpec, EthSpec, Hash256, Keypair,
-        MinimalEthSpec, Signature,
+        test_utils::generate_deterministic_keypair, ChainSpec, EthSpec, Keypair, MinimalEthSpec,
+        Signature,
     };
 
     type E = MinimalEthSpec;
@@ -96,7 +96,7 @@ mod tests {
         let mut deposit_data = DepositData {
             pubkey: keypair.pk.into(),
             withdrawal_credentials: Hash256::from_slice(&[42; 32]),
-            amount: u64::max_value(),
+            amount: u64::MAX,
             signature: Signature::empty().into(),
         };
         deposit_data.signature = deposit_data.create_signature(&keypair.sk, spec);
