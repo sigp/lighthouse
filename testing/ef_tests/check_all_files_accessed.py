@@ -35,12 +35,12 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientSnapshot
     "tests/.*/.*/ssz_static/LightClientSnapshot",
+    # Unused container for das
+    "tests/.*/.*/ssz_static/MatrixEntry",
     # Unused kzg methods
-    "tests/.*/.*/kzg/compute_cells",
-    "tests/.*/.*/kzg/recover_all_cells",
     "tests/.*/.*/kzg/verify_cell_kzg_proof",
     # One of the EF researchers likes to pack the tarballs on a Mac
-    ".*\.DS_Store.*",
+    ".*/.DS_Store.*",
     # More Mac weirdness.
     "tests/mainnet/bellatrix/operations/deposit/pyspec_tests/deposit_with_previous_fork_version__valid_ineffective/._meta.yaml",
     "tests/mainnet/eip7594/networking/get_custody_columns/pyspec_tests/get_custody_columns__short_node_id/._meta.yaml",

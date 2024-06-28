@@ -5,7 +5,6 @@ use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use rand::seq::SliceRandom;
 use score::{PeerAction, ReportSource, Score, ScoreState};
 use slog::{crit, debug, error, trace, warn};
-use ssz::Encode;
 use std::net::IpAddr;
 use std::time::Instant;
 use std::{cmp::Ordering, fmt::Display};
@@ -687,7 +686,7 @@ impl<E: EthSpec> PeerDB<E> {
         if supernode {
             enr.insert(
                 PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY,
-                &spec.data_column_sidecar_subnet_count.as_ssz_bytes(),
+                &spec.data_column_sidecar_subnet_count,
                 &enr_key,
             )
             .expect("u64 can be encoded");

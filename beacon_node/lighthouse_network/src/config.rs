@@ -42,7 +42,7 @@ pub struct Config {
     pub network_dir: PathBuf,
 
     /// IP addresses to listen on.
-    listen_addresses: ListenAddress,
+    pub(crate) listen_addresses: ListenAddress,
 
     /// The address to broadcast to peers about which address we are listening on. None indicates
     /// that no discovery address has been set in the CLI args.
