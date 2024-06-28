@@ -778,25 +778,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
-    /// Re-seed the network with reconstructed data columns.
-    fn handle_data_columns_to_publish(
-        &self,
-        data_columns_to_publish: DataColumnSidecarVec<T::EthSpec>,
-    ) {
-        self.send_network_message(NetworkMessage::Publish {
-            messages: data_columns_to_publish
-                .iter()
-                .map(|d| {
-                    let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
-                        d.index as usize,
-                        &self.chain.spec,
-                    );
-                    PubsubMessage::DataColumnSidecar(Box::new((subnet, d.clone())))
-                })
-                .collect(),
-        });
-    }
-
     async fn attempt_data_column_reconstruction(&self, block_root: Hash256) {
         let result = self.chain.reconstruct_data_columns(block_root).await;
         match result {
@@ -822,7 +803,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 }
 
-                self.handle_data_columns_to_publish(data_columns_to_publish);
+                self.send_network_message(NetworkMessage::Publish {
+                    messages: data_columns_to_publish
+                        .iter()
+                        .map(|d| {
+                            let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
+                                d.index as usize,
+                                &self.chain.spec,
+                            );
+                            PubsubMessage::DataColumnSidecar(Box::new((subnet, d.clone())))
+                        })
+                        .collect(),
+                });
             }
             Ok(None) => {
                 debug!(

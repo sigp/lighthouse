@@ -600,6 +600,10 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
             (Some(blobs), _) => RpcBlockInner::BlockAndBlobs(block, blobs),
             (_, Some(data_columns)) => RpcBlockInner::BlockAndCustodyColumns(
                 block,
+                // TODO(das): This is an ugly hack that should be removed. After updating
+                // store types to handle custody data columns this should not be required.
+                // It's okay-ish because available blocks must have all the required custody
+                // columns.
                 data_columns
                     .into_iter()
                     .map(CustodyDataColumn::from_asserted_custody)

@@ -64,6 +64,7 @@ pub struct PendingComponents<E: EthSpec> {
     pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
     pub verified_data_columns: RuntimeVariableList<KzgVerifiedCustodyDataColumn<E>>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
+    pub reconstruction_started: bool,
 }
 
 pub enum BlockImportRequirement {
@@ -277,6 +278,7 @@ impl<E: EthSpec> PendingComponents<E> {
             verified_blobs: FixedVector::default(),
             verified_data_columns: RuntimeVariableList::empty(spec.number_of_columns),
             executed_block: None,
+            reconstruction_started: false,
         }
     }
 
@@ -355,6 +357,11 @@ impl<E: EthSpec> PendingComponents<E> {
         Ok(Availability::Available(Box::new(
             AvailableExecutedBlock::new(available_block, import_data, payload_verification_outcome),
         )))
+    }
+
+    /// Mark reconstruction as started for this `PendingComponent`.
+    pub fn reconstruction_started(&mut self) {
+        self.reconstruction_started = true;
     }
 
     /// Returns the epoch of the block if it is cached, otherwise returns the epoch of the first blob.
@@ -744,8 +751,6 @@ pub struct OverflowLRUCache<T: BeaconChainTypes> {
     capacity: NonZeroUsize,
     /// The number of data columns the node is custodying.
     custody_column_count: usize,
-    /// The block root of data columns currently being reconstructed, if any.
-    reconstructing_block_root: Mutex<Option<Hash256>>,
     log: Logger,
     spec: Arc<ChainSpec>,
 }
@@ -768,7 +773,6 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             maintenance_lock: Mutex::new(()),
             capacity,
             custody_column_count,
-            reconstructing_block_root: Mutex::new(None),
             log,
             spec,
         })
@@ -858,7 +862,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         AvailabilityCheckError,
     > {
         // Clone the pending components, so we don't hold the read lock during reconstruction
-        let Some(pending_components) = self
+        let Some(mut pending_components) = self
             .peek_pending_components(&block_root, |pending_components_opt| {
                 pending_components_opt.cloned()
             })
@@ -872,7 +876,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             .map(|r| self.should_reconstruct(&r, &pending_components))?;
 
         if should_reconstruct {
-            *self.reconstructing_block_root.lock() = Some(block_root);
+            pending_components.reconstruction_started();
 
             let timer = metrics::start_timer(&metrics::DATA_AVAILABILITY_RECONSTRUCTION_TIME);
 
@@ -898,6 +902,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                 })
             else {
                 // If block is already imported (no longer in cache), abort publishing data columns
+                // TODO(das) This assumes only supernodes do reconstructions (i.e. custody
+                // requirement = all columns). This behaviour is likely to change in the future.
                 return Ok(None);
             };
 
@@ -988,8 +994,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         let has_missing_columns = pending_components.verified_data_columns.len() < num_of_columns;
 
         has_missing_columns
-            // for simplicity now, we only reconstruct columns for one block at a time.
-            && self.reconstructing_block_root.lock().is_none()
+            && !pending_components.reconstruction_started
             && *num_expected_columns == num_of_columns
             && pending_components.verified_data_columns.len() >= num_of_columns / 2
     }
