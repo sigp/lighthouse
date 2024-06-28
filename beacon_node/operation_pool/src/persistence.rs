@@ -246,7 +246,7 @@ impl<E: EthSpec> StoreItem for PersistedOperationPoolV20<E> {
     }
 }
 
-/// Deserialization for `PersistedOperationPool` defaults to `PersistedOperationPool::V12`.
+/// Deserialization for `PersistedOperationPool` defaults to `PersistedOperationPool::V20`.
 impl<E: EthSpec> StoreItem for PersistedOperationPool<E> {
     fn db_column() -> DBColumn {
         DBColumn::OpPool
