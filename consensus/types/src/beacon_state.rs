@@ -1090,7 +1090,6 @@ impl<E: EthSpec> BeaconState<E> {
         let active_validator_count = active_validator_indices.len();
 
         let seed = self.get_seed(epoch, Domain::SyncCommittee, spec)?;
-
         let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
 
         let mut i = 0;
