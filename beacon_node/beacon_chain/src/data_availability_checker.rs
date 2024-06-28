@@ -2,7 +2,9 @@ use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, Kzg
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
 };
-use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
+use crate::data_availability_checker::overflow_lru_cache::{
+    AvailabilityAndReconstructedColumns, OverflowLRUCache,
+};
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
 use slog::{debug, error, o, Logger};
@@ -158,17 +160,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.availability_cache.peek_data_column(data_column_id)
     }
 
-    #[allow(clippy::type_complexity)]
     pub fn reconstruct_data_columns(
         &self,
         block_root: Hash256,
-    ) -> Result<
-        Option<(
-            Availability<<T as BeaconChainTypes>::EthSpec>,
-            DataColumnSidecarVec<<T as BeaconChainTypes>::EthSpec>,
-        )>,
-        Error,
-    > {
+    ) -> Result<Option<AvailabilityAndReconstructedColumns<T::EthSpec>>, Error> {
         let Some(kzg) = self.kzg.as_ref() else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
         };

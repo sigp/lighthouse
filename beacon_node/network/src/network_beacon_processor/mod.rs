@@ -778,6 +778,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
+    /// Attempt to reconstruct all data columns if the following conditions satisfies:
+    /// - Our custody requirement is all columns
+    /// - We >= 50% of columns, but not all columns
     async fn attempt_data_column_reconstruction(&self, block_root: Hash256) {
         let result = self.chain.reconstruct_data_columns(block_root).await;
         match result {
@@ -793,7 +796,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         self.chain.recompute_head_at_current_slot().await;
                     }
                     AvailabilityProcessingStatus::MissingComponents(_, _) => {
-                        // TODO: confirm we only perform reconstruction after block is received
                         debug!(
                             self.log,
                             "Block components still missing block after reconstruction";

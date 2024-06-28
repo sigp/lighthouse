@@ -72,6 +72,8 @@ pub enum BlockImportRequirement {
     CustodyColumns(usize),
 }
 
+pub type AvailabilityAndReconstructedColumns<E> = (Availability<E>, DataColumnSidecarVec<E>);
+
 impl<E: EthSpec> PendingComponents<E> {
     /// Returns an immutable reference to the cached block.
     pub fn get_cached_block(&self) -> &Option<DietAvailabilityPendingExecutedBlock<E>> {
@@ -852,15 +854,12 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         }
     }
 
-    #[allow(clippy::type_complexity)]
     pub fn reconstruct_data_columns(
         &self,
         kzg: &Kzg,
         block_root: Hash256,
-    ) -> Result<
-        Option<(Availability<T::EthSpec>, DataColumnSidecarVec<T::EthSpec>)>,
-        AvailabilityCheckError,
-    > {
+    ) -> Result<Option<AvailabilityAndReconstructedColumns<T::EthSpec>>, AvailabilityCheckError>
+    {
         // Clone the pending components, so we don't hold the read lock during reconstruction
         let Some(mut pending_components) = self
             .peek_pending_components(&block_root, |pending_components_opt| {
