@@ -47,7 +47,10 @@ pub trait CommandLineTestExec {
             .arg(tmp_config_path.as_os_str())
             .arg(format!("--{}", "dump-chain-config"))
             .arg(tmp_chain_config_path.as_os_str());
-        if !cmd.get_args().any(|arg| arg == "--execution-endpoint") {
+        if !cmd
+            .get_args()
+            .any(|arg| arg == "--execution-endpoint" || arg == "--execution-endpoints")
+        {
             cmd.arg("--execution-endpoint").arg("http://localhost");
         }
         if !cmd.get_args().any(|arg| {
