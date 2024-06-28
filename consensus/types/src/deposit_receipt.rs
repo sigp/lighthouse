@@ -19,7 +19,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
-pub struct DepositReceipt {
+pub struct DepositRequest {
     pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -33,5 +33,5 @@ pub struct DepositReceipt {
 mod tests {
     use super::*;
 
-    ssz_and_tree_hash_tests!(DepositReceipt);
+    ssz_and_tree_hash_tests!(DepositRequest);
 }

@@ -180,7 +180,8 @@ pub struct ChainSpec {
     pub electra_fork_version: [u8; 4],
     /// The Electra fork epoch is optional, with `None` representing "Electra never happens".
     pub electra_fork_epoch: Option<Epoch>,
-    pub unset_deposit_receipts_start_index: u64,
+    // TODO(pawan): this shouldn't be a config parameter?
+    pub unset_deposit_requests_start_index: u64,
     pub full_exit_request_amount: u64,
     pub min_activation_balance: u64,
     pub max_effective_balance_electra: u64,
@@ -747,7 +748,7 @@ impl ChainSpec {
              */
             electra_fork_version: [0x05, 00, 00, 00],
             electra_fork_epoch: None,
-            unset_deposit_receipts_start_index: u64::MAX,
+            unset_deposit_requests_start_index: u64::MAX,
             full_exit_request_amount: 0,
             min_activation_balance: option_wrapper(|| {
                 u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
@@ -1049,7 +1050,7 @@ impl ChainSpec {
              */
             electra_fork_version: [0x05, 0x00, 0x00, 0x64],
             electra_fork_epoch: None,
-            unset_deposit_receipts_start_index: u64::MAX,
+            unset_deposit_requests_start_index: u64::MAX,
             full_exit_request_amount: 0,
             min_activation_balance: option_wrapper(|| {
                 u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
