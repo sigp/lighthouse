@@ -354,7 +354,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
 
     // Process consolidations outside the single-pass loop, as they depend on balances for multiple
     // validators and cannot be computed accurately inside the loop.
-    if fork_name >= ForkName::Electra && conf.pending_consolidations {
+    if fork_name.electra_enabled() && conf.pending_consolidations {
         process_pending_consolidations(
             state,
             &mut next_epoch_cache,
