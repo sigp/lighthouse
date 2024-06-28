@@ -197,7 +197,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     // Compute shared values required for different parts of epoch processing.
     let rewards_ctxt = &RewardsAndPenaltiesContext::new(progressive_balances, state_ctxt, spec)?;
 
-    let mut activation_queues = if fork_name < ForkName::Electra {
+    let mut activation_queues = if !fork_name.electra_enabled() {
         let activation_queue = epoch_cache
             .activation_queue()?
             .get_validators_eligible_for_activation(
