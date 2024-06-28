@@ -856,23 +856,20 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // Find a peer to request the batch
         let failed_peers = batch.failed_peers();
 
-        let new_peer = {
-            let mut priorized_peers = self
-                .peers
-                .iter()
-                .map(|(peer, requests)| {
-                    (
-                        failed_peers.contains(peer),
-                        requests.len(),
-                        rand::thread_rng().gen::<u32>(),
-                        *peer,
-                    )
-                })
-                .collect::<Vec<_>>();
+        let new_peer = self
+            .peers
+            .iter()
+            .map(|(peer, requests)| {
+                (
+                    failed_peers.contains(peer),
+                    requests.len(),
+                    rand::thread_rng().gen::<u32>(),
+                    *peer,
+                )
+            })
             // Sort peers prioritizing unrelated peers with less active requests.
-            priorized_peers.sort_unstable();
-            priorized_peers.first().map(|&(_, _, _, peer)| peer)
-        };
+            .min()
+            .map(|(_, _, _, peer)| peer);
 
         if let Some(peer) = new_peer {
             self.send_batch(network, batch_id, peer)
