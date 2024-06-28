@@ -664,7 +664,7 @@ fn initiate_validator_exit(
         return Ok(());
     }
 
-    let exit_queue_epoch = if state_ctxt.fork_name >= ForkName::Electra {
+    let exit_queue_epoch = if state_ctxt.fork_name.electra_enabled() {
         compute_exit_epoch_and_update_churn(
             validator,
             state_ctxt,
