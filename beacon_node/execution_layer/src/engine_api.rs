@@ -64,7 +64,6 @@ pub enum Error {
     ExecutionHeadBlockNotFound,
     ParentHashEqualsBlockHash(ExecutionBlockHash),
     PayloadIdUnavailable,
-    TransitionConfigurationMismatch,
     SszError(ssz_types::Error),
     DeserializeWithdrawals(ssz_types::Error),
     DeserializeDepositRequests(ssz_types::Error),
@@ -635,38 +634,42 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                 }
             }
             ExecutionPayloadHeader::Electra(header) => {
-                let (Some(withdrawals), Some(deposit_requests), Some(withdrawal_requests)) = (
+                let withdrawals_exist = self.withdrawals.is_some();
+                let deposit_requests_exist = self.deposit_requests.is_some();
+                let withdrawal_requests_exist = self.withdrawal_requests.is_some();
+                if let (Some(withdrawals), Some(deposit_requests), Some(withdrawal_requests)) = (
                     self.withdrawals,
                     self.deposit_requests,
                     self.withdrawal_requests,
-                ) else {
-                    return Err(format!(
+                ) {
+                    Ok(ExecutionPayload::Electra(ExecutionPayloadElectra {
+                        parent_hash: header.parent_hash,
+                        fee_recipient: header.fee_recipient,
+                        state_root: header.state_root,
+                        receipts_root: header.receipts_root,
+                        logs_bloom: header.logs_bloom,
+                        prev_randao: header.prev_randao,
+                        block_number: header.block_number,
+                        gas_limit: header.gas_limit,
+                        gas_used: header.gas_used,
+                        timestamp: header.timestamp,
+                        extra_data: header.extra_data,
+                        base_fee_per_gas: header.base_fee_per_gas,
+                        block_hash: header.block_hash,
+                        transactions: self.transactions,
+                        withdrawals,
+                        blob_gas_used: header.blob_gas_used,
+                        excess_blob_gas: header.excess_blob_gas,
+                        deposit_requests,
+                        withdrawal_requests,
+                    }))
+                } else {
+                    Err(format!(
                         "block {} is post-electra but payload body doesn't have withdrawals/deposit_requests/withdrawal_requests \
-                        Check that ELs are returning receipts and withdrawal_requests in getPayloadBody requests",
-                        header.block_hash
-                    ));
-                };
-                Ok(ExecutionPayload::Electra(ExecutionPayloadElectra {
-                    parent_hash: header.parent_hash,
-                    fee_recipient: header.fee_recipient,
-                    state_root: header.state_root,
-                    receipts_root: header.receipts_root,
-                    logs_bloom: header.logs_bloom,
-                    prev_randao: header.prev_randao,
-                    block_number: header.block_number,
-                    gas_limit: header.gas_limit,
-                    gas_used: header.gas_used,
-                    timestamp: header.timestamp,
-                    extra_data: header.extra_data,
-                    base_fee_per_gas: header.base_fee_per_gas,
-                    block_hash: header.block_hash,
-                    transactions: self.transactions,
-                    withdrawals,
-                    blob_gas_used: header.blob_gas_used,
-                    excess_blob_gas: header.excess_blob_gas,
-                    deposit_requests,
-                    withdrawal_requests,
-                }))
+                        withdrawals: {}, deposit_requests: {}, withdrawal_requests: {}",
+                        header.block_hash, withdrawals_exist, deposit_requests_exist, withdrawal_requests_exist
+                    ))
+                }
             }
         }
     }
