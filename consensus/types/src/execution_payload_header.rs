@@ -26,8 +26,11 @@ use tree_hash_derive::TreeHash;
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
-        tree_hash(max_fields = "typenum::U64")
     ),
+    specific_variant_attributes(Electra(tree_hash(
+        struct_behaviour = "profile",
+        max_fields = "typenum::U64"
+    ))),
     ref_attributes(
         derive(PartialEq, TreeHash, Debug),
         tree_hash(enum_behaviour = "transparent")

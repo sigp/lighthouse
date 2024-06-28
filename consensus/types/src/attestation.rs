@@ -78,10 +78,11 @@ pub struct Attestation<E: EthSpec> {
     pub aggregation_bits: BitList<E::MaxValidatorsPerSlot>,
     #[tree_hash(stable_index = 1)]
     pub data: AttestationData,
-    #[superstruct(only(Electra))]
     #[tree_hash(stable_index = 2)]
-    pub committee_bits: BitVector<E::MaxCommitteesPerSlot>,
     pub signature: AggregateSignature,
+    #[superstruct(only(Electra))]
+    #[tree_hash(stable_index = 3)]
+    pub committee_bits: BitVector<E::MaxCommitteesPerSlot>,
 }
 
 impl<E: EthSpec> Hash for Attestation<E> {

@@ -37,8 +37,11 @@ pub type WithdrawalRequests<E> =
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
-        tree_hash(max_fields = "typenum::U64")
     ),
+    specific_variant_attributes(Electra(tree_hash(
+        struct_behaviour = "profile",
+        max_fields = "typenum::U64"
+    ))),
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     map_into(FullPayload, BlindedPayload),

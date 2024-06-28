@@ -234,7 +234,6 @@ impl From<BeaconStateHash> for Hash256 {
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
         derivative(Clone),
-        tree_hash(struct_behaviour = "profile", max_fields = "typenum::U128"),
     ),
     specific_variant_attributes(
         Base(metastruct(
@@ -307,20 +306,27 @@ impl From<BeaconStateHash> for Hash256 {
             )),
             num_fields(all()),
         )),
-        Electra(metastruct(
-            mappings(
-                map_beacon_state_electra_fields(),
-                map_beacon_state_electra_tree_list_fields(mutable, fallible, groups(tree_lists)),
-                map_beacon_state_electra_tree_list_fields_immutable(groups(tree_lists)),
+        Electra(
+            metastruct(
+                mappings(
+                    map_beacon_state_electra_fields(),
+                    map_beacon_state_electra_tree_list_fields(
+                        mutable,
+                        fallible,
+                        groups(tree_lists)
+                    ),
+                    map_beacon_state_electra_tree_list_fields_immutable(groups(tree_lists)),
+                ),
+                bimappings(bimap_beacon_state_electra_tree_list_fields(
+                    other_type = "BeaconStateElectra",
+                    self_mutable,
+                    fallible,
+                    groups(tree_lists)
+                )),
+                num_fields(all()),
             ),
-            bimappings(bimap_beacon_state_electra_tree_list_fields(
-                other_type = "BeaconStateElectra",
-                self_mutable,
-                fallible,
-                groups(tree_lists)
-            )),
-            num_fields(all()),
-        ))
+            tree_hash(struct_behaviour = "profile", max_fields = "typenum::U128")
+        ),
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
