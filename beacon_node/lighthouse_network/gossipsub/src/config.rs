@@ -265,9 +265,9 @@ impl Config {
         self.unsubscribe_backoff
     }
 
-    /// Number of heartbeat slots considered as slack for backoffs. This gurantees that we wait
+    /// Number of heartbeat slots considered as slack for backoffs. This guarantees that we wait
     /// at least backoff_slack heartbeats after a backoff is over before we try to graft. This
-    /// solves problems occuring through high latencies. In particular if
+    /// solves problems occurring through high latencies. In particular if
     /// `backoff_slack * heartbeat_interval` is longer than any latencies between processing
     /// prunes on our side and processing prunes on the receiving side this guarantees that we
     /// get not punished for too early grafting. The default is 1.
@@ -295,7 +295,7 @@ impl Config {
         self.mesh_outbound_min
     }
 
-    /// Number of heartbeat ticks that specifcy the interval in which opportunistic grafting is
+    /// Number of heartbeat ticks that specify the interval in which opportunistic grafting is
     /// applied. Every `opportunistic_graft_ticks` we will attempt to select some high-scoring mesh
     /// peers to replace lower-scoring ones, if the median score of our mesh peers falls below a
     /// threshold (see <https://godoc.org/github.com/libp2p/go-libp2p-pubsub#PeerScoreThresholds>).
@@ -683,9 +683,9 @@ impl ConfigBuilder {
         self
     }
 
-    /// Number of heartbeat slots considered as slack for backoffs. This gurantees that we wait
+    /// Number of heartbeat slots considered as slack for backoffs. This guarantees that we wait
     /// at least backoff_slack heartbeats after a backoff is over before we try to graft. This
-    /// solves problems occuring through high latencies. In particular if
+    /// solves problems occurring through high latencies. In particular if
     /// `backoff_slack * heartbeat_interval` is longer than any latencies between processing
     /// prunes on our side and processing prunes on the receiving side this guarantees that we
     /// get not punished for too early grafting. The default is 1.
@@ -717,7 +717,7 @@ impl ConfigBuilder {
         self
     }
 
-    /// Number of heartbeat ticks that specifcy the interval in which opportunistic grafting is
+    /// Number of heartbeat ticks that specify the interval in which opportunistic grafting is
     /// applied. Every `opportunistic_graft_ticks` we will attempt to select some high-scoring mesh
     /// peers to replace lower-scoring ones, if the median score of our mesh peers falls below a
     /// threshold (see <https://godoc.org/github.com/libp2p/go-libp2p-pubsub#PeerScoreThresholds>).

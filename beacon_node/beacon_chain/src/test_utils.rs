@@ -346,7 +346,7 @@ where
     }
 
     /// Initializes the BLS withdrawal keypairs for `num_keypairs` validators to
-    /// the "determistic" values, regardless of wether or not the validator has
+    /// the "deterministic" values, regardless of whether or not the validator has
     /// a BLS or execution address in the genesis deposits.
     ///
     /// This aligns with the withdrawal commitments used in the "interop"

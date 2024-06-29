@@ -2341,7 +2341,7 @@ impl<E: EthSpec> BeaconState<E> {
         }
 
         // Rebase caches like the committee caches and the pubkey cache, which are expensive to
-        // rebuild and likely to be re-usable from the base state.
+        // rebuild and likely to be reusable from the base state.
         self.rebase_caches_on(base, spec)?;
 
         Ok(())

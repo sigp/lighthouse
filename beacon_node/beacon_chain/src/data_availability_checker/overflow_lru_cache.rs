@@ -1509,7 +1509,7 @@ mod test {
                         .expect("should put blob");
                     assert!(
                         matches!(availability, Availability::MissingComponents(_)),
-                        "availabilty should be pending blobs: {:?}",
+                        "availability should be pending blobs: {:?}",
                         availability
                     );
                 } else {
@@ -1641,7 +1641,7 @@ mod test {
                         .expect("should put blob");
                     assert!(
                         matches!(availability, Availability::MissingComponents(_)),
-                        "availabilty should be pending blobs: {:?}",
+                        "availability should be pending blobs: {:?}",
                         availability
                     );
                 } else {

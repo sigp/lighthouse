@@ -84,9 +84,9 @@ mod release_tests {
 
         // Check the state is valid before starting this test.
         process_epoch(&mut altair_state.clone(), &spec)
-            .expect("state passes intial epoch processing");
+            .expect("state passes initial epoch processing");
         per_slot_processing(&mut altair_state.clone(), None, &spec)
-            .expect("state passes intial slot processing");
+            .expect("state passes initial slot processing");
 
         // Modify the spec so altair never happens.
         spec.altair_fork_epoch = None;
@@ -144,9 +144,9 @@ mod release_tests {
 
         // Check the state is valid before starting this test.
         process_epoch(&mut base_state.clone(), &spec)
-            .expect("state passes intial epoch processing");
+            .expect("state passes initial epoch processing");
         per_slot_processing(&mut base_state.clone(), None, &spec)
-            .expect("state passes intial slot processing");
+            .expect("state passes initial slot processing");
 
         // Modify the spec so Altair happens at the first epoch.
         spec.altair_fork_epoch = Some(Epoch::new(1));

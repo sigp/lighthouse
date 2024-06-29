@@ -49,7 +49,7 @@ pub enum Error {
 }
 
 impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
-    /// Creates a new [`SelfRateLimiter`] based on configration values.
+    /// Creates a new [`SelfRateLimiter`] based on configuration values.
     pub fn new(config: OutboundRateLimiterConfig, log: Logger) -> Result<Self, &'static str> {
         debug!(log, "Using self rate limiting params"; "config" => ?config);
         let limiter = RateLimiter::new_with_config(config.0)?;

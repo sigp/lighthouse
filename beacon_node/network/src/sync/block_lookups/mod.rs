@@ -190,7 +190,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
     }
 
-    /// Seach a block whose parent root is unknown.
+    /// Search a block whose parent root is unknown.
     /// Returns true if the lookup is created or already exists
     pub fn search_unknown_block(
         &mut self,
@@ -556,7 +556,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
                         // Here we choose *not* to call `on_processing_failure` because this could result in a bad
                         // lookup state transition. This error invalidates both blob and block requests, and we don't know the
-                        // state of both requests. Blobs may have already successfullly processed for example.
+                        // state of both requests. Blobs may have already successfully processed for example.
                         // We opt to drop the lookup instead.
                         Action::Drop
                     }

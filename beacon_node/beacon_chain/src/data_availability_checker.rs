@@ -84,7 +84,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         })
     }
 
-    /// Checks if the block root is currenlty in the availability cache awaiting import because
+    /// Checks if the block root is currently in the availability cache awaiting import because
     /// of missing components.
     pub fn get_execution_valid_block(
         &self,

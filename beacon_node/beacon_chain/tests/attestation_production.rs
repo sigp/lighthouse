@@ -36,7 +36,7 @@ async fn produces_attestations_from_attestation_simulator_service() {
     // Test all valid committee indices and their rewards for all slots in the chain
     // using validator monitor
     for slot in 0..=num_blocks_produced {
-        // We do not produce at slot=0, and there's no committe cache available anyway
+        // We do not produce at slot=0, and there's no committee cache available anyway
         if slot > 0 && slot <= num_blocks_produced {
             harness.advance_slot();
 

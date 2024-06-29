@@ -25,7 +25,7 @@ fn add_enabled_column() {
     let path = make_copy("v0_no_enabled_column.sqlite", tmp.path());
     let num_expected_validators = 5;
 
-    // Database should open without errors, indicating successfull application of migrations.
+    // Database should open without errors, indicating successful application of migrations.
     // The input file has no `enabled` column, which should get added when opening it here.
     let db = SlashingDatabase::open(&path).unwrap();
 

@@ -125,7 +125,7 @@ fn boot_nodes_flag() {
                 assert_eq!(
                     enr.to_base64(),
                     expect_enr[i],
-                    "ENR missmatch at index [{}]",
+                    "ENR mismatch at index [{}]",
                     i
                 );
             }

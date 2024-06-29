@@ -108,7 +108,7 @@ pub fn verify_signature_sets<'a>(
 
     // Public keys have already been checked for subgroup and infinity
     // Signatures have already been checked for subgroup
-    // Signature checks above could be done here for convienence as well
+    // Signature checks above could be done here for convenience as well
     let err = blst_core::Signature::verify_multiple_aggregate_signatures(
         &msgs_refs, DST, &pks_refs, false, &sig_refs, false, &rands, RAND_BITS,
     );

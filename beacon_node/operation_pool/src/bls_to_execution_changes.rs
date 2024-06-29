@@ -87,7 +87,7 @@ impl<E: EthSpec> BlsToExecutionChanges<E> {
         })
     }
 
-    /// Returns the set of indicies which should have their address changes
+    /// Returns the set of indices which should have their address changes
     /// broadcast at the Capella fork.
     pub fn iter_pre_capella_indices(&self) -> impl Iterator<Item = &u64> {
         self.received_pre_capella_indices.iter()

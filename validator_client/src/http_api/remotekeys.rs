@@ -117,7 +117,7 @@ fn import_single_remotekey<T: SlotClock + 'static, E: EthSpec>(
     }
 
     // Remotekeys are stored as web3signers.
-    // The remotekey API provides less confgiuration option than the web3signer API.
+    // The remotekey API provides less configuration option than the web3signer API.
     let web3signer_validator = ValidatorDefinition {
         enabled: true,
         voting_public_key: pubkey,

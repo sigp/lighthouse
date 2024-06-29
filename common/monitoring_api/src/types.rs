@@ -131,7 +131,7 @@ impl From<SystemHealth> for SystemMetrics {
             disk_node_bytes_total: health.disk_node_bytes_total,
             disk_node_bytes_free: health.disk_node_bytes_free,
 
-            // Unavaliable for now
+            // Unavailable for now
             disk_node_io_seconds: 0,
             disk_node_reads_total: health.disk_node_reads_total,
             disk_node_writes_total: health.disk_node_writes_total,

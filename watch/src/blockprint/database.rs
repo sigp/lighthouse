@@ -200,7 +200,7 @@ pub fn construct_validator_blockprints_at_slot(
     Ok(blockprint_map)
 }
 
-/// Counts the number of occurances of each `client` present in the `validators` table at or before some
+/// Counts the number of occurrences of each `client` present in the `validators` table at or before some
 /// `target_slot`.
 pub fn get_validators_clients_at_slot(
     conn: &mut PgConn,

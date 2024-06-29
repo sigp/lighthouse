@@ -551,7 +551,7 @@ fn handle_rpc_request<E: EthSpec>(
 /// `decoded_buffer` should be an ssz-encoded bytestream with
 /// length = length-prefix received in the beginning of the stream.
 ///
-/// For BlocksByRange/BlocksByRoot reponses, decodes the appropriate response
+/// For BlocksByRange/BlocksByRoot responses, decodes the appropriate response
 /// according to the received `ForkName`.
 fn handle_rpc_response<E: EthSpec>(
     versioned_protocol: SupportedProtocol,

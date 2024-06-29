@@ -1019,7 +1019,7 @@ impl ProtoArray {
     /// Returns `true` if `root` is equal to or a descendant of
     /// `self.finalized_checkpoint`.
     ///
-    /// Notably, this function is checking ancestory of the finalized
+    /// Notably, this function is checking ancestry of the finalized
     /// *checkpoint* not the finalized *block*.
     pub fn is_finalized_checkpoint_or_descendant<E: EthSpec>(&self, root: Hash256) -> bool {
         let finalized_root = self.finalized_checkpoint.root;

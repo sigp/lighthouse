@@ -113,11 +113,11 @@ lazy_static::lazy_static! {
     // HTTP API requests.
     pub static ref BEACON_PROCESSOR_API_REQUEST_P0_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_api_request_p0_queue_total",
-        "Count of P0 HTTP requesets waiting to be processed."
+        "Count of P0 HTTP requests waiting to be processed."
     );
     pub static ref BEACON_PROCESSOR_API_REQUEST_P1_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_api_request_p1_queue_total",
-        "Count of P1 HTTP requesets waiting to be processed."
+        "Count of P1 HTTP requests waiting to be processed."
     );
 
     /*

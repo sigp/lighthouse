@@ -142,7 +142,7 @@ impl ValidatorSpecification {
                     builder_proposals,
                     builder_boost_factor,
                     prefer_builder_proposals,
-                    None, // Grafitti field is not maintained between validator moves.
+                    None, // Graffiti field is not maintained between validator moves.
                 )
                 .await
                 .map_err(UploadError::PatchValidatorFailed)?;

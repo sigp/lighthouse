@@ -178,7 +178,7 @@ pub async fn get_header(
         .get_beacon_headers_block_id(block_id)
         .await?
         .map(|resp| (resp.data.root, resp.data.header.message));
-    // When quering with root == 0x000... , slot 0 will be returned with parent_root == 0x0000...
+    // When querying with root == 0x000... , slot 0 will be returned with parent_root == 0x0000...
     // This check escapes the loop.
     if let Some((root, header)) = resp {
         if root == header.parent_root {

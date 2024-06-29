@@ -174,14 +174,14 @@ fn ikm_to_lamport_sk(salt: &[u8], ikm: &[u8]) -> LamportSecretKey {
     LamportSecretKey::from_bytes(okm.as_bytes())
 }
 
-/// Peforms a `HKDF-Extract` on the `ikm` (initial key material) based up on the `salt`.
+/// Performs a `HKDF-Extract` on the `ikm` (initial key material) based up on the `salt`.
 ///
 /// Defined in [RFC5869](https://tools.ietf.org/html/rfc5869).
 fn hkdf_extract(salt: &[u8], ikm: &[u8]) -> Prk {
     Salt::new(HKDF_SHA256, salt).extract(ikm)
 }
 
-/// Peforms a `HKDF-Expand` on the `pkr` (pseudo-random key), returning `l` bytes.
+/// Performs a `HKDF-Expand` on the `pkr` (pseudo-random key), returning `l` bytes.
 ///
 /// Defined in [RFC5869](https://tools.ietf.org/html/rfc5869).
 fn hkdf_expand(prk: Prk, info: &[u8], l: usize) -> SecretBytes {

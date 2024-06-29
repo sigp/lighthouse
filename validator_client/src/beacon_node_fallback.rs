@@ -439,7 +439,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                 // require the least processing in the BN and therefore measure
                 // the connection moreso than the BNs processing speed.
                 //
-                // I imagine all clients have the version string availble as a
+                // I imagine all clients have the version string available as a
                 // pre-computed string.
                 let response_instant = candidate
                     .beacon_node

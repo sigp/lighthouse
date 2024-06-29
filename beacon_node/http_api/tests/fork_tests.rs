@@ -293,7 +293,7 @@ async fn sync_committee_indices_across_fork() {
         400
     );
 
-    // Once the head is updated it should be useable for requests, including in the next sync
+    // Once the head is updated it should be usable for requests, including in the next sync
     // committee period.
     let state_root = state.canonical_root();
     harness

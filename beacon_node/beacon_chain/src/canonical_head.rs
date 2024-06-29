@@ -15,7 +15,7 @@
 //! 3. `Mutex<()>`: Is used to prevent concurrent execution of `BeaconChain::recompute_head`.
 //!
 //! This module has to take great efforts to avoid causing a deadlock with these three methods. Any
-//! developers working in this module should tread carefully and seek a detailed review.
+//! developers working in this module should treat carefully and seek a detailed review.
 //!
 //! To encourage safe use of this module, it should **only ever return a read or write lock for the
 //! fork choice lock (lock 1)**. Whilst public functions might indirectly utilise locks (2) and (3),
@@ -1258,7 +1258,7 @@ pub fn find_reorg_slot<E: EthSpec>(
     //
     // The iterator will be skipped until the next value returns `lowest_slot`.
     //
-    // This is a macro instead of a function or closure due to the complex types invloved
+    // This is a macro instead of a function or closure due to the complex types involved
     // in all the iterator wrapping.
     macro_rules! aligned_roots_iter {
         ($state: ident, $block_root: ident) => {

@@ -393,7 +393,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
             other => {
                 self.state = other;
                 Err(WrongState(format!(
-                    "Starting procesing batch in wrong state {:?}",
+                    "Starting processing batch in wrong state {:?}",
                     self.state
                 )))
             }
@@ -434,7 +434,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
             other => {
                 self.state = other;
                 Err(WrongState(format!(
-                    "Procesing completed for batch in wrong state: {:?}",
+                    "Processing completed for batch in wrong state: {:?}",
                     self.state
                 )))
             }

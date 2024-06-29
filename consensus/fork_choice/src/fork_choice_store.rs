@@ -14,7 +14,7 @@ use types::{AbstractExecPayload, BeaconBlockRef, BeaconState, Checkpoint, EthSpe
 /// - This crate stores the actual block DAG in `ProtoArrayForkChoice`.
 /// - `time` is represented using `Slot` instead of UNIX epoch `u64`.
 ///
-/// ## Motiviation
+/// ## Motivation
 ///
 /// The primary motivation for defining this as a trait to be implemented upstream rather than a
 /// concrete struct is to allow this crate to be free from "impure" on-disk database logic,

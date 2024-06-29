@@ -457,7 +457,7 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                             be asked to provide another password. \
                             Failing to provide the correct password now will \
                             result in the keystore being deleted from the src VC \
-                            without being transfered to the dest VC. \
+                            without being transferred to the dest VC. \
                             It is strongly recommend to provide a password now rather than exiting.",
                         pubkey_to_move
                     );

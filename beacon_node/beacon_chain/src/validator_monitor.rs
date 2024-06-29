@@ -773,7 +773,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     /// `individual_id`.
     ///
     /// This function is used for registering metrics that can be applied to
-    /// both all validators and an indivdual validator. For example, the count
+    /// both all validators and an individual validator. For example, the count
     /// of missed head votes can be aggregated across all validators in a single
     /// metric and also tracked on a per-validator basis.
     ///

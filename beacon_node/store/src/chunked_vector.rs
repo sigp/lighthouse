@@ -1,7 +1,7 @@
 //! Space-efficient storage for `BeaconState` vector fields.
 //!
 //! This module provides logic for splitting the `Vector` fields of a `BeaconState` into
-//! chunks, and storing those chunks in contiguous ranges in the on-disk database.  The motiviation
+//! chunks, and storing those chunks in contiguous ranges in the on-disk database.  The motivation
 //! for doing this is avoiding massive duplication in every on-disk state.  For example, rather than
 //! storing the whole `historical_roots` vector, which is updated once every couple of thousand
 //! slots, at every slot, we instead store all the historical values as a chunked vector on-disk,

@@ -2706,7 +2706,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // 2. In some non-canonical chain at a slot that has been finalized already.
                 //
                 // In the case of (1), there's no need to re-import and later blocks in this
-                // segement might be useful.
+                // segment might be useful.
                 //
                 // In the case of (2), skipping the block is valid since we should never import it.
                 // However, we will potentially get a `ParentUnknown` on a later block. The sync

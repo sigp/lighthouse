@@ -664,7 +664,7 @@ fn slot_start_seconds(genesis_unix_seconds: u64, seconds_per_slot: u64, slot: Sl
 /// Returns a boolean denoting if a given `Eth1Block` is a candidate for `Eth1Data` calculation
 /// at the timestamp `period_start`.
 ///
-/// Note: `period_start` needs to be atleast (`spec.seconds_per_eth1_block * spec.eth1_follow_distance * 2`)
+/// Note: `period_start` needs to be at least (`spec.seconds_per_eth1_block * spec.eth1_follow_distance * 2`)
 /// for this function to return meaningful values.
 fn is_candidate_block(block: &Eth1Block, period_start: u64, spec: &ChainSpec) -> bool {
     block.timestamp

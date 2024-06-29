@@ -360,7 +360,7 @@ pub fn serve<E: EthSpec>(
                     };
 
                     let json_payload = serde_json::to_string(&resp)
-                        .map_err(|_| reject("coudn't serialize response"))?;
+                        .map_err(|_| reject("couldn't serialize response"))?;
                     Ok::<_, warp::reject::Rejection>(
                         warp::http::Response::builder()
                             .status(200)
@@ -663,7 +663,7 @@ pub fn serve<E: EthSpec>(
                     data: signed_bid,
                 };
                 let json_bid = serde_json::to_string(&resp)
-                    .map_err(|_| reject("coudn't serialize signed bid"))?;
+                    .map_err(|_| reject("couldn't serialize signed bid"))?;
                 Ok::<_, Rejection>(
                     warp::http::Response::builder()
                         .status(200)

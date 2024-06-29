@@ -4,7 +4,7 @@
 //! certain block was observed, imported and set as head.
 //! This allows for better traceability and allows us to determine the root cause for why a block
 //! was set as head late.
-//! This allows us to distingush between the following scenarios:
+//! This allows us to distinguish between the following scenarios:
 //! - The block was observed late.
 //! - We were too slow to import it.
 //! - We were too slow to set it as head.

@@ -1221,7 +1221,7 @@ fn test_handle_ihave_subscribed_and_msg_not_cached() {
 
     assert!(
         iwant_exists,
-        "Expected to send an IWANT control message for unkown message id"
+        "Expected to send an IWANT control message for unknown message id"
     );
 }
 
@@ -2511,7 +2511,7 @@ fn test_dont_graft_to_negative_scored_peers() {
 }
 
 ///Note that in this test also without a penalty the px would be ignored because of the
-/// acceptPXThreshold, but the spec still explicitely states the rule that px from negative
+/// acceptPXThreshold, but the spec still explicitly states the rule that px from negative
 /// peers should get ignored, therefore we test it here.
 #[test]
 fn test_ignore_px_from_negative_scored_peer() {
@@ -4677,7 +4677,7 @@ fn test_limit_number_of_message_ids_inside_ihave() {
     //emit gossip
     gs.emit_gossip();
 
-    // both peers should have gotten 100 random ihave messages, to asser the randomness, we
+    // both peers should have gotten 100 random ihave messages, to assert the randomness, we
     // assert that both have not gotten the same set of messages, but have an intersection
     // (which is the case with very high probability, the probabiltity of failure is < 10^-58).
 

@@ -82,13 +82,13 @@ pub struct DiscoveredPeers {
 /// Specifies which port numbers should be modified after start of the discovery service
 #[derive(Debug)]
 pub struct UpdatePorts {
-    /// TCP port associated wih IPv4 address (if present)
+    /// TCP port associated with IPv4 address (if present)
     pub tcp4: bool,
-    /// TCP port associated wih IPv6 address (if present)
+    /// TCP port associated with IPv6 address (if present)
     pub tcp6: bool,
-    /// QUIC port associated wih IPv4 address (if present)
+    /// QUIC port associated with IPv4 address (if present)
     pub quic4: bool,
-    /// QUIC port associated wih IPv6 address (if present)
+    /// QUIC port associated with IPv6 address (if present)
     pub quic6: bool,
 }
 
@@ -152,7 +152,7 @@ enum EventStream {
     InActive,
 }
 
-/// The main discovery service. This can be disabled via CLI arguements. When disabled the
+/// The main discovery service. This can be disabled via CLI arguments. When disabled the
 /// underlying processes are not started, but this struct still maintains our current ENR.
 pub struct Discovery<E: EthSpec> {
     /// A collection of seen live ENRs for quick lookup and to map peer-id's to ENRs.

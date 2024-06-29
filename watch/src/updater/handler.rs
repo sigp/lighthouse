@@ -249,7 +249,7 @@ impl<E: EthSpec> UpdateHandler<E> {
 
     /// Given the latest slot in the database which matches a root in the beacon node,
     /// traverse back through the database for `MAX_EXPECTED_REORG_LENGTH` slots to ensure the tip
-    /// of the database is consistent with the beacon node (in the case that reorgs have occured).
+    /// of the database is consistent with the beacon node (in the case that reorgs have occurred).
     ///
     /// Returns the slot before the oldest canonical_slot which has an invalid child.
     pub async fn check_for_reorg(

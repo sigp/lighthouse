@@ -128,7 +128,7 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
 
                 let lighthouse_commit_prefix = CommitPrefix::try_from(lighthouse_version::COMMIT_PREFIX.to_string())
                     .unwrap_or_else(|error_message| {
-                        // This really shouldn't happen but we want to definitly log if it does
+                        // This really shouldn't happen but we want to definitely log if it does
                         crit!(self.log, "Failed to parse lighthouse commit prefix"; "error" => error_message);
                         CommitPrefix("00000000".to_string())
                     });

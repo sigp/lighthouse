@@ -57,7 +57,7 @@ pub const DKLEN: u32 = 32;
 pub const IV_SIZE: usize = 16;
 /// The byte size of a SHA256 hash.
 pub const HASH_SIZE: usize = 32;
-/// The default iteraction count, `c`, for PBKDF2.
+/// The default interaction count, `c`, for PBKDF2.
 pub const DEFAULT_PBKDF2_C: u32 = 262_144;
 
 /// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
@@ -539,7 +539,7 @@ fn validate_parameters(kdf: &Kdf) -> Result<(), Error> {
                 return Err(Error::InvalidPbkdf2Param);
             }
 
-            // NIST Recommends suggests potential use cases where `c` of 10,000,000 is desireable.
+            // NIST Recommends suggests potential use cases where `c` of 10,000,000 is desirable.
             // As it is 10 years old this has been increased to 80,000,000. Larger values will
             // take over 1 minute to execute on an average machine.
             //

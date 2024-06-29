@@ -685,7 +685,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::SUBSCRIPTIONS]);
 
     // This vector is intentionally oversized by 10% so that it won't reallocate.
-    // Each validator has 2 attestation duties occuring in the current and next epoch, for which
+    // Each validator has 2 attestation duties occurring in the current and next epoch, for which
     // they must send `ATTESTATION_SUBSCRIPTION_OFFSETS.len()` subscriptions. These subscription
     // slots are approximately evenly distributed over the two epochs, usually with a slight lag
     // that balances out (some subscriptions for the current epoch were sent in the previous, and

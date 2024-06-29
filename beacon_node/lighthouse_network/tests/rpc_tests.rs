@@ -869,7 +869,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
     })
 }
 
-// Tests a streamed, chunked BlocksByRoot RPC Message terminates when all expected reponses have been received
+// Tests a streamed, chunked BlocksByRoot RPC Message terminates when all expected responses have been received
 #[test]
 fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
     // set up the logging. The level and enabled logging or not

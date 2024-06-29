@@ -513,7 +513,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 imported_blocks,
                 penalty,
             } => {
-                // Penalize the peer appropiately.
+                // Penalize the peer appropriately.
                 network.report_peer(peer, *penalty, "faulty_batch");
 
                 // Check if this batch is allowed to continue

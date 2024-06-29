@@ -1,6 +1,6 @@
 //! Concurrency helpers for synchronising block proposal with fork choice.
 //!
-//! The transmitter provides a way for a thread runnning fork choice on a schedule to signal
+//! The transmitter provides a way for a thread running fork choice on a schedule to signal
 //! to the receiver that fork choice has been updated for a given slot.
 use crate::BeaconChainError;
 use parking_lot::{Condvar, Mutex};

@@ -341,7 +341,7 @@ macro_rules! test_suite {
                 .assert_single_message_verify(true)
         }
 
-        /// A helper struct to make it easer to deal with `SignatureSet` lifetimes.
+        /// A helper struct to make it easier to deal with `SignatureSet` lifetimes.
         struct OwnedSignatureSet {
             signature: AggregateSignature,
             signing_keys: Vec<PublicKey>,

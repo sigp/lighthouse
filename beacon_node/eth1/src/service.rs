@@ -1011,7 +1011,7 @@ impl Service {
         // Map the range of required blocks into a Vec.
         //
         // If the required range is larger than the size of the cache, drop the exiting cache
-        // because it's exipred and just download enough blocks to fill the cache.
+        // because it's expired and just download enough blocks to fill the cache.
         let required_block_numbers = if let Some(range) = range {
             if range.start() > range.end() {
                 // Note: this check is not strictly necessary, however it remains to safe

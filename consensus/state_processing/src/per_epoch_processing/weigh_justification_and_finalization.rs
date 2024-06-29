@@ -57,7 +57,7 @@ pub fn weigh_justification_and_finalization<E: EthSpec>(
     {
         *state.finalized_checkpoint_mut() = old_previous_justified_checkpoint;
     }
-    // The 1st/2nd/3rd most recent epochs are all justified, the 1st using the 3nd as source.
+    // The 1st/2nd/3rd most recent epochs are all justified, the 1st using the 3rd as source.
     if all_bits_set(0..3)? && old_current_justified_checkpoint.epoch.safe_add(2)? == current_epoch {
         *state.finalized_checkpoint_mut() = old_current_justified_checkpoint;
     }

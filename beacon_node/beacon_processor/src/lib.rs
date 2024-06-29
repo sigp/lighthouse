@@ -725,7 +725,7 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
     }
 }
 
-/// A mutli-threaded processor for messages received on the network
+/// A multi-threaded processor for messages received on the network
 /// that need to be processed by the `BeaconChain`
 ///
 /// See module level documentation for more information.

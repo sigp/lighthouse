@@ -137,7 +137,7 @@ pub enum BlockByNumberQuery<'a> {
     Tag(&'a str),
 }
 
-/// Representation of an exection block with enough detail to determine the terminal PoW block.
+/// Representation of an execution block with enough detail to determine the terminal PoW block.
 ///
 /// See `get_pow_block_hash_at_total_difficulty`.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]

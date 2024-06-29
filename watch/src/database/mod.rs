@@ -612,7 +612,7 @@ pub fn get_validators_latest_proposer_info(
             .or_insert_with(|| proposer.clone());
         let entry = result
             .get_mut(&proposer.proposer_index)
-            .ok_or_else(|| Error::Other("An internal error occured".to_string()))?;
+            .ok_or_else(|| Error::Other("An internal error occurred".to_string()))?;
         if proposer.slot > entry.slot {
             entry.slot = proposer.slot
         }
