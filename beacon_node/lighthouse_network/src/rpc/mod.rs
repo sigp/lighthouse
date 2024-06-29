@@ -124,10 +124,10 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
     /// Rate limiter for our responses. This is shared with RPCHandlers.
     response_limiter: Option<Arc<Mutex<RateLimiter>>>,
     /// Rate limiter for our own requests.
-    self_limiter: Option<SelfRateLimiter<Id, E>>,
-    /// Limiter for our inbound requests, which checks the request size.
+    outbound_request_limiter: Option<SelfRateLimiter<Id, E>>,
+    /// Limiter for inbound requests, which checks the request size.
     inbound_request_size_limiter: Option<RequestSizeLimiter>,
-    /// Limiter for our inbound requests, which restricts more than two requests from running
+    /// Limiter for inbound requests, which restricts more than two requests from running
     /// simultaneously on the same protocol per peer.
     active_inbound_requests_limiter: ActiveRequestsLimiter,
     /// Queue of events to be processed.
@@ -164,13 +164,13 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
                 .expect("Inbound limiter configuration parameters are valid")
         });
 
-        let self_limiter = outbound_rate_limiter_config.map(|config| {
+        let outbound_request_limiter = outbound_rate_limiter_config.map(|config| {
             SelfRateLimiter::new(config, log.clone()).expect("Configuration parameters are valid")
         });
 
         RPC {
             response_limiter,
-            self_limiter,
+            outbound_request_limiter,
             inbound_request_size_limiter,
             active_inbound_requests_limiter: ActiveRequestsLimiter::new(
                 network_params.resp_timeout,
@@ -205,7 +205,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     ///
     /// The peer must be connected for this to succeed.
     pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: OutboundRequest<E>) {
-        let event = if let Some(self_limiter) = self.self_limiter.as_mut() {
+        let event = if let Some(self_limiter) = self.outbound_request_limiter.as_mut() {
             match self_limiter.allows(peer_id, request_id, req) {
                 Ok(event) => event,
                 Err(_e) => {
@@ -330,7 +330,7 @@ where
                 return;
             }
             // Get a list of pending requests from the self rate limiter
-            if let Some(limiter) = self.self_limiter.as_mut() {
+            if let Some(limiter) = self.outbound_request_limiter.as_mut() {
                 for (id, proto) in limiter.peer_disconnected(peer_id) {
                     let error_msg = ToSwarm::GenerateEvent(RPCMessage {
                         peer_id,
@@ -464,7 +464,7 @@ where
             let _ = response_limiter.lock().poll_unpin(cx);
         }
 
-        if let Some(self_limiter) = self.self_limiter.as_mut() {
+        if let Some(self_limiter) = self.outbound_request_limiter.as_mut() {
             if let Poll::Ready(event) = self_limiter.poll_ready(cx) {
                 self.events.push(event)
             }
