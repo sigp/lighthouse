@@ -73,11 +73,11 @@ impl ActiveRequestsLimiter {
         connection_id: &ConnectionId,
         substream_id: &SubstreamId,
     ) {
-        self.requests.get_mut(&peer_id).map(|requests| {
+        if let Some(requests) = self.requests.get_mut(&peer_id) {
             requests.retain(|(_protocol, cid, sid, _requested_at)| {
                 cid != connection_id && sid != substream_id
             });
-        });
+        }
     }
 
     /// Removes the requests with the given PeerId.

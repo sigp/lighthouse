@@ -369,7 +369,7 @@ where
             match Self::try_response_limiter(
                 limiter,
                 peer_id,
-                inbound_info.protocol.clone(),
+                inbound_info.protocol,
                 response.clone(),
                 &self.log,
             ) {
@@ -384,10 +384,9 @@ where
                     );
                 }
                 Err(wait_time) => {
-                    self.next_response
-                        .insert(inbound_info.protocol.clone(), wait_time);
+                    self.next_response.insert(inbound_info.protocol, wait_time);
                     self.delayed_responses
-                        .entry(inbound_info.protocol.clone())
+                        .entry(inbound_info.protocol)
                         .or_default()
                         .push_back(QueuedResponse {
                             response,
@@ -551,7 +550,7 @@ where
                         match Self::try_response_limiter(
                             limiter,
                             peer_id,
-                            res.protocol.clone(),
+                            res.protocol,
                             res.response.clone(),
                             &self.log,
                         ) {
