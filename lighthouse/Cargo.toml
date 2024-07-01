@@ -22,6 +22,8 @@ gnosis = []
 slasher-mdbx = ["slasher/mdbx"]
 # Support slasher LMDB backend.
 slasher-lmdb = ["slasher/lmdb"]
+# Support slasher redb backend.
+slasher-redb = ["slasher/redb"]
 # Deprecated. This is now enabled by default on non windows targets.
 jemalloc = []
 
