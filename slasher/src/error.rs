@@ -15,6 +15,7 @@ pub enum Error {
     DatabaseIOError(io::Error),
     DatabasePermissionsError(filesystem::Error),
     SszDecodeError(ssz::DecodeError),
+    SszTypesError(ssz_types::Error),
     BincodeError(bincode::Error),
     ArithError(safe_arith::ArithError),
     ChunkIndexOutOfBounds(usize),
@@ -135,6 +136,12 @@ impl From<io::Error> for Error {
 impl From<ssz::DecodeError> for Error {
     fn from(e: ssz::DecodeError) -> Self {
         Error::SszDecodeError(e)
+    }
+}
+
+impl From<ssz_types::Error> for Error {
+    fn from(e: ssz_types::Error) -> Self {
+        Error::SszTypesError(e)
     }
 }
 

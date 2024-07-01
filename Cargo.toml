@@ -162,7 +162,7 @@ smallvec = "1.11.2"
 snap = "1"
 ssz_types = "0.6"
 strum = { version = "0.24", features = ["derive"] }
-superstruct = "0.7"
+superstruct = "0.8"
 syn = "1"
 sysinfo = "0.26"
 tempfile = "3"

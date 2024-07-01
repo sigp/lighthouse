@@ -14,14 +14,6 @@ BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
-# List of features to use when building natively. Can be overridden via the environment.
-# No jemalloc on Windows
-ifeq ($(OS),Windows_NT)
-    FEATURES?=
-else
-    FEATURES?=jemalloc
-endif
-
 # List of features to use when cross-compiling. Can be overridden via the environment.
 CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,jemalloc
 
@@ -229,7 +221,6 @@ lint:
 		-D clippy::manual_let_else \
 		-D warnings \
 		-A clippy::derive_partial_eq_without_eq \
-		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
 		-A clippy::vec-init-then-push \
 		-A clippy::question-mark \
