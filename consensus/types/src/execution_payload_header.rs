@@ -295,7 +295,7 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadElectra<E>> for ExecutionPayloadHe
             withdrawals_root: payload.withdrawals.tree_hash_root(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-            deposit_receipts_root: payload.deposit_receipts.tree_hash_root(),
+            deposit_receipts_root: payload.deposit_requests.tree_hash_root(),
             withdrawal_requests_root: payload.withdrawal_requests.tree_hash_root(),
         }
     }
