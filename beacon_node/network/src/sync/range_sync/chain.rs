@@ -1,4 +1,5 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
+use crate::metrics::PEERS_PER_COLUMN_SUBNET;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::network_context::RangeRequestId;
 use crate::sync::{
@@ -7,6 +8,7 @@ use crate::sync::{
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
+use lighthouse_metrics::set_int_gauge;
 use lighthouse_network::{PeerAction, PeerId, Subnet};
 use rand::seq::SliceRandom;
 use slog::{crit, debug, o, warn};
@@ -397,7 +399,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
             }
         } else if !self.good_peers_on_custody_subnets(self.processing_target, network) {
-            // If there's no good custody peers for this epoch, batch won't be created
+            // This is to handle the case where no batch was sent for the current processing
+            // target when there is no custody peers available. This is a valid state and should not
+            // return an error.
             return Ok(KeepChain);
         } else {
             return Err(RemoveChain::WrongChainState(format!(
@@ -1044,7 +1048,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         .read()
                         .good_peers_on_subnet(Subnet::DataColumn(subnet_id))
                         .count();
-                    debug!(self.log, "Peers found on custody subnet"; "subnet_id" => ?subnet_id, "peer_count" => peer_count);
+
+                    set_int_gauge(
+                        &PEERS_PER_COLUMN_SUBNET,
+                        &[&subnet_id.to_string()],
+                        peer_count as i64,
+                    );
                     peer_count > 0
                 });
             peers_on_all_custody_subnets

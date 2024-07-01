@@ -95,9 +95,7 @@ impl<E: EthSpec> PeerInfo<E> {
                         .map_or(false, |s| s.get(**id as usize).unwrap_or(false))
                 }
                 Subnet::DataColumn(_) => {
-                    // There's no metadata field for data column subnets, we use the `csc` enr field
-                    // along with `node_id` to determine whether peer SHOULD be subscribed to a
-                    // given subnet.
+                    // TODO(das): Pending spec PR https://github.com/ethereum/consensus-specs/pull/3821
                     return true;
                 }
             }

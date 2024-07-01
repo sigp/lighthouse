@@ -271,7 +271,11 @@ mod test {
         drop(peers_db_write_lock);
 
         let custody_subnets = (0..spec.data_column_sidecar_subnet_count)
-            .filter(|col_index| !globals.custody_peers_for_column(*col_index, &spec).is_empty())
+            .filter(|col_index| {
+                !globals
+                    .custody_peers_for_column(*col_index, &spec)
+                    .is_empty()
+            })
             .count();
 
         // The single peer's custody subnet should match custody_requirement.
