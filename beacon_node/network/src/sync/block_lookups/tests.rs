@@ -1,9 +1,7 @@
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 
-use crate::service::RequestId;
-use crate::sync::manager::{
-    BlockProcessType, RequestId as SyncRequestId, SingleLookupReqId, SyncManager,
-};
+use crate::service::AppRequestId;
+use crate::sync::manager::{BlockProcessType, SingleLookupReqId, SyncManager, SyncRequestId};
 use crate::sync::SyncMessage;
 use crate::NetworkMessage;
 use std::sync::Arc;
@@ -550,7 +548,7 @@ impl TestRig {
         while let Ok(request_id) = self.pop_received_network_event(|ev| match ev {
             NetworkMessage::SendRequest {
                 peer_id,
-                request_id: RequestId::Sync(id),
+                request_id: AppRequestId::Sync(id),
                 ..
             } if *peer_id == disconnected_peer_id => Some(*id),
             _ => None,
@@ -631,7 +629,7 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: Request::BlocksByRoot(request),
-                request_id: RequestId::Sync(SyncRequestId::SingleBlock { id }),
+                request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
             _ => None,
         })
@@ -651,7 +649,7 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: Request::BlobsByRoot(request),
-                request_id: RequestId::Sync(SyncRequestId::SingleBlob { id }),
+                request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             } if request
                 .blob_ids
                 .to_vec()
@@ -676,7 +674,7 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: Request::BlocksByRoot(request),
-                request_id: RequestId::Sync(SyncRequestId::SingleBlock { id }),
+                request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
             _ => None,
         })
@@ -698,7 +696,7 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: Request::BlobsByRoot(request),
-                request_id: RequestId::Sync(SyncRequestId::SingleBlob { id }),
+                request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             } if request
                 .blob_ids
                 .to_vec()

@@ -53,6 +53,7 @@ use beacon_chain::{
 };
 use futures::StreamExt;
 use lighthouse_network::rpc::RPCError;
+use lighthouse_network::service::api_types::{Id, SingleLookupReqId, SyncRequestId};
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
@@ -78,25 +79,6 @@ pub const SLOT_IMPORT_TOLERANCE: usize = 32;
 /// arbitrary number that covers a full slot, but allows recovery if sync get stuck for a few slots.
 const NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS: u64 = 30;
 
-pub type Id = u32;
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct SingleLookupReqId {
-    pub lookup_id: Id,
-    pub req_id: Id,
-}
-
-/// Id of rpc requests sent by sync to the network.
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum RequestId {
-    /// Request searching for a block given a hash.
-    SingleBlock { id: SingleLookupReqId },
-    /// Request searching for a set of blobs given a hash.
-    SingleBlob { id: SingleLookupReqId },
-    /// Range request that is composed by both a block range request and a blob range request.
-    RangeBlockAndBlobs { id: Id },
-}
-
 #[derive(Debug)]
 /// A message that can be sent to the sync manager thread.
 pub enum SyncMessage<E: EthSpec> {
@@ -105,7 +87,7 @@ pub enum SyncMessage<E: EthSpec> {
 
     /// A block has been received from the RPC.
     RpcBlock {
-        request_id: RequestId,
+        request_id: SyncRequestId,
         peer_id: PeerId,
         beacon_block: Option<Arc<SignedBeaconBlock<E>>>,
         seen_timestamp: Duration,
@@ -113,7 +95,7 @@ pub enum SyncMessage<E: EthSpec> {
 
     /// A blob has been received from the RPC.
     RpcBlob {
-        request_id: RequestId,
+        request_id: SyncRequestId,
         peer_id: PeerId,
         blob_sidecar: Option<Arc<BlobSidecar<E>>>,
         seen_timestamp: Duration,
@@ -135,7 +117,7 @@ pub enum SyncMessage<E: EthSpec> {
     /// An RPC Error has occurred on a request.
     RpcError {
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: SyncRequestId,
         error: RPCError,
     },
 
@@ -342,16 +324,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     /// Handles RPC errors related to requests that were emitted from the sync manager.
-    fn inject_error(&mut self, peer_id: PeerId, request_id: RequestId, error: RPCError) {
+    fn inject_error(&mut self, peer_id: PeerId, request_id: SyncRequestId, error: RPCError) {
         trace!(self.log, "Sync manager received a failed RPC");
         match request_id {
-            RequestId::SingleBlock { id } => {
+            SyncRequestId::SingleBlock { id } => {
                 self.on_single_block_response(id, peer_id, RpcEvent::RPCError(error))
             }
-            RequestId::SingleBlob { id } => {
+            SyncRequestId::SingleBlob { id } => {
                 self.on_single_blob_response(id, peer_id, RpcEvent::RPCError(error))
             }
-            RequestId::RangeBlockAndBlobs { id } => {
+            SyncRequestId::RangeBlockAndBlobs { id } => {
                 if let Some(sender_id) = self.network.range_request_failed(id) {
                     match sender_id {
                         RangeRequestId::RangeSync { chain_id, batch_id } => {
@@ -835,13 +817,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn rpc_block_received(
         &mut self,
-        request_id: RequestId,
+        request_id: SyncRequestId,
         peer_id: PeerId,
         block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         seen_timestamp: Duration,
     ) {
         match request_id {
-            RequestId::SingleBlock { id } => self.on_single_block_response(
+            SyncRequestId::SingleBlock { id } => self.on_single_block_response(
                 id,
                 peer_id,
                 match block {
@@ -849,10 +831,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     None => RpcEvent::StreamTermination,
                 },
             ),
-            RequestId::SingleBlob { .. } => {
+            SyncRequestId::SingleBlob { .. } => {
                 crit!(self.log, "Block received during blob request"; "peer_id" => %peer_id  );
             }
-            RequestId::RangeBlockAndBlobs { id } => {
+            SyncRequestId::RangeBlockAndBlobs { id } => {
                 self.range_block_and_blobs_response(id, peer_id, block.into())
             }
         }
@@ -877,16 +859,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn rpc_blob_received(
         &mut self,
-        request_id: RequestId,
+        request_id: SyncRequestId,
         peer_id: PeerId,
         blob: Option<Arc<BlobSidecar<T::EthSpec>>>,
         seen_timestamp: Duration,
     ) {
         match request_id {
-            RequestId::SingleBlock { .. } => {
+            SyncRequestId::SingleBlock { .. } => {
                 crit!(self.log, "Single blob received during block request"; "peer_id" => %peer_id  );
             }
-            RequestId::SingleBlob { id } => self.on_single_blob_response(
+            SyncRequestId::SingleBlob { id } => self.on_single_blob_response(
                 id,
                 peer_id,
                 match blob {
@@ -894,7 +876,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     None => RpcEvent::StreamTermination,
                 },
             ),
-            RequestId::RangeBlockAndBlobs { id } => {
+            SyncRequestId::RangeBlockAndBlobs { id } => {
                 self.range_block_and_blobs_response(id, peer_id, blob.into())
             }
         }
@@ -978,7 +960,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         "sender_id" => ?resp.sender_id,
                         "error" => e.clone()
                     );
-                    let id = RequestId::RangeBlockAndBlobs { id };
+                    let id = SyncRequestId::RangeBlockAndBlobs { id };
                     self.network.report_peer(
                         peer_id,
                         PeerAction::MidToleranceError,
