@@ -1192,6 +1192,10 @@ lazy_static! {
         "data_availability_reconstructed_columns_total",
         "Total count of reconstructed columns"
     );
+    pub static ref KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS : Result<IntCounter> =
+        try_create_int_counter("kzg_data_column_reconstruction_attempts", "Count of times data column reconstruction has been attempted");
+    pub static ref KZG_DATA_COLUMN_RECONSTURCTION_FAILURES : Result<IntCounter> =
+        try_create_int_counter("kzg_data_column_reconstruction_failures", "Count of times data column reconstruction has failed");
 
     /*
     * light_client server metrics

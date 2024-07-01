@@ -328,7 +328,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         _seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
-        let result = self
+        let mut result = self
             .chain
             .process_rpc_custody_columns(block_root, custody_columns)
             .await;
@@ -352,7 +352,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                     // Attempt reconstruction here before notifying sync, to avoid sending out more requests
                     // that we may no longer need.
-                    self.attempt_data_column_reconstruction(block_root).await;
+                    if let Some(availability) =
+                        self.attempt_data_column_reconstruction(block_root).await
+                    {
+                        result = Ok(availability)
+                    }
                 }
             },
             Err(BlockError::BlockIsAlreadyKnown(_)) => {

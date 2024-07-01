@@ -781,11 +781,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Attempt to reconstruct all data columns if the following conditions satisfies:
     /// - Our custody requirement is all columns
     /// - We >= 50% of columns, but not all columns
-    async fn attempt_data_column_reconstruction(&self, block_root: Hash256) {
+    ///
+    /// Returns `Some(AvailabilityProcessingStatus)` if reconstruction is successfully performed,
+    /// otherwise returns `None`.
+    async fn attempt_data_column_reconstruction(
+        &self,
+        block_root: Hash256,
+    ) -> Option<AvailabilityProcessingStatus> {
         let result = self.chain.reconstruct_data_columns(block_root).await;
         match result {
-            Ok(Some((availability, data_columns_to_publish))) => {
-                match availability {
+            Ok(Some((availability_processing_status, data_columns_to_publish))) => {
+                match &availability_processing_status {
                     AvailabilityProcessingStatus::Imported(hash) => {
                         debug!(
                             self.log,
@@ -817,13 +823,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         })
                         .collect(),
                 });
+
+                Some(availability_processing_status)
             }
             Ok(None) => {
                 debug!(
                     self.log,
                     "Reconstruction not required for block";
                     "block_hash" => %block_root,
-                )
+                );
+                None
             }
             Err(e) => {
                 error!(
@@ -831,6 +840,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Error during data column reconstruction";
                     "error" => ?e
                 );
+                None
             }
         }
     }

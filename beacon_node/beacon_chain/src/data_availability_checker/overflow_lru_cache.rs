@@ -35,12 +35,15 @@ use crate::block_verification_types::{
 };
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn};
+use crate::metrics::{
+    KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTURCTION_FAILURES,
+};
 use crate::store::{DBColumn, KeyValueStore};
 use crate::{metrics, BeaconChainTypes};
 use kzg::Kzg;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
-use slog::{debug, trace, Logger};
+use slog::{debug, error, trace, Logger};
 use ssz::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use std::num::NonZeroUsize;
@@ -362,6 +365,10 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Mark reconstruction as started for this `PendingComponent`.
+    ///
+    /// NOTE: currently this value never reverts to false once it's set here. This means
+    /// reconstruction will only be attempted once. This is intentional because currently
+    /// reconstruction could only fail due to code errors or kzg errors, which shouldn't be retried.
     pub fn reconstruction_started(&mut self) {
         self.reconstruction_started = true;
     }
@@ -876,7 +883,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
 
         if should_reconstruct {
             pending_components.reconstruction_started();
-
+            metrics::inc_counter(&KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS);
             let timer = metrics::start_timer(&metrics::DATA_AVAILABILITY_RECONSTRUCTION_TIME);
 
             // Will only return an error if:
@@ -886,7 +893,16 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
                 kzg,
                 pending_components.verified_data_columns.as_slice(),
                 &self.spec,
-            )?;
+            )
+            .inspect_err(|e| {
+                error!(
+                    self.log,
+                    "Error reconstructing data columns";
+                    "block_root" => ?block_root,
+                    "error" => ?e
+                );
+                metrics::inc_counter(&KZG_DATA_COLUMN_RECONSTURCTION_FAILURES);
+            })?;
 
             // Check indices from cache again to make sure we don't publish components we've already received.
             let Some(existing_column_indices) =
