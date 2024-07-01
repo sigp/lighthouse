@@ -5,6 +5,7 @@ use crate::upgrade::{
 use crate::{per_epoch_processing::EpochProcessingSummary, *};
 use safe_arith::{ArithError, SafeArith};
 use types::*;
+use types::consts::GENESIS_SLOT;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -37,7 +38,7 @@ pub fn per_slot_processing<E: EthSpec>(
 
     cache_state(state, state_root)?;
 
-    let summary = if state.slot() > spec.genesis_slot
+    let summary = if state.slot() > GENESIS_SLOT
         && state.slot().safe_add(1)?.safe_rem(E::slots_per_epoch())? == 0
     {
         Some(per_epoch_processing(state, spec)?)

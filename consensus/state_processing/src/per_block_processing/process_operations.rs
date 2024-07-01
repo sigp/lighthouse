@@ -7,6 +7,7 @@ use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
 use crate::signature_sets::consolidation_signature_set;
 use crate::VerifySignatures;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
+use types::consts::electra::{FULL_EXIT_REQUEST_AMOUNT, UNSET_DEPOSIT_REQUESTS_START_INDEX};
 use types::typenum::U33;
 use types::validator::is_compounding_withdrawal_credential;
 
@@ -495,10 +496,10 @@ pub fn apply_deposit<E: EthSpec>(
         let validator = Validator {
             pubkey: deposit_data.pubkey,
             withdrawal_credentials: deposit_data.withdrawal_credentials,
-            activation_eligibility_epoch: spec.far_future_epoch,
-            activation_epoch: spec.far_future_epoch,
-            exit_epoch: spec.far_future_epoch,
-            withdrawable_epoch: spec.far_future_epoch,
+            activation_eligibility_epoch: FAR_FUTURE_EPOCH,
+            activation_epoch: FAR_FUTURE_EPOCH,
+            exit_epoch: FAR_FUTURE_EPOCH,
+            withdrawable_epoch: FAR_FUTURE_EPOCH,
             effective_balance,
             slashed: false,
         };
@@ -535,7 +536,7 @@ pub fn process_execution_layer_withdrawal_requests<E: EthSpec>(
 ) -> Result<(), BlockProcessingError> {
     for request in requests {
         let amount = request.amount;
-        let is_full_exit_request = amount == spec.full_exit_request_amount;
+        let is_full_exit_request = amount == FULL_EXIT_REQUEST_AMOUNT;
 
         // If partial withdrawal queue is full, only full exits are processed
         if state.pending_partial_withdrawals()?.len() == E::pending_partial_withdrawals_limit()
@@ -569,7 +570,7 @@ pub fn process_execution_layer_withdrawal_requests<E: EthSpec>(
         }
 
         // Verify exit has not been initiated
-        if validator.exit_epoch != spec.far_future_epoch {
+        if validator.exit_epoch != FAR_FUTURE_EPOCH {
             continue;
         }
 
@@ -632,7 +633,7 @@ pub fn process_deposit_receipts<E: EthSpec>(
 ) -> Result<(), BlockProcessingError> {
     for receipt in receipts {
         // Set deposit receipt start index
-        if state.deposit_receipts_start_index()? == spec.unset_deposit_receipts_start_index {
+        if state.deposit_receipts_start_index()? == UNSET_DEPOSIT_REQUESTS_START_INDEX {
             *state.deposit_receipts_start_index_mut()? = receipt.index
         }
         let deposit_data = DepositData {
@@ -711,13 +712,13 @@ pub fn process_consolidations<E: EthSpec>(
 
         // Verify exits for source and target have not been initiated
         block_verify! {
-            source_validator.exit_epoch == spec.far_future_epoch,
+            source_validator.exit_epoch == FAR_FUTURE_EPOCH,
             BlockProcessingError::SourceValidatorExiting{
                 index: consolidation.source_index,
             }
         }
         block_verify! {
-            target_validator.exit_epoch == spec.far_future_epoch,
+            target_validator.exit_epoch == FAR_FUTURE_EPOCH,
             BlockProcessingError::TargetValidatorExiting{
                 index: consolidation.target_index,
             }

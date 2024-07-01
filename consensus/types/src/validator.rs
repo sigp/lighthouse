@@ -1,6 +1,7 @@
 use crate::{
-    test_utils::TestRandom, Address, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, ForkName,
-    Hash256, PublicKeyBytes,
+    consts::electra::COMPOUNDING_WITHDRAWAL_PREFIX, test_utils::TestRandom, Address, BeaconState,
+    ChainSpec, Checkpoint, Epoch, EthSpec, ForkName, Hash256, PublicKeyBytes,
+    consts::{ETH1_ADDRESS_WITHDRAWAL_PREFIX, FAR_FUTURE_EPOCH},
 };
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -74,7 +75,7 @@ impl Validator {
     ///
     /// Spec v0.12.1
     fn is_eligible_for_activation_queue_base(&self, spec: &ChainSpec) -> bool {
-        self.activation_eligibility_epoch == spec.far_future_epoch
+        self.activation_eligibility_epoch == FAR_FUTURE_EPOCH
             && self.effective_balance == spec.max_effective_balance
     }
 
@@ -82,7 +83,7 @@ impl Validator {
     ///
     /// Modified in electra as part of EIP 7251.
     fn is_eligible_for_activation_queue_electra(&self, spec: &ChainSpec) -> bool {
-        self.activation_eligibility_epoch == spec.far_future_epoch
+        self.activation_eligibility_epoch == FAR_FUTURE_EPOCH
             && self.effective_balance >= spec.min_activation_balance
     }
 
@@ -107,7 +108,7 @@ impl Validator {
         // Placement in queue is finalized
         self.activation_eligibility_epoch <= finalized_checkpoint.epoch
         // Has not yet been activated
-        && self.activation_epoch == spec.far_future_epoch
+        && self.activation_epoch == FAR_FUTURE_EPOCH
     }
 
     /// Returns `true` if the validator *could* be eligible for activation at `epoch`.
@@ -117,7 +118,7 @@ impl Validator {
     /// the epoch transition at the end of `epoch`.
     pub fn could_be_eligible_for_activation_at(&self, epoch: Epoch, spec: &ChainSpec) -> bool {
         // Has not yet been activated
-        self.activation_epoch == spec.far_future_epoch
+        self.activation_epoch == FAR_FUTURE_EPOCH
         // Placement in queue could be finalized.
         //
         // NOTE: the epoch distance is 1 rather than 2 because we consider the activations that
@@ -131,7 +132,7 @@ impl Validator {
         self.withdrawal_credentials
             .as_bytes()
             .first()
-            .map(|byte| *byte == spec.eth1_address_withdrawal_prefix_byte)
+            .map(|byte| *byte == ETH1_ADDRESS_WITHDRAWAL_PREFIX)
             .unwrap_or(false)
     }
 
@@ -157,7 +158,7 @@ impl Validator {
     /// WARNING: this function does NO VALIDATION - it just does it!
     pub fn change_withdrawal_credentials(&mut self, execution_address: &Address, spec: &ChainSpec) {
         let mut bytes = [0u8; 32];
-        bytes[0] = spec.eth1_address_withdrawal_prefix_byte;
+        bytes[0] = ETH1_ADDRESS_WITHDRAWAL_PREFIX;
         bytes[12..].copy_from_slice(execution_address.as_bytes());
         self.withdrawal_credentials = Hash256::from(bytes);
     }
@@ -300,7 +301,7 @@ pub fn is_compounding_withdrawal_credential(
     withdrawal_credentials
         .as_bytes()
         .first()
-        .map(|prefix_byte| *prefix_byte == spec.compounding_withdrawal_prefix_byte)
+        .map(|prefix_byte| *prefix_byte == COMPOUNDING_WITHDRAWAL_PREFIX)
         .unwrap_or(false)
 }
 

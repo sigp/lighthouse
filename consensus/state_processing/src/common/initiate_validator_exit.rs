@@ -1,6 +1,6 @@
 use safe_arith::SafeArith;
 use std::cmp::max;
-use types::{BeaconStateError as Error, *};
+use types::{BeaconStateError as Error, *, consts::FAR_FUTURE_EPOCH};
 
 /// Initiate the exit of the validator of the given `index`.
 pub fn initiate_validator_exit<E: EthSpec>(
@@ -11,7 +11,7 @@ pub fn initiate_validator_exit<E: EthSpec>(
     let validator = state.get_validator_cow(index)?;
 
     // Return if the validator already initiated exit
-    if validator.exit_epoch != spec.far_future_epoch {
+    if validator.exit_epoch != FAR_FUTURE_EPOCH {
         return Ok(());
     }
 

@@ -79,7 +79,7 @@ mod test {
 
         assert_eq!(
             state.slot(),
-            spec.genesis_slot,
+            GENESIS_SLOT,
             "test assume a genesis slot state"
         );
         assert_eq!(
@@ -117,7 +117,7 @@ mod test {
     #[test]
     fn block_roots_iter_non_zero_genesis() {
         let mut spec = E::default_spec();
-        spec.genesis_slot = Slot::new(4);
+        GENESIS_SLOT = Slot::new(4);
 
         let mut state: BeaconState<E> = BeaconState::new(0, <_>::default(), &spec);
 
@@ -127,7 +127,7 @@ mod test {
 
         assert_eq!(
             state.slot(),
-            spec.genesis_slot,
+            GENESIS_SLOT,
             "test assume a genesis slot state"
         );
         assert_eq!(

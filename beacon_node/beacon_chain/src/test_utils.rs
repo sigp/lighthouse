@@ -62,7 +62,11 @@ use types::indexed_attestation::IndexedAttestationBase;
 use types::payload::BlockProductionVersion;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::test_utils::TestRandom;
-use types::{typenum::U4294967296, *};
+use types::{
+    consts::{BLS_WITHDRAWAL_PREFIX, DEPOSIT_CONTRACT_TREE_DEPTH},
+    typenum::U4294967296,
+    *,
+};
 
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
@@ -1918,8 +1922,7 @@ where
             let mut data = DepositData {
                 pubkey: pubkeybytes,
                 withdrawal_credentials: Hash256::from_slice(
-                    &get_withdrawal_credentials(&keypair.pk, self.spec.bls_withdrawal_prefix_byte)
-                        [..],
+                    &get_withdrawal_credentials(&keypair.pk, BLS_WITHDRAWAL_PREFIX)[..],
                 ),
                 amount: self.spec.min_deposit_amount,
                 signature: SignatureBytes::empty(),
@@ -1951,13 +1954,13 @@ where
         *state.eth1_deposit_index_mut() = 0;
 
         // Building the merkle tree used for generating proofs
-        let tree = MerkleTree::create(&leaves[..], self.spec.deposit_contract_tree_depth as usize);
+        let tree = MerkleTree::create(&leaves[..], DEPOSIT_CONTRACT_TREE_DEPTH as usize);
 
         // Building proofs
         let mut proofs = vec![];
         for i in 0..leaves.len() {
             let (_, mut proof) = tree
-                .generate_proof(i, self.spec.deposit_contract_tree_depth as usize)
+                .generate_proof(i, DEPOSIT_CONTRACT_TREE_DEPTH as usize)
                 .expect("should generate proof");
             proof.push(Hash256::from_slice(&int_to_bytes32(leaves.len() as u64)));
             proofs.push(proof);

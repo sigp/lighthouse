@@ -1,6 +1,7 @@
 use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::blob_sidecar::BlobIdentifier;
 use crate::*;
+use crate::consts::FAR_FUTURE_EPOCH;
 use int_to_bytes::int_to_bytes4;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -40,14 +41,6 @@ pub struct ChainSpec {
     pub config_name: Option<String>,
 
     /*
-     * Constants
-     */
-    pub genesis_slot: Slot,
-    pub far_future_epoch: Epoch,
-    pub base_rewards_per_epoch: u64,
-    pub deposit_contract_tree_depth: u64,
-
-    /*
      * Misc
      */
     pub max_committees_per_slot: usize,
@@ -75,9 +68,6 @@ pub struct ChainSpec {
      * Initial Values
      */
     pub genesis_fork_version: [u8; 4],
-    pub bls_withdrawal_prefix_byte: u8,
-    pub eth1_address_withdrawal_prefix_byte: u8,
-    pub compounding_withdrawal_prefix_byte: u8,
 
     /*
      * Time parameters
@@ -180,8 +170,6 @@ pub struct ChainSpec {
     pub electra_fork_version: [u8; 4],
     /// The Electra fork epoch is optional, with `None` representing "Electra never happens".
     pub electra_fork_epoch: Option<Epoch>,
-    pub unset_deposit_receipts_start_index: u64,
-    pub full_exit_request_amount: u64,
     pub min_activation_balance: u64,
     pub max_effective_balance_electra: u64,
     pub min_slashing_penalty_quotient_electra: u64,
@@ -260,7 +248,7 @@ impl ChainSpec {
             next_fork_epoch: self
                 .next_fork_epoch::<E>(slot)
                 .map(|(_, e)| e)
-                .unwrap_or(self.far_future_epoch),
+                .unwrap_or(FAR_FUTURE_EPOCH),
         }
     }
 
@@ -589,13 +577,6 @@ impl ChainSpec {
              * Config name
              */
             config_name: Some("mainnet".to_string()),
-            /*
-             * Constants
-             */
-            genesis_slot: Slot::new(0),
-            far_future_epoch: Epoch::new(u64::MAX),
-            base_rewards_per_epoch: 4,
-            deposit_contract_tree_depth: 32,
 
             /*
              * Misc
@@ -636,9 +617,6 @@ impl ChainSpec {
              * Initial Values
              */
             genesis_fork_version: [0; 4],
-            bls_withdrawal_prefix_byte: 0x00,
-            eth1_address_withdrawal_prefix_byte: 0x01,
-            compounding_withdrawal_prefix_byte: 0x02,
 
             /*
              * Time parameters
@@ -747,8 +725,6 @@ impl ChainSpec {
              */
             electra_fork_version: [0x05, 00, 00, 00],
             electra_fork_epoch: None,
-            unset_deposit_receipts_start_index: u64::MAX,
-            full_exit_request_amount: 0,
             min_activation_balance: option_wrapper(|| {
                 u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
             })
@@ -889,13 +865,6 @@ impl ChainSpec {
     pub fn gnosis() -> Self {
         Self {
             config_name: Some("gnosis".to_string()),
-            /*
-             * Constants
-             */
-            genesis_slot: Slot::new(0),
-            far_future_epoch: Epoch::new(u64::MAX),
-            base_rewards_per_epoch: 4,
-            deposit_contract_tree_depth: 32,
 
             /*
              * Misc
@@ -936,9 +905,6 @@ impl ChainSpec {
              * Initial Values
              */
             genesis_fork_version: [0x00, 0x00, 0x00, 0x64],
-            bls_withdrawal_prefix_byte: 0x00,
-            eth1_address_withdrawal_prefix_byte: 0x01,
-            compounding_withdrawal_prefix_byte: 0x02,
 
             /*
              * Time parameters
@@ -1049,8 +1015,6 @@ impl ChainSpec {
              */
             electra_fork_version: [0x05, 0x00, 0x00, 0x64],
             electra_fork_epoch: None,
-            unset_deposit_receipts_start_index: u64::MAX,
-            full_exit_request_amount: 0,
             min_activation_balance: option_wrapper(|| {
                 u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
             })

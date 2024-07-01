@@ -5,6 +5,7 @@ use crate::per_block_processing::{
 };
 use safe_arith::SafeArith;
 use types::*;
+use types::consts::FAR_FUTURE_EPOCH;
 
 type Result<T> = std::result::Result<T, BlockOperationError<ExitInvalid>>;
 
@@ -41,7 +42,7 @@ pub fn verify_exit<E: EthSpec>(
 
     // Verify that the validator has not yet exited.
     verify!(
-        validator.exit_epoch == spec.far_future_epoch,
+        validator.exit_epoch == FAR_FUTURE_EPOCH,
         ExitInvalid::AlreadyExited(exit.validator_index)
     );
 

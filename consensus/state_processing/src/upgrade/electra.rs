@@ -1,8 +1,8 @@
 use safe_arith::SafeArith;
 use std::mem;
 use types::{
-    BeaconState, BeaconStateElectra, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec,
-    Fork,
+    consts::electra::UNSET_DEPOSIT_REQUESTS_START_INDEX, consts::FAR_FUTURE_EPOCH, BeaconState,
+    BeaconStateElectra, BeaconStateError as Error, ChainSpec, EpochCache, EthSpec, Fork,
 };
 
 /// Transform a `Deneb` state into an `Electra` state.
@@ -15,7 +15,7 @@ pub fn upgrade_to_electra<E: EthSpec>(
     let earliest_exit_epoch = pre_state
         .validators()
         .iter()
-        .filter(|v| v.exit_epoch != spec.far_future_epoch)
+        .filter(|v| v.exit_epoch != FAR_FUTURE_EPOCH)
         .map(|v| v.exit_epoch)
         .max()
         .unwrap_or(epoch)
@@ -78,7 +78,7 @@ pub fn upgrade_to_electra<E: EthSpec>(
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
         historical_summaries: pre.historical_summaries.clone(),
         // Electra
-        deposit_receipts_start_index: spec.unset_deposit_receipts_start_index,
+        deposit_receipts_start_index: UNSET_DEPOSIT_REQUESTS_START_INDEX,
         deposit_balance_to_consume: 0,
         exit_balance_to_consume: 0,
         earliest_exit_epoch,
@@ -104,7 +104,7 @@ pub fn upgrade_to_electra<E: EthSpec>(
     let mut pre_activation = validators
         .iter()
         .enumerate()
-        .filter(|(_, validator)| validator.activation_epoch == spec.far_future_epoch)
+        .filter(|(_, validator)| validator.activation_epoch == FAR_FUTURE_EPOCH)
         .collect::<Vec<_>>();
 
     // Sort the indices by activation_eligibility_epoch and then by index

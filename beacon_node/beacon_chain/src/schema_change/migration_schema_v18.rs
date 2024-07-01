@@ -6,7 +6,7 @@ use std::time::Duration;
 use store::{
     get_key_for_col, metadata::BLOB_INFO_KEY, DBColumn, Error, HotColdDB, KeyValueStoreOp,
 };
-use types::{Epoch, EthSpec, Hash256, Slot};
+use types::{consts::GENESIS_SLOT, Epoch, EthSpec, Hash256, Slot};
 
 /// The slot clock isn't usually available before the database is initialized, so we construct a
 /// temporary slot clock by reading the genesis state. It should always exist if the database is
@@ -26,7 +26,7 @@ fn get_slot_clock<T: BeaconChainTypes>(
         return Ok(None);
     };
     Ok(Some(T::SlotClock::new(
-        spec.genesis_slot,
+        GENESIS_SLOT,
         Duration::from_secs(genesis_state.genesis_time()),
         Duration::from_secs(spec.seconds_per_slot),
     )))

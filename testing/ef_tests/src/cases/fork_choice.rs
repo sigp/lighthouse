@@ -24,9 +24,10 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
-    BlobSidecar, BlobsList, BlockImportSource, Checkpoint, ExecutionBlockHash, Hash256,
-    IndexedAttestation, KzgProof, ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
+    consts::GENESIS_SLOT, Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef,
+    BeaconBlock, BeaconState, BlobSidecar, BlobsList, BlockImportSource, Checkpoint,
+    ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof, ProposerPreparationData,
+    SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -357,7 +358,7 @@ impl<E: EthSpec> Tester<E> {
     pub fn new(case: &ForkChoiceTest<E>, spec: ChainSpec) -> Result<Self, Error> {
         let genesis_time = case.anchor_state.genesis_time();
 
-        if case.anchor_state.slot() != spec.genesis_slot {
+        if case.anchor_state.slot() != GENESIS_SLOT {
             // I would hope that future fork-choice tests would start from a non-genesis anchors,
             // however at the time of writing, none do. I think it would be quite easy to do
             // non-genesis anchors via a weak-subjectivity/checkpoint start.
@@ -414,7 +415,7 @@ impl<E: EthSpec> Tester<E> {
             .checked_sub(genesis_time)
             .ok_or_else(|| Error::FailedToParseTest("tick is prior to genesis".into()))?;
         let slots_since_genesis = since_genesis / self.spec.seconds_per_slot;
-        Ok(self.spec.genesis_slot + slots_since_genesis)
+        Ok(GENESIS_SLOT + slots_since_genesis)
     }
 
     fn block_on_dangerous<F: Future>(&self, future: F) -> Result<F::Output, Error> {

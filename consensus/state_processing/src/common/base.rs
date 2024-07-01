@@ -1,6 +1,7 @@
 use integer_sqrt::IntegerSquareRoot;
 use safe_arith::{ArithError, SafeArith};
 use types::*;
+use types::consts::BASE_REWARDS_PER_EPOCH;
 
 /// This type exists to avoid confusing `total_active_balance` with `sqrt_total_active_balance`,
 /// since they are used in close proximity and have the same type (`u64`).
@@ -26,5 +27,5 @@ pub fn get_base_reward(
     validator_effective_balance
         .safe_mul(spec.base_reward_factor)?
         .safe_div(sqrt_total_active_balance.as_u64())?
-        .safe_div(spec.base_rewards_per_epoch)
+        .safe_div(BASE_REWARDS_PER_EPOCH)
 }

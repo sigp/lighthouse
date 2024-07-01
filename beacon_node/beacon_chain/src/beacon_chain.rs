@@ -123,6 +123,7 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tree_hash::TreeHash;
 use types::blob_sidecar::FixedBlobSidecarList;
+use types::consts::GENESIS_SLOT;
 use types::payload::BlockProductionVersion;
 use types::*;
 
@@ -939,7 +940,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// May return a database error.
     pub fn state_root_at_slot(&self, request_slot: Slot) -> Result<Option<Hash256>, Error> {
-        if request_slot == self.spec.genesis_slot {
+        if request_slot == GENESIS_SLOT {
             return Ok(Some(self.genesis_state_root));
         } else if request_slot > self.slot()? {
             return Ok(None);
@@ -1019,7 +1020,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// May return a database error.
     fn block_root_at_slot_skips_none(&self, request_slot: Slot) -> Result<Option<Hash256>, Error> {
-        if request_slot == self.spec.genesis_slot {
+        if request_slot == GENESIS_SLOT {
             return Ok(Some(self.genesis_block_root));
         } else if request_slot > self.slot()? {
             return Ok(None);
@@ -1082,7 +1083,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// May return a database error.
     fn block_root_at_slot_skips_prev(&self, request_slot: Slot) -> Result<Option<Hash256>, Error> {
-        if request_slot == self.spec.genesis_slot {
+        if request_slot == GENESIS_SLOT {
             return Ok(Some(self.genesis_block_root));
         } else if request_slot > self.slot()? {
             return Ok(None);
@@ -6486,7 +6487,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn enr_fork_id(&self) -> EnrForkId {
         // If we are unable to read the slot clock we assume that it is prior to genesis and
         // therefore use the genesis slot.
-        let slot = self.slot().unwrap_or(self.spec.genesis_slot);
+        let slot = self.slot().unwrap_or(GENESIS_SLOT);
 
         self.spec
             .enr_fork_id::<T::EthSpec>(slot, self.genesis_validators_root)
@@ -6497,7 +6498,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn duration_to_next_fork(&self) -> Option<(ForkName, Duration)> {
         // If we are unable to read the slot clock we assume that it is prior to genesis and
         // therefore use the genesis slot.
-        let slot = self.slot().unwrap_or(self.spec.genesis_slot);
+        let slot = self.slot().unwrap_or(GENESIS_SLOT);
 
         let (fork_name, epoch) = self.spec.next_fork_epoch::<T::EthSpec>(slot)?;
         self.slot_clock

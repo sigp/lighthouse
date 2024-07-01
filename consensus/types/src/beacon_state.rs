@@ -1,4 +1,8 @@
 use self::committee_cache::get_active_validator_indices;
+use crate::consts::electra::COMPOUNDING_WITHDRAWAL_PREFIX;
+use crate::consts::{
+    BLS_WITHDRAWAL_PREFIX, ETH1_ADDRESS_WITHDRAWAL_PREFIX, FAR_FUTURE_EPOCH, GENESIS_SLOT,
+};
 use crate::historical_summary::HistoricalSummary;
 use crate::test_utils::TestRandom;
 use crate::*;
@@ -567,7 +571,7 @@ impl<E: EthSpec> BeaconState<E> {
             // Versioning
             genesis_time,
             genesis_validators_root: Hash256::zero(), // Set later.
-            slot: spec.genesis_slot,
+            slot: GENESIS_SLOT,
             fork: Fork {
                 previous_version: spec.genesis_fork_version,
                 current_version: spec.genesis_fork_version,
@@ -1193,7 +1197,7 @@ impl<E: EthSpec> BeaconState<E> {
     ///
     /// See the docs for `BlockRootsIter` for more detail.
     pub fn rev_iter_block_roots<'a>(&'a self, spec: &ChainSpec) -> BlockRootsIter<'a, E> {
-        BlockRootsIter::new(self, spec.genesis_slot)
+        BlockRootsIter::new(self, GENESIS_SLOT)
     }
 
     /// Return the block root at a recent `slot`.
@@ -2183,7 +2187,7 @@ impl<E: EthSpec> BeaconState<E> {
             .get_mut(validator_index)
             .ok_or(Error::UnknownValidator(validator_index))?;
         validator.effective_balance = 0;
-        validator.activation_eligibility_epoch = spec.far_future_epoch;
+        validator.activation_eligibility_epoch = FAR_FUTURE_EPOCH;
 
         self.pending_balance_deposits_mut()?
             .push(PendingBalanceDeposit {
@@ -2205,7 +2209,7 @@ impl<E: EthSpec> BeaconState<E> {
             .ok_or(Error::UnknownValidator(validator_index))?;
         if validator.has_eth1_withdrawal_credential(spec) {
             validator.withdrawal_credentials.as_fixed_bytes_mut()[0] =
-                spec.compounding_withdrawal_prefix_byte;
+                COMPOUNDING_WITHDRAWAL_PREFIX;
             self.queue_excess_active_balance(validator_index, spec)?;
         }
         Ok(())

@@ -46,8 +46,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use timer::spawn_timer;
 use tokio::sync::oneshot;
 use types::{
-    test_utils::generate_deterministic_keypairs, BeaconState, BlobSidecarList, ChainSpec, EthSpec,
-    ExecutionBlockHash, Hash256, SignedBeaconBlock,
+    consts::GENESIS_SLOT, test_utils::generate_deterministic_keypairs, BeaconState,
+    BlobSidecarList, ChainSpec, EthSpec, ExecutionBlockHash, Hash256, SignedBeaconBlock,
 };
 
 /// Interval between polling the eth1 node for genesis information.
@@ -1218,7 +1218,7 @@ where
             .ok_or("system_time_slot_clock requires a chain spec")?;
 
         let slot_clock = SystemTimeSlotClock::new(
-            spec.genesis_slot,
+            GENESIS_SLOT,
             Duration::from_secs(genesis_time),
             Duration::from_secs(spec.seconds_per_slot),
         );

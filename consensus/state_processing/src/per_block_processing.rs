@@ -5,6 +5,7 @@ use safe_arith::{ArithError, SafeArith};
 use signature_sets::{block_proposal_signature_set, get_pubkey_from_state, randao_signature_set};
 use std::borrow::Cow;
 use tree_hash::TreeHash;
+use types::consts::{FAR_FUTURE_EPOCH, GENESIS_SLOT};
 use types::*;
 
 pub use self::verify_attester_slashing::{
@@ -491,7 +492,7 @@ pub fn compute_timestamp_at_slot<E: EthSpec>(
     block_slot: Slot,
     spec: &ChainSpec,
 ) -> Result<u64, ArithError> {
-    let slots_since_genesis = block_slot.as_u64().safe_sub(spec.genesis_slot.as_u64())?;
+    let slots_since_genesis = block_slot.as_u64().safe_sub(GENESIS_SLOT.as_u64())?;
     slots_since_genesis
         .safe_mul(spec.seconds_per_slot)
         .and_then(|since_genesis| state.genesis_time().safe_add(since_genesis))
@@ -528,7 +529,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                     validator.effective_balance >= spec.min_activation_balance;
                 let has_excess_balance = withdrawal_balance > spec.min_activation_balance;
 
-                if validator.exit_epoch == spec.far_future_epoch
+                if validator.exit_epoch == FAR_FUTURE_EPOCH
                     && has_sufficient_effective_balance
                     && has_excess_balance
                 {

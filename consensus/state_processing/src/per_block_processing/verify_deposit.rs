@@ -4,6 +4,7 @@ use merkle_proof::verify_merkle_proof;
 use safe_arith::SafeArith;
 use tree_hash::TreeHash;
 use types::*;
+use types::consts::DEPOSIT_CONTRACT_TREE_DEPTH;
 
 type Result<T> = std::result::Result<T, BlockOperationError<DepositInvalid>>;
 
@@ -56,7 +57,7 @@ pub fn verify_deposit_merkle_proof<E: EthSpec>(
         verify_merkle_proof(
             leaf,
             &deposit.proof[..],
-            spec.deposit_contract_tree_depth.safe_add(1)? as usize,
+            DEPOSIT_CONTRACT_TREE_DEPTH.safe_add(1)? as usize,
             deposit_index as usize,
             state.eth1_data().deposit_root,
         ),

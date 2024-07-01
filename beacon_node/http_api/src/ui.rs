@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use warp_utils::reject::beacon_chain_error;
+use types::consts::FAR_FUTURE_EPOCH;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorCountResponse {
@@ -40,7 +41,7 @@ pub fn get_validator_count<T: BeaconChainTypes>(
             let epoch = state.current_epoch();
             for validator in state.validators() {
                 let status =
-                    ValidatorStatus::from_validator(validator, epoch, spec.far_future_epoch);
+                    ValidatorStatus::from_validator(validator, epoch, FAR_FUTURE_EPOCH);
 
                 match status {
                     ValidatorStatus::ActiveOngoing => active_ongoing += 1,

@@ -41,6 +41,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use types::*;
+use types::consts::GENESIS_SLOT;
 
 /// On-disk database that stores finalized states efficiently.
 ///
@@ -1481,7 +1482,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .take_while(|result| match result {
                 Ok(block) => block.slot() >= start_slot,
                 Err(Error::BlockNotFound(_)) => {
-                    self.get_oldest_block_slot() == self.spec.genesis_slot
+                    self.get_oldest_block_slot() == GENESIS_SLOT
                 }
                 Err(_) => true,
             })
@@ -1656,7 +1657,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 oldest_block_slot: anchor_slot,
                 oldest_block_parent: block.parent_root(),
                 state_upper_limit,
-                state_lower_limit: self.spec.genesis_slot,
+                state_lower_limit: GENESIS_SLOT,
             })
         };
         self.compare_and_set_anchor_info(None, anchor_info)
@@ -1822,7 +1823,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.anchor_info
             .read_recursive()
             .as_ref()
-            .map_or((split_slot, self.spec.genesis_slot), |a| {
+            .map_or((split_slot, GENESIS_SLOT), |a| {
                 (a.state_lower_limit, min(a.state_upper_limit, split_slot))
             })
     }
@@ -1832,7 +1833,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.anchor_info
             .read_recursive()
             .as_ref()
-            .map_or(self.spec.genesis_slot, |anchor| anchor.oldest_block_slot)
+            .map_or(GENESIS_SLOT, |anchor| anchor.oldest_block_slot)
     }
 
     /// Return the in-memory configuration used by the database.

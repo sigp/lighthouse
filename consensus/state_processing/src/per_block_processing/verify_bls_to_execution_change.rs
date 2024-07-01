@@ -3,6 +3,7 @@ use crate::per_block_processing::signature_sets::bls_execution_change_signature_
 use crate::VerifySignatures;
 use ethereum_hashing::hash;
 use types::*;
+use types::consts::BLS_WITHDRAWAL_PREFIX;
 
 type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
 
@@ -32,7 +33,7 @@ pub fn verify_bls_to_execution_change<E: EthSpec>(
             .withdrawal_credentials
             .as_bytes()
             .first()
-            .map(|byte| *byte == spec.bls_withdrawal_prefix_byte)
+            .map(|byte| *byte == BLS_WITHDRAWAL_PREFIX)
             .unwrap_or(false),
         Invalid::NonBlsWithdrawalCredentials
     );

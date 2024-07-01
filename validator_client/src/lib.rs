@@ -62,7 +62,7 @@ use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
 };
-use types::{EthSpec, Hash256, PublicKeyBytes};
+use types::{consts::GENESIS_SLOT, EthSpec, Hash256, PublicKeyBytes};
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
@@ -415,7 +415,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         }
 
         let slot_clock = SystemTimeSlotClock::new(
-            context.eth2_config.spec.genesis_slot,
+            GENESIS_SLOT,
             Duration::from_secs(genesis_time),
             Duration::from_secs(context.eth2_config.spec.seconds_per_slot),
         );

@@ -171,7 +171,7 @@ async fn voluntary_exit_duplicate_in_state() {
             .get(exited_validator as usize)
             .unwrap()
             .exit_epoch,
-        spec.far_future_epoch
+        FAR_FUTURE_EPOCH
     );
 
     // Clear the in-memory gossip cache & try to verify the same exit on gossip.

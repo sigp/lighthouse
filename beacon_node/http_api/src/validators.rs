@@ -5,6 +5,7 @@ use eth2::types::{
     ValidatorId, ValidatorStatus,
 };
 use std::{collections::HashSet, sync::Arc};
+use types::consts::FAR_FUTURE_EPOCH;
 
 pub fn get_beacon_state_validators<T: BeaconChainTypes>(
     state_id: StateId,
@@ -17,7 +18,7 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
             &chain,
             |state, execution_optimistic, finalized| {
                 let epoch = state.current_epoch();
-                let far_future_epoch = chain.spec.far_future_epoch;
+                let far_future_epoch = FAR_FUTURE_EPOCH;
                 let ids_filter_set: Option<HashSet<&ValidatorId>> =
                     query_ids.as_ref().map(HashSet::from_iter);
 

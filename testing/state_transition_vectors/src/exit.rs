@@ -3,7 +3,7 @@ use state_processing::{
     per_block_processing, per_block_processing::errors::ExitInvalid, BlockProcessingError,
     BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
 };
-use types::{BeaconBlock, Epoch};
+use types::{consts::FAR_FUTURE_EPOCH, BeaconBlock, Epoch};
 
 // Default validator index to exit.
 pub const VALIDATOR_INDEX: u64 = 0;
@@ -188,8 +188,7 @@ vectors_and_tests!(
     invalid_not_active_before_activation_epoch,
     ExitTest {
         state_modifier: Box::new(|state| {
-            state.validators_mut().get_mut(0).unwrap().activation_epoch =
-                E::default_spec().far_future_epoch;
+            state.validators_mut().get_mut(0).unwrap().activation_epoch = FAR_FUTURE_EPOCH;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,

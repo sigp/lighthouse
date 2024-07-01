@@ -7,7 +7,7 @@ use crate::per_epoch_processing::{
     Delta, Error,
 };
 use safe_arith::SafeArith;
-use types::{BeaconState, ChainSpec, EthSpec};
+use types::{consts::BASE_REWARDS_PER_EPOCH, BeaconState, ChainSpec, EthSpec};
 
 /// Combination of several deltas for different components of an attestation reward.
 ///
@@ -304,7 +304,7 @@ pub fn get_inactivity_penalty_delta(
     if finality_delay > spec.min_epochs_to_inactivity_penalty {
         // If validator is performing optimally this cancels all rewards for a neutral balance
         delta.penalize(
-            spec.base_rewards_per_epoch
+            BASE_REWARDS_PER_EPOCH
                 .safe_mul(base_reward)?
                 .safe_sub(get_proposer_reward(base_reward, spec)?)?,
         )?;

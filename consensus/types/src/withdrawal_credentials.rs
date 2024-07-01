@@ -1,3 +1,4 @@
+use crate::consts::{BLS_WITHDRAWAL_PREFIX, ETH1_ADDRESS_WITHDRAWAL_PREFIX};
 use crate::*;
 use bls::get_withdrawal_credentials;
 
@@ -6,13 +7,13 @@ pub struct WithdrawalCredentials(Hash256);
 impl WithdrawalCredentials {
     pub fn bls(withdrawal_public_key: &PublicKey, spec: &ChainSpec) -> Self {
         let withdrawal_credentials =
-            get_withdrawal_credentials(withdrawal_public_key, spec.bls_withdrawal_prefix_byte);
+            get_withdrawal_credentials(withdrawal_public_key, BLS_WITHDRAWAL_PREFIX);
         Self(Hash256::from_slice(&withdrawal_credentials))
     }
 
     pub fn eth1(withdrawal_address: Address, spec: &ChainSpec) -> Self {
         let mut withdrawal_credentials = [0; 32];
-        withdrawal_credentials[0] = spec.eth1_address_withdrawal_prefix_byte;
+        withdrawal_credentials[0] = ETH1_ADDRESS_WITHDRAWAL_PREFIX;
         withdrawal_credentials[12..].copy_from_slice(withdrawal_address.as_bytes());
         Self(Hash256::from_slice(&withdrawal_credentials))
     }
@@ -36,9 +37,9 @@ mod test {
         let keypair = generate_deterministic_keypair(0);
         let credentials = WithdrawalCredentials::bls(&keypair.pk, spec);
         let manually_generated_credentials =
-            get_withdrawal_credentials(&keypair.pk, spec.bls_withdrawal_prefix_byte);
+            get_withdrawal_credentials(&keypair.pk, BLS_WITHDRAWAL_PREFIX);
         let hash: Hash256 = credentials.into();
-        assert_eq!(hash[0], spec.bls_withdrawal_prefix_byte);
+        assert_eq!(hash[0], BLS_WITHDRAWAL_PREFIX);
         assert_eq!(hash.as_bytes(), &manually_generated_credentials);
     }
 

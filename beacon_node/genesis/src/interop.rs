@@ -4,6 +4,7 @@ use rayon::prelude::*;
 use ssz::Encode;
 use state_processing::initialize_beacon_state_from_eth1;
 use types::{
+    consts::{BLS_WITHDRAWAL_PREFIX, ETH1_ADDRESS_WITHDRAWAL_PREFIX},
     BeaconState, ChainSpec, DepositData, EthSpec, ExecutionPayloadHeader, Hash256, Keypair,
     PublicKey, Signature,
 };
@@ -12,14 +13,14 @@ pub const DEFAULT_ETH1_BLOCK_HASH: &[u8] = &[0x42; 32];
 
 pub fn bls_withdrawal_credentials(pubkey: &PublicKey, spec: &ChainSpec) -> Hash256 {
     let mut credentials = hash(&pubkey.as_ssz_bytes());
-    credentials[0] = spec.bls_withdrawal_prefix_byte;
+    credentials[0] = BLS_WITHDRAWAL_PREFIX;
     Hash256::from_slice(&credentials)
 }
 
 fn eth1_withdrawal_credentials(pubkey: &PublicKey, spec: &ChainSpec) -> Hash256 {
     let fake_execution_address = &hash(&pubkey.as_ssz_bytes())[0..20];
     let mut credentials = [0u8; 32];
-    credentials[0] = spec.eth1_address_withdrawal_prefix_byte;
+    credentials[0] = ETH1_ADDRESS_WITHDRAWAL_PREFIX;
     credentials[12..].copy_from_slice(fake_execution_address);
     Hash256::from_slice(&credentials)
 }
@@ -181,7 +182,7 @@ mod test {
             let creds = v.withdrawal_credentials;
             assert_eq!(
                 creds.as_bytes()[0],
-                spec.bls_withdrawal_prefix_byte,
+                BLS_WITHDRAWAL_PREFIX,
                 "first byte of withdrawal creds should be bls prefix"
             );
             assert_eq!(
@@ -245,7 +246,7 @@ mod test {
             let creds = withdrawal_credientials.as_bytes();
             if index % 2 == 0 {
                 assert_eq!(
-                    creds[0], spec.bls_withdrawal_prefix_byte,
+                    creds[0], BLS_WITHDRAWAL_PREFIX,
                     "first byte of withdrawal creds should be bls prefix"
                 );
                 assert_eq!(
@@ -255,7 +256,7 @@ mod test {
                 );
             } else {
                 assert_eq!(
-                    creds[0], spec.eth1_address_withdrawal_prefix_byte,
+                    creds[0], ETH1_ADDRESS_WITHDRAWAL_PREFIX,
                     "first byte of withdrawal creds should be eth1 prefix"
                 );
                 assert_eq!(

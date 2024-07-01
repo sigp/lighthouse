@@ -22,8 +22,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
-    BlindedBeaconBlock, BlockType, EthSpec, Graffiti, PublicKeyBytes, SignedBlindedBeaconBlock,
-    Slot,
+    consts::GENESIS_SLOT, BlindedBeaconBlock, BlockType, EthSpec, Graffiti, PublicKeyBytes,
+    SignedBlindedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -290,7 +290,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             return Ok(());
         }
 
-        if slot == self.context.eth2_config.spec.genesis_slot {
+        if slot == GENESIS_SLOT {
             debug!(
                 log,
                 "Not producing block at genesis slot";

@@ -1,4 +1,4 @@
-use super::{BeaconStateError, ChainSpec, Epoch, Validator};
+use super::{BeaconStateError, ChainSpec, Epoch, Validator, FAR_FUTURE_EPOCH};
 use safe_arith::SafeArith;
 use std::cmp::Ordering;
 
@@ -28,7 +28,7 @@ impl ExitCache {
         // Add all validators with a non-default exit epoch to the cache.
         validators
             .into_iter()
-            .filter(|validator| validator.exit_epoch != spec.far_future_epoch)
+            .filter(|validator| validator.exit_epoch != FAR_FUTURE_EPOCH)
             .try_for_each(|validator| exit_cache.record_validator_exit(validator.exit_epoch))?;
         Ok(exit_cache)
     }

@@ -726,7 +726,7 @@ pub mod tests {
                         if let Some(address) = config.eth1_withdrawal_address {
                             assert_eq!(
                                 deposit.withdrawal_credentials.as_bytes()[0],
-                                spec.eth1_address_withdrawal_prefix_byte
+                                ETH1_ADDRESS_WITHDRAWAL_PREFIX
                             );
                             assert_eq!(
                                 &deposit.withdrawal_credentials.as_bytes()[12..],
@@ -735,7 +735,7 @@ pub mod tests {
                         } else {
                             assert_eq!(
                                 deposit.withdrawal_credentials.as_bytes()[0],
-                                spec.bls_withdrawal_prefix_byte
+                                BLS_WITHDRAWAL_PREFIX
                             );
                         }
                         assert_eq!(deposit.amount, config.deposit_gwei);

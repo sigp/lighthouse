@@ -21,9 +21,10 @@ use std::sync::Arc;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra,
-    ExecutionPayloadHeader, ForkName, Hash256, Transaction, Transactions, Uint256,
+    consts::GENESIS_SLOT, Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload,
+    ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+    ExecutionPayloadElectra, ExecutionPayloadHeader, ForkName, Hash256, Transaction, Transactions,
+    Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
@@ -776,7 +777,7 @@ pub fn generate_genesis_header<E: EthSpec>(
     spec: &ChainSpec,
     post_transition_merge: bool,
 ) -> Option<ExecutionPayloadHeader<E>> {
-    let genesis_fork = spec.fork_name_at_slot::<E>(spec.genesis_slot);
+    let genesis_fork = spec.fork_name_at_slot::<E>(GENESIS_SLOT);
     let genesis_block_hash =
         generate_genesis_block(spec.terminal_total_difficulty, DEFAULT_TERMINAL_BLOCK)
             .ok()

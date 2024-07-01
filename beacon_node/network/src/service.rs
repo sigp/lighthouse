@@ -35,8 +35,8 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    ChainSpec, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
-    Unsigned, ValidatorSubscription,
+    consts::GENESIS_SLOT, ChainSpec, EthSpec, ForkContext, Slot, SubnetId,
+    SyncCommitteeSubscription, SyncSubnetId, Unsigned, ValidatorSubscription,
 };
 
 mod tests;
@@ -261,9 +261,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let next_fork_subscriptions = Box::pin(next_fork_subscriptions_delay(&beacon_chain).into());
         let next_unsubscribe = Box::pin(None.into());
 
-        let current_slot = beacon_chain
-            .slot()
-            .unwrap_or(beacon_chain.spec.genesis_slot);
+        let current_slot = beacon_chain.slot().unwrap_or(GENESIS_SLOT);
 
         // Create a fork context for the given config and genesis validators root
         let fork_context = Arc::new(ForkContext::new::<T::EthSpec>(
@@ -400,7 +398,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     pub fn required_gossip_fork_digests(&self) -> Vec<[u8; 4]> {
         let fork_context = &self.fork_context;
         let spec = &self.beacon_chain.spec;
-        let current_slot = self.beacon_chain.slot().unwrap_or(spec.genesis_slot);
+        let current_slot = self.beacon_chain.slot().unwrap_or(GENESIS_SLOT);
         let current_fork = fork_context.current_fork();
 
         let mut result = vec![fork_context

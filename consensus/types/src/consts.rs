@@ -1,3 +1,18 @@
+pub mod phase0 {
+    pub const GENESIS_SLOT: crate::Slot = crate::Slot::new(0);
+    // pub const GENESIS_EPOCH: u64 = 0;
+    pub const FAR_FUTURE_EPOCH: crate::Epoch = crate::Epoch::new(u64::MAX);
+    pub const BASE_REWARDS_PER_EPOCH: u64 = 4;
+    pub const DEPOSIT_CONTRACT_TREE_DEPTH: u64 = 32;
+    pub const JUSTIFICATION_BITS_LENGTH: u64 = 4;
+
+    // Withdrawal prefixes
+    pub const BLS_WITHDRAWAL_PREFIX: u8 = 0x00;
+    pub const ETH1_ADDRESS_WITHDRAWAL_PREFIX: u8 = 0x01;
+
+    // Domain types (TODO)
+}
+
 pub mod altair {
     pub const TIMELY_SOURCE_FLAG_INDEX: usize = 0;
     pub const TIMELY_TARGET_FLAG_INDEX: usize = 1;
@@ -25,3 +40,11 @@ pub mod bellatrix {
 pub mod deneb {
     pub use crate::VERSIONED_HASH_VERSION_KZG;
 }
+
+pub mod electra {
+    pub const UNSET_DEPOSIT_REQUESTS_START_INDEX: u64 = u64::MAX;
+    pub const FULL_EXIT_REQUEST_AMOUNT: u64 = 0;
+    pub const COMPOUNDING_WITHDRAWAL_PREFIX: u8 = 0x02;
+}
+
+pub use phase0::*;

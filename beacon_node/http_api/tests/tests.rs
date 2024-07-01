@@ -954,7 +954,7 @@ impl ApiTester {
 
                     let expected = state_opt.map(|state| {
                         let epoch = state.current_epoch();
-                        let far_future_epoch = self.chain.spec.far_future_epoch;
+                        let far_future_epoch = self.chain.FAR_FUTURE_EPOCH;
 
                         let mut validators = Vec::with_capacity(validator_indices.len());
 
@@ -1028,7 +1028,7 @@ impl ApiTester {
 
                     let expected = {
                         let epoch = state.current_epoch();
-                        let far_future_epoch = self.chain.spec.far_future_epoch;
+                        let far_future_epoch = self.chain.FAR_FUTURE_EPOCH;
 
                         ValidatorData {
                             index: i as u64,
@@ -3381,7 +3381,7 @@ impl ApiTester {
         let mut registrations = vec![];
         let mut fee_recipients = vec![];
 
-        let genesis_epoch = self.chain.spec.genesis_slot.epoch(E::slots_per_epoch());
+        let genesis_epoch = self.chain.GENESIS_SLOT.epoch(E::slots_per_epoch());
         let fork = Fork {
             current_version: self.chain.spec.genesis_fork_version,
             previous_version: self.chain.spec.genesis_fork_version,
@@ -3464,7 +3464,7 @@ impl ApiTester {
         let mut registrations = vec![];
         let mut fee_recipients = vec![];
 
-        let genesis_epoch = self.chain.spec.genesis_slot.epoch(E::slots_per_epoch());
+        let genesis_epoch = self.chain.GENESIS_SLOT.epoch(E::slots_per_epoch());
         let fork = Fork {
             current_version: self.chain.spec.genesis_fork_version,
             previous_version: self.chain.spec.genesis_fork_version,

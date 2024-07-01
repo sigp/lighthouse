@@ -78,12 +78,12 @@ use tokio_stream::{
     StreamExt,
 };
 use types::{
-    fork_versioned_response::EmptyMetadata, Attestation, AttestationData, AttestationShufflingId,
-    AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
-    ForkVersionedResponse, Hash256, ProposerPreparationData, ProposerSlashing, RelativeEpoch,
-    SignedAggregateAndProof, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncCommitteeMessage, SyncContributionData,
+    consts::FAR_FUTURE_EPOCH, fork_versioned_response::EmptyMetadata, Attestation, AttestationData,
+    AttestationShufflingId, AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset,
+    Epoch, EthSpec, ForkName, ForkVersionedResponse, Hash256, ProposerPreparationData,
+    ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{
@@ -780,7 +780,7 @@ pub fn serve<T: BeaconChainTypes>(
                                             let validator = state.validators().get(index)?;
                                             let balance = *state.balances().get(index)?;
                                             let epoch = state.current_epoch();
-                                            let far_future_epoch = chain.spec.far_future_epoch;
+                                            let far_future_epoch = FAR_FUTURE_EPOCH;
 
                                             Some(api_types::ValidatorData {
                                                 index: index as u64,
@@ -3610,7 +3610,7 @@ pub fn serve<T: BeaconChainTypes>(
                                         let validator_status = ValidatorStatus::from_validator(
                                             validator,
                                             current_epoch,
-                                            spec.far_future_epoch,
+                                            FAR_FUTURE_EPOCH,
                                         )
                                         .superstatus();
                                         let is_active_or_pending =

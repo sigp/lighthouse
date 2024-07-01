@@ -2,7 +2,7 @@ use int_to_bytes::int_to_fixed_bytes32;
 use merkle_proof::MerkleTree;
 use rayon::prelude::*;
 use tree_hash::TreeHash;
-use types::{ChainSpec, Deposit, DepositData, Hash256};
+use types::{consts::DEPOSIT_CONTRACT_TREE_DEPTH, ChainSpec, Deposit, DepositData, Hash256};
 
 /// Accepts the genesis block validator `DepositData` list and produces a list of `Deposit`, with
 /// proofs.
@@ -16,7 +16,7 @@ pub fn genesis_deposits(
         .collect::<Vec<_>>();
 
     let mut proofs = vec![];
-    let depth = spec.deposit_contract_tree_depth as usize;
+    let depth = DEPOSIT_CONTRACT_TREE_DEPTH as usize;
     let mut tree = MerkleTree::create(&[], depth);
     for (i, deposit_leaf) in deposit_root_leaves.iter().enumerate() {
         if tree.push_leaf(*deposit_leaf, depth).is_err() {

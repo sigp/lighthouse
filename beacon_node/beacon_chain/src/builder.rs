@@ -39,8 +39,8 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256,
-    Signature, SignedBeaconBlock, Slot,
+    consts::GENESIS_SLOT, BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch,
+    EthSpec, Hash256, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -720,7 +720,7 @@ where
             .is_prior_to_genesis()
             .ok_or("Unable to read slot clock")?
         {
-            self.spec.genesis_slot
+            GENESIS_SLOT
         } else {
             slot_clock.now().ok_or("Unable to read slot")?
         };
@@ -1269,7 +1269,7 @@ mod test {
         for v in state.validators() {
             let creds = v.withdrawal_credentials.as_bytes();
             assert_eq!(
-                creds[0], spec.bls_withdrawal_prefix_byte,
+                creds[0], BLS_WITHDRAWAL_PREFIX,
                 "first byte of withdrawal creds should be bls prefix"
             );
             assert_eq!(

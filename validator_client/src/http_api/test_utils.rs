@@ -29,6 +29,7 @@ use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::oneshot;
+use types::consts::BLS_WITHDRAWAL_PREFIX;
 
 pub const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
@@ -413,7 +414,7 @@ impl ApiTester {
                 deposit_data.withdrawal_credentials,
                 Hash256::from_slice(&bls::get_withdrawal_credentials(
                     &withdrawal_keypair.pk,
-                    E::default_spec().bls_withdrawal_prefix_byte
+                    BLS_WITHDRAWAL_PREFIX
                 )),
                 "the locally generated withdrawal creds should match the deposit data"
             );

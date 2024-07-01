@@ -15,6 +15,7 @@ use types::{
         NUM_FLAG_INDICES, PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
     },
+    consts::FAR_FUTURE_EPOCH,
     milhouse::Cow,
     ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec,
     ExitCache, ForkName, List, ParticipationFlags, ProgressiveBalancesCache, RelativeEpoch,
@@ -660,7 +661,7 @@ fn initiate_validator_exit(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     // Return if the validator already initiated exit
-    if validator.exit_epoch != spec.far_future_epoch {
+    if validator.exit_epoch != FAR_FUTURE_EPOCH {
         return Ok(());
     }
 

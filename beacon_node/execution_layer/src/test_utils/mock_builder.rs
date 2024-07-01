@@ -19,7 +19,7 @@ use types::builder_bid::{
     SignedBuilderBid,
 };
 use types::{
-    Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
+    consts::GENESIS_SLOT, Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
     ExecutionPayloadHeaderRefMut, ForkName, ForkVersionedResponse, Hash256, PublicKeyBytes,
     Signature, SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot,
     Uint256,
@@ -457,7 +457,7 @@ pub fn serve<E: EthSpec>(
                     .data
                     .index;
                 let fee_recipient = cached_data.fee_recipient;
-                let slots_since_genesis = slot.as_u64() - builder.spec.genesis_slot.as_u64();
+                let slots_since_genesis = slot.as_u64() - GENESIS_SLOT.as_u64();
 
                 let genesis_data = builder
                     .beacon_client

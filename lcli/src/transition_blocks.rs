@@ -86,7 +86,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::HotColdDB;
-use types::{BeaconState, ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
+use types::{BeaconState, ChainSpec, EthSpec, Hash256, SignedBeaconBlock, consts::GENESIS_SLOT};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -154,7 +154,7 @@ pub fn run<E: EthSpec>(
                         .ok_or_else(|| format!("Unable to locate block at {:?}", block_id))?
                         .data;
 
-                    if block.slot() == spec.genesis_slot {
+                    if block.slot() == GENESIS_SLOT {
                         return Err("Cannot run on the genesis block".to_string());
                     }
 

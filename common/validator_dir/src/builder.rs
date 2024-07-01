@@ -8,7 +8,7 @@ use rand::{distributions::Alphanumeric, Rng};
 use std::fs::{create_dir_all, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use types::{ChainSpec, DepositData, Hash256, Keypair, Signature};
+use types::{consts::BLS_WITHDRAWAL_PREFIX, ChainSpec, DepositData, Hash256, Keypair, Signature};
 
 /// The `Alphanumeric` crate only generates a-z, A-Z, 0-9, therefore it has a range of 62
 /// characters.
@@ -186,7 +186,7 @@ impl<'a> Builder<'a> {
             if let Some((amount, spec)) = self.deposit_info {
                 let withdrawal_credentials = Hash256::from_slice(&get_withdrawal_credentials(
                     &withdrawal_keypair.pk,
-                    spec.bls_withdrawal_prefix_byte,
+                    BLS_WITHDRAWAL_PREFIX,
                 ));
 
                 let mut deposit_data = DepositData {

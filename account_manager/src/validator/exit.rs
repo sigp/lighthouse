@@ -15,7 +15,7 @@ use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::time::sleep;
-use types::{ChainSpec, Epoch, EthSpec, VoluntaryExit};
+use types::{ChainSpec, Epoch, EthSpec, VoluntaryExit, consts::GENESIS_SLOT};
 
 pub const CMD: &str = "exit";
 pub const KEYSTORE_FLAG: &str = "keystore";
@@ -326,7 +326,7 @@ async fn is_syncing(client: &BeaconNodeHttpClient) -> Result<bool, String> {
 /// Calculates the current epoch from the genesis time and current time.
 fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Option<Epoch> {
     let slot_clock = SystemTimeSlotClock::new(
-        spec.genesis_slot,
+        GENESIS_SLOT,
         Duration::from_secs(genesis_time),
         Duration::from_secs(spec.seconds_per_slot),
     );
