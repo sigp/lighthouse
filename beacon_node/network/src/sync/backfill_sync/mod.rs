@@ -19,7 +19,7 @@ use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::types::{BackFillState, NetworkGlobals};
 use lighthouse_network::{PeerAction, PeerId};
-use rand::{seq::SliceRandom, Rng};
+use rand::seq::SliceRandom;
 use slog::{crit, debug, error, info, warn};
 use std::collections::{
     btree_map::{BTreeMap, Entry},
@@ -899,7 +899,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 (
                     failed_peers.contains(peer),
                     self.active_requests.get(peer).map(|v| v.len()).unwrap_or(0),
-                    rand::thread_rng().gen::<u32>(),
+                    rand::random::<u32>(),
                     *peer,
                 )
             })
