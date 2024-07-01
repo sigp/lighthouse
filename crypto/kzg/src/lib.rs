@@ -29,6 +29,8 @@ pub enum Error {
     KzgVerificationFailed,
     /// Misc indexing error
     InconsistentArrayLength(String),
+    /// KZG commitments do not match across data columns
+    InconsistentKzgCommitments,
 }
 
 impl From<c_kzg::Error> for Error {

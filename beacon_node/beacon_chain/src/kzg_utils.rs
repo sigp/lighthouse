@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use kzg::{Blob as KzgBlob, Bytes48, Cell as KzgCell, Error as KzgError, Kzg};
 use std::sync::Arc;
 use types::data_column_sidecar::Cell;
@@ -35,6 +36,8 @@ pub fn validate_data_column<'a, E: EthSpec, I>(
 where
     I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
 {
+    let data_column_iter = data_column_iter.sorted_by_key(|d| d.index);
+
     let cells = data_column_iter
         .clone()
         .flat_map(|data_column| data_column.column.iter().map(ssz_cell_to_crypto_cell::<E>))
@@ -60,13 +63,16 @@ where
 
     let commitments = data_column_iter
         .clone()
-        .flat_map(|data_column| {
-            data_column
-                .kzg_commitments
-                .iter()
-                .map(|&commitment| Bytes48::from(commitment))
+        .map(|d| d.kzg_commitments.clone())
+        .unique()
+        .exactly_one()
+        .map(|kzg_commitments| {
+            kzg_commitments
+                .into_iter()
+                .map(Bytes48::from)
+                .collect::<Vec<_>>()
         })
-        .collect::<Vec<_>>();
+        .map_err(|_| KzgError::InconsistentKzgCommitments)?;
 
     kzg.verify_cell_proof_batch(&cells, &proofs, &coordinates, &commitments)
 }
@@ -131,32 +137,30 @@ pub fn verify_kzg_proof<E: EthSpec>(
 
 #[cfg(test)]
 mod test {
+    use super::*;
+    use crate::test_utils::KZG;
     use bls::Signature;
-    use eth2_network_config::TRUSTED_SETUP_BYTES;
-    use kzg::{Kzg, KzgCommitment, TrustedSetup};
+    use eth2::types::BlobsBundle;
+    use execution_layer::test_utils::generate_blobs;
     use types::{
-        beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockDeneb, Blob, BlobsList,
-        ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, MainnetEthSpec, SignedBeaconBlock,
+        BeaconBlock, BeaconBlockDeneb, BlobsList, ChainSpec, DataColumnSidecar, EmptyBlock,
+        EthSpec, MainnetEthSpec, SignedBeaconBlock,
     };
+
+    type E = MainnetEthSpec;
 
     #[test]
     fn build_and_reconstruct() {
-        type E = MainnetEthSpec;
         let num_of_blobs = 6;
         let spec = E::default_spec();
         let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(num_of_blobs, &spec);
 
-        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
-            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-            .expect("should have trusted setup");
-        let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
-
         let column_sidecars =
-            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &kzg, &spec).unwrap();
+            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &KZG, &spec).unwrap();
 
         // Now reconstruct
         let reconstructed_columns = DataColumnSidecar::reconstruct(
-            &kzg,
+            &KZG,
             &column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2],
             &spec,
         )
@@ -167,23 +171,36 @@ mod test {
         }
     }
 
+    #[test]
+    fn validate_data_columns() {
+        let num_of_blobs = 6;
+        let spec = E::default_spec();
+        let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(num_of_blobs, &spec);
+
+        let column_sidecars =
+            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &KZG, &spec).unwrap();
+
+        validate_data_column::<E, _>(&KZG, column_sidecars.iter()).unwrap()
+    }
+
     fn create_test_block_and_blobs<E: EthSpec>(
         num_of_blobs: usize,
         spec: &ChainSpec,
     ) -> (SignedBeaconBlock<E>, BlobsList<E>) {
         let mut block = BeaconBlock::Deneb(BeaconBlockDeneb::empty(spec));
         let mut body = block.body_mut();
-        let blob_kzg_commitments = body.blob_kzg_commitments_mut().unwrap();
-        *blob_kzg_commitments =
-            KzgCommitments::<E>::new(vec![KzgCommitment::empty_for_testing(); num_of_blobs])
-                .unwrap();
+
+        let (bundle, _transactions) = generate_blobs(num_of_blobs).unwrap();
+
+        let BlobsBundle::<E> {
+            commitments,
+            proofs: _,
+            blobs,
+        } = bundle;
+
+        *body.blob_kzg_commitments_mut().unwrap() = commitments;
 
         let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
-
-        let blobs = (0..num_of_blobs)
-            .map(|_| Blob::<E>::default())
-            .collect::<Vec<_>>()
-            .into();
 
         (signed_block, blobs)
     }
