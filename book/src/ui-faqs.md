@@ -57,10 +57,6 @@ If you have configured it correctly you should see a green checkmark indicating 
 
 If you have separate address setups for your Validator Client and Beacon Node respectively you should access the `Advance Settings` on the configuration and repeat the steps above for each address.
 
-## 8. How do I change my Beacon or Validator address after logging in?
-
-Once you have successfully arrived to the main dashboard, use the sidebar to access the settings view. In the top right-hand corner there is a `Configuration` action button that will redirect you back to the configuration screen where you can make appropriate changes.
-
-## 9. Why doesn't my validator balance graph show any data?
+## 8. Why doesn't my validator balance graph show any data?
 
 If your graph is not showing data, it usually means your validator node is still caching data. The application must wait at least 3 epochs before it can render any graphical visualizations. This could take up to 20min.
