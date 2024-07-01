@@ -831,6 +831,9 @@ impl PendingBalanceDepositsContext {
             // `true` both for the actual value & the default placeholder value (`FAR_FUTURE_EPOCH`).
             let validator = state.get_validator(deposit.index as usize)?;
             let already_exited = validator.exit_epoch < spec.far_future_epoch;
+            // In the spec process_registry_updates is called before process_pending_balance_deposits
+            // so we must account for process_registry_updates ejecting the validator for low balance
+            // and setting the exit_epoch to < far_future_epoch
             let will_be_exited = validator.is_active_at(current_epoch)
                 && validator.effective_balance <= spec.ejection_balance;
             if already_exited || will_be_exited {
