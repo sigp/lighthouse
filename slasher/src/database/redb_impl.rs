@@ -1,5 +1,6 @@
 #![cfg(feature = "redb")]
 use crate::{
+    config::REDB_DATA_FILENAME,
     database::{
         interface::{Key, OpenDatabases, Value},
         *,
@@ -9,8 +10,6 @@ use crate::{
 use derivative::Derivative;
 use redb::{ReadableTable, TableDefinition};
 use std::{borrow::Cow, path::PathBuf};
-
-const BASE_DB: &str = "slasher_db";
 
 #[derive(Debug)]
 pub struct Environment {
@@ -43,12 +42,8 @@ pub struct Cursor<'env> {
 
 impl Environment {
     pub fn new(config: &Config) -> Result<Environment, Error> {
-        let db_path = match config.database_path.join(BASE_DB).as_path().to_str() {
-            Some(path) => path.to_string(),
-            None => "".to_string(),
-        };
-
-        let database = redb::Database::create(db_path.clone())?;
+        let db_path = config.database_path.join(REDB_DATA_FILENAME);
+        let database = redb::Database::create(db_path)?;
 
         Ok(Environment {
             _db_count: MAX_NUM_DBS,
