@@ -855,7 +855,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "5.2.0"
+version = "5.2.1"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -1061,7 +1061,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "5.2.0"
+version = "5.2.1"
 dependencies = [
  "beacon_node",
  "clap",
@@ -4322,7 +4322,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "5.2.0"
+version = "5.2.1"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -4893,7 +4893,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "5.2.0"
+version = "5.2.1"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -6679,6 +6679,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "redb"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed7508e692a49b6b2290b56540384ccae9b1fb4d77065640b165835b56ffe3bb"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7635,6 +7644,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "byteorder",
+ "derivative",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "filesystem",
@@ -7650,6 +7660,7 @@ dependencies = [
  "parking_lot 0.12.3",
  "rand",
  "rayon",
+ "redb",
  "safe_arith",
  "serde",
  "slog",
