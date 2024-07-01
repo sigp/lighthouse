@@ -1,7 +1,6 @@
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 
-use crate::service::AppRequestId;
-use crate::sync::manager::{BlockProcessType, SingleLookupReqId, SyncManager, SyncRequestId};
+use crate::sync::manager::{BlockProcessType, SyncManager};
 use crate::sync::SyncMessage;
 use crate::NetworkMessage;
 use std::sync::Arc;
@@ -22,6 +21,7 @@ use beacon_chain::{
 };
 use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::{RPCError, RPCResponseErrorCode};
+use lighthouse_network::service::api_types::{AppRequestId, Id, SingleLookupReqId, SyncRequestId};
 use lighthouse_network::types::SyncState;
 use lighthouse_network::{NetworkGlobals, Request};
 use slog::info;

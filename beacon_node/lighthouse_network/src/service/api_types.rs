@@ -46,9 +46,9 @@ pub enum AppRequestId {
 }
 
 /// Global identifier of a request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RequestId<AppReqId> {
-    Application(AppReqId),
+#[derive(Debug, Clone, Copy)]
+pub enum RequestId {
+    Application(AppRequestId),
     Internal,
 }
 
@@ -168,7 +168,7 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RPCCodedResponse<E> {
     }
 }
 
-impl<AppReqId: std::fmt::Debug> slog::Value for RequestId<AppReqId> {
+impl slog::Value for RequestId {
     fn serialize(
         &self,
         record: &slog::Record,

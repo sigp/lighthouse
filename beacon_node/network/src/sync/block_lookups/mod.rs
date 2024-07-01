@@ -108,6 +108,9 @@ pub struct BlockLookups<T: BeaconChainTypes> {
 }
 
 #[cfg(test)]
+use lighthouse_network::service::api_types::Id;
+
+#[cfg(test)]
 /// Tuple of `SingleLookupId`, requested block root, awaiting parent block root (if any),
 /// and list of peers that claim to have imported this set of block components.
 pub(crate) type BlockLookupSummary = (Id, Hash256, Option<Hash256>, Vec<PeerId>);

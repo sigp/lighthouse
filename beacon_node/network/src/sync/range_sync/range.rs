@@ -380,7 +380,6 @@ where
 #[cfg(test)]
 mod tests {
     use crate::network_beacon_processor::NetworkBeaconProcessor;
-    use crate::service::AppRequestId;
     use crate::NetworkMessage;
 
     use super::*;
@@ -391,7 +390,10 @@ mod tests {
     use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
     use beacon_chain::EngineState;
     use beacon_processor::WorkEvent as BeaconWorkEvent;
-    use lighthouse_network::{rpc::StatusMessage, NetworkGlobals};
+    use lighthouse_network::service::api_types::SyncRequestId;
+    use lighthouse_network::{
+        rpc::StatusMessage, service::api_types::AppRequestId, NetworkGlobals,
+    };
     use slog::{o, Drain};
     use slot_clock::TestingSlotClock;
     use std::collections::HashSet;
@@ -555,9 +557,7 @@ mod tests {
         ) -> (ChainId, BatchId, Id) {
             if blob_req_opt.is_some() {
                 match block_req {
-                    AppRequestId::Sync(
-                        crate::sync::manager::SyncRequestId::RangeBlockAndBlobs { id },
-                    ) => {
+                    AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }) => {
                         let _ = self
                             .cx
                             .range_block_and_blob_response(id, BlockOrBlob::Block(None));
@@ -573,9 +573,7 @@ mod tests {
                 }
             } else {
                 match block_req {
-                    AppRequestId::Sync(
-                        crate::sync::manager::SyncRequestId::RangeBlockAndBlobs { id },
-                    ) => {
+                    AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }) => {
                         let response = self
                             .cx
                             .range_block_and_blob_response(id, BlockOrBlob::Block(None))
