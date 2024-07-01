@@ -4,7 +4,9 @@ mod common;
 
 use common::Protocol;
 use lighthouse_network::rpc::methods::*;
-use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Request, Response};
+use lighthouse_network::{
+    rpc::max_rpc_size, rpc::RPCError, NetworkEvent, ReportSource, Request, Response,
+};
 use slog::{debug, error, warn, Level};
 use ssz::Encode;
 use ssz_types::VariableList;
