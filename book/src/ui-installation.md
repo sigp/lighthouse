@@ -1,113 +1,46 @@
 # 📦 Installation
 
-Siren runs on Linux, MacOS and Windows.
+Siren supports Linux, MacOS, and Windows operating systems.
 
 ## Version Requirement
 
-The Siren app requires Lighthouse v3.5.1 or higher to function properly. These versions can be found on the [releases](https://github.com/sigp/lighthouse/releases) page of the Lighthouse repository.
+To ensure proper functionality, the Siren app requires Lighthouse v4.3.0 or higher. You can find these versions on the [releases](https://github.com/sigp/lighthouse/releases) page of the Lighthouse repository.
 
-## Pre-Built Electron Packages
+## Building From Docker (Recommended)
 
-There are pre-compiled electron packages for each operating systems which can
-be downloaded and executed. These can be found on the
-[releases](https://github.com/sigp/siren/releases) page of the
-Siren repository.
+We recommend using Docker to run Siren, for quicker uptime and installation.
 
-Simply download the package specific to your operating system and run it.
-
-## Building From Source
-
-### Requirements
-
-Building from source requires `Node v18` and `yarn`.
-
-### Building From Source
-
-The electron app can be built from source by first cloning the repository and
-entering the directory:
-
-```
-git clone https://github.com/sigp/siren.git
-cd siren
-```
-
-Once cloned, the electron app can be built and ran via the Makefile by:
-
-```
-make
-```
-
-alternatively it can be built via:
-
-```
-yarn
-```
-
-Once completed successfully the electron app can be run via:
-
-```
-yarn dev
-```
-
-### Running In The Browser
-
-#### Docker (Recommended)
-
-Docker is the recommended way to run a webserver that hosts Siren and can be
-connected to via a web browser. We recommend this method as it establishes a
-production-grade web-server to host the application.
-
-`docker` is required to be installed with the service running.
-
-The docker image can be built and run via the Makefile by running:
-
-```
-make docker
-```
-
-Alternatively, to run with Docker, the image needs to be built. From the repository directory
-run:
-
-```
-docker build -t siren .
-```
+Configuration is done through environment variables, the best way to get started is by copying `.env.example` to `.env` and editing the relevant sections (typically, this would at least include `BEACON_URL`, `VALIDATOR_URL` and `API_TOKEN`)
 
 Then to run the image:
 
-```
-docker run --rm -ti --name siren -p 80:80 siren
-```
+`docker compose up`
+or
+`docker run --rm -ti --name siren -p 3443:443 --env-file $PWD/.env sigp/siren`
 
-This will open port 80 and allow your browser to connect. You can choose
-another local port by modifying the command. For example `-p 8000:80` will open
-port 8000.
+This command will open port 3443, allowing your browser to connect.
 
-To view Siren, simply go to `http://localhost` in your web browser.
 
-#### Development Server
+To start Siren, visit `https://localhost:3443` in your web browser (ignore the certificate warning).
 
-A development server can also be built which will expose a local port 3000 via:
+Advanced users can mount their own certificate (the config expects 3 files: `/certs/cert.pem` `/certs/key.pem` `/certs/key.pass`)
 
-```
-yarn start
-```
+## Building From Source
 
-Once executed, you can direct your web browser to the following URL to interact
-with the app:
+### Docker
 
-```
-http://localhost:3000
-```
+The docker image can be built with the following command:
+`docker build -f Dockerfile -t siren .`
 
-A production version of the app can be built via
+### Building locally
 
-```
-yarn build
-```
+To build from source, ensure that your system has `Node v18.18` and `yarn` installed. Start by configuring your environment variables. The recommended approach is to duplicate the `.env.example` file, rename it to `.env`, and modify the necessary settings. Essential variables typically include `BEACON_URL`, `VALIDATOR_URL`, and `API_TOKEN`.
 
-and then further hosted via a production web server.
+#### Build and run the backend
+Navigate to the backend directory `cd backend`. Install all required Node packages by running `yarn`. Once the installation is complete, compile the backend with `yarn build`. Deploy the backend in a production environment, `yarn start:production`. This ensures optimal performance.
 
-### Known Issues
 
-If you experience any issues in running the UI please create an issue on the
-[Lighthouse UI](https://github.com/sigp/lighthouse-ui) repository.
+#### Build and run the frontend
+After initializing the backend, return to the root directory. Install all frontend dependencies by executing `yarn`. Build the frontend using `yarn build`. Start the frontend production server with `yarn start`.
+
+This will allow you to access siren at `http://localhost:3000` by default.
