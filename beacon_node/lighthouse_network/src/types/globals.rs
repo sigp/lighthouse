@@ -5,6 +5,7 @@ use crate::types::{BackFillState, SyncState};
 use crate::EnrExt;
 use crate::{Client, Eth2Enr};
 use crate::{Enr, GossipTopic, Multiaddr, PeerId};
+use discv5::handler::NodeContact;
 use itertools::Itertools;
 use parking_lot::RwLock;
 use std::collections::HashSet;
@@ -138,12 +139,28 @@ impl<E: EthSpec> NetworkGlobals<E> {
             .read()
             .connected_peers()
             .filter_map(|(peer_id, peer_info)| {
-                peer_info.enr().and_then(|enr| {
+                let node_id_and_csc = if let Some(enr) = peer_info.enr() {
                     let custody_subnet_count = enr.custody_subnet_count::<E>(spec);
+                    Some((enr.node_id(), custody_subnet_count))
+                } else if let Some(node_contact) = peer_info
+                    .seen_multiaddrs()
+                    .last()
+                    .cloned()
+                    .and_then(|multiaddr| NodeContact::try_from_multiaddr(multiaddr).ok())
+                {
+                    let node_id = node_contact.node_id();
+                    // TODO(das): Use `custody_subnet_count` from `MetaDataV3` before
+                    // falling back to minimum custody requirement.
+                    Some((node_id, spec.custody_requirement))
+                } else {
+                    None
+                };
+
+                node_id_and_csc.and_then(|(node_id, custody_subnet_count)| {
                     // TODO(das): consider caching a map of subnet -> Vec<PeerId> and invalidating
                     // whenever a peer connected or disconnect event in received
                     DataColumnSubnetId::compute_custody_columns::<E>(
-                        enr.node_id().raw().into(),
+                        node_id.raw().into(),
                         custody_subnet_count,
                         spec,
                     )
@@ -197,7 +214,7 @@ mod test {
     }
 
     #[test]
-    fn custody_peers_for_column() {
+    fn custody_peers_for_column_enr_present() {
         let spec = E::default_spec();
         let log = logging::test_logger();
         let globals = NetworkGlobals::<E>::new_test_globals(vec![], &log);
@@ -234,5 +251,30 @@ mod test {
                 "must at least return supernode peer"
             );
         }
+    }
+
+    // If ENR is not preset, fallback to deriving node_id and use `spec.custody_requirement`.
+    #[test]
+    fn custody_peers_for_column_no_enr_use_default() {
+        let spec = E::default_spec();
+        let log = logging::test_logger();
+        let globals = NetworkGlobals::<E>::new_test_globals(vec![], &log);
+
+        // Add peer without enr
+        let peer_id_str = "16Uiu2HAm86zWajwnBFD8uxkRpxhRzeUEf6Brfz2VBxGAaWx9ejyr";
+        let peer_id = PeerId::from_str(peer_id_str).unwrap();
+        let multiaddr =
+            Multiaddr::from_str(&format!("/ip4/0.0.0.0/udp/9000/p2p/{peer_id_str}")).unwrap();
+
+        let mut peers_db_write_lock = globals.peers.write();
+        peers_db_write_lock.__add_connected_peer_multiaddr_testing_only(&peer_id, multiaddr);
+        drop(peers_db_write_lock);
+
+        let custody_subnets = (0..spec.data_column_sidecar_subnet_count)
+            .filter(|col_index| !globals.custody_peers_for_column(*col_index, &spec).is_empty())
+            .count();
+
+        // The single peer's custody subnet should match custody_requirement.
+        assert_eq!(custody_subnets, spec.custody_requirement as usize);
     }
 }
