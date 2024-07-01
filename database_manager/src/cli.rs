@@ -4,6 +4,8 @@ use clap_utils::FLAG_HEADER;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use crate::InspectTarget;
+
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(
     name = "database_manager",
@@ -102,15 +104,15 @@ pub struct Inspect {
     )]
     pub column: String,
 
-    // TODO InspectTarget::VARIANTS
     #[clap(
         long,
+        value_enum,
         value_name = "TARGET",
-        default_value_t = String::from("sizes"),
+        default_value_t = InspectTarget::ValueSizes,
         help = "Select the type of output to show",
         display_order = 0,
     )]
-    pub output: String,
+    pub output: InspectTarget,
 
     #[clap(
         long,

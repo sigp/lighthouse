@@ -1,5 +1,4 @@
 pub mod cli;
-
 use crate::cli::DatabaseManager;
 use crate::cli::Migrate;
 use crate::cli::PruneStates;
@@ -9,8 +8,10 @@ use beacon_chain::{
 };
 use beacon_node::{get_data_dir, get_slots_per_restore_point, ClientConfig};
 use clap::ArgMatches;
+use clap::ValueEnum;
 use cli::{Compact, Inspect};
 use environment::{Environment, RuntimeContext};
+use serde::{Deserialize, Serialize};
 use slog::{info, warn, Logger};
 use std::fs;
 use std::io::Write;
@@ -86,15 +87,21 @@ pub fn display_db_version<E: EthSpec>(
     Ok(())
 }
 
-#[derive(Debug, PartialEq, Eq, EnumString, EnumVariantNames)]
+#[derive(
+    Debug, PartialEq, Eq, Clone, EnumString, Deserialize, Serialize, EnumVariantNames, ValueEnum,
+)]
 pub enum InspectTarget {
     #[strum(serialize = "sizes")]
+    #[clap(name = "sizes")]
     ValueSizes,
     #[strum(serialize = "total")]
+    #[clap(name = "total")]
     ValueTotal,
     #[strum(serialize = "values")]
+    #[clap(name = "values")]
     Values,
     #[strum(serialize = "gaps")]
+    #[clap(name = "gaps")]
     Gaps,
 }
 
@@ -114,10 +121,7 @@ fn parse_inspect_config(inspect_config: &Inspect) -> Result<InspectConfig, Strin
         .column
         .parse()
         .map_err(|e| format!("Unable to parse column flag: {e:?}"))?;
-    let target: InspectTarget = inspect_config
-        .output
-        .parse()
-        .map_err(|e| format!("Unable to parse output flag: {e:?}"))?;
+    let target: InspectTarget = inspect_config.output.clone();
     let skip = inspect_config.skip;
     let limit = inspect_config.limit;
     let freezer = inspect_config.freezer;
