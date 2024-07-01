@@ -9,8 +9,30 @@ pub mod phase0 {
     // Withdrawal prefixes
     pub const BLS_WITHDRAWAL_PREFIX: u8 = 0x00;
     pub const ETH1_ADDRESS_WITHDRAWAL_PREFIX: u8 = 0x01;
+}
 
-    // Domain types (TODO)
+pub mod domains {
+    // Phase 0
+    pub const DOMAIN_BEACON_PROPOSER: u32 = 0;
+    pub const DOMAIN_BEACON_ATTESTER: u32 = 1;
+    pub const DOMAIN_RANDAO: u32 = 2;
+    pub const DOMAIN_DEPOSIT: u32 = 3;
+    pub const DOMAIN_VOLUNTARY_EXIT: u32 = 4;
+    pub const DOMAIN_SELECTION_PROOF: u32 = 5;
+    pub const DOMAIN_AGGREGATE_AND_PROOF: u32 = 6;
+
+    // Altair
+    pub const DOMAIN_SYNC_COMMITTEE: u32 = 7;
+    pub const DOMAIN_SYNC_COMMITTEE_SELECTION_PROOF: u32 = 8;
+    pub const DOMAIN_CONTRIBUTION_AND_PROOF: u32 = 9;
+
+    // Capella
+    pub const DOMAIN_BLS_TO_EXECUTION_CHANGE: u32 = 10;
+
+    // Electra
+    pub const DOMAIN_CONSOLIDATION: u32 = 0x0B;
+
+    pub use crate::application_domain::APPLICATION_DOMAIN_BUILDER;
 }
 
 pub mod altair {

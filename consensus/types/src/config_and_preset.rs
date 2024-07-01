@@ -1,8 +1,7 @@
 use crate::{
-    consts::altair,
-    consts::deneb,
-    consts::electra,
-    consts::{BLS_WITHDRAWAL_PREFIX, ETH1_ADDRESS_WITHDRAWAL_PREFIX},
+    consts::{
+        altair, deneb, domains::*, electra, BLS_WITHDRAWAL_PREFIX, ETH1_ADDRESS_WITHDRAWAL_PREFIX,
+    },
     AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, ChainSpec, Config, DenebPreset,
     ElectraPreset, EthSpec, ForkName,
 };
@@ -105,21 +104,21 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
     hashmap! {
         "bls_withdrawal_prefix".to_uppercase() => u8_hex(BLS_WITHDRAWAL_PREFIX),
         "eth1_address_withdrawal_prefix".to_uppercase() => u8_hex(ETH1_ADDRESS_WITHDRAWAL_PREFIX),
-        "domain_beacon_proposer".to_uppercase() => u32_hex(spec.domain_beacon_proposer),
-        "domain_beacon_attester".to_uppercase() => u32_hex(spec.domain_beacon_attester),
-        "domain_randao".to_uppercase()=> u32_hex(spec.domain_randao),
-        "domain_deposit".to_uppercase()=> u32_hex(spec.domain_deposit),
-        "domain_voluntary_exit".to_uppercase() => u32_hex(spec.domain_voluntary_exit),
-        "domain_selection_proof".to_uppercase() => u32_hex(spec.domain_selection_proof),
-        "domain_aggregate_and_proof".to_uppercase() => u32_hex(spec.domain_aggregate_and_proof),
-        "domain_application_mask".to_uppercase()=> u32_hex(spec.domain_application_mask),
+        "domain_beacon_proposer".to_uppercase() => u32_hex(DOMAIN_BEACON_PROPOSER),
+        "domain_beacon_attester".to_uppercase() => u32_hex(DOMAIN_BEACON_ATTESTER),
+        "domain_randao".to_uppercase()=> u32_hex(DOMAIN_RANDAO),
+        "domain_deposit".to_uppercase()=> u32_hex(DOMAIN_DEPOSIT),
+        "domain_voluntary_exit".to_uppercase() => u32_hex(DOMAIN_VOLUNTARY_EXIT),
+        "domain_selection_proof".to_uppercase() => u32_hex(DOMAIN_SELECTION_PROOF),
+        "domain_aggregate_and_proof".to_uppercase() => u32_hex(DOMAIN_AGGREGATE_AND_PROOF),
+        "domain_application_mask".to_uppercase()=> u32_hex(APPLICATION_DOMAIN_BUILDER),
         "target_aggregators_per_committee".to_uppercase() =>
             spec.target_aggregators_per_committee.to_string().into(),
         "domain_contribution_and_proof".to_uppercase() =>
-            u32_hex(spec.domain_contribution_and_proof),
-        "domain_sync_committee".to_uppercase() => u32_hex(spec.domain_sync_committee),
+            u32_hex(DOMAIN_CONTRIBUTION_AND_PROOF),
+        "domain_sync_committee".to_uppercase() => u32_hex(DOMAIN_SYNC_COMMITTEE),
         "domain_sync_committee_selection_proof".to_uppercase() =>
-            u32_hex(spec.domain_sync_committee_selection_proof),
+            u32_hex(DOMAIN_SYNC_COMMITTEE_SELECTION_PROOF),
         "sync_committee_subnet_count".to_uppercase() =>
             altair::SYNC_COMMITTEE_SUBNET_COUNT.to_string().into(),
         "target_aggregators_per_sync_subcommittee".to_uppercase() =>
@@ -130,7 +129,7 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "compounding_withdrawal_prefix".to_uppercase() => u8_hex(electra::COMPOUNDING_WITHDRAWAL_PREFIX),
         "unset_deposit_receipts_start_index".to_uppercase() => electra::UNSET_DEPOSIT_REQUESTS_START_INDEX.to_string().into(),
         "full_exit_request_amount".to_uppercase() => electra::FULL_EXIT_REQUEST_AMOUNT.to_string().into(),
-        "domain_consolidation".to_uppercase()=> u32_hex(spec.domain_consolidation),
+        "domain_consolidation".to_uppercase()=> u32_hex(DOMAIN_CONSOLIDATION),
     }
 }
 

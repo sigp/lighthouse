@@ -1513,7 +1513,7 @@ impl<E: EthSpec> BeaconState<E> {
                 .get(i_mod)
                 .ok_or(Error::RandaoMixesOutOfBounds(i_mod))?
         };
-        let domain_bytes = int_to_bytes4(spec.get_domain_constant(domain_type));
+        let domain_bytes = int_to_bytes4(ChainSpec::get_domain_constant(domain_type));
         let epoch_bytes = int_to_bytes8(epoch.as_u64());
 
         const NUM_DOMAIN_BYTES: usize = 4;

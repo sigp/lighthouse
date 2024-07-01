@@ -1,5 +1,6 @@
-use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
+use crate::application_domain::ApplicationDomain;
 use crate::blob_sidecar::BlobIdentifier;
+use crate::consts::domains::*;
 use crate::consts::FAR_FUTURE_EPOCH;
 use crate::*;
 use int_to_bytes::int_to_bytes4;
@@ -91,18 +92,6 @@ pub struct ChainSpec {
     pub min_slashing_penalty_quotient: u64,
 
     /*
-     * Signature domains
-     */
-    pub(crate) domain_beacon_proposer: u32,
-    pub(crate) domain_beacon_attester: u32,
-    pub(crate) domain_randao: u32,
-    pub(crate) domain_deposit: u32,
-    pub(crate) domain_voluntary_exit: u32,
-    pub(crate) domain_selection_proof: u32,
-    pub(crate) domain_aggregate_and_proof: u32,
-    pub(crate) domain_consolidation: u32,
-
-    /*
      * Fork choice
      */
     pub safe_slots_to_update_justified: u64,
@@ -129,9 +118,6 @@ pub struct ChainSpec {
     pub inactivity_score_bias: u64,
     pub inactivity_score_recovery_rate: u64,
     pub min_sync_committee_participants: u64,
-    pub(crate) domain_sync_committee: u32,
-    pub(crate) domain_sync_committee_selection_proof: u32,
-    pub(crate) domain_contribution_and_proof: u32,
     pub altair_fork_version: [u8; 4],
     /// The Altair fork epoch is optional, with `None` representing "Altair never happens".
     pub altair_fork_epoch: Option<Epoch>,
@@ -217,16 +203,6 @@ pub struct ChainSpec {
     pub max_blocks_by_root_request: usize,
     pub max_blocks_by_root_request_deneb: usize,
     pub max_blobs_by_root_request: usize,
-
-    /*
-     * Application params
-     */
-    pub(crate) domain_application_mask: u32,
-
-    /*
-     * Capella params
-     */
-    pub(crate) domain_bls_to_execution_change: u32,
 }
 
 impl ChainSpec {
@@ -427,21 +403,21 @@ impl ChainSpec {
     /// Get the domain number, unmodified by the fork.
     ///
     /// Spec v0.12.1
-    pub fn get_domain_constant(&self, domain: Domain) -> u32 {
+    pub fn get_domain_constant(domain: Domain) -> u32 {
         match domain {
-            Domain::BeaconProposer => self.domain_beacon_proposer,
-            Domain::BeaconAttester => self.domain_beacon_attester,
-            Domain::Randao => self.domain_randao,
-            Domain::Deposit => self.domain_deposit,
-            Domain::VoluntaryExit => self.domain_voluntary_exit,
-            Domain::SelectionProof => self.domain_selection_proof,
-            Domain::AggregateAndProof => self.domain_aggregate_and_proof,
-            Domain::SyncCommittee => self.domain_sync_committee,
-            Domain::ContributionAndProof => self.domain_contribution_and_proof,
-            Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
+            Domain::BeaconProposer => DOMAIN_BEACON_PROPOSER,
+            Domain::BeaconAttester => DOMAIN_BEACON_ATTESTER,
+            Domain::Randao => DOMAIN_RANDAO,
+            Domain::Deposit => DOMAIN_DEPOSIT,
+            Domain::VoluntaryExit => DOMAIN_VOLUNTARY_EXIT,
+            Domain::SelectionProof => DOMAIN_SELECTION_PROOF,
+            Domain::AggregateAndProof => DOMAIN_AGGREGATE_AND_PROOF,
+            Domain::SyncCommittee => DOMAIN_SYNC_COMMITTEE,
+            Domain::ContributionAndProof => DOMAIN_CONTRIBUTION_AND_PROOF,
+            Domain::SyncCommitteeSelectionProof => DOMAIN_SYNC_COMMITTEE_SELECTION_PROOF,
             Domain::ApplicationMask(application_domain) => application_domain.get_domain_constant(),
-            Domain::BlsToExecutionChange => self.domain_bls_to_execution_change,
-            Domain::Consolidation => self.domain_consolidation,
+            Domain::BlsToExecutionChange => DOMAIN_BLS_TO_EXECUTION_CHANGE,
+            Domain::Consolidation => DOMAIN_CONSOLIDATION,
         }
     }
 
@@ -521,7 +497,7 @@ impl ChainSpec {
         fork_version: [u8; 4],
         genesis_validators_root: Hash256,
     ) -> Hash256 {
-        let domain_constant = self.get_domain_constant(domain);
+        let domain_constant = Self::get_domain_constant(domain);
 
         let mut domain = [0; 32];
         domain[0..4].copy_from_slice(&int_to_bytes4(domain_constant));
@@ -641,18 +617,6 @@ impl ChainSpec {
             proportional_slashing_multiplier: 1,
 
             /*
-             * Signature domains
-             */
-            domain_beacon_proposer: 0,
-            domain_beacon_attester: 1,
-            domain_randao: 2,
-            domain_deposit: 3,
-            domain_voluntary_exit: 4,
-            domain_selection_proof: 5,
-            domain_aggregate_and_proof: 6,
-            domain_consolidation: 0x0B,
-
-            /*
              * Fork choice
              */
             safe_slots_to_update_justified: 8,
@@ -685,9 +649,6 @@ impl ChainSpec {
             inactivity_score_recovery_rate: 16,
             min_sync_committee_participants: 1,
             epochs_per_sync_committee_period: Epoch::new(256),
-            domain_sync_committee: 7,
-            domain_sync_committee_selection_proof: 8,
-            domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
             altair_fork_epoch: Some(Epoch::new(74240)),
 
@@ -786,16 +747,6 @@ impl ChainSpec {
             max_blocks_by_root_request: default_max_blocks_by_root_request(),
             max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
             max_blobs_by_root_request: default_max_blobs_by_root_request(),
-
-            /*
-             * Application specific
-             */
-            domain_application_mask: APPLICATION_DOMAIN_BUILDER,
-
-            /*
-             * Capella params
-             */
-            domain_bls_to_execution_change: 10,
         }
     }
 
@@ -929,18 +880,6 @@ impl ChainSpec {
             proportional_slashing_multiplier: 1,
 
             /*
-             * Signature domains
-             */
-            domain_beacon_proposer: 0,
-            domain_beacon_attester: 1,
-            domain_randao: 2,
-            domain_deposit: 3,
-            domain_voluntary_exit: 4,
-            domain_selection_proof: 5,
-            domain_aggregate_and_proof: 6,
-            domain_consolidation: 0x0B,
-
-            /*
              * Fork choice
              */
             safe_slots_to_update_justified: 8,
@@ -973,9 +912,6 @@ impl ChainSpec {
             inactivity_score_recovery_rate: 16,
             min_sync_committee_participants: 1,
             epochs_per_sync_committee_period: Epoch::new(512),
-            domain_sync_committee: 7,
-            domain_sync_committee_selection_proof: 8,
-            domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x64],
             altair_fork_epoch: Some(Epoch::new(512)),
 
@@ -1076,16 +1012,6 @@ impl ChainSpec {
             max_blocks_by_root_request: default_max_blocks_by_root_request(),
             max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
             max_blobs_by_root_request: default_max_blobs_by_root_request(),
-
-            /*
-             * Application specific
-             */
-            domain_application_mask: APPLICATION_DOMAIN_BUILDER,
-
-            /*
-             * Capella params
-             */
-            domain_bls_to_execution_change: 10,
         }
     }
 }
@@ -1760,38 +1686,34 @@ mod tests {
     fn test_get_domain() {
         let spec = ChainSpec::mainnet();
 
-        test_domain(Domain::BeaconProposer, spec.domain_beacon_proposer, &spec);
-        test_domain(Domain::BeaconAttester, spec.domain_beacon_attester, &spec);
-        test_domain(Domain::Randao, spec.domain_randao, &spec);
-        test_domain(Domain::Deposit, spec.domain_deposit, &spec);
-        test_domain(Domain::VoluntaryExit, spec.domain_voluntary_exit, &spec);
-        test_domain(Domain::SelectionProof, spec.domain_selection_proof, &spec);
-        test_domain(
-            Domain::AggregateAndProof,
-            spec.domain_aggregate_and_proof,
-            &spec,
-        );
-        test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
-        test_domain(Domain::Consolidation, spec.domain_consolidation, &spec);
+        test_domain(Domain::BeaconProposer, DOMAIN_BEACON_PROPOSER, &spec);
+        test_domain(Domain::BeaconAttester, DOMAIN_BEACON_ATTESTER, &spec);
+        test_domain(Domain::Randao, DOMAIN_RANDAO, &spec);
+        test_domain(Domain::Deposit, DOMAIN_DEPOSIT, &spec);
+        test_domain(Domain::VoluntaryExit, DOMAIN_VOLUNTARY_EXIT, &spec);
+        test_domain(Domain::SelectionProof, DOMAIN_SELECTION_PROOF, &spec);
+        test_domain(Domain::AggregateAndProof, DOMAIN_AGGREGATE_AND_PROOF, &spec);
+        test_domain(Domain::SyncCommittee, DOMAIN_SYNC_COMMITTEE, &spec);
+        test_domain(Domain::Consolidation, DOMAIN_CONSOLIDATION, &spec);
 
         // The builder domain index is zero
         let builder_domain_pre_mask = [0; 4];
         test_domain(
             Domain::ApplicationMask(ApplicationDomain::Builder),
-            apply_bit_mask(builder_domain_pre_mask, &spec),
+            apply_bit_mask(builder_domain_pre_mask),
             &spec,
         );
 
         test_domain(
             Domain::BlsToExecutionChange,
-            spec.domain_bls_to_execution_change,
+            DOMAIN_BLS_TO_EXECUTION_CHANGE,
             &spec,
         );
     }
 
-    fn apply_bit_mask(domain_bytes: [u8; 4], spec: &ChainSpec) -> u32 {
+    fn apply_bit_mask(domain_bytes: [u8; 4]) -> u32 {
         let mut domain = [0; 4];
-        let mask_bytes = int_to_bytes4(spec.domain_application_mask);
+        let mask_bytes = int_to_bytes4(APPLICATION_DOMAIN_BUILDER);
 
         // Apply application bit mask
         for (i, (domain_byte, mask_byte)) in domain_bytes.iter().zip(mask_bytes.iter()).enumerate()
