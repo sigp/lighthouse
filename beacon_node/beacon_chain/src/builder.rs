@@ -1143,7 +1143,7 @@ mod test {
     use store::config::StoreConfig;
     use store::{HotColdDB, MemoryStore};
     use task_executor::test_utils::TestRuntime;
-    use types::{EthSpec, MinimalEthSpec, Slot};
+    use types::{consts::BLS_WITHDRAWAL_PREFIX, EthSpec, MinimalEthSpec, Slot};
 
     type TestEthSpec = MinimalEthSpec;
     type Builder = BeaconChainBuilder<EphemeralHarnessType<TestEthSpec>>;
