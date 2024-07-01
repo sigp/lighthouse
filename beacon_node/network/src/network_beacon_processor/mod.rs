@@ -19,7 +19,7 @@ use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage,
 };
-use slog::{debug, error, Logger};
+use slog::{debug, error, trace, Logger};
 use slot_clock::ManualSlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -827,7 +827,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Some(availability_processing_status)
             }
             Ok(None) => {
-                debug!(
+                trace!(
                     self.log,
                     "Reconstruction not required for block";
                     "block_hash" => %block_root,
