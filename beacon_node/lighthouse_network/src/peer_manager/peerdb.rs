@@ -1,5 +1,7 @@
 use crate::discovery::enr::PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY;
 use crate::discovery::CombinedKey;
+#[cfg(test)]
+use crate::EnrExt;
 use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, Gossipsub, PeerId};
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use rand::seq::SliceRandom;
@@ -700,6 +702,36 @@ impl<E: EthSpec> PeerDB<E> {
                 direction: ConnectionDirection::Outgoing,
             },
         )
+    }
+
+    /// Updates the connection state. MUST ONLY BE USED IN TESTS.
+    #[cfg(test)]
+    pub(crate) fn __add_connected_peer_enr_testing_only(
+        &mut self,
+        enr: Enr,
+    ) -> Option<BanOperation> {
+        let peer_id = enr.peer_id();
+        let new_state = NewConnectionState::Connected {
+            enr: Some(enr),
+            seen_address: Multiaddr::empty(),
+            direction: ConnectionDirection::Outgoing,
+        };
+        self.update_connection_state(&peer_id, new_state)
+    }
+
+    /// Updates the connection state. MUST ONLY BE USED IN TESTS.
+    #[cfg(test)]
+    pub(crate) fn __add_connected_peer_multiaddr_testing_only(
+        &mut self,
+        peer_id: &PeerId,
+        multiaddr: Multiaddr,
+    ) -> Option<BanOperation> {
+        let new_state = NewConnectionState::Connected {
+            enr: None,
+            seen_address: multiaddr,
+            direction: ConnectionDirection::Outgoing,
+        };
+        self.update_connection_state(peer_id, new_state)
     }
 
     /// The connection state of the peer has been changed. Modify the peer in the db to ensure all

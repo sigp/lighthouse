@@ -239,6 +239,11 @@ lazy_static! {
         "Number of connected peers per sync status type",
         &["sync_status"]
     );
+    pub static ref PEERS_PER_COLUMN_SUBNET: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "peers_per_column_subnet",
+        "Number of connected peers per column subnet",
+        &["subnet_id"]
+    );
     pub static ref SYNCING_CHAINS_COUNT: Result<IntGaugeVec> = try_create_int_gauge_vec(
         "sync_range_chains",
         "Number of Syncing chains in range, per range type",

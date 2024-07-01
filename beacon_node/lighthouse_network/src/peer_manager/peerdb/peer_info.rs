@@ -94,8 +94,10 @@ impl<E: EthSpec> PeerInfo<E> {
                         .syncnets()
                         .map_or(false, |s| s.get(**id as usize).unwrap_or(false))
                 }
-                // TODO(das) Add data column nets bitfield
-                Subnet::DataColumn(_) => return false,
+                Subnet::DataColumn(_) => {
+                    // TODO(das): Pending spec PR https://github.com/ethereum/consensus-specs/pull/3821
+                    return true;
+                }
             }
         }
         false
