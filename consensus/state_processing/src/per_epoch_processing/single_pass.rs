@@ -325,7 +325,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         }
     }
 
-    if conf.registry_updates && fork_name >= ForkName::Electra {
+    if conf.registry_updates && fork_name.electra_enabled() {
         if let Ok(earliest_exit_epoch_state) = state.earliest_exit_epoch_mut() {
             *earliest_exit_epoch_state =
                 earliest_exit_epoch.ok_or(Error::MissingEarliestExitEpoch)?;
