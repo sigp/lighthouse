@@ -120,12 +120,12 @@ pub fn upgrade_to_electra<E: EthSpec>(
 
     // Process validators to queue entire balance and reset them
     for (index, _) in pre_activation {
-        post.queue_entire_balance_and_reset_validator(index, spec)?;
+        post.queue_entire_balance_and_reset_validator(index)?;
     }
 
     // Ensure early adopters of compounding credentials go through the activation churn
     for (index, validator) in validators.iter().enumerate() {
-        if validator.has_compounding_withdrawal_credential(spec) {
+        if validator.has_compounding_withdrawal_credential() {
             post.queue_excess_active_balance(index, spec)?;
         }
     }

@@ -789,7 +789,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             old_snapshot.beacon_block_root,
             &new_snapshot.beacon_state,
             new_snapshot.beacon_block_root,
-            &self.spec,
             &self.log,
         );
 
@@ -934,7 +933,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &new_snapshot.beacon_block,
             &new_snapshot.beacon_state,
             self.epoch()?,
-            &self.spec,
         );
 
         self.observed_block_producers.write().prune(
@@ -1197,7 +1195,6 @@ fn detect_reorg<E: EthSpec>(
     old_block_root: Hash256,
     new_state: &BeaconState<E>,
     new_block_root: Hash256,
-    spec: &ChainSpec,
     log: &Logger,
 ) -> Option<Slot> {
     let is_reorg = new_state
@@ -1206,7 +1203,7 @@ fn detect_reorg<E: EthSpec>(
 
     if is_reorg {
         let reorg_distance =
-            match find_reorg_slot(old_state, old_block_root, new_state, new_block_root, spec) {
+            match find_reorg_slot(old_state, old_block_root, new_state, new_block_root) {
                 Ok(slot) => old_state.slot().saturating_sub(slot),
                 Err(e) => {
                     warn!(
@@ -1248,7 +1245,6 @@ pub fn find_reorg_slot<E: EthSpec>(
     old_block_root: Hash256,
     new_state: &BeaconState<E>,
     new_block_root: Hash256,
-    spec: &ChainSpec,
 ) -> Result<Slot, Error> {
     // The earliest slot for which the two chains may have a common history.
     let lowest_slot = std::cmp::min(new_state.slot(), old_state.slot());
@@ -1263,7 +1259,7 @@ pub fn find_reorg_slot<E: EthSpec>(
     macro_rules! aligned_roots_iter {
         ($state: ident, $block_root: ident) => {
             std::iter::once(Ok(($state.slot(), $block_root)))
-                .chain($state.rev_iter_block_roots(spec))
+                .chain($state.rev_iter_block_roots())
                 .skip_while(|result| {
                     result
                         .as_ref()

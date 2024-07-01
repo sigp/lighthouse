@@ -158,7 +158,6 @@ fn find_reorg_slot(
         old_block_root,
         new_state,
         new_block_root,
-        &chain.spec,
     )
     .unwrap()
 }

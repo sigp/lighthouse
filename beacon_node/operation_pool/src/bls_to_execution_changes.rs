@@ -2,8 +2,7 @@ use state_processing::SigVerifiedOp;
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::sync::Arc;
 use types::{
-    AbstractExecPayload, BeaconState, ChainSpec, EthSpec, SignedBeaconBlock,
-    SignedBlsToExecutionChange,
+    AbstractExecPayload, BeaconState, EthSpec, SignedBeaconBlock, SignedBlsToExecutionChange,
 };
 
 /// Indicates if a `BlsToExecutionChange` was received before or after the
@@ -103,7 +102,6 @@ impl<E: EthSpec> BlsToExecutionChanges<E> {
         &mut self,
         head_block: &SignedBeaconBlock<E, Payload>,
         head_state: &BeaconState<E>,
-        spec: &ChainSpec,
     ) {
         let mut validator_indices_pruned = vec![];
 
@@ -113,7 +111,7 @@ impl<E: EthSpec> BlsToExecutionChanges<E> {
                 .validators()
                 .get(validator_index as usize)
                 .map_or(true, |validator| {
-                    let prune = validator.has_eth1_withdrawal_credential(spec)
+                    let prune = validator.has_eth1_withdrawal_credential()
                         && head_block
                             .message()
                             .body()

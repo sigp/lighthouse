@@ -61,10 +61,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // 1. Check memory for a recent pre-finalization block.
         let is_recent_finalized_block = self.with_head(|head| {
-            process_results(
-                head.beacon_state.rev_iter_block_roots(&self.spec),
-                |mut iter| iter.any(|(_, root)| root == block_root),
-            )
+            process_results(head.beacon_state.rev_iter_block_roots(), |mut iter| {
+                iter.any(|(_, root)| root == block_root)
+            })
             .map_err(BeaconChainError::BeaconStateError)
         })?;
         if is_recent_finalized_block {

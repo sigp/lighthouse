@@ -22,7 +22,7 @@ type E = MinimalEthSpec;
 
 /// Bellatrix block with length < max_rpc_size.
 fn bellatrix_block_small(fork_context: &ForkContext, spec: &ChainSpec) -> BeaconBlock<E> {
-    let mut block = BeaconBlockBellatrix::<E>::empty(spec);
+    let mut block = BeaconBlockBellatrix::<E>::empty();
     let tx = VariableList::from(vec![0; 1024]);
     let txs = VariableList::from(std::iter::repeat(tx).take(5000).collect::<Vec<_>>());
 
@@ -37,7 +37,7 @@ fn bellatrix_block_small(fork_context: &ForkContext, spec: &ChainSpec) -> Beacon
 /// The max limit for a bellatrix block is in the order of ~16GiB which wouldn't fit in memory.
 /// Hence, we generate a bellatrix block just greater than `MAX_RPC_SIZE` to test rejection on the rpc layer.
 fn bellatrix_block_large(fork_context: &ForkContext, spec: &ChainSpec) -> BeaconBlock<E> {
-    let mut block = BeaconBlockBellatrix::<E>::empty(spec);
+    let mut block = BeaconBlockBellatrix::<E>::empty();
     let tx = VariableList::from(vec![0; 1024]);
     let txs = VariableList::from(std::iter::repeat(tx).take(100000).collect::<Vec<_>>());
 
@@ -181,11 +181,11 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
         let spec = E::default_spec();
 
         // BlocksByRange Response
-        let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
+        let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full());
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_base = Response::BlocksByRange(Some(Arc::new(signed_full_block)));
 
-        let full_block = BeaconBlock::Altair(BeaconBlockAltair::<E>::full(&spec));
+        let full_block = BeaconBlock::Altair(BeaconBlockAltair::<E>::full());
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_altair = Response::BlocksByRange(Some(Arc::new(signed_full_block)));
 
@@ -770,11 +770,11 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
         ));
 
         // BlocksByRoot Response
-        let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
+        let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full());
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_base = Response::BlocksByRoot(Some(Arc::new(signed_full_block)));
 
-        let full_block = BeaconBlock::Altair(BeaconBlockAltair::<E>::full(&spec));
+        let full_block = BeaconBlock::Altair(BeaconBlockAltair::<E>::full());
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_altair = Response::BlocksByRoot(Some(Arc::new(signed_full_block)));
 
@@ -912,7 +912,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
         ));
 
         // BlocksByRoot Response
-        let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
+        let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full());
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response = Response::BlocksByRoot(Some(Arc::new(signed_full_block)));
 

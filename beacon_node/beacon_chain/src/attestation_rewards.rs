@@ -136,7 +136,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Build required caches.
         initialize_epoch_cache(&mut state, spec)?;
         initialize_progressive_balances_cache(&mut state, spec)?;
-        state.build_exit_cache(spec)?;
+        state.build_exit_cache()?;
         state.build_committee_cache(RelativeEpoch::Previous, spec)?;
         state.build_committee_cache(RelativeEpoch::Current, spec)?;
 

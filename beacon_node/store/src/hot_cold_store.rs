@@ -40,8 +40,8 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use types::*;
 use types::consts::GENESIS_SLOT;
+use types::*;
 
 /// On-disk database that stores finalized states efficiently.
 ///
@@ -1481,9 +1481,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             // no blocks with slot less than the start slot.
             .take_while(|result| match result {
                 Ok(block) => block.slot() >= start_slot,
-                Err(Error::BlockNotFound(_)) => {
-                    self.get_oldest_block_slot() == GENESIS_SLOT
-                }
+                Err(Error::BlockNotFound(_)) => self.get_oldest_block_slot() == GENESIS_SLOT,
                 Err(_) => true,
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -2066,14 +2064,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // about.
         let split_block_root = split_state.get_latest_block_root(split.state_root);
 
-        let already_pruned =
-            process_results(split_state.rev_iter_block_roots(&self.spec), |mut iter| {
-                iter.find(|(_, block_root)| *block_root != split_block_root)
-                    .map_or(Ok(true), |(_, split_parent_root)| {
-                        self.execution_payload_exists(&split_parent_root)
-                            .map(|exists| !exists)
-                    })
-            })??;
+        let already_pruned = process_results(split_state.rev_iter_block_roots(), |mut iter| {
+            iter.find(|(_, block_root)| *block_root != split_block_root)
+                .map_or(Ok(true), |(_, split_parent_root)| {
+                    self.execution_payload_exists(&split_parent_root)
+                        .map(|exists| !exists)
+                })
+        })??;
 
         if already_pruned && !force {
             info!(self.log, "Execution payloads are pruned");

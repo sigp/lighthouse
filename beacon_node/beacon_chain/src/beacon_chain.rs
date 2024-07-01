@@ -4970,9 +4970,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let deposits = eth1_chain.deposits_for_block_inclusion(&state, &eth1_data, &self.spec)?;
 
-        let bls_to_execution_changes = self
-            .op_pool
-            .get_bls_to_execution_changes(&state, &self.spec);
+        let bls_to_execution_changes = self.op_pool.get_bls_to_execution_changes(&state);
 
         // Iterate through the naive aggregation pool and ensure all the attestations from there
         // are included in the operation pool.

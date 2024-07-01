@@ -735,19 +735,18 @@ mod test {
     fn add_remove_payload_roundtrip() {
         type E = MainnetEthSpec;
 
-        let spec = &E::default_spec();
         let sig = Signature::empty();
         let blocks = vec![
             SignedBeaconBlock::<E>::from_block(
-                BeaconBlock::Base(BeaconBlockBase::empty(spec)),
+                BeaconBlock::Base(BeaconBlockBase::empty()),
                 sig.clone(),
             ),
             SignedBeaconBlock::from_block(
-                BeaconBlock::Altair(BeaconBlockAltair::empty(spec)),
+                BeaconBlock::Altair(BeaconBlockAltair::empty()),
                 sig.clone(),
             ),
             SignedBeaconBlock::from_block(
-                BeaconBlock::Bellatrix(BeaconBlockBellatrix::empty(spec)),
+                BeaconBlock::Bellatrix(BeaconBlockBellatrix::empty()),
                 sig,
             ),
         ];
@@ -776,33 +775,29 @@ mod test {
     fn test_ssz_tagged_signed_beacon_block() {
         type E = MainnetEthSpec;
 
-        let spec = &E::default_spec();
         let sig = Signature::empty();
         let blocks = vec![
             SignedBeaconBlock::<E>::from_block(
-                BeaconBlock::Base(BeaconBlockBase::empty(spec)),
+                BeaconBlock::Base(BeaconBlockBase::empty()),
                 sig.clone(),
             ),
             SignedBeaconBlock::from_block(
-                BeaconBlock::Altair(BeaconBlockAltair::empty(spec)),
+                BeaconBlock::Altair(BeaconBlockAltair::empty()),
                 sig.clone(),
             ),
             SignedBeaconBlock::from_block(
-                BeaconBlock::Bellatrix(BeaconBlockBellatrix::empty(spec)),
+                BeaconBlock::Bellatrix(BeaconBlockBellatrix::empty()),
                 sig.clone(),
             ),
             SignedBeaconBlock::from_block(
-                BeaconBlock::Capella(BeaconBlockCapella::empty(spec)),
+                BeaconBlock::Capella(BeaconBlockCapella::empty()),
                 sig.clone(),
             ),
             SignedBeaconBlock::from_block(
-                BeaconBlock::Deneb(BeaconBlockDeneb::empty(spec)),
+                BeaconBlock::Deneb(BeaconBlockDeneb::empty()),
                 sig.clone(),
             ),
-            SignedBeaconBlock::from_block(
-                BeaconBlock::Electra(BeaconBlockElectra::empty(spec)),
-                sig,
-            ),
+            SignedBeaconBlock::from_block(BeaconBlock::Electra(BeaconBlockElectra::empty()), sig),
         ];
 
         for block in blocks {

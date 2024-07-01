@@ -3,8 +3,8 @@ use crate::per_block_processing::signature_sets::deposit_pubkey_signature_messag
 use merkle_proof::verify_merkle_proof;
 use safe_arith::SafeArith;
 use tree_hash::TreeHash;
-use types::*;
 use types::consts::DEPOSIT_CONTRACT_TREE_DEPTH;
+use types::*;
 
 type Result<T> = std::result::Result<T, BlockOperationError<DepositInvalid>>;
 
@@ -49,7 +49,6 @@ pub fn verify_deposit_merkle_proof<E: EthSpec>(
     state: &BeaconState<E>,
     deposit: &Deposit,
     deposit_index: u64,
-    spec: &ChainSpec,
 ) -> Result<()> {
     let leaf = deposit.data.tree_hash_root();
 

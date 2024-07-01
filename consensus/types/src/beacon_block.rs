@@ -89,7 +89,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot
 /// Empty block trait for each block variant to implement.
 pub trait EmptyBlock {
     /// Returns an empty block to be used during genesis.
-    fn empty(spec: &ChainSpec) -> Self;
+    fn empty() -> Self;
 }
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
@@ -98,7 +98,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
         map_fork_name!(
             spec.fork_name_at_epoch(E::genesis_epoch()),
             Self,
-            EmptyBlock::empty(spec)
+            EmptyBlock::empty()
         )
     }
 
@@ -289,7 +289,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRefMut<'a, E, P
 }
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockBase<E, Payload> {
-    fn empty(spec: &ChainSpec) -> Self {
+    fn empty() -> Self {
         BeaconBlockBase {
             slot: GENESIS_SLOT,
             proposer_index: 0,
@@ -316,7 +316,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockBase
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
     /// Return a block where the block has maximum size.
-    pub fn full(spec: &ChainSpec) -> Self {
+    pub fn full() -> Self {
         let header = BeaconBlockHeader {
             slot: Slot::new(1),
             proposer_index: 0,
@@ -377,7 +377,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
             signature: Signature::empty(),
         };
 
-        let mut block = BeaconBlockBase::<E, Payload>::empty(spec);
+        let mut block = BeaconBlockBase::<E, Payload>::empty();
         for _ in 0..E::MaxProposerSlashings::to_usize() {
             block
                 .body
@@ -412,7 +412,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockAltair<E, Payload> {
     /// Returns an empty Altair block to be used during genesis.
-    fn empty(spec: &ChainSpec) -> Self {
+    fn empty() -> Self {
         BeaconBlockAltair {
             slot: GENESIS_SLOT,
             proposer_index: 0,
@@ -440,8 +440,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockAlta
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockAltair<E, Payload> {
     /// Return an Altair block where the block has maximum size.
-    pub fn full(spec: &ChainSpec) -> Self {
-        let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full(spec);
+    pub fn full() -> Self {
+        let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full();
         let sync_aggregate = SyncAggregate {
             sync_committee_signature: AggregateSignature::empty(),
             sync_committee_bits: BitVector::default(),
@@ -473,7 +473,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockAltair<E, Payload> 
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockBellatrix<E, Payload> {
     /// Returns an empty Bellatrix block to be used during genesis.
-    fn empty(spec: &ChainSpec) -> Self {
+    fn empty() -> Self {
         BeaconBlockBellatrix {
             slot: GENESIS_SLOT,
             proposer_index: 0,
@@ -501,8 +501,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockBell
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockCapella<E, Payload> {
     /// Return a Capella block where the block has maximum size.
-    pub fn full(spec: &ChainSpec) -> Self {
-        let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full(spec);
+    pub fn full() -> Self {
+        let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full();
         let bls_to_execution_changes = vec![
             SignedBlsToExecutionChange {
                 message: BlsToExecutionChange {
@@ -547,7 +547,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockCapella<E, Payload>
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockCapella<E, Payload> {
     /// Returns an empty Capella block to be used during genesis.
-    fn empty(spec: &ChainSpec) -> Self {
+    fn empty() -> Self {
         BeaconBlockCapella {
             slot: GENESIS_SLOT,
             proposer_index: 0,
@@ -576,7 +576,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockCape
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockDeneb<E, Payload> {
     /// Returns an empty Deneb block to be used during genesis.
-    fn empty(spec: &ChainSpec) -> Self {
+    fn empty() -> Self {
         BeaconBlockDeneb {
             slot: GENESIS_SLOT,
             proposer_index: 0,
@@ -606,8 +606,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockDene
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload> {
     /// Return a Electra block where the block has maximum size.
-    pub fn full(spec: &ChainSpec) -> Self {
-        let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full(spec);
+    pub fn full() -> Self {
+        let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full();
         let indexed_attestation: IndexedAttestationElectra<E> = IndexedAttestationElectra {
             attesting_indices: VariableList::new(vec![0_u64; E::MaxValidatorsPerSlot::to_usize()])
                 .unwrap(),
@@ -679,7 +679,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockElectra<E, Payload> {
     /// Returns an empty Electra block to be used during genesis.
-    fn empty(spec: &ChainSpec) -> Self {
+    fn empty() -> Self {
         BeaconBlockElectra {
             slot: GENESIS_SLOT,
             proposer_index: 0,

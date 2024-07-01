@@ -133,7 +133,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
 ) -> Result<ParticipationEpochSummary<E>, Error> {
     initialize_epoch_cache(state, spec)?;
     initialize_progressive_balances_cache(state, spec)?;
-    state.build_exit_cache(spec)?;
+    state.build_exit_cache()?;
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
@@ -609,7 +609,6 @@ fn process_single_registry_update_pre_electra(
         validator_info.index,
         validator,
         state_ctxt.next_epoch,
-        spec,
     );
 
     Ok(())
@@ -641,10 +640,9 @@ fn process_single_registry_update_post_electra(
         )?;
     }
 
-    if validator.is_eligible_for_activation_with_finalized_checkpoint(
-        &state_ctxt.finalized_checkpoint,
-        spec,
-    ) {
+    if validator
+        .is_eligible_for_activation_with_finalized_checkpoint(&state_ctxt.finalized_checkpoint)
+    {
         validator.make_mut()?.activation_epoch =
             spec.compute_activation_exit_epoch(current_epoch)?;
     }

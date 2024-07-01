@@ -15,7 +15,7 @@ use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::time::sleep;
-use types::{ChainSpec, Epoch, EthSpec, VoluntaryExit, consts::GENESIS_SLOT};
+use types::{consts::GENESIS_SLOT, ChainSpec, Epoch, EthSpec, VoluntaryExit};
 
 pub const CMD: &str = "exit";
 pub const KEYSTORE_FLAG: &str = "keystore";

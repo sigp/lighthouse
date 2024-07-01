@@ -1,4 +1,4 @@
-use crate::{ChainSpec, Epoch, Validator};
+use crate::{Epoch, Validator};
 use std::collections::BTreeSet;
 
 /// Activation queue computed during epoch processing for use in the *next* epoch.
@@ -19,9 +19,8 @@ impl ActivationQueue {
         index: usize,
         validator: &Validator,
         next_epoch: Epoch,
-        spec: &ChainSpec,
     ) {
-        if validator.could_be_eligible_for_activation_at(next_epoch, spec) {
+        if validator.could_be_eligible_for_activation_at(next_epoch) {
             self.queue
                 .insert((validator.activation_eligibility_epoch, index));
         }

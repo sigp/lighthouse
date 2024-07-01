@@ -11,13 +11,13 @@ use types::{
 
 pub const DEFAULT_ETH1_BLOCK_HASH: &[u8] = &[0x42; 32];
 
-pub fn bls_withdrawal_credentials(pubkey: &PublicKey, spec: &ChainSpec) -> Hash256 {
+pub fn bls_withdrawal_credentials(pubkey: &PublicKey) -> Hash256 {
     let mut credentials = hash(&pubkey.as_ssz_bytes());
     credentials[0] = BLS_WITHDRAWAL_PREFIX;
     Hash256::from_slice(&credentials)
 }
 
-fn eth1_withdrawal_credentials(pubkey: &PublicKey, spec: &ChainSpec) -> Hash256 {
+fn eth1_withdrawal_credentials(pubkey: &PublicKey) -> Hash256 {
     let fake_execution_address = &hash(&pubkey.as_ssz_bytes())[0..20];
     let mut credentials = [0u8; 32];
     credentials[0] = ETH1_ADDRESS_WITHDRAWAL_PREFIX;
@@ -38,7 +38,7 @@ pub fn interop_genesis_state<E: EthSpec>(
 ) -> Result<BeaconState<E>, String> {
     let withdrawal_credentials = keypairs
         .iter()
-        .map(|keypair| bls_withdrawal_credentials(&keypair.pk, spec))
+        .map(|keypair| bls_withdrawal_credentials(&keypair.pk))
         .collect::<Vec<_>>();
     interop_genesis_state_with_withdrawal_credentials::<E>(
         keypairs,
@@ -64,9 +64,9 @@ pub fn interop_genesis_state_with_eth1<E: EthSpec>(
         .enumerate()
         .map(|(index, keypair)| {
             if index % 2 == 0 {
-                bls_withdrawal_credentials(&keypair.pk, spec)
+                bls_withdrawal_credentials(&keypair.pk)
             } else {
-                eth1_withdrawal_credentials(&keypair.pk, spec)
+                eth1_withdrawal_credentials(&keypair.pk)
             }
         })
         .collect::<Vec<_>>();
@@ -119,7 +119,7 @@ pub fn interop_genesis_state_with_withdrawal_credentials<E: EthSpec>(
     let mut state = initialize_beacon_state_from_eth1(
         eth1_block_hash,
         eth1_timestamp,
-        genesis_deposits(datas, spec)?,
+        genesis_deposits(datas)?,
         execution_payload_header,
         spec,
     )

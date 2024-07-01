@@ -1,6 +1,6 @@
 use safe_arith::SafeArith;
 use std::cmp::max;
-use types::{BeaconStateError as Error, *, consts::FAR_FUTURE_EPOCH};
+use types::{consts::FAR_FUTURE_EPOCH, BeaconStateError as Error, *};
 
 /// Initiate the exit of the validator of the given `index`.
 pub fn initiate_validator_exit<E: EthSpec>(
@@ -16,7 +16,7 @@ pub fn initiate_validator_exit<E: EthSpec>(
     }
 
     // Ensure the exit cache is built.
-    state.build_exit_cache(spec)?;
+    state.build_exit_cache()?;
 
     // Compute exit queue epoch
     let exit_queue_epoch = if state.fork_name_unchecked() >= ForkName::Electra {

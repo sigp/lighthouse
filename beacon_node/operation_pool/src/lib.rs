@@ -576,7 +576,6 @@ impl<E: EthSpec> OperationPool<E> {
     pub fn get_bls_to_execution_changes(
         &self,
         state: &BeaconState<E>,
-        spec: &ChainSpec,
     ) -> Vec<SignedBlsToExecutionChange> {
         filter_limit_operations(
             self.bls_to_execution_changes.read().iter_lifo(),
@@ -585,7 +584,7 @@ impl<E: EthSpec> OperationPool<E> {
                     && state
                         .get_validator(address_change.as_inner().message.validator_index as usize)
                         .map_or(false, |validator| {
-                            !validator.has_eth1_withdrawal_credential(spec)
+                            !validator.has_eth1_withdrawal_credential()
                         })
             },
             |address_change| address_change.as_inner().clone(),
@@ -600,7 +599,6 @@ impl<E: EthSpec> OperationPool<E> {
     pub fn get_bls_to_execution_changes_received_pre_capella(
         &self,
         state: &BeaconState<E>,
-        spec: &ChainSpec,
     ) -> Vec<SignedBlsToExecutionChange> {
         let mut changes = filter_limit_operations(
             self.bls_to_execution_changes
@@ -611,7 +609,7 @@ impl<E: EthSpec> OperationPool<E> {
                     && state
                         .get_validator(address_change.as_inner().message.validator_index as usize)
                         .map_or(false, |validator| {
-                            !validator.has_eth1_withdrawal_credential(spec)
+                            !validator.has_eth1_withdrawal_credential()
                         })
             },
             |address_change| address_change.as_inner().clone(),
@@ -634,11 +632,10 @@ impl<E: EthSpec> OperationPool<E> {
         &self,
         head_block: &SignedBeaconBlock<E, Payload>,
         head_state: &BeaconState<E>,
-        spec: &ChainSpec,
     ) {
         self.bls_to_execution_changes
             .write()
-            .prune(head_block, head_state, spec)
+            .prune(head_block, head_state)
     }
 
     /// Prune all types of transactions given the latest head state and head fork.
@@ -647,14 +644,13 @@ impl<E: EthSpec> OperationPool<E> {
         head_block: &SignedBeaconBlock<E, Payload>,
         head_state: &BeaconState<E>,
         current_epoch: Epoch,
-        spec: &ChainSpec,
     ) {
         self.prune_attestations(current_epoch);
         self.prune_sync_contributions(head_state.slot());
         self.prune_proposer_slashings(head_state);
         self.prune_attester_slashings(head_state);
         self.prune_voluntary_exits(head_state);
-        self.prune_bls_to_execution_changes(head_block, head_state, spec);
+        self.prune_bls_to_execution_changes(head_block, head_state);
     }
 
     /// Total number of voluntary exits in the pool.

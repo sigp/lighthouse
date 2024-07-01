@@ -3590,7 +3590,6 @@ pub fn serve<T: BeaconChainTypes>(
                         );
 
                         let head_snapshot = chain.head_snapshot();
-                        let spec = &chain.spec;
 
                         let (preparation_data, filtered_registration_data): (
                             Vec<ProposerPreparationData>,

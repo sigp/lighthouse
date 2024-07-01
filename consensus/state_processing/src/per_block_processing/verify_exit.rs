@@ -4,8 +4,8 @@ use crate::per_block_processing::{
     VerifySignatures,
 };
 use safe_arith::SafeArith;
-use types::*;
 use types::consts::FAR_FUTURE_EPOCH;
+use types::*;
 
 type Result<T> = std::result::Result<T, BlockOperationError<ExitInvalid>>;
 

@@ -541,7 +541,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                         index: withdrawal_index,
                         validator_index: withdrawal.index,
                         address: validator
-                            .get_execution_withdrawal_address(spec)
+                            .get_execution_withdrawal_address()
                             .ok_or(BeaconStateError::NonExecutionAddresWithdrawalCredential)?,
                         amount: withdrawable_balance,
                     });
@@ -562,12 +562,12 @@ pub fn get_expected_withdrawals<E: EthSpec>(
         let balance = *state.balances().get(validator_index as usize).ok_or(
             BeaconStateError::BalancesOutOfBounds(validator_index as usize),
         )?;
-        if validator.is_fully_withdrawable_at(balance, epoch, spec, fork_name) {
+        if validator.is_fully_withdrawable_at(balance, epoch, fork_name) {
             withdrawals.push(Withdrawal {
                 index: withdrawal_index,
                 validator_index,
                 address: validator
-                    .get_execution_withdrawal_address(spec)
+                    .get_execution_withdrawal_address()
                     .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
                 amount: balance,
             });
@@ -577,7 +577,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                 index: withdrawal_index,
                 validator_index,
                 address: validator
-                    .get_execution_withdrawal_address(spec)
+                    .get_execution_withdrawal_address()
                     .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
                 amount: balance.safe_sub(
                     validator

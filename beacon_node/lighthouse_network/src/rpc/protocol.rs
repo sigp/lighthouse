@@ -29,47 +29,47 @@ lazy_static! {
     // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
     // same across different `EthSpec` implementations.
     pub static ref SIGNED_BEACON_BLOCK_BASE_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Base(BeaconBlockBase::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec())),
+        BeaconBlock::Base(BeaconBlockBase::<MainnetEthSpec>::empty()),
         Signature::empty(),
     )
     .as_ssz_bytes()
     .len();
     pub static ref SIGNED_BEACON_BLOCK_BASE_MAX: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Base(BeaconBlockBase::full(&MainnetEthSpec::default_spec())),
+        BeaconBlock::Base(BeaconBlockBase::full()),
         Signature::empty(),
     )
     .as_ssz_bytes()
     .len();
 
     pub static ref SIGNED_BEACON_BLOCK_ALTAIR_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Altair(BeaconBlockAltair::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec())),
+        BeaconBlock::Altair(BeaconBlockAltair::<MainnetEthSpec>::empty()),
         Signature::empty(),
     )
     .as_ssz_bytes()
     .len();
     pub static ref SIGNED_BEACON_BLOCK_ALTAIR_MAX: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Altair(BeaconBlockAltair::full(&MainnetEthSpec::default_spec())),
+        BeaconBlock::Altair(BeaconBlockAltair::full()),
         Signature::empty(),
     )
     .as_ssz_bytes()
     .len();
 
     pub static ref SIGNED_BEACON_BLOCK_BELLATRIX_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Bellatrix(BeaconBlockBellatrix::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec())),
+        BeaconBlock::Bellatrix(BeaconBlockBellatrix::<MainnetEthSpec>::empty()),
         Signature::empty(),
     )
     .as_ssz_bytes()
     .len();
 
     pub static ref SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Capella(BeaconBlockCapella::full(&MainnetEthSpec::default_spec())),
+        BeaconBlock::Capella(BeaconBlockCapella::full()),
         Signature::empty(),
     )
     .as_ssz_bytes()
     .len();
 
     pub static ref SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Electra(BeaconBlockElectra::full(&MainnetEthSpec::default_spec())),
+        BeaconBlock::Electra(BeaconBlockElectra::full()),
         Signature::empty(),
     )
     .as_ssz_bytes()

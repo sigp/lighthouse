@@ -2,14 +2,11 @@ use int_to_bytes::int_to_fixed_bytes32;
 use merkle_proof::MerkleTree;
 use rayon::prelude::*;
 use tree_hash::TreeHash;
-use types::{consts::DEPOSIT_CONTRACT_TREE_DEPTH, ChainSpec, Deposit, DepositData, Hash256};
+use types::{consts::DEPOSIT_CONTRACT_TREE_DEPTH, Deposit, DepositData, Hash256};
 
 /// Accepts the genesis block validator `DepositData` list and produces a list of `Deposit`, with
 /// proofs.
-pub fn genesis_deposits(
-    deposit_data: Vec<DepositData>,
-    spec: &ChainSpec,
-) -> Result<Vec<Deposit>, String> {
+pub fn genesis_deposits(deposit_data: Vec<DepositData>) -> Result<Vec<Deposit>, String> {
     let deposit_root_leaves = deposit_data
         .par_iter()
         .map(|data| data.tree_hash_root())

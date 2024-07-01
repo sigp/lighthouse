@@ -153,8 +153,7 @@ pub fn initialize_epoch_cache<E: EthSpec>(
         effective_balances.push(validator.effective_balance);
 
         // Add to speculative activation queue.
-        activation_queue
-            .add_if_could_be_eligible_for_activation(index, validator, next_epoch, spec);
+        activation_queue.add_if_could_be_eligible_for_activation(index, validator, next_epoch);
     }
 
     // Compute base rewards.

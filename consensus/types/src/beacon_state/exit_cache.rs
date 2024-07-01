@@ -1,4 +1,4 @@
-use super::{BeaconStateError, ChainSpec, Epoch, Validator, FAR_FUTURE_EPOCH};
+use super::{BeaconStateError, Epoch, Validator, FAR_FUTURE_EPOCH};
 use safe_arith::SafeArith;
 use std::cmp::Ordering;
 
@@ -15,7 +15,7 @@ pub struct ExitCache {
 
 impl ExitCache {
     /// Initialize a new cache for the given list of validators.
-    pub fn new<'a, V, I>(validators: V, spec: &ChainSpec) -> Result<Self, BeaconStateError>
+    pub fn new<'a, V, I>(validators: V) -> Result<Self, BeaconStateError>
     where
         V: IntoIterator<Item = &'a Validator, IntoIter = I>,
         I: ExactSizeIterator + Iterator<Item = &'a Validator>,

@@ -1,7 +1,7 @@
 use integer_sqrt::IntegerSquareRoot;
 use safe_arith::{ArithError, SafeArith};
-use types::*;
 use types::consts::BASE_REWARDS_PER_EPOCH;
+use types::*;
 
 /// This type exists to avoid confusing `total_active_balance` with `sqrt_total_active_balance`,
 /// since they are used in close proximity and have the same type (`u64`).

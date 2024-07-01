@@ -693,6 +693,7 @@ mod test {
     use std::future;
     use std::time::Duration;
     use types::{
+        consts::GENESIS_SLOT,
         test_utils::{SeedableRng, TestRandom, XorShiftRng},
         MainnetEthSpec,
     };
@@ -705,7 +706,7 @@ mod test {
     type E = MainnetEthSpec;
 
     fn genesis_epoch() -> Epoch {
-        E::default_spec().genesis_slot.epoch(E::slots_per_epoch())
+        GENESIS_SLOT.epoch(E::slots_per_epoch())
     }
 
     fn check_detection_indices(detection_indices: &[u64]) {

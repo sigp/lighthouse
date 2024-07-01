@@ -473,7 +473,6 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
             .op_pool
             .get_bls_to_execution_changes_received_pre_capella(
                 &harness.chain.head_snapshot().beacon_state,
-                &spec,
             )
             .into_iter()
             .collect::<HashSet<_>>(),
@@ -536,6 +535,6 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
     // Eventually all validators should have eth1 withdrawal credentials.
     let head_state = harness.get_current_state();
     for validator in head_state.validators() {
-        assert!(validator.has_eth1_withdrawal_credential(&spec));
+        assert!(validator.has_eth1_withdrawal_credential());
     }
 }

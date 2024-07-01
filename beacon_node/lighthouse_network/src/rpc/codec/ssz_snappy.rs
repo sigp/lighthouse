@@ -780,13 +780,12 @@ mod tests {
     /// Smallest sized block across all current forks. Useful for testing
     /// min length check conditions.
     fn empty_base_block() -> SignedBeaconBlock<Spec> {
-        let empty_block = BeaconBlock::Base(BeaconBlockBase::<Spec>::empty(&Spec::default_spec()));
+        let empty_block = BeaconBlock::Base(BeaconBlockBase::<Spec>::empty());
         SignedBeaconBlock::from_block(empty_block, Signature::empty())
     }
 
     fn altair_block() -> SignedBeaconBlock<Spec> {
-        let full_block =
-            BeaconBlock::Altair(BeaconBlockAltair::<Spec>::full(&Spec::default_spec()));
+        let full_block = BeaconBlock::Altair(BeaconBlockAltair::<Spec>::full());
         SignedBeaconBlock::from_block(full_block, Signature::empty())
     }
 
@@ -799,8 +798,7 @@ mod tests {
         fork_context: &ForkContext,
         spec: &ChainSpec,
     ) -> SignedBeaconBlock<Spec> {
-        let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
-            BeaconBlockBellatrix::empty(&Spec::default_spec());
+        let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> = BeaconBlockBellatrix::empty();
         let tx = VariableList::from(vec![0; 1024]);
         let txs = VariableList::from(std::iter::repeat(tx).take(5000).collect::<Vec<_>>());
 
@@ -818,8 +816,7 @@ mod tests {
         fork_context: &ForkContext,
         spec: &ChainSpec,
     ) -> SignedBeaconBlock<Spec> {
-        let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
-            BeaconBlockBellatrix::empty(&Spec::default_spec());
+        let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> = BeaconBlockBellatrix::empty();
         let tx = VariableList::from(vec![0; 1024]);
         let txs = VariableList::from(std::iter::repeat(tx).take(100000).collect::<Vec<_>>());
 

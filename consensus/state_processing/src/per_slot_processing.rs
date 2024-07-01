@@ -4,8 +4,8 @@ use crate::upgrade::{
 };
 use crate::{per_epoch_processing::EpochProcessingSummary, *};
 use safe_arith::{ArithError, SafeArith};
-use types::*;
 use types::consts::GENESIS_SLOT;
+use types::*;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {

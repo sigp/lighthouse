@@ -1,8 +1,6 @@
 use self::committee_cache::get_active_validator_indices;
 use crate::consts::electra::COMPOUNDING_WITHDRAWAL_PREFIX;
-use crate::consts::{
-    BLS_WITHDRAWAL_PREFIX, ETH1_ADDRESS_WITHDRAWAL_PREFIX, FAR_FUTURE_EPOCH, GENESIS_SLOT,
-};
+use crate::consts::{FAR_FUTURE_EPOCH, GENESIS_SLOT};
 use crate::historical_summary::HistoricalSummary;
 use crate::test_utils::TestRandom;
 use crate::*;
@@ -1196,7 +1194,7 @@ impl<E: EthSpec> BeaconState<E> {
     /// Returns an iterator across the past block roots of `state` in descending slot-order.
     ///
     /// See the docs for `BlockRootsIter` for more detail.
-    pub fn rev_iter_block_roots<'a>(&'a self, spec: &ChainSpec) -> BlockRootsIter<'a, E> {
+    pub fn rev_iter_block_roots(&self) -> BlockRootsIter<E> {
         BlockRootsIter::new(self, GENESIS_SLOT)
     }
 
@@ -1766,7 +1764,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn build_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_all_committee_caches(spec)?;
         self.update_pubkey_cache()?;
-        self.build_exit_cache(spec)?;
+        self.build_exit_cache()?;
         self.build_slashings_cache()?;
 
         Ok(())
@@ -1781,9 +1779,9 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Build the exit cache, if it needs to be built.
-    pub fn build_exit_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
+    pub fn build_exit_cache(&mut self) -> Result<(), Error> {
         if self.exit_cache().check_initialized().is_err() {
-            *self.exit_cache_mut() = ExitCache::new(self.validators(), spec)?;
+            *self.exit_cache_mut() = ExitCache::new(self.validators())?;
         }
         Ok(())
     }
@@ -2173,7 +2171,6 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn queue_entire_balance_and_reset_validator(
         &mut self,
         validator_index: usize,
-        spec: &ChainSpec,
     ) -> Result<(), Error> {
         let balance = self
             .balances_mut()
@@ -2207,7 +2204,7 @@ impl<E: EthSpec> BeaconState<E> {
             .validators_mut()
             .get_mut(validator_index)
             .ok_or(Error::UnknownValidator(validator_index))?;
-        if validator.has_eth1_withdrawal_credential(spec) {
+        if validator.has_eth1_withdrawal_credential() {
             validator.withdrawal_credentials.as_fixed_bytes_mut()[0] =
                 COMPOUNDING_WITHDRAWAL_PREFIX;
             self.queue_excess_active_balance(validator_index, spec)?;

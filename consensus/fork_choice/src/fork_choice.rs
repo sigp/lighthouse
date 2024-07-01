@@ -13,10 +13,10 @@ use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
-    consts::bellatrix::INTERVALS_PER_SLOT, consts::GENESIS_SLOT, AbstractExecPayload,
-    AttestationShufflingId, AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError,
-    ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256,
-    IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
+    consts::bellatrix::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
+    AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
+    Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestationRef, RelativeEpoch,
+    SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]

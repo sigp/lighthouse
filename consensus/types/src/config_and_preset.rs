@@ -1,7 +1,10 @@
 use crate::{
-    consts::altair, consts::deneb, consts::electra, AltairPreset, BasePreset, BellatrixPreset,
-    CapellaPreset, ChainSpec, Config, DenebPreset, ElectraPreset, EthSpec, ForkName,
+    consts::altair,
+    consts::deneb,
+    consts::electra,
     consts::{BLS_WITHDRAWAL_PREFIX, ETH1_ADDRESS_WITHDRAWAL_PREFIX},
+    AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, ChainSpec, Config, DenebPreset,
+    ElectraPreset, EthSpec, ForkName,
 };
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};

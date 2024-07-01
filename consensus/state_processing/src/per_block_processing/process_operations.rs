@@ -352,10 +352,7 @@ pub fn process_bls_to_execution_changes<E: EthSpec>(
 
         state
             .get_validator_mut(signed_address_change.message.validator_index as usize)?
-            .change_withdrawal_credentials(
-                &signed_address_change.message.to_execution_address,
-                spec,
-            );
+            .change_withdrawal_credentials(&signed_address_change.message.to_execution_address);
     }
 
     Ok(())
@@ -408,7 +405,6 @@ pub fn process_deposits<E: EthSpec>(
                 state,
                 deposit,
                 state.eth1_deposit_index().safe_add(i as u64)?,
-                spec,
             )
             .map_err(|e| e.into_with_index(i))
         })?;
@@ -435,7 +431,7 @@ pub fn apply_deposit<E: EthSpec>(
             proof,
             data: deposit_data.clone(),
         };
-        verify_deposit_merkle_proof(state, &deposit, state.eth1_deposit_index(), spec)
+        verify_deposit_merkle_proof(state, &deposit, state.eth1_deposit_index())
             .map_err(|e| e.into_with_index(deposit_index))?;
     }
 
@@ -460,8 +456,8 @@ pub fn apply_deposit<E: EthSpec>(
                 .get(index as usize)
                 .ok_or(BeaconStateError::UnknownValidator(index as usize))?;
 
-            if is_compounding_withdrawal_credential(deposit_data.withdrawal_credentials, spec)
-                && validator.has_eth1_withdrawal_credential(spec)
+            if is_compounding_withdrawal_credential(deposit_data.withdrawal_credentials)
+                && validator.has_eth1_withdrawal_credential()
                 && is_valid_deposit_signature(&deposit_data, spec).is_ok()
             {
                 state.switch_to_compounding_validator(index as usize, spec)?;
@@ -554,9 +550,9 @@ pub fn process_execution_layer_withdrawal_requests<E: EthSpec>(
         let validator = state.get_validator(index)?;
 
         // Verify withdrawal credentials
-        let has_correct_credential = validator.has_execution_withdrawal_credential(spec);
+        let has_correct_credential = validator.has_execution_withdrawal_credential();
         let is_correct_source_address = validator
-            .get_execution_withdrawal_address(spec)
+            .get_execution_withdrawal_address()
             .map(|addr| addr == request.source_address)
             .unwrap_or(false);
 
@@ -601,7 +597,7 @@ pub fn process_execution_layer_withdrawal_requests<E: EthSpec>(
                 .safe_add(pending_balance_to_withdraw)?;
 
         // Only allow partial withdrawals with compounding withdrawal credentials
-        if validator.has_compounding_withdrawal_credential(spec)
+        if validator.has_compounding_withdrawal_credential()
             && has_sufficient_effective_balance
             && has_excess_balance
         {
@@ -735,13 +731,13 @@ pub fn process_consolidations<E: EthSpec>(
 
         // Verify the source and the target have Execution layer withdrawal credentials
         block_verify! {
-            source_validator.has_execution_withdrawal_credential(spec),
+            source_validator.has_execution_withdrawal_credential(),
             BlockProcessingError::NoSourceExecutionWithdrawalCredential {
                 index: consolidation.source_index,
             }
         }
         block_verify! {
-            target_validator.has_execution_withdrawal_credential(spec),
+            target_validator.has_execution_withdrawal_credential(),
             BlockProcessingError::NoTargetExecutionWithdrawalCredential {
                 index: consolidation.target_index,
             }
@@ -749,10 +745,10 @@ pub fn process_consolidations<E: EthSpec>(
 
         // Verify the same withdrawal address
         let source_address = source_validator
-            .get_execution_withdrawal_address(spec)
+            .get_execution_withdrawal_address()
             .ok_or(BeaconStateError::NonExecutionAddresWithdrawalCredential)?;
         let target_address = target_validator
-            .get_execution_withdrawal_address(spec)
+            .get_execution_withdrawal_address()
             .ok_or(BeaconStateError::NonExecutionAddresWithdrawalCredential)?;
         block_verify! {
             source_address == target_address,
