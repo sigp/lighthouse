@@ -180,7 +180,6 @@ pub struct ChainSpec {
     pub electra_fork_version: [u8; 4],
     /// The Electra fork epoch is optional, with `None` representing "Electra never happens".
     pub electra_fork_epoch: Option<Epoch>,
-    // TODO(pawan): this shouldn't be a config parameter?
     pub unset_deposit_requests_start_index: u64,
     pub full_exit_request_amount: u64,
     pub min_activation_balance: u64,
