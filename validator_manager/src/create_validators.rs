@@ -610,6 +610,7 @@ pub mod tests {
     use std::str::FromStr;
     use tempfile::{tempdir, TempDir};
     use tree_hash::TreeHash;
+    use types::consts::{BLS_WITHDRAWAL_PREFIX, ETH1_ADDRESS_WITHDRAWAL_PREFIX};
 
     type E = MainnetEthSpec;
 

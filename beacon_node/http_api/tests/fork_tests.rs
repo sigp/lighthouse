@@ -354,7 +354,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         .collect::<Vec<_>>();
     let withdrawal_credentials = withdrawal_keypairs
         .iter()
-        .map(|keypair| bls_withdrawal_credentials(&keypair.as_ref().unwrap().pk, &spec))
+        .map(|keypair| bls_withdrawal_credentials(&keypair.as_ref().unwrap().pk))
         .collect::<Vec<_>>();
     let header = generate_genesis_header(&spec, true);
     let genesis_state = interop_genesis_state_with_withdrawal_credentials(

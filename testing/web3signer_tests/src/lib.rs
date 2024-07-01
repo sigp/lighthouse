@@ -591,7 +591,7 @@ mod tests {
         })
         .await
         .assert_signatures_match("beacon_block_base", |pubkey, validator_store| async move {
-            let block = BeaconBlock::Base(BeaconBlockBase::empty(spec));
+            let block = BeaconBlock::Base(BeaconBlockBase::empty());
             let block_slot = block.slot();
             validator_store
                 .sign_block(pubkey, block, block_slot)
@@ -660,7 +660,7 @@ mod tests {
         .assert_signatures_match(
             "beacon_block_altair",
             |pubkey, validator_store| async move {
-                let mut altair_block = BeaconBlockAltair::empty(spec);
+                let mut altair_block = BeaconBlockAltair::empty();
                 altair_block.slot = altair_fork_slot;
                 validator_store
                     .sign_block(pubkey, BeaconBlock::Altair(altair_block), altair_fork_slot)
@@ -743,7 +743,7 @@ mod tests {
         .assert_signatures_match(
             "beacon_block_bellatrix",
             |pubkey, validator_store| async move {
-                let mut bellatrix_block = BeaconBlockBellatrix::empty(spec);
+                let mut bellatrix_block = BeaconBlockBellatrix::empty();
                 bellatrix_block.slot = bellatrix_fork_slot;
                 validator_store
                     .sign_block(
@@ -804,7 +804,7 @@ mod tests {
         };
 
         let first_block = || {
-            let mut bellatrix_block = BeaconBlockBellatrix::empty(spec);
+            let mut bellatrix_block = BeaconBlockBellatrix::empty();
             bellatrix_block.slot = bellatrix_fork_slot;
             BeaconBlock::Bellatrix(bellatrix_block)
         };

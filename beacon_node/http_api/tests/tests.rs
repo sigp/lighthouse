@@ -35,8 +35,10 @@ use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
 use types::{
-    attestation::AttestationBase, AggregateSignature, BitList, Domain, EthSpec, ExecutionBlockHash,
-    Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
+    attestation::AttestationBase,
+    consts::{FAR_FUTURE_EPOCH, GENESIS_SLOT},
+    AggregateSignature, BitList, Domain, EthSpec, ExecutionBlockHash, Hash256, Keypair,
+    MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
 };
 
 type E = MainnetEthSpec;
@@ -954,7 +956,7 @@ impl ApiTester {
 
                     let expected = state_opt.map(|state| {
                         let epoch = state.current_epoch();
-                        let far_future_epoch = self.chain.FAR_FUTURE_EPOCH;
+                        let far_future_epoch = FAR_FUTURE_EPOCH;
 
                         let mut validators = Vec::with_capacity(validator_indices.len());
 
@@ -1028,7 +1030,7 @@ impl ApiTester {
 
                     let expected = {
                         let epoch = state.current_epoch();
-                        let far_future_epoch = self.chain.FAR_FUTURE_EPOCH;
+                        let far_future_epoch = FAR_FUTURE_EPOCH;
 
                         ValidatorData {
                             index: i as u64,
@@ -3381,7 +3383,7 @@ impl ApiTester {
         let mut registrations = vec![];
         let mut fee_recipients = vec![];
 
-        let genesis_epoch = self.chain.GENESIS_SLOT.epoch(E::slots_per_epoch());
+        let genesis_epoch = GENESIS_SLOT.epoch(E::slots_per_epoch());
         let fork = Fork {
             current_version: self.chain.spec.genesis_fork_version,
             previous_version: self.chain.spec.genesis_fork_version,
@@ -3464,7 +3466,7 @@ impl ApiTester {
         let mut registrations = vec![];
         let mut fee_recipients = vec![];
 
-        let genesis_epoch = self.chain.GENESIS_SLOT.epoch(E::slots_per_epoch());
+        let genesis_epoch = GENESIS_SLOT.epoch(E::slots_per_epoch());
         let fork = Fork {
             current_version: self.chain.spec.genesis_fork_version,
             previous_version: self.chain.spec.genesis_fork_version,

@@ -17,6 +17,7 @@ use state_processing::per_block_processing::errors::{
 use std::sync::Arc;
 use store::{LevelDB, StoreConfig};
 use tempfile::{tempdir, TempDir};
+use types::consts::FAR_FUTURE_EPOCH;
 use types::*;
 
 pub const VALIDATOR_COUNT: usize = 24;
