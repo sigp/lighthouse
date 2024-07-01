@@ -918,24 +918,22 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // Find a peer to request the batch
         let failed_peers = batch.failed_peers();
 
-        let new_peer = {
-            let mut priorized_peers = self
-                .network_globals
-                .peers
-                .read()
-                .synced_peers()
-                .map(|peer| {
-                    (
-                        failed_peers.contains(peer),
-                        self.active_requests.get(peer).map(|v| v.len()).unwrap_or(0),
-                        *peer,
-                    )
-                })
-                .collect::<Vec<_>>();
+        let new_peer = self
+            .network_globals
+            .peers
+            .read()
+            .synced_peers()
+            .map(|peer| {
+                (
+                    failed_peers.contains(peer),
+                    self.active_requests.get(peer).map(|v| v.len()).unwrap_or(0),
+                    rand::random::<u32>(),
+                    *peer,
+                )
+            })
             // Sort peers prioritizing unrelated peers with less active requests.
-            priorized_peers.sort_unstable();
-            priorized_peers.first().map(|&(_, _, peer)| peer)
-        };
+            .min()
+            .map(|(_, _, _, peer)| peer);
 
         if let Some(peer) = new_peer {
             self.participating_peers.insert(peer);
