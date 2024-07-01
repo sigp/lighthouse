@@ -75,7 +75,7 @@ Once you have the slashing protection database from your existing client, you ca
 using this command:
 
 ```bash
-lighthouse account validator slashing-protection import <my_interchange.json>
+lighthouse account validator slashing-protection import filename.json
 ```
 
 When importing an interchange file, you still need to import the validator keystores themselves
@@ -86,7 +86,7 @@ separately, using the instructions for [import validator keys](./mainnet-validat
 You can export Lighthouse's database for use with another client with this command:
 
 ```
-lighthouse account validator slashing-protection export <lighthouse_interchange.json>
+lighthouse account validator slashing-protection export filename.json
 ```
 
 The validator client needs to be stopped in order to export, to guarantee that the data exported is

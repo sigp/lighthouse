@@ -159,6 +159,16 @@ pub enum Error {
     IndexNotSupported(usize),
     InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
+    PartialWithdrawalCountInvalid(usize),
+    NonExecutionAddresWithdrawalCredential,
+    NoCommitteeFound(CommitteeIndex),
+    InvalidCommitteeIndex(CommitteeIndex),
+    InvalidSelectionProof {
+        aggregator_index: u64,
+    },
+    AggregatorNotInCommittee {
+        aggregator_index: u64,
+    },
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -1467,6 +1477,14 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
+    /// Get the balance of a single validator.
+    pub fn get_balance(&self, validator_index: usize) -> Result<u64, Error> {
+        self.balances()
+            .get(validator_index)
+            .ok_or(Error::BalancesOutOfBounds(validator_index))
+            .copied()
+    }
+
     /// Get a mutable reference to the balance of a single validator.
     pub fn get_balance_mut(&mut self, validator_index: usize) -> Result<&mut u64, Error> {
         self.balances_mut()
@@ -2097,11 +2115,12 @@ impl<E: EthSpec> BeaconState<E> {
         &self,
         validator_index: usize,
         spec: &ChainSpec,
+        current_fork: ForkName,
     ) -> Result<u64, Error> {
         let max_effective_balance = self
             .validators()
             .get(validator_index)
-            .map(|validator| validator.get_validator_max_effective_balance(spec))
+            .map(|validator| validator.get_validator_max_effective_balance(spec, current_fork))
             .ok_or(Error::UnknownValidator(validator_index))?;
         Ok(std::cmp::min(
             *self

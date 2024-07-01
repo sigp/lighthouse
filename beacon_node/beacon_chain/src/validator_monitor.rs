@@ -25,9 +25,10 @@ use types::consts::altair::{
     TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX,
 };
 use types::{
-    Attestation, AttestationData, AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError,
-    ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, PublicKeyBytes,
-    SignedAggregateAndProof, SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
+    Attestation, AttestationData, AttesterSlashingRef, BeaconBlockRef, BeaconState,
+    BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
+    IndexedAttestationRef, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof,
+    SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
 };
 
 /// Used for Prometheus labels.
@@ -469,7 +470,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 unaggregated_attestations.remove(&oldest_slot);
             }
         }
-        let slot = attestation.data.slot;
+        let slot = attestation.data().slot;
         self.unaggregated_attestations.insert(slot, attestation);
     }
 
@@ -730,12 +731,12 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 // that qualifies the committee index for reward is included
                 let inclusion_delay = spec.min_attestation_inclusion_delay;
 
-                let data = &unaggregated_attestation.data;
+                let data = unaggregated_attestation.data();
 
                 // Get the reward indices for the unaggregated attestation or log an error
                 match get_attestation_participation_flag_indices(
                     state,
-                    &unaggregated_attestation.data,
+                    unaggregated_attestation.data(),
                     inclusion_delay,
                     spec,
                 ) {
@@ -1233,7 +1234,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         indexed_attestation: &IndexedAttestation<E>,
         slot_clock: &S,
     ) {
-        let data = &indexed_attestation.data;
+        let data = indexed_attestation.data();
         let epoch = data.slot.epoch(E::slots_per_epoch());
         let delay = get_message_delay_ms(
             seen_timestamp,
@@ -1242,7 +1243,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             slot_clock,
         );
 
-        indexed_attestation.attesting_indices.iter().for_each(|i| {
+        indexed_attestation.attesting_indices_iter().for_each(|i| {
             if let Some(validator) = self.get_validator(*i) {
                 let id = &validator.id;
 
@@ -1321,7 +1322,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         indexed_attestation: &IndexedAttestation<E>,
         slot_clock: &S,
     ) {
-        let data = &indexed_attestation.data;
+        let data = indexed_attestation.data();
         let epoch = data.slot.epoch(E::slots_per_epoch());
         let delay = get_message_delay_ms(
             seen_timestamp,
@@ -1330,7 +1331,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             slot_clock,
         );
 
-        let aggregator_index = signed_aggregate_and_proof.message.aggregator_index;
+        let aggregator_index = signed_aggregate_and_proof.message().aggregator_index();
         if let Some(validator) = self.get_validator(aggregator_index) {
             let id = &validator.id;
 
@@ -1365,7 +1366,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             });
         }
 
-        indexed_attestation.attesting_indices.iter().for_each(|i| {
+        indexed_attestation.attesting_indices_iter().for_each(|i| {
             if let Some(validator) = self.get_validator(*i) {
                 let id = &validator.id;
 
@@ -1410,11 +1411,11 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     /// Note: Blocks that get orphaned will skew the inclusion distance calculation.
     pub fn register_attestation_in_block(
         &self,
-        indexed_attestation: &IndexedAttestation<E>,
+        indexed_attestation: IndexedAttestationRef<'_, E>,
         parent_slot: Slot,
         spec: &ChainSpec,
     ) {
-        let data = &indexed_attestation.data;
+        let data = indexed_attestation.data();
         // Best effort inclusion distance which ignores skip slots between the parent
         // and the current block. Skipped slots between the attestation slot and the parent
         // slot are still counted for simplicity's sake.
@@ -1423,7 +1424,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         let delay = inclusion_distance - spec.min_attestation_inclusion_delay;
         let epoch = data.slot.epoch(E::slots_per_epoch());
 
-        indexed_attestation.attesting_indices.iter().for_each(|i| {
+        indexed_attestation.attesting_indices_iter().for_each(|i| {
             if let Some(validator) = self.get_validator(*i) {
                 let id = &validator.id;
 
@@ -1783,33 +1784,31 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Register an attester slashing from the gossip network.
-    pub fn register_gossip_attester_slashing(&self, slashing: &AttesterSlashing<E>) {
+    pub fn register_gossip_attester_slashing(&self, slashing: AttesterSlashingRef<'_, E>) {
         self.register_attester_slashing("gossip", slashing)
     }
 
     /// Register an attester slashing from the HTTP API.
-    pub fn register_api_attester_slashing(&self, slashing: &AttesterSlashing<E>) {
+    pub fn register_api_attester_slashing(&self, slashing: AttesterSlashingRef<'_, E>) {
         self.register_attester_slashing("api", slashing)
     }
 
     /// Register an attester slashing included in a *valid* `BeaconBlock`.
-    pub fn register_block_attester_slashing(&self, slashing: &AttesterSlashing<E>) {
+    pub fn register_block_attester_slashing(&self, slashing: AttesterSlashingRef<'_, E>) {
         self.register_attester_slashing("block", slashing)
     }
 
-    fn register_attester_slashing(&self, src: &str, slashing: &AttesterSlashing<E>) {
-        let data = &slashing.attestation_1.data;
+    fn register_attester_slashing(&self, src: &str, slashing: AttesterSlashingRef<'_, E>) {
+        let data = slashing.attestation_1().data();
         let attestation_1_indices: HashSet<u64> = slashing
-            .attestation_1
-            .attesting_indices
-            .iter()
+            .attestation_1()
+            .attesting_indices_iter()
             .copied()
             .collect();
 
         slashing
-            .attestation_2
-            .attesting_indices
-            .iter()
+            .attestation_2()
+            .attesting_indices_iter()
             .filter(|index| attestation_1_indices.contains(index))
             .filter_map(|index| self.get_validator(*index))
             .for_each(|validator| {
