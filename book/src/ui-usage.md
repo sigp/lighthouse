@@ -51,7 +51,7 @@ The log statistics present an hourly combined rate of critical, warning, and err
 
 ________________________________________________________________________________________________________________________________
 
-# Validator Management
+## Validator Management
 
 Siren's validator management view provides a detailed overview of all validators with options to deposit to and/or add new validators. Each validator table row displays the validator name, index, balance, rewards, status and all available actions per validator.
 
