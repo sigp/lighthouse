@@ -1,7 +1,7 @@
 # Usage
 Siren offers many features ranging from diagnostics, logs, validator management including graffiti and exiting. Below we will describe all major features and how to take advantage of Siren to the fullest.
 
-# Dashboard
+## Dashboard
 
 Siren's dashboard view provides a summary of all performance and key validator metrics. Sync statuses, uptimes, accumulated rewards, hardware and network metrics are all consolidated on the dashboard for evaluation.
 
