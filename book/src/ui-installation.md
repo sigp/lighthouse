@@ -10,7 +10,7 @@ To ensure proper functionality, the Siren app requires Lighthouse v4.3.0 or high
 
 We recommend using Docker to run Siren, for quicker uptime and installation.
 
-Configuration is done through environment variables, the best way to get started is by copying `.env.example` to `.env` and editing the relevant sections (typically, this would at least include `BEACON_URL`, `VALIDATOR_URL` and `API_TOKEN`)
+Configuration is done through environment variables, the best way to get started is by copying `.env.example` to `.env` and editing the relevant sections (typically, this would at least include adding `BEACON_URL`, `VALIDATOR_URL` and `API_TOKEN`)
 
 Then to run the image:
 
