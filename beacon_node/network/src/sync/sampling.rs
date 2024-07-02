@@ -490,13 +490,9 @@ mod request {
 
             // TODO: When is a fork and only a subset of your peers know about a block, sampling should only
             // be queried on the peers on that fork. Should this case be handled? How to handle it?
-            let peer_ids = cx.get_custodial_peers(
-                block_slot.epoch(<T::EthSpec as EthSpec>::slots_per_epoch()),
-                self.column_index,
-            );
+            let epoch = block_slot.epoch(<T::EthSpec as EthSpec>::slots_per_epoch());
 
-            // TODO(das) randomize custodial peer and avoid failing peers
-            if let Some(peer_id) = peer_ids.first().cloned() {
+            if let Some(peer_id) = cx.get_random_custodial_peer(epoch, self.column_index) {
                 cx.data_column_lookup_request(
                     DataColumnsByRootRequester::Sampling(SamplingId {
                         id: requester,

@@ -216,7 +216,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // sending an error /timeout) if the peer is removed from the chain for other
                 // reasons. Check that this block belongs to the expected peer, and that the
                 // request_id matches
-                if !batch.is_expecting_block(peer_id, &request_id) {
+                // TODO(das): removed peer_id matching as the node may request a different peer for data
+                // columns.
+                if !batch.is_expecting_block(&request_id) {
                     return Ok(KeepChain);
                 }
                 batch
@@ -808,7 +810,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // A batch could be retried without the peer failing the request (disconnecting/
             // sending an error /timeout) if the peer is removed from the chain for other
             // reasons. Check that this block belongs to the expected peer
-            if !batch.is_expecting_block(peer_id, &request_id) {
+            // TODO(das): removed peer_id matching as the node may request a different peer for data
+            // columns.
+            if !batch.is_expecting_block(&request_id) {
                 debug!(
                     self.log,
                     "Batch not expecting block";
