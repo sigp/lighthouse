@@ -366,8 +366,10 @@ where
                                 protocol,
                                 Protocol::BlocksByRange
                                     | Protocol::BlobsByRange
+                                    | Protocol::DataColumnsByRange
                                     | Protocol::BlocksByRoot
                                     | Protocol::BlobsByRoot
+                                    | Protocol::DataColumnsByRoot
                             ) {
                                 debug!(self.log, "Request too large to process"; "request" => %req, "protocol" => %protocol);
                             } else {
