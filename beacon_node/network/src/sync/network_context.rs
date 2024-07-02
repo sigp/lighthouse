@@ -238,7 +238,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     // TODO(das): epoch argument left here in case custody rotation is implemented
     pub fn get_custodial_peers(&self, _epoch: Epoch, column_index: ColumnIndex) -> Vec<PeerId> {
         self.network_globals()
-            .custody_peers_for_column(column_index, &self.chain.spec)
+            .custody_peers_for_column(column_index, &self.chain.spec, &self.log)
     }
 
     pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {

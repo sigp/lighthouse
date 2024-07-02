@@ -1,4 +1,5 @@
 //! A collection of variables that are accessible outside of the network thread itself.
+use crate::discovery::peer_id_to_node_id;
 use crate::peer_manager::peerdb::PeerDB;
 use crate::rpc::{MetaData, MetaDataV2};
 use crate::types::{BackFillState, SyncState};
@@ -8,6 +9,7 @@ use crate::{Enr, GossipTopic, Multiaddr, PeerId};
 use discv5::handler::NodeContact;
 use itertools::Itertools;
 use parking_lot::RwLock;
+use slog::{debug, Logger};
 use std::collections::HashSet;
 use types::data_column_sidecar::ColumnIndex;
 use types::{ChainSpec, DataColumnSubnetId, Epoch, EthSpec};
@@ -134,6 +136,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
         &self,
         column_index: ColumnIndex,
         spec: &ChainSpec,
+        log: &Logger,
     ) -> Vec<PeerId> {
         self.peers
             .read()
@@ -142,15 +145,22 @@ impl<E: EthSpec> NetworkGlobals<E> {
                 let node_id_and_csc = if let Some(enr) = peer_info.enr() {
                     let custody_subnet_count = enr.custody_subnet_count::<E>(spec);
                     Some((enr.node_id(), custody_subnet_count))
-                } else if let Some(node_contact) = peer_info
-                    .seen_multiaddrs()
-                    .last()
-                    .cloned()
-                    .and_then(|multiaddr| NodeContact::try_from_multiaddr(multiaddr).ok())
+                } else if let Some(node_id) = peer_id_to_node_id(peer_id)
+                    // TODO(das): may be noisy, downgrade to trace
+                    .inspect_err(
+                        |e| debug!(log, "Error converting peer ID to node ID"; "error" => ?e),
+                    )
+                    .ok()
                 {
-                    let node_id = node_contact.node_id();
-                    // TODO(das): Use `custody_subnet_count` from `MetaDataV3` before
-                    // falling back to minimum custody requirement.
+                    // TODO(das): may be noisy, downgrade to trace
+                    debug!(
+                        log,
+                        "ENR not present for peer";
+                        "peer_id" => %peer_id,
+                        "info" => "Unable to compute custody columns, falling back to default \
+                        custody requirement",
+                    );
+                    // TODO(das): Use `custody_subnet_count` from `MetaDataV3`
                     Some((node_id, spec.custody_requirement))
                 } else {
                     None
@@ -241,7 +251,8 @@ mod test {
             peers.try_into().expect("expected exactly 4 peer ids");
 
         for col_index in 0..spec.number_of_columns {
-            let custody_peers = globals.custody_peers_for_column(col_index as ColumnIndex, &spec);
+            let custody_peers =
+                globals.custody_peers_for_column(col_index as ColumnIndex, &spec, &log);
             assert!(
                 custody_peers.contains(&supernode_peer_1),
                 "must at least return supernode peer"
@@ -273,7 +284,7 @@ mod test {
         let custody_subnets = (0..spec.data_column_sidecar_subnet_count)
             .filter(|col_index| {
                 !globals
-                    .custody_peers_for_column(*col_index, &spec)
+                    .custody_peers_for_column(*col_index, &spec, &log)
                     .is_empty()
             })
             .count();
