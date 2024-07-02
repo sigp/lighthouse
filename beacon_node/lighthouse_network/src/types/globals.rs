@@ -128,6 +128,12 @@ impl<E: EthSpec> NetworkGlobals<E> {
         DataColumnSubnetId::compute_custody_subnets::<E>(node_id, custody_subnet_count, spec)
     }
 
+    /// Returns a connected peer that:
+    /// 1. is connected
+    /// 2. assigned to custody the column based on it's `custody_subnet_count` from metadata (WIP)
+    /// 3. has a good score
+    /// 4. subscribed to the specified column - this condition can be removed later, so we can
+    ///    identify and penalise peers that are supposed to custody the column.
     pub fn custody_peers_for_column(
         &self,
         column_index: ColumnIndex,
