@@ -1,5 +1,5 @@
 //! Hierarchical diff implementation.
-use crate::{DBColumn, StoreItem};
+use crate::{DBColumn, StoreConfig, StoreItem};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
@@ -15,8 +15,9 @@ pub enum Error {
     U64DiffDeletionsNotSupported,
     UnableToComputeDiff,
     UnableToApplyDiff,
+    BalancesIncompleteChunk,
     Compression(std::io::Error),
-    InvalidSSZState(ssz::DecodeError),
+    InvalidSszState(ssz::DecodeError),
     InvalidBalancesLength,
 }
 
@@ -123,7 +124,7 @@ impl HDiffBuffer {
 
     pub fn into_state<E: EthSpec>(self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
         let mut state =
-            BeaconState::from_ssz_bytes(&self.state, spec).map_err(Error::InvalidSSZState)?;
+            BeaconState::from_ssz_bytes(&self.state, spec).map_err(Error::InvalidSszState)?;
         *state.balances_mut() =
             List::new(self.balances).map_err(|_| Error::InvalidBalancesLength)?;
         Ok(state)
@@ -131,9 +132,13 @@ impl HDiffBuffer {
 }
 
 impl HDiff {
-    pub fn compute(source: &HDiffBuffer, target: &HDiffBuffer) -> Result<Self, Error> {
+    pub fn compute(
+        source: &HDiffBuffer,
+        target: &HDiffBuffer,
+        config: &StoreConfig,
+    ) -> Result<Self, Error> {
         let state_diff = BytesDiff::compute(&source.state, &target.state)?;
-        let balances_diff = CompressedU64Diff::compute(&source.balances, &target.balances)?;
+        let balances_diff = CompressedU64Diff::compute(&source.balances, &target.balances, config)?;
 
         Ok(Self {
             state_diff,
@@ -141,11 +146,11 @@ impl HDiff {
         })
     }
 
-    pub fn apply(&self, source: &mut HDiffBuffer) -> Result<(), Error> {
+    pub fn apply(&self, source: &mut HDiffBuffer, config: &StoreConfig) -> Result<(), Error> {
         let source_state = std::mem::take(&mut source.state);
         self.state_diff.apply(&source_state, &mut source.state)?;
 
-        self.balances_diff.apply(&mut source.balances)?;
+        self.balances_diff.apply(&mut source.balances, config)?;
         Ok(())
     }
 
@@ -194,7 +199,7 @@ impl BytesDiff {
 }
 
 impl CompressedU64Diff {
-    pub fn compute(xs: &[u64], ys: &[u64]) -> Result<Self, Error> {
+    pub fn compute(xs: &[u64], ys: &[u64], config: &StoreConfig) -> Result<Self, Error> {
         if xs.len() > ys.len() {
             return Err(Error::U64DiffDeletionsNotSupported);
         }
@@ -209,9 +214,9 @@ impl CompressedU64Diff {
             })
             .collect();
 
-        // FIXME(sproul): reconsider
-        let compression_level = 1;
-        let mut compressed_bytes = Vec::with_capacity(uncompressed_bytes.len() / 2);
+        let compression_level = config.compression_level;
+        let mut compressed_bytes =
+            Vec::with_capacity(config.estimate_compressed_size(uncompressed_bytes.len()));
         let mut encoder =
             Encoder::new(&mut compressed_bytes, compression_level).map_err(Error::Compression)?;
         encoder
@@ -224,9 +229,10 @@ impl CompressedU64Diff {
         })
     }
 
-    pub fn apply(&self, xs: &mut Vec<u64>) -> Result<(), Error> {
+    pub fn apply(&self, xs: &mut Vec<u64>, config: &StoreConfig) -> Result<(), Error> {
         // Decompress balances diff.
-        let mut balances_diff_bytes = Vec::with_capacity(2 * self.bytes.len());
+        let mut balances_diff_bytes =
+            Vec::with_capacity(config.estimate_decompressed_size(self.bytes.len()));
         let mut decoder = Decoder::new(&*self.bytes).map_err(Error::Compression)?;
         decoder
             .read_to_end(&mut balances_diff_bytes)
@@ -236,8 +242,10 @@ impl CompressedU64Diff {
             .chunks(u64::BITS as usize / 8)
             .enumerate()
         {
-            // FIXME(sproul): unwrap
-            let diff = u64::from_be_bytes(diff_bytes.try_into().unwrap());
+            let diff = diff_bytes
+                .try_into()
+                .map(u64::from_be_bytes)
+                .map_err(|_| Error::BalancesIncompleteChunk)?;
 
             if let Some(x) = xs.get_mut(i) {
                 *x = x.wrapping_add(diff);
@@ -303,7 +311,7 @@ impl HierarchyModuli {
             .find_map(|(&n_big, &n_small)| {
                 if slot % n_small == 0 {
                     // Diff from the previous layer.
-                    StorageStrategy::DiffFrom(slot / n_big * n_big)
+                    Some(StorageStrategy::DiffFrom(slot / n_big * n_big))
                 } else {
                     // Keep trying with next layer
                     None
@@ -411,6 +419,7 @@ mod tests {
     fn compressed_u64_vs_bytes_diff() {
         let x_values = vec![99u64, 55, 123, 6834857, 0, 12];
         let y_values = vec![98u64, 55, 312, 1, 1, 2, 4, 5];
+        let config = &StoreConfig::default();
 
         let to_bytes =
             |nums: &[u64]| -> Vec<u8> { nums.iter().flat_map(|x| x.to_be_bytes()).collect() };
@@ -418,10 +427,10 @@ mod tests {
         let x_bytes = to_bytes(&x_values);
         let y_bytes = to_bytes(&y_values);
 
-        let u64_diff = CompressedU64Diff::compute(&x_values, &y_values).unwrap();
+        let u64_diff = CompressedU64Diff::compute(&x_values, &y_values, config).unwrap();
 
         let mut y_from_u64_diff = x_values;
-        u64_diff.apply(&mut y_from_u64_diff).unwrap();
+        u64_diff.apply(&mut y_from_u64_diff, config).unwrap();
 
         assert_eq!(y_values, y_from_u64_diff);
 

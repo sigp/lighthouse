@@ -117,8 +117,8 @@ impl StoreConfig {
     ) -> Result<(), StoreConfigError> {
         let db_config = self.as_disk_config();
         // Allow changing the hierarchy exponents if no historic states are stored.
-             (db_config.hierarchy_config == on_disk_config.hierarchy_config
-                || anchor.map_or(false, |anchor| anchor.no_historic_states_stored(split.slot)))
+        if db_config.hierarchy_config == on_disk_config.hierarchy_config
+            || anchor.map_or(false, |anchor| anchor.no_historic_states_stored(split.slot))
         {
             Ok(())
         } else {
@@ -235,7 +235,6 @@ mod test {
             .check_compatibility(&on_disk_config, &split, None)
             .is_ok());
     }
-
 
     #[test]
     fn check_compatibility_hierarchy_config_incompatible() {
