@@ -449,6 +449,11 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
             }
         }
     }
+
+    // Visualizes the state of this batch using state::visualize()
+    pub fn visualize(&self) -> &'static str {
+        self.state.visualize()
+    }
 }
 
 /// Represents a peer's attempt and providing the result for this batch.
@@ -522,6 +527,31 @@ impl<E: EthSpec> std::fmt::Debug for BatchState<E> {
                 write!(f, "Downloading({}, {})", peer, request_id)
             }
             BatchState::Poisoned => f.write_str("Poisoned"),
+        }
+    }
+}
+
+impl<E: EthSpec> BatchState<E> {
+    /// Creates a unicode visualisation for the batch state to display in logs for quicker and
+    /// easier recognition
+    /// NOTE: May require nerd-fonts
+    ///
+    /// The current icons are:
+    /// - Empty/Uninitialized: 
+    /// - Downloading: 󰦗
+    /// - Awaiting Download: 󰝤
+    /// - Awaiting Validation: 󰦖
+    /// - Failed: 
+    /// - AwaitingProcessing: 
+    fn visualize(&self) -> &'static str {
+        match self {
+            BatchState::Downloading(_, _) => "󰦗",
+            BatchState::Processing(_) => "",
+            BatchState::AwaitingValidation(_) => "󰦖",
+            BatchState::AwaitingDownload => "󰝤",
+            BatchState::Failed => "",
+            BatchState::AwaitingProcessing(_, _) => " ",
+            BatchState::Poisoned => "!",
         }
     }
 }
