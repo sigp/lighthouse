@@ -86,7 +86,7 @@ Siren provides the ability to exit/withdraw your validators via the validator ma
 ________________________________________________________________________________________________________________________________
 
 
-# Validator and Beacon Logs
+## Validator and Beacon Logs
 
 The logs page provides users with the functionality to access and review recorded logs for both validators and beacons. Users can conveniently observe log severity, messages, timestamps, and any additional data associated with each log entry. The interface allows for seamless switching between validator and beacon log outputs, and incorporates useful features such as built-in text search and the ability to pause log feeds.
 
