@@ -433,16 +433,39 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             Err(_) => self.update_sync_state(),
                         },
                     }
+                } else {
+                    debug!(
+                        self.log,
+                        "RPC error for range request has no associated entry in network context, ungraceful disconnect";
+                        "peer_id" => %peer_id,
+                        "request_id" => %id,
+                        "error" => ?error,
+                    );
                 }
             }
         }
     }
 
+    /// Handles a peer disconnect.
+    ///
+    /// It is important that a peer disconnect retries all the batches/lookups as
+    /// there is no way to guarantee that libp2p always emits a error along with
+    /// the disconnect.
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
+        // Inject a Disconnected error on all requests associated with the disconnected peer
+        // to retry all batches/lookups
+        for request_id in self.network.peer_disconnected(peer_id) {
+            self.inject_error(*peer_id, request_id, RPCError::Disconnected);
+        }
+
+        // Remove peer from all data structures
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
+        let _ = self
+            .backfill_sync
+            .peer_disconnected(peer_id, &mut self.network);
         self.block_lookups.peer_disconnected(peer_id);
+
         // Regardless of the outcome, we update the sync status.
-        let _ = self.backfill_sync.peer_disconnected(peer_id);
         self.update_sync_state();
     }
 
@@ -1164,6 +1187,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         RangeBlockComponentsRequest::new(
                             resp.expects_blobs,
                             resp.expects_custody_columns,
+                            vec![],
                         ),
                     );
                     // inform range that the request needs to be treated as failed

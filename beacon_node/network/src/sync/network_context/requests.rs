@@ -1,7 +1,10 @@
 use beacon_chain::get_block_root;
-use lighthouse_network::rpc::{
-    methods::{BlobsByRootRequest, DataColumnsByRootRequest},
-    BlocksByRootRequest, RPCError,
+use lighthouse_network::{
+    rpc::{
+        methods::{BlobsByRootRequest, DataColumnsByRootRequest},
+        BlocksByRootRequest, RPCError,
+    },
+    PeerId,
 };
 use std::sync::Arc;
 use strum::IntoStaticStr;
@@ -24,13 +27,15 @@ pub enum LookupVerifyError {
 pub struct ActiveBlocksByRootRequest {
     request: BlocksByRootSingleRequest,
     resolved: bool,
+    pub(crate) peer_id: PeerId,
 }
 
 impl ActiveBlocksByRootRequest {
-    pub fn new(request: BlocksByRootSingleRequest) -> Self {
+    pub fn new(request: BlocksByRootSingleRequest, peer_id: PeerId) -> Self {
         Self {
             request,
             resolved: false,
+            peer_id,
         }
     }
 
@@ -98,14 +103,16 @@ pub struct ActiveBlobsByRootRequest<E: EthSpec> {
     request: BlobsByRootSingleBlockRequest,
     blobs: Vec<Arc<BlobSidecar<E>>>,
     resolved: bool,
+    pub(crate) peer_id: PeerId,
 }
 
 impl<E: EthSpec> ActiveBlobsByRootRequest<E> {
-    pub fn new(request: BlobsByRootSingleBlockRequest) -> Self {
+    pub fn new(request: BlobsByRootSingleBlockRequest, peer_id: PeerId) -> Self {
         Self {
             request,
             blobs: vec![],
             resolved: false,
+            peer_id,
         }
     }
 

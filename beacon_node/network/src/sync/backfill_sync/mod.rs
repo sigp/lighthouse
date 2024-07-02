@@ -307,7 +307,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// A peer has disconnected.
     /// If the peer has active batches, those are considered failed and re-requested.
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
-    pub fn peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), BackFillError> {
+    pub fn peer_disconnected(
+        &mut self,
+        peer_id: &PeerId,
+        network: &mut SyncNetworkContext<T>,
+    ) -> Result<(), BackFillError> {
         if matches!(
             self.state(),
             BackFillState::Failed | BackFillState::NotRequired
@@ -315,7 +319,37 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             return Ok(());
         }
 
-        self.active_requests.remove(peer_id);
+        if let Some(batch_ids) = self.active_requests.remove(peer_id) {
+            // fail the batches.
+            for id in batch_ids {
+                if let Some(batch) = self.batches.get_mut(&id) {
+                    match batch.download_failed(false) {
+                        Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
+                            self.fail_sync(BackFillError::BatchDownloadFailed(id))?;
+                        }
+                        Ok(BatchOperationOutcome::Continue) => {}
+                        Err(e) => {
+                            self.fail_sync(BackFillError::BatchInvalidState(id, e.0))?;
+                        }
+                    }
+                    // If we have run out of peers in which to retry this batch, the backfill state
+                    // transitions to a paused state.
+                    // We still need to reset the state for all the affected batches, so we should not
+                    // short circuit early.
+                    if self.retry_batch_download(network, id).is_err() {
+                        debug!(
+                            self.log,
+                            "Batch could not be retried";
+                            "batch_id" => id,
+                            "error" => "no synced peers"
+                        );
+                    }
+                } else {
+                    debug!(self.log, "Batch not found while removing peer";
+                        "peer" => %peer_id, "batch" => id)
+                }
+            }
+        }
 
         // Remove the peer from the participation list
         self.participating_peers.remove(peer_id);
