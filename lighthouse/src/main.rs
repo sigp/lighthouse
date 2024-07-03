@@ -52,8 +52,14 @@ fn bls_library_name() -> &'static str {
     }
 }
 
+#[inline(always)]
+#[allow(unreachable_code)]
 fn bls_hardware_acceleration() -> bool {
-    !cfg!(feature = "portable")
+    #[cfg(feature = "portable")]
+    return false;
+
+    #[cfg(target_arch = "x86_64")]
+    return std::is_x86_feature_detected!("adx");
 }
 
 fn allocator_name() -> &'static str {
