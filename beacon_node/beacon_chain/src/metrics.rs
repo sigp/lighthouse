@@ -1200,7 +1200,14 @@ lazy_static! {
         "beacon_store_diff_buffer_cache_byte_size",
         "Current byte size sum of all elements in beacon store diff buffer cache",
     );
-
+    pub static ref BEACON_STORE_STATE_COMPRESS_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_store_state_compress_seconds",
+        "Time taken to compress a state snapshot",
+    );
+    pub static ref BEACON_STORE_STATE_DECOMPRESS_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_store_state_decompress_seconds",
+        "Time taken to decompress a state snapshot",
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
