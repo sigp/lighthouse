@@ -84,6 +84,14 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     _phantom: PhantomData<E>,
 }
 
+pub(crate) struct HotColdDBMetrics {
+    block_cache_len: usize,
+    state_cache_len: usize,
+    historic_state_cache_len: usize,
+    diff_buffer_cache_len: usize,
+    diff_buffer_cache_byte_size: usize,
+}
+
 #[derive(Debug)]
 struct BlockCache<E: EthSpec> {
     block_cache: LruCache<Hash256, SignedBeaconBlock<E>>,
@@ -383,8 +391,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .update_finalized_state(state_root, block_root, state)
     }
 
-    pub fn state_cache_len(&self) -> usize {
-        self.state_cache.lock().len()
+    pub fn metrics(&self) -> HotColdDBMetrics {
+        let diff_buffer_cache = self.diff_buffer_cache.lock();
+        let diff_buffer_cache_byte_size = diff_buffer_cache
+            .iter()
+            .map(|(_, diff)| diff.size())
+            .sum::<usize>();
+        let diff_buffer_cache_len = diff_buffer_cache.len();
+        drop(diff_buffer_cache);
+
+        HotColdDBMetrics {
+            block_cache_len: self.block_cache.lock().len(),
+            state_cache_len: self.state_cache.lock().len(),
+            historic_state_cache_len: self.historic_state_cache.lock().len(),
+            diff_buffer_cache_len,
+            diff_buffer_cache_byte_size,
+        }
     }
 
     /// Store a block and update the LRU cache.

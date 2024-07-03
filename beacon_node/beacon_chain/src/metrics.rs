@@ -1176,6 +1176,31 @@ lazy_static! {
         "beacon_light_client_server_cache_prev_block_cache_miss",
         "Count of prev block cache misses",
     );
+
+    /*
+    * Store metrics
+    */
+    pub static ref BEACON_STORE_BLOCK_CACHE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "beacon_store_block_cache_size",
+        "Current count of items in beacon store block cache",
+    );
+    pub static ref BEACON_STORE_STATE_CACHE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "beacon_store_state_cache_size",
+        "Current count of items in beacon store state cache",
+    );
+    pub static ref BEACON_STORE_HISTORIC_STATE_CACHE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "beacon_store_historic_state_cache_size",
+        "Current count of items in beacon store historic state cache",
+    );
+    pub static ref BEACON_STORE_DIFF_BUFFER_CACHE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "beacon_store_diff_buffer_cache_size",
+        "Current count of items in beacon store diff buffer cache",
+    );
+    pub static ref BEACON_STORE_DIFF_BUFFER_CACHE_BYTE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "beacon_store_diff_buffer_cache_byte_size",
+        "Current byte size sum of all elements in beacon store diff buffer cache",
+    );
+
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
@@ -1194,9 +1219,31 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     let attestation_stats = beacon_chain.op_pool.attestation_stats();
     let chain_metrics = beacon_chain.metrics();
 
+    let store_metrics = beacon_chain.store.metrics();
+    // Kept duplicated for backwards compatibility
     set_gauge_by_usize(
         &BLOCK_PROCESSING_SNAPSHOT_CACHE_SIZE,
-        beacon_chain.store.state_cache_len(),
+        store_metrics.state_cache_len,
+    );
+    set_gauge_by_usize(
+        &BEACON_STORE_BLOCK_CACHE_SIZE,
+        store_metrics.block_cache_len,
+    );
+    set_gauge_by_usize(
+        &BEACON_STORE_STATE_CACHE_SIZE,
+        store_metrics.state_cache_len,
+    );
+    set_gauge_by_usize(
+        &BEACON_STORE_HISTORIC_STATE_CACHE_SIZE,
+        store_metrics.historic_state_cache_len,
+    );
+    set_gauge_by_usize(
+        &BEACON_STORE_DIFF_BUFFER_CACHE_SIZE,
+        store_metrics.diff_buffer_cache_len,
+    );
+    set_gauge_by_usize(
+        &BEACON_STORE_DIFF_BUFFER_CACHE_BYTE_SIZE,
+        store_metrics.diff_buffer_cache_byte_size,
     );
 
     set_gauge_by_usize(

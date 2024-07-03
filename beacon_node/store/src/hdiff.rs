@@ -129,6 +129,11 @@ impl HDiffBuffer {
             List::new(self.balances).map_err(|_| Error::InvalidBalancesLength)?;
         Ok(state)
     }
+
+    /// Byte size of this instance
+    pub fn size(&self) -> usize {
+        self.state.len() + self.balances.len()
+    }
 }
 
 impl HDiff {
