@@ -1216,6 +1216,14 @@ lazy_static! {
         "beacon_store_diff_buffer_compute_seconds",
         "Time taken to compute diff buffer to a state buffer",
     );
+    pub static ref BEACON_STORE_DIFF_BUFFER_CACHE_HIT: Result<IntGauge> = try_create_int_counter(
+        "beacon_store_diff_buffer_cache_hit_total",
+        "Total count of diff buffer cache hits",
+    );
+    pub static ref BEACON_STORE_DIFF_BUFFER_CACHE_MISS: Result<IntGauge> = try_create_int_counter(
+        "beacon_store_diff_buffer_cache_miss_total",
+        "Total count of diff buffer cache miss",
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,

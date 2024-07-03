@@ -1478,7 +1478,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 "Hit diff buffer cache";
                 "slot" => slot
             );
+            metrics::inc_counter(&metrics::BEACON_STORE_DIFF_BUFFER_CACHE_HIT);
             return Ok((slot, buffer.clone()));
+        } else {
+            metrics::inc_counter(&metrics::BEACON_STORE_DIFF_BUFFER_CACHE_MISS);
         }
 
         // Load buffer for the previous state.
