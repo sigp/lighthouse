@@ -1,6 +1,7 @@
 pub mod interface;
 mod lmdb_impl;
 mod mdbx_impl;
+mod redb_impl;
 
 use crate::{
     metrics, AttesterRecord, AttesterSlashingStatus, CompactAttesterRecord, Config, Error,
@@ -489,8 +490,7 @@ impl<E: EthSpec> SlasherDB<E> {
         }
 
         // Store the new indexed attestation at the end of the current table.
-        let db = &self.databases.indexed_attestation_db;
-        let mut cursor = txn.cursor(db)?;
+        let mut cursor = txn.cursor(&self.databases.indexed_attestation_db)?;
 
         let indexed_att_id = match cursor.last_key()? {
             // First ID is 1 so that 0 can be used to represent `null` in `CompactAttesterRecord`.
@@ -504,7 +504,6 @@ impl<E: EthSpec> SlasherDB<E> {
 
         cursor.put(attestation_key.as_ref(), &data)?;
         drop(cursor);
-
         // Update the (epoch, hash) to ID mapping.
         self.put_indexed_attestation_id(txn, &id_key, attestation_key)?;
 
@@ -743,21 +742,17 @@ impl<E: EthSpec> SlasherDB<E> {
             return Ok(());
         }
 
-        loop {
-            let (key_bytes, _) = cursor.get_current()?.ok_or(Error::MissingProposerKey)?;
-
-            let (slot, _) = ProposerKey::parse(key_bytes)?;
+        let should_delete = |key: &[u8]| -> Result<bool, Error> {
+            let mut should_delete = false;
+            let (slot, _) = ProposerKey::parse(Cow::from(key))?;
             if slot < min_slot {
-                cursor.delete_current()?;
-
-                // End the loop if there is no next entry.
-                if cursor.next_key()?.is_none() {
-                    break;
-                }
-            } else {
-                break;
+                should_delete = true;
             }
-        }
+
+            Ok(should_delete)
+        };
+
+        cursor.delete_while(should_delete)?;
 
         Ok(())
     }
@@ -771,9 +766,6 @@ impl<E: EthSpec> SlasherDB<E> {
             .saturating_add(1u64)
             .saturating_sub(self.config.history_length as u64);
 
-        // Collect indexed attestation IDs to delete.
-        let mut indexed_attestation_ids = vec![];
-
         let mut cursor = txn.cursor(&self.databases.indexed_attestation_id_db)?;
 
         // Position cursor at first key, bailing out if the database is empty.
@@ -781,27 +773,20 @@ impl<E: EthSpec> SlasherDB<E> {
             return Ok(());
         }
 
-        loop {
-            let (key_bytes, value) = cursor
-                .get_current()?
-                .ok_or(Error::MissingIndexedAttestationIdKey)?;
-
-            let (target_epoch, _) = IndexedAttestationIdKey::parse(key_bytes)?;
-
+        let should_delete = |key: &[u8]| -> Result<bool, Error> {
+            let (target_epoch, _) = IndexedAttestationIdKey::parse(Cow::from(key))?;
             if target_epoch < min_epoch {
-                indexed_attestation_ids.push(IndexedAttestationId::new(
-                    IndexedAttestationId::parse(value)?,
-                ));
-
-                cursor.delete_current()?;
-
-                if cursor.next_key()?.is_none() {
-                    break;
-                }
-            } else {
-                break;
+                return Ok(true);
             }
-        }
+
+            Ok(false)
+        };
+
+        let indexed_attestation_ids = cursor
+            .delete_while(should_delete)?
+            .into_iter()
+            .map(|id| IndexedAttestationId::parse(id).map(IndexedAttestationId::new))
+            .collect::<Result<Vec<IndexedAttestationId>, Error>>()?;
         drop(cursor);
 
         // Delete the indexed attestations.
