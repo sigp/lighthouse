@@ -1208,6 +1208,14 @@ lazy_static! {
         "beacon_store_state_decompress_seconds",
         "Time taken to decompress a state snapshot",
     );
+    pub static ref BEACON_STORE_DIFF_BUFFER_APPLY_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_store_diff_buffer_apply_seconds",
+        "Time taken to apply diff buffer to a state buffer",
+    );
+    pub static ref BEACON_STORE_DIFF_BUFFER_COMPUTE_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_store_diff_buffer_compute_seconds",
+        "Time taken to compute diff buffer to a state buffer",
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,

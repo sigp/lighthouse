@@ -1410,7 +1410,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // Load diff base state bytes.
         let (_, base_buffer) = self.load_hdiff_buffer_for_slot(from_slot)?;
         let target_buffer = HDiffBuffer::from_state(state.clone());
-        let diff = HDiff::compute(&base_buffer, &target_buffer, &self.config)?;
+        let diff = {
+            let _timer = metrics::start_timer(&metrics::BEACON_STORE_DIFF_BUFFER_COMPUTE_TIME);
+            HDiff::compute(&base_buffer, &target_buffer, &self.config)?
+        };
         let diff_bytes = diff.as_ssz_bytes();
 
         let key = get_key_for_col(
@@ -1506,7 +1509,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // Load diff and apply it to buffer.
         let diff = self.load_hdiff_for_slot(slot)?;
-        diff.apply(&mut buffer, &self.config)?;
+        {
+            let _timer = metrics::start_timer(&metrics::BEACON_STORE_DIFF_BUFFER_APPLY_TIME);
+            diff.apply(&mut buffer, &self.config)?;
+        }
 
         self.diff_buffer_cache.lock().put(slot, buffer.clone());
         debug!(
