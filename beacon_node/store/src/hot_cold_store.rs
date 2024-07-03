@@ -84,14 +84,6 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     _phantom: PhantomData<E>,
 }
 
-pub(crate) struct HotColdDBMetrics {
-    block_cache_len: usize,
-    state_cache_len: usize,
-    historic_state_cache_len: usize,
-    diff_buffer_cache_len: usize,
-    diff_buffer_cache_byte_size: usize,
-}
-
 #[derive(Debug)]
 struct BlockCache<E: EthSpec> {
     block_cache: LruCache<Hash256, SignedBeaconBlock<E>>,
@@ -391,7 +383,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .update_finalized_state(state_root, block_root, state)
     }
 
-    pub fn metrics(&self) -> HotColdDBMetrics {
+    pub fn state_cache_len(&self) -> usize {
+        self.state_cache.lock().len()
+    }
+
+    pub fn register_metrics(&self) {
         let diff_buffer_cache = self.diff_buffer_cache.lock();
         let diff_buffer_cache_byte_size = diff_buffer_cache
             .iter()
@@ -400,13 +396,30 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let diff_buffer_cache_len = diff_buffer_cache.len();
         drop(diff_buffer_cache);
 
-        HotColdDBMetrics {
-            block_cache_len: self.block_cache.lock().len(),
-            state_cache_len: self.state_cache.lock().len(),
-            historic_state_cache_len: self.historic_state_cache.lock().len(),
-            diff_buffer_cache_len,
-            diff_buffer_cache_byte_size,
-        }
+        metrics::set_gauge(
+            &metrics::STORE_BEACON_BLOCK_CACHE_SIZE,
+            self.block_cache.lock().block_cache.len() as i64,
+        );
+        metrics::set_gauge(
+            &metrics::STORE_BEACON_BLOB_CACHE_SIZE,
+            self.block_cache.lock().blob_cache.len() as i64,
+        );
+        metrics::set_gauge(
+            &metrics::STORE_BEACON_STATE_CACHE_SIZE,
+            self.state_cache.lock().len() as i64,
+        );
+        metrics::set_gauge(
+            &metrics::STORE_BEACON_HISTORIC_STATE_CACHE_SIZE,
+            self.historic_state_cache.lock().len() as i64,
+        );
+        metrics::set_gauge(
+            &metrics::STORE_BEACON_DIFF_BUFFER_CACHE_SIZE,
+            diff_buffer_cache_len as i64,
+        );
+        metrics::set_gauge(
+            &metrics::STORE_BEACON_DIFF_BUFFER_CACHE_BYTE_SIZE,
+            diff_buffer_cache_byte_size as i64,
+        );
     }
 
     /// Store a block and update the LRU cache.
@@ -1358,7 +1371,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<(), Error> {
         let bytes = state.as_ssz_bytes();
         let compressed_value = {
-            let _timer = metrics::start_timer(&metrics::BEACON_STORE_STATE_COMPRESS_TIME);
+            let _timer = metrics::start_timer(&metrics::STORE_BEACON_STATE_COMPRESS_TIME);
             let mut out = Vec::with_capacity(self.config.estimate_compressed_size(bytes.len()));
             let mut encoder = Encoder::new(&mut out, self.config.compression_level)
                 .map_err(Error::Compression)?;
@@ -1381,7 +1394,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &slot.as_u64().to_be_bytes(),
         )? {
             Some(bytes) => {
-                let _timer = metrics::start_timer(&metrics::BEACON_STORE_STATE_DECOMPRESS_TIME);
+                let _timer = metrics::start_timer(&metrics::STORE_BEACON_STATE_DECOMPRESS_TIME);
                 let mut ssz_bytes =
                     Vec::with_capacity(self.config.estimate_decompressed_size(bytes.len()));
                 let mut decoder = Decoder::new(&*bytes).map_err(Error::Compression)?;
@@ -1411,7 +1424,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let (_, base_buffer) = self.load_hdiff_buffer_for_slot(from_slot, 0)?;
         let target_buffer = HDiffBuffer::from_state(state.clone());
         let diff = {
-            let _timer = metrics::start_timer(&metrics::BEACON_STORE_DIFF_BUFFER_COMPUTE_TIME);
+            let _timer = metrics::start_timer(&metrics::STORE_BEACON_DIFF_BUFFER_COMPUTE_TIME);
             HDiff::compute(&base_buffer, &target_buffer, &self.config)?
         };
         let diff_bytes = diff.as_ssz_bytes();
@@ -1482,15 +1495,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 "Hit diff buffer cache";
                 "slot" => slot
             );
-            metrics::inc_counter(&metrics::BEACON_STORE_DIFF_BUFFER_CACHE_HIT);
+            metrics::inc_counter(&metrics::STORE_BEACON_DIFF_BUFFER_CACHE_HIT);
             return Ok((slot, buffer.clone()));
         } else {
-            metrics::inc_counter(&metrics::BEACON_STORE_DIFF_BUFFER_CACHE_MISS);
+            metrics::inc_counter(&metrics::STORE_BEACON_DIFF_BUFFER_CACHE_MISS);
         }
 
         // Do not time recursive calls into load_hdiff_buffer_for_slot to not double count
         let _timer = (recursion == 0)
-            .then(|| metrics::start_timer(&metrics::BEACON_STORE_HDIFF_BUFFER_LOAD_TIME));
+            .then(|| metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_LOAD_TIME));
 
         // Load buffer for the previous state.
         // This amount of recursion (<10 levels) should be OK.
@@ -1522,7 +1535,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 let diff = self.load_hdiff_for_slot(slot)?;
                 {
                     let _timer =
-                        metrics::start_timer(&metrics::BEACON_STORE_DIFF_BUFFER_APPLY_TIME);
+                        metrics::start_timer(&metrics::STORE_BEACON_DIFF_BUFFER_APPLY_TIME);
                     diff.apply(&mut buffer, &self.config)?;
                 }
 
@@ -1615,7 +1628,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state_root_iter: Option<impl Iterator<Item = Result<(Hash256, Slot), Error>>>,
         pre_slot_hook: Option<PreSlotHook<E, Error>>,
     ) -> Result<BeaconState<E>, Error> {
-        metrics::inc_counter_by(&metrics::BEACON_STORE_REPLAYED_BLOCKS, blocks.len());
+        metrics::inc_counter_by(&metrics::STORE_BEACON_REPLAYED_BLOCKS, blocks.len() as u64);
 
         let mut block_replayer = BlockReplayer::new(state, &self.spec)
             .no_signature_verification()
