@@ -1216,6 +1216,10 @@ lazy_static! {
         "beacon_store_diff_buffer_compute_seconds",
         "Time taken to compute diff buffer to a state buffer",
     );
+    pub static ref BEACON_STORE_HDIFF_BUFFER_LOAD_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_store_hdiff_buffer_load_seconds",
+        "Time taken to load an hdiff buffer from disk",
+    );
     pub static ref BEACON_STORE_DIFF_BUFFER_CACHE_HIT: Result<IntGauge> = try_create_int_counter(
         "beacon_store_diff_buffer_cache_hit_total",
         "Total count of diff buffer cache hits",
