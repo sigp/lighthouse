@@ -26,12 +26,14 @@ lazy_static! {
     pub static ref LONG_VERSION: String = format!(
         "{}\n\
          BLS library: {}\n\
+         BLS hardware acceleration: {}\n\
          SHA256 hardware acceleration: {}\n\
          Allocator: {}\n\
          Profile: {}\n\
          Specs: mainnet (true), minimal ({}), gnosis ({})",
         SHORT_VERSION.as_str(),
         bls_library_name(),
+        bls_hardware_acceleration(),
         have_sha_extensions(),
         allocator_name(),
         build_profile_name(),
@@ -48,6 +50,10 @@ fn bls_library_name() -> &'static str {
     } else {
         "blst"
     }
+}
+
+fn bls_hardware_acceleration() -> bool {
+    !cfg!(feature = "portable")
 }
 
 fn allocator_name() -> &'static str {
