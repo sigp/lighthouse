@@ -13,7 +13,7 @@ The account earnings component accumulates reward data from all registered valid
 
 Below in the earning section, you can also view your total earnings or click the adjacent buttons to view your estimated earnings given a specific time frame based on current device and network conditions.
 
-Keep in mind, if validators have activated withdrawals this balance will only reflect the balance before the deposit is made and will subsequently be reset to a zero balance until the following deposit period.
+Keep in mind, if validators have updated withdrawal credentials this balance will only reflect the balance before the accumulated rewards are paid out and will subsequently be reset to a zero balance and start accumulating rewards until the next reward payout.
 
 ![earning](imgs/ui-account-earnings.png)
 
