@@ -1615,6 +1615,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state_root_iter: Option<impl Iterator<Item = Result<(Hash256, Slot), Error>>>,
         pre_slot_hook: Option<PreSlotHook<E, Error>>,
     ) -> Result<BeaconState<E>, Error> {
+        metrics::inc_counter_by(&metrics::BEACON_STORE_REPLAYED_BLOCKS, blocks.len());
+
         let mut block_replayer = BlockReplayer::new(state, &self.spec)
             .no_signature_verification()
             .minimal_block_root_verification();

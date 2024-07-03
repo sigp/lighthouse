@@ -1228,6 +1228,10 @@ lazy_static! {
         "beacon_store_diff_buffer_cache_miss_total",
         "Total count of diff buffer cache miss",
     );
+    pub static ref BEACON_STORE_REPLAYED_BLOCKS: Result<IntGauge> = try_create_int_counter(
+        "beacon_store_replayed_blocks_total",
+        "Total count of replayed blocks",
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
