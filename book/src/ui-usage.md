@@ -1,4 +1,5 @@
 # Usage
+
 Siren offers many features ranging from diagnostics, logs, validator management including graffiti and exiting. Below we will describe all major features and how to take advantage of Siren to the fullest.
 
 ## Dashboard
@@ -64,6 +65,7 @@ Clicking the validator icon activates a detailed validator modal component. This
 <img height="450" src="imgs/ui-val-modal.png" alt="ui-validator-modal" />
 
 ### Validator BLS Withdrawal Credentials
+
 When Siren detects that your validator is using outdated BLS withdrawal credentials, it will temporarily block any further actions by the validator. You can identify if your validator does not meet this requirement by an `exclamation mark` on the validator icon or a message in the validator modal that provides instructions for updating the credentials.
 
 ![bls-notice](imgs/ui-bls-required.png)
