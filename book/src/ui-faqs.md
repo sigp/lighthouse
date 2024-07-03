@@ -27,7 +27,7 @@ In the absence of a VPN, an alternative approach involves utilizing an SSH tunne
 
 ## 6. How do I connect Siren to Lighthouse via a ssh tunnel?
 
-If you would like to access Siren beyond the local network (i.e across the internet), we recommend using an SSH tunnel. This requires a tunnel for 3 ports: `80` (assuming the port is unchanged as per the [installation guide](./ui-installation.md#docker-recommended)), `5052` (for beacon node) and `5062` (for validator client). You can use the command below to perform SSH tunneling:
+If you would like to access Siren beyond the local network (i.e across the internet), we recommend using an SSH tunnel. This requires a tunnel for 3 ports: `80` (assuming the port is unchanged as per the [installation guide](./ui-installation.md#building-from-docker-recommended)), `5052` (for beacon node) and `5062` (for validator client). You can use the command below to perform SSH tunneling:
 
 ```bash
 
