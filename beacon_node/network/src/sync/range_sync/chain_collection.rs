@@ -84,7 +84,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                         RangeSyncState::Head(syncing_head_ids)
                     };
                 } else {
-                    // we removed a head chain, or an stopped finalized chain
+                    // we removed a head chain, or a stopped finalized chain
                     debug_assert!(!was_syncing || sync_type != RangeSyncType::Finalized);
                 }
             }
