@@ -76,7 +76,7 @@ If you wish to convert your withdrawal address, Siren will prompt you to provide
 
 ### Validator Edit
 
-Siren makes it is possible to edit your validator's display name by clicking the edit icon in the validator table. Note: This does not change the validator name, but gives it an alias you can use to identify each validator easily.
+Siren makes it possible to edit your validator's display name by clicking the edit icon in the validator table. Note: This does not change the validator name, but gives it an alias you can use to identify each validator easily.
 
 ![edit](imgs/ui-val-edit.png)
 
