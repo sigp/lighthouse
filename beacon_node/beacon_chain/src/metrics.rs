@@ -93,6 +93,10 @@ lazy_static! {
         "Time spent running fork choice's `get_head` during block import",
         exponential_buckets(1e-3, 2.0, 8)
     );
+    pub static ref BLOCK_PROCESSING_PUBKEY_CACHE_LOCK: Result<Histogram> = try_create_histogram(
+        "beacon_block_processing_pubkey_cache_lock_seconds",
+        "Time spent waiting or holding the pubkey cache write lock",
+    );
     pub static ref BLOCK_SYNC_AGGREGATE_SET_BITS: Result<IntGauge> = try_create_int_gauge(
         "block_sync_aggregate_set_bits",
         "The number of true bits in the last sync aggregate in a block"
