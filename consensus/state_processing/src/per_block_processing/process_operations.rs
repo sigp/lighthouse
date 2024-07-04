@@ -725,7 +725,12 @@ pub fn process_consolidation_request<E: EthSpec>(
     }
 
     // Initiate source validator exit and append pending consolidation
-    initiate_validator_exit(state, source_index, spec)?;
+    let source_exit_epoch = state
+        .compute_consolidation_epoch_and_update_churn(source_validator.effective_balance, spec)?;
+    let source_validator = state.get_validator_mut(source_index)?;
+    source_validator.exit_epoch = source_exit_epoch;
+    source_validator.withdrawable_epoch =
+        source_exit_epoch.safe_add(spec.min_validator_withdrawability_delay)?;
     state
         .pending_consolidations_mut()?
         .push(PendingConsolidation {

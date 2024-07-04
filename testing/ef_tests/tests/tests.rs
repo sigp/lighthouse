@@ -1,7 +1,7 @@
 #![cfg(feature = "ef_tests")]
 
 use ef_tests::*;
-use types::{MainnetEthSpec, MinimalEthSpec, WithdrawalRequest, *};
+use types::*;
 
 // Check that the hand-computed multiplications on EthSpec are correctly computed.
 // This test lives here because one is most likely to muck these up during a spec update.
@@ -107,7 +107,8 @@ fn operations_deposit_requests() {
 
 #[test]
 fn operations_consolidations() {
-    todo!("implement once el triggered consolidations are good");
+    OperationsHandler::<MinimalEthSpec, ConsolidationRequest>::default().run();
+    OperationsHandler::<MainnetEthSpec, ConsolidationRequest>::default().run();
 }
 
 #[test]

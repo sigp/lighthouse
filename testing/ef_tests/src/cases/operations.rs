@@ -7,7 +7,7 @@ use ssz::Decode;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_block_processing::process_operations::{
-    process_deposit_requests, process_withdrawal_requests,
+    process_consolidation_requests, process_deposit_requests, process_withdrawal_requests,
 };
 use state_processing::{
     per_block_processing::{
@@ -25,8 +25,9 @@ use std::fmt::Debug;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
     BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState,
-    BlindedPayload, Deposit, DepositRequest, ExecutionPayload, FullPayload, ProposerSlashing,
-    SignedBlsToExecutionChange, SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
+    BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload, FullPayload,
+    ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit, SyncAggregate,
+    WithdrawalRequest,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -446,7 +447,7 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
 
 impl<E: EthSpec> Operation<E> for WithdrawalRequest {
     fn handler_name() -> String {
-        "execution_layer_withdrawal_request".into()
+        "withdrawal_request".into()
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
@@ -463,6 +464,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalRequest {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
+        state.update_pubkey_cache()?;
         process_withdrawal_requests(state, &[self.clone()], spec)
     }
 }
@@ -487,6 +489,30 @@ impl<E: EthSpec> Operation<E> for DepositRequest {
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         process_deposit_requests(state, &[self.clone()], spec)
+    }
+}
+
+impl<E: EthSpec> Operation<E> for ConsolidationRequest {
+    fn handler_name() -> String {
+        "consolidation_request".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name >= ForkName::Electra
+    }
+
+    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _extra: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        state.update_pubkey_cache()?;
+        process_consolidation_requests(state, &[self.clone()], spec)
     }
 }
 
