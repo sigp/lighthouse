@@ -1371,7 +1371,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<(), Error> {
         let bytes = state.as_ssz_bytes();
         let compressed_value = {
-            let _timer = metrics::start_timer(&metrics::STORE_BEACON_STATE_COMPRESS_TIME);
+            let _timer = metrics::start_timer(&metrics::STORE_BEACON_STATE_FREEZER_COMPRESS_TIME);
             let mut out = Vec::with_capacity(self.config.estimate_compressed_size(bytes.len()));
             let mut encoder = Encoder::new(&mut out, self.config.compression_level)
                 .map_err(Error::Compression)?;
@@ -1394,7 +1394,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &slot.as_u64().to_be_bytes(),
         )? {
             Some(bytes) => {
-                let _timer = metrics::start_timer(&metrics::STORE_BEACON_STATE_DECOMPRESS_TIME);
+                let _timer =
+                    metrics::start_timer(&metrics::STORE_BEACON_STATE_FREEZER_DECOMPRESS_TIME);
                 let mut ssz_bytes =
                     Vec::with_capacity(self.config.estimate_decompressed_size(bytes.len()));
                 let mut decoder = Decoder::new(&*bytes).map_err(Error::Compression)?;

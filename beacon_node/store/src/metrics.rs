@@ -161,13 +161,13 @@ lazy_static! {
         "store_beacon_diff_buffer_cache_byte_size",
         "Current byte size sum of all elements in beacon store diff buffer cache",
     );
-    pub static ref STORE_BEACON_STATE_COMPRESS_TIME: Result<Histogram> = try_create_histogram(
+    pub static ref STORE_BEACON_STATE_FREEZER_COMPRESS_TIME: Result<Histogram> = try_create_histogram(
         "store_beacon_state_compress_seconds",
-        "Time taken to compress a state snapshot",
+        "Time taken to compress a state snapshot for the freezer DB",
     );
-    pub static ref STORE_BEACON_STATE_DECOMPRESS_TIME: Result<Histogram> = try_create_histogram(
+    pub static ref STORE_BEACON_STATE_FREEZER_DECOMPRESS_TIME: Result<Histogram> = try_create_histogram(
         "store_beacon_state_decompress_seconds",
-        "Time taken to decompress a state snapshot",
+        "Time taken to decompress a state snapshot for the freezer DB",
     );
     pub static ref STORE_BEACON_DIFF_BUFFER_APPLY_TIME: Result<Histogram> = try_create_histogram(
         "store_beacon_diff_buffer_apply_seconds",
@@ -179,7 +179,7 @@ lazy_static! {
     );
     pub static ref STORE_BEACON_HDIFF_BUFFER_LOAD_TIME: Result<Histogram> = try_create_histogram(
         "store_beacon_hdiff_buffer_load_seconds",
-        "Time taken to load an hdiff buffer from disk",
+        "Time taken to load an hdiff buffer",
     );
     pub static ref STORE_BEACON_DIFF_BUFFER_CACHE_HIT: Result<IntCounter> = try_create_int_counter(
         "store_beacon_diff_buffer_cache_hit_total",
