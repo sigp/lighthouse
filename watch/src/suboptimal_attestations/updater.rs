@@ -21,7 +21,7 @@ impl<E: EthSpec> UpdateHandler<E> {
     /// That is, `if highest_filled_slot % slots_per_epoch != 31`.
     ///
     /// In the event the most recent epoch has no suboptimal attestations, it will attempt to
-    /// resync that epoch. The odds of this Unavailable on mainnet are vanishingly small so it is not
+    /// resync that epoch. The odds of this occurring on mainnet are vanishingly small so it is not
     /// accounted for.
     ///
     /// Request range will not exceed `MAX_SIZE_SINGLE_REQUEST_ATTESTATIONS`.
