@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Stop all processes that were started with start_local_testnet.sh
-
 set -Eeuo pipefail
 
-source ./vars.env
+SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+ENCLAVE_NAME=${1:-local-testnet}
+LOGS_PATH=$SCRIPT_DIR/logs
+LOGS_SUBDIR=$LOGS_PATH/$ENCLAVE_NAME
 
-PID_FILE=$TESTNET_DIR/PIDS.pid
-./kill_processes.sh $PID_FILE
-rm -f $PID_FILE
+# Delete existing logs directory and make sure parent directory exists.
+rm -rf $LOGS_SUBDIR && mkdir -p $LOGS_PATH
+kurtosis enclave dump $ENCLAVE_NAME $LOGS_SUBDIR
+echo "Local testnet logs stored to $LOGS_SUBDIR."
+
+kurtosis enclave rm -f $ENCLAVE_NAME
+echo "Local testnet stopped."

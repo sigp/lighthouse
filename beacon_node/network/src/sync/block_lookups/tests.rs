@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use super::*;
 
-use crate::sync::block_lookups::common::{ResponseType, PARENT_DEPTH_TOLERANCE};
+use crate::sync::block_lookups::common::ResponseType;
 use beacon_chain::blob_verification::GossipVerifiedBlob;
 use beacon_chain::block_verification_types::{BlockImportData, RpcBlock};
 use beacon_chain::builder::Witness;
@@ -210,7 +210,7 @@ impl TestRig {
         self.sync_manager.handle_message(sync_message);
     }
 
-    fn active_single_lookups(&self) -> Vec<(Id, Hash256, Option<Hash256>)> {
+    fn active_single_lookups(&self) -> Vec<BlockLookupSummary> {
         self.sync_manager.active_single_lookups()
     }
 
@@ -252,6 +252,21 @@ impl TestRig {
         }
     }
 
+    fn assert_lookup_peers(&self, block_root: Hash256, mut expected_peers: Vec<PeerId>) {
+        let mut lookup = self
+            .sync_manager
+            .active_single_lookups()
+            .into_iter()
+            .find(|l| l.1 == block_root)
+            .unwrap_or_else(|| panic!("no lookup for {block_root}"));
+        lookup.3.sort();
+        expected_peers.sort();
+        assert_eq!(
+            lookup.3, expected_peers,
+            "unexpected peers on lookup {block_root}"
+        );
+    }
+
     fn insert_failed_chain(&mut self, block_root: Hash256) {
         self.sync_manager.insert_failed_chain(block_root);
     }
@@ -263,18 +278,22 @@ impl TestRig {
         }
     }
 
-    fn failed_chains_contains(&mut self, chain_hash: &Hash256) -> bool {
-        self.sync_manager.get_failed_chains().contains(chain_hash)
+    fn assert_failed_chain(&mut self, chain_hash: Hash256) {
+        let failed_chains = self.sync_manager.get_failed_chains();
+        if !failed_chains.contains(&chain_hash) {
+            panic!("expected failed chains to contain {chain_hash:?}: {failed_chains:?}");
+        }
     }
 
     fn find_single_lookup_for(&self, block_root: Hash256) -> Id {
         self.active_single_lookups()
             .iter()
-            .find(|(_, b, _)| b == &block_root)
+            .find(|l| l.1 == block_root)
             .unwrap_or_else(|| panic!("no single block lookup found for {block_root}"))
             .0
     }
 
+    #[track_caller]
     fn expect_no_active_single_lookups(&self) {
         assert!(
             self.active_single_lookups().is_empty(),
@@ -283,6 +302,7 @@ impl TestRig {
         );
     }
 
+    #[track_caller]
     fn expect_no_active_lookups(&self) {
         self.expect_no_active_single_lookups();
     }
@@ -524,10 +544,6 @@ impl TestRig {
         })
     }
 
-    fn peer_disconnected(&mut self, disconnected_peer_id: PeerId) {
-        self.send_sync_message(SyncMessage::Disconnect(disconnected_peer_id));
-    }
-
     /// Return RPCErrors for all active requests of peer
     fn rpc_error_all_active_requests(&mut self, disconnected_peer_id: PeerId) {
         self.drain_network_rx();
@@ -545,6 +561,10 @@ impl TestRig {
                 error: RPCError::Disconnected,
             });
         }
+    }
+
+    fn peer_disconnected(&mut self, peer_id: PeerId) {
+        self.send_sync_message(SyncMessage::Disconnect(peer_id));
     }
 
     fn drain_network_rx(&mut self) {
@@ -1012,6 +1032,28 @@ fn test_single_block_lookup_failure() {
 }
 
 #[test]
+fn test_single_block_lookup_peer_disconnected_then_rpc_error() {
+    let mut rig = TestRig::test_setup();
+
+    let block_hash = Hash256::random();
+    let peer_id = rig.new_connected_peer();
+
+    // Trigger the request.
+    rig.trigger_unknown_block_from_attestation(block_hash, peer_id);
+    let id = rig.expect_block_lookup_request(block_hash);
+
+    // The peer disconnect event reaches sync before the rpc error.
+    rig.peer_disconnected(peer_id);
+    // The lookup is not removed as it can still potentially make progress.
+    rig.assert_single_lookups_count(1);
+    // The request fails.
+    rig.single_lookup_failed(id, peer_id, RPCError::Disconnected);
+    rig.expect_block_lookup_request(block_hash);
+    // The request should be removed from the network context on disconnection.
+    rig.expect_empty_network();
+}
+
+#[test]
 fn test_single_block_lookup_becomes_parent_request() {
     let mut rig = TestRig::test_setup();
 
@@ -1186,7 +1228,7 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
     // Trigger the request
     rig.trigger_unknown_parent_block(peer_id, block.into());
     for i in 1..=PARENT_FAIL_TOLERANCE {
-        assert!(!rig.failed_chains_contains(&block_root));
+        rig.assert_not_failed_chain(block_root);
         let id = rig.expect_block_parent_request(parent_root);
         if i % 2 != 0 {
             // The request fails. It should be tried again.
@@ -1199,8 +1241,8 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
         }
     }
 
-    assert!(!rig.failed_chains_contains(&block_root));
-    assert!(!rig.failed_chains_contains(&parent.canonical_root()));
+    rig.assert_not_failed_chain(block_root);
+    rig.assert_not_failed_chain(parent.canonical_root());
     rig.expect_no_active_lookups_empty_network();
 }
 
@@ -1238,7 +1280,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
 }
 
 #[test]
-fn test_parent_lookup_too_deep() {
+fn test_parent_lookup_too_deep_grow_ancestor() {
     let mut rig = TestRig::test_setup();
     let mut blocks = rig.rand_blockchain(PARENT_DEPTH_TOLERANCE);
 
@@ -1263,7 +1305,31 @@ fn test_parent_lookup_too_deep() {
     }
 
     rig.expect_penalty(peer_id, "chain_too_long");
-    assert!(rig.failed_chains_contains(&chain_hash));
+    rig.assert_failed_chain(chain_hash);
+}
+
+#[test]
+fn test_parent_lookup_too_deep_grow_tip() {
+    let mut rig = TestRig::test_setup();
+    let blocks = rig.rand_blockchain(PARENT_DEPTH_TOLERANCE - 1);
+    let peer_id = rig.new_connected_peer();
+    let tip = blocks.last().unwrap().clone();
+
+    for block in blocks.into_iter() {
+        let block_root = block.canonical_root();
+        rig.trigger_unknown_block_from_attestation(block_root, peer_id);
+        let id = rig.expect_block_parent_request(block_root);
+        rig.single_lookup_block_response(id, peer_id, Some(block.clone()));
+        rig.single_lookup_block_response(id, peer_id, None);
+        rig.expect_block_process(ResponseType::Block);
+        rig.single_block_component_processed(
+            id.lookup_id,
+            BlockError::ParentUnknown(RpcBlock::new_without_blobs(None, block)).into(),
+        );
+    }
+
+    rig.expect_penalty(peer_id, "chain_too_long");
+    rig.assert_failed_chain(tip.canonical_root());
 }
 
 #[test]
@@ -1274,19 +1340,9 @@ fn test_lookup_peer_disconnected_no_peers_left_while_request() {
     rig.trigger_unknown_parent_block(peer_id, trigger_block.into());
     rig.peer_disconnected(peer_id);
     rig.rpc_error_all_active_requests(peer_id);
-    rig.expect_no_active_lookups();
-}
-
-#[test]
-fn test_lookup_peer_disconnected_no_peers_left_not_while_request() {
-    let mut rig = TestRig::test_setup();
-    let peer_id = rig.new_connected_peer();
-    let trigger_block = rig.rand_block();
-    rig.trigger_unknown_parent_block(peer_id, trigger_block.into());
-    rig.peer_disconnected(peer_id);
-    // Note: this test case may be removed in the future. It's not strictly necessary to drop a
-    // lookup if there are no peers left. Lookup should only be dropped if it can not make progress
-    rig.expect_no_active_lookups();
+    // Erroring all rpc requests and disconnecting the peer shouldn't remove the requests
+    // from the lookups map as they can still progress.
+    rig.assert_single_lookups_count(2);
 }
 
 #[test]
@@ -1303,6 +1359,26 @@ fn test_lookup_disconnection_peer_left() {
     rig.peer_disconnected(disconnecting_peer);
     rig.rpc_error_all_active_requests(disconnecting_peer);
     rig.assert_single_lookups_count(1);
+}
+
+#[test]
+fn test_lookup_add_peers_to_parent() {
+    let mut r = TestRig::test_setup();
+    let peer_id_1 = r.new_connected_peer();
+    let peer_id_2 = r.new_connected_peer();
+    let blocks = r.rand_blockchain(5);
+    let last_block_root = blocks.last().unwrap().canonical_root();
+    // Create a chain of lookups
+    for block in &blocks {
+        r.trigger_unknown_parent_block(peer_id_1, block.clone());
+    }
+    r.trigger_unknown_block_from_attestation(last_block_root, peer_id_2);
+    for block in blocks.iter().take(blocks.len() - 1) {
+        // Parent has the original unknown parent event peer + new peer
+        r.assert_lookup_peers(block.canonical_root(), vec![peer_id_1, peer_id_2]);
+    }
+    // Child lookup only has the unknown attestation peer
+    r.assert_lookup_peers(last_block_root, vec![peer_id_2]);
 }
 
 #[test]
@@ -1452,13 +1528,16 @@ fn block_in_processing_cache_becomes_invalid() {
     let peer_id = r.new_connected_peer();
     r.insert_block_to_processing_cache(block.clone().into());
     r.trigger_unknown_block_from_attestation(block_root, peer_id);
+    // Should trigger blob request
+    let id = r.expect_blob_lookup_request(block_root);
     // Should not trigger block request
     r.expect_empty_network();
     // Simulate invalid block, removing it from processing cache
     r.simulate_block_gossip_processing_becomes_invalid(block_root);
     // Should download block, then issue blobs request
     r.complete_lookup_block_download(block);
-    let id = r.expect_blob_lookup_request(block_root);
+    // Should not trigger block or blob request
+    r.expect_empty_network();
     r.complete_lookup_block_import_valid(block_root, false);
     // Resolve blob and expect lookup completed
     r.complete_single_lookup_blob_lookup_valid(id, peer_id, blobs, true);
@@ -1475,11 +1554,14 @@ fn block_in_processing_cache_becomes_valid_imported() {
     let peer_id = r.new_connected_peer();
     r.insert_block_to_processing_cache(block.clone().into());
     r.trigger_unknown_block_from_attestation(block_root, peer_id);
+    // Should trigger blob request
+    let id = r.expect_blob_lookup_request(block_root);
     // Should not trigger block request
     r.expect_empty_network();
     // Resolve the block from processing step
     r.simulate_block_gossip_processing_becomes_valid_missing_components(block.into());
-    let id = r.expect_blob_lookup_request(block_root);
+    // Should not trigger block or blob request
+    r.expect_empty_network();
     // Resolve blob and expect lookup completed
     r.complete_single_lookup_blob_lookup_valid(id, peer_id, blobs, true);
     r.expect_no_active_lookups();

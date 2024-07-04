@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate clap;
-
 mod cli;
 mod config;
 
@@ -44,7 +41,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// configurations hosted remotely.
     pub async fn new_from_cli(
         context: RuntimeContext<E>,
-        matches: ArgMatches<'static>,
+        matches: ArgMatches,
     ) -> Result<Self, String> {
         let client_config = get_config::<E>(&matches, &context)?;
         Self::new(context, client_config).await
@@ -83,7 +80,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)
-            .chain_spec(spec)
+            .chain_spec(spec.clone())
             .beacon_processor(client_config.beacon_processor.clone())
             .http_api_config(client_config.http_api.clone())
             .disk_store(
@@ -116,8 +113,12 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 _ => {}
             }
             let slasher = Arc::new(
-                Slasher::open(slasher_config, log.new(slog::o!("service" => "slasher")))
-                    .map_err(|e| format!("Slasher open error: {:?}", e))?,
+                Slasher::open(
+                    slasher_config,
+                    Arc::new(spec),
+                    log.new(slog::o!("service" => "slasher")),
+                )
+                .map_err(|e| format!("Slasher open error: {:?}", e))?,
             );
             builder.slasher(slasher)
         } else {

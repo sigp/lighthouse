@@ -28,7 +28,6 @@ use std::time::Duration;
 use strum::AsRefStr;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::time::error::Error as TimeError;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
 use types::{EthSpec, Hash256, Slot};
 
@@ -196,8 +195,6 @@ enum InboundEvent {
     ReadyLightClientUpdate(QueuedLightClientUpdateId),
     /// A backfill batch that was queued is ready for processing.
     ReadyBackfillSync(QueuedBackfillBatch),
-    /// A `DelayQueue` returned an error.
-    DelayQueueError(TimeError, &'static str),
     /// A message sent to the `ReprocessQueue`
     Msg(ReprocessQueueMessage),
 }
@@ -279,13 +276,10 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
         // The sequential nature of blockchains means it is generally better to try and import all
         // existing blocks before new ones.
         match self.gossip_block_delay_queue.poll_expired(cx) {
-            Poll::Ready(Some(Ok(queued_block))) => {
+            Poll::Ready(Some(queued_block)) => {
                 return Poll::Ready(Some(InboundEvent::ReadyGossipBlock(
                     queued_block.into_inner(),
                 )));
-            }
-            Poll::Ready(Some(Err(e))) => {
-                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "gossip_block_queue")));
             }
             // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
             // will continue to get this result until something else is added into the queue.
@@ -293,11 +287,8 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
         }
 
         match self.rpc_block_delay_queue.poll_expired(cx) {
-            Poll::Ready(Some(Ok(queued_block))) => {
+            Poll::Ready(Some(queued_block)) => {
                 return Poll::Ready(Some(InboundEvent::ReadyRpcBlock(queued_block.into_inner())));
-            }
-            Poll::Ready(Some(Err(e))) => {
-                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "rpc_block_queue")));
             }
             // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
             // will continue to get this result until something else is added into the queue.
@@ -305,13 +296,10 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
         }
 
         match self.attestations_delay_queue.poll_expired(cx) {
-            Poll::Ready(Some(Ok(attestation_id))) => {
+            Poll::Ready(Some(attestation_id)) => {
                 return Poll::Ready(Some(InboundEvent::ReadyAttestation(
                     attestation_id.into_inner(),
                 )));
-            }
-            Poll::Ready(Some(Err(e))) => {
-                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "attestations_queue")));
             }
             // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
             // will continue to get this result until something else is added into the queue.
@@ -319,13 +307,10 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
         }
 
         match self.lc_updates_delay_queue.poll_expired(cx) {
-            Poll::Ready(Some(Ok(lc_id))) => {
+            Poll::Ready(Some(lc_id)) => {
                 return Poll::Ready(Some(InboundEvent::ReadyLightClientUpdate(
                     lc_id.into_inner(),
                 )));
-            }
-            Poll::Ready(Some(Err(e))) => {
-                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "lc_updates_queue")));
             }
             // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
             // will continue to get this result until something else is added into the queue.
@@ -785,14 +770,6 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         "Failed to pop queued block";
                     );
                 }
-            }
-            InboundEvent::DelayQueueError(e, queue_name) => {
-                crit!(
-                    log,
-                    "Failed to poll queue";
-                    "queue" => queue_name,
-                    "e" => ?e
-                )
             }
             InboundEvent::ReadyAttestation(queued_id) => {
                 metrics::inc_counter(

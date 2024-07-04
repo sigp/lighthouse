@@ -56,6 +56,7 @@ use lighthouse_network::rpc::RPCError;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
+use lru_cache::LRUTimeCache;
 use slog::{crit, debug, error, info, o, trace, warn, Logger};
 use std::ops::Sub;
 use std::sync::Arc;
@@ -71,6 +72,11 @@ use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// gossip if no peers are further than this range ahead of us that we have not already downloaded
 /// blocks for.
 pub const SLOT_IMPORT_TOLERANCE: usize = 32;
+
+/// Suppress duplicated `UnknownBlockHashFromAttestation` events for some duration of time. In
+/// practice peers are likely to send the same root during a single slot. 30 seconds is a rather
+/// arbitrary number that covers a full slot, but allows recovery if sync get stuck for a few slots.
+const NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS: u64 = 30;
 
 pub type Id = u32;
 
@@ -199,6 +205,10 @@ pub struct SyncManager<T: BeaconChainTypes> {
     backfill_sync: BackFillSync<T>,
 
     block_lookups: BlockLookups<T>,
+    /// debounce duplicated `UnknownBlockHashFromAttestation` for the same root peer tuple. A peer
+    /// may forward us thousands of a attestations, each one triggering an individual event. Only
+    /// one event is useful, the rest generating log noise and wasted cycles
+    notified_unknown_roots: LRUTimeCache<(PeerId, Hash256)>,
 
     /// The logger for the import manager.
     log: Logger,
@@ -262,12 +272,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 log.new(o!("service" => "backfill_sync")),
             ),
             block_lookups: BlockLookups::new(log.new(o!("service"=> "lookup_sync"))),
+            notified_unknown_roots: LRUTimeCache::new(Duration::from_secs(
+                NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
+            )),
             log: log.clone(),
         }
     }
 
     #[cfg(test)]
-    pub(crate) fn active_single_lookups(&self) -> Vec<(Id, Hash256, Option<Hash256>)> {
+    pub(crate) fn active_single_lookups(&self) -> Vec<super::block_lookups::BlockLookupSummary> {
         self.block_lookups.active_single_lookups()
     }
 
@@ -359,16 +372,39 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             Err(_) => self.update_sync_state(),
                         },
                     }
+                } else {
+                    debug!(
+                        self.log,
+                        "RPC error for range request has no associated entry in network context, ungraceful disconnect";
+                        "peer_id" => %peer_id,
+                        "request_id" => %id,
+                        "error" => ?error,
+                    );
                 }
             }
         }
     }
 
+    /// Handles a peer disconnect.
+    ///
+    /// It is important that a peer disconnect retries all the batches/lookups as
+    /// there is no way to guarantee that libp2p always emits a error along with
+    /// the disconnect.
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
+        // Inject a Disconnected error on all requests associated with the disconnected peer
+        // to retry all batches/lookups
+        for request_id in self.network.peer_disconnected(peer_id) {
+            self.inject_error(*peer_id, request_id, RPCError::Disconnected);
+        }
+
+        // Remove peer from all data structures
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
+        let _ = self
+            .backfill_sync
+            .peer_disconnected(peer_id, &mut self.network);
         self.block_lookups.peer_disconnected(peer_id);
+
         // Regardless of the outcome, we update the sync status.
-        let _ = self.backfill_sync.peer_disconnected(peer_id);
         self.update_sync_state();
     }
 
@@ -547,9 +583,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             futures::stream::iter(ee_responsiveness_watch.await).flatten()
         };
 
-        // LOOKUP_MAX_DURATION_SECS is 60 seconds. Logging every 30 seconds allows enough timely
-        // visbility while being sparse and not increasing the debug log volume in a noticeable way
-        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        // min(LOOKUP_MAX_DURATION_*) is 15 seconds. The cost of calling prune_lookups more often is
+        // one iteration over the single lookups HashMap. This map is supposed to be very small < 10
+        // unless there is a bug.
+        let mut prune_lookups_interval = tokio::time::interval(Duration::from_secs(15));
 
         // process any inbound messages
         loop {
@@ -560,8 +597,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Some(engine_state) = check_ee_stream.next(), if check_ee => {
                     self.handle_new_execution_engine_state(engine_state);
                 }
-                _ = interval.tick() => {
-                    self.block_lookups.log_stuck_lookups();
+                _ = prune_lookups_interval.tick() => {
+                    self.block_lookups.prune_lookups();
                 }
             }
         }
@@ -622,7 +659,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 );
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
-                self.handle_unknown_block_root(peer_id, block_root);
+                if !self.notified_unknown_roots.contains(&(peer_id, block_root)) {
+                    self.notified_unknown_roots.insert((peer_id, block_root));
+                    debug!(self.log, "Received unknown block hash message"; "block_root" => ?block_root, "peer" => ?peer_id);
+                    self.handle_unknown_block_root(peer_id, block_root);
+                }
             }
             SyncMessage::Disconnect(peer_id) => {
                 debug!(self.log, "Received disconnected message"; "peer_id" => %peer_id);
@@ -890,39 +931,32 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         {
             match resp.responses {
                 Ok(blocks) => {
-                    for block in blocks
-                        .into_iter()
-                        .map(Some)
-                        // chain the stream terminator
-                        .chain(vec![None])
-                    {
-                        match resp.sender_id {
-                            RangeRequestId::RangeSync { chain_id, batch_id } => {
-                                self.range_sync.blocks_by_range_response(
-                                    &mut self.network,
-                                    peer_id,
-                                    chain_id,
-                                    batch_id,
-                                    id,
-                                    block,
-                                );
-                                self.update_sync_state();
-                            }
-                            RangeRequestId::BackfillSync { batch_id } => {
-                                match self.backfill_sync.on_block_response(
-                                    &mut self.network,
-                                    batch_id,
-                                    &peer_id,
-                                    id,
-                                    block,
-                                ) {
-                                    Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
-                                    Ok(ProcessResult::Successful) => {}
-                                    Err(_error) => {
-                                        // The backfill sync has failed, errors are reported
-                                        // within.
-                                        self.update_sync_state();
-                                    }
+                    match resp.sender_id {
+                        RangeRequestId::RangeSync { chain_id, batch_id } => {
+                            self.range_sync.blocks_by_range_response(
+                                &mut self.network,
+                                peer_id,
+                                chain_id,
+                                batch_id,
+                                id,
+                                blocks,
+                            );
+                            self.update_sync_state();
+                        }
+                        RangeRequestId::BackfillSync { batch_id } => {
+                            match self.backfill_sync.on_block_response(
+                                &mut self.network,
+                                batch_id,
+                                &peer_id,
+                                id,
+                                blocks,
+                            ) {
+                                Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                                Ok(ProcessResult::Successful) => {}
+                                Err(_error) => {
+                                    // The backfill sync has failed, errors are reported
+                                    // within.
+                                    self.update_sync_state();
                                 }
                             }
                         }
@@ -933,7 +967,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.network.insert_range_blocks_and_blobs_request(
                         id,
                         resp.sender_id,
-                        BlocksAndBlobsRequestInfo::new(resp.request_type),
+                        BlocksAndBlobsRequestInfo::new(resp.request_type, peer_id),
                     );
                     // inform range that the request needs to be treated as failed
                     // With time we will want to downgrade this log

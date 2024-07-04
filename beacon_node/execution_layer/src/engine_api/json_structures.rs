@@ -4,7 +4,10 @@ use strum::EnumString;
 use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobsList;
-use types::{FixedVector, Unsigned};
+use types::{
+    DepositRequest, ExecutionLayerWithdrawalRequest, FixedVector, PublicKeyBytes, Signature,
+    Unsigned,
+};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -101,6 +104,12 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     #[superstruct(only(V3, V4))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
+    #[superstruct(only(V4))]
+    // TODO(electra): Field name should be changed post devnet-0. See https://github.com/ethereum/execution-apis/pull/544
+    pub deposit_requests: VariableList<JsonDepositRequest, E::MaxDepositRequestsPerPayload>,
+    #[superstruct(only(V4))]
+    pub withdrawal_requests:
+        VariableList<JsonWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>,
 }
 
 impl<E: EthSpec> From<ExecutionPayloadBellatrix<E>> for JsonExecutionPayloadV1<E> {
@@ -203,6 +212,18 @@ impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> 
                 .into(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
+            deposit_requests: payload
+                .deposit_requests
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+            withdrawal_requests: payload
+                .withdrawal_requests
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 }
@@ -319,9 +340,18 @@ impl<E: EthSpec> From<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> 
                 .into(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-            // TODO(electra)
-            deposit_receipts: Default::default(),
-            withdrawal_requests: Default::default(),
+            deposit_requests: payload
+                .deposit_requests
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+            withdrawal_requests: payload
+                .withdrawal_requests
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 }
@@ -690,10 +720,14 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(bound = "E: EthSpec")]
+#[serde(rename_all = "camelCase")]
 pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
     pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
+    pub deposit_requests: Option<VariableList<JsonDepositRequest, E::MaxDepositRequestsPerPayload>>,
+    pub withdrawal_requests:
+        Option<VariableList<JsonWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>>,
 }
 
 impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
@@ -703,6 +737,22 @@ impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<
             withdrawals: value.withdrawals.map(|json_withdrawals| {
                 Withdrawals::<E>::from(
                     json_withdrawals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
+            deposit_requests: value.deposit_requests.map(|json_receipts| {
+                DepositRequests::<E>::from(
+                    json_receipts
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
+            withdrawal_requests: value.withdrawal_requests.map(|json_withdrawal_requests| {
+                WithdrawalRequests::<E>::from(
+                    json_withdrawal_requests
                         .into_iter()
                         .map(Into::into)
                         .collect::<Vec<_>>(),
@@ -755,6 +805,9 @@ pub mod serde_logs_bloom {
 #[serde(rename_all = "camelCase")]
 pub struct JsonClientVersionV1 {
     pub code: String,
+    // This `default` is required until Geth v1.13.x is no longer supported on mainnet.
+    // See: https://github.com/ethereum/go-ethereum/pull/29351
+    #[serde(default)]
     pub name: String,
     pub version: String,
     pub commit: String,
@@ -781,5 +834,70 @@ impl TryFrom<JsonClientVersionV1> for ClientVersionV1 {
             version: json.version,
             commit: json.commit.try_into()?,
         })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonDepositRequest {
+    pub pubkey: PublicKeyBytes,
+    pub withdrawal_credentials: Hash256,
+    #[serde(with = "serde_utils::u64_hex_be")]
+    pub amount: u64,
+    pub signature: Signature,
+    #[serde(with = "serde_utils::u64_hex_be")]
+    pub index: u64,
+}
+
+impl From<DepositRequest> for JsonDepositRequest {
+    fn from(deposit: DepositRequest) -> Self {
+        Self {
+            pubkey: deposit.pubkey,
+            withdrawal_credentials: deposit.withdrawal_credentials,
+            amount: deposit.amount,
+            signature: deposit.signature,
+            index: deposit.index,
+        }
+    }
+}
+
+impl From<JsonDepositRequest> for DepositRequest {
+    fn from(json_deposit: JsonDepositRequest) -> Self {
+        Self {
+            pubkey: json_deposit.pubkey,
+            withdrawal_credentials: json_deposit.withdrawal_credentials,
+            amount: json_deposit.amount,
+            signature: json_deposit.signature,
+            index: json_deposit.index,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonWithdrawalRequest {
+    pub source_address: Address,
+    pub validator_public_key: PublicKeyBytes,
+    #[serde(with = "serde_utils::u64_hex_be")]
+    pub amount: u64,
+}
+
+impl From<ExecutionLayerWithdrawalRequest> for JsonWithdrawalRequest {
+    fn from(withdrawal_request: ExecutionLayerWithdrawalRequest) -> Self {
+        Self {
+            source_address: withdrawal_request.source_address,
+            validator_public_key: withdrawal_request.validator_pubkey,
+            amount: withdrawal_request.amount,
+        }
+    }
+}
+
+impl From<JsonWithdrawalRequest> for ExecutionLayerWithdrawalRequest {
+    fn from(json_withdrawal_request: JsonWithdrawalRequest) -> Self {
+        Self {
+            source_address: json_withdrawal_request.source_address,
+            validator_pubkey: json_withdrawal_request.validator_public_key,
+            amount: json_withdrawal_request.amount,
+        }
     }
 }

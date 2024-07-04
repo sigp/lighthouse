@@ -15,6 +15,8 @@ use tree_hash::TreeHash;
 #[macro_use]
 mod macros;
 mod generate_deterministic_keypairs;
+#[cfg(test)]
+mod generate_random_block_and_blobs;
 mod test_random;
 
 pub fn test_ssz_tree_hash_pair<T, U>(v1: &T, v2: &U)

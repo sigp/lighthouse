@@ -174,8 +174,30 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Removes a peer from the chain.
     /// If the peer has active batches, those are considered failed and re-requested.
-    pub fn remove_peer(&mut self, peer_id: &PeerId) -> ProcessingResult {
-        self.peers.remove(peer_id);
+    pub fn remove_peer(
+        &mut self,
+        peer_id: &PeerId,
+        network: &mut SyncNetworkContext<T>,
+    ) -> ProcessingResult {
+        if let Some(batch_ids) = self.peers.remove(peer_id) {
+            // fail the batches.
+            for id in batch_ids {
+                if let Some(batch) = self.batches.get_mut(&id) {
+                    if let BatchOperationOutcome::Failed { blacklist } =
+                        batch.download_failed(true)?
+                    {
+                        return Err(RemoveChain::ChainFailed {
+                            blacklist,
+                            failing_batch: id,
+                        });
+                    }
+                    self.retry_batch_download(network, id)?;
+                } else {
+                    debug!(self.log, "Batch not found while removing peer";
+                        "peer" => %peer_id, "batch" => id)
+                }
+            }
+        }
 
         if self.peers.is_empty() {
             Err(RemoveChain::EmptyPeerPool)
@@ -200,7 +222,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch_id: BatchId,
         peer_id: &PeerId,
         request_id: Id,
-        beacon_block: Option<RpcBlock<T::EthSpec>>,
+        blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> ProcessingResult {
         // check if we have this batch
         let batch = match self.batches.get_mut(&batch_id) {
@@ -221,18 +243,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
         };
 
-        if let Some(block) = beacon_block {
-            // This is not a stream termination, simply add the block to the request
-            batch.add_block(block)?;
-            Ok(KeepChain)
-        } else {
+        {
             // A stream termination has been sent. This batch has ended. Process a completed batch.
             // Remove the request from the peer's active batches
             self.peers
                 .get_mut(peer_id)
                 .map(|active_requests| active_requests.remove(&batch_id));
 
-            match batch.download_completed() {
+            match batch.download_completed(blocks) {
                 Ok(received) => {
                     let awaiting_batches = batch_id
                         .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))

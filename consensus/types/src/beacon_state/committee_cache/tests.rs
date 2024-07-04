@@ -2,6 +2,7 @@
 use crate::test_utils::*;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::*;
+use lazy_static::lazy_static;
 use swap_or_not_shuffle::shuffle_list;
 
 pub const VALIDATOR_COUNT: usize = 16;

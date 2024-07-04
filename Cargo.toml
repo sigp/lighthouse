@@ -102,12 +102,12 @@ bincode = "1"
 bitvec = "1"
 byteorder = "1"
 bytes = "1"
+clap = { version = "4.5.4", features = ["cargo", "wrap_help"] }
 # Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
 # feature ourselves when desired.
-c-kzg = { version = "1", default-features = false }
-clap = "2"
+c-kzg = { version = "1", default-features =  false }
 compare_fields_derive = { path = "common/compare_fields_derive" }
-criterion = "0.3"
+criterion = "0.5"
 delay_map = "0.3"
 derivative = "2"
 dirs = "3"
@@ -158,17 +158,17 @@ slog = { version = "2", features = ["max_level_trace", "release_max_level_trace"
 slog-async = "2"
 slog-term = "2"
 sloggers = { version = "2", features = ["json"] }
-smallvec = "1.11.2"
+smallvec = { version = "1.11.2", features = ["arbitrary"] }
 snap = "1"
 ssz_types = "0.6"
 strum = { version = "0.24", features = ["derive"] }
-superstruct = "0.7"
+superstruct = "0.8"
 syn = "1"
 sysinfo = "0.26"
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
-tokio-util = { version = "0.6", features = ["codec", "compat", "time"] }
+tokio-util = { version = "0.7", features = ["codec", "compat", "time"] }
 tracing = "0.1.40"
 tracing-appender = "0.2"
 tracing-core = "0.1"

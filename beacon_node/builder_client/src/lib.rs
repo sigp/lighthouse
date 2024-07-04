@@ -29,10 +29,13 @@ pub struct Timeouts {
     get_builder_status: Duration,
 }
 
-impl Default for Timeouts {
-    fn default() -> Self {
+impl Timeouts {
+    fn new(get_header_timeout: Option<Duration>) -> Self {
+        let get_header =
+            get_header_timeout.unwrap_or(Duration::from_millis(DEFAULT_GET_HEADER_TIMEOUT_MILLIS));
+
         Self {
-            get_header: Duration::from_millis(DEFAULT_GET_HEADER_TIMEOUT_MILLIS),
+            get_header,
             post_validators: Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
             post_blinded_blocks: Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
             get_builder_status: Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
@@ -49,13 +52,17 @@ pub struct BuilderHttpClient {
 }
 
 impl BuilderHttpClient {
-    pub fn new(server: SensitiveUrl, user_agent: Option<String>) -> Result<Self, Error> {
+    pub fn new(
+        server: SensitiveUrl,
+        user_agent: Option<String>,
+        builder_header_timeout: Option<Duration>,
+    ) -> Result<Self, Error> {
         let user_agent = user_agent.unwrap_or(DEFAULT_USER_AGENT.to_string());
         let client = reqwest::Client::builder().user_agent(&user_agent).build()?;
         Ok(Self {
             client,
             server,
-            timeouts: Timeouts::default(),
+            timeouts: Timeouts::new(builder_header_timeout),
             user_agent,
         })
     }

@@ -10,7 +10,6 @@ serde_json = { workspace = true }
 task_executor = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
-environment = { workspace = true }
 execution_layer = { workspace = true }
 sensitive_url = { workspace = true }
 types = { workspace = true }
