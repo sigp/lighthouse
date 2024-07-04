@@ -111,6 +111,13 @@ impl<E: EthSpec> PendingComponents<E> {
         &mut self.verified_blobs
     }
 
+    /// Returns a mutable reference to the cached data columns.
+    pub fn get_cached_data_columns_mut(
+        &mut self,
+    ) -> &mut RuntimeVariableList<KzgVerifiedCustodyDataColumn<E>> {
+        &mut self.verified_data_columns
+    }
+
     /// Checks if a blob exists at the given index in the cache.
     ///
     /// Returns:
@@ -208,12 +215,26 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Merges a given set of data columns into the cache.
+    ///
+    /// Data columns that don't match the new block's commitments are evicted.
+    /// NOTE: It is important that data columns are evicted instead of returning an
+    /// error on a mismatch, so invalid data columns don't prevent valid blocks from
+    /// getting inserted.
     fn merge_data_columns<I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<E>>>(
         &mut self,
         kzg_verified_data_columns: I,
     ) -> Result<(), AvailabilityCheckError> {
+        let maybe_block_commitments = self
+            .get_cached_block()
+            .as_ref()
+            .map(|b| b.get_commitments());
+
         for data_column in kzg_verified_data_columns {
-            // TODO(das): Add equivalent checks for data columns if necessary
+            if let Some(ref block_commitments) = maybe_block_commitments {
+                if data_column.as_data_column().kzg_commitments != *block_commitments {
+                    continue;
+                }
+            }
             if !self.data_column_exists(data_column.index()) {
                 self.verified_data_columns.push(data_column)?;
             }
@@ -224,10 +245,29 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Inserts a new block and revalidates the existing blobs against it.
     ///
     /// Blobs that don't match the new block's commitments are evicted.
-    pub fn merge_block(&mut self, block: DietAvailabilityPendingExecutedBlock<E>) {
+    /// NOTE: It is important that blobs are evicted instead of returning an error on a mismatch,
+    /// so invalid blobs don't prevent valid blocks from getting inserted.
+    pub fn merge_block(
+        &mut self,
+        block: DietAvailabilityPendingExecutedBlock<E>,
+        block_import_requirement: &BlockImportRequirement,
+        spec: &ChainSpec,
+    ) -> Result<(), AvailabilityCheckError> {
         self.insert_block(block);
-        let reinsert = std::mem::take(self.get_cached_blobs_mut());
-        self.merge_blobs(reinsert);
+        match block_import_requirement {
+            BlockImportRequirement::AllBlobs => {
+                let reinsert = std::mem::take(self.get_cached_blobs_mut());
+                self.merge_blobs(reinsert);
+            }
+            BlockImportRequirement::CustodyColumns(_) => {
+                let reinsert = std::mem::replace(
+                    self.get_cached_data_columns_mut(),
+                    RuntimeVariableList::empty(spec.number_of_columns),
+                );
+                self.merge_data_columns(reinsert)?;
+            }
+        }
+        Ok(())
     }
 
     /// Checks if the block and all of its expected blobs or custody columns (post-PeerDAS) are
@@ -843,7 +883,13 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         let epoch = pending_components
             .epoch()
             .ok_or(AvailabilityCheckError::UnableToDetermineImportRequirement)?;
+        self.block_import_requirement_from_epoch(epoch)
+    }
 
+    fn block_import_requirement_from_epoch(
+        &self,
+        epoch: Epoch,
+    ) -> Result<BlockImportRequirement, AvailabilityCheckError> {
         let peer_das_enabled = self.spec.is_peer_das_enabled_for_epoch(epoch);
         if peer_das_enabled {
             Ok(BlockImportRequirement::CustodyColumns(
@@ -1033,11 +1079,16 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             .pop_pending_components(block_root, &self.overflow_store)?
             .unwrap_or_else(|| PendingComponents::empty(block_root, &self.spec));
 
+        let block_import_requirement =
+            self.block_import_requirement_from_epoch(diet_executed_block.epoch())?;
         // Merge in the block.
-        pending_components.merge_block(diet_executed_block);
+        pending_components.merge_block(
+            diet_executed_block,
+            &block_import_requirement,
+            &self.spec,
+        )?;
 
         // Check if we have all components and entire set is consistent.
-        let block_import_requirement = self.block_import_requirement(&pending_components)?;
         if pending_components.is_available(&block_import_requirement, &self.log) {
             write_lock.put_pending_components(
                 block_root,
@@ -2407,7 +2458,9 @@ mod pending_components_tests {
         let block_root = Hash256::zero();
         let spec = E::default_spec();
         let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
-        cache.merge_block(block_commitments);
+        cache
+            .merge_block(block_commitments, &BlockImportRequirement::AllBlobs, &spec)
+            .unwrap();
         cache.merge_blobs(random_blobs);
         cache.merge_blobs(blobs);
 
@@ -2423,7 +2476,9 @@ mod pending_components_tests {
         let spec = E::default_spec();
         let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
         cache.merge_blobs(random_blobs);
-        cache.merge_block(block_commitments);
+        cache
+            .merge_block(block_commitments, &BlockImportRequirement::AllBlobs, &spec)
+            .unwrap();
         cache.merge_blobs(blobs);
 
         assert_cache_consistent(cache);
@@ -2440,7 +2495,9 @@ mod pending_components_tests {
         let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
         cache.merge_blobs(random_blobs);
         cache.merge_blobs(blobs);
-        cache.merge_block(block_commitments);
+        cache
+            .merge_block(block_commitments, &BlockImportRequirement::AllBlobs, &spec)
+            .unwrap();
 
         assert_empty_blob_cache(cache);
     }
@@ -2454,7 +2511,9 @@ mod pending_components_tests {
         let block_root = Hash256::zero();
         let spec = E::default_spec();
         let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
-        cache.merge_block(block_commitments);
+        cache
+            .merge_block(block_commitments, &BlockImportRequirement::AllBlobs, &spec)
+            .unwrap();
         cache.merge_blobs(blobs);
         cache.merge_blobs(random_blobs);
 
@@ -2471,7 +2530,9 @@ mod pending_components_tests {
         let spec = E::default_spec();
         let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
         cache.merge_blobs(blobs);
-        cache.merge_block(block_commitments);
+        cache
+            .merge_block(block_commitments, &BlockImportRequirement::AllBlobs, &spec)
+            .unwrap();
         cache.merge_blobs(random_blobs);
 
         assert_cache_consistent(cache);
@@ -2488,7 +2549,9 @@ mod pending_components_tests {
         let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
         cache.merge_blobs(blobs);
         cache.merge_blobs(random_blobs);
-        cache.merge_block(block_commitments);
+        cache
+            .merge_block(block_commitments, &BlockImportRequirement::AllBlobs, &spec)
+            .unwrap();
 
         assert_cache_consistent(cache);
     }
