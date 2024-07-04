@@ -129,6 +129,70 @@ lazy_static! {
         "store_beacon_block_write_bytes_total",
         "Total number of beacon block bytes written to the DB"
     );
+
+    /*
+    * Caches
+    */
+
+    /*
+    * Store metrics
+    */
+    pub static ref STORE_BEACON_BLOCK_CACHE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "store_beacon_block_cache_size",
+        "Current count of items in beacon store block cache",
+    );
+    pub static ref STORE_BEACON_BLOB_CACHE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "store_beacon_blob_cache_size",
+        "Current count of items in beacon store blob cache",
+    );
+    pub static ref STORE_BEACON_STATE_CACHE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "store_beacon_state_cache_size",
+        "Current count of items in beacon store state cache",
+    );
+    pub static ref STORE_BEACON_HISTORIC_STATE_CACHE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "store_beacon_historic_state_cache_size",
+        "Current count of items in beacon store historic state cache",
+    );
+    pub static ref STORE_BEACON_DIFF_BUFFER_CACHE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "store_beacon_diff_buffer_cache_size",
+        "Current count of items in beacon store diff buffer cache",
+    );
+    pub static ref STORE_BEACON_DIFF_BUFFER_CACHE_BYTE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "store_beacon_diff_buffer_cache_byte_size",
+        "Current byte size sum of all elements in beacon store diff buffer cache",
+    );
+    pub static ref STORE_BEACON_STATE_FREEZER_COMPRESS_TIME: Result<Histogram> = try_create_histogram(
+        "store_beacon_state_compress_seconds",
+        "Time taken to compress a state snapshot for the freezer DB",
+    );
+    pub static ref STORE_BEACON_STATE_FREEZER_DECOMPRESS_TIME: Result<Histogram> = try_create_histogram(
+        "store_beacon_state_decompress_seconds",
+        "Time taken to decompress a state snapshot for the freezer DB",
+    );
+    pub static ref STORE_BEACON_DIFF_BUFFER_APPLY_TIME: Result<Histogram> = try_create_histogram(
+        "store_beacon_diff_buffer_apply_seconds",
+        "Time taken to apply diff buffer to a state buffer",
+    );
+    pub static ref STORE_BEACON_DIFF_BUFFER_COMPUTE_TIME: Result<Histogram> = try_create_histogram(
+        "store_beacon_diff_buffer_compute_seconds",
+        "Time taken to compute diff buffer to a state buffer",
+    );
+    pub static ref STORE_BEACON_HDIFF_BUFFER_LOAD_TIME: Result<Histogram> = try_create_histogram(
+        "store_beacon_hdiff_buffer_load_seconds",
+        "Time taken to load an hdiff buffer",
+    );
+    pub static ref STORE_BEACON_DIFF_BUFFER_CACHE_HIT: Result<IntCounter> = try_create_int_counter(
+        "store_beacon_diff_buffer_cache_hit_total",
+        "Total count of diff buffer cache hits",
+    );
+    pub static ref STORE_BEACON_DIFF_BUFFER_CACHE_MISS: Result<IntCounter> = try_create_int_counter(
+        "store_beacon_diff_buffer_cache_miss_total",
+        "Total count of diff buffer cache miss",
+    );
+    pub static ref STORE_BEACON_REPLAYED_BLOCKS: Result<IntCounter> = try_create_int_counter(
+        "store_beacon_replayed_blocks_total",
+        "Total count of replayed blocks",
+    );
 }
 
 /// Updates the global metrics registry with store-related information.

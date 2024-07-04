@@ -387,6 +387,41 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.state_cache.lock().len()
     }
 
+    pub fn register_metrics(&self) {
+        let diff_buffer_cache = self.diff_buffer_cache.lock();
+        let diff_buffer_cache_byte_size = diff_buffer_cache
+            .iter()
+            .map(|(_, diff)| diff.size())
+            .sum::<usize>();
+        let diff_buffer_cache_len = diff_buffer_cache.len();
+        drop(diff_buffer_cache);
+
+        metrics::set_gauge(
+            &metrics::STORE_BEACON_BLOCK_CACHE_SIZE,
+            self.block_cache.lock().block_cache.len() as i64,
+        );
+        metrics::set_gauge(
+            &metrics::STORE_BEACON_BLOB_CACHE_SIZE,
+            self.block_cache.lock().blob_cache.len() as i64,
+        );
+        metrics::set_gauge(
+            &metrics::STORE_BEACON_STATE_CACHE_SIZE,
+            self.state_cache.lock().len() as i64,
+        );
+        metrics::set_gauge(
+            &metrics::STORE_BEACON_HISTORIC_STATE_CACHE_SIZE,
+            self.historic_state_cache.lock().len() as i64,
+        );
+        metrics::set_gauge(
+            &metrics::STORE_BEACON_DIFF_BUFFER_CACHE_SIZE,
+            diff_buffer_cache_len as i64,
+        );
+        metrics::set_gauge(
+            &metrics::STORE_BEACON_DIFF_BUFFER_CACHE_BYTE_SIZE,
+            diff_buffer_cache_byte_size as i64,
+        );
+    }
+
     /// Store a block and update the LRU cache.
     pub fn put_block(
         &self,
@@ -1335,12 +1370,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         let bytes = state.as_ssz_bytes();
-        let mut compressed_value =
-            Vec::with_capacity(self.config.estimate_compressed_size(bytes.len()));
-        let mut encoder = Encoder::new(&mut compressed_value, self.config.compression_level)
-            .map_err(Error::Compression)?;
-        encoder.write_all(&bytes).map_err(Error::Compression)?;
-        encoder.finish().map_err(Error::Compression)?;
+        let compressed_value = {
+            let _timer = metrics::start_timer(&metrics::STORE_BEACON_STATE_FREEZER_COMPRESS_TIME);
+            let mut out = Vec::with_capacity(self.config.estimate_compressed_size(bytes.len()));
+            let mut encoder = Encoder::new(&mut out, self.config.compression_level)
+                .map_err(Error::Compression)?;
+            encoder.write_all(&bytes).map_err(Error::Compression)?;
+            encoder.finish().map_err(Error::Compression)?;
+            out
+        };
 
         let key = get_key_for_col(
             DBColumn::BeaconStateSnapshot.into(),
@@ -1356,6 +1394,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &slot.as_u64().to_be_bytes(),
         )? {
             Some(bytes) => {
+                let _timer =
+                    metrics::start_timer(&metrics::STORE_BEACON_STATE_FREEZER_DECOMPRESS_TIME);
                 let mut ssz_bytes =
                     Vec::with_capacity(self.config.estimate_decompressed_size(bytes.len()));
                 let mut decoder = Decoder::new(&*bytes).map_err(Error::Compression)?;
@@ -1382,9 +1422,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         // Load diff base state bytes.
-        let (_, base_buffer) = self.load_hdiff_buffer_for_slot(from_slot)?;
+        let (_, base_buffer) = self.load_hdiff_buffer_for_slot(from_slot, 0)?;
         let target_buffer = HDiffBuffer::from_state(state.clone());
-        let diff = HDiff::compute(&base_buffer, &target_buffer, &self.config)?;
+        let diff = {
+            let _timer = metrics::start_timer(&metrics::STORE_BEACON_DIFF_BUFFER_COMPUTE_TIME);
+            HDiff::compute(&base_buffer, &target_buffer, &self.config)?
+        };
         let diff_bytes = diff.as_ssz_bytes();
 
         let key = get_key_for_col(
@@ -1409,7 +1452,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// Will reconstruct the state if it lies between restore points.
     pub fn load_cold_state_by_slot(&self, slot: Slot) -> Result<Option<BeaconState<E>>, Error> {
-        let (base_slot, hdiff_buffer) = self.load_hdiff_buffer_for_slot(slot)?;
+        let (base_slot, hdiff_buffer) = self.load_hdiff_buffer_for_slot(slot, 0)?;
         let base_state = hdiff_buffer.into_state(&self.spec)?;
         debug_assert_eq!(base_slot, base_state.slot());
 
@@ -1442,20 +1485,31 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Returns `HDiffBuffer` for the specified slot, or `HDiffBuffer` for the `ReplayFrom` slot if
     /// the diff for the specified slot is not stored.
-    fn load_hdiff_buffer_for_slot(&self, slot: Slot) -> Result<(Slot, HDiffBuffer), Error> {
+    fn load_hdiff_buffer_for_slot(
+        &self,
+        slot: Slot,
+        recursion: usize,
+    ) -> Result<(Slot, HDiffBuffer), Error> {
         if let Some(buffer) = self.diff_buffer_cache.lock().get(&slot) {
             debug!(
                 self.log,
                 "Hit diff buffer cache";
                 "slot" => slot
             );
+            metrics::inc_counter(&metrics::STORE_BEACON_DIFF_BUFFER_CACHE_HIT);
             return Ok((slot, buffer.clone()));
+        } else {
+            metrics::inc_counter(&metrics::STORE_BEACON_DIFF_BUFFER_CACHE_MISS);
         }
+
+        // Do not time recursive calls into load_hdiff_buffer_for_slot to not double count
+        let _timer = (recursion == 0)
+            .then(|| metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_LOAD_TIME));
 
         // Load buffer for the previous state.
         // This amount of recursion (<10 levels) should be OK.
         let t = std::time::Instant::now();
-        let (_buffer_slot, mut buffer) = match self.hierarchy.storage_strategy(slot)? {
+        match self.hierarchy.storage_strategy(slot)? {
             // Base case.
             StorageStrategy::Snapshot => {
                 let state = self
@@ -1471,26 +1525,35 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     "slot" => slot
                 );
 
-                return Ok((slot, buffer));
+                Ok((slot, buffer))
             }
             // Recursive case.
-            StorageStrategy::DiffFrom(from) => self.load_hdiff_buffer_for_slot(from)?,
-            StorageStrategy::ReplayFrom(from) => return self.load_hdiff_buffer_for_slot(from),
-        };
+            StorageStrategy::DiffFrom(from) => {
+                let (_buffer_slot, mut buffer) =
+                    self.load_hdiff_buffer_for_slot(from, recursion + 1)?;
 
-        // Load diff and apply it to buffer.
-        let diff = self.load_hdiff_for_slot(slot)?;
-        diff.apply(&mut buffer, &self.config)?;
+                // Load diff and apply it to buffer.
+                let diff = self.load_hdiff_for_slot(slot)?;
+                {
+                    let _timer =
+                        metrics::start_timer(&metrics::STORE_BEACON_DIFF_BUFFER_APPLY_TIME);
+                    diff.apply(&mut buffer, &self.config)?;
+                }
 
-        self.diff_buffer_cache.lock().put(slot, buffer.clone());
-        debug!(
-            self.log,
-            "Added diff buffer to cache";
-            "load_time_ms" => t.elapsed().as_millis(),
-            "slot" => slot
-        );
+                self.diff_buffer_cache.lock().put(slot, buffer.clone());
+                debug!(
+                    self.log,
+                    "Added diff buffer to cache";
+                    "load_time_ms" => t.elapsed().as_millis(),
+                    "slot" => slot
+                );
 
-        Ok((slot, buffer))
+                Ok((slot, buffer))
+            }
+            StorageStrategy::ReplayFrom(from) => {
+                self.load_hdiff_buffer_for_slot(from, recursion + 1)
+            }
+        }
     }
 
     /// Load cold blocks between `start_slot` and `end_slot` inclusive.
@@ -1566,6 +1629,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state_root_iter: Option<impl Iterator<Item = Result<(Hash256, Slot), Error>>>,
         pre_slot_hook: Option<PreSlotHook<E, Error>>,
     ) -> Result<BeaconState<E>, Error> {
+        metrics::inc_counter_by(&metrics::STORE_BEACON_REPLAYED_BLOCKS, blocks.len() as u64);
+
         let mut block_replayer = BlockReplayer::new(state, &self.spec)
             .no_signature_verification()
             .minimal_block_root_verification();
