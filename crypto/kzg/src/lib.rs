@@ -237,7 +237,7 @@ impl Kzg {
         let (cells, proofs) = self
             .context
             .prover_ctx()
-            .recover_cells_and_proofs(cell_ids.to_vec(), cells.to_vec(), vec![])
+            .recover_cells_and_proofs(cell_ids.to_vec(), cells.to_vec())
             .map_err(Error::ProverKZG)?;
 
         // Convert the proof type to a c-kzg proof type
