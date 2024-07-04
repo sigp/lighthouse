@@ -100,6 +100,6 @@ ________________________________________________________________________________
 
 ## Settings
 
-Siren's settings view provides access to the application theme, version, display name, and important external links. If you experience any problems or have feature request please follow the github and or discord links to get in touch.
+Siren's settings view provides access to the application theme, version, display name, and important external links. If you experience any problems or have feature request, please follow the github and or discord links to get in touch.
 
 ![settings](imgs/ui-settings.png)
