@@ -903,7 +903,7 @@ impl From<JsonDepositRequest> for DepositRequest {
 #[serde(rename_all = "camelCase")]
 pub struct JsonWithdrawalRequest {
     pub source_address: Address,
-    pub validator_pub_key: PublicKeyBytes,
+    pub validator_pubkey: PublicKeyBytes,
     #[serde(with = "serde_utils::u64_hex_be")]
     pub amount: u64,
 }
@@ -912,7 +912,7 @@ impl From<WithdrawalRequest> for JsonWithdrawalRequest {
     fn from(withdrawal_request: WithdrawalRequest) -> Self {
         Self {
             source_address: withdrawal_request.source_address,
-            validator_pub_key: withdrawal_request.validator_pubkey,
+            validator_pubkey: withdrawal_request.validator_pubkey,
             amount: withdrawal_request.amount,
         }
     }
@@ -922,7 +922,7 @@ impl From<JsonWithdrawalRequest> for WithdrawalRequest {
     fn from(json_withdrawal_request: JsonWithdrawalRequest) -> Self {
         Self {
             source_address: json_withdrawal_request.source_address,
-            validator_pubkey: json_withdrawal_request.validator_pub_key,
+            validator_pubkey: json_withdrawal_request.validator_pubkey,
             amount: json_withdrawal_request.amount,
         }
     }
