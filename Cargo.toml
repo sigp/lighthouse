@@ -237,7 +237,7 @@ unused_port = { path = "common/unused_port" }
 validator_client = { path = "validator_client" }
 validator_dir = { path = "common/validator_dir" }
 warp_utils = { path = "common/warp_utils" }
-xdelta3 = { git = "http://github.com/michaelsproul/xdelta3-rs", rev="ae9a1d2585ef998f4656acdc35cf263ee88e6dfa" }
+xdelta3 = { git = "http://github.com/sigp/xdelta3-rs", rev = "2a06390cd5b61b44ca3eaa89632b4ba3410d3d7f" }
 zstd = "0.13"
 
 [profile.maxperf]
