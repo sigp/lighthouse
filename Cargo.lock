@@ -1557,7 +1557,7 @@ dependencies = [
 [[package]]
 name = "crate_crypto_internal_peerdas_bls12_381"
 version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=afd76b0385ca1512ffd531ad2d02d6240b1478e5#afd76b0385ca1512ffd531ad2d02d6240b1478e5"
+source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=bb8295011cf27dc663699539c7f9a17fe273e896#bb8295011cf27dc663699539c7f9a17fe273e896"
 dependencies = [
  "blst",
  "blstrs",
@@ -1570,7 +1570,7 @@ dependencies = [
 [[package]]
 name = "crate_crypto_internal_peerdas_erasure_codes"
 version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=afd76b0385ca1512ffd531ad2d02d6240b1478e5#afd76b0385ca1512ffd531ad2d02d6240b1478e5"
+source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=bb8295011cf27dc663699539c7f9a17fe273e896#bb8295011cf27dc663699539c7f9a17fe273e896"
 dependencies = [
  "crate_crypto_internal_peerdas_bls12_381",
  "crate_crypto_internal_peerdas_polynomial",
@@ -1579,7 +1579,7 @@ dependencies = [
 [[package]]
 name = "crate_crypto_internal_peerdas_polynomial"
 version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=afd76b0385ca1512ffd531ad2d02d6240b1478e5#afd76b0385ca1512ffd531ad2d02d6240b1478e5"
+source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=bb8295011cf27dc663699539c7f9a17fe273e896#bb8295011cf27dc663699539c7f9a17fe273e896"
 dependencies = [
  "crate_crypto_internal_peerdas_bls12_381",
 ]
@@ -1587,12 +1587,13 @@ dependencies = [
 [[package]]
 name = "crate_crypto_kzg_multi_open_fk20"
 version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=afd76b0385ca1512ffd531ad2d02d6240b1478e5#afd76b0385ca1512ffd531ad2d02d6240b1478e5"
+source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=bb8295011cf27dc663699539c7f9a17fe273e896#bb8295011cf27dc663699539c7f9a17fe273e896"
 dependencies = [
  "crate_crypto_internal_peerdas_bls12_381",
  "crate_crypto_internal_peerdas_polynomial",
  "hex",
  "rayon",
+ "sha2 0.10.8",
 ]
 
 [[package]]
@@ -2275,7 +2276,7 @@ dependencies = [
 [[package]]
 name = "eip7594"
 version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=afd76b0385ca1512ffd531ad2d02d6240b1478e5#afd76b0385ca1512ffd531ad2d02d6240b1478e5"
+source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=bb8295011cf27dc663699539c7f9a17fe273e896#bb8295011cf27dc663699539c7f9a17fe273e896"
 dependencies = [
  "crate_crypto_internal_peerdas_bls12_381",
  "crate_crypto_internal_peerdas_erasure_codes",
