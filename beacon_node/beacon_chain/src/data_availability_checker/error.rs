@@ -6,10 +6,15 @@ pub enum Error {
     Kzg(KzgError),
     KzgNotInitialized,
     KzgVerificationFailed,
+    /// `KzgCommitment` for blob does not match `KzgCommitments` from the block.
     KzgCommitmentMismatch {
         blob_commitment: KzgCommitment,
         block_commitment: KzgCommitment,
     },
+    /// `KzgCommitments` from data column sidecars do not match `KzgCommitments` from the block.
+    KzgCommitmentListMismatch,
+    /// `KzgCommitments` are not identical for all sidecars for the same block.
+    KzgCommitmentsInconsistent,
     UnableToDetermineImportRequirement,
     Unexpected,
     SszTypes(ssz_types::Error),
@@ -52,6 +57,8 @@ impl Error {
             | Error::BlobIndexInvalid(_)
             | Error::DataColumnIndexInvalid(_)
             | Error::KzgCommitmentMismatch { .. }
+            | Error::KzgCommitmentListMismatch
+            | Error::KzgCommitmentsInconsistent
             | Error::KzgVerificationFailed => ErrorCategory::Malicious,
         }
     }
