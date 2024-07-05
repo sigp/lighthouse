@@ -44,6 +44,7 @@ use libp2p::swarm::{
     ConnectionDenied, ConnectionId, NetworkBehaviour, NotifyHandler, THandler, THandlerInEvent,
     THandlerOutEvent, ToSwarm,
 };
+use web_time::{Instant, SystemTime};
 
 use crate::types::IDontWant;
 
@@ -69,7 +70,6 @@ use super::{
     types::RpcOut,
 };
 use super::{PublishError, SubscriptionError, TopicScoreParams, ValidationError};
-use instant::SystemTime;
 use quick_protobuf::{MessageWrite, Writer};
 use std::{cmp::Ordering::Equal, fmt::Debug};
 

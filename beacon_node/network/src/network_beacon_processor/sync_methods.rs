@@ -24,6 +24,7 @@ use store::KzgCommitment;
 use tokio::sync::mpsc;
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
+use types::BlockImportSource;
 use types::{Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
@@ -153,7 +154,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let result = self
             .chain
-            .process_block_with_early_caching(block_root, block, NotifyExecutionLayer::Yes)
+            .process_block_with_early_caching(
+                block_root,
+                block,
+                BlockImportSource::Lookup,
+                NotifyExecutionLayer::Yes,
+            )
             .await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
@@ -170,17 +176,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             if reprocess_tx.try_send(reprocess_msg).is_err() {
                 error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %hash)
             };
-            if matches!(process_type, BlockProcessType::SingleBlock { .. }) {
-                self.chain.block_times_cache.write().set_time_observed(
-                    hash,
-                    slot,
-                    seen_timestamp,
-                    None,
-                    None,
-                );
+            self.chain.block_times_cache.write().set_time_observed(
+                hash,
+                slot,
+                seen_timestamp,
+                None,
+                None,
+            );
 
-                self.chain.recompute_head_at_current_slot().await;
-            }
+            self.chain.recompute_head_at_current_slot().await;
         }
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {

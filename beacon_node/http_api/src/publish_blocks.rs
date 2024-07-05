@@ -19,8 +19,8 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, EthSpec, ExecPayload, ExecutionBlockHash,
-    ForkName, FullPayload, FullPayloadBellatrix, Hash256, SignedBeaconBlock,
+    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, BlockImportSource, EthSpec, ExecPayload,
+    ExecutionBlockHash, ForkName, FullPayload, FullPayloadBellatrix, Hash256, SignedBeaconBlock,
     SignedBlindedBeaconBlock, VariableList,
 };
 use warp::http::StatusCode;
@@ -230,6 +230,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
         block_root,
         gossip_verified_block,
         NotifyExecutionLayer::Yes,
+        BlockImportSource::HttpApi,
         publish_fn,
     ))
     .await

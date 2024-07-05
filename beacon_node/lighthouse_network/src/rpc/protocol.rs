@@ -3,6 +3,7 @@ use crate::rpc::codec::{base::BaseInboundCodec, ssz_snappy::SSZSnappyInboundCode
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, StreamExt};
+use lazy_static::lazy_static;
 use libp2p::core::{InboundUpgrade, UpgradeInfo};
 use ssz::Encode;
 use ssz_types::VariableList;

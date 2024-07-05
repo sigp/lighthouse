@@ -121,7 +121,7 @@ where
 
     // Electra
     #[superstruct(only(Electra))]
-    pub deposit_receipts_start_index: u64,
+    pub deposit_requests_start_index: u64,
     #[superstruct(only(Electra))]
     pub deposit_balance_to_consume: u64,
     #[superstruct(only(Electra))]
@@ -133,7 +133,6 @@ where
     #[superstruct(only(Electra))]
     pub earliest_consolidation_epoch: Epoch,
 
-    // TODO(electra) should these be optional?
     #[superstruct(only(Electra))]
     pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
     #[superstruct(only(Electra))]
@@ -285,7 +284,7 @@ impl<E: EthSpec> PartialBeaconState<E> {
                     latest_execution_payload_header,
                     next_withdrawal_index,
                     next_withdrawal_validator_index,
-                    deposit_receipts_start_index,
+                    deposit_requests_start_index,
                     deposit_balance_to_consume,
                     exit_balance_to_consume,
                     earliest_exit_epoch,
@@ -558,7 +557,7 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     latest_execution_payload_header,
                     next_withdrawal_index,
                     next_withdrawal_validator_index,
-                    deposit_receipts_start_index,
+                    deposit_requests_start_index,
                     deposit_balance_to_consume,
                     exit_balance_to_consume,
                     earliest_exit_epoch,

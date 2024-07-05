@@ -606,7 +606,7 @@ async fn epoch_boundary_state_attestation_processing() {
 
     for (attestation, subnet_id) in late_attestations.into_iter().flatten() {
         // load_epoch_boundary_state is idempotent!
-        let block_root = attestation.data.beacon_block_root;
+        let block_root = attestation.data().beacon_block_root;
         let block = store
             .get_blinded_block(&block_root)
             .unwrap()
@@ -629,7 +629,7 @@ async fn epoch_boundary_state_attestation_processing() {
             .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
-        let expected_attestation_slot = attestation.data.slot;
+        let expected_attestation_slot = attestation.data().slot;
         // Extra -1 to handle gossip clock disparity.
         let expected_earliest_permissible_slot = current_slot - E::slots_per_epoch() - 1;
 
@@ -1014,6 +1014,7 @@ async fn multiple_attestations_per_block() {
         .await;
 
     let head = harness.chain.head_snapshot();
+
     let committees_per_slot = head
         .beacon_state
         .get_committee_count_at_slot(head.beacon_state.slot())
@@ -1022,16 +1023,29 @@ async fn multiple_attestations_per_block() {
 
     for snapshot in harness.chain.chain_dump().unwrap() {
         let slot = snapshot.beacon_block.slot();
-        assert_eq!(
-            snapshot
-                .beacon_block
-                .as_ref()
-                .message()
-                .body()
-                .attestations()
-                .len() as u64,
-            if slot <= 1 { 0 } else { committees_per_slot }
-        );
+        let fork_name = harness.chain.spec.fork_name_at_slot::<E>(slot);
+
+        if fork_name.electra_enabled() {
+            assert_eq!(
+                snapshot
+                    .beacon_block
+                    .as_ref()
+                    .message()
+                    .body()
+                    .attestations_len() as u64,
+                if slot <= 1 { 0 } else { 1 }
+            );
+        } else {
+            assert_eq!(
+                snapshot
+                    .beacon_block
+                    .as_ref()
+                    .message()
+                    .body()
+                    .attestations_len() as u64,
+                if slot <= 1 { 0 } else { committees_per_slot }
+            );
+        }
     }
 }
 
@@ -2458,6 +2472,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
                 full_block.canonical_root(),
                 RpcBlock::new(Some(block_root), Arc::new(full_block), Some(blobs)).unwrap(),
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
                 || Ok(()),
             )
             .await
@@ -2676,6 +2691,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
             invalid_fork_block.canonical_root(),
             invalid_fork_block.clone(),
             NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await
@@ -2689,6 +2705,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
             valid_fork_block.canonical_root(),
             valid_fork_block.clone(),
             NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await

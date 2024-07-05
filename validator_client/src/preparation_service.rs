@@ -477,7 +477,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             for batch in signed.chunks(self.validator_registration_batch_size) {
                 match self
                     .beacon_nodes
-                    .first_success(
+                    .broadcast(
                         RequireSynced::No,
                         OfflineOnFailure::No,
                         |beacon_node| async move {

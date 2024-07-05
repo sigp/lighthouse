@@ -285,17 +285,17 @@ impl ForkChoiceTestDefinition {
     }
 }
 
-/// Gives a root that is not the zero hash (unless i is `usize::max_value)`.
+/// Gives a root that is not the zero hash (unless i is `usize::MAX)`.
 fn get_root(i: u64) -> Hash256 {
     Hash256::from_low_u64_be(i + 1)
 }
 
-/// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
+/// Gives a hash that is not the zero hash (unless i is `usize::MAX)`.
 fn get_hash(i: u64) -> ExecutionBlockHash {
     ExecutionBlockHash::from_root(get_root(i))
 }
 
-/// Gives a checkpoint with a root that is not the zero hash (unless i is `usize::max_value)`.
+/// Gives a checkpoint with a root that is not the zero hash (unless i is `usize::MAX)`.
 /// `Epoch` will always equal `i`.
 fn get_checkpoint(i: u64) -> Checkpoint {
     Checkpoint {

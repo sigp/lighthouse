@@ -1,6 +1,7 @@
 //! Identifies each sync committee subnet by an integer identifier.
 use crate::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::EthSpec;
+use lazy_static::lazy_static;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz_types::typenum::Unsigned;
@@ -77,15 +78,15 @@ impl From<u64> for SyncSubnetId {
     }
 }
 
-impl Into<u64> for SyncSubnetId {
-    fn into(self) -> u64 {
-        self.0
+impl From<SyncSubnetId> for u64 {
+    fn from(from: SyncSubnetId) -> u64 {
+        from.0
     }
 }
 
-impl Into<u64> for &SyncSubnetId {
-    fn into(self) -> u64 {
-        self.0
+impl From<&SyncSubnetId> for u64 {
+    fn from(from: &SyncSubnetId) -> u64 {
+        from.0
     }
 }
 

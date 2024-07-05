@@ -180,7 +180,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
     ) -> ProcessingResult {
         if let Some(batch_ids) = self.peers.remove(peer_id) {
-            // fail the batches
+            // fail the batches.
             for id in batch_ids {
                 if let Some(batch) = self.batches.get_mut(&id) {
                     if let BatchOperationOutcome::Failed { blacklist } =
@@ -222,7 +222,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch_id: BatchId,
         peer_id: &PeerId,
         request_id: Id,
-        beacon_block: Option<RpcBlock<T::EthSpec>>,
+        blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> ProcessingResult {
         // check if we have this batch
         let batch = match self.batches.get_mut(&batch_id) {
@@ -243,18 +243,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
         };
 
-        if let Some(block) = beacon_block {
-            // This is not a stream termination, simply add the block to the request
-            batch.add_block(block)?;
-            Ok(KeepChain)
-        } else {
+        {
             // A stream termination has been sent. This batch has ended. Process a completed batch.
             // Remove the request from the peer's active batches
             self.peers
                 .get_mut(peer_id)
                 .map(|active_requests| active_requests.remove(&batch_id));
 
-            match batch.download_completed() {
+            match batch.download_completed(blocks) {
                 Ok(received) => {
                     let awaiting_batches = batch_id
                         .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
@@ -945,7 +941,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 Err(e) => {
                     // NOTE: under normal conditions this shouldn't happen but we handle it anyway
                     warn!(self.log, "Could not send batch request";
-                        "batch_id" => batch_id, "error" => e, &batch);
+                        "batch_id" => batch_id, "error" => ?e, &batch);
                     // register the failed download and check if the batch can be retried
                     batch.start_downloading_from_peer(peer, 1)?; // fake request_id is not relevant
                     self.peers

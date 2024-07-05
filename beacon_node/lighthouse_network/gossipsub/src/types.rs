@@ -25,8 +25,6 @@ use async_channel::{Receiver, Sender};
 use futures::stream::Peekable;
 use futures::{Future, Stream, StreamExt};
 use futures_timer::Delay;
-use hashlink::LinkedHashMap;
-use instant::Duration;
 use libp2p::identity::PeerId;
 use libp2p::swarm::ConnectionId;
 use prometheus_client::encoding::EncodeLabelValue;
@@ -38,6 +36,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
 use std::{fmt, pin::Pin};
+use web_time::Duration;
 
 use crate::rpc_proto::proto;
 #[cfg(feature = "serde")]

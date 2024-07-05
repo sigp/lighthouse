@@ -109,7 +109,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
     /// and attestation production.
     pub async fn new_from_cli(
         context: RuntimeContext<E>,
-        cli_args: &ArgMatches<'_>,
+        cli_args: &ArgMatches,
     ) -> Result<Self, String> {
         let config = Config::from_cli(cli_args, context.log())
             .map_err(|e| format!("Unable to initialize config: {}", e))?;
@@ -476,6 +476,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             slot_clock: slot_clock.clone(),
             beacon_nodes: beacon_nodes.clone(),
             validator_store: validator_store.clone(),
+            unknown_validator_next_poll_slots: <_>::default(),
             spec: context.eth2_config.spec.clone(),
             context: duties_context,
             enable_high_validator_count_metrics: config.enable_high_validator_count_metrics,

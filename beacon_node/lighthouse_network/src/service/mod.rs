@@ -917,12 +917,23 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     /* Eth2 RPC behaviour functions */
 
     /// Send a request to a peer over RPC.
-    pub fn send_request(&mut self, peer_id: PeerId, request_id: AppReqId, request: Request) {
+    pub fn send_request(
+        &mut self,
+        peer_id: PeerId,
+        request_id: AppReqId,
+        request: Request,
+    ) -> Result<(), (AppReqId, RPCError)> {
+        // Check if the peer is connected before sending an RPC request
+        if !self.swarm.is_connected(&peer_id) {
+            return Err((request_id, RPCError::Disconnected));
+        }
+
         self.eth2_rpc_mut().send_request(
             peer_id,
             RequestId::Application(request_id),
             request.into(),
-        )
+        );
+        Ok(())
     }
 
     /// Send a successful response to a peer over RPC.
@@ -970,6 +981,12 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
         self.peer_manager_mut()
             .goodbye_peer(peer_id, reason, source);
+    }
+
+    /// Hard (ungraceful) disconnect for testing purposes only
+    /// Use goodbye_peer for disconnections, do not use this function.
+    pub fn __hard_disconnect_testing_only(&mut self, peer_id: PeerId) {
+        let _ = self.swarm.disconnect_peer_id(peer_id);
     }
 
     /// Returns an iterator over all enr entries in the DHT.
@@ -1372,7 +1389,11 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     ) -> Option<NetworkEvent<AppReqId, E>> {
         let peer_id = event.peer_id;
 
-        if !self.peer_manager().is_connected(&peer_id) {
+        // Do not permit Inbound events from peers that are being disconnected, or RPC requests.
+        if !self.peer_manager().is_connected(&peer_id)
+            && (matches!(event.event, HandlerEvent::Err(HandlerErr::Inbound { .. }))
+                || matches!(event.event, HandlerEvent::Ok(RPCReceived::Request(..))))
+        {
             debug!(
                 self.log,
                 "Ignoring rpc message of disconnecting peer";

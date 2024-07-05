@@ -320,7 +320,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         }
 
         if let Some(batch_ids) = self.active_requests.remove(peer_id) {
-            // fail the batches
+            // fail the batches.
             for id in batch_ids {
                 if let Some(batch) = self.batches.get_mut(&id) {
                     match batch.download_failed(false) {
@@ -335,7 +335,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     // If we have run out of peers in which to retry this batch, the backfill state
                     // transitions to a paused state.
                     // We still need to reset the state for all the affected batches, so we should not
-                    // short circuit early
+                    // short circuit early.
                     if self.retry_batch_download(network, id).is_err() {
                         debug!(
                             self.log,
@@ -403,7 +403,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         batch_id: BatchId,
         peer_id: &PeerId,
         request_id: Id,
-        beacon_block: Option<RpcBlock<T::EthSpec>>,
+        blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<ProcessResult, BackFillError> {
         // check if we have this batch
         let batch = match self.batches.get_mut(&batch_id) {
@@ -426,20 +426,14 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             }
         };
 
-        if let Some(block) = beacon_block {
-            // This is not a stream termination, simply add the block to the request
-            if let Err(e) = batch.add_block(block) {
-                self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?;
-            }
-            Ok(ProcessResult::Successful)
-        } else {
+        {
             // A stream termination has been sent. This batch has ended. Process a completed batch.
             // Remove the request from the peer's active batches
             self.active_requests
                 .get_mut(peer_id)
                 .map(|active_requests| active_requests.remove(&batch_id));
 
-            match batch.download_completed() {
+            match batch.download_completed(blocks) {
                 Ok(received) => {
                     let awaiting_batches =
                         self.processing_target.saturating_sub(batch_id) / BACKFILL_EPOCHS_PER_BATCH;
@@ -986,7 +980,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 Err(e) => {
                     // NOTE: under normal conditions this shouldn't happen but we handle it anyway
                     warn!(self.log, "Could not send batch request";
-                        "batch_id" => batch_id, "error" => e, &batch);
+                        "batch_id" => batch_id, "error" => ?e, &batch);
                     // register the failed download and check if the batch can be retried
                     if let Err(e) = batch.start_downloading_from_peer(peer, 1) {
                         return self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0));

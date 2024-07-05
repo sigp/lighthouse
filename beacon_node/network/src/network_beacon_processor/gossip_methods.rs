@@ -31,9 +31,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, BlobSidecar, EthSpec, Hash256, IndexedAttestation,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    beacon_block::BlockImportSource, Attestation, AttestationRef, AttesterSlashing, BlobSidecar,
+    EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage,
     SyncSubnetId,
 };
@@ -62,8 +62,8 @@ struct VerifiedUnaggregate<T: BeaconChainTypes> {
 /// This implementation allows `Self` to be imported to fork choice and other functions on the
 /// `BeaconChain`.
 impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
-    fn attestation(&self) -> &Attestation<T::EthSpec> {
-        &self.attestation
+    fn attestation(&self) -> AttestationRef<T::EthSpec> {
+        self.attestation.to_ref()
     }
 
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
@@ -72,7 +72,7 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
 
     fn into_attestation_and_indices(self) -> (Attestation<T::EthSpec>, Vec<u64>) {
         let attestation = *self.attestation;
-        let attesting_indices = self.indexed_attestation.attesting_indices.into();
+        let attesting_indices = self.indexed_attestation.attesting_indices_to_vec();
         (attestation, attesting_indices)
     }
 }
@@ -95,8 +95,8 @@ struct VerifiedAggregate<T: BeaconChainTypes> {
 /// This implementation allows `Self` to be imported to fork choice and other functions on the
 /// `BeaconChain`.
 impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
-    fn attestation(&self) -> &Attestation<T::EthSpec> {
-        &self.signed_aggregate.message.aggregate
+    fn attestation(&self) -> AttestationRef<T::EthSpec> {
+        self.signed_aggregate.message().aggregate()
     }
 
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
@@ -105,8 +105,8 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
 
     /// Efficient clone-free implementation that moves out of the `Box`.
     fn into_attestation_and_indices(self) -> (Attestation<T::EthSpec>, Vec<u64>) {
-        let attestation = self.signed_aggregate.message.aggregate;
-        let attesting_indices = self.indexed_attestation.attesting_indices.into();
+        let attestation = self.signed_aggregate.into_attestation();
+        let attesting_indices = self.indexed_attestation.attesting_indices_to_vec();
         (attestation, attesting_indices)
     }
 }
@@ -133,7 +133,7 @@ enum FailedAtt<E: EthSpec> {
 
 impl<E: EthSpec> FailedAtt<E> {
     pub fn beacon_block_root(&self) -> &Hash256 {
-        &self.attestation().data.beacon_block_root
+        &self.attestation().data().beacon_block_root
     }
 
     pub fn kind(&self) -> &'static str {
@@ -143,10 +143,10 @@ impl<E: EthSpec> FailedAtt<E> {
         }
     }
 
-    pub fn attestation(&self) -> &Attestation<E> {
+    pub fn attestation(&self) -> AttestationRef<E> {
         match self {
-            FailedAtt::Unaggregate { attestation, .. } => attestation,
-            FailedAtt::Aggregate { attestation, .. } => &attestation.message.aggregate,
+            FailedAtt::Unaggregate { attestation, .. } => attestation.to_ref(),
+            FailedAtt::Aggregate { attestation, .. } => attestation.message().aggregate(),
         }
     }
 }
@@ -309,7 +309,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match result {
             Ok(verified_attestation) => {
                 let indexed_attestation = &verified_attestation.indexed_attestation;
-                let beacon_block_root = indexed_attestation.data.beacon_block_root;
+                let beacon_block_root = indexed_attestation.data().beacon_block_root;
 
                 // Register the attestation with any monitored validators.
                 self.chain
@@ -412,7 +412,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
         seen_timestamp: Duration,
     ) {
-        let beacon_block_root = aggregate.message.aggregate.data.beacon_block_root;
+        let beacon_block_root = aggregate.message().aggregate().data().beacon_block_root;
 
         let result = match self
             .chain
@@ -690,7 +690,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | GossipBlobError::InvalidSubnet { .. }
                     | GossipBlobError::InvalidInclusionProof
                     | GossipBlobError::KzgError(_)
-                    | GossipBlobError::InclusionProof(_)
                     | GossipBlobError::NotFinalizedDescendant { .. } => {
                         warn!(
                             self.log,
@@ -701,7 +700,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "index" => %index,
                             "commitment" => %commitment,
                         );
-                        // Prevent recurring behaviour by penalizing the peer slightly.
+                        // Prevent recurring behaviour by penalizing the peer.
                         self.gossip_penalize_peer(
                             peer_id,
                             PeerAction::LowToleranceError,
@@ -713,10 +712,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Reject,
                         );
                     }
-                    GossipBlobError::FutureSlot { .. }
-                    | GossipBlobError::RepeatBlob { .. }
-                    | GossipBlobError::PastFinalizedSlot { .. } => {
-                        warn!(
+                    GossipBlobError::FutureSlot { .. } | GossipBlobError::RepeatBlob { .. } => {
+                        debug!(
                             self.log,
                             "Could not verify blob sidecar for gossip. Ignoring the blob sidecar";
                             "error" => ?err,
@@ -730,6 +727,30 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             peer_id,
                             PeerAction::HighToleranceError,
                             "gossip_blob_high",
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                    GossipBlobError::PastFinalizedSlot { .. } => {
+                        debug!(
+                            self.log,
+                            "Could not verify blob sidecar for gossip. Ignoring the blob sidecar";
+                            "error" => ?err,
+                            "slot" => %slot,
+                            "root" => %root,
+                            "index" => %index,
+                            "commitment" => %commitment,
+                        );
+                        // Prevent recurring behaviour by penalizing the peer. A low-tolerance
+                        // error is fine because there's no reason for peers to be propagating old
+                        // blobs on gossip, even if their view of finality is lagging.
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "gossip_blob_low",
                         );
                         self.propagate_validation_result(
                             message_id,
@@ -753,7 +774,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
 
-        match self.chain.process_gossip_blob(verified_blob).await {
+        let result = self.chain.process_gossip_blob(verified_blob).await;
+
+        match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
                 // Note: Reusing block imported metric here
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
@@ -801,6 +824,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "bad_gossip_blob_ssz",
                 );
             }
+        }
+
+        // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
+        // imported. A block can become imported both after processing a block or blob. If a
+        // importing a block results in `Imported`, notify. Do not notify of blob errors.
+        if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
+            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+                block_root,
+                imported: true,
+            });
         }
     }
 
@@ -874,16 +907,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             get_block_delay_ms(seen_duration, block.message(), &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
 
-        metrics::set_gauge(
-            &metrics::BEACON_BLOCK_DELAY_GOSSIP,
-            block_delay.as_millis() as i64,
-        );
-
         let verification_result = self
             .chain
             .clone()
             .verify_block_for_gossip(block.clone())
             .await;
+
+        if verification_result.is_ok() {
+            metrics::set_gauge(
+                &metrics::BEACON_BLOCK_DELAY_GOSSIP,
+                block_delay.as_millis() as i64,
+            );
+        }
 
         let block_root = if let Ok(verified_block) = &verification_result {
             verified_block.block_root
@@ -977,16 +1012,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
-            Err(e @ BlockError::FutureSlot { .. })
-            | Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
-            | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
-                debug!(self.log, "Could not verify block for gossip. Ignoring the block";
-                            "error" => %e);
+            Err(e @ BlockError::FutureSlot { .. }) => {
+                debug!(
+                    self.log,
+                    "Could not verify block for gossip. Ignoring the block";
+                    "error" => %e
+                );
                 // Prevent recurring behaviour by penalizing the peer slightly.
                 self.gossip_penalize_peer(
                     peer_id,
                     PeerAction::HighToleranceError,
                     "gossip_block_high",
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
+            }
+            Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
+            | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
+                debug!(
+                    self.log,
+                    "Could not verify block for gossip. Ignoring the block";
+                    "error" => %e
+                );
+                // The spec says we must IGNORE these blocks but there's no reason for an honest
+                // and non-buggy client to be gossiping blocks that blatantly conflict with
+                // finalization. Old versions of Erigon/Caplin are known to gossip pre-finalization
+                // blocks and we want to isolate them to encourage an update.
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_block_low",
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
@@ -1141,9 +1196,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
+        // TODO(block source)
+
         let result = self
             .chain
-            .process_block_with_early_caching(block_root, verified_block, NotifyExecutionLayer::Yes)
+            .process_block_with_early_caching(
+                block_root,
+                verified_block,
+                BlockImportSource::Gossip,
+                NotifyExecutionLayer::Yes,
+            )
             .await;
 
         match &result {
@@ -1187,19 +1249,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "block_root" => %block_root,
                 );
             }
-            Err(BlockError::ParentUnknown(block)) => {
-                // Inform the sync manager to find parents for this block
-                // This should not occur. It should be checked by `should_forward_block`
+            Err(BlockError::ParentUnknown(_)) => {
+                // This should not occur. It should be checked by `should_forward_block`.
+                // Do not send sync message UnknownParentBlock to prevent conflicts with the
+                // BlockComponentProcessed message below. If this error ever happens, lookup sync
+                // can recover by receiving another block / blob / attestation referencing the
+                // chain that includes this block.
                 error!(
                     self.log,
                     "Block with unknown parent attempted to be processed";
+                    "block_root" => %block_root,
                     "peer_id" => %peer_id
                 );
-                self.send_sync_message(SyncMessage::UnknownParentBlock(
-                    peer_id,
-                    block.clone(),
-                    block_root,
-                ));
             }
             Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
                 debug!(
@@ -1263,6 +1324,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 &self.log,
             );
         }
+
+        self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+            block_root,
+            imported: matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))),
+        });
     }
 
     pub fn process_gossip_voluntary_exit(
@@ -1432,7 +1498,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.chain
             .validator_monitor
             .read()
-            .register_gossip_attester_slashing(slashing.as_inner());
+            .register_gossip_attester_slashing(slashing.as_inner().to_ref());
 
         self.chain.import_attester_slashing(slashing);
         debug!(self.log, "Successfully imported attester slashing");
@@ -2033,6 +2099,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "attn_val_index_too_high",
                 );
             }
+            AttnError::CommitteeIndexNonZero(index) => {
+                /*
+                 * The validator index is not set to zero after Electra.
+                 *
+                 * The peer has published an invalid consensus message.
+                 */
+                debug!(
+                    self.log,
+                    "Committee index non zero";
+                    "peer_id" => %peer_id,
+                    "block" => ?beacon_block_root,
+                    "type" => ?attestation_type,
+                    "committee_index" => index,
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_comm_index_non_zero",
+                );
+            }
             AttnError::UnknownHeadBlock { beacon_block_root } => {
                 trace!(
                     self.log,
@@ -2188,6 +2275,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "attn_too_many_agg_bits",
                 );
             }
+            AttnError::NotExactlyOneCommitteeBitSet(_) => {
+                /*
+                 * The attestation doesn't have only one committee bit set.
+                 *
+                 * The peer has published an invalid consensus message.
+                 */
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_too_many_comm_bits",
+                );
+            }
             AttnError::AttestsToFutureBlock { .. } => {
                 /*
                  * The beacon_block_root is from a higher slot than the attestation.
@@ -2286,7 +2386,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.log,
                     "Ignored attestation to finalized block";
                     "block_root" => ?beacon_block_root,
-                    "attestation_slot" => failed_att.attestation().data.slot,
+                    "attestation_slot" => failed_att.attestation().data().slot,
                 );
 
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
@@ -2309,9 +2409,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(
                     self.log,
                     "Dropping attestation";
-                    "target_root" => ?failed_att.attestation().data.target.root,
+                    "target_root" => ?failed_att.attestation().data().target.root,
                     "beacon_block_root" => ?beacon_block_root,
-                    "slot" => ?failed_att.attestation().data.slot,
+                    "slot" => ?failed_att.attestation().data().slot,
                     "type" => ?attestation_type,
                     "error" => ?e,
                     "peer_id" => % peer_id
@@ -2330,7 +2430,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.log,
                     "Unable to validate attestation";
                     "beacon_block_root" => ?beacon_block_root,
-                    "slot" => ?failed_att.attestation().data.slot,
+                    "slot" => ?failed_att.attestation().data().slot,
                     "type" => ?attestation_type,
                     "peer_id" => %peer_id,
                     "error" => ?e,
@@ -2727,7 +2827,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// timely), propagate it on gossip. Otherwise, ignore it.
     fn propagate_attestation_if_timely(
         &self,
-        attestation: &Attestation<T::EthSpec>,
+        attestation: AttestationRef<T::EthSpec>,
         message_id: MessageId,
         peer_id: PeerId,
     ) {

@@ -1,5 +1,6 @@
 //! A helper library for parsing values from `clap::ArgMatches`.
 
+use clap::builder::styling::*;
 use clap::ArgMatches;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use ethereum_types::U256 as Uint256;
@@ -15,12 +16,14 @@ pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was 
                                         or when there is no default public network to connect to. \
                                         During these times you must specify a --testnet-dir.";
 
+pub const FLAG_HEADER: &str = "Flags";
+
 /// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
 /// Returns the default hardcoded testnet if neither flags are set.
 pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {
-    let optional_network_config = if cli_args.is_present("network") {
+    let optional_network_config = if cli_args.contains_id("network") {
         parse_hardcoded_network(cli_args, "network")?
-    } else if cli_args.is_present("testnet-dir") {
+    } else if cli_args.contains_id("testnet-dir") {
         parse_testnet_dir(cli_args, "testnet-dir")?
     } else {
         // if neither is present, assume the default network
@@ -92,7 +95,7 @@ pub fn parse_path_with_default_in_home_dir(
     default: PathBuf,
 ) -> Result<PathBuf, String> {
     matches
-        .value_of(name)
+        .get_one::<String>(name)
         .map(|dir| {
             dir.parse::<PathBuf>()
                 .map_err(|e| format!("Unable to parse {}: {}", name, e))
@@ -122,7 +125,8 @@ where
     <T as FromStr>::Err: std::fmt::Display,
 {
     matches
-        .value_of(name)
+        .try_get_one::<String>(name)
+        .map_err(|e| format!("Unable to parse {}: {}", name, e))?
         .map(|val| {
             val.parse()
                 .map_err(|e| format!("Unable to parse {}: {}", name, e))
@@ -150,7 +154,7 @@ pub fn parse_ssz_optional<T: Decode>(
     name: &'static str,
 ) -> Result<Option<T>, String> {
     matches
-        .value_of(name)
+        .get_one::<String>(name)
         .map(|val| {
             if let Some(stripped) = val.strip_prefix("0x") {
                 let vec = hex::decode(stripped)
@@ -189,4 +193,16 @@ where
             .map_err(|e| format!("Error serializing config: {:?}", e))?;
     }
     Ok(())
+}
+
+pub fn get_color_style() -> Styles {
+    Styles::styled()
+        .header(AnsiColor::Yellow.on_default())
+        .usage(AnsiColor::Green.on_default())
+        .literal(AnsiColor::Green.on_default())
+        .placeholder(AnsiColor::Green.on_default())
+}
+
+pub fn parse_flag(matches: &ArgMatches, name: &str) -> bool {
+    *matches.get_one::<bool>(name).unwrap_or(&false)
 }

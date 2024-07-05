@@ -2,6 +2,7 @@ use crate::test_utils::TestRandom;
 use crate::*;
 use derivative::Derivative;
 use merkle_proof::{MerkleTree, MerkleTreeError};
+use metastruct::metastruct;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
@@ -50,6 +51,14 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
         ),
         arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
     ),
+    specific_variant_attributes(
+        Base(metastruct(mappings(beacon_block_body_base_fields(groups(fields))))),
+        Altair(metastruct(mappings(beacon_block_body_altair_fields(groups(fields))))),
+        Bellatrix(metastruct(mappings(beacon_block_body_bellatrix_fields(groups(fields))))),
+        Capella(metastruct(mappings(beacon_block_body_capella_fields(groups(fields))))),
+        Deneb(metastruct(mappings(beacon_block_body_deneb_fields(groups(fields))))),
+        Electra(metastruct(mappings(beacon_block_body_electra_fields(groups(fields))))),
+    ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
@@ -63,8 +72,21 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     pub eth1_data: Eth1Data,
     pub graffiti: Graffiti,
     pub proposer_slashings: VariableList<ProposerSlashing, E::MaxProposerSlashings>,
-    pub attester_slashings: VariableList<AttesterSlashing<E>, E::MaxAttesterSlashings>,
-    pub attestations: VariableList<Attestation<E>, E::MaxAttestations>,
+    #[superstruct(
+        only(Base, Altair, Bellatrix, Capella, Deneb),
+        partial_getter(rename = "attester_slashings_base")
+    )]
+    pub attester_slashings: VariableList<AttesterSlashingBase<E>, E::MaxAttesterSlashings>,
+    #[superstruct(only(Electra), partial_getter(rename = "attester_slashings_electra"))]
+    pub attester_slashings:
+        VariableList<AttesterSlashingElectra<E>, E::MaxAttesterSlashingsElectra>,
+    #[superstruct(
+        only(Base, Altair, Bellatrix, Capella, Deneb),
+        partial_getter(rename = "attestations_base")
+    )]
+    pub attestations: VariableList<AttestationBase<E>, E::MaxAttestations>,
+    #[superstruct(only(Electra), partial_getter(rename = "attestations_electra"))]
+    pub attestations: VariableList<AttestationElectra<E>, E::MaxAttestationsElectra>,
     pub deposits: VariableList<Deposit, E::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, E::MaxVoluntaryExits>,
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
@@ -92,7 +114,10 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
         VariableList<SignedBlsToExecutionChange, E::MaxBlsToExecutionChanges>,
     #[superstruct(only(Deneb, Electra))]
     pub blob_kzg_commitments: KzgCommitments<E>,
+    #[superstruct(only(Electra))]
+    pub consolidations: VariableList<SignedConsolidation, E::MaxConsolidations>,
     #[superstruct(only(Base, Altair))]
+    #[metastruct(exclude_from(fields))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[serde(skip)]
@@ -117,144 +142,187 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         }
     }
 
+    fn body_merkle_leaves(&self) -> Vec<Hash256> {
+        let mut leaves = vec![];
+        match self {
+            Self::Base(body) => {
+                beacon_block_body_base_fields!(body, |_, field| leaves
+                    .push(field.tree_hash_root()));
+            }
+            Self::Altair(body) => {
+                beacon_block_body_altair_fields!(body, |_, field| leaves
+                    .push(field.tree_hash_root()));
+            }
+            Self::Bellatrix(body) => {
+                beacon_block_body_bellatrix_fields!(body, |_, field| leaves
+                    .push(field.tree_hash_root()));
+            }
+            Self::Capella(body) => {
+                beacon_block_body_capella_fields!(body, |_, field| leaves
+                    .push(field.tree_hash_root()));
+            }
+            Self::Deneb(body) => {
+                beacon_block_body_deneb_fields!(body, |_, field| leaves
+                    .push(field.tree_hash_root()));
+            }
+            Self::Electra(body) => {
+                beacon_block_body_electra_fields!(body, |_, field| leaves
+                    .push(field.tree_hash_root()));
+            }
+        }
+        leaves
+    }
+
     /// Produces the proof of inclusion for a `KzgCommitment` in `self.blob_kzg_commitments`
     /// at `index`.
     pub fn kzg_commitment_merkle_proof(
         &self,
         index: usize,
     ) -> Result<FixedVector<Hash256, E::KzgCommitmentInclusionProofDepth>, Error> {
-        match self {
-            Self::Base(_) | Self::Altair(_) | Self::Bellatrix(_) | Self::Capella(_) => {
-                Err(Error::IncorrectStateVariant)
-            }
-            Self::Deneb(body) => {
-                // We compute the branches by generating 2 merkle trees:
-                // 1. Merkle tree for the `blob_kzg_commitments` List object
-                // 2. Merkle tree for the `BeaconBlockBody` container
-                // We then merge the branches for both the trees all the way up to the root.
+        // We compute the branches by generating 2 merkle trees:
+        // 1. Merkle tree for the `blob_kzg_commitments` List object
+        // 2. Merkle tree for the `BeaconBlockBody` container
+        // We then merge the branches for both the trees all the way up to the root.
 
-                // Part1 (Branches for the subtree rooted at `blob_kzg_commitments`)
-                //
-                // Branches for `blob_kzg_commitments` without length mix-in
-                let depth = E::max_blob_commitments_per_block()
-                    .next_power_of_two()
-                    .ilog2();
-                let leaves: Vec<_> = body
-                    .blob_kzg_commitments
-                    .iter()
-                    .map(|commitment| commitment.tree_hash_root())
-                    .collect();
-                let tree = MerkleTree::create(&leaves, depth as usize);
-                let (_, mut proof) = tree
-                    .generate_proof(index, depth as usize)
-                    .map_err(Error::MerkleTreeError)?;
+        // Part1 (Branches for the subtree rooted at `blob_kzg_commitments`)
+        //
+        // Branches for `blob_kzg_commitments` without length mix-in
+        let blob_leaves = self
+            .blob_kzg_commitments()?
+            .iter()
+            .map(|commitment| commitment.tree_hash_root())
+            .collect::<Vec<_>>();
+        let depth = E::max_blob_commitments_per_block()
+            .next_power_of_two()
+            .ilog2();
+        let tree = MerkleTree::create(&blob_leaves, depth as usize);
+        let (_, mut proof) = tree
+            .generate_proof(index, depth as usize)
+            .map_err(Error::MerkleTreeError)?;
 
-                // Add the branch corresponding to the length mix-in.
-                let length = body.blob_kzg_commitments.len();
-                let usize_len = std::mem::size_of::<usize>();
-                let mut length_bytes = [0; BYTES_PER_CHUNK];
-                length_bytes
-                    .get_mut(0..usize_len)
-                    .ok_or(Error::MerkleTreeError(MerkleTreeError::PleaseNotifyTheDevs))?
-                    .copy_from_slice(&length.to_le_bytes());
-                let length_root = Hash256::from_slice(length_bytes.as_slice());
-                proof.push(length_root);
+        // Add the branch corresponding to the length mix-in.
+        let length = blob_leaves.len();
+        let usize_len = std::mem::size_of::<usize>();
+        let mut length_bytes = [0; BYTES_PER_CHUNK];
+        length_bytes
+            .get_mut(0..usize_len)
+            .ok_or(Error::MerkleTreeError(MerkleTreeError::PleaseNotifyTheDevs))?
+            .copy_from_slice(&length.to_le_bytes());
+        let length_root = Hash256::from_slice(length_bytes.as_slice());
+        proof.push(length_root);
 
-                // Part 2
-                // Branches for `BeaconBlockBody` container
-                let leaves = [
-                    body.randao_reveal.tree_hash_root(),
-                    body.eth1_data.tree_hash_root(),
-                    body.graffiti.tree_hash_root(),
-                    body.proposer_slashings.tree_hash_root(),
-                    body.attester_slashings.tree_hash_root(),
-                    body.attestations.tree_hash_root(),
-                    body.deposits.tree_hash_root(),
-                    body.voluntary_exits.tree_hash_root(),
-                    body.sync_aggregate.tree_hash_root(),
-                    body.execution_payload.tree_hash_root(),
-                    body.bls_to_execution_changes.tree_hash_root(),
-                    body.blob_kzg_commitments.tree_hash_root(),
-                ];
-                let beacon_block_body_depth = leaves.len().next_power_of_two().ilog2() as usize;
-                let tree = MerkleTree::create(&leaves, beacon_block_body_depth);
-                let (_, mut proof_body) = tree
-                    .generate_proof(BLOB_KZG_COMMITMENTS_INDEX, beacon_block_body_depth)
-                    .map_err(Error::MerkleTreeError)?;
-                // Join the proofs for the subtree and the main tree
-                proof.append(&mut proof_body);
+        // Part 2
+        // Branches for `BeaconBlockBody` container
+        let body_leaves = self.body_merkle_leaves();
+        let beacon_block_body_depth = body_leaves.len().next_power_of_two().ilog2() as usize;
+        let tree = MerkleTree::create(&body_leaves, beacon_block_body_depth);
+        let (_, mut proof_body) = tree
+            .generate_proof(BLOB_KZG_COMMITMENTS_INDEX, beacon_block_body_depth)
+            .map_err(Error::MerkleTreeError)?;
+        // Join the proofs for the subtree and the main tree
+        proof.append(&mut proof_body);
+        debug_assert_eq!(proof.len(), E::kzg_proof_inclusion_proof_depth());
 
-                debug_assert_eq!(proof.len(), E::kzg_proof_inclusion_proof_depth());
-                Ok(proof.into())
-            }
-            // TODO(electra): De-duplicate proof computation.
-            Self::Electra(body) => {
-                // We compute the branches by generating 2 merkle trees:
-                // 1. Merkle tree for the `blob_kzg_commitments` List object
-                // 2. Merkle tree for the `BeaconBlockBody` container
-                // We then merge the branches for both the trees all the way up to the root.
-
-                // Part1 (Branches for the subtree rooted at `blob_kzg_commitments`)
-                //
-                // Branches for `blob_kzg_commitments` without length mix-in
-                let depth = E::max_blob_commitments_per_block()
-                    .next_power_of_two()
-                    .ilog2();
-                let leaves: Vec<_> = body
-                    .blob_kzg_commitments
-                    .iter()
-                    .map(|commitment| commitment.tree_hash_root())
-                    .collect();
-                let tree = MerkleTree::create(&leaves, depth as usize);
-                let (_, mut proof) = tree
-                    .generate_proof(index, depth as usize)
-                    .map_err(Error::MerkleTreeError)?;
-
-                // Add the branch corresponding to the length mix-in.
-                let length = body.blob_kzg_commitments.len();
-                let usize_len = std::mem::size_of::<usize>();
-                let mut length_bytes = [0; BYTES_PER_CHUNK];
-                length_bytes
-                    .get_mut(0..usize_len)
-                    .ok_or(Error::MerkleTreeError(MerkleTreeError::PleaseNotifyTheDevs))?
-                    .copy_from_slice(&length.to_le_bytes());
-                let length_root = Hash256::from_slice(length_bytes.as_slice());
-                proof.push(length_root);
-
-                // Part 2
-                // Branches for `BeaconBlockBody` container
-                let leaves = [
-                    body.randao_reveal.tree_hash_root(),
-                    body.eth1_data.tree_hash_root(),
-                    body.graffiti.tree_hash_root(),
-                    body.proposer_slashings.tree_hash_root(),
-                    body.attester_slashings.tree_hash_root(),
-                    body.attestations.tree_hash_root(),
-                    body.deposits.tree_hash_root(),
-                    body.voluntary_exits.tree_hash_root(),
-                    body.sync_aggregate.tree_hash_root(),
-                    body.execution_payload.tree_hash_root(),
-                    body.bls_to_execution_changes.tree_hash_root(),
-                    body.blob_kzg_commitments.tree_hash_root(),
-                ];
-                let beacon_block_body_depth = leaves.len().next_power_of_two().ilog2() as usize;
-                let tree = MerkleTree::create(&leaves, beacon_block_body_depth);
-                let (_, mut proof_body) = tree
-                    .generate_proof(BLOB_KZG_COMMITMENTS_INDEX, beacon_block_body_depth)
-                    .map_err(Error::MerkleTreeError)?;
-                // Join the proofs for the subtree and the main tree
-                proof.append(&mut proof_body);
-
-                debug_assert_eq!(proof.len(), E::kzg_proof_inclusion_proof_depth());
-                Ok(proof.into())
-            }
-        }
+        Ok(proof.into())
     }
 
     /// Return `true` if this block body has a non-zero number of blobs.
     pub fn has_blobs(self) -> bool {
         self.blob_kzg_commitments()
             .map_or(false, |blobs| !blobs.is_empty())
+    }
+
+    pub fn attestations_len(&self) -> usize {
+        match self {
+            Self::Base(body) => body.attestations.len(),
+            Self::Altair(body) => body.attestations.len(),
+            Self::Bellatrix(body) => body.attestations.len(),
+            Self::Capella(body) => body.attestations.len(),
+            Self::Deneb(body) => body.attestations.len(),
+            Self::Electra(body) => body.attestations.len(),
+        }
+    }
+
+    pub fn attester_slashings_len(&self) -> usize {
+        match self {
+            Self::Base(body) => body.attester_slashings.len(),
+            Self::Altair(body) => body.attester_slashings.len(),
+            Self::Bellatrix(body) => body.attester_slashings.len(),
+            Self::Capella(body) => body.attester_slashings.len(),
+            Self::Deneb(body) => body.attester_slashings.len(),
+            Self::Electra(body) => body.attester_slashings.len(),
+        }
+    }
+
+    pub fn attestations(&self) -> Box<dyn Iterator<Item = AttestationRef<'a, E>> + 'a> {
+        match self {
+            Self::Base(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
+            Self::Altair(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
+            Self::Bellatrix(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
+            Self::Capella(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
+            Self::Deneb(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
+            Self::Electra(body) => Box::new(body.attestations.iter().map(AttestationRef::Electra)),
+        }
+    }
+
+    pub fn attester_slashings(&self) -> Box<dyn Iterator<Item = AttesterSlashingRef<'a, E>> + 'a> {
+        match self {
+            Self::Base(body) => Box::new(
+                body.attester_slashings
+                    .iter()
+                    .map(AttesterSlashingRef::Base),
+            ),
+            Self::Altair(body) => Box::new(
+                body.attester_slashings
+                    .iter()
+                    .map(AttesterSlashingRef::Base),
+            ),
+            Self::Bellatrix(body) => Box::new(
+                body.attester_slashings
+                    .iter()
+                    .map(AttesterSlashingRef::Base),
+            ),
+            Self::Capella(body) => Box::new(
+                body.attester_slashings
+                    .iter()
+                    .map(AttesterSlashingRef::Base),
+            ),
+            Self::Deneb(body) => Box::new(
+                body.attester_slashings
+                    .iter()
+                    .map(AttesterSlashingRef::Base),
+            ),
+            Self::Electra(body) => Box::new(
+                body.attester_slashings
+                    .iter()
+                    .map(AttesterSlashingRef::Electra),
+            ),
+        }
+    }
+}
+
+impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, E, Payload> {
+    pub fn attestations_mut(
+        &'a mut self,
+    ) -> Box<dyn Iterator<Item = AttestationRefMut<'a, E>> + 'a> {
+        match self {
+            Self::Base(body) => Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base)),
+            Self::Altair(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base))
+            }
+            Self::Bellatrix(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base))
+            }
+            Self::Capella(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base))
+            }
+            Self::Deneb(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base))
+            }
+            Self::Electra(body) => {
+                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Electra))
+            }
+        }
     }
 }
 
@@ -556,6 +624,7 @@ impl<E: EthSpec> From<BeaconBlockBodyElectra<E, FullPayload<E>>>
             execution_payload: FullPayloadElectra { execution_payload },
             bls_to_execution_changes,
             blob_kzg_commitments,
+            consolidations,
         } = body;
 
         (
@@ -574,6 +643,7 @@ impl<E: EthSpec> From<BeaconBlockBodyElectra<E, FullPayload<E>>>
                 },
                 bls_to_execution_changes,
                 blob_kzg_commitments: blob_kzg_commitments.clone(),
+                consolidations,
             },
             Some(execution_payload),
         )
@@ -712,6 +782,7 @@ impl<E: EthSpec> BeaconBlockBodyElectra<E, FullPayload<E>> {
             execution_payload: FullPayloadElectra { execution_payload },
             bls_to_execution_changes,
             blob_kzg_commitments,
+            consolidations,
         } = self;
 
         BeaconBlockBodyElectra {
@@ -729,6 +800,7 @@ impl<E: EthSpec> BeaconBlockBodyElectra<E, FullPayload<E>> {
             },
             bls_to_execution_changes: bls_to_execution_changes.clone(),
             blob_kzg_commitments: blob_kzg_commitments.clone(),
+            consolidations: consolidations.clone(),
         }
     }
 }
@@ -748,6 +820,11 @@ impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
 }
 
 impl<E: EthSpec> BeaconBlockBody<E> {
+    /// Returns the name of the fork pertaining to `self`.
+    pub fn fork_name(&self) -> ForkName {
+        self.to_ref().fork_name()
+    }
+
     pub fn block_body_merkle_proof(&self, generalized_index: usize) -> Result<Vec<Hash256>, Error> {
         let field_index = match generalized_index {
             light_client_update::EXECUTION_PAYLOAD_INDEX => {
@@ -762,13 +839,25 @@ impl<E: EthSpec> BeaconBlockBody<E> {
             _ => return Err(Error::IndexNotSupported(generalized_index)),
         };
 
+        let attestations_root = if self.fork_name() > ForkName::Electra {
+            self.attestations_electra()?.tree_hash_root()
+        } else {
+            self.attestations_base()?.tree_hash_root()
+        };
+
+        let attester_slashings_root = if self.fork_name() > ForkName::Electra {
+            self.attester_slashings_electra()?.tree_hash_root()
+        } else {
+            self.attester_slashings_base()?.tree_hash_root()
+        };
+
         let mut leaves = vec![
             self.randao_reveal().tree_hash_root(),
             self.eth1_data().tree_hash_root(),
             self.graffiti().tree_hash_root(),
             self.proposer_slashings().tree_hash_root(),
-            self.attester_slashings().tree_hash_root(),
-            self.attestations().tree_hash_root(),
+            attester_slashings_root,
+            attestations_root,
             self.deposits().tree_hash_root(),
             self.voluntary_exits().tree_hash_root(),
         ];

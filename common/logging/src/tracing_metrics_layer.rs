@@ -1,5 +1,6 @@
 //! Exposes [`MetricsLayer`]: A tracing layer that registers metrics of logging events.
 
+use lazy_static::lazy_static;
 use lighthouse_metrics as metrics;
 use tracing_log::NormalizeEvent;
 

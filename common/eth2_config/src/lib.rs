@@ -192,7 +192,11 @@ macro_rules! define_net {
             config_dir: ETH2_NET_DIR.config_dir,
             genesis_state_source: ETH2_NET_DIR.genesis_state_source,
             config: $this_crate::$include_file!($this_crate, "../", "config.yaml"),
-            deploy_block: $this_crate::$include_file!($this_crate, "../", "deploy_block.txt"),
+            deploy_block: $this_crate::$include_file!(
+                $this_crate,
+                "../",
+                "deposit_contract_block.txt"
+            ),
             boot_enr: $this_crate::$include_file!($this_crate, "../", "boot_enr.yaml"),
             genesis_state_bytes: $this_crate::$include_file!($this_crate, "../", "genesis.ssz"),
         }
@@ -281,26 +285,6 @@ define_hardcoded_nets!(
         // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         "mainnet",
-        // Describes how the genesis state can be obtained.
-        GenesisStateSource::IncludedBytes
-    ),
-    (
-        // Network name (must be unique among all networks).
-        prater,
-        // The name of the directory in the `eth2_network_config/built_in_network_configs`
-        // directory where the configuration files are located for this network.
-        "prater",
-        // Describes how the genesis state can be obtained.
-        GenesisStateSource::IncludedBytes
-    ),
-    (
-        // Network name (must be unique among all networks).
-        goerli,
-        // The name of the directory in the `eth2_network_config/built_in_network_configs`
-        // directory where the configuration files are located for this network.
-        //
-        // The Goerli network is effectively an alias to Prater.
-        "prater",
         // Describes how the genesis state can be obtained.
         GenesisStateSource::IncludedBytes
     ),

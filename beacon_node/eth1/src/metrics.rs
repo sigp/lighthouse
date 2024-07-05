@@ -1,5 +1,7 @@
 pub use lighthouse_metrics::*;
 
+use lazy_static::lazy_static;
+
 lazy_static! {
     /*
      * Eth1 blocks
