@@ -41,6 +41,7 @@ impl<E: EthSpec> Case for LightClientVerifyIsBetterUpdate<E> {
         let spec = fork_name.make_genesis_spec(E::default_spec());
         for (i, ith_light_client_update) in self.light_client_updates.iter().enumerate() {
             for (j, jth_light_client_update) in self.light_client_updates.iter().enumerate() {
+                eprintln!("{i} {j}");
                 if i == j {
                     continue;
                 }
