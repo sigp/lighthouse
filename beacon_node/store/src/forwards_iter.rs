@@ -63,8 +63,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(SimpleForwardsIterator { values })
     }
 
-    /// Compute the maximum /slot (exclusive)
-    fn freezer_upper_bound_for_column(
+    /// Values in `column` are available in the range `start_slot..upper_bound`.
+    ///
+    /// If `None` is returned then no values are available from `start_slot` due to pruning or
+    /// incomplete backfill.
+    pub fn freezer_upper_bound_for_column(
         &self,
         column: DBColumn,
         start_slot: Slot,
@@ -80,12 +83,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     fn freezer_upper_bound_for_block_roots(&self, start_slot: Slot) -> Option<Slot> {
         let oldest_block_slot = self.get_oldest_block_slot();
-        if start_slot == 0 {
-            // Slot 0 block root is always available.
-            Some(Slot::new(1))
-        } else if start_slot < oldest_block_slot {
-            // Non-zero block roots are not available prior to the `oldest_block_slot`.
-            None
+        if start_slot < oldest_block_slot {
+            if start_slot == 0 {
+                // Slot 0 block root is always available.
+                Some(Slot::new(1))
+                // Non-zero block roots are not available prior to the `oldest_block_slot`.
+            } else {
+                None
+            }
         } else {
             // Block roots are stored for all slots up to the split slot (exclusive).
             Some(self.get_split_slot())
