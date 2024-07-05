@@ -313,8 +313,7 @@ pub struct Behaviour<D = IdentityTransform, F = AllowAllSubscriptionFilter> {
     /// discovery and not by PX).
     outbound_peers: HashSet<PeerId>,
 
-    /// Stores optional peer score data together with thresholds, decay interval and gossip
-    /// promises.
+    /// Stores optional peer score data together with thresholds and decay interval.
     peer_score: Option<(PeerScore, PeerScoreThresholds, Ticker)>,
 
     /// Counts the number of `IHAVE` received from each peer since the last heartbeat.
@@ -2493,7 +2492,7 @@ where
         }
         self.failed_messages.shrink_to_fit();
 
-        // Clear stale IDONTWANTs.
+        // Flush stale IDONTWANTs.
         for peer in self.connected_peers.values_mut() {
             while let Some((_front, instant)) = peer.dont_send.front() {
                 if (*instant + IDONTWANT_TIMEOUT) >= Instant::now() {
