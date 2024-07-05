@@ -158,7 +158,7 @@ slog = { version = "2", features = ["max_level_trace", "release_max_level_trace"
 slog-async = "2"
 slog-term = "2"
 sloggers = { version = "2", features = ["json"] }
-smallvec = "1.11.2"
+smallvec = { version = "1.11.2", features = ["arbitrary"] }
 snap = "1"
 ssz_types = "0.6"
 strum = { version = "0.24", features = ["derive"] }

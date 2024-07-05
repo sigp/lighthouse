@@ -483,7 +483,7 @@ where
     #[superstruct(only(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
-    pub deposit_receipts_start_index: u64,
+    pub deposit_requests_start_index: u64,
     #[superstruct(only(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]

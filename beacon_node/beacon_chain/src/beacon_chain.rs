@@ -114,7 +114,7 @@ use std::collections::HashSet;
 use std::io::prelude::*;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
     DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
@@ -1411,10 +1411,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )
                 }
 
-                let start_slot = head_state.slot();
-                let task_start = Instant::now();
-                let max_task_runtime = Duration::from_secs(self.spec.seconds_per_slot);
-
                 let head_state_slot = head_state.slot();
                 let mut state = head_state;
 
@@ -1424,18 +1420,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 };
 
                 while state.slot() < slot {
-                    // Do not allow and forward state skip that takes longer than the maximum task duration.
-                    //
-                    // This is a protection against nodes doing too much work when they're not synced
-                    // to a chain.
-                    if task_start + max_task_runtime < Instant::now() {
-                        return Err(Error::StateSkipTooLarge {
-                            start_slot,
-                            requested_slot: slot,
-                            max_task_runtime,
-                        });
-                    }
-
                     // Note: supplying some `state_root` when it is known would be a cheap and easy
                     // optimization.
                     match per_slot_processing(&mut state, skip_state_root, &self.spec) {

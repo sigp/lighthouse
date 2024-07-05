@@ -7,17 +7,17 @@ use crate::per_block_processing::{
     verify_proposer_slashing,
 };
 use crate::VerifySignatures;
+use arbitrary::Arbitrary;
 use derivative::Derivative;
 use smallvec::{smallvec, SmallVec};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
+use test_random_derive::TestRandom;
 use types::{
-    AttesterSlashing, AttesterSlashingBase, AttesterSlashingOnDisk, AttesterSlashingRefOnDisk,
-};
-use types::{
-    BeaconState, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, ProposerSlashing,
-    SignedBlsToExecutionChange, SignedVoluntaryExit,
+    test_utils::TestRandom, AttesterSlashing, AttesterSlashingBase, AttesterSlashingOnDisk,
+    AttesterSlashingRefOnDisk, BeaconState, ChainSpec, Epoch, EthSpec, Fork, ForkVersion,
+    ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit,
 };
 
 const MAX_FORKS_VERIFIED_AGAINST: usize = 2;
@@ -39,12 +39,13 @@ pub trait TransformPersist {
 ///
 /// The inner `op` field is private, meaning instances of this type can only be constructed
 /// by calling `validate`.
-#[derive(Derivative, Debug, Clone)]
+#[derive(Derivative, Debug, Clone, Arbitrary)]
 #[derivative(
     PartialEq,
     Eq,
     Hash(bound = "T: TransformPersist + std::hash::Hash, E: EthSpec")
 )]
+#[arbitrary(bound = "T: TransformPersist + Arbitrary<'arbitrary>, E: EthSpec")]
 pub struct SigVerifiedOp<T: TransformPersist, E: EthSpec> {
     op: T,
     verified_against: VerifiedAgainst,
@@ -53,90 +54,66 @@ pub struct SigVerifiedOp<T: TransformPersist, E: EthSpec> {
 
 impl<T: TransformPersist, E: EthSpec> Encode for SigVerifiedOp<T, E> {
     fn is_ssz_fixed_len() -> bool {
-        <T::Persistable as Encode>::is_ssz_fixed_len()
-            && <VerifiedAgainst as Encode>::is_ssz_fixed_len()
+        <SigVerifiedOpEncode<T::Persistable> as Encode>::is_ssz_fixed_len()
     }
 
-    #[allow(clippy::expect_used)]
     fn ssz_fixed_len() -> usize {
-        if <Self as Encode>::is_ssz_fixed_len() {
-            <T::Persistable as Encode>::ssz_fixed_len()
-                .checked_add(<VerifiedAgainst as Encode>::ssz_fixed_len())
-                .expect("encode ssz_fixed_len length overflow")
-        } else {
-            ssz::BYTES_PER_LENGTH_OFFSET
-        }
-    }
-
-    #[allow(clippy::expect_used)]
-    fn ssz_bytes_len(&self) -> usize {
-        if <Self as Encode>::is_ssz_fixed_len() {
-            <Self as Encode>::ssz_fixed_len()
-        } else {
-            let persistable = self.op.as_persistable_ref();
-            persistable
-                .ssz_bytes_len()
-                .checked_add(self.verified_against.ssz_bytes_len())
-                .expect("ssz_bytes_len length overflow")
-        }
+        <SigVerifiedOpEncode<T::Persistable> as Encode>::ssz_fixed_len()
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        let mut encoder = ssz::SszEncoder::container(buf, <Self as Encode>::ssz_fixed_len());
-        let persistable = self.op.as_persistable_ref();
-        encoder.append(&persistable);
-        encoder.append(&self.verified_against);
-        encoder.finalize();
+        let persistable_ref = self.op.as_persistable_ref();
+        SigVerifiedOpEncode {
+            op: persistable_ref,
+            verified_against: &self.verified_against,
+        }
+        .ssz_append(buf)
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        let persistable_ref = self.op.as_persistable_ref();
+        SigVerifiedOpEncode {
+            op: persistable_ref,
+            verified_against: &self.verified_against,
+        }
+        .ssz_bytes_len()
     }
 }
 
 impl<T: TransformPersist, E: EthSpec> Decode for SigVerifiedOp<T, E> {
     fn is_ssz_fixed_len() -> bool {
-        <T::Persistable as Decode>::is_ssz_fixed_len()
-            && <VerifiedAgainst as Decode>::is_ssz_fixed_len()
+        <SigVerifiedOpDecode<T::Persistable> as Decode>::is_ssz_fixed_len()
     }
 
-    #[allow(clippy::expect_used)]
     fn ssz_fixed_len() -> usize {
-        if <Self as Decode>::is_ssz_fixed_len() {
-            <T::Persistable as Decode>::ssz_fixed_len()
-                .checked_add(<VerifiedAgainst as Decode>::ssz_fixed_len())
-                .expect("decode ssz_fixed_len length overflow")
-        } else {
-            ssz::BYTES_PER_LENGTH_OFFSET
-        }
+        <SigVerifiedOpDecode<T::Persistable> as Decode>::ssz_fixed_len()
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        let mut builder = ssz::SszDecoderBuilder::new(bytes);
-
-        // Register types based on whether they are fixed or variable length
-        if <T::Persistable as Decode>::is_ssz_fixed_len() {
-            builder.register_type::<T::Persistable>()?;
-        } else {
-            builder.register_anonymous_variable_length_item()?;
-        }
-
-        if <VerifiedAgainst as Decode>::is_ssz_fixed_len() {
-            builder.register_type::<VerifiedAgainst>()?;
-        } else {
-            builder.register_anonymous_variable_length_item()?;
-        }
-
-        let mut decoder = builder.build()?;
-        // Decode each component
-        let persistable: T::Persistable = decoder.decode_next()?;
-        let verified_against: VerifiedAgainst = decoder.decode_next()?;
-
-        // Use TransformPersist to convert persistable back into the original type
-        let op = T::from_persistable(persistable);
-
+        let on_disk = SigVerifiedOpDecode::<T::Persistable>::from_ssz_bytes(bytes)?;
         Ok(SigVerifiedOp {
-            op,
-            verified_against,
+            op: T::from_persistable(on_disk.op),
+            verified_against: on_disk.verified_against,
             _phantom: PhantomData,
         })
     }
+}
+
+/// On-disk variant of `SigVerifiedOp` that implements `Encode`.
+///
+/// We use separate types for Encode and Decode so we can efficiently handle references: the Encode
+/// type contains references, while the Decode type does not.
+#[derive(Debug, Encode)]
+struct SigVerifiedOpEncode<'a, P: Encode> {
+    op: P,
+    verified_against: &'a VerifiedAgainst,
+}
+
+/// On-disk variant of `SigVerifiedOp` that implements `Encode`.
+#[derive(Debug, Decode)]
+struct SigVerifiedOpDecode<P: Decode> {
+    op: P,
+    verified_against: VerifiedAgainst,
 }
 
 /// Information about the fork versions that this message was verified against.
@@ -156,7 +133,7 @@ impl<T: TransformPersist, E: EthSpec> Decode for SigVerifiedOp<T, E> {
 ///
 /// We need to store multiple `ForkVersion`s because attester slashings contain two indexed
 /// attestations which may be signed using different versions.
-#[derive(Debug, PartialEq, Eq, Clone, Hash, Encode, Decode)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash, Encode, Decode, TestRandom, Arbitrary)]
 pub struct VerifiedAgainst {
     fork_versions: SmallVec<[ForkVersion; MAX_FORKS_VERIFIED_AGAINST]>,
 }
@@ -433,5 +410,58 @@ impl TransformPersist for SignedBlsToExecutionChange {
 
     fn from_persistable(persistable: Self::Persistable) -> Self {
         persistable
+    }
+}
+
+#[cfg(all(test, not(debug_assertions)))]
+mod test {
+    use super::*;
+    use types::{
+        test_utils::{SeedableRng, TestRandom, XorShiftRng},
+        MainnetEthSpec,
+    };
+
+    type E = MainnetEthSpec;
+
+    fn roundtrip_test<T: TestRandom + TransformPersist + PartialEq + std::fmt::Debug>() {
+        let runs = 10;
+        let mut rng = XorShiftRng::seed_from_u64(0xff0af5a356af1123);
+
+        for _ in 0..runs {
+            let op = T::random_for_test(&mut rng);
+            let verified_against = VerifiedAgainst::random_for_test(&mut rng);
+
+            let verified_op = SigVerifiedOp {
+                op,
+                verified_against,
+                _phantom: PhantomData::<E>,
+            };
+
+            let serialized = verified_op.as_ssz_bytes();
+            let deserialized = SigVerifiedOp::from_ssz_bytes(&serialized).unwrap();
+            let reserialized = deserialized.as_ssz_bytes();
+            assert_eq!(verified_op, deserialized);
+            assert_eq!(serialized, reserialized);
+        }
+    }
+
+    #[test]
+    fn sig_verified_op_exit_roundtrip() {
+        roundtrip_test::<SignedVoluntaryExit>();
+    }
+
+    #[test]
+    fn proposer_slashing_roundtrip() {
+        roundtrip_test::<ProposerSlashing>();
+    }
+
+    #[test]
+    fn attester_slashing_roundtrip() {
+        roundtrip_test::<AttesterSlashing<E>>();
+    }
+
+    #[test]
+    fn bls_to_execution_roundtrip() {
+        roundtrip_test::<SignedBlsToExecutionChange>();
     }
 }
