@@ -78,6 +78,7 @@ pub enum Error {
     ForwardsIterInvalidColumn(DBColumn),
     ForwardsIterGap(DBColumn, Slot, Slot),
     ForwardsIterBadStart(DBColumn, Slot),
+    StateShouldNotBeRequired(Slot),
     MissingBlock(Hash256),
 }
 

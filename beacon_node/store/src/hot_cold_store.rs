@@ -1465,7 +1465,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // Include state root for base state as it is required by block processing.
         let state_root_iter =
             self.forwards_state_roots_iterator_until(base_state.slot(), slot, || {
-                panic!("FIXME(sproul): unreachable state root iter miss")
+                Err(Error::StateShouldNotBeRequired(slot))
             })?;
 
         self.replay_blocks(base_state, blocks, slot, Some(state_root_iter), None)
@@ -1564,7 +1564,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<Vec<SignedBlindedBeaconBlock<E>>, Error> {
         let block_root_iter =
             self.forwards_block_roots_iterator_until(start_slot, end_slot, || {
-                panic!("FIXME(sproul): error here")
+                Err(Error::StateShouldNotBeRequired(end_slot))
             })?;
         process_results(block_root_iter, |iter| {
             iter.map(|(block_root, _slot)| block_root)
