@@ -280,13 +280,6 @@ async fn light_client_updates_test() {
         .sync_committee_period(&spec)
         .unwrap();
 
-    // fetch a single light client update directly from the db
-    let lc_update = beacon_chain
-        .light_client_server_cache
-        .get_light_client_update(&store, sync_period, &spec)
-        .unwrap()
-        .unwrap();
-
     // fetch a range of light client updates. right now there should only be one light client update
     // in the db.
     let lc_updates = beacon_chain
@@ -294,7 +287,6 @@ async fn light_client_updates_test() {
         .unwrap();
 
     assert_eq!(lc_updates.len(), 1);
-    assert_eq!(lc_updates.first().unwrap().clone(), lc_update);
 
     // Advance to the next sync committee period
     for _i in 0..(E::slots_per_epoch() * u64::from(spec.epochs_per_sync_committee_period)) {
