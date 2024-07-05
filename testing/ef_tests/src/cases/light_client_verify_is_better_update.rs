@@ -1,7 +1,7 @@
 use super::*;
 use decode::ssz_decode_light_client_update;
 use serde::Deserialize;
-use types::LightClientUpdate;
+use types::{LightClientUpdate, Slot};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -49,14 +49,61 @@ impl<E: EthSpec> Case for LightClientVerifyIsBetterUpdate<E> {
                     .is_better_light_client_update(jth_light_client_update, &spec)
                     .unwrap();
 
-                if (is_better_update && (i < j)) || (!is_better_update && (i > j)) {
-                    return Err(Error::FailedComparison(
-                        format!("Light client update at index {} should not be considered a better update than the light client update at index {}", i, j)
-                    ));
+                let ith_summary =
+                    LightClientUpdateSummary::from_update(ith_light_client_update, &spec);
+                let jth_summary =
+                    LightClientUpdateSummary::from_update(jth_light_client_update, &spec);
+
+                let (best_index, other_index, best_update, other_update, failed) = if i < j {
+                    // i is better, so is_better_update must return false
+                    (i, j, ith_summary, jth_summary, is_better_update)
+                } else {
+                    // j is better, so is_better must return true
+                    (j, i, jth_summary, ith_summary, !is_better_update)
+                };
+
+                if failed {
+                    eprintln!("is_better_update: {is_better_update}");
+                    eprintln!("index {best_index} update {best_update:?}");
+                    eprintln!("index {other_index} update {other_update:?}");
+                    eprintln!(
+                        "update at index {best_index} must be considered better than update at index {other_index}"
+                    );
+                    return Err(Error::FailedComparison(format!(
+                        "update at index {best_index} must be considered better than update at index {other_index}"
+                    )));
                 }
             }
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+struct LightClientUpdateSummary {
+    participants: usize,
+    supermajority: bool,
+    relevant_sync_committee: bool,
+    has_finality: bool,
+    has_sync_committee_finality: bool,
+    header_slot: Slot,
+    signature_slot: Slot,
+}
+
+impl LightClientUpdateSummary {
+    fn from_update<E: EthSpec>(update: &LightClientUpdate<E>, spec: &ChainSpec) -> Self {
+        let max_participants = update.sync_aggregate().sync_committee_bits.len();
+        let participants = update.sync_aggregate().sync_committee_bits.num_set_bits();
+        Self {
+            participants,
+            supermajority: participants * 3 > max_participants * 2,
+            relevant_sync_committee: update.is_sync_committee_update(spec).unwrap(),
+            has_finality: !update.is_finality_branch_empty(),
+            has_sync_committee_finality: update.has_sync_committee_finality(spec).unwrap(),
+            header_slot: update.attested_header_slot(),
+            signature_slot: *update.signature_slot(),
+        }
     }
 }

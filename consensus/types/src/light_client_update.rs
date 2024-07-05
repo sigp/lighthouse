@@ -275,7 +275,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
         Ok(update)
     }
 
-    fn attested_header_slot(&self) -> Slot {
+    pub fn attested_header_slot(&self) -> Slot {
         match self {
             LightClientUpdate::Altair(update) => update.attested_header.beacon.slot,
             LightClientUpdate::Capella(update) => update.attested_header.beacon.slot,
@@ -306,20 +306,17 @@ impl<E: EthSpec> LightClientUpdate<E> {
             .map_err(Error::ArithError)
     }
 
-    fn is_sync_committee_update(&self, chain_spec: &ChainSpec) -> Result<bool, Error> {
-        let new_has_relevant_sync_committee = !self.is_next_sync_committee_branch_empty()
+    pub fn is_sync_committee_update(&self, chain_spec: &ChainSpec) -> Result<bool, Error> {
+        Ok(!self.is_next_sync_committee_branch_empty()
             && (self.attested_header_sync_committee_period(chain_spec)?
-                == self.signature_slot_sync_committee_period(chain_spec)?);
-
-        Ok(new_has_relevant_sync_committee)
+                == self.signature_slot_sync_committee_period(chain_spec)?))
     }
 
-    fn has_sync_committee_finality(&self, chain_spec: &ChainSpec) -> Result<bool, Error> {
-        let has_sync_committee_finality =
+    pub fn has_sync_committee_finality(&self, chain_spec: &ChainSpec) -> Result<bool, Error> {
+        Ok(
             compute_sync_committee_period_at_slot::<E>(self.finalized_header_slot(), chain_spec)?
-                == self.attested_header_sync_committee_period(chain_spec)?;
-
-        Ok(has_sync_committee_finality)
+                == self.attested_header_sync_committee_period(chain_spec)?,
+        )
     }
 
     // Implements spec prioritization rules:
@@ -400,7 +397,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
         true
     }
 
-    fn is_finality_branch_empty(&self) -> bool {
+    pub fn is_finality_branch_empty(&self) -> bool {
         for index in self.finality_branch().iter() {
             if *index != Hash256::default() {
                 return false;
@@ -414,15 +411,8 @@ fn compute_sync_committee_period_at_slot<E: EthSpec>(
     slot: Slot,
     chain_spec: &ChainSpec,
 ) -> Result<Epoch, ArithError> {
-    println!("slot {}", slot);
-    let x = slot
-        .epoch(E::slots_per_epoch())
+    slot.epoch(E::slots_per_epoch())
         .safe_div(chain_spec.epochs_per_sync_committee_period)
-        .unwrap();
-
-    println!("sync comm period {}", x);
-
-    Ok(x)
 }
 
 #[cfg(test)]
