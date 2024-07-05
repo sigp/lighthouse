@@ -257,9 +257,9 @@ pub mod deposit_methods {
         Latest,
     }
 
-    impl Into<u64> for Eth1Id {
-        fn into(self) -> u64 {
-            match self {
+    impl From<Eth1Id> for u64 {
+        fn from(val: Eth1Id) -> Self {
+            match val {
                 Eth1Id::Mainnet => 1,
                 Eth1Id::Custom(id) => id,
             }
