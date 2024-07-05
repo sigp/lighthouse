@@ -30,7 +30,7 @@ If you can see the latest [Lighthouse release](https://github.com/sigp/lighthous
 
 ### Example Version Output
 
-```
+```text
 Lighthouse vx.x.xx-xxxxxxxxx
 BLS Library: xxxx-xxxxxxx
 ```
@@ -49,13 +49,13 @@ compatibility (see [Portability](./installation-binaries.md#portability)).
 
 To install a specific tag (in this case `latest-modern`), add the tag name to your `docker` commands:
 
-```
+```bash
 docker pull sigp/lighthouse:latest-modern
 ```
 
 Image tags follow this format:
 
-```
+```text
 ${version}${arch}${stability}${modernity}${features}
 ```
 
@@ -84,7 +84,6 @@ The `features` is:
 
 * `-dev` for a development build with `minimal` preset enabled (`spec-minimal` feature).
 * empty for a standard build with no custom feature enabled.
-
 
 Examples:
 
@@ -115,7 +114,7 @@ You can run a Docker beacon node with the following command:
 docker run -p 9000:9000/tcp -p 9000:9000/udp -p 9001:9001/udp -p 127.0.0.1:5052:5052 -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse --network mainnet beacon --http --http-address 0.0.0.0
 ```
 
-> To join the Goerli testnet, use `--network goerli` instead.
+> To join the Holesky testnet, use `--network holesky` instead.
 
 > The `-v` (Volumes) and `-p` (Ports) and values are described below.
 

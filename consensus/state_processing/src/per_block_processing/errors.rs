@@ -1,8 +1,6 @@
 use super::signature_sets::Error as SignatureSetError;
-use crate::per_epoch_processing::altair::participation_cache;
 use crate::ContextError;
 use merkle_proof::MerkleTreeError;
-use participation_cache::Error as ParticipationCacheError;
 use safe_arith::ArithError;
 use ssz::DecodeError;
 use types::*;
@@ -84,12 +82,13 @@ pub enum BlockProcessingError {
     },
     ExecutionInvalid,
     ConsensusContext(ContextError),
+    MilhouseError(milhouse::Error),
+    EpochCacheError(EpochCacheError),
     WithdrawalsRootMismatch {
         expected: Hash256,
         found: Hash256,
     },
     WithdrawalCredentialsInvalid,
-    ParticipationCacheError(ParticipationCacheError),
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -134,6 +133,18 @@ impl From<ContextError> for BlockProcessingError {
     }
 }
 
+impl From<EpochCacheError> for BlockProcessingError {
+    fn from(e: EpochCacheError) -> Self {
+        BlockProcessingError::EpochCacheError(e)
+    }
+}
+
+impl From<milhouse::Error> for BlockProcessingError {
+    fn from(e: milhouse::Error) -> Self {
+        Self::MilhouseError(e)
+    }
+}
+
 impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
     fn from(e: BlockOperationError<HeaderInvalid>) -> BlockProcessingError {
         match e {
@@ -144,12 +155,6 @@ impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
             BlockOperationError::ConsensusContext(e) => BlockProcessingError::ConsensusContext(e),
             BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
         }
-    }
-}
-
-impl From<ParticipationCacheError> for BlockProcessingError {
-    fn from(e: ParticipationCacheError) -> Self {
-        BlockProcessingError::ParticipationCacheError(e)
     }
 }
 
@@ -328,9 +333,11 @@ pub enum AttestationInvalid {
     ///
     /// `is_current` is `true` if the attestation was compared to the
     /// `state.current_justified_checkpoint`, `false` if compared to `state.previous_justified_checkpoint`.
+    ///
+    /// Checkpoints have been boxed to keep the error size down and prevent clippy failures.
     WrongJustifiedCheckpoint {
-        state: Checkpoint,
-        attestation: Checkpoint,
+        state: Box<Checkpoint>,
+        attestation: Box<Checkpoint>,
         is_current: bool,
     },
     /// The aggregation bitfield length is not the smallest possible size to represent the committee.

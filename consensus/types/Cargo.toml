@@ -51,9 +51,9 @@ metastruct = "0.1.0"
 serde_json = { workspace = true }
 smallvec = { workspace = true }
 maplit = { workspace = true }
-strum = { workspace = true }
 alloy-rlp = { version = "0.3.4", features = ["derive"] }
-alloy-primitives = "0.6.2"
+milhouse = { workspace = true }
+rpds = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

@@ -9,6 +9,7 @@ particularly useful for development but still a good way to ensure you have the
 base dependencies.
 
 The additional requirements for developers are:
+
 - [`anvil`](https://github.com/foundry-rs/foundry/tree/master/crates/anvil). This is used to
   simulate the execution chain during tests. You'll get failures during tests if you
   don't have `anvil` available on your `PATH`.
@@ -16,11 +17,12 @@ The additional requirements for developers are:
   some dependencies. See [`Installation Guide`](./installation.md) for more info.
 - [`java 17 runtime`](https://openjdk.java.net/projects/jdk/). 17 is the minimum,
   used by web3signer_tests.
-- [`libpq-dev`](https://www.postgresql.org/docs/devel/libpq.html). Also know as
-  `libpq-devel` on some systems. 
+- [`libpq-dev`](https://www.postgresql.org/docs/devel/libpq.html). Also known as
+  `libpq-devel` on some systems.
 - [`docker`](https://www.docker.com/). Some tests need docker installed and **running**.
 
 ## Using `make`
+
 Commands to run the test suite are available via the `Makefile` in the
 project root for the benefit of CI/CD. We list some of these commands below so
 you can run them locally and avoid CI failures:
@@ -31,7 +33,7 @@ you can run them locally and avoid CI failures:
 - `$ make test-ef`: (medium) runs the Ethereum Foundation test vectors.
 - `$ make test-full`: (slow) runs the full test suite (including all previous
   commands). This is approximately everything
-	that is required to pass CI.
+ that is required to pass CI.
 
 _The lighthouse test suite is quite extensive, running the whole suite may take 30+ minutes._
 
@@ -80,6 +82,7 @@ test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 Alternatively, since `lighthouse` is a cargo workspace you can use `-p eth2_ssz` where
 `eth2_ssz` is the package name as defined  `/consensus/ssz/Cargo.toml`
+
 ```bash
 $ head -2 consensus/ssz/Cargo.toml
 [package]
@@ -120,13 +123,14 @@ test src/lib.rs - (line 10) ... ok
 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s$ cargo test -p eth2_ssz
 ```
 
-#### test_logger
+### test_logger
 
 The test_logger, located in `/common/logging/` can be used to create a `Logger` that by
 default returns a NullLogger. But if `--features 'logging/test_logger'` is passed while
 testing the logs are displayed. This can be very helpful while debugging tests.
 
 Example:
+
 ```
 $ cargo test -p beacon_chain validator_pubkey_cache::test::basic_operation --features 'logging/test_logger'
     Finished test [unoptimized + debuginfo] target(s) in 0.20s

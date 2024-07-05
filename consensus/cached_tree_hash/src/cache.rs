@@ -50,7 +50,7 @@ impl TreeHashCache {
     pub fn recalculate_merkle_root(
         &mut self,
         arena: &mut CacheArena,
-        leaves: impl Iterator<Item = [u8; BYTES_PER_CHUNK]> + ExactSizeIterator,
+        leaves: impl ExactSizeIterator<Item = [u8; BYTES_PER_CHUNK]>,
     ) -> Result<Hash256, Error> {
         let dirty_indices = self.update_leaves(arena, leaves)?;
         self.update_merkle_root(arena, dirty_indices)
@@ -60,7 +60,7 @@ impl TreeHashCache {
     pub fn update_leaves(
         &mut self,
         arena: &mut CacheArena,
-        mut leaves: impl Iterator<Item = [u8; BYTES_PER_CHUNK]> + ExactSizeIterator,
+        mut leaves: impl ExactSizeIterator<Item = [u8; BYTES_PER_CHUNK]>,
     ) -> Result<SmallVec8<usize>, Error> {
         let new_leaf_count = leaves.len();
 

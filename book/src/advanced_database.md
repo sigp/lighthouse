@@ -29,7 +29,7 @@ some example values.
 | Enthusiast (prev. default) | 2048 | hundreds of GB    | 10.2 s                |
 | Validator only (default)   | 8192 | tens of GB        | 41 s                  |
 
-*Last update: Dec 2023. 
+*Last update: Dec 2023.
 
 As we can see, it's a high-stakes trade-off! The relationships to disk usage and historical state
 load time are both linear – doubling SPRP halves disk usage and doubles load time. The minimum SPRP
@@ -40,11 +40,11 @@ The default value is 8192 for databases synced from scratch using Lighthouse v2.
 
 The values shown in the table are approximate, calculated using a simple heuristic: each
 `BeaconState` consumes around 145MB of disk space, and each block replayed takes around 5ms.  The
-**Yearly Disk Usage** column shows the approximate size of the freezer DB _alone_ (hot DB not included), calculated proportionally using the total freezer database disk usage. 
+**Yearly Disk Usage** column shows the approximate size of the freezer DB _alone_ (hot DB not included), calculated proportionally using the total freezer database disk usage.
 The **Load Historical State** time is the worst-case load time for a state in the last slot
-before a restore point. 
+before a restore point.
 
-To run a full archival node with fast access to beacon states and a SPRP of 32, the disk usage will be more than 10 TB per year, which is impractical for many users. As such, users may consider running the [tree-states](https://github.com/sigp/lighthouse/releases/tag/v4.5.444-exp) release, which only uses less than 150 GB for a full archival node. The caveat is that it is currently experimental and in alpha release (as of Dec 2023), thus not recommended for running mainnet validators. Nevertheless, it is suitable to be used for analysis purposes, and if you encounter any issues in tree-states, we do appreciate any feedback. We plan to have a stable release of tree-states in 1H 2024.  
+To run a full archival node with fast access to beacon states and a SPRP of 32, the disk usage will be more than 10 TB per year, which is impractical for many users. As such, users may consider running the [tree-states](https://github.com/sigp/lighthouse/releases/tag/v5.0.111-exp) release, which only uses less than 200 GB for a full archival node. The caveat is that it is currently experimental and in alpha release (as of Dec 2023), thus not recommended for running mainnet validators. Nevertheless, it is suitable to be used for analysis purposes, and if you encounter any issues in tree-states, we do appreciate any feedback. We plan to have a stable release of tree-states in 1H 2024.  
 
 ### Defaults
 

@@ -3,7 +3,6 @@ use crate::rpc::Protocol;
 use fnv::FnvHashMap;
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
-use std::convert::TryInto;
 use std::future::Future;
 use std::hash::Hash;
 use std::pin::Pin;
@@ -99,7 +98,11 @@ pub struct RPCRateLimiter {
     /// BlobsByRoot rate limiter.
     blbroot_rl: Limiter<PeerId>,
     /// LightClientBootstrap rate limiter.
-    lcbootstrap_rl: Limiter<PeerId>,
+    lc_bootstrap_rl: Limiter<PeerId>,
+    /// LightClientOptimisticUpdate rate limiter.
+    lc_optimistic_update_rl: Limiter<PeerId>,
+    /// LightClientFinalityUpdate rate limiter.
+    lc_finality_update_rl: Limiter<PeerId>,
 }
 
 /// Error type for non conformant requests
@@ -132,6 +135,10 @@ pub struct RPCRateLimiterBuilder {
     blbroot_quota: Option<Quota>,
     /// Quota for the LightClientBootstrap protocol.
     lcbootstrap_quota: Option<Quota>,
+    /// Quota for the LightClientOptimisticUpdate protocol.
+    lc_optimistic_update_quota: Option<Quota>,
+    /// Quota for the LightClientOptimisticUpdate protocol.
+    lc_finality_update_quota: Option<Quota>,
 }
 
 impl RPCRateLimiterBuilder {
@@ -148,6 +155,8 @@ impl RPCRateLimiterBuilder {
             Protocol::BlobsByRange => self.blbrange_quota = q,
             Protocol::BlobsByRoot => self.blbroot_quota = q,
             Protocol::LightClientBootstrap => self.lcbootstrap_quota = q,
+            Protocol::LightClientOptimisticUpdate => self.lc_optimistic_update_quota = q,
+            Protocol::LightClientFinalityUpdate => self.lc_finality_update_quota = q,
         }
         self
     }
@@ -164,9 +173,15 @@ impl RPCRateLimiterBuilder {
         let bbrange_quota = self
             .bbrange_quota
             .ok_or("BlocksByRange quota not specified")?;
-        let lcbootstrap_quote = self
+        let lc_bootstrap_quota = self
             .lcbootstrap_quota
             .ok_or("LightClientBootstrap quota not specified")?;
+        let lc_optimistic_update_quota = self
+            .lc_optimistic_update_quota
+            .ok_or("LightClientOptimisticUpdate quota not specified")?;
+        let lc_finality_update_quota = self
+            .lc_finality_update_quota
+            .ok_or("LightClientFinalityUpdate quota not specified")?;
 
         let blbrange_quota = self
             .blbrange_quota
@@ -185,7 +200,9 @@ impl RPCRateLimiterBuilder {
         let bbrange_rl = Limiter::from_quota(bbrange_quota)?;
         let blbrange_rl = Limiter::from_quota(blbrange_quota)?;
         let blbroot_rl = Limiter::from_quota(blbroots_quota)?;
-        let lcbootstrap_rl = Limiter::from_quota(lcbootstrap_quote)?;
+        let lc_bootstrap_rl = Limiter::from_quota(lc_bootstrap_quota)?;
+        let lc_optimistic_update_rl = Limiter::from_quota(lc_optimistic_update_quota)?;
+        let lc_finality_update_rl = Limiter::from_quota(lc_finality_update_quota)?;
 
         // check for peers to prune every 30 seconds, starting in 30 seconds
         let prune_every = tokio::time::Duration::from_secs(30);
@@ -201,7 +218,9 @@ impl RPCRateLimiterBuilder {
             bbrange_rl,
             blbrange_rl,
             blbroot_rl,
-            lcbootstrap_rl,
+            lc_bootstrap_rl,
+            lc_optimistic_update_rl,
+            lc_finality_update_rl,
             init_time: Instant::now(),
         })
     }
@@ -209,26 +228,26 @@ impl RPCRateLimiterBuilder {
 
 pub trait RateLimiterItem {
     fn protocol(&self) -> Protocol;
-    fn expected_responses(&self) -> u64;
+    fn max_responses(&self) -> u64;
 }
 
-impl<T: EthSpec> RateLimiterItem for super::InboundRequest<T> {
+impl<E: EthSpec> RateLimiterItem for super::InboundRequest<E> {
     fn protocol(&self) -> Protocol {
         self.versioned_protocol().protocol()
     }
 
-    fn expected_responses(&self) -> u64 {
-        self.expected_responses()
+    fn max_responses(&self) -> u64 {
+        self.max_responses()
     }
 }
 
-impl<T: EthSpec> RateLimiterItem for super::OutboundRequest<T> {
+impl<E: EthSpec> RateLimiterItem for super::OutboundRequest<E> {
     fn protocol(&self) -> Protocol {
         self.versioned_protocol().protocol()
     }
 
-    fn expected_responses(&self) -> u64 {
-        self.expected_responses()
+    fn max_responses(&self) -> u64 {
+        self.max_responses()
     }
 }
 impl RPCRateLimiter {
@@ -244,6 +263,8 @@ impl RPCRateLimiter {
             blobs_by_range_quota,
             blobs_by_root_quota,
             light_client_bootstrap_quota,
+            light_client_optimistic_update_quota,
+            light_client_finality_update_quota,
         } = config;
 
         Self::builder()
@@ -256,6 +277,14 @@ impl RPCRateLimiter {
             .set_quota(Protocol::BlobsByRange, blobs_by_range_quota)
             .set_quota(Protocol::BlobsByRoot, blobs_by_root_quota)
             .set_quota(Protocol::LightClientBootstrap, light_client_bootstrap_quota)
+            .set_quota(
+                Protocol::LightClientOptimisticUpdate,
+                light_client_optimistic_update_quota,
+            )
+            .set_quota(
+                Protocol::LightClientFinalityUpdate,
+                light_client_finality_update_quota,
+            )
             .build()
     }
 
@@ -270,7 +299,7 @@ impl RPCRateLimiter {
         request: &Item,
     ) -> Result<(), RateLimitedErr> {
         let time_since_start = self.init_time.elapsed();
-        let tokens = request.expected_responses().max(1);
+        let tokens = request.max_responses().max(1);
 
         let check =
             |limiter: &mut Limiter<PeerId>| limiter.allows(time_since_start, peer_id, tokens);
@@ -283,7 +312,9 @@ impl RPCRateLimiter {
             Protocol::BlocksByRoot => &mut self.bbroots_rl,
             Protocol::BlobsByRange => &mut self.blbrange_rl,
             Protocol::BlobsByRoot => &mut self.blbroot_rl,
-            Protocol::LightClientBootstrap => &mut self.lcbootstrap_rl,
+            Protocol::LightClientBootstrap => &mut self.lc_bootstrap_rl,
+            Protocol::LightClientOptimisticUpdate => &mut self.lc_optimistic_update_rl,
+            Protocol::LightClientFinalityUpdate => &mut self.lc_finality_update_rl,
         };
         check(limiter)
     }

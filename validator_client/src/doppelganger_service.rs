@@ -690,7 +690,6 @@ mod test {
     use environment::null_logger;
     use futures::executor::block_on;
     use slot_clock::TestingSlotClock;
-    use std::collections::HashSet;
     use std::future;
     use std::time::Duration;
     use types::{
@@ -1116,7 +1115,7 @@ mod test {
             )
             // All validators should still be disabled.
             .assert_all_disabled()
-            // The states of all validators should be jammed with `u64::max_value()`.
+            // The states of all validators should be jammed with `u64:MAX`.
             .assert_all_states(&DoppelgangerState {
                 next_check_epoch: starting_epoch + 1,
                 remaining_epochs: u64::MAX,
@@ -1348,7 +1347,7 @@ mod test {
             )
             .assert_all_states(&DoppelgangerState {
                 next_check_epoch: initial_epoch + 1,
-                remaining_epochs: u64::max_value(),
+                remaining_epochs: u64::MAX,
             });
     }
 

@@ -14,7 +14,7 @@ use std::mem;
 use store::{DBColumn, Error as StoreError, StoreItem};
 use types::*;
 
-type PersistedSyncContributions<T> = Vec<(SyncAggregateId, Vec<SyncCommitteeContribution<T>>)>;
+type PersistedSyncContributions<E> = Vec<(SyncAggregateId, Vec<SyncCommitteeContribution<E>>)>;
 
 /// SSZ-serializable version of `OperationPool`.
 ///
@@ -30,45 +30,45 @@ type PersistedSyncContributions<T> = Vec<(SyncAggregateId, Vec<SyncCommitteeCont
 )]
 #[derive(PartialEq, Debug, Encode)]
 #[ssz(enum_behaviour = "transparent")]
-pub struct PersistedOperationPool<T: EthSpec> {
+pub struct PersistedOperationPool<E: EthSpec> {
     /// [DEPRECATED] Mapping from attestation ID to attestation mappings.
     #[superstruct(only(V5))]
-    pub attestations_v5: Vec<(AttestationId, Vec<Attestation<T>>)>,
+    pub attestations_v5: Vec<(AttestationId, Vec<Attestation<E>>)>,
     /// Attestations and their attesting indices.
     #[superstruct(only(V12, V14, V15))]
-    pub attestations: Vec<(Attestation<T>, Vec<u64>)>,
+    pub attestations: Vec<(Attestation<E>, Vec<u64>)>,
     /// Mapping from sync contribution ID to sync contributions and aggregate.
-    pub sync_contributions: PersistedSyncContributions<T>,
+    pub sync_contributions: PersistedSyncContributions<E>,
     /// [DEPRECATED] Attester slashings.
     #[superstruct(only(V5))]
-    pub attester_slashings_v5: Vec<(AttesterSlashing<T>, ForkVersion)>,
+    pub attester_slashings_v5: Vec<(AttesterSlashing<E>, ForkVersion)>,
     /// Attester slashings.
     #[superstruct(only(V12, V14, V15))]
-    pub attester_slashings: Vec<SigVerifiedOp<AttesterSlashing<T>, T>>,
+    pub attester_slashings: Vec<SigVerifiedOp<AttesterSlashing<E>, E>>,
     /// [DEPRECATED] Proposer slashings.
     #[superstruct(only(V5))]
     pub proposer_slashings_v5: Vec<ProposerSlashing>,
     /// Proposer slashings with fork information.
     #[superstruct(only(V12, V14, V15))]
-    pub proposer_slashings: Vec<SigVerifiedOp<ProposerSlashing, T>>,
+    pub proposer_slashings: Vec<SigVerifiedOp<ProposerSlashing, E>>,
     /// [DEPRECATED] Voluntary exits.
     #[superstruct(only(V5))]
     pub voluntary_exits_v5: Vec<SignedVoluntaryExit>,
     /// Voluntary exits with fork information.
     #[superstruct(only(V12, V14, V15))]
-    pub voluntary_exits: Vec<SigVerifiedOp<SignedVoluntaryExit, T>>,
+    pub voluntary_exits: Vec<SigVerifiedOp<SignedVoluntaryExit, E>>,
     /// BLS to Execution Changes
     #[superstruct(only(V14, V15))]
-    pub bls_to_execution_changes: Vec<SigVerifiedOp<SignedBlsToExecutionChange, T>>,
+    pub bls_to_execution_changes: Vec<SigVerifiedOp<SignedBlsToExecutionChange, E>>,
     /// Validator indices with BLS to Execution Changes to be broadcast at the
     /// Capella fork.
     #[superstruct(only(V15))]
     pub capella_bls_change_broadcast_indices: Vec<u64>,
 }
 
-impl<T: EthSpec> PersistedOperationPool<T> {
+impl<E: EthSpec> PersistedOperationPool<E> {
     /// Convert an `OperationPool` into serializable form.
-    pub fn from_operation_pool(operation_pool: &OperationPool<T>) -> Self {
+    pub fn from_operation_pool(operation_pool: &OperationPool<E>) -> Self {
         let attestations = operation_pool
             .attestations
             .read()
@@ -135,7 +135,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
     }
 
     /// Reconstruct an `OperationPool`.
-    pub fn into_operation_pool(mut self) -> Result<OperationPool<T>, OpPoolError> {
+    pub fn into_operation_pool(mut self) -> Result<OperationPool<E>, OpPoolError> {
         let attester_slashings = RwLock::new(self.attester_slashings()?.iter().cloned().collect());
         let proposer_slashings = RwLock::new(
             self.proposer_slashings()?
@@ -200,7 +200,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
     }
 }
 
-impl<T: EthSpec> StoreItem for PersistedOperationPoolV5<T> {
+impl<E: EthSpec> StoreItem for PersistedOperationPoolV5<E> {
     fn db_column() -> DBColumn {
         DBColumn::OpPool
     }
@@ -214,7 +214,7 @@ impl<T: EthSpec> StoreItem for PersistedOperationPoolV5<T> {
     }
 }
 
-impl<T: EthSpec> StoreItem for PersistedOperationPoolV12<T> {
+impl<E: EthSpec> StoreItem for PersistedOperationPoolV12<E> {
     fn db_column() -> DBColumn {
         DBColumn::OpPool
     }
@@ -228,7 +228,7 @@ impl<T: EthSpec> StoreItem for PersistedOperationPoolV12<T> {
     }
 }
 
-impl<T: EthSpec> StoreItem for PersistedOperationPoolV14<T> {
+impl<E: EthSpec> StoreItem for PersistedOperationPoolV14<E> {
     fn db_column() -> DBColumn {
         DBColumn::OpPool
     }
@@ -242,7 +242,7 @@ impl<T: EthSpec> StoreItem for PersistedOperationPoolV14<T> {
     }
 }
 
-impl<T: EthSpec> StoreItem for PersistedOperationPoolV15<T> {
+impl<E: EthSpec> StoreItem for PersistedOperationPoolV15<E> {
     fn db_column() -> DBColumn {
         DBColumn::OpPool
     }
@@ -257,7 +257,7 @@ impl<T: EthSpec> StoreItem for PersistedOperationPoolV15<T> {
 }
 
 /// Deserialization for `PersistedOperationPool` defaults to `PersistedOperationPool::V12`.
-impl<T: EthSpec> StoreItem for PersistedOperationPool<T> {
+impl<E: EthSpec> StoreItem for PersistedOperationPool<E> {
     fn db_column() -> DBColumn {
         DBColumn::OpPool
     }

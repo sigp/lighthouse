@@ -17,7 +17,7 @@ impl ForkContext {
     /// fork digest.
     ///
     /// A fork is disabled in the `ChainSpec` if the activation slot corresponding to that fork is `None`.
-    pub fn new<T: EthSpec>(
+    pub fn new<E: EthSpec>(
         current_slot: Slot,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
@@ -36,11 +36,11 @@ impl ForkContext {
             ));
         }
 
-        // Only add Merge to list of forks if it's enabled
-        // Note: `bellatrix_fork_epoch == None` implies merge hasn't been activated yet on the config.
+        // Only add Bellatrix to list of forks if it's enabled
+        // Note: `bellatrix_fork_epoch == None` implies bellatrix hasn't been activated yet on the config.
         if spec.bellatrix_fork_epoch.is_some() {
             fork_to_digest.push((
-                ForkName::Merge,
+                ForkName::Bellatrix,
                 ChainSpec::compute_fork_digest(
                     spec.bellatrix_fork_version,
                     genesis_validators_root,
@@ -62,6 +62,13 @@ impl ForkContext {
             ));
         }
 
+        if spec.electra_fork_epoch.is_some() {
+            fork_to_digest.push((
+                ForkName::Electra,
+                ChainSpec::compute_fork_digest(spec.electra_fork_version, genesis_validators_root),
+            ));
+        }
+
         let fork_to_digest: HashMap<ForkName, [u8; 4]> = fork_to_digest.into_iter().collect();
 
         let digest_to_fork = fork_to_digest
@@ -71,7 +78,7 @@ impl ForkContext {
             .collect();
 
         Self {
-            current_fork: RwLock::new(spec.fork_name_at_slot::<T>(current_slot)),
+            current_fork: RwLock::new(spec.fork_name_at_slot::<E>(current_slot)),
             fork_to_digest,
             digest_to_fork,
             spec: spec.clone(),

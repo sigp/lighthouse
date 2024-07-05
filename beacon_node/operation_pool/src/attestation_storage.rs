@@ -21,38 +21,38 @@ pub struct CompactAttestationData {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct CompactIndexedAttestation<T: EthSpec> {
+pub struct CompactIndexedAttestation<E: EthSpec> {
     pub attesting_indices: Vec<u64>,
-    pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
+    pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
     pub signature: AggregateSignature,
 }
 
 #[derive(Debug)]
-pub struct SplitAttestation<T: EthSpec> {
+pub struct SplitAttestation<E: EthSpec> {
     pub checkpoint: CheckpointKey,
     pub data: CompactAttestationData,
-    pub indexed: CompactIndexedAttestation<T>,
+    pub indexed: CompactIndexedAttestation<E>,
 }
 
 #[derive(Debug, Clone)]
-pub struct AttestationRef<'a, T: EthSpec> {
+pub struct AttestationRef<'a, E: EthSpec> {
     pub checkpoint: &'a CheckpointKey,
     pub data: &'a CompactAttestationData,
-    pub indexed: &'a CompactIndexedAttestation<T>,
+    pub indexed: &'a CompactIndexedAttestation<E>,
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub struct AttestationMap<T: EthSpec> {
-    checkpoint_map: HashMap<CheckpointKey, AttestationDataMap<T>>,
+pub struct AttestationMap<E: EthSpec> {
+    checkpoint_map: HashMap<CheckpointKey, AttestationDataMap<E>>,
 }
 
 #[derive(Debug, Default, PartialEq)]
-pub struct AttestationDataMap<T: EthSpec> {
-    attestations: HashMap<CompactAttestationData, Vec<CompactIndexedAttestation<T>>>,
+pub struct AttestationDataMap<E: EthSpec> {
+    attestations: HashMap<CompactAttestationData, Vec<CompactIndexedAttestation<E>>>,
 }
 
-impl<T: EthSpec> SplitAttestation<T> {
-    pub fn new(attestation: Attestation<T>, attesting_indices: Vec<u64>) -> Self {
+impl<E: EthSpec> SplitAttestation<E> {
+    pub fn new(attestation: Attestation<E>, attesting_indices: Vec<u64>) -> Self {
         let checkpoint = CheckpointKey {
             source: attestation.data.source,
             target_epoch: attestation.data.target.epoch,
@@ -75,7 +75,7 @@ impl<T: EthSpec> SplitAttestation<T> {
         }
     }
 
-    pub fn as_ref(&self) -> AttestationRef<T> {
+    pub fn as_ref(&self) -> AttestationRef<E> {
         AttestationRef {
             checkpoint: &self.checkpoint,
             data: &self.data,
@@ -84,7 +84,7 @@ impl<T: EthSpec> SplitAttestation<T> {
     }
 }
 
-impl<'a, T: EthSpec> AttestationRef<'a, T> {
+impl<'a, E: EthSpec> AttestationRef<'a, E> {
     pub fn attestation_data(&self) -> AttestationData {
         AttestationData {
             slot: self.data.slot,
@@ -98,7 +98,7 @@ impl<'a, T: EthSpec> AttestationRef<'a, T> {
         }
     }
 
-    pub fn clone_as_attestation(&self) -> Attestation<T> {
+    pub fn clone_as_attestation(&self) -> Attestation<E> {
         Attestation {
             aggregation_bits: self.indexed.aggregation_bits.clone(),
             data: self.attestation_data(),
@@ -110,7 +110,7 @@ impl<'a, T: EthSpec> AttestationRef<'a, T> {
 impl CheckpointKey {
     /// Return two checkpoint keys: `(previous, current)` for the previous and current epochs of
     /// the `state`.
-    pub fn keys_for_state<T: EthSpec>(state: &BeaconState<T>) -> (Self, Self) {
+    pub fn keys_for_state<E: EthSpec>(state: &BeaconState<E>) -> (Self, Self) {
         (
             CheckpointKey {
                 source: state.previous_justified_checkpoint(),
@@ -124,7 +124,7 @@ impl CheckpointKey {
     }
 }
 
-impl<T: EthSpec> CompactIndexedAttestation<T> {
+impl<E: EthSpec> CompactIndexedAttestation<E> {
     pub fn signers_disjoint_from(&self, other: &Self) -> bool {
         self.aggregation_bits
             .intersection(&other.aggregation_bits)
@@ -143,8 +143,8 @@ impl<T: EthSpec> CompactIndexedAttestation<T> {
     }
 }
 
-impl<T: EthSpec> AttestationMap<T> {
-    pub fn insert(&mut self, attestation: Attestation<T>, attesting_indices: Vec<u64>) {
+impl<E: EthSpec> AttestationMap<E> {
+    pub fn insert(&mut self, attestation: Attestation<E>, attesting_indices: Vec<u64>) {
         let SplitAttestation {
             checkpoint,
             data,
@@ -176,7 +176,7 @@ impl<T: EthSpec> AttestationMap<T> {
     pub fn get_attestations<'a>(
         &'a self,
         checkpoint_key: &'a CheckpointKey,
-    ) -> impl Iterator<Item = AttestationRef<'a, T>> + 'a {
+    ) -> impl Iterator<Item = AttestationRef<'a, E>> + 'a {
         self.checkpoint_map
             .get(checkpoint_key)
             .into_iter()
@@ -184,7 +184,7 @@ impl<T: EthSpec> AttestationMap<T> {
     }
 
     /// Iterate all attestations in the map.
-    pub fn iter(&self) -> impl Iterator<Item = AttestationRef<T>> {
+    pub fn iter(&self) -> impl Iterator<Item = AttestationRef<E>> {
         self.checkpoint_map
             .iter()
             .flat_map(|(checkpoint_key, attestation_map)| attestation_map.iter(checkpoint_key))
@@ -211,11 +211,11 @@ impl<T: EthSpec> AttestationMap<T> {
     }
 }
 
-impl<T: EthSpec> AttestationDataMap<T> {
+impl<E: EthSpec> AttestationDataMap<E> {
     pub fn iter<'a>(
         &'a self,
         checkpoint_key: &'a CheckpointKey,
-    ) -> impl Iterator<Item = AttestationRef<'a, T>> + 'a {
+    ) -> impl Iterator<Item = AttestationRef<'a, E>> + 'a {
         self.attestations.iter().flat_map(|(data, vec_indexed)| {
             vec_indexed.iter().map(|indexed| AttestationRef {
                 checkpoint: checkpoint_key,

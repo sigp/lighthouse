@@ -10,6 +10,7 @@
 
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::manager::{BatchProcessResult, Id};
+use crate::sync::network_context::RangeRequestId;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::range_sync::{
     BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
@@ -55,7 +56,7 @@ impl BatchConfig for BackFillBatchConfig {
     fn max_batch_processing_attempts() -> u8 {
         MAX_BATCH_PROCESSING_ATTEMPTS
     }
-    fn batch_attempt_hash<T: EthSpec>(blocks: &[RpcBlock<T>]) -> u64 {
+    fn batch_attempt_hash<E: EthSpec>(blocks: &[RpcBlock<E>]) -> u64 {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
         let mut hasher = DefaultHasher::new();
@@ -86,16 +87,17 @@ pub enum ProcessResult {
 }
 
 /// The ways a backfill sync can fail.
+// The info in the enum variants is displayed in logging, clippy thinks it's dead code.
 #[derive(Debug)]
 pub enum BackFillError {
     /// A batch failed to be downloaded.
-    BatchDownloadFailed(BatchId),
+    BatchDownloadFailed(#[allow(dead_code)] BatchId),
     /// A batch could not be processed.
-    BatchProcessingFailed(BatchId),
+    BatchProcessingFailed(#[allow(dead_code)] BatchId),
     /// A batch entered an invalid state.
-    BatchInvalidState(BatchId, String),
+    BatchInvalidState(#[allow(dead_code)] BatchId, #[allow(dead_code)] String),
     /// The sync algorithm entered an invalid state.
-    InvalidSyncState(String),
+    InvalidSyncState(#[allow(dead_code)] String),
     /// The chain became paused.
     Paused,
 }
@@ -305,11 +307,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// A peer has disconnected.
     /// If the peer has active batches, those are considered failed and re-requested.
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
-    pub fn peer_disconnected(
-        &mut self,
-        peer_id: &PeerId,
-        network: &mut SyncNetworkContext<T>,
-    ) -> Result<(), BackFillError> {
+    pub fn peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), BackFillError> {
         if matches!(
             self.state(),
             BackFillState::Failed | BackFillState::NotRequired
@@ -317,37 +315,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             return Ok(());
         }
 
-        if let Some(batch_ids) = self.active_requests.remove(peer_id) {
-            // fail the batches
-            for id in batch_ids {
-                if let Some(batch) = self.batches.get_mut(&id) {
-                    match batch.download_failed(false) {
-                        Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
-                            self.fail_sync(BackFillError::BatchDownloadFailed(id))?;
-                        }
-                        Ok(BatchOperationOutcome::Continue) => {}
-                        Err(e) => {
-                            self.fail_sync(BackFillError::BatchInvalidState(id, e.0))?;
-                        }
-                    }
-                    // If we have run out of peers in which to retry this batch, the backfill state
-                    // transitions to a paused state.
-                    // We still need to reset the state for all the affected batches, so we should not
-                    // short circuit early
-                    if self.retry_batch_download(network, id).is_err() {
-                        debug!(
-                            self.log,
-                            "Batch could not be retried";
-                            "batch_id" => id,
-                            "error" => "no synced peers"
-                        );
-                    }
-                } else {
-                    debug!(self.log, "Batch not found while removing peer";
-                        "peer" => %peer_id, "batch" => id)
-                }
-            }
-        }
+        self.active_requests.remove(peer_id);
 
         // Remove the peer from the participation list
         self.participating_peers.remove(peer_id);
@@ -961,7 +929,12 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     ) -> Result<(), BackFillError> {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let (request, is_blob_batch) = batch.to_blocks_by_range_request();
-            match network.backfill_blocks_by_range_request(peer, is_blob_batch, request, batch_id) {
+            match network.blocks_and_blobs_by_range_request(
+                peer,
+                is_blob_batch,
+                request,
+                RangeRequestId::BackfillSync { batch_id },
+            ) {
                 Ok(request_id) => {
                     // inform the batch about the new request
                     if let Err(e) = batch.start_downloading_from_peer(peer, request_id) {
@@ -979,7 +952,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 Err(e) => {
                     // NOTE: under normal conditions this shouldn't happen but we handle it anyway
                     warn!(self.log, "Could not send batch request";
-                        "batch_id" => batch_id, "error" => e, &batch);
+                        "batch_id" => batch_id, "error" => ?e, &batch);
                     // register the failed download and check if the batch can be retried
                     if let Err(e) = batch.start_downloading_from_peer(peer, 1) {
                         return self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0));

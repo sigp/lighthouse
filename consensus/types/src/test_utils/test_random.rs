@@ -2,7 +2,6 @@ use crate::*;
 use rand::RngCore;
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
-use ssz_types::typenum::Unsigned;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -88,7 +87,7 @@ where
     }
 }
 
-impl<T, N: Unsigned> TestRandom for FixedVector<T, N>
+impl<T, N: Unsigned> TestRandom for ssz_types::FixedVector<T, N>
 where
     T: TestRandom,
 {

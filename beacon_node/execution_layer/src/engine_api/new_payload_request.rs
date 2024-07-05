@@ -7,10 +7,13 @@ use types::{
     BeaconBlockRef, BeaconStateError, EthSpec, ExecutionBlockHash, ExecutionPayload,
     ExecutionPayloadRef, Hash256, VersionedHash,
 };
-use types::{ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge};
+use types::{
+    ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+    ExecutionPayloadElectra,
+};
 
 #[superstruct(
-    variants(Merge, Capella, Deneb),
+    variants(Bellatrix, Capella, Deneb, Electra),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -25,56 +28,68 @@ use types::{ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerg
 )]
 #[derive(Clone, Debug, PartialEq)]
 pub struct NewPayloadRequest<'block, E: EthSpec> {
-    #[superstruct(only(Merge), partial_getter(rename = "execution_payload_merge"))]
-    pub execution_payload: &'block ExecutionPayloadMerge<E>,
+    #[superstruct(
+        only(Bellatrix),
+        partial_getter(rename = "execution_payload_bellatrix")
+    )]
+    pub execution_payload: &'block ExecutionPayloadBellatrix<E>,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
     pub execution_payload: &'block ExecutionPayloadCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
     pub execution_payload: &'block ExecutionPayloadDeneb<E>,
-    #[superstruct(only(Deneb))]
+    #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
+    pub execution_payload: &'block ExecutionPayloadElectra<E>,
+    #[superstruct(only(Deneb, Electra))]
     pub versioned_hashes: Vec<VersionedHash>,
-    #[superstruct(only(Deneb))]
+    #[superstruct(only(Deneb, Electra))]
     pub parent_beacon_block_root: Hash256,
 }
 
 impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
     pub fn parent_hash(&self) -> ExecutionBlockHash {
         match self {
-            Self::Merge(payload) => payload.execution_payload.parent_hash,
+            Self::Bellatrix(payload) => payload.execution_payload.parent_hash,
             Self::Capella(payload) => payload.execution_payload.parent_hash,
             Self::Deneb(payload) => payload.execution_payload.parent_hash,
+            Self::Electra(payload) => payload.execution_payload.parent_hash,
         }
     }
 
     pub fn block_hash(&self) -> ExecutionBlockHash {
         match self {
-            Self::Merge(payload) => payload.execution_payload.block_hash,
+            Self::Bellatrix(payload) => payload.execution_payload.block_hash,
             Self::Capella(payload) => payload.execution_payload.block_hash,
             Self::Deneb(payload) => payload.execution_payload.block_hash,
+            Self::Electra(payload) => payload.execution_payload.block_hash,
         }
     }
 
     pub fn block_number(&self) -> u64 {
         match self {
-            Self::Merge(payload) => payload.execution_payload.block_number,
+            Self::Bellatrix(payload) => payload.execution_payload.block_number,
             Self::Capella(payload) => payload.execution_payload.block_number,
             Self::Deneb(payload) => payload.execution_payload.block_number,
+            Self::Electra(payload) => payload.execution_payload.block_number,
         }
     }
 
     pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<'block, E> {
         match self {
-            Self::Merge(request) => ExecutionPayloadRef::Merge(request.execution_payload),
+            Self::Bellatrix(request) => ExecutionPayloadRef::Bellatrix(request.execution_payload),
             Self::Capella(request) => ExecutionPayloadRef::Capella(request.execution_payload),
             Self::Deneb(request) => ExecutionPayloadRef::Deneb(request.execution_payload),
+            Self::Electra(request) => ExecutionPayloadRef::Electra(request.execution_payload),
         }
     }
 
     pub fn into_execution_payload(self) -> ExecutionPayload<E> {
         match self {
-            Self::Merge(request) => ExecutionPayload::Merge(request.execution_payload.clone()),
+            Self::Bellatrix(request) => {
+                ExecutionPayload::Bellatrix(request.execution_payload.clone())
+            }
             Self::Capella(request) => ExecutionPayload::Capella(request.execution_payload.clone()),
             Self::Deneb(request) => ExecutionPayload::Deneb(request.execution_payload.clone()),
+            Self::Electra(request) => ExecutionPayload::Electra(request.execution_payload.clone()),
         }
     }
 
@@ -86,7 +101,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
     ///
     /// https://github.com/ethereum/consensus-specs/blob/v1.4.0-beta.2/specs/deneb/beacon-chain.md#modified-verify_and_notify_new_payload
     pub fn perform_optimistic_sync_verifications(&self) -> Result<(), Error> {
-        self.verfiy_payload_block_hash()?;
+        self.verify_payload_block_hash()?;
         self.verify_versioned_hashes()?;
 
         Ok(())
@@ -98,7 +113,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
     ///
     /// Equivalent to `is_valid_block_hash` in the spec:
     /// https://github.com/ethereum/consensus-specs/blob/v1.4.0-beta.2/specs/deneb/beacon-chain.md#is_valid_block_hash
-    pub fn verfiy_payload_block_hash(&self) -> Result<(), Error> {
+    pub fn verify_payload_block_hash(&self) -> Result<(), Error> {
         let payload = self.execution_payload_ref();
         let parent_beacon_block_root = self.parent_beacon_block_root().ok().cloned();
 
@@ -141,13 +156,25 @@ impl<'a, E: EthSpec> TryFrom<BeaconBlockRef<'a, E>> for NewPayloadRequest<'a, E>
             BeaconBlockRef::Base(_) | BeaconBlockRef::Altair(_) => {
                 Err(Self::Error::IncorrectStateVariant)
             }
-            BeaconBlockRef::Merge(block_ref) => Ok(Self::Merge(NewPayloadRequestMerge {
-                execution_payload: &block_ref.body.execution_payload.execution_payload,
-            })),
+            BeaconBlockRef::Bellatrix(block_ref) => {
+                Ok(Self::Bellatrix(NewPayloadRequestBellatrix {
+                    execution_payload: &block_ref.body.execution_payload.execution_payload,
+                }))
+            }
             BeaconBlockRef::Capella(block_ref) => Ok(Self::Capella(NewPayloadRequestCapella {
                 execution_payload: &block_ref.body.execution_payload.execution_payload,
             })),
             BeaconBlockRef::Deneb(block_ref) => Ok(Self::Deneb(NewPayloadRequestDeneb {
+                execution_payload: &block_ref.body.execution_payload.execution_payload,
+                versioned_hashes: block_ref
+                    .body
+                    .blob_kzg_commitments
+                    .iter()
+                    .map(kzg_commitment_to_versioned_hash)
+                    .collect(),
+                parent_beacon_block_root: block_ref.parent_root,
+            })),
+            BeaconBlockRef::Electra(block_ref) => Ok(Self::Electra(NewPayloadRequestElectra {
                 execution_payload: &block_ref.body.execution_payload.execution_payload,
                 versioned_hashes: block_ref
                     .body
@@ -166,13 +193,16 @@ impl<'a, E: EthSpec> TryFrom<ExecutionPayloadRef<'a, E>> for NewPayloadRequest<'
 
     fn try_from(payload: ExecutionPayloadRef<'a, E>) -> Result<Self, Self::Error> {
         match payload {
-            ExecutionPayloadRef::Merge(payload) => Ok(Self::Merge(NewPayloadRequestMerge {
-                execution_payload: payload,
-            })),
+            ExecutionPayloadRef::Bellatrix(payload) => {
+                Ok(Self::Bellatrix(NewPayloadRequestBellatrix {
+                    execution_payload: payload,
+                }))
+            }
             ExecutionPayloadRef::Capella(payload) => Ok(Self::Capella(NewPayloadRequestCapella {
                 execution_payload: payload,
             })),
             ExecutionPayloadRef::Deneb(_) => Err(Self::Error::IncorrectStateVariant),
+            ExecutionPayloadRef::Electra(_) => Err(Self::Error::IncorrectStateVariant),
         }
     }
 }

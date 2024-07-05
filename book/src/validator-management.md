@@ -41,6 +41,7 @@ Here's an example file with two validators:
   voting_keystore_path: /home/paul/.lighthouse/validators/0xa5566f9ec3c6e1fdf362634ebec9ef7aceb0e460e5079714808388e5d48f4ae1e12897fed1bea951c17fa389d511e477/voting-keystore.json
   voting_keystore_password: myStrongpa55word123&$
 ```
+
 In this example we can see two validators:
 
 - A validator identified by the `0x87a5...` public key which is enabled.
@@ -51,7 +52,7 @@ In this example we can see two validators:
 Each permitted field of the file is listed below for reference:
 
 - `enabled`: A `true`/`false` indicating if the validator client should consider this
-	validator "enabled".
+ validator "enabled".
 - `voting_public_key`: A validator public key.
 - `type`: How the validator signs messages (this can be `local_keystore` or `web3signer` (see [Web3Signer](./validator-web3signer.md))).
 - `voting_keystore_path`: The path to a EIP-2335 keystore.
@@ -60,6 +61,8 @@ Each permitted field of the file is listed below for reference:
 
 > **Note**: Either `voting_keystore_password_path` or `voting_keystore_password` *must* be
 > supplied. If both are supplied, `voting_keystore_password_path` is ignored.
+
+>If you do not wish to have  `voting_keystore_password` being stored in the `validator_definitions.yml` file, you can add the field `voting_keystore_password_path` and point it to a file containing the password. The file can be, e.g., on a mounted portable drive that contains the password so that no password is stored on the validating node.
 
 ## Populating the `validator_definitions.yml` file
 
@@ -145,7 +148,6 @@ ensure their `secrets-dir` is organised as below:
 └── 0x87a580d31d7bc69069b55f5a01995a610dd391a26dc9e36e81057a17211983a79266800ab8531f21f1083d7d84085007
 ```
 
-
 ### Manual configuration
 
 The automatic validator discovery process works out-of-the-box with validators
@@ -178,7 +180,7 @@ the active validator, the validator client will:
    password.
 1. Use the keystore password to decrypt the keystore and obtain a BLS keypair.
 1. Verify that the decrypted BLS keypair matches the `voting_public_key`.
-1.  Create a `voting-keystore.json.lock` file adjacent to the
+1. Create a `voting-keystore.json.lock` file adjacent to the
 `voting_keystore_path`, indicating that the voting keystore is in-use and
 should not be opened by another process.
 1. Proceed to act for that validator, creating blocks and attestations if/when required.

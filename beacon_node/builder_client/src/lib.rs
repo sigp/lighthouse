@@ -5,7 +5,8 @@ use eth2::types::{
 };
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
 pub use eth2::Error;
-use eth2::{ok_or_error, StatusCode};
+use eth2::{ok_or_error, StatusCode, CONSENSUS_VERSION_HEADER};
+use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{IntoUrl, Response};
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
@@ -28,10 +29,13 @@ pub struct Timeouts {
     get_builder_status: Duration,
 }
 
-impl Default for Timeouts {
-    fn default() -> Self {
+impl Timeouts {
+    fn new(get_header_timeout: Option<Duration>) -> Self {
+        let get_header =
+            get_header_timeout.unwrap_or(Duration::from_millis(DEFAULT_GET_HEADER_TIMEOUT_MILLIS));
+
         Self {
-            get_header: Duration::from_millis(DEFAULT_GET_HEADER_TIMEOUT_MILLIS),
+            get_header,
             post_validators: Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
             post_blinded_blocks: Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
             get_builder_status: Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
@@ -48,13 +52,17 @@ pub struct BuilderHttpClient {
 }
 
 impl BuilderHttpClient {
-    pub fn new(server: SensitiveUrl, user_agent: Option<String>) -> Result<Self, Error> {
+    pub fn new(
+        server: SensitiveUrl,
+        user_agent: Option<String>,
+        builder_header_timeout: Option<Duration>,
+    ) -> Result<Self, Error> {
         let user_agent = user_agent.unwrap_or(DEFAULT_USER_AGENT.to_string());
         let client = reqwest::Client::builder().user_agent(&user_agent).build()?;
         Ok(Self {
             client,
             server,
-            timeouts: Timeouts::default(),
+            timeouts: Timeouts::new(builder_header_timeout),
             user_agent,
         })
     }
@@ -108,13 +116,20 @@ impl BuilderHttpClient {
         &self,
         url: U,
         body: &T,
+        headers: HeaderMap,
         timeout: Option<Duration>,
     ) -> Result<Response, Error> {
         let mut builder = self.client.post(url);
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
-        let response = builder.json(body).send().await.map_err(Error::from)?;
+
+        let response = builder
+            .headers(headers)
+            .json(body)
+            .send()
+            .await
+            .map_err(Error::from)?;
         ok_or_error(response).await
     }
 
@@ -151,10 +166,16 @@ impl BuilderHttpClient {
             .push("builder")
             .push("blinded_blocks");
 
+        let mut headers = HeaderMap::new();
+        if let Ok(value) = HeaderValue::from_str(&blinded_block.fork_name_unchecked().to_string()) {
+            headers.insert(CONSENSUS_VERSION_HEADER, value);
+        }
+
         Ok(self
             .post_with_raw_response(
                 path,
                 &blinded_block,
+                headers,
                 Some(self.timeouts.post_blinded_blocks),
             )
             .await?

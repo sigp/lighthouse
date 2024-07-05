@@ -10,26 +10,26 @@ use tokio_util::codec::{Decoder, Encoder};
 use types::EthSpec;
 
 // Known types of codecs
-pub enum InboundCodec<TSpec: EthSpec> {
-    SSZSnappy(BaseInboundCodec<SSZSnappyInboundCodec<TSpec>, TSpec>),
+pub enum InboundCodec<E: EthSpec> {
+    SSZSnappy(BaseInboundCodec<SSZSnappyInboundCodec<E>, E>),
 }
 
-pub enum OutboundCodec<TSpec: EthSpec> {
-    SSZSnappy(BaseOutboundCodec<SSZSnappyOutboundCodec<TSpec>, TSpec>),
+pub enum OutboundCodec<E: EthSpec> {
+    SSZSnappy(BaseOutboundCodec<SSZSnappyOutboundCodec<E>, E>),
 }
 
-impl<T: EthSpec> Encoder<RPCCodedResponse<T>> for InboundCodec<T> {
+impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for InboundCodec<E> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: RPCCodedResponse<T>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: RPCCodedResponse<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         match self {
             InboundCodec::SSZSnappy(codec) => codec.encode(item, dst),
         }
     }
 }
 
-impl<TSpec: EthSpec> Decoder for InboundCodec<TSpec> {
-    type Item = InboundRequest<TSpec>;
+impl<E: EthSpec> Decoder for InboundCodec<E> {
+    type Item = InboundRequest<E>;
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -39,22 +39,18 @@ impl<TSpec: EthSpec> Decoder for InboundCodec<TSpec> {
     }
 }
 
-impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for OutboundCodec<TSpec> {
+impl<E: EthSpec> Encoder<OutboundRequest<E>> for OutboundCodec<E> {
     type Error = RPCError;
 
-    fn encode(
-        &mut self,
-        item: OutboundRequest<TSpec>,
-        dst: &mut BytesMut,
-    ) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: OutboundRequest<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         match self {
             OutboundCodec::SSZSnappy(codec) => codec.encode(item, dst),
         }
     }
 }
 
-impl<T: EthSpec> Decoder for OutboundCodec<T> {
-    type Item = RPCCodedResponse<T>;
+impl<E: EthSpec> Decoder for OutboundCodec<E> {
+    type Item = RPCCodedResponse<E>;
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
