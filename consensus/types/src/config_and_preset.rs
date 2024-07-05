@@ -124,7 +124,7 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "versioned_hash_version_kzg".to_uppercase() => deneb::VERSIONED_HASH_VERSION_KZG.to_string().into(),
         // Electra
         "compounding_withdrawal_prefix".to_uppercase() => u8_hex(spec.compounding_withdrawal_prefix_byte),
-        "unset_deposit_receipts_start_index".to_uppercase() => spec.unset_deposit_receipts_start_index.to_string().into(),
+        "unset_deposit_requests_start_index".to_uppercase() => spec.unset_deposit_requests_start_index.to_string().into(),
         "full_exit_request_amount".to_uppercase() => spec.full_exit_request_amount.to_string().into(),
         "domain_consolidation".to_uppercase()=> u32_hex(spec.domain_consolidation),
     }

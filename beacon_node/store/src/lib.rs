@@ -7,9 +7,6 @@
 //!
 //! Provides a simple API for storing/retrieving all types that sometimes needs type-hints. See
 //! tests for implementation examples.
-#[macro_use]
-extern crate lazy_static;
-
 mod chunk_writer;
 pub mod chunked_iter;
 pub mod chunked_vector;

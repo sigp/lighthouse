@@ -1,5 +1,5 @@
-use crate::test_utils::TestRandom;
 use crate::Epoch;
+use crate::{test_utils::TestRandom, SignedRoot};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -26,6 +26,8 @@ pub struct Consolidation {
     pub target_index: u64,
     pub epoch: Epoch,
 }
+
+impl SignedRoot for Consolidation {}
 
 #[cfg(test)]
 mod tests {

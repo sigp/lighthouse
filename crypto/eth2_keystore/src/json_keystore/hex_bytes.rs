@@ -25,9 +25,9 @@ impl From<Vec<u8>> for HexBytes {
     }
 }
 
-impl Into<String> for HexBytes {
-    fn into(self) -> String {
-        hex::encode(self.0)
+impl From<HexBytes> for String {
+    fn from(from: HexBytes) -> String {
+        hex::encode(from.0)
     }
 }
 

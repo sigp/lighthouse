@@ -279,7 +279,7 @@ impl HierarchyConfig {
     }
 
     pub fn validate(&self) -> Result<(), Error> {
-        if self.exponents.len() >= 1
+        if !self.exponents.is_empty()
             && self
                 .exponents
                 .iter()

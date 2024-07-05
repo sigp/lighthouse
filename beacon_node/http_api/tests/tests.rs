@@ -35,8 +35,8 @@ use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
 use types::{
-    AggregateSignature, BitList, Domain, EthSpec, ExecutionBlockHash, Hash256, Keypair,
-    MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
+    attestation::AttestationBase, AggregateSignature, BitList, Domain, EthSpec, ExecutionBlockHash,
+    Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
 };
 
 type E = MainnetEthSpec;
@@ -1640,7 +1640,13 @@ impl ApiTester {
 
             let expected = block_id.full_block(&self.chain).await.ok().map(
                 |(block, _execution_optimistic, _finalized)| {
-                    block.message().body().attestations().clone().into()
+                    block
+                        .message()
+                        .body()
+                        .attestations()
+                        .map(|att| att.clone_as_attestation())
+                        .collect::<Vec<_>>()
+                        .into()
                 },
             );
 
@@ -1676,7 +1682,7 @@ impl ApiTester {
         let mut attestations = Vec::new();
         for attestation in &self.attestations {
             let mut invalid_attestation = attestation.clone();
-            invalid_attestation.data.slot += 1;
+            invalid_attestation.data_mut().slot += 1;
 
             // add both to ensure we only fail on invalid attestations
             attestations.push(attestation.clone());
@@ -1800,7 +1806,14 @@ impl ApiTester {
 
     pub async fn test_post_beacon_pool_attester_slashings_invalid(mut self) -> Self {
         let mut slashing = self.attester_slashing.clone();
-        slashing.attestation_1.data.slot += 1;
+        match &mut slashing {
+            AttesterSlashing::Base(ref mut slashing) => {
+                slashing.attestation_1.data.slot += 1;
+            }
+            AttesterSlashing::Electra(ref mut slashing) => {
+                slashing.attestation_1.data.slot += 1;
+            }
+        }
 
         self.client
             .post_beacon_pool_attester_slashings(&slashing)
@@ -3175,7 +3188,8 @@ impl ApiTester {
                 .chain
                 .produce_unaggregated_attestation(slot, index)
                 .unwrap()
-                .data;
+                .data()
+                .clone();
 
             assert_eq!(result, expected);
         }
@@ -3189,14 +3203,16 @@ impl ApiTester {
             .head_beacon_block()
             .message()
             .body()
-            .attestations()[0]
-            .clone();
+            .attestations()
+            .next()
+            .unwrap()
+            .clone_as_attestation();
 
         let result = self
             .client
             .get_validator_aggregate_attestation(
-                attestation.data.slot,
-                attestation.data.tree_hash_root(),
+                attestation.data().slot,
+                attestation.data().tree_hash_root(),
             )
             .await
             .unwrap()
@@ -3276,11 +3292,12 @@ impl ApiTester {
             .unwrap()
             .data;
 
-        let mut attestation = Attestation {
+        // TODO(electra) make fork-agnostic
+        let mut attestation = Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
             data: attestation_data,
             signature: AggregateSignature::infinity(),
-        };
+        });
 
         attestation
             .sign(
@@ -3294,7 +3311,7 @@ impl ApiTester {
 
         SignedAggregateAndProof::from_aggregate(
             i as u64,
-            attestation,
+            attestation.to_ref(),
             Some(proof),
             &kp.sk,
             &fork,
@@ -3318,8 +3335,14 @@ impl ApiTester {
 
     pub async fn test_get_validator_aggregate_and_proofs_invalid(mut self) -> Self {
         let mut aggregate = self.get_aggregate().await;
-
-        aggregate.message.aggregate.data.slot += 1;
+        match &mut aggregate {
+            SignedAggregateAndProof::Base(ref mut aggregate) => {
+                aggregate.message.aggregate.data.slot += 1;
+            }
+            SignedAggregateAndProof::Electra(ref mut aggregate) => {
+                aggregate.message.aggregate.data.slot += 1;
+            }
+        }
 
         self.client
             .post_validator_aggregate_and_proof::<E>(&[aggregate])
@@ -5448,7 +5471,9 @@ impl ApiTester {
                 &self.chain.spec,
             );
         }
-        let expected_withdrawals = get_expected_withdrawals(&state, &self.chain.spec).unwrap();
+        let expected_withdrawals = get_expected_withdrawals(&state, &self.chain.spec)
+            .unwrap()
+            .0;
 
         // fetch expected withdrawals from the client
         let result = self.client.get_expected_withdrawals(&state_id).await;

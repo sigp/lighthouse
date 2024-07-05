@@ -1,7 +1,7 @@
 use ssz_derive::{Decode, Encode};
 use state_processing::ConsensusContext;
 use std::collections::HashMap;
-use types::{AttestationData, BitList, EthSpec, Hash256, IndexedAttestation, Slot};
+use types::{EthSpec, Hash256, IndexedAttestation, Slot};
 
 /// The consensus context is stored on disk as part of the data availability overflow cache.
 ///
@@ -21,8 +21,7 @@ pub struct OnDiskConsensusContext<E: EthSpec> {
     ///
     /// They are not part of the on-disk format.
     #[ssz(skip_serializing, skip_deserializing)]
-    indexed_attestations:
-        HashMap<(AttestationData, BitList<E::MaxValidatorsPerCommittee>), IndexedAttestation<E>>,
+    indexed_attestations: HashMap<Hash256, IndexedAttestation<E>>,
 }
 
 impl<E: EthSpec> OnDiskConsensusContext<E> {

@@ -98,7 +98,10 @@ pub async fn handle_rpc<E: EthSpec>(
                 .unwrap())
             }
         }
-        ENGINE_NEW_PAYLOAD_V1 | ENGINE_NEW_PAYLOAD_V2 | ENGINE_NEW_PAYLOAD_V3 => {
+        ENGINE_NEW_PAYLOAD_V1
+        | ENGINE_NEW_PAYLOAD_V2
+        | ENGINE_NEW_PAYLOAD_V3
+        | ENGINE_NEW_PAYLOAD_V4 => {
             let request = match method {
                 ENGINE_NEW_PAYLOAD_V1 => JsonExecutionPayload::V1(
                     get_param::<JsonExecutionPayloadV1<E>>(params, 0)
@@ -111,20 +114,14 @@ pub async fn handle_rpc<E: EthSpec>(
                             .map(|jep| JsonExecutionPayload::V1(jep))
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
-                ENGINE_NEW_PAYLOAD_V3 => get_param::<JsonExecutionPayloadV4<E>>(params, 0)
+                // From v3 onwards, we use the newPayload version only for the corresponding
+                // ExecutionPayload version. So we return an error instead of falling back to
+                // older versions of newPayload
+                ENGINE_NEW_PAYLOAD_V3 => get_param::<JsonExecutionPayloadV3<E>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::V3(jep))
+                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
+                ENGINE_NEW_PAYLOAD_V4 => get_param::<JsonExecutionPayloadV4<E>>(params, 0)
                     .map(|jep| JsonExecutionPayload::V4(jep))
-                    .or_else(|_| {
-                        get_param::<JsonExecutionPayloadV3<E>>(params, 0)
-                            .map(|jep| JsonExecutionPayload::V3(jep))
-                            .or_else(|_| {
-                                get_param::<JsonExecutionPayloadV2<E>>(params, 0)
-                                    .map(|jep| JsonExecutionPayload::V2(jep))
-                                    .or_else(|_| {
-                                        get_param::<JsonExecutionPayloadV1<E>>(params, 0)
-                                            .map(|jep| JsonExecutionPayload::V1(jep))
-                                    })
-                            })
-                    })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 _ => unreachable!(),
             };
@@ -190,7 +187,10 @@ pub async fn handle_rpc<E: EthSpec>(
                     }
                 }
                 ForkName::Electra => {
-                    if method == ENGINE_NEW_PAYLOAD_V1 || method == ENGINE_NEW_PAYLOAD_V2 {
+                    if method == ENGINE_NEW_PAYLOAD_V1
+                        || method == ENGINE_NEW_PAYLOAD_V2
+                        || method == ENGINE_NEW_PAYLOAD_V3
+                    {
                         return Err((
                             format!("{} called after Electra fork!", method),
                             GENERIC_ERROR_CODE,
@@ -259,7 +259,10 @@ pub async fn handle_rpc<E: EthSpec>(
 
             Ok(serde_json::to_value(JsonPayloadStatusV1::from(response)).unwrap())
         }
-        ENGINE_GET_PAYLOAD_V1 | ENGINE_GET_PAYLOAD_V2 | ENGINE_GET_PAYLOAD_V3 => {
+        ENGINE_GET_PAYLOAD_V1
+        | ENGINE_GET_PAYLOAD_V2
+        | ENGINE_GET_PAYLOAD_V3
+        | ENGINE_GET_PAYLOAD_V4 => {
             let request: JsonPayloadIdRequest =
                 get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
             let id = request.into();
@@ -309,7 +312,9 @@ pub async fn handle_rpc<E: EthSpec>(
                 .read()
                 .get_fork_at_timestamp(response.timestamp())
                 == ForkName::Electra
-                && method == ENGINE_GET_PAYLOAD_V1
+                && (method == ENGINE_GET_PAYLOAD_V1
+                    || method == ENGINE_GET_PAYLOAD_V2
+                    || method == ENGINE_GET_PAYLOAD_V3)
             {
                 return Err((
                     format!("{} called after Electra fork!", method),
@@ -338,6 +343,9 @@ pub async fn handle_rpc<E: EthSpec>(
                     }
                     _ => unreachable!(),
                 }),
+                // From v3 onwards, we use the getPayload version only for the corresponding
+                // ExecutionPayload version. So we return an error if the ExecutionPayload version
+                // we get does not correspond to the getPayload version.
                 ENGINE_GET_PAYLOAD_V3 => Ok(match JsonExecutionPayload::from(response) {
                     JsonExecutionPayload::V3(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV3 {
@@ -353,6 +361,9 @@ pub async fn handle_rpc<E: EthSpec>(
                         })
                         .unwrap()
                     }
+                    _ => unreachable!(),
+                }),
+                ENGINE_GET_PAYLOAD_V4 => Ok(match JsonExecutionPayload::from(response) {
                     JsonExecutionPayload::V4(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV4 {
                             execution_payload,
@@ -578,6 +589,14 @@ pub async fn handle_rpc<E: EthSpec>(
                                 .withdrawals()
                                 .ok()
                                 .map(|withdrawals| VariableList::from(withdrawals.clone())),
+                            deposit_requests: block.deposit_requests().ok().map(
+                                |deposit_requests| VariableList::from(deposit_requests.clone()),
+                            ),
+                            withdrawal_requests: block.withdrawal_requests().ok().map(
+                                |withdrawal_requests| {
+                                    VariableList::from(withdrawal_requests.clone())
+                                },
+                            ),
                         }));
                     }
                     None => response.push(None),
