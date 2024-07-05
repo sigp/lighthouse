@@ -72,6 +72,7 @@ use eth2::{
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
 use eth2_network_config::Eth2NetworkConfig;
+use log::{debug, info};
 use ssz::Encode;
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
@@ -390,7 +391,7 @@ fn do_transition<E: EthSpec>(
         // Signature verification should prime the indexed attestation cache.
         assert_eq!(
             ctxt.num_cached_indexed_attestations(),
-            block.message().body().attestations().len()
+            block.message().body().attestations_len()
         );
     }
 

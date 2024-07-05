@@ -28,7 +28,6 @@ use state_processing::{
     state_advance::Error as StateAdvanceError,
     BlockProcessingError, BlockReplayError, EpochProcessingError, SlotProcessingError,
 };
-use std::time::Duration;
 use task_executor::ShutdownReason;
 use tokio::task::JoinError;
 use types::milhouse::Error as MilhouseError;
@@ -77,11 +76,6 @@ pub enum BeaconChainError {
     ProposerSlashingValidationError(ProposerSlashingValidationError),
     AttesterSlashingValidationError(AttesterSlashingValidationError),
     BlsExecutionChangeValidationError(BlsExecutionChangeValidationError),
-    StateSkipTooLarge {
-        start_slot: Slot,
-        requested_slot: Slot,
-        max_task_runtime: Duration,
-    },
     MissingFinalizedStateRoot(Slot),
     /// Returned when an internal check fails, indicating corrupt data.
     InvariantViolated(String),
@@ -226,6 +220,8 @@ pub enum BeaconChainError {
     LightClientError(LightClientError),
     UnsupportedFork,
     MilhouseError(MilhouseError),
+    AttestationError(AttestationError),
+    AttestationCommitteeIndexNotSet,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -256,6 +252,7 @@ easy_from_to!(AvailabilityCheckError, BeaconChainError);
 easy_from_to!(EpochCacheError, BeaconChainError);
 easy_from_to!(LightClientError, BeaconChainError);
 easy_from_to!(MilhouseError, BeaconChainError);
+easy_from_to!(AttestationError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {

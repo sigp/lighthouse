@@ -3,7 +3,7 @@
 mod common;
 
 use common::Protocol;
-use lighthouse_network::rpc::{methods::*, RPCError};
+use lighthouse_network::rpc::methods::*;
 use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Request, Response};
 use slog::{debug, warn, Level};
 use ssz::Encode;
@@ -998,98 +998,6 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                         // stop sending messages
                         return;
                     }
-                }
-            }
-        };
-
-        tokio::select! {
-            _ = sender_future => {}
-            _ = receiver_future => {}
-            _ = sleep(Duration::from_secs(30)) => {
-                panic!("Future timed out");
-            }
-        }
-    })
-}
-
-#[test]
-fn test_disconnect_triggers_rpc_error() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::Debug;
-    let enable_logging = false;
-
-    let log = common::build_log(log_level, enable_logging);
-    let spec = E::default_spec();
-
-    let rt = Arc::new(Runtime::new().unwrap());
-    // get sender/receiver
-    rt.block_on(async {
-        let (mut sender, mut receiver) = common::build_node_pair(
-            Arc::downgrade(&rt),
-            &log,
-            ForkName::Base,
-            &spec,
-            Protocol::Tcp,
-        )
-        .await;
-
-        // BlocksByRoot Request
-        let rpc_request = Request::BlocksByRoot(BlocksByRootRequest::new(
-            // Must have at least one root for the request to create a stream
-            vec![Hash256::from_low_u64_be(0)],
-            &spec,
-        ));
-
-        // build the sender future
-        let sender_future = async {
-            loop {
-                match sender.next_event().await {
-                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                        // Send a STATUS message
-                        debug!(log, "Sending RPC");
-                        sender
-                            .send_request(peer_id, 42, rpc_request.clone())
-                            .unwrap();
-                    }
-                    NetworkEvent::RPCFailed { error, id: 42, .. } => match error {
-                        RPCError::Disconnected => return,
-                        other => panic!("received unexpected error {:?}", other),
-                    },
-                    other => {
-                        warn!(log, "Ignoring other event {:?}", other);
-                    }
-                }
-            }
-        };
-
-        // determine messages to send (PeerId, RequestId). If some, indicates we still need to send
-        // messages
-        let mut sending_peer = None;
-        let receiver_future = async {
-            loop {
-                // this future either drives the sending/receiving or times out allowing messages to be
-                // sent in the timeout
-                match futures::future::select(
-                    Box::pin(receiver.next_event()),
-                    Box::pin(tokio::time::sleep(Duration::from_secs(1))),
-                )
-                .await
-                {
-                    futures::future::Either::Left((ev, _)) => match ev {
-                        NetworkEvent::RequestReceived { peer_id, .. } => {
-                            sending_peer = Some(peer_id);
-                        }
-                        other => {
-                            warn!(log, "Ignoring other event {:?}", other);
-                        }
-                    },
-                    futures::future::Either::Right((_, _)) => {} // The timeout hit, send messages if required
-                }
-
-                // if we need to send messages send them here. This will happen after a delay
-                if let Some(peer_id) = sending_peer.take() {
-                    warn!(log, "Receiver got request, disconnecting peer");
-                    receiver.__hard_disconnect_testing_only(peer_id);
                 }
             }
         };

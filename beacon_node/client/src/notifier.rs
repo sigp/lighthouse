@@ -551,7 +551,7 @@ async fn electra_readiness_logging<T: BeaconChainTypes>(
         .snapshot
         .beacon_state
         .fork_name_unchecked()
-        >= ForkName::Electra;
+        .electra_enabled();
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 
