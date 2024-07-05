@@ -26,7 +26,7 @@ use std::{
     fmt,
     net::IpAddr,
     task::{Context, Poll},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use futures::StreamExt;

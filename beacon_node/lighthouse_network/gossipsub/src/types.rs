@@ -25,6 +25,7 @@ use async_channel::{Receiver, Sender};
 use futures::stream::Peekable;
 use futures::{Future, Stream, StreamExt};
 use futures_timer::Delay;
+use hashlink::LinkedHashMap;
 use libp2p::identity::PeerId;
 use libp2p::swarm::ConnectionId;
 use prometheus_client::encoding::EncodeLabelValue;
