@@ -202,7 +202,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut previous_epoch_participation = state.previous_epoch_participation()?.clone();
 
         for attestation in block.body().attestations() {
-            let data = &attestation.data;
+            let data = attestation.data();
             let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
             // [Modified in Deneb:EIP7045]
             let participation_flag_indices = get_attestation_participation_flag_indices(

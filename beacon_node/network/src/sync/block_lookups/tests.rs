@@ -349,8 +349,11 @@ impl TestRig {
         }
     }
 
-    fn failed_chains_contains(&mut self, chain_hash: &Hash256) -> bool {
-        self.sync_manager.get_failed_chains().contains(chain_hash)
+    fn assert_failed_chain(&mut self, chain_hash: Hash256) {
+        let failed_chains = self.sync_manager.get_failed_chains();
+        if !failed_chains.contains(&chain_hash) {
+            panic!("expected failed chains to contain {chain_hash:?}: {failed_chains:?}");
+        }
     }
 
     fn find_single_lookup_for(&self, block_root: Hash256) -> Id {
@@ -1564,7 +1567,7 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
     // Trigger the request
     rig.trigger_unknown_parent_block(peer_id, block.into());
     for i in 1..=PARENT_FAIL_TOLERANCE {
-        assert!(!rig.failed_chains_contains(&block_root));
+        rig.assert_not_failed_chain(block_root);
         let id = rig.expect_block_parent_request(parent_root);
         if i % 2 != 0 {
             // The request fails. It should be tried again.
@@ -1577,8 +1580,8 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
         }
     }
 
-    assert!(!rig.failed_chains_contains(&block_root));
-    assert!(!rig.failed_chains_contains(&parent.canonical_root()));
+    rig.assert_not_failed_chain(block_root);
+    rig.assert_not_failed_chain(parent.canonical_root());
     rig.expect_no_active_lookups_empty_network();
 }
 
@@ -1616,7 +1619,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
 }
 
 #[test]
-fn test_parent_lookup_too_deep() {
+fn test_parent_lookup_too_deep_grow_ancestor() {
     let mut rig = TestRig::test_setup();
     let mut blocks = rig.rand_blockchain(PARENT_DEPTH_TOLERANCE);
 
@@ -1641,7 +1644,31 @@ fn test_parent_lookup_too_deep() {
     }
 
     rig.expect_penalty(peer_id, "chain_too_long");
-    assert!(rig.failed_chains_contains(&chain_hash));
+    rig.assert_failed_chain(chain_hash);
+}
+
+#[test]
+fn test_parent_lookup_too_deep_grow_tip() {
+    let mut rig = TestRig::test_setup();
+    let blocks = rig.rand_blockchain(PARENT_DEPTH_TOLERANCE - 1);
+    let peer_id = rig.new_connected_peer();
+    let tip = blocks.last().unwrap().clone();
+
+    for block in blocks.into_iter() {
+        let block_root = block.canonical_root();
+        rig.trigger_unknown_block_from_attestation(block_root, peer_id);
+        let id = rig.expect_block_parent_request(block_root);
+        rig.single_lookup_block_response(id, peer_id, Some(block.clone()));
+        rig.single_lookup_block_response(id, peer_id, None);
+        rig.expect_block_process(ResponseType::Block);
+        rig.single_block_component_processed(
+            id.lookup_id,
+            BlockError::ParentUnknown(RpcBlock::new_without_blobs(None, block)).into(),
+        );
+    }
+
+    rig.expect_penalty(peer_id, "chain_too_long");
+    rig.assert_failed_chain(tip.canonical_root());
 }
 
 #[test]
