@@ -261,14 +261,20 @@ pub enum DBColumn {
     #[strum(serialize = "pkc")]
     PubkeyCache,
     /// For the legacy table mapping restore point numbers to state roots.
+    ///
+    /// DEPRECATED. Can be removed once schema v22 is buried by a hard fork.
     #[strum(serialize = "brp")]
     BeaconRestorePoint,
+    /// Mapping from slot to beacon block root in the freezer DB.
     #[strum(serialize = "bbr")]
     BeaconBlockRoots,
+    /// Mapping from slot to beacon state root in the freezer DB.
     #[strum(serialize = "bsr")]
     BeaconStateRoots,
+    /// DEPRECATED. Can be removed once schema v22 is buried by a hard fork.
     #[strum(serialize = "bhr")]
     BeaconHistoricalRoots,
+    /// DEPRECATED. Can be removed once schema v22 is buried by a hard fork.
     #[strum(serialize = "brm")]
     BeaconRandaoMixes,
     #[strum(serialize = "dht")]
@@ -276,6 +282,7 @@ pub enum DBColumn {
     /// For Optimistically Imported Merge Transition Blocks
     #[strum(serialize = "otb")]
     OptimisticTransitionBlock,
+    /// DEPRECATED. Can be removed once schema v22 is buried by a hard fork.
     #[strum(serialize = "bhs")]
     BeaconHistoricalSummaries,
     #[strum(serialize = "olc")]

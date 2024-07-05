@@ -1,37 +1,34 @@
-use crate::chunked_iter::ChunkedVectorIter;
-use crate::chunked_vector::{BlockRoots, Field, StateRoots};
 use crate::errors::{Error, Result};
 use crate::iter::{BlockRootsIterator, StateRootsIterator};
-use crate::{HotColdDB, ItemStore};
+use crate::{ColumnIter, DBColumn, HotColdDB, ItemStore};
 use itertools::process_results;
-use types::{BeaconState, ChainSpec, EthSpec, Hash256, Slot};
+use std::marker::PhantomData;
+use types::{BeaconState, EthSpec, Hash256, Slot};
 
 pub type HybridForwardsBlockRootsIterator<'a, E, Hot, Cold> =
-    HybridForwardsIterator<'a, E, BlockRoots, Hot, Cold>;
+    HybridForwardsIterator<'a, E, Hot, Cold>;
 pub type HybridForwardsStateRootsIterator<'a, E, Hot, Cold> =
-    HybridForwardsIterator<'a, E, StateRoots, Hot, Cold>;
+    HybridForwardsIterator<'a, E, Hot, Cold>;
 
-/// Trait unifying `BlockRoots` and `StateRoots` for forward iteration.
-pub trait Root<E: EthSpec>: Field<E, Value = Hash256> {
-    fn simple_forwards_iterator<Hot: ItemStore<E>, Cold: ItemStore<E>>(
-        store: &HotColdDB<E, Hot, Cold>,
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> {
+    fn simple_forwards_iterator(
+        &self,
+        column: DBColumn,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_root: Hash256,
-    ) -> Result<SimpleForwardsIterator>;
+    ) -> Result<SimpleForwardsIterator> {
+        if column == DBColumn::BeaconBlockRoots {
+            self.forwards_iter_block_roots_using_state(start_slot, end_state, end_root)
+        } else if column == DBColumn::BeaconStateRoots {
+            self.forwards_iter_state_roots_using_state(start_slot, end_state, end_root)
+        } else {
+            Err(Error::ForwardsIterInvalidColumn(column))
+        }
+    }
 
-    /// The first slot for which this field is *no longer* stored in the freezer database.
-    ///
-    /// If `None`, then this field is not stored in the freezer database at all due to pruning
-    /// configuration.
-    fn freezer_upper_limit<Hot: ItemStore<E>, Cold: ItemStore<E>>(
-        store: &HotColdDB<E, Hot, Cold>,
-    ) -> Option<Slot>;
-}
-
-impl<E: EthSpec> Root<E> for BlockRoots {
-    fn simple_forwards_iterator<Hot: ItemStore<E>, Cold: ItemStore<E>>(
-        store: &HotColdDB<E, Hot, Cold>,
+    fn forwards_iter_block_roots_using_state(
+        &self,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_block_root: Hash256,
@@ -39,7 +36,7 @@ impl<E: EthSpec> Root<E> for BlockRoots {
         // Iterate backwards from the end state, stopping at the start slot.
         let values = process_results(
             std::iter::once(Ok((end_block_root, end_state.slot())))
-                .chain(BlockRootsIterator::owned(store, end_state)),
+                .chain(BlockRootsIterator::owned(self, end_state)),
             |iter| {
                 iter.take_while(|(_, slot)| *slot >= start_slot)
                     .collect::<Vec<_>>()
@@ -48,17 +45,8 @@ impl<E: EthSpec> Root<E> for BlockRoots {
         Ok(SimpleForwardsIterator { values })
     }
 
-    fn freezer_upper_limit<Hot: ItemStore<E>, Cold: ItemStore<E>>(
-        store: &HotColdDB<E, Hot, Cold>,
-    ) -> Option<Slot> {
-        // Block roots are stored for all slots up to the split slot (exclusive).
-        Some(store.get_split_slot())
-    }
-}
-
-impl<E: EthSpec> Root<E> for StateRoots {
-    fn simple_forwards_iterator<Hot: ItemStore<E>, Cold: ItemStore<E>>(
-        store: &HotColdDB<E, Hot, Cold>,
+    fn forwards_iter_state_roots_using_state(
+        &self,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_state_root: Hash256,
@@ -66,7 +54,7 @@ impl<E: EthSpec> Root<E> for StateRoots {
         // Iterate backwards from the end state, stopping at the start slot.
         let values = process_results(
             std::iter::once(Ok((end_state_root, end_state.slot())))
-                .chain(StateRootsIterator::owned(store, end_state)),
+                .chain(StateRootsIterator::owned(self, end_state)),
             |iter| {
                 iter.take_while(|(_, slot)| *slot >= start_slot)
                     .collect::<Vec<_>>()
@@ -75,65 +63,126 @@ impl<E: EthSpec> Root<E> for StateRoots {
         Ok(SimpleForwardsIterator { values })
     }
 
-    fn freezer_upper_limit<Hot: ItemStore<E>, Cold: ItemStore<E>>(
-        store: &HotColdDB<E, Hot, Cold>,
-    ) -> Option<Slot> {
-        let split_slot = store.get_split_slot();
-        let anchor_info = store.get_anchor_info();
-        // There are no historic states stored if the state upper limit lies in the hot
-        // database. It hasn't been reached yet, and may never be.
-        if anchor_info.as_ref().map_or(false, |a| {
-            a.state_upper_limit >= split_slot && a.state_lower_limit == 0
-        }) {
-            None
-        } else if let Some(lower_limit) = anchor_info
-            .map(|a| a.state_lower_limit)
-            .filter(|limit| *limit > 0)
-        {
-            Some(lower_limit)
+    /// Compute the maximum /slot (exclusive)
+    fn freezer_upper_bound_for_column(
+        &self,
+        column: DBColumn,
+        start_slot: Slot,
+    ) -> Result<Option<Slot>> {
+        if column == DBColumn::BeaconBlockRoots {
+            Ok(self.freezer_upper_bound_for_block_roots(start_slot))
+        } else if column == DBColumn::BeaconStateRoots {
+            Ok(self.freezer_upper_bound_for_state_roots(start_slot))
         } else {
-            // Otherwise if the state upper limit lies in the freezer or all states are
-            // reconstructed then state roots are available up to the split slot.
-            Some(split_slot)
+            Err(Error::ForwardsIterInvalidColumn(column))
+        }
+    }
+
+    fn freezer_upper_bound_for_block_roots(&self, start_slot: Slot) -> Option<Slot> {
+        let oldest_block_slot = self.get_oldest_block_slot();
+        if start_slot == 0 {
+            // Slot 0 block root is always available.
+            Some(Slot::new(1))
+        } else if start_slot < oldest_block_slot {
+            // Non-zero block roots are not available prior to the `oldest_block_slot`.
+            None
+        } else {
+            // Block roots are stored for all slots up to the split slot (exclusive).
+            Some(self.get_split_slot())
+        }
+    }
+
+    fn freezer_upper_bound_for_state_roots(&self, start_slot: Slot) -> Option<Slot> {
+        let split_slot = self.get_split_slot();
+        let anchor_info = self.get_anchor_info();
+
+        match anchor_info {
+            Some(anchor) => {
+                if start_slot <= anchor.state_lower_limit {
+                    // Starting slot is prior to lower limit, so that's the upper limit. We can't
+                    // iterate past the lower limit into the gap. The +1 accounts for exclusivity.
+                    Some(anchor.state_lower_limit + 1)
+                } else if start_slot >= anchor.state_upper_limit {
+                    // Starting slot is after the upper limit, so the split is the upper limit.
+                    // The split state's root is not available in the freezer so this is exclusive.
+                    Some(split_slot)
+                } else {
+                    // In the gap, nothing is available.
+                    None
+                }
+            }
+            None => {
+                // No anchor indicates that all state roots up to the split slot are available.
+                Some(split_slot)
+            }
         }
     }
 }
 
-/// Forwards root iterator that makes use of a flat field table in the freezer DB.
-pub struct FrozenForwardsIterator<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>>
-{
-    inner: ChunkedVectorIter<'a, F, E, Hot, Cold>,
+/// Forwards root iterator that makes use of a slot -> root mapping in the freezer DB.
+pub struct FrozenForwardsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+    inner: ColumnIter<'a, Vec<u8>>,
+    column: DBColumn,
+    next_slot: Slot,
+    end_slot: Slot,
+    _phantom: PhantomData<(E, Hot, Cold)>,
 }
 
-impl<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>>
-    FrozenForwardsIterator<'a, E, F, Hot, Cold>
+impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
+    FrozenForwardsIterator<'a, E, Hot, Cold>
 {
+    /// `end_slot` is EXCLUSIVE here.
     pub fn new(
         store: &'a HotColdDB<E, Hot, Cold>,
+        column: DBColumn,
         start_slot: Slot,
-        last_restore_point_slot: Slot,
-        spec: &ChainSpec,
-    ) -> Self {
-        Self {
-            inner: ChunkedVectorIter::new(
-                store,
-                start_slot.as_usize(),
-                last_restore_point_slot,
-                spec,
-            ),
+        end_slot: Slot,
+    ) -> Result<Self> {
+        if column != DBColumn::BeaconBlockRoots && column != DBColumn::BeaconStateRoots {
+            return Err(Error::ForwardsIterInvalidColumn(column));
         }
+        let start = start_slot.as_u64().to_be_bytes();
+        Ok(Self {
+            inner: store.cold_db.iter_column_from(column, &start),
+            column,
+            next_slot: start_slot,
+            end_slot,
+            _phantom: PhantomData,
+        })
     }
 }
 
-impl<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
-    for FrozenForwardsIterator<'a, E, F, Hot, Cold>
+impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+    for FrozenForwardsIterator<'a, E, Hot, Cold>
 {
-    type Item = (Hash256, Slot);
+    type Item = Result<(Hash256, Slot)>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.next_slot == self.end_slot {
+            return None;
+        }
+
         self.inner
-            .next()
-            .map(|(slot, root)| (root, Slot::from(slot)))
+            .next()?
+            .and_then(|(slot_bytes, root_bytes)| {
+                let slot = slot_bytes
+                    .try_into()
+                    .map(u64::from_be_bytes)
+                    .map(Slot::new)
+                    .map_err(|_| Error::InvalidBytes)?;
+                if root_bytes.len() != std::mem::size_of::<Hash256>() {
+                    return Err(Error::InvalidBytes);
+                }
+                let root = Hash256::from_slice(&root_bytes);
+
+                if slot != self.next_slot {
+                    return Err(Error::ForwardsIterGap(self.column, slot, self.next_slot));
+                }
+                self.next_slot += 1;
+
+                Ok(Some((root, slot)))
+            })
+            .transpose()
     }
 }
 
@@ -153,10 +202,12 @@ impl Iterator for SimpleForwardsIterator {
 }
 
 /// Fusion of the above two approaches to forwards iteration. Fast and efficient.
-pub enum HybridForwardsIterator<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+pub enum HybridForwardsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     PreFinalization {
-        iter: Box<FrozenForwardsIterator<'a, E, F, Hot, Cold>>,
+        iter: Box<FrozenForwardsIterator<'a, E, Hot, Cold>>,
+        store: &'a HotColdDB<E, Hot, Cold>,
         end_slot: Option<Slot>,
+        column: DBColumn,
         /// Data required by the `PostFinalization` iterator when we get to it.
         continuation_data: Option<Box<(BeaconState<E>, Hash256)>>,
     },
@@ -164,6 +215,7 @@ pub enum HybridForwardsIterator<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, C
         continuation_data: Option<Box<(BeaconState<E>, Hash256)>>,
         store: &'a HotColdDB<E, Hot, Cold>,
         start_slot: Slot,
+        column: DBColumn,
     },
     PostFinalization {
         iter: SimpleForwardsIterator,
@@ -171,8 +223,8 @@ pub enum HybridForwardsIterator<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, C
     Finished,
 }
 
-impl<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>>
-    HybridForwardsIterator<'a, E, F, Hot, Cold>
+impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
+    HybridForwardsIterator<'a, E, Hot, Cold>
 {
     /// Construct a new hybrid iterator.
     ///
@@ -188,37 +240,41 @@ impl<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>>
     /// function may block for some time while `get_state` runs.
     pub fn new(
         store: &'a HotColdDB<E, Hot, Cold>,
+        column: DBColumn,
         start_slot: Slot,
         end_slot: Option<Slot>,
         get_state: impl FnOnce() -> Result<(BeaconState<E>, Hash256)>,
-        spec: &ChainSpec,
     ) -> Result<Self> {
         use HybridForwardsIterator::*;
 
         // First slot at which this field is *not* available in the freezer. i.e. all slots less
         // than this slot have their data available in the freezer.
-        let freezer_upper_limit = F::freezer_upper_limit(store).unwrap_or(Slot::new(0));
+        let freezer_upper_bound = store
+            .freezer_upper_bound_for_column(column, start_slot)?
+            .ok_or(Error::ForwardsIterBadStart(column, start_slot))?;
 
-        let result = if start_slot < freezer_upper_limit {
+        let result = if start_slot < freezer_upper_bound {
             let iter = Box::new(FrozenForwardsIterator::new(
                 store,
+                column,
                 start_slot,
-                freezer_upper_limit,
-                spec,
-            ));
+                freezer_upper_bound,
+            )?);
 
             // No continuation data is needed if the forwards iterator plans to halt before
             // `end_slot`. If it tries to continue further a `NoContinuationData` error will be
             // returned.
             let continuation_data =
-                if end_slot.map_or(false, |end_slot| end_slot < freezer_upper_limit) {
+                if end_slot.map_or(false, |end_slot| end_slot < freezer_upper_bound) {
                     None
                 } else {
                     Some(Box::new(get_state()?))
                 };
             PreFinalization {
                 iter,
+                store,
                 end_slot,
+                column,
                 continuation_data,
             }
         } else {
@@ -226,6 +282,7 @@ impl<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>>
                 continuation_data: Some(Box::new(get_state()?)),
                 store,
                 start_slot,
+                column,
             }
         };
 
@@ -239,29 +296,31 @@ impl<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>>
             PreFinalization {
                 iter,
                 end_slot,
+                store,
                 continuation_data,
+                column,
             } => {
                 match iter.next() {
-                    Some(x) => Ok(Some(x)),
+                    Some(x) => x.map(Some),
                     // Once the pre-finalization iterator is consumed, transition
                     // to a post-finalization iterator beginning from the last slot
                     // of the pre iterator.
                     None => {
                         // If the iterator has an end slot (inclusive) which has already been
                         // covered by the (exclusive) frozen forwards iterator, then we're done!
-                        let iter_end_slot = Slot::from(iter.inner.end_vindex);
-                        if end_slot.map_or(false, |end_slot| iter_end_slot == end_slot + 1) {
+                        if end_slot.map_or(false, |end_slot| iter.end_slot == end_slot + 1) {
                             *self = Finished;
                             return Ok(None);
                         }
 
                         let continuation_data = continuation_data.take();
-                        let store = iter.inner.store;
-                        let start_slot = iter_end_slot;
+                        let start_slot = iter.end_slot;
+
                         *self = PostFinalizationLazy {
                             continuation_data,
                             store,
                             start_slot,
+                            column: *column,
                         };
 
                         self.do_next()
@@ -272,11 +331,17 @@ impl<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>>
                 continuation_data,
                 store,
                 start_slot,
+                column,
             } => {
                 let (end_state, end_root) =
                     *continuation_data.take().ok_or(Error::NoContinuationData)?;
                 *self = PostFinalization {
-                    iter: F::simple_forwards_iterator(store, *start_slot, end_state, end_root)?,
+                    iter: store.simple_forwards_iterator(
+                        *column,
+                        *start_slot,
+                        end_state,
+                        end_root,
+                    )?,
                 };
                 self.do_next()
             }
@@ -286,8 +351,8 @@ impl<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>>
     }
 }
 
-impl<'a, E: EthSpec, F: Root<E>, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
-    for HybridForwardsIterator<'a, E, F, Hot, Cold>
+impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+    for HybridForwardsIterator<'a, E, Hot, Cold>
 {
     type Item = Result<(Hash256, Slot)>;
 

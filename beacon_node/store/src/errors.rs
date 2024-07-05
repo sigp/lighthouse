@@ -1,7 +1,7 @@
 use crate::chunked_vector::ChunkError;
 use crate::config::StoreConfigError;
-use crate::hdiff;
 use crate::hot_cold_store::HotColdDBError;
+use crate::{hdiff, DBColumn};
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
 use types::{milhouse, BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};
@@ -75,6 +75,9 @@ pub enum Error {
     InconsistentFork(InconsistentFork),
     ZeroCacheSize,
     CacheBuildError(EpochCacheError),
+    ForwardsIterInvalidColumn(DBColumn),
+    ForwardsIterGap(DBColumn, Slot, Slot),
+    ForwardsIterBadStart(DBColumn, Slot),
     MissingBlock(Hash256),
 }
 

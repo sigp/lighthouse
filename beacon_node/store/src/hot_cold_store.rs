@@ -848,10 +848,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>> + '_, Error> {
         HybridForwardsBlockRootsIterator::new(
             self,
+            DBColumn::BeaconBlockRoots,
             start_slot,
             None,
             || Ok((end_state, end_block_root)),
-            &self.spec,
         )
     }
 
@@ -863,10 +863,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<HybridForwardsBlockRootsIterator<E, Hot, Cold>, Error> {
         HybridForwardsBlockRootsIterator::new(
             self,
+            DBColumn::BeaconBlockRoots,
             start_slot,
             Some(end_slot),
             get_state,
-            &self.spec,
         )
     }
 
@@ -878,10 +878,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>> + '_, Error> {
         HybridForwardsStateRootsIterator::new(
             self,
+            DBColumn::BeaconStateRoots,
             start_slot,
             None,
             || Ok((end_state, end_state_root)),
-            &self.spec,
         )
     }
 
@@ -893,10 +893,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<HybridForwardsStateRootsIterator<E, Hot, Cold>, Error> {
         HybridForwardsStateRootsIterator::new(
             self,
+            DBColumn::BeaconStateRoots,
             start_slot,
             Some(end_slot),
             get_state,
-            &self.spec,
         )
     }
 
