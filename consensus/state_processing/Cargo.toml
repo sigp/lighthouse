@@ -28,6 +28,8 @@ arbitrary = { workspace = true }
 lighthouse_metrics = { workspace = true }
 lazy_static = { workspace = true }
 derivative = { workspace = true }
+test_random_derive = { path = "../../common/test_random_derive" }
+rand = { workspace = true }
 
 [features]
 default = ["legacy-arith"]

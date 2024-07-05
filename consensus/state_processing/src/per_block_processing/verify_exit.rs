@@ -79,5 +79,16 @@ pub fn verify_exit<E: EthSpec>(
         );
     }
 
+    // [New in Electra:EIP7251]
+    // Only exit validator if it has no pending withdrawals in the queue
+    if let Ok(pending_balance_to_withdraw) =
+        state.get_pending_balance_to_withdraw(exit.validator_index as usize)
+    {
+        verify!(
+            pending_balance_to_withdraw == 0,
+            ExitInvalid::PendingWithdrawalInQueue(exit.validator_index)
+        );
+    }
+
     Ok(())
 }

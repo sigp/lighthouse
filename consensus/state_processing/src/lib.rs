@@ -45,4 +45,4 @@ pub use per_epoch_processing::{
 };
 pub use per_slot_processing::{per_slot_processing, Error as SlotProcessingError};
 pub use types::{EpochCache, EpochCacheError, EpochCacheKey};
-pub use verify_operation::{SigVerifiedOp, VerifyOperation, VerifyOperationAt};
+pub use verify_operation::{SigVerifiedOp, TransformPersist, VerifyOperation, VerifyOperationAt};

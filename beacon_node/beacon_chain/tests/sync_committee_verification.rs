@@ -318,7 +318,6 @@ async fn aggregated_gossip_verification() {
      * The contribution_and_proof.selection_proof is a valid signature of the `SyncAggregatorSelectionData`
      * derived from the contribution by the validator with index `contribution_and_proof.aggregator_index`.
      */
-
     assert_invalid!(
         "aggregate with bad selection proof signature",
         {
@@ -354,7 +353,6 @@ async fn aggregated_gossip_verification() {
      * derived from the participation info in `aggregation_bits` for the subcommittee specified by
      * the `contribution.subcommittee_index`.
      */
-
     assert_invalid!(
         "aggregate with bad aggregate signature",
         {
@@ -450,6 +448,7 @@ async fn aggregated_gossip_verification() {
         root: contribution.beacon_block_root,
         subcommittee_index: contribution.subcommittee_index,
     };
+
     assert_invalid!(
         "aggregate that has already been seen",
         valid_aggregate.clone(),

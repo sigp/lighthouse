@@ -1,5 +1,8 @@
 use beacon_chain::get_block_root;
-use lighthouse_network::rpc::{methods::BlobsByRootRequest, BlocksByRootRequest};
+use lighthouse_network::{
+    rpc::{methods::BlobsByRootRequest, BlocksByRootRequest},
+    PeerId,
+};
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use types::{
@@ -20,13 +23,15 @@ pub enum LookupVerifyError {
 pub struct ActiveBlocksByRootRequest {
     request: BlocksByRootSingleRequest,
     resolved: bool,
+    pub(crate) peer_id: PeerId,
 }
 
 impl ActiveBlocksByRootRequest {
-    pub fn new(request: BlocksByRootSingleRequest) -> Self {
+    pub fn new(request: BlocksByRootSingleRequest, peer_id: PeerId) -> Self {
         Self {
             request,
             resolved: false,
+            peer_id,
         }
     }
 
@@ -94,14 +99,16 @@ pub struct ActiveBlobsByRootRequest<E: EthSpec> {
     request: BlobsByRootSingleBlockRequest,
     blobs: Vec<Arc<BlobSidecar<E>>>,
     resolved: bool,
+    pub(crate) peer_id: PeerId,
 }
 
 impl<E: EthSpec> ActiveBlobsByRootRequest<E> {
-    pub fn new(request: BlobsByRootSingleBlockRequest) -> Self {
+    pub fn new(request: BlobsByRootSingleBlockRequest, peer_id: PeerId) -> Self {
         Self {
             request,
             blobs: vec![],
             resolved: false,
+            peer_id,
         }
     }
 
@@ -120,7 +127,7 @@ impl<E: EthSpec> ActiveBlobsByRootRequest<E> {
         if self.request.block_root != block_root {
             return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
         }
-        if !blob.verify_blob_sidecar_inclusion_proof().unwrap_or(false) {
+        if !blob.verify_blob_sidecar_inclusion_proof() {
             return Err(LookupVerifyError::InvalidInclusionProof);
         }
         if !self.request.indices.contains(&blob.index) {
