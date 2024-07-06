@@ -308,9 +308,27 @@ pub struct DataColumnsByRangeRequest {
 
 impl DataColumnsByRangeRequest {
     pub fn max_requested<E: EthSpec>(&self) -> u64 {
-        self.count
-            .saturating_mul(E::max_blobs_per_block() as u64)
-            .saturating_mul(self.columns.len() as u64)
+        self.count.saturating_mul(self.columns.len() as u64)
+    }
+
+    pub fn ssz_min_len() -> usize {
+        DataColumnsByRangeRequest {
+            start_slot: 0,
+            count: 0,
+            columns: vec![0],
+        }
+        .as_ssz_bytes()
+        .len()
+    }
+
+    pub fn ssz_max_len(spec: &ChainSpec) -> usize {
+        DataColumnsByRangeRequest {
+            start_slot: 0,
+            count: 0,
+            columns: vec![0; spec.number_of_columns],
+        }
+        .as_ssz_bytes()
+        .len()
     }
 }
 

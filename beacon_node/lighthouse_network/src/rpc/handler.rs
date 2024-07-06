@@ -352,37 +352,6 @@ where
         !matches!(self.state, HandlerState::Deactivated)
     }
 
-    // NOTE: This function gets polled to completion upon a connection close.
-    fn poll_close(&mut self, _: &mut Context<'_>) -> Poll<Option<Self::ToBehaviour>> {
-        // Inform the network behaviour of any failed requests
-
-        while let Some(substream_id) = self.outbound_substreams.keys().next().cloned() {
-            let outbound_info = self
-                .outbound_substreams
-                .remove(&substream_id)
-                .expect("The value must exist for a key");
-            // If the state of the connection is closing, we do not need to report this case to
-            // the behaviour, as the connection has just closed non-gracefully
-            if matches!(outbound_info.state, OutboundSubstreamState::Closing(_)) {
-                continue;
-            }
-
-            // Register this request as an RPC Error
-            return Poll::Ready(Some(HandlerEvent::Err(HandlerErr::Outbound {
-                error: RPCError::Disconnected,
-                proto: outbound_info.proto,
-                id: outbound_info.req_id,
-            })));
-        }
-
-        // Also handle any events that are awaiting to be sent to the behaviour
-        if !self.events_out.is_empty() {
-            return Poll::Ready(Some(self.events_out.remove(0)));
-        }
-
-        Poll::Ready(None)
-    }
-
     fn poll(
         &mut self,
         cx: &mut Context<'_>,

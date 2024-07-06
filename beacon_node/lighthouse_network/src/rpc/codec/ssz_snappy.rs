@@ -801,7 +801,8 @@ mod tests {
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
     use types::{
         blob_sidecar::BlobIdentifier, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
-        BeaconBlockBellatrix, EmptyBlock, Epoch, FullPayload, Signature, Slot,
+        BeaconBlockBellatrix, DataColumnIdentifier, EmptyBlock, Epoch, FullPayload, Signature,
+        Slot,
     };
 
     type Spec = types::MainnetEthSpec;
@@ -846,6 +847,10 @@ mod tests {
 
     fn empty_blob_sidecar() -> Arc<BlobSidecar<Spec>> {
         Arc::new(BlobSidecar::empty())
+    }
+
+    fn empty_data_column_sidecar() -> Arc<DataColumnSidecar<Spec>> {
+        Arc::new(DataColumnSidecar::empty())
     }
 
     /// Bellatrix block with length < max_rpc_size.
@@ -906,6 +911,27 @@ mod tests {
         BlobsByRangeRequest {
             start_slot: 0,
             count: 10,
+        }
+    }
+
+    fn dcbrange_request() -> DataColumnsByRangeRequest {
+        DataColumnsByRangeRequest {
+            start_slot: 0,
+            count: 10,
+            columns: vec![1, 2, 3],
+        }
+    }
+
+    fn dcbroot_request(spec: &ChainSpec) -> DataColumnsByRootRequest {
+        DataColumnsByRootRequest {
+            data_column_ids: RuntimeVariableList::new(
+                vec![DataColumnIdentifier {
+                    block_root: Hash256::zero(),
+                    index: 0,
+                }],
+                spec.max_request_data_column_sidecars as usize,
+            )
+            .unwrap(),
         }
     }
 
@@ -1197,6 +1223,34 @@ mod tests {
                 &chain_spec
             ),
             Ok(Some(RPCResponse::BlobsByRoot(empty_blob_sidecar()))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::DataColumnsByRangeV1,
+                RPCCodedResponse::Success(RPCResponse::DataColumnsByRange(
+                    empty_data_column_sidecar()
+                )),
+                ForkName::Deneb,
+                &chain_spec
+            ),
+            Ok(Some(RPCResponse::DataColumnsByRange(
+                empty_data_column_sidecar()
+            ))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::DataColumnsByRootV1,
+                RPCCodedResponse::Success(RPCResponse::DataColumnsByRoot(
+                    empty_data_column_sidecar()
+                )),
+                ForkName::Deneb,
+                &chain_spec
+            ),
+            Ok(Some(RPCResponse::DataColumnsByRoot(
+                empty_data_column_sidecar()
+            ))),
         );
     }
 
@@ -1551,6 +1605,8 @@ mod tests {
             OutboundRequest::MetaData(MetadataRequest::new_v1()),
             OutboundRequest::BlobsByRange(blbrange_request()),
             OutboundRequest::BlobsByRoot(blbroot_request(&chain_spec)),
+            OutboundRequest::DataColumnsByRange(dcbrange_request()),
+            OutboundRequest::DataColumnsByRoot(dcbroot_request(&chain_spec)),
             OutboundRequest::MetaData(MetadataRequest::new_v2()),
         ];
 

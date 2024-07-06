@@ -15,6 +15,7 @@ use state_processing::state_advance::{partial_state_advance, Error as StateAdvan
 use std::collections::HashMap;
 use std::ops::Range;
 use types::{
+    attestation::Error as AttestationError,
     beacon_state::{
         compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
     },
@@ -59,6 +60,7 @@ pub enum Error {
     InverseRange {
         range: Range<usize>,
     },
+    AttestationError(AttestationError),
 }
 
 impl From<BeaconStateError> for Error {

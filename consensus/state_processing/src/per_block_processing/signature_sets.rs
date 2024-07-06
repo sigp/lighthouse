@@ -7,12 +7,12 @@ use ssz::DecodeError;
 use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, AggregateSignature, AttesterSlashing, BeaconBlockRef, BeaconState,
+    AbstractExecPayload, AggregateSignature, AttesterSlashingRef, BeaconBlockRef, BeaconState,
     BeaconStateError, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256,
-    InconsistentFork, IndexedAttestation, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit,
-    SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
+    InconsistentFork, IndexedAttestation, IndexedAttestationRef, ProposerSlashing, PublicKey,
+    PublicKeyBytes, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
+    SignedBlsToExecutionChange, SignedConsolidation, SignedContributionAndProof, SignedRoot,
+    SignedVoluntaryExit, SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -272,28 +272,28 @@ pub fn indexed_attestation_signature_set<'a, 'b, E, F>(
     state: &'a BeaconState<E>,
     get_pubkey: F,
     signature: &'a AggregateSignature,
-    indexed_attestation: &'b IndexedAttestation<E>,
+    indexed_attestation: IndexedAttestationRef<'b, E>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
 where
     E: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let mut pubkeys = Vec::with_capacity(indexed_attestation.attesting_indices.len());
-    for &validator_idx in &indexed_attestation.attesting_indices {
+    let mut pubkeys = Vec::with_capacity(indexed_attestation.attesting_indices_len());
+    for &validator_idx in indexed_attestation.attesting_indices_iter() {
         pubkeys.push(
             get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?,
         );
     }
 
     let domain = spec.get_domain(
-        indexed_attestation.data.target.epoch,
+        indexed_attestation.data().target.epoch,
         Domain::BeaconAttester,
         &state.fork(),
         state.genesis_validators_root(),
     );
 
-    let message = indexed_attestation.data.signing_root(domain);
+    let message = indexed_attestation.data().signing_root(domain);
 
     Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
 }
@@ -312,21 +312,21 @@ where
     E: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let mut pubkeys = Vec::with_capacity(indexed_attestation.attesting_indices.len());
-    for &validator_idx in &indexed_attestation.attesting_indices {
+    let mut pubkeys = Vec::with_capacity(indexed_attestation.attesting_indices_len());
+    for &validator_idx in indexed_attestation.attesting_indices_iter() {
         pubkeys.push(
             get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?,
         );
     }
 
     let domain = spec.get_domain(
-        indexed_attestation.data.target.epoch,
+        indexed_attestation.data().target.epoch,
         Domain::BeaconAttester,
         fork,
         genesis_validators_root,
     );
 
-    let message = indexed_attestation.data.signing_root(domain);
+    let message = indexed_attestation.data().signing_root(domain);
 
     Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
 }
@@ -335,7 +335,7 @@ where
 pub fn attester_slashing_signature_sets<'a, E, F>(
     state: &'a BeaconState<E>,
     get_pubkey: F,
-    attester_slashing: &'a AttesterSlashing<E>,
+    attester_slashing: AttesterSlashingRef<'a, E>,
     spec: &'a ChainSpec,
 ) -> Result<(SignatureSet<'a>, SignatureSet<'a>)>
 where
@@ -346,15 +346,15 @@ where
         indexed_attestation_signature_set(
             state,
             get_pubkey.clone(),
-            &attester_slashing.attestation_1.signature,
-            &attester_slashing.attestation_1,
+            attester_slashing.attestation_1().signature(),
+            attester_slashing.attestation_1(),
             spec,
         )?,
         indexed_attestation_signature_set(
             state,
             get_pubkey,
-            &attester_slashing.attestation_2.signature,
-            &attester_slashing.attestation_2,
+            attester_slashing.attestation_2().signature(),
+            attester_slashing.attestation_2(),
             spec,
         )?,
     ))
@@ -425,7 +425,7 @@ where
     E: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let slot = signed_aggregate_and_proof.message.aggregate.data.slot;
+    let slot = signed_aggregate_and_proof.message().aggregate().data().slot;
 
     let domain = spec.get_domain(
         slot.epoch(E::slots_per_epoch()),
@@ -434,9 +434,8 @@ where
         genesis_validators_root,
     );
     let message = slot.signing_root(domain);
-    let signature = &signed_aggregate_and_proof.message.selection_proof;
-    let validator_index = signed_aggregate_and_proof.message.aggregator_index;
-
+    let signature = signed_aggregate_and_proof.message().selection_proof();
+    let validator_index = signed_aggregate_and_proof.message().aggregator_index();
     Ok(SignatureSet::single_pubkey(
         signature,
         get_pubkey(validator_index as usize).ok_or(Error::ValidatorUnknown(validator_index))?,
@@ -456,9 +455,9 @@ where
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
     let target_epoch = signed_aggregate_and_proof
-        .message
-        .aggregate
-        .data
+        .message()
+        .aggregate()
+        .data()
         .target
         .epoch;
 
@@ -468,9 +467,9 @@ where
         fork,
         genesis_validators_root,
     );
-    let message = signed_aggregate_and_proof.message.signing_root(domain);
-    let signature = &signed_aggregate_and_proof.signature;
-    let validator_index = signed_aggregate_and_proof.message.aggregator_index;
+    let message = signed_aggregate_and_proof.message().signing_root(domain);
+    let signature = signed_aggregate_and_proof.signature();
+    let validator_index = signed_aggregate_and_proof.message().aggregator_index();
 
     Ok(SignatureSet::single_pubkey(
         signature,
@@ -664,4 +663,38 @@ where
         participant_pubkeys,
         message,
     )))
+}
+
+/// Returns two signature sets, one for the source and one for the target validator
+/// in the `SignedConsolidation`.
+pub fn consolidation_signature_set<'a, E, F>(
+    state: &'a BeaconState<E>,
+    get_pubkey: F,
+    consolidation: &'a SignedConsolidation,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    E: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
+    let source_index = consolidation.message.source_index as usize;
+    let target_index = consolidation.message.target_index as usize;
+
+    let domain = spec.compute_domain(
+        Domain::Consolidation,
+        spec.genesis_fork_version,
+        state.genesis_validators_root(),
+    );
+
+    let message = consolidation.message.signing_root(domain);
+    let source_pubkey =
+        get_pubkey(source_index).ok_or(Error::ValidatorUnknown(source_index as u64))?;
+    let target_pubkey =
+        get_pubkey(target_index).ok_or(Error::ValidatorUnknown(target_index as u64))?;
+
+    Ok(SignatureSet::multiple_pubkeys(
+        &consolidation.signature,
+        vec![source_pubkey, target_pubkey],
+        message,
+    ))
 }

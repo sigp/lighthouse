@@ -119,6 +119,14 @@ impl ForkName {
             ForkName::Electra => None,
         }
     }
+
+    pub fn deneb_enabled(self) -> bool {
+        self >= ForkName::Deneb
+    }
+
+    pub fn electra_enabled(self) -> bool {
+        self >= ForkName::Electra
+    }
 }
 
 /// Map a fork name into a fork-versioned superstruct type like `BeaconBlock`.
