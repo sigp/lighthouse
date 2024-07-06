@@ -1215,17 +1215,15 @@ fn test_delayed_rpc_response() {
         // build the receiver future
         let receiver_future = async {
             loop {
-                match receiver.next_event().await {
-                    NetworkEvent::RequestReceived {
-                        peer_id,
-                        id,
-                        request,
-                    } => {
-                        assert_eq!(request, rpc_request);
-                        debug!(log, "Receiver received request");
-                        receiver.send_response(peer_id, id, rpc_response.clone());
-                    }
-                    _ => {} // Ignore other events
+                if let NetworkEvent::RequestReceived {
+                    peer_id,
+                    id,
+                    request,
+                } = receiver.next_event().await
+                {
+                    assert_eq!(request, rpc_request);
+                    debug!(log, "Receiver received request");
+                    receiver.send_response(peer_id, id, rpc_response.clone());
                 }
             }
         };
@@ -1249,7 +1247,7 @@ fn test_request_too_large() {
 
     rt.block_on(async {
         // Configure quotas for requests.
-        let quotas = vec![
+        let quotas = [
             "beacon_blocks_by_range:1/1024",
             "beacon_blocks_by_root:1/128",
             "blob_sidecars_by_range:1/768",
@@ -1337,11 +1335,8 @@ fn test_request_too_large() {
         // Build the receiver future
         let receiver_future = async {
             loop {
-                match receiver.next_event().await {
-                    NetworkEvent::RequestReceived { .. } => {
-                        unreachable!();
-                    }
-                    _ => {} // Ignore other events
+                if let NetworkEvent::RequestReceived { .. } = receiver.next_event().await {
+                    unreachable!();
                 }
             }
         };
@@ -1425,13 +1420,10 @@ fn test_active_requests() {
         // Build the receiver future.
         let receiver_future = async {
             loop {
-                match receiver.next_event().await {
-                    NetworkEvent::RequestReceived { id, .. } => {
-                        debug!(log, "Receiver received request"; "request_id" => ?id);
-                        // Do not send a response to intentionally trigger the RPC error.
-                        continue;
-                    }
-                    _ => {} // Ignore other events.
+                if let NetworkEvent::RequestReceived { id, .. } = receiver.next_event().await {
+                    debug!(log, "Receiver received request"; "request_id" => ?id);
+                    // Do not send a response to intentionally trigger the RPC error.
+                    continue;
                 }
             }
         };
