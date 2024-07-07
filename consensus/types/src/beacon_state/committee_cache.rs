@@ -86,7 +86,7 @@ impl CommitteeCache {
         }
 
         // The use of `NonZeroUsize` reduces the maximum number of possible validators by one.
-        if state.validators().len() == usize::max_value() {
+        if state.validators().len() == usize::MAX {
             return Err(Error::TooManyValidators);
         }
 
