@@ -659,7 +659,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     withdrawals: pa.withdrawals.clone().into(),
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
-                    deposit_receipts: vec![].into(),
+                    deposit_requests: vec![].into(),
                     withdrawal_requests: vec![].into(),
                 }),
                 _ => unreachable!(),
