@@ -1,5 +1,5 @@
 use lighthouse_network::Enr;
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 use store::{DBColumn, Error as StoreError, HotColdDB, ItemStore, StoreItem};
 use types::{EthSpec, Hash256};
 
@@ -45,14 +45,26 @@ impl StoreItem for PersistedDht {
     }
 
     fn as_store_bytes(&self) -> Vec<u8> {
-        rlp::encode_list(&self.enrs).to_vec()
+        let mut saved_enr: Vec<u8> = vec![];
+        for enr in &self.enrs {
+            saved_enr.extend_from_slice(enr.to_base64().replace("enr:", "").as_bytes());
+            saved_enr.push(0x00);
+        }
+        saved_enr
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
-        let rlp = rlp::Rlp::new(bytes);
-        let enrs: Vec<Enr> = rlp
-            .as_list()
-            .map_err(|e| StoreError::RlpError(format!("{}", e)))?;
+        let mut enrs = vec![];
+
+        let split = bytes.split(|b| *b == 0x00);
+
+        for enr in split {
+            let string = String::from_utf8(enr.to_vec()).map_err(|_| StoreError::InvalidBytes)?;
+            let enr =
+                Enr::from_str(&format!("enr:{}", string)).map_err(|_| StoreError::InvalidBytes)?;
+            enrs.push(enr);
+        }
+
         Ok(PersistedDht { enrs })
     }
 }

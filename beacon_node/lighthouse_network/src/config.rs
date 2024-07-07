@@ -138,6 +138,9 @@ pub struct Config {
 
     /// Configuration for the inbound rate limiter (requests received by this node).
     pub inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
+
+    /// Whether to specify EIP 7636 information.
+    pub disable_eip_7636_support: bool,
 }
 
 impl Config {
@@ -348,6 +351,7 @@ impl Default for Config {
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,
+            disable_eip_7636_support: false,
         }
     }
 }

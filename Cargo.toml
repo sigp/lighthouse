@@ -112,7 +112,7 @@ delay_map = "0.3"
 derivative = "2"
 dirs = "3"
 either = "1.9"
-discv5 = { version = "0.4.1", features = ["libp2p"] }
+discv5 = { version = "0.6.0", features = ["libp2p", "serde"] }
 env_logger = "0.9"
 error-chain = "0.12"
 ethereum-types = "0.14"
