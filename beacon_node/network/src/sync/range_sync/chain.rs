@@ -1,12 +1,11 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::network_context::RangeRequestId;
-use crate::sync::{
-    manager::Id, network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult,
-};
+use crate::sync::{network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
+use lighthouse_network::service::api_types::Id;
 use lighthouse_network::{PeerAction, PeerId};
 use rand::seq::SliceRandom;
 use slog::{crit, debug, o, warn};
