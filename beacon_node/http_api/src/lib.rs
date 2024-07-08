@@ -1782,7 +1782,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(reprocess_send_filter)
         .and(log_filter.clone())
         .then(
-            |endpoint_version: EndpointVersion,
+            // V1 and V2 are identical except V2 has a consensus version header in the request.
+            // We only require this header for SSZ deserialization, which isn't supported for
+            // this endpoint presently.
+            |_endpoint_version: EndpointVersion,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              attestations: Vec<Attestation<T::EthSpec>>,
@@ -1860,7 +1863,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .then(
-            |endpoint_version: EndpointVersion,
+            // V1 and V2 are identical except V2 has a consensus version header in the request.
+            // We only require this header for SSZ deserialization, which isn't supported for
+            // this endpoint presently.
+            |_endpoint_version: EndpointVersion,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              slashing: AttesterSlashing<T::EthSpec>,
@@ -3384,7 +3390,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .then(
-            |endpoint_version: EndpointVersion,
+            // V1 and V2 are identical except V2 has a consensus version header in the request.
+            // We only require this header for SSZ deserialization, which isn't supported for
+            // this endpoint presently.
+            |_endpoint_version: EndpointVersion,
             not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
