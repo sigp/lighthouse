@@ -208,8 +208,8 @@ Here are the steps to prune historic states:
 
 | Lighthouse version | Release date | Schema version | Downgrade available?                |
 |--------------------|--------------|----------------|-------------------------------------|
-| v5.2.0             | Jun 2024     | v19            | yes before Deneb using <= 5.2.1     |
-| v5.1.0             | Mar 2024     | v19            | yes before Deneb using <= 5.2.1     |
+| v5.2.0             | Jun 2024     | v19            | yes before Deneb using <= v5.2.1    |
+| v5.1.0             | Mar 2024     | v19            | yes before Deneb using <= v5.2.1    |
 | v5.0.0             | Feb 2024     | v19            | yes before Deneb using <= v5.2.1    |
 | v4.6.0             | Dec 2023     | v19            | yes before Deneb using <= v5.2.1    |
 | v4.6.0-rc.0        | Dec 2023     | v18            | yes before Deneb using <= v5.2.1    |
