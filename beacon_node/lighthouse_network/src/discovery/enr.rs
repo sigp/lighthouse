@@ -42,10 +42,11 @@ pub trait Eth2Enr {
 impl Eth2Enr for Enr {
     fn attestation_bitfield<E: EthSpec>(&self) -> Result<EnrAttestationBitfield<E>, &'static str> {
         let bitfield_bytes = self
-            .get_raw_rlp(ATTESTATION_BITFIELD_ENR_KEY)
-            .ok_or("ENR attestation bitfield non-existent")?;
+            .get_decodable::<Vec<u8>>(ATTESTATION_BITFIELD_ENR_KEY)
+            .ok_or("ENR attestation bitfield non-existent")?
+            .map_err(|_| "Could not decode the ENR attnets bitfield")?;
 
-        BitVector::<E::SubnetBitfieldLength>::from_ssz_bytes(bitfield_bytes)
+        BitVector::<E::SubnetBitfieldLength>::from_ssz_bytes(&bitfield_bytes)
             .map_err(|_| "Could not decode the ENR attnets bitfield")
     }
 
@@ -53,19 +54,21 @@ impl Eth2Enr for Enr {
         &self,
     ) -> Result<EnrSyncCommitteeBitfield<E>, &'static str> {
         let bitfield_bytes = self
-            .get_raw_rlp(SYNC_COMMITTEE_BITFIELD_ENR_KEY)
-            .ok_or("ENR sync committee bitfield non-existent")?;
+            .get_decodable::<Vec<u8>>(SYNC_COMMITTEE_BITFIELD_ENR_KEY)
+            .ok_or("ENR sync committee bitfield non-existent")?
+            .map_err(|_| "Could not decode the ENR syncnets bitfield")?;
 
-        BitVector::<E::SyncCommitteeSubnetCount>::from_ssz_bytes(bitfield_bytes)
+        BitVector::<E::SyncCommitteeSubnetCount>::from_ssz_bytes(&bitfield_bytes)
             .map_err(|_| "Could not decode the ENR syncnets bitfield")
     }
 
     fn eth2(&self) -> Result<EnrForkId, &'static str> {
         let eth2_bytes = self
-            .get_raw_rlp(ETH2_ENR_KEY)
-            .ok_or("ENR has no eth2 field")?;
+            .get_decodable::<Vec<u8>>(ETH2_ENR_KEY)
+            .ok_or("ENR has no eth2 field")?
+            .map_err(|_| "Could not decode EnrForkId ENR value")?;
 
-        EnrForkId::from_ssz_bytes(eth2_bytes).map_err(|_| "Could not decode EnrForkId")
+        EnrForkId::from_ssz_bytes(&eth2_bytes).map_err(|_| "Could not decode EnrForkId")
     }
 }
 
@@ -224,13 +227,15 @@ pub fn build_enr<E: EthSpec>(
 
     builder.add_value(SYNC_COMMITTEE_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
 
+    // Add all the client info
     if !config.disable_eip_7636_support {
         let vwp = version_with_platform();
         let vwp: Vec<&str> = vwp.split("/").collect();
         builder.client_info(
             vwp[0].to_string(),
             vwp[1].to_string(),
-            Some(vwp[2].to_string()),
+            // Some(vwp[2].to_string())
+            None, // Build version info is not required and just takes up space.
         );
     };
 
