@@ -1,6 +1,6 @@
 #![deny(missing_debug_implementations)]
 #![cfg_attr(
-    not(any(feature = "mdbx", feature = "lmdb")),
+    not(any(feature = "mdbx", feature = "lmdb", feature = "redb")),
     allow(unused, clippy::drop_non_drop)
 )]
 

@@ -26,12 +26,14 @@ lazy_static! {
     pub static ref LONG_VERSION: String = format!(
         "{}\n\
          BLS library: {}\n\
+         BLS hardware acceleration: {}\n\
          SHA256 hardware acceleration: {}\n\
          Allocator: {}\n\
          Profile: {}\n\
          Specs: mainnet (true), minimal ({}), gnosis ({})",
         SHORT_VERSION.as_str(),
         bls_library_name(),
+        bls_hardware_acceleration(),
         have_sha_extensions(),
         allocator_name(),
         build_profile_name(),
@@ -50,11 +52,20 @@ fn bls_library_name() -> &'static str {
     }
 }
 
+#[inline(always)]
+fn bls_hardware_acceleration() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    return std::is_x86_feature_detected!("adx");
+
+    #[cfg(target_arch = "aarch64")]
+    return std::arch::is_aarch64_feature_detected!("neon");
+}
+
 fn allocator_name() -> &'static str {
-    if cfg!(feature = "jemalloc") {
-        "jemalloc"
-    } else {
+    if cfg!(target_os = "windows") {
         "system"
+    } else {
+        "jemalloc"
     }
 }
 

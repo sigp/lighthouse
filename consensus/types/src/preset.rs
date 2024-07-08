@@ -248,7 +248,7 @@ pub struct ElectraPreset {
     #[serde(with = "serde_utils::quoted_u64")]
     pub max_consolidations: u64,
     #[serde(with = "serde_utils::quoted_u64")]
-    pub max_deposit_receipts_per_payload: u64,
+    pub max_deposit_requests_per_payload: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub max_attester_slashings_electra: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -270,7 +270,7 @@ impl ElectraPreset {
             pending_partial_withdrawals_limit: E::pending_partial_withdrawals_limit() as u64,
             pending_consolidations_limit: E::pending_consolidations_limit() as u64,
             max_consolidations: E::max_consolidations() as u64,
-            max_deposit_receipts_per_payload: E::max_deposit_receipts_per_payload() as u64,
+            max_deposit_requests_per_payload: E::max_deposit_requests_per_payload() as u64,
             max_attester_slashings_electra: E::max_attester_slashings_electra() as u64,
             max_attestations_electra: E::max_attestations_electra() as u64,
             max_withdrawal_requests_per_payload: E::max_withdrawal_requests_per_payload() as u64,

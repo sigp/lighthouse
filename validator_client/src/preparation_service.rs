@@ -471,7 +471,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             for batch in signed.chunks(self.validator_registration_batch_size) {
                 match self
                     .beacon_nodes
-                    .first_success(|beacon_node| async move {
+                    .broadcast(|beacon_node| async move {
                         beacon_node.post_validator_register_validator(batch).await
                     })
                     .await

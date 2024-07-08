@@ -28,7 +28,6 @@ use state_processing::{
     state_advance::Error as StateAdvanceError,
     BlockProcessingError, BlockReplayError, EpochProcessingError, SlotProcessingError,
 };
-use std::time::Duration;
 use task_executor::ShutdownReason;
 use tokio::task::JoinError;
 use types::milhouse::Error as MilhouseError;
@@ -77,11 +76,6 @@ pub enum BeaconChainError {
     ProposerSlashingValidationError(ProposerSlashingValidationError),
     AttesterSlashingValidationError(AttesterSlashingValidationError),
     BlsExecutionChangeValidationError(BlsExecutionChangeValidationError),
-    StateSkipTooLarge {
-        start_slot: Slot,
-        requested_slot: Slot,
-        max_task_runtime: Duration,
-    },
     MissingFinalizedStateRoot(Slot),
     /// Returned when an internal check fails, indicating corrupt data.
     InvariantViolated(String),

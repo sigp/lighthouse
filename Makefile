@@ -14,16 +14,8 @@ BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
-# List of features to use when building natively. Can be overridden via the environment.
-# No jemalloc on Windows
-ifeq ($(OS),Windows_NT)
-    FEATURES?=
-else
-    FEATURES?=jemalloc
-endif
-
 # List of features to use when cross-compiling. Can be overridden via the environment.
-CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,jemalloc
+CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,jemalloc
 
 # Cargo profile for Cross builds. Default is for local builds, CI uses an override.
 CROSS_PROFILE ?= release

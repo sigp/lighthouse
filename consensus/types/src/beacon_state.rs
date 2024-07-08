@@ -121,7 +121,6 @@ pub enum Error {
         state: Slot,
     },
     TreeHashError(tree_hash::Error),
-    CachedTreeHashError(cached_tree_hash::Error),
     InvalidValidatorPubkey(ssz::DecodeError),
     ValidatorRegistryShrunk,
     TreeHashCacheInconsistent,
@@ -481,7 +480,7 @@ where
     #[superstruct(only(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
-    pub deposit_receipts_start_index: u64,
+    pub deposit_requests_start_index: u64,
     #[superstruct(only(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
@@ -2557,12 +2556,6 @@ impl From<ssz_types::Error> for Error {
 impl From<bls::Error> for Error {
     fn from(e: bls::Error) -> Error {
         Error::BlsError(e)
-    }
-}
-
-impl From<cached_tree_hash::Error> for Error {
-    fn from(e: cached_tree_hash::Error) -> Error {
-        Error::CachedTreeHashError(e)
     }
 }
 
