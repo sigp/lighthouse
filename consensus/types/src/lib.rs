@@ -84,7 +84,6 @@ pub mod config_and_preset;
 pub mod execution_block_header;
 pub mod fork_context;
 pub mod participation_flags;
-pub mod participation_list;
 pub mod payload;
 pub mod preset;
 pub mod slot_epoch;
@@ -200,7 +199,6 @@ pub use crate::light_client_update::{
     LightClientUpdateCapella, LightClientUpdateDeneb, LightClientUpdateElectra,
 };
 pub use crate::participation_flags::ParticipationFlags;
-pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
     BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadRef, BlockType, ExecPayload,
