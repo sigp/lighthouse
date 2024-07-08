@@ -216,7 +216,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let parent_chains = self.active_parent_lookups();
 
         for (chain_idx, parent_chain) in parent_chains.iter().enumerate() {
-            if parent_chain.ancestor() == child_block_root_trigger
+            // `block_root_to_search` will trigger a new lookup, and it will extend a parent_chain
+            // beyond its max length
+            let block_would_extend_chain = parent_chain.ancestor() == child_block_root_trigger;
+            // `block_root_to_search` already has a lookup, and with the block trigger it extends
+            // the parent_chain beyond its length. This can happen because when creating a lookup
+            // for a new root we don't do any parent chain length checks
+            let trigger_is_chain_tip = parent_chain.tip == child_block_root_trigger;
+
+            if (block_would_extend_chain || trigger_is_chain_tip)
                 && parent_chain.len() >= PARENT_DEPTH_TOLERANCE
             {
                 debug!(self.log, "Parent lookup chain too long"; "block_root" => ?block_root_to_search);
@@ -396,6 +404,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     "peer_id" => %peer_id,
                     "response_type" => ?response_type,
                 );
+
+                // Here we could check if response extends a parent chain beyond its max length.
+                // However we defer that check to the handling of a processing error ParentUnknown.
+                //
+                // Here we could check if there's already a lookup for parent_root of `response`. In
+                // that case we know that sending the response for processing will likely result in
+                // a `ParentUnknown` error. However, for simplicity we choose to not implement this
+                // optimization.
 
                 // Register the download peer here. Once we have received some data over the wire we
                 // attribute it to this peer for scoring latter regardless of how the request was
