@@ -1,4 +1,3 @@
-use super::sync::manager::RequestId as SyncId;
 use crate::nat;
 use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
@@ -23,6 +22,7 @@ use lighthouse_network::{
     Context, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
 };
 use lighthouse_network::{
+    service::api_types::AppRequestId,
     types::{core_topics_to_subscribe, GossipEncoding, GossipTopic},
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
@@ -51,13 +51,6 @@ const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
 /// able to run tens of thousands of validators on one BN.
 const VALIDATOR_SUBSCRIPTION_MESSAGE_QUEUE_SIZE: usize = 65_536;
 
-/// Application level requests sent to the network.
-#[derive(Debug, Clone, Copy)]
-pub enum RequestId {
-    Sync(SyncId),
-    Router,
-}
-
 /// Types of messages that the network service can receive.
 #[derive(Debug, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
@@ -69,7 +62,7 @@ pub enum NetworkMessage<E: EthSpec> {
     SendRequest {
         peer_id: PeerId,
         request: Request,
-        request_id: RequestId,
+        request_id: AppRequestId,
     },
     /// Send a successful Response to the libp2p service.
     SendResponse {
@@ -168,7 +161,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
     beacon_chain: Arc<BeaconChain<T>>,
     /// The underlying libp2p service that drives all the network interactions.
-    libp2p: Network<RequestId, T::EthSpec>,
+    libp2p: Network<T::EthSpec>,
     /// An attestation and subnet manager service.
     attestation_service: AttestationService<T>,
     /// A sync committeee subnet manager service.
@@ -499,7 +492,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     /// Handle an event received from the network.
     async fn on_libp2p_event(
         &mut self,
-        ev: NetworkEvent<RequestId, T::EthSpec>,
+        ev: NetworkEvent<T::EthSpec>,
         shutdown_sender: &mut Sender<ShutdownReason>,
     ) {
         match ev {

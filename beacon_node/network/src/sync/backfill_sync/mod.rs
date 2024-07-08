@@ -9,7 +9,7 @@
 //! sync as failed, log an error and attempt to retry once a new peer joins the node.
 
 use crate::network_beacon_processor::ChainSegmentProcessId;
-use crate::sync::manager::{BatchProcessResult, Id};
+use crate::sync::manager::BatchProcessResult;
 use crate::sync::network_context::RangeRequestId;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::range_sync::{
@@ -17,6 +17,7 @@ use crate::sync::range_sync::{
 };
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use lighthouse_network::service::api_types::Id;
 use lighthouse_network::types::{BackFillState, NetworkGlobals};
 use lighthouse_network::{PeerAction, PeerId};
 use rand::seq::SliceRandom;
