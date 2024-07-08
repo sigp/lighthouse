@@ -62,9 +62,6 @@ if [ "$CI" = true ]; then
   # TODO: run assertoor tests
   yq eval '.additional_services = []' -i $NETWORK_PARAMS_FILE
   echo "Running without additional services (CI mode)."
-else
-  yq eval '.additional_services = ["dora", "prometheus_grafana"]' -i $NETWORK_PARAMS_FILE
-  echo "Additional services dora and prometheus_grafana added to network_params.yaml"
 fi
 
 if [ "$BUILD_IMAGE" = true ]; then
