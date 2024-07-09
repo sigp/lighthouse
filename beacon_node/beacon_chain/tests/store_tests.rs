@@ -3050,13 +3050,7 @@ async fn schema_downgrade_to_min_version() {
         )
         .await;
 
-    let min_version = if harness.spec.deneb_fork_epoch.is_some() {
-        // Can't downgrade beyond V18 once Deneb is reached, for simplicity don't test that
-        // at all if Deneb is enabled.
-        SchemaVersion(18)
-    } else {
-        SchemaVersion(16)
-    };
+    let min_version = SchemaVersion(19);
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();

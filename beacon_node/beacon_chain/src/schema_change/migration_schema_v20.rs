@@ -11,6 +11,8 @@ pub fn upgrade_to_v20<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
+    info!(log, "Upgrading from v19 to v20");
+
     // Load a V15 op pool and transform it to V20.
     let Some(PersistedOperationPoolV15::<T::EthSpec> {
         attestations_v15,
@@ -52,6 +54,8 @@ pub fn downgrade_from_v20<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
+    info!(log, "Downgrading from v20 to v19");
+
     // Load a V20 op pool and transform it to V15.
     let Some(PersistedOperationPoolV20::<T::EthSpec> {
         attestations,

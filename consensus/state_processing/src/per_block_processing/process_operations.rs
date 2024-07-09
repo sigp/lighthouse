@@ -39,14 +39,14 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
     }
 
-    if state.fork_name_unchecked() >= ForkName::Electra {
+    if state.fork_name_unchecked().electra_enabled() {
         let requests = block_body.execution_payload()?.withdrawal_requests()?;
         if let Some(requests) = requests {
             process_execution_layer_withdrawal_requests(state, &requests, spec)?;
         }
-        let receipts = block_body.execution_payload()?.deposit_receipts()?;
+        let receipts = block_body.execution_payload()?.deposit_requests()?;
         if let Some(receipts) = receipts {
-            process_deposit_receipts(state, &receipts, spec)?;
+            process_deposit_requests(state, &receipts, spec)?;
         }
         process_consolidations(state, block_body.consolidations()?, verify_signatures, spec)?;
     }
@@ -372,9 +372,9 @@ pub fn process_deposits<E: EthSpec>(
     // [Modified in Electra:EIP6110]
     // Disable former deposit mechanism once all prior deposits are processed
     //
-    // If `deposit_receipts_start_index` does not exist as a field on `state`, electra is disabled
+    // If `deposit_requests_start_index` does not exist as a field on `state`, electra is disabled
     // which means we always want to use the old check, so this field defaults to `u64::MAX`.
-    let eth1_deposit_index_limit = state.deposit_receipts_start_index().unwrap_or(u64::MAX);
+    let eth1_deposit_index_limit = state.deposit_requests_start_index().unwrap_or(u64::MAX);
 
     if state.eth1_deposit_index() < eth1_deposit_index_limit {
         let expected_deposit_len = std::cmp::min(
@@ -625,15 +625,15 @@ pub fn process_execution_layer_withdrawal_requests<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_deposit_receipts<E: EthSpec>(
+pub fn process_deposit_requests<E: EthSpec>(
     state: &mut BeaconState<E>,
-    receipts: &[DepositReceipt],
+    receipts: &[DepositRequest],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for receipt in receipts {
         // Set deposit receipt start index
-        if state.deposit_receipts_start_index()? == spec.unset_deposit_receipts_start_index {
-            *state.deposit_receipts_start_index_mut()? = receipt.index
+        if state.deposit_requests_start_index()? == spec.unset_deposit_requests_start_index {
+            *state.deposit_requests_start_index_mut()? = receipt.index
         }
         let deposit_data = DepositData {
             pubkey: receipt.pubkey,

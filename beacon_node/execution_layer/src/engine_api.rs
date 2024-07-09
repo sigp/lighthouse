@@ -20,7 +20,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::execution_payload::{DepositReceipts, WithdrawalRequests};
+use types::execution_payload::{DepositRequests, WithdrawalRequests};
 pub use types::{
     Address, BeaconBlockRef, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
     ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions, Uint256, VariableList,
@@ -64,10 +64,9 @@ pub enum Error {
     ExecutionHeadBlockNotFound,
     ParentHashEqualsBlockHash(ExecutionBlockHash),
     PayloadIdUnavailable,
-    TransitionConfigurationMismatch,
     SszError(ssz_types::Error),
     DeserializeWithdrawals(ssz_types::Error),
-    DeserializeDepositReceipts(ssz_types::Error),
+    DeserializeDepositRequests(ssz_types::Error),
     DeserializeWithdrawalRequests(ssz_types::Error),
     BuilderApi(builder_client::Error),
     IncorrectStateVariant,
@@ -204,7 +203,7 @@ pub struct ExecutionBlockWithTransactions<E: EthSpec> {
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
     #[superstruct(only(Electra))]
-    pub deposit_receipts: Vec<JsonDepositRequest>,
+    pub deposit_requests: Vec<JsonDepositRequest>,
     #[superstruct(only(Electra))]
     pub withdrawal_requests: Vec<JsonWithdrawalRequest>,
 }
@@ -314,8 +313,8 @@ impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for ExecutionBlockWithTransactions
                         .collect(),
                     blob_gas_used: block.blob_gas_used,
                     excess_blob_gas: block.excess_blob_gas,
-                    deposit_receipts: block
-                        .deposit_receipts
+                    deposit_requests: block
+                        .deposit_requests
                         .into_iter()
                         .map(|deposit| deposit.into())
                         .collect(),
@@ -546,7 +545,7 @@ impl<E: EthSpec> GetPayloadResponse<E> {
 pub struct ExecutionPayloadBodyV1<E: EthSpec> {
     pub transactions: Transactions<E>,
     pub withdrawals: Option<Withdrawals<E>>,
-    pub deposit_receipts: Option<DepositReceipts<E>>,
+    pub deposit_requests: Option<DepositRequests<E>>,
     pub withdrawal_requests: Option<WithdrawalRequests<E>>,
 }
 
@@ -635,38 +634,42 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                 }
             }
             ExecutionPayloadHeader::Electra(header) => {
-                let (Some(withdrawals), Some(deposit_receipts), Some(withdrawal_requests)) = (
+                let withdrawals_exist = self.withdrawals.is_some();
+                let deposit_requests_exist = self.deposit_requests.is_some();
+                let withdrawal_requests_exist = self.withdrawal_requests.is_some();
+                if let (Some(withdrawals), Some(deposit_requests), Some(withdrawal_requests)) = (
                     self.withdrawals,
-                    self.deposit_receipts,
+                    self.deposit_requests,
                     self.withdrawal_requests,
-                ) else {
-                    return Err(format!(
-                        "block {} is post-electra but payload body doesn't have withdrawals/deposit_receipts/withdrawal_requests \
-                        Check that ELs are returning receipts and withdrawal_requests in getPayloadBody requests",
-                        header.block_hash
-                    ));
-                };
-                Ok(ExecutionPayload::Electra(ExecutionPayloadElectra {
-                    parent_hash: header.parent_hash,
-                    fee_recipient: header.fee_recipient,
-                    state_root: header.state_root,
-                    receipts_root: header.receipts_root,
-                    logs_bloom: header.logs_bloom,
-                    prev_randao: header.prev_randao,
-                    block_number: header.block_number,
-                    gas_limit: header.gas_limit,
-                    gas_used: header.gas_used,
-                    timestamp: header.timestamp,
-                    extra_data: header.extra_data,
-                    base_fee_per_gas: header.base_fee_per_gas,
-                    block_hash: header.block_hash,
-                    transactions: self.transactions,
-                    withdrawals,
-                    blob_gas_used: header.blob_gas_used,
-                    excess_blob_gas: header.excess_blob_gas,
-                    deposit_receipts,
-                    withdrawal_requests,
-                }))
+                ) {
+                    Ok(ExecutionPayload::Electra(ExecutionPayloadElectra {
+                        parent_hash: header.parent_hash,
+                        fee_recipient: header.fee_recipient,
+                        state_root: header.state_root,
+                        receipts_root: header.receipts_root,
+                        logs_bloom: header.logs_bloom,
+                        prev_randao: header.prev_randao,
+                        block_number: header.block_number,
+                        gas_limit: header.gas_limit,
+                        gas_used: header.gas_used,
+                        timestamp: header.timestamp,
+                        extra_data: header.extra_data,
+                        base_fee_per_gas: header.base_fee_per_gas,
+                        block_hash: header.block_hash,
+                        transactions: self.transactions,
+                        withdrawals,
+                        blob_gas_used: header.blob_gas_used,
+                        excess_blob_gas: header.excess_blob_gas,
+                        deposit_requests,
+                        withdrawal_requests,
+                    }))
+                } else {
+                    Err(format!(
+                        "block {} is post-electra but payload body doesn't have withdrawals/deposit_requests/withdrawal_requests \
+                        withdrawals: {}, deposit_requests: {}, withdrawal_requests: {}",
+                        header.block_hash, withdrawals_exist, deposit_requests_exist, withdrawal_requests_exist
+                    ))
+                }
             }
         }
     }

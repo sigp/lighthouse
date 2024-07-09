@@ -5,7 +5,7 @@ use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobsList;
 use types::{
-    DepositReceipt, ExecutionLayerWithdrawalRequest, FixedVector, PublicKeyBytes, Signature,
+    DepositRequest, ExecutionLayerWithdrawalRequest, FixedVector, PublicKeyBytes, Signature,
     Unsigned,
 };
 
@@ -106,7 +106,7 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     pub excess_blob_gas: u64,
     #[superstruct(only(V4))]
     // TODO(electra): Field name should be changed post devnet-0. See https://github.com/ethereum/execution-apis/pull/544
-    pub deposit_requests: VariableList<JsonDepositRequest, E::MaxDepositReceiptsPerPayload>,
+    pub deposit_requests: VariableList<JsonDepositRequest, E::MaxDepositRequestsPerPayload>,
     #[superstruct(only(V4))]
     pub withdrawal_requests:
         VariableList<JsonWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>,
@@ -213,7 +213,7 @@ impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> 
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             deposit_requests: payload
-                .deposit_receipts
+                .deposit_requests
                 .into_iter()
                 .map(Into::into)
                 .collect::<Vec<_>>()
@@ -340,7 +340,7 @@ impl<E: EthSpec> From<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> 
                 .into(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-            deposit_receipts: payload
+            deposit_requests: payload
                 .deposit_requests
                 .into_iter()
                 .map(Into::into)
@@ -725,7 +725,7 @@ pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
     pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
-    pub deposit_receipts: Option<VariableList<JsonDepositRequest, E::MaxDepositReceiptsPerPayload>>,
+    pub deposit_requests: Option<VariableList<JsonDepositRequest, E::MaxDepositRequestsPerPayload>>,
     pub withdrawal_requests:
         Option<VariableList<JsonWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>>,
 }
@@ -742,8 +742,8 @@ impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<
                         .collect::<Vec<_>>(),
                 )
             }),
-            deposit_receipts: value.deposit_receipts.map(|json_receipts| {
-                DepositReceipts::<E>::from(
+            deposit_requests: value.deposit_requests.map(|json_receipts| {
+                DepositRequests::<E>::from(
                     json_receipts
                         .into_iter()
                         .map(Into::into)
@@ -849,8 +849,8 @@ pub struct JsonDepositRequest {
     pub index: u64,
 }
 
-impl From<DepositReceipt> for JsonDepositRequest {
-    fn from(deposit: DepositReceipt) -> Self {
+impl From<DepositRequest> for JsonDepositRequest {
+    fn from(deposit: DepositRequest) -> Self {
         Self {
             pubkey: deposit.pubkey,
             withdrawal_credentials: deposit.withdrawal_credentials,
@@ -861,7 +861,7 @@ impl From<DepositReceipt> for JsonDepositRequest {
     }
 }
 
-impl From<JsonDepositRequest> for DepositReceipt {
+impl From<JsonDepositRequest> for DepositRequest {
     fn from(json_deposit: JsonDepositRequest) -> Self {
         Self {
             pubkey: json_deposit.pubkey,

@@ -45,9 +45,9 @@ pub trait ExecPayload<E: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
         Option<VariableList<ExecutionLayerWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>>,
         Error,
     >;
-    fn deposit_receipts(
+    fn deposit_requests(
         &self,
-    ) -> Result<Option<VariableList<DepositReceipt, E::MaxDepositReceiptsPerPayload>>, Error>;
+    ) -> Result<Option<VariableList<DepositRequest, E::MaxDepositRequestsPerPayload>>, Error>;
 
     /// Is this a default payload with 0x0 roots for transactions and withdrawals?
     fn is_default_with_zero_roots(&self) -> bool;
@@ -303,15 +303,15 @@ impl<E: EthSpec> ExecPayload<E> for FullPayload<E> {
         }
     }
 
-    fn deposit_receipts(
+    fn deposit_requests(
         &self,
-    ) -> Result<Option<VariableList<DepositReceipt, E::MaxDepositReceiptsPerPayload>>, Error> {
+    ) -> Result<Option<VariableList<DepositRequest, E::MaxDepositRequestsPerPayload>>, Error> {
         match self {
             FullPayload::Bellatrix(_) | FullPayload::Capella(_) | FullPayload::Deneb(_) => {
                 Err(Error::IncorrectStateVariant)
             }
             FullPayload::Electra(inner) => {
-                Ok(Some(inner.execution_payload.deposit_receipts.clone()))
+                Ok(Some(inner.execution_payload.deposit_requests.clone()))
             }
         }
     }
@@ -464,15 +464,15 @@ impl<'b, E: EthSpec> ExecPayload<E> for FullPayloadRef<'b, E> {
         }
     }
 
-    fn deposit_receipts(
+    fn deposit_requests(
         &self,
-    ) -> Result<Option<VariableList<DepositReceipt, E::MaxDepositReceiptsPerPayload>>, Error> {
+    ) -> Result<Option<VariableList<DepositRequest, E::MaxDepositRequestsPerPayload>>, Error> {
         match self {
             FullPayloadRef::Bellatrix(_)
             | FullPayloadRef::Capella(_)
             | FullPayloadRef::Deneb(_) => Err(Error::IncorrectStateVariant),
             FullPayloadRef::Electra(inner) => {
-                Ok(Some(inner.execution_payload.deposit_receipts.clone()))
+                Ok(Some(inner.execution_payload.deposit_requests.clone()))
             }
         }
     }
@@ -666,9 +666,9 @@ impl<E: EthSpec> ExecPayload<E> for BlindedPayload<E> {
         Ok(None)
     }
 
-    fn deposit_receipts(
+    fn deposit_requests(
         &self,
-    ) -> Result<Option<VariableList<DepositReceipt, E::MaxDepositReceiptsPerPayload>>, Error> {
+    ) -> Result<Option<VariableList<DepositRequest, E::MaxDepositRequestsPerPayload>>, Error> {
         Ok(None)
     }
 
@@ -782,9 +782,9 @@ impl<'b, E: EthSpec> ExecPayload<E> for BlindedPayloadRef<'b, E> {
         Ok(None)
     }
 
-    fn deposit_receipts(
+    fn deposit_requests(
         &self,
-    ) -> Result<Option<VariableList<DepositReceipt, E::MaxDepositReceiptsPerPayload>>, Error> {
+    ) -> Result<Option<VariableList<DepositRequest, E::MaxDepositRequestsPerPayload>>, Error> {
         Ok(None)
     }
 
@@ -890,9 +890,9 @@ macro_rules! impl_exec_payload_common {
                 i(self)
             }
 
-            fn deposit_receipts(
+            fn deposit_requests(
                 &self,
-            ) -> Result<Option<VariableList<DepositReceipt, E::MaxDepositReceiptsPerPayload>>, Error> {
+            ) -> Result<Option<VariableList<DepositRequest, E::MaxDepositRequestsPerPayload>>, Error> {
                 let j = $j;
                 j(self)
             }
@@ -1052,11 +1052,11 @@ macro_rules! impl_exec_payload_for_fork {
                 let c: for<'a> fn(
                     &'a $wrapper_type_full<E>,
                 ) -> Result<
-                    Option<VariableList<DepositReceipt, E::MaxDepositReceiptsPerPayload>>,
+                    Option<VariableList<DepositRequest, E::MaxDepositRequestsPerPayload>>,
                     Error,
                 > = |payload: &$wrapper_type_full<E>| {
                     let wrapper_ref_type = FullPayloadRef::$fork_variant(&payload);
-                    wrapper_ref_type.deposit_receipts()
+                    wrapper_ref_type.deposit_requests()
                 };
                 c
             }

@@ -19,7 +19,7 @@ pub const ENGINE_CAPABILITIES_REFRESH_INTERVAL: u64 = 300;
 pub enum ElectraReadiness {
     /// The execution engine is electra-enabled (as far as we can tell)
     Ready,
-    /// We are connected to an execution engine which doesn't support the V3 engine api methods
+    /// We are connected to an execution engine which doesn't support the V4 engine api methods
     V4MethodsNotSupported { error: String },
     /// The transition configuration with the EL failed, there might be a problem with
     /// connectivity, authentication or a difference in configuration.

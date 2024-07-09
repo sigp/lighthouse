@@ -161,7 +161,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let mut next_epoch_cache = PreEpochCache::new_for_next_epoch(state)?;
 
     let pending_balance_deposits_ctxt =
-        if fork_name >= ForkName::Electra && conf.pending_balance_deposits {
+        if fork_name.electra_enabled() && conf.pending_balance_deposits {
             Some(PendingBalanceDepositsContext::new(state, spec)?)
         } else {
             None
@@ -197,7 +197,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     // Compute shared values required for different parts of epoch processing.
     let rewards_ctxt = &RewardsAndPenaltiesContext::new(progressive_balances, state_ctxt, spec)?;
 
-    let mut activation_queues = if fork_name < ForkName::Electra {
+    let mut activation_queues = if !fork_name.electra_enabled() {
         let activation_queue = epoch_cache
             .activation_queue()?
             .get_validators_eligible_for_activation(
@@ -325,7 +325,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         }
     }
 
-    if conf.registry_updates && fork_name >= ForkName::Electra {
+    if conf.registry_updates && fork_name.electra_enabled() {
         if let Ok(earliest_exit_epoch_state) = state.earliest_exit_epoch_mut() {
             *earliest_exit_epoch_state =
                 earliest_exit_epoch.ok_or(Error::MissingEarliestExitEpoch)?;
@@ -354,7 +354,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
 
     // Process consolidations outside the single-pass loop, as they depend on balances for multiple
     // validators and cannot be computed accurately inside the loop.
-    if fork_name >= ForkName::Electra && conf.pending_consolidations {
+    if fork_name.electra_enabled() && conf.pending_consolidations {
         process_pending_consolidations(
             state,
             &mut next_epoch_cache,
@@ -554,7 +554,7 @@ fn process_single_registry_update(
     exit_balance_to_consume: Option<&mut u64>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if state_ctxt.fork_name < ForkName::Electra {
+    if !state_ctxt.fork_name.electra_enabled() {
         let (activation_queue, next_epoch_activation_queue) =
             activation_queues.ok_or(Error::SinglePassMissingActivationQueue)?;
         process_single_registry_update_pre_electra(
@@ -664,7 +664,7 @@ fn initiate_validator_exit(
         return Ok(());
     }
 
-    let exit_queue_epoch = if state_ctxt.fork_name >= ForkName::Electra {
+    let exit_queue_epoch = if state_ctxt.fork_name.electra_enabled() {
         compute_exit_epoch_and_update_churn(
             validator,
             state_ctxt,
