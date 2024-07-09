@@ -9,7 +9,7 @@ use state_processing::{
 use std::borrow::Cow;
 use std::iter;
 use std::time::Duration;
-use store::{chunked_vector::BlockRoots, AnchorInfo, BlobInfo, ChunkWriter, KeyValueStore};
+use store::{get_key_for_col, AnchorInfo, BlobInfo, DBColumn, KeyValueStore, KeyValueStoreOp};
 use types::{Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
@@ -97,8 +97,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut expected_block_root = anchor_info.oldest_block_parent;
         let mut prev_block_slot = anchor_info.oldest_block_slot;
-        let mut chunk_writer =
-            ChunkWriter::<BlockRoots, _, _>::new(&self.store.cold_db, prev_block_slot.as_usize())?;
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
 
         let mut blob_batch = Vec::with_capacity(n_blobs_lists_to_import);
@@ -129,8 +127,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             // Store block roots, including at all skip slots in the freezer DB.
-            for slot in (block.slot().as_usize()..prev_block_slot.as_usize()).rev() {
-                chunk_writer.set(slot, block_root, &mut cold_batch)?;
+            for slot in (block.slot().as_u64()..prev_block_slot.as_u64()).rev() {
+                debug!(
+                    self.store.log,
+                    "Storing block root";
+                    "slot" => slot,
+                    "block_root" => ?block_root
+                );
+                cold_batch.push(KeyValueStoreOp::PutKeyValue(
+                    get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
+                    block_root.as_bytes().to_vec(),
+                ));
             }
 
             prev_block_slot = block.slot();
@@ -142,15 +149,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // completion.
             if expected_block_root == self.genesis_block_root {
                 let genesis_slot = self.spec.genesis_slot;
-                for slot in genesis_slot.as_usize()..prev_block_slot.as_usize() {
-                    chunk_writer.set(slot, self.genesis_block_root, &mut cold_batch)?;
+                for slot in genesis_slot.as_u64()..prev_block_slot.as_u64() {
+                    cold_batch.push(KeyValueStoreOp::PutKeyValue(
+                        get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
+                        block_root.as_bytes().to_vec(),
+                    ));
                 }
                 prev_block_slot = genesis_slot;
                 expected_block_root = Hash256::zero();
                 break;
             }
         }
-        chunk_writer.write(&mut cold_batch)?;
         // these were pushed in reverse order so we reverse again
         signed_blocks.reverse();
 

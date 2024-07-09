@@ -7,7 +7,6 @@
 //!
 //! Provides a simple API for storing/retrieving all types that sometimes needs type-hints. See
 //! tests for implementation examples.
-mod chunk_writer;
 pub mod chunked_iter;
 pub mod chunked_vector;
 pub mod config;
@@ -27,7 +26,6 @@ pub mod state_cache;
 
 pub mod iter;
 
-pub use self::chunk_writer::ChunkWriter;
 pub use self::config::StoreConfig;
 pub use self::consensus_context::OnDiskConsensusContext;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};

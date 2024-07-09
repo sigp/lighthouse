@@ -2,6 +2,7 @@ use crate::errors::{Error, Result};
 use crate::iter::{BlockRootsIterator, StateRootsIterator};
 use crate::{ColumnIter, DBColumn, HotColdDB, ItemStore};
 use itertools::process_results;
+use slog::debug;
 use std::marker::PhantomData;
 use types::{BeaconState, EthSpec, Hash256, Slot};
 
@@ -166,11 +167,11 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
         if self.next_slot == self.end_slot {
             return None;
         }
-
         self.inner
             .next()?
             .and_then(|(slot_bytes, root_bytes)| {
                 let slot = slot_bytes
+                    .clone()
                     .try_into()
                     .map(u64::from_be_bytes)
                     .map(Slot::new)
@@ -259,11 +260,15 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
             .ok_or(Error::ForwardsIterBadStart(column, start_slot))?;
 
         let result = if start_slot < freezer_upper_bound {
+            // EXCLUSIVE end slot for the frozen portion of the iterator.
+            let frozen_end_slot = end_slot.map_or(freezer_upper_bound, |end_slot| {
+                std::cmp::min(end_slot + 1, freezer_upper_bound)
+            });
             let iter = Box::new(FrozenForwardsIterator::new(
                 store,
                 column,
                 start_slot,
-                freezer_upper_bound,
+                frozen_end_slot,
             )?);
 
             // No continuation data is needed if the forwards iterator plans to halt before
@@ -271,6 +276,12 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
             // returned.
             let continuation_data =
                 if end_slot.map_or(false, |end_slot| end_slot < freezer_upper_bound) {
+                    debug!(
+                        store.log,
+                        "No continuation data should be required";
+                        "end_slot" => ?end_slot,
+                        "freezer_upper_bound" => freezer_upper_bound,
+                    );
                     None
                 } else {
                     Some(Box::new(get_state()?))

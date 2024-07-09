@@ -1,4 +1,3 @@
-use crate::chunked_vector::BlockRoots;
 use crate::config::{OnDiskStoreConfig, StoreConfig};
 use crate::forwards_iter::{HybridForwardsBlockRootsIterator, HybridForwardsStateRootsIterator};
 use crate::hdiff::{HDiff, HDiffBuffer, HierarchyModuli, StorageStrategy};
@@ -14,8 +13,7 @@ use crate::metadata::{
 use crate::metrics;
 use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{
-    get_key_for_col, ChunkWriter, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp,
-    StoreItem, StoreOp,
+    get_key_for_col, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use itertools::{process_results, Itertools};
 use leveldb::iterator::LevelDBIterator;
@@ -2060,12 +2058,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         block_root: Hash256,
     ) -> Result<Vec<KeyValueStoreOp>, Error> {
         let mut ops = vec![];
-        let mut block_root_writer =
-            ChunkWriter::<BlockRoots, _, _>::new(&self.cold_db, start_slot.as_usize())?;
-        for slot in start_slot.as_usize()..end_slot.as_usize() {
-            block_root_writer.set(slot, block_root, &mut ops)?;
+        for slot in start_slot.as_u64()..end_slot.as_u64() {
+            debug!(
+                self.log,
+                "Storing frozen block root";
+                "slot" => slot,
+                "block_root" => ?block_root,
+            );
+            ops.push(KeyValueStoreOp::PutKeyValue(
+                get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
+                block_root.as_bytes().to_vec(),
+            ));
         }
-        block_root_writer.write(&mut ops)?;
         Ok(ops)
     }
 
