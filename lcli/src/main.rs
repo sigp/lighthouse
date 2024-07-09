@@ -1,11 +1,11 @@
 mod block_root;
 mod check_deposit_data;
 mod generate_bootnode_enr;
+mod http_sync;
 mod indexed_attestations;
 mod mnemonic_validators;
 mod mock_el;
 mod parse_ssz;
-mod rescue;
 mod skip_slots;
 mod state_root;
 mod transition_blocks;
@@ -554,7 +554,7 @@ fn main() {
                 )
         )
         .subcommand(
-            Command::new("rescue")
+            Command::new("http-sync")
                 .about("Manual sync")
                 .arg(
                     Arg::new("start-block")
@@ -717,10 +717,10 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
         }
         Some(("mock-el", matches)) => mock_el::run::<E>(env, matches)
             .map_err(|e| format!("Failed to run mock-el command: {}", e)),
-        Some(("rescue", matches)) => {
+        Some(("http-sync", matches)) => {
             let network_config = get_network_config()?;
-            rescue::run::<E>(env, network_config, matches)
-                .map_err(|e| format!("Failed to run rescue command: {}", e))
+            http_sync::run::<E>(env, network_config, matches)
+                .map_err(|e| format!("Failed to run http-sync command: {}", e))
         }
         Some((other, _)) => Err(format!("Unknown subcommand {}. See --help.", other)),
         _ => Err("No subcommand provided. See --help.".to_string()),
