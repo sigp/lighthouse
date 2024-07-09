@@ -548,7 +548,7 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
 
         // [New in Electra:EIP6110]
         let deposit_index_limit =
-            if let Ok(deposit_receipts_start_index) = state.deposit_receipts_start_index() {
+            if let Ok(deposit_receipts_start_index) = state.deposit_requests_start_index() {
                 std::cmp::min(deposit_count, deposit_receipts_start_index)
             } else {
                 deposit_count
