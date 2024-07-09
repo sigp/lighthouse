@@ -1092,7 +1092,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Creates a string visualization of the current state of the chain, to make it easier for debugging and understanding
     /// where sync is up to from glancing at the logs.
     ///
-    /// This produces a string of the form: [  󰦗 󰝤 󰝤 󰝤 󰝤]
+    /// This produces a string of the form: [⏳⏬⏬⏬⏬]
     /// to indicate the current buffer state of the chain. The symbols are defined on each of the
     /// batch states. See [BatchState::visualize] for symbol definitions.
     fn visualize_batch_state(&self) -> String {
