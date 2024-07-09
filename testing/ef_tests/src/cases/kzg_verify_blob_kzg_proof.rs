@@ -40,8 +40,9 @@ pub fn parse_cell(cell: &str) -> Result<Cell, Error> {
     hex::decode(strip_0x(cell)?)
         .map_err(|e| Error::FailedToParseTest(format!("Failed to parse cell: {:?}", e)))
         .and_then(|bytes| {
-            Cell::from_bytes(bytes.as_ref())
-                .map_err(|e| Error::FailedToParseTest(format!("Failed to parse proof: {:?}", e)))
+            bytes
+                .try_into()
+                .map_err(|e| Error::FailedToParseTest(format!("Failed to parse cell: {:?}", e)))
         })
 }
 
