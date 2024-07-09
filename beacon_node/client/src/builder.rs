@@ -36,7 +36,7 @@ use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
-use slog::{debug, info, warn, Logger};
+use slog::Logger;
 use ssz::Decode;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -45,6 +45,8 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use timer::spawn_timer;
 use tokio::sync::oneshot;
+use tracing::{debug, error, info, level_filters::LevelFilter, warn};
+use tracing_subscriber::EnvFilter;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, BlobSidecarList, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
@@ -235,7 +237,7 @@ where
         // using it.
         let client_genesis = if matches!(client_genesis, ClientGenesis::FromStore) && !chain_exists
         {
-            info!(context.log(), "Defaulting to deposit contract genesis");
+            info!("Defaulting to deposit contract genesis");
 
             ClientGenesis::DepositContract
         } else if chain_exists {
@@ -243,9 +245,8 @@ where
                 || matches!(client_genesis, ClientGenesis::CheckpointSyncUrl { .. })
             {
                 info!(
-                    context.log(),
-                    "Refusing to checkpoint sync";
-                    "msg" => "database already exists, use --purge-db to force checkpoint sync"
+                    msg = "database already exists, use --purge-db to force checkpoint sync",
+                    "Refusing to checkpoint sync"
                 );
             }
 
@@ -285,10 +286,7 @@ where
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
             }
             ClientGenesis::GenesisState => {
-                info!(
-                    context.log(),
-                    "Starting from known genesis state";
-                );
+                info!("Starting from known genesis state");
 
                 let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
@@ -338,12 +336,9 @@ where
                 anchor_block_bytes,
                 anchor_blobs_bytes,
             } => {
-                info!(context.log(), "Starting checkpoint sync");
+                info!("Starting checkpoint sync");
                 if config.chain.genesis_backfill {
-                    info!(
-                        context.log(),
-                        "Blocks will downloaded all the way back to genesis"
-                    );
+                    info!("Blocks will downloaded all the way back to genesis");
                 }
 
                 let anchor_state = BeaconState::from_ssz_bytes(&anchor_state_bytes, &spec)
@@ -373,15 +368,11 @@ where
             }
             ClientGenesis::CheckpointSyncUrl { url } => {
                 info!(
-                    context.log(),
-                    "Starting checkpoint sync";
-                    "remote_url" => %url,
+                    remote_url = %url,
+                    "Starting checkpoint sync"
                 );
                 if config.chain.genesis_backfill {
-                    info!(
-                        context.log(),
-                        "Blocks will be downloaded all the way back to genesis"
-                    );
+                    info!("Blocks will be downloaded all the way back to genesis");
                 }
 
                 let remote = BeaconNodeHttpClient::new(
@@ -395,7 +386,7 @@ where
                     // We want to fetch deposit snapshot before fetching the finalized beacon state to
                     // ensure that the snapshot is not newer than the beacon state that satisfies the
                     // deposit finalization conditions
-                    debug!(context.log(), "Downloading deposit snapshot");
+                    debug!("Downloading deposit snapshot");
                     let deposit_snapshot_result = remote
                         .get_deposit_snapshot()
                         .await
@@ -412,22 +403,18 @@ where
                             if deposit_snapshot.is_valid() {
                                 Some(deposit_snapshot)
                             } else {
-                                warn!(context.log(), "Remote BN sent invalid deposit snapshot!");
+                                warn!("Remote BN sent invalid deposit snapshot!");
                                 None
                             }
                         }
                         Ok(None) => {
-                            warn!(
-                                context.log(),
-                                "Remote BN does not support EIP-4881 fast deposit sync"
-                            );
+                            warn!("Remote BN does not support EIP-4881 fast deposit sync");
                             None
                         }
                         Err(e) => {
                             warn!(
-                                context.log(),
-                                "Remote BN does not support EIP-4881 fast deposit sync";
-                                "error" => e
+                                error = e,
+                                "Remote BN does not support EIP-4881 fast deposit sync"
                             );
                             None
                         }
@@ -436,21 +423,18 @@ where
                     None
                 };
 
-                debug!(
-                    context.log(),
-                    "Downloading finalized state";
-                );
+                debug!("Downloading finalized state");
                 let state = remote
                     .get_debug_beacon_states_ssz::<E>(StateId::Finalized, &spec)
                     .await
                     .map_err(|e| format!("Error loading checkpoint state from remote: {:?}", e))?
                     .ok_or_else(|| "Checkpoint state missing from remote".to_string())?;
 
-                debug!(context.log(), "Downloaded finalized state"; "slot" => ?state.slot());
+                debug!(slot = ?state.slot(), "Downloaded finalized state");
 
                 let finalized_block_slot = state.latest_block_header().slot;
 
-                debug!(context.log(), "Downloading finalized block"; "block_slot" => ?finalized_block_slot);
+                debug!(block_slot = ?finalized_block_slot,"Downloading finalized block");
                 let block = remote
                     .get_beacon_blocks_ssz::<E>(BlockId::Slot(finalized_block_slot), &spec)
                     .await
@@ -465,24 +449,23 @@ where
                     .ok_or("Finalized block missing from remote, it returned 404")?;
                 let block_root = block.canonical_root();
 
-                debug!(context.log(), "Downloaded finalized block");
+                debug!("Downloaded finalized block");
 
                 let blobs = if block.message().body().has_blobs() {
-                    debug!(context.log(), "Downloading finalized blobs");
+                    debug!("Downloading finalized blobs");
                     if let Some(response) = remote
                         .get_blobs::<E>(BlockId::Root(block_root), None)
                         .await
                         .map_err(|e| format!("Error fetching finalized blobs from remote: {e:?}"))?
                     {
-                        debug!(context.log(), "Downloaded finalized blobs");
+                        debug!("Downloaded finalized blobs");
                         Some(response.data)
                     } else {
                         warn!(
-                            context.log(),
-                            "Checkpoint server is missing blobs";
-                            "block_root" => %block_root,
-                            "hint" => "use a different URL or ask the provider to update",
-                            "impact" => "db will be slightly corrupt until these blobs are pruned",
+                            block_root = %block_root,
+                            hint = "use a different URL or ask the provider to update",
+                            impact = "db will be slightly corrupt until these blobs are pruned",
+                            "Checkpoint server is missing blobs"
                         );
                         None
                     }
@@ -493,11 +476,10 @@ where
                 let genesis_state = genesis_state(&runtime_context, &config, log).await?;
 
                 info!(
-                    context.log(),
-                    "Loaded checkpoint block and state";
-                    "block_slot" => block.slot(),
-                    "state_slot" => state.slot(),
-                    "block_root" => ?block_root,
+                    block_slot = ?block.slot(),
+                    state_slot = ?state.slot(),
+                    block_root = ?block_root,
+                    "Loaded checkpoint block and state"
                 );
 
                 let service =
@@ -509,16 +491,14 @@ where
                     ) {
                         Ok(service) => {
                             info!(
-                                context.log(),
-                                "Loaded deposit tree snapshot";
-                                "deposits loaded" => snapshot.deposit_count,
+                                deposits_loaded = snapshot.deposit_count,
+                                "Loaded deposit tree snapshot"
                             );
                             Some(service)
                         }
                         Err(e) => {
-                            warn!(context.log(),
-                                "Unable to load deposit snapshot";
-                                "error" => ?e
+                            warn!(error = ?e,
+                                "Unable to load deposit snapshot"
                             );
                             None
                         }
@@ -530,11 +510,10 @@ where
             }
             ClientGenesis::DepositContract => {
                 info!(
-                    context.log(),
-                    "Waiting for eth2 genesis from eth1";
-                    "eth1_endpoints" => format!("{:?}", &config.eth1.endpoint),
-                    "contract_deploy_block" => config.eth1.deposit_contract_deploy_block,
-                    "deposit_contract" => &config.eth1.deposit_contract_address
+                    eth1_endpoints = format!("{:?}", &config.eth1.endpoint),
+                    contract_deploy_block = config.eth1.deposit_contract_deploy_block,
+                    deposit_contract = &config.eth1.deposit_contract_address,
+                    "Waiting for eth2 genesis from eth1"
                 );
 
                 let genesis_service = Eth1GenesisService::new(
@@ -576,10 +555,9 @@ where
                     let (listen_addr, server) = http_api::serve(ctx, exit_future)
                         .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
-                    let log_clone = context.log().clone();
                     let http_api_task = async move {
                         server.await;
-                        debug!(log_clone, "HTTP API server task ended");
+                        debug!("HTTP API server task ended");
                     };
 
                     context
@@ -607,9 +585,8 @@ where
                     // We will restart it again after we've finished setting up for genesis.
                     while TcpListener::bind(http_listen).is_err() {
                         warn!(
-                            context.log(),
-                            "Waiting for HTTP server port to open";
-                            "port" => http_listen
+                            port = ?http_listen,
+                            "Waiting for HTTP server port to open"
                         );
                         tokio::time::sleep(Duration::from_secs(1)).await;
                     }
@@ -800,6 +777,11 @@ where
             .take()
             .ok_or("build requires a beacon_processor_config")?;
         let log = runtime_context.log().clone();
+        let env_filter = EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .from_env_lossy();
+
+        tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
         let http_api_listen_addr = if self.http_api_config.enabled {
             let ctx = Arc::new(http_api::Context {
@@ -824,7 +806,7 @@ where
             let http_log = runtime_context.log().clone();
             let http_api_task = async move {
                 server.await;
-                debug!(http_log, "HTTP API server task ended");
+                debug!("HTTP API server task ended");
             };
 
             runtime_context
@@ -834,7 +816,7 @@ where
 
             Some(listen_addr)
         } else {
-            info!(log, "HTTP server is disabled");
+            info!("HTTP server is disabled");
             None
         };
 
@@ -859,7 +841,7 @@ where
 
             Some(listen_addr)
         } else {
-            debug!(log, "Metrics server is disabled");
+            debug!("Metrics server is disabled");
             None
         };
 
@@ -930,9 +912,8 @@ where
                                 // node comes online.
                                 if let Err(e) = result {
                                     warn!(
-                                        log,
-                                        "Failed to update head on execution engines";
-                                        "error" => ?e
+                                        error = ?e,
+                                        "Failed to update head on execution engines"
                                     );
                                 }
                             },

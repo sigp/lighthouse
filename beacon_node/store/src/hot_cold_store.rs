@@ -27,7 +27,7 @@ use leveldb::iterator::LevelDBIterator;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
-use slog::{debug, error, info, trace, warn, Logger};
+use slog::Logger;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -40,6 +40,7 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::{debug, error, info, trace, warn};
 use types::*;
 
 /// On-disk database that stores finalized states efficiently.
@@ -237,10 +238,9 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                 && db.config.slots_per_restore_point == DEFAULT_SLOTS_PER_RESTORE_POINT
             {
                 debug!(
-                    db.log,
-                    "Ignoring slots-per-restore-point config in favour of on-disk value";
-                    "config" => db.config.slots_per_restore_point,
-                    "on_disk" => disk_config.slots_per_restore_point,
+                    config = ?db.config.slots_per_restore_point,
+                    on_disk = ?disk_config.slots_per_restore_point,
+                    "Ignoring slots-per-restore-point config in favour of on-disk value"
                 );
 
                 // Mutate the in-memory config so that it's compatible.
@@ -256,10 +256,9 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             *db.anchor_info.write() = db.load_anchor_info()?;
 
             info!(
-                db.log,
-                "Hot-Cold DB initialized";
-                "split_slot" => split.slot,
-                "split_state" => ?split.state_root
+                split_slot = ?split.slot,
+                split_state = ?split.state_root,
+                "Hot-Cold DB initialized"
             );
         }
 
@@ -295,10 +294,9 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         };
         db.compare_and_set_blob_info_with_write(<_>::default(), new_blob_info.clone())?;
         info!(
-            db.log,
-            "Blob DB initialized";
-            "path" => ?blobs_db_path,
-            "oldest_blob_slot" => ?new_blob_info.oldest_blob_slot,
+            path = ?blobs_db_path,
+            oldest_blob_slot = ?new_blob_info.oldest_blob_slot,
+            "Blob DB initialized"
         );
 
         // Ensure that the schema version of the on-disk database matches the software.
@@ -306,10 +304,9 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         let db = Arc::new(db);
         if let Some(schema_version) = db.load_schema_version()? {
             debug!(
-                db.log,
-                "Attempting schema migration";
-                "from_version" => schema_version.as_u64(),
-                "to_version" => CURRENT_SCHEMA_VERSION.as_u64(),
+                from_version = ?schema_version.as_u64(),
+                to_version = ?CURRENT_SCHEMA_VERSION.as_u64(),
+                "Attempting schema migration"
             );
             migrate_schema(db.clone(), schema_version, CURRENT_SCHEMA_VERSION)?;
         } else {
@@ -327,9 +324,9 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
 
         // If configured, run a foreground compaction pass.
         if db.config.compact_on_init {
-            info!(db.log, "Running foreground compaction");
+            info!("Running foreground compaction");
             db.compact()?;
-            info!(db.log, "Foreground compaction complete");
+            info!("Foreground compaction complete");
         }
 
         Ok(db)
@@ -720,10 +717,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         if state_root != split.state_root {
             warn!(
-                self.log,
-                "State cache missed";
-                "state_root"  => ?state_root,
-                "block_root" => ?block_root,
+                state_root  = ?state_root,
+                block_root = ?block_root,
+                "State cache missed"
             );
         }
 
@@ -753,10 +749,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 .lock()
                 .put_state(*state_root, block_root, state)?;
             debug!(
-                self.log,
-                "Cached state";
-                "state_root" => ?state_root,
-                "slot" => state.slot(),
+                state_root = ?state_root,
+                slot = ?state.slot(),
+                "Cached state"
             );
         }
         drop(split);
@@ -973,9 +968,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         }
                         Err(e) => {
                             error!(
-                                self.log, "Error getting blobs";
-                                "block_root" => %block_root,
-                                "error" => ?e
+                                block_root = %block_root,
+                                error = ?e,
+                                "Error getting blobs"
                             );
                         }
                         _ => (),
@@ -1004,10 +999,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // Rollback on failure
         if let Err(e) = tx_res {
             error!(
-                self.log,
-                "Database write failed";
-                "error" => ?e,
-                "action" => "reverting blob DB changes"
+                error = ?e,
+                action = "reverting blob DB changes",
+                "Database write failed"
             );
             let mut blob_cache_ops = blob_cache_ops;
             for op in blob_cache_ops.iter_mut() {
@@ -1100,10 +1094,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 .put_state(*state_root, block_root, state)?
         {
             debug!(
-                self.log,
-                "Skipping storage of cached state";
-                "slot" => state.slot(),
-                "state_root" => ?state_root
+                slot = ?state.slot(),
+                state_root = ?state_root,
+                "Skipping storage of cached state"
             );
             return Ok(());
         }
@@ -1111,10 +1104,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // On the epoch boundary, store the full state.
         if state.slot() % E::slots_per_epoch() == 0 {
             trace!(
-                self.log,
-                "Storing full state on epoch boundary";
-                "slot" => state.slot().as_u64(),
-                "state_root" => format!("{:?}", state_root)
+                slot = ?state.slot().as_u64(),
+                state_root = format!("{:?}", state_root),
+                "Storing full state on epoch boundary"
             );
             store_full_state(state_root, state, ops)?;
         }
@@ -1138,9 +1130,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         if *state_root != self.get_split_info().state_root {
             // Do not warn on start up when loading the split state.
             warn!(
-                self.log,
-                "State cache missed";
-                "state_root" => ?state_root,
+                state_root = ?state_root,
+                "State cache missed"
             );
         }
 
@@ -1153,10 +1144,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 .lock()
                 .put_state(*state_root, block_root, &state)?;
             debug!(
-                self.log,
-                "Cached state";
-                "state_root" => ?state_root,
-                "slot" => state.slot(),
+                state_root = ?state_root,
+                slot = ?state.slot(),
+                "Cached state"
             );
             Ok(Some(state))
         } else {
@@ -1221,10 +1211,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                             .put_state(state_root, latest_block_root, state)?
                     {
                         debug!(
-                            self.log,
-                            "Cached ancestor state";
-                            "state_root" => ?state_root,
-                            "slot" => state_slot,
+                            state_root = ?state_root,
+                            slot = ?state_slot,
+                            "Cached ancestor state"
                         );
                     }
                     Ok(())
@@ -1263,10 +1252,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         trace!(
-            self.log,
-            "Creating restore point";
-            "slot" => state.slot(),
-            "state_root" => format!("{:?}", state_root)
+            slot = ?state.slot(),
+            state_root = format!("{:?}", state_root),
+            "Creating restore point"
         );
 
         // 1. Convert to PartialBeaconState and store that in the DB.
@@ -1520,9 +1508,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|block_replayer| {
                 if have_state_root_iterator && block_replayer.state_root_miss() {
                     warn!(
-                        self.log,
-                        "State root cache miss during block replay";
-                        "slot" => target_slot,
+                        slot = ?target_slot,
+                        "State root cache miss during block replay"
                     );
                 }
                 block_replayer.into_state()
@@ -2075,16 +2062,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             })??;
 
         if already_pruned && !force {
-            info!(self.log, "Execution payloads are pruned");
+            info!("Execution payloads are pruned");
             return Ok(());
         }
 
         // Iterate block roots backwards to the Bellatrix fork or the anchor slot, whichever comes
         // first.
         warn!(
-            self.log,
-            "Pruning finalized payloads";
-            "info" => "you may notice degraded I/O performance while this runs"
+            info = "you may notice degraded I/O performance while this runs",
+            "Pruning finalized payloads"
         );
         let anchor_slot = self.get_anchor_info().map(|info| info.anchor_slot);
 
@@ -2098,19 +2084,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 Ok(tuple) => tuple,
                 Err(e) => {
                     warn!(
-                        self.log,
-                        "Stopping payload pruning early";
-                        "error" => ?e,
+                        error = ?e,
+                        "Stopping payload pruning early"
                     );
                     break;
                 }
             };
 
             if slot < bellatrix_fork_slot {
-                info!(
-                    self.log,
-                    "Payload pruning reached Bellatrix boundary";
-                );
+                info!("Payload pruning reached Bellatrix boundary");
                 break;
             }
 
@@ -2118,10 +2100,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 && self.execution_payload_exists(&block_root)?
             {
                 debug!(
-                    self.log,
-                    "Pruning execution payload";
-                    "slot" => slot,
-                    "block_root" => ?block_root,
+                    slot = ?slot,
+                    block_root = ?block_root,
+                    "Pruning execution payload"
                 );
                 last_pruned_block_root = Some(block_root);
                 ops.push(StoreOp::DeleteExecutionPayload(block_root));
@@ -2129,9 +2110,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             if Some(slot) == anchor_slot {
                 info!(
-                    self.log,
-                    "Payload pruning reached anchor state";
-                    "slot" => slot
+                    slot = ?slot,
+                    "Payload pruning reached anchor state"
                 );
                 break;
             }
@@ -2139,9 +2119,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let payloads_pruned = ops.len();
         self.do_atomically_with_block_and_blobs_cache(ops)?;
         info!(
-            self.log,
-            "Execution payload pruning complete";
-            "payloads_pruned" => payloads_pruned,
+            payloads_pruned = payloads_pruned,
+            "Execution payload pruning complete"
         );
         Ok(())
     }
@@ -2149,7 +2128,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Try to prune blobs, approximating the current epoch from the split slot.
     pub fn try_prune_most_blobs(&self, force: bool) -> Result<(), Error> {
         let Some(deneb_fork_epoch) = self.spec.deneb_fork_epoch else {
-            debug!(self.log, "Deneb fork is disabled");
+            debug!("Deneb fork is disabled");
             return Ok(());
         };
         // The current epoch is >= split_epoch + 2. It could be greater if the database is
@@ -2180,7 +2159,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         data_availability_boundary: Epoch,
     ) -> Result<(), Error> {
         if self.spec.deneb_fork_epoch.is_none() {
-            debug!(self.log, "Deneb fork is disabled");
+            debug!("Deneb fork is disabled");
             return Ok(());
         }
 
@@ -2189,17 +2168,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let epochs_per_blob_prune = self.get_config().epochs_per_blob_prune;
 
         if !force && !pruning_enabled {
-            debug!(
-                self.log,
-                "Blob pruning is disabled";
-                "prune_blobs" => pruning_enabled
-            );
+            debug!(prune_blobs = pruning_enabled, "Blob pruning is disabled");
             return Ok(());
         }
 
         let blob_info = self.get_blob_info();
         let Some(oldest_blob_slot) = blob_info.oldest_blob_slot else {
-            error!(self.log, "Slot of oldest blob is not known");
+            error!("Slot of oldest blob is not known");
             return Err(HotColdDBError::BlobPruneLogicError.into());
         };
 
@@ -2222,13 +2197,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         if !force && !should_prune || !can_prune {
             debug!(
-                self.log,
-                "Blobs are pruned";
-                "oldest_blob_slot" => oldest_blob_slot,
-                "data_availability_boundary" => data_availability_boundary,
-                "split_slot" => split.slot,
-                "end_epoch" => end_epoch,
-                "start_epoch" => start_epoch,
+                oldest_blob_slot = ?oldest_blob_slot,
+                data_availability_boundary = ?data_availability_boundary,
+                split_slot = ?split.slot,
+                end_epoch = ?end_epoch,
+                start_epoch = ?start_epoch,
+                "Blobs are pruned"
             );
             return Ok(());
         }
@@ -2237,10 +2211,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         if let Some(anchor) = self.get_anchor_info() {
             if oldest_blob_slot < anchor.oldest_block_slot {
                 error!(
-                    self.log,
-                    "Oldest blob is older than oldest block";
-                    "oldest_blob_slot" => oldest_blob_slot,
-                    "oldest_block_slot" => anchor.oldest_block_slot
+                    oldest_blob_slot = ?oldest_blob_slot,
+                    oldest_block_slot = ?anchor.oldest_block_slot,
+                    "Oldest blob is older than oldest block"
                 );
                 return Err(HotColdDBError::BlobPruneLogicError.into());
             }
@@ -2248,11 +2221,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // Iterate block roots forwards from the oldest blob slot.
         debug!(
-            self.log,
-            "Pruning blobs";
-            "start_epoch" => start_epoch,
-            "end_epoch" => end_epoch,
-            "data_availability_boundary" => data_availability_boundary,
+            start_epoch = ?start_epoch,
+            end_epoch = ?end_epoch,
+            data_availability_boundary = ?data_availability_boundary,
+            "Pruning blobs"
         );
 
         let mut ops = vec![];
@@ -2277,9 +2249,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 Ok(tuple) => tuple,
                 Err(e) => {
                     warn!(
-                        self.log,
-                        "Stopping blob pruning early";
-                        "error" => ?e,
+                        error = ?e,
+                        "Stopping blob pruning early"
                     );
                     break;
                 }
@@ -2287,10 +2258,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             if Some(block_root) != last_pruned_block_root && self.blobs_exist(&block_root)? {
                 trace!(
-                    self.log,
-                    "Pruning blobs of block";
-                    "slot" => slot,
-                    "block_root" => ?block_root,
+                    slot = ?slot,
+                    block_root = ?block_root,
+                    "Pruning blobs of block"
                 );
                 last_pruned_block_root = Some(block_root);
                 ops.push(StoreOp::DeleteBlobs(block_root));
@@ -2310,9 +2280,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         self.do_atomically_with_block_and_blobs_cache(ops)?;
         debug!(
-            self.log,
-            "Blob pruning complete";
-            "blob_lists_pruned" => blob_lists_pruned,
+            blob_lists_pruned = ?blob_lists_pruned,
+            "Blob pruning complete"
         );
 
         Ok(())
@@ -2461,20 +2430,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // the current schema performs reads as part of `store_cold_state`. This can be deleted
         // once the target schema is tree-states. If the process is killed before the genesis state
         // is written this can be fixed by re-running.
-        info!(
-            self.log,
-            "Deleting historic states";
-            "num_kv" => cold_ops.len(),
-        );
+        info!(num_kv = cold_ops.len(), "Deleting historic states");
         self.cold_db.do_atomically(std::mem::take(&mut cold_ops))?;
 
         // If we just deleted the the genesis state, re-store it using the *current* schema, which
         // may be different from the schema of the genesis state we just deleted.
         if self.get_split_slot() > 0 {
             info!(
-                self.log,
-                "Re-storing genesis state";
-                "state_root" => ?genesis_state_root,
+                state_root = ?genesis_state_root,
+                "Re-storing genesis state"
             );
             self.store_cold_state(&genesis_state_root, genesis_state, &mut cold_ops)?;
             self.cold_db.do_atomically(cold_ops)?;
@@ -2493,9 +2457,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn prune_old_hot_states(&self) -> Result<(), Error> {
         let split = self.get_split_info();
         debug!(
-            self.log,
-            "Database state pruning started";
-            "split_slot" => split.slot,
+            split_slot = ?split.slot,
+            "Database state pruning started"
         );
         let mut state_delete_batch = vec![];
         for res in self
@@ -2517,11 +2480,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         "non-canonical"
                     };
                     debug!(
-                        self.log,
-                        "Deleting state";
-                        "state_root" => ?state_root,
-                        "slot" => summary.slot,
-                        "reason" => reason,
+                        state_root = ?state_root,
+                        slot = ?summary.slot,
+                        reason = ?reason,
+                        "Deleting state"
                     );
                     state_delete_batch.push(StoreOp::DeleteState(state_root, Some(summary.slot)));
                 }
@@ -2530,9 +2492,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let num_deleted_states = state_delete_batch.len();
         self.do_atomically_with_block_and_blobs_cache(state_delete_batch)?;
         debug!(
-            self.log,
-            "Database state pruning complete";
-            "num_deleted_states" => num_deleted_states,
+            num_deleted_states = ?num_deleted_states,
+            "Database state pruning complete"
         );
         Ok(())
     }
@@ -2546,9 +2507,8 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     finalized_state: &BeaconState<E>,
 ) -> Result<(), Error> {
     debug!(
-        store.log,
-        "Freezer migration started";
-        "slot" => finalized_state.slot()
+        slot = ?finalized_state.slot(),
+        "Freezer migration started"
     );
 
     // 0. Check that the migration is sensible.
@@ -2613,7 +2573,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
                 .as_ref()
                 .map_or(false, |anchor| slot < anchor.state_upper_limit)
         {
-            debug!(store.log, "Pruning finalized state"; "slot" => slot);
+            debug!(slot = ?slot,"Pruning finalized state");
 
             continue;
         }
@@ -2663,10 +2623,9 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         // place in code.
         if latest_split_slot != current_split_slot {
             error!(
-                store.log,
-                "Race condition detected: Split point changed while moving states to the freezer";
-                "previous split slot" => current_split_slot,
-                "current split slot" => latest_split_slot,
+                previous_split_slot = ?current_split_slot,
+                current_split_slot = ?latest_split_slot,
+                "Race condition detected: Split point changed while moving states to the freezer"
             );
 
             // Assume the freezing procedure will be retried in case this happens.
@@ -2702,9 +2661,8 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     )?;
 
     debug!(
-        store.log,
-        "Freezer migration complete";
-        "slot" => finalized_state.slot()
+        slot = ?finalized_state.slot(),
+        "Freezer migration complete"
     );
 
     Ok(())

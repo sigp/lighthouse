@@ -880,6 +880,8 @@ dependencies = [
  "store",
  "strum",
  "task_executor",
+ "tracing",
+ "tracing-subscriber",
  "types",
  "unused_port",
 ]
@@ -1429,6 +1431,8 @@ dependencies = [
  "time",
  "timer",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "types",
 ]
 
@@ -2333,6 +2337,8 @@ dependencies = [
  "sloggers",
  "task_executor",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "types",
 ]
 
@@ -4926,6 +4932,8 @@ dependencies = [
  "slog",
  "task_executor",
  "tempfile",
+ "tracing",
+ "tracing-subscriber",
  "types",
  "unused_port",
  "validator_client",
@@ -7978,6 +7986,8 @@ dependencies = [
  "state_processing",
  "strum",
  "tempfile",
+ "tracing",
+ "tracing-subscriber",
  "types",
 ]
 

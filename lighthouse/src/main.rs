@@ -13,11 +13,12 @@ use futures::TryFutureExt;
 use lazy_static::lazy_static;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
-use slog::{crit, info};
 use std::backtrace::Backtrace;
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
+use tracing::{error, info, level_filters::LevelFilter};
+use tracing_subscriber::EnvFilter;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
@@ -74,6 +75,12 @@ fn main() {
     if std::env::var("RUST_BACKTRACE").is_err() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
+
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy();
+
+    tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
     // Parse the CLI parameters.
     let matches = Command::new("Lighthouse")
@@ -410,7 +417,7 @@ fn main() {
     let is_beacon_node = matches.subcommand_name() == Some("beacon_node");
     if is_beacon_node && !matches.get_flag(DISABLE_MALLOC_TUNING_FLAG) {
         if let Err(e) = configure_memory_allocator() {
-            eprintln!(
+            error!(
                 "Unable to configure the memory allocator: {} \n\
                 Try providing the --{} flag",
                 e, DISABLE_MALLOC_TUNING_FLAG
@@ -449,11 +456,11 @@ fn main() {
             EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, eth2_network_config),
             #[cfg(not(all(feature = "spec-minimal", feature = "gnosis")))]
             other => {
-                eprintln!(
+                error!(
                     "Eth spec `{}` is not supported by this build of Lighthouse",
                     other
                 );
-                eprintln!("You must compile with a feature flag to enable this spec variant");
+                error!("You must compile with a feature flag to enable this spec variant");
                 exit(1);
             }
         }
@@ -466,7 +473,7 @@ fn main() {
     match result {
         Ok(()) => exit(0),
         Err(e) => {
-            eprintln!("{}", e);
+            error!("{}", e);
             drop(e);
             exit(1)
         }
@@ -585,15 +592,14 @@ fn run<E: EthSpec>(
 
     // Log panics properly.
     {
-        let log = log.clone();
+        //let log = log.clone();
         std::panic::set_hook(Box::new(move |info| {
-            crit!(
-                log,
-                "Task panic. This is a bug!";
-                "location" => info.location().map(ToString::to_string),
-                "message" => info.payload().downcast_ref::<String>(),
-                "backtrace" => %Backtrace::capture(),
-                "advice" => "Please check above for a backtrace and notify the developers",
+            error!(
+                location = info.location().map(ToString::to_string),
+                message = info.payload().downcast_ref::<String>(),
+                backtrace = %Backtrace::capture(),
+                advice = "Please check above for a backtrace and notify the developers",
+                "Task panic. This is a bug!"
             );
         }));
     }
@@ -647,7 +653,7 @@ fn run<E: EthSpec>(
     };
 
     if let Some(sub_matches) = matches.subcommand_matches(account_manager::CMD) {
-        eprintln!("Running account manager for {} network", network_name);
+        info!("Running account manager for {} network", network_name);
         // Pass the entire `environment` to the account manager so it can run blocking operations.
         account_manager::run(sub_matches, environment)?;
 
@@ -656,7 +662,7 @@ fn run<E: EthSpec>(
     }
 
     if let Some(sub_matches) = matches.subcommand_matches(validator_manager::CMD) {
-        eprintln!("Running validator manager for {} network", network_name);
+        info!("Running validator manager for {} network", network_name);
 
         // Pass the entire `environment` to the account manager so it can run blocking operations.
         validator_manager::run::<E>(sub_matches, environment)?;
@@ -666,7 +672,7 @@ fn run<E: EthSpec>(
     }
 
     if let Some(sub_matches) = matches.subcommand_matches(database_manager::CMD) {
-        info!(log, "Running database manager for {} network", network_name);
+        info!("Running database manager for {:?} network", network_name);
         // Pass the entire `environment` to the database manager so it can run blocking operations.
         database_manager::run(sub_matches, environment)?;
 
@@ -674,12 +680,8 @@ fn run<E: EthSpec>(
         return Ok(());
     }
 
-    info!(log, "Lighthouse started"; "version" => VERSION);
-    info!(
-        log,
-        "Configured for network";
-        "name" => &network_name
-    );
+    info!(version = VERSION, "Lighthouse started");
+    info!(network = network_name, "Configured for");
 
     match matches.subcommand() {
         Some(("beacon_node", matches)) => {
@@ -693,14 +695,14 @@ fn run<E: EthSpec>(
 
             let shutdown_flag = matches.get_flag("immediate-shutdown");
             if shutdown_flag {
-                info!(log, "Beacon node immediate shutdown triggered.");
+                info!("Beacon node immediate shutdown triggered.");
                 return Ok(());
             }
 
             executor.clone().spawn(
                 async move {
                     if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
-                        crit!(log, "Failed to start beacon node"; "reason" => e);
+                        error!(reason = ?e ,"Failed to start beacon node");
                         // Ignore the error since it always occurs during normal operation when
                         // shutting down.
                         let _ = executor
@@ -722,7 +724,7 @@ fn run<E: EthSpec>(
 
             let shutdown_flag = matches.get_flag("immediate-shutdown");
             if shutdown_flag {
-                info!(log, "Validator client immediate shutdown triggered.");
+                info!("Validator client immediate shutdown triggered.");
                 return Ok(());
             }
 
@@ -732,7 +734,7 @@ fn run<E: EthSpec>(
                         .and_then(|mut vc| async move { vc.start_service().await })
                         .await
                     {
-                        crit!(log, "Failed to start validator client"; "reason" => e);
+                        error!(reason = ?e,"Failed to start validator client");
                         // Ignore the error since it always occurs during normal operation when
                         // shutting down.
                         let _ = executor
@@ -744,14 +746,14 @@ fn run<E: EthSpec>(
             );
         }
         _ => {
-            crit!(log, "No subcommand supplied. See --help .");
+            error!("No subcommand supplied. See --help .");
             return Err("No subcommand supplied.".into());
         }
     };
 
     // Block this thread until we get a ctrl-c or a task sends a shutdown signal.
     let shutdown_reason = environment.block_until_shutdown_requested()?;
-    info!(log, "Shutting down.."; "reason" => ?shutdown_reason);
+    info!(reason=?shutdown_reason,"Shutting down..");
 
     environment.fire_signal();
 
