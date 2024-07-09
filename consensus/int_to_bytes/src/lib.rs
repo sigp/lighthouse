@@ -79,7 +79,7 @@ pub fn int_to_bytes96(int: u64) -> Vec<u8> {
 mod tests {
     use super::*;
     use std::{fs::File, io::prelude::*, path::PathBuf};
-    use yaml_rust::yaml;
+    use yaml_rust2::yaml;
 
     #[test]
     fn fixed_bytes32() {

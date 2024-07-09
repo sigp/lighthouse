@@ -1,5 +1,3 @@
-extern crate alloy_consensus;
-extern crate alloy_rlp;
 use alloy_consensus::TxEnvelope;
 use alloy_rlp::Decodable;
 use types::{EthSpec, ExecutionPayloadRef, Hash256, Unsigned, VersionedHash};

@@ -29,18 +29,8 @@ excluded_paths = [
     "tests/.*/.*/light_client",
     # LightClientStore
     "tests/.*/.*/ssz_static/LightClientStore",
-    # LightClientUpdate
-    "tests/.*/.*/ssz_static/LightClientUpdate",
     # LightClientSnapshot
     "tests/.*/.*/ssz_static/LightClientSnapshot",
-    # LightClientBootstrap
-    "tests/.*/.*/ssz_static/LightClientBootstrap",
-    # LightClientOptimistic
-    "tests/.*/.*/ssz_static/LightClientOptimistic",
-    # LightClientFinalityUpdate
-    "tests/.*/.*/ssz_static/LightClientFinalityUpdate",
-    # LightClientHeader
-    "tests/.*/.*/ssz_static/LightClientHeader",
     # One of the EF researchers likes to pack the tarballs on a Mac
     ".*\.DS_Store.*",
     # More Mac weirdness.
@@ -52,7 +42,9 @@ excluded_paths = [
     "bls12-381-tests/deserialization_G2",
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip6110",
-    "tests/.*/whisk"
+    "tests/.*/whisk",
+    # TODO(electra): re-enable in https://github.com/sigp/lighthouse/pull/5758
+    "tests/.*/.*/ssz_static/IndexedAttestation"
 ]
 
 

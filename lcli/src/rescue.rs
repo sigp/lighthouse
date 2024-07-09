@@ -19,7 +19,7 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(3600);
 pub fn run<T: EthSpec>(
     env: Environment<T>,
     network_config: Eth2NetworkConfig,
-    matches: &ArgMatches<'_>,
+    matches: &ArgMatches,
 ) -> Result<(), String> {
     let executor = env.core_context().executor;
     executor
@@ -32,7 +32,7 @@ pub fn run<T: EthSpec>(
 
 pub async fn run_async<T: EthSpec>(
     network_config: Eth2NetworkConfig,
-    matches: &ArgMatches<'_>,
+    matches: &ArgMatches,
 ) -> Result<(), String> {
     let spec = &network_config.chain_spec::<T>()?;
     let source_url: SensitiveUrl = parse_required(matches, "source-url")?;

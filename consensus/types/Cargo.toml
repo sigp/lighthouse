@@ -33,7 +33,6 @@ test_random_derive = { path = "../../common/test_random_derive" }
 tree_hash = { workspace = true, features = ["arbitrary"] }
 tree_hash_derive = { workspace = true }
 rand_xorshift = "0.3.0"
-cached_tree_hash = { workspace = true }
 serde_yaml = { workspace = true }
 tempfile = { workspace = true }
 derivative = { workspace = true }
@@ -51,7 +50,8 @@ metastruct = "0.1.0"
 serde_json = { workspace = true }
 smallvec = { workspace = true }
 maplit = { workspace = true }
-strum = { workspace = true }
+milhouse = { workspace = true }
+rpds = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

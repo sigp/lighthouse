@@ -4,10 +4,6 @@ use crate::config::{gossipsub_config, GossipsubConfigParams, NetworkLoad};
 use crate::discovery::{
     subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
 };
-use crate::gossipsub::{
-    self, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
-    TopicScoreParams,
-};
 use crate::peer_manager::{
     config::Config as PeerManagerCfg, peerdb::score::PeerAction, peerdb::score::ReportSource,
     ConnectionDirection, PeerManager, PeerManagerEvent,
@@ -25,8 +21,12 @@ use crate::types::{
 use crate::EnrExt;
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
-use api_types::{PeerRequestId, Request, RequestId, Response};
+use api_types::{AppRequestId, PeerRequestId, Request, RequestId, Response};
 use futures::stream::StreamExt;
+use gossipsub::{
+    IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
+    TopicScoreParams,
+};
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
 use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::behaviour::toggle::Toggle;
@@ -57,7 +57,7 @@ const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
 /// The types of events than can be obtained from polling the behaviour.
 #[derive(Debug)]
-pub enum NetworkEvent<AppReqId: ReqId, TSpec: EthSpec> {
+pub enum NetworkEvent<E: EthSpec> {
     /// We have successfully dialed and connected to a peer.
     PeerConnectedOutgoing(PeerId),
     /// A peer has successfully dialed and connected to us.
@@ -67,7 +67,7 @@ pub enum NetworkEvent<AppReqId: ReqId, TSpec: EthSpec> {
     /// An RPC Request that was sent failed.
     RPCFailed {
         /// The id of the failed request.
-        id: AppReqId,
+        id: AppRequestId,
         /// The peer to which this request was sent.
         peer_id: PeerId,
         /// The error of the failed request.
@@ -85,9 +85,9 @@ pub enum NetworkEvent<AppReqId: ReqId, TSpec: EthSpec> {
         /// Peer that sent the response.
         peer_id: PeerId,
         /// Id of the request to which the peer is responding.
-        id: AppReqId,
+        id: AppRequestId,
         /// Response the peer sent.
-        response: Response<TSpec>,
+        response: Response<E>,
     },
     PubsubMessage {
         /// The gossipsub message id. Used when propagating blocks after validation.
@@ -97,7 +97,7 @@ pub enum NetworkEvent<AppReqId: ReqId, TSpec: EthSpec> {
         /// The topic that this message was sent on.
         topic: TopicHash,
         /// The message itself.
-        message: PubsubMessage<TSpec>,
+        message: PubsubMessage<E>,
     },
     /// Inform the network to send a Status to this peer.
     StatusPeer(PeerId),
@@ -108,11 +108,11 @@ pub enum NetworkEvent<AppReqId: ReqId, TSpec: EthSpec> {
 /// Builds the network behaviour that manages the core protocols of eth2.
 /// This core behaviour is managed by `Behaviour` which adds peer management to all core
 /// behaviours.
-pub struct Network<AppReqId: ReqId, TSpec: EthSpec> {
-    swarm: libp2p::swarm::Swarm<Behaviour<AppReqId, TSpec>>,
+pub struct Network<E: EthSpec> {
+    swarm: libp2p::swarm::Swarm<Behaviour<E>>,
     /* Auxiliary Fields */
     /// A collections of variables accessible outside the network service.
-    network_globals: Arc<NetworkGlobals<TSpec>>,
+    network_globals: Arc<NetworkGlobals<E>>,
     /// Keeps track of the current EnrForkId for upgrading gossipsub topics.
     // NOTE: This can be accessed via the network_globals ENR. However we keep it here for quick
     // lookups for every gossipsub message send.
@@ -121,7 +121,7 @@ pub struct Network<AppReqId: ReqId, TSpec: EthSpec> {
     network_dir: PathBuf,
     fork_context: Arc<ForkContext>,
     /// Gossipsub score parameters.
-    score_settings: PeerScoreSettings<TSpec>,
+    score_settings: PeerScoreSettings<E>,
     /// The interval for updating gossipsub scores
     update_gossipsub_scores: tokio::time::Interval,
     gossip_cache: GossipCache,
@@ -132,15 +132,15 @@ pub struct Network<AppReqId: ReqId, TSpec: EthSpec> {
 }
 
 /// Implements the combined behaviour for the libp2p service.
-impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
+impl<E: EthSpec> Network<E> {
     pub async fn new(
         executor: task_executor::TaskExecutor,
         mut ctx: ServiceContext<'_>,
         log: &slog::Logger,
-    ) -> error::Result<(Self, Arc<NetworkGlobals<TSpec>>)> {
+    ) -> error::Result<(Self, Arc<NetworkGlobals<E>>)> {
         let log = log.new(o!("service"=> "libp2p"));
 
-        let mut config = ctx.config.clone();
+        let config = ctx.config.clone();
         trace!(log, "Libp2p Service starting");
         // initialise the node's ID
         let local_keypair = utils::load_private_key(&config, &log);
@@ -156,7 +156,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         // set up a collection of variables accessible outside of the network crate
         let network_globals = {
             // Create an ENR or load from disk if appropriate
-            let enr = crate::discovery::enr::build_or_load_enr::<TSpec>(
+            let enr = crate::discovery::enr::build_or_load_enr::<E>(
                 local_keypair.clone(),
                 &config,
                 &ctx.enr_fork_id,
@@ -180,12 +180,24 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             .eth2()
             .expect("Local ENR must have a fork id");
 
-        let score_settings = PeerScoreSettings::new(ctx.chain_spec, &config.gs_config);
+        let gossipsub_config_params = GossipsubConfigParams {
+            message_domain_valid_snappy: ctx.chain_spec.message_domain_valid_snappy,
+            gossip_max_size: ctx.chain_spec.gossip_max_size as usize,
+        };
+        let gs_config = gossipsub_config(
+            config.network_load,
+            ctx.fork_context.clone(),
+            gossipsub_config_params,
+            ctx.chain_spec.seconds_per_slot,
+            E::slots_per_epoch(),
+        );
+
+        let score_settings = PeerScoreSettings::new(ctx.chain_spec, gs_config.mesh_n());
 
         let gossip_cache = {
             let slot_duration = std::time::Duration::from_secs(ctx.chain_spec.seconds_per_slot);
             let half_epoch = std::time::Duration::from_secs(
-                ctx.chain_spec.seconds_per_slot * TSpec::slots_per_epoch() / 2,
+                ctx.chain_spec.seconds_per_slot * E::slots_per_epoch() / 2,
             );
 
             GossipCache::builder()
@@ -210,7 +222,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             let params = {
                 // Construct a set of gossipsub peer scoring parameters
                 // We don't know the number of active validators and the current slot yet
-                let active_validators = TSpec::minimum_validator_count();
+                let active_validators = E::minimum_validator_count();
                 let current_slot = Slot::new(0);
                 score_settings.get_peer_score_params(
                     active_validators,
@@ -248,16 +260,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 max_subscriptions_per_request: max_topics * 2,
             };
 
-            let gossipsub_config_params = GossipsubConfigParams {
-                message_domain_valid_snappy: ctx.chain_spec.message_domain_valid_snappy,
-                gossip_max_size: ctx.chain_spec.gossip_max_size as usize,
-            };
-            config.gs_config = gossipsub_config(
-                config.network_load,
-                ctx.fork_context.clone(),
-                gossipsub_config_params,
-            );
-
             // If metrics are enabled for libp2p build the configuration
             let gossipsub_metrics = ctx.libp2p_registry.as_mut().map(|registry| {
                 (
@@ -266,10 +268,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 )
             });
 
-            let snappy_transform = SnappyTransform::new(config.gs_config.max_transmit_size());
+            let snappy_transform = SnappyTransform::new(gs_config.max_transmit_size());
             let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
                 MessageAuthenticity::Anonymous,
-                config.gs_config.clone(),
+                gs_config.clone(),
                 gossipsub_metrics,
                 filter,
                 snappy_transform,
@@ -288,7 +290,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             // If we are using metrics, then register which topics we want to make sure to keep
             // track of
             if ctx.libp2p_registry.is_some() {
-                let topics_to_keep_metrics_for = attestation_sync_committee_topics::<TSpec>()
+                let topics_to_keep_metrics_for = attestation_sync_committee_topics::<E>()
                     .map(|gossip_kind| {
                         Topic::from(GossipTopic::new(
                             gossip_kind,
@@ -590,11 +592,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         &mut self.swarm.behaviour_mut().gossipsub
     }
     /// The Eth2 RPC specified in the wire-0 protocol.
-    pub fn eth2_rpc_mut(&mut self) -> &mut RPC<RequestId<AppReqId>, TSpec> {
+    pub fn eth2_rpc_mut(&mut self) -> &mut RPC<RequestId, E> {
         &mut self.swarm.behaviour_mut().eth2_rpc
     }
     /// Discv5 Discovery protocol.
-    pub fn discovery_mut(&mut self) -> &mut Discovery<TSpec> {
+    pub fn discovery_mut(&mut self) -> &mut Discovery<E> {
         &mut self.swarm.behaviour_mut().discovery
     }
     /// Provides IP addresses and peer information.
@@ -602,7 +604,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         &mut self.swarm.behaviour_mut().identify
     }
     /// The peer manager that keeps track of peer's reputation and status.
-    pub fn peer_manager_mut(&mut self) -> &mut PeerManager<TSpec> {
+    pub fn peer_manager_mut(&mut self) -> &mut PeerManager<E> {
         &mut self.swarm.behaviour_mut().peer_manager
     }
 
@@ -611,11 +613,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         &self.swarm.behaviour().gossipsub
     }
     /// The Eth2 RPC specified in the wire-0 protocol.
-    pub fn eth2_rpc(&self) -> &RPC<RequestId<AppReqId>, TSpec> {
+    pub fn eth2_rpc(&self) -> &RPC<RequestId, E> {
         &self.swarm.behaviour().eth2_rpc
     }
     /// Discv5 Discovery protocol.
-    pub fn discovery(&self) -> &Discovery<TSpec> {
+    pub fn discovery(&self) -> &Discovery<E> {
         &self.swarm.behaviour().discovery
     }
     /// Provides IP addresses and peer information.
@@ -623,7 +625,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         &self.swarm.behaviour().identify
     }
     /// The peer manager that keeps track of peer's reputation and status.
-    pub fn peer_manager(&self) -> &PeerManager<TSpec> {
+    pub fn peer_manager(&self) -> &PeerManager<E> {
         &self.swarm.behaviour().peer_manager
     }
 
@@ -667,13 +669,13 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
 
         // Subscribe to core topics for the new fork
-        for kind in fork_core_topics::<TSpec>(&new_fork, &self.fork_context.spec) {
+        for kind in fork_core_topics::<E>(&new_fork, &self.fork_context.spec) {
             let topic = GossipTopic::new(kind, GossipEncoding::default(), new_fork_digest);
             self.subscribe(topic);
         }
 
         // Register the new topics for metrics
-        let topics_to_keep_metrics_for = attestation_sync_committee_topics::<TSpec>()
+        let topics_to_keep_metrics_for = attestation_sync_committee_topics::<E>()
             .map(|gossip_kind| {
                 Topic::from(GossipTopic::new(
                     gossip_kind,
@@ -780,7 +782,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     }
 
     /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
-    pub fn publish(&mut self, messages: Vec<PubsubMessage<TSpec>>) {
+    pub fn publish(&mut self, messages: Vec<PubsubMessage<E>>) {
         for message in messages {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
                 let message_data = message.encode(GossipEncoding::default());
@@ -915,16 +917,27 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     /* Eth2 RPC behaviour functions */
 
     /// Send a request to a peer over RPC.
-    pub fn send_request(&mut self, peer_id: PeerId, request_id: AppReqId, request: Request) {
+    pub fn send_request(
+        &mut self,
+        peer_id: PeerId,
+        request_id: AppRequestId,
+        request: Request,
+    ) -> Result<(), (AppRequestId, RPCError)> {
+        // Check if the peer is connected before sending an RPC request
+        if !self.swarm.is_connected(&peer_id) {
+            return Err((request_id, RPCError::Disconnected));
+        }
+
         self.eth2_rpc_mut().send_request(
             peer_id,
             RequestId::Application(request_id),
             request.into(),
-        )
+        );
+        Ok(())
     }
 
     /// Send a successful response to a peer over RPC.
-    pub fn send_response(&mut self, peer_id: PeerId, id: PeerRequestId, response: Response<TSpec>) {
+    pub fn send_response(&mut self, peer_id: PeerId, id: PeerRequestId, response: Response<E>) {
         self.eth2_rpc_mut()
             .send_response(peer_id, id, response.into())
     }
@@ -968,6 +981,12 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
         self.peer_manager_mut()
             .goodbye_peer(peer_id, reason, source);
+    }
+
+    /// Hard (ungraceful) disconnect for testing purposes only
+    /// Use goodbye_peer for disconnections, do not use this function.
+    pub fn __hard_disconnect_testing_only(&mut self, peer_id: PeerId) {
+        let _ = self.swarm.disconnect_peer_id(peer_id);
     }
 
     /// Returns an iterator over all enr entries in the DHT.
@@ -1061,13 +1080,13 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         let local_attnets = self
             .discovery_mut()
             .local_enr()
-            .attestation_bitfield::<TSpec>()
+            .attestation_bitfield::<E>()
             .expect("Local discovery must have attestation bitfield");
 
         let local_syncnets = self
             .discovery_mut()
             .local_enr()
-            .sync_committee_bitfield::<TSpec>()
+            .sync_committee_bitfield::<E>()
             .expect("Local discovery must have sync committee bitfield");
 
         {
@@ -1120,7 +1139,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     /// Sends a METADATA response to a peer.
     fn send_meta_data_response(
         &mut self,
-        req: MetadataRequest<TSpec>,
+        req: MetadataRequest<E>,
         id: PeerRequestId,
         peer_id: PeerId,
     ) {
@@ -1138,10 +1157,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     #[must_use = "return the response"]
     fn build_response(
         &mut self,
-        id: RequestId<AppReqId>,
+        id: RequestId,
         peer_id: PeerId,
-        response: Response<TSpec>,
-    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
+        response: Response<E>,
+    ) -> Option<NetworkEvent<E>> {
         match id {
             RequestId::Application(id) => Some(NetworkEvent::ResponseReceived {
                 peer_id,
@@ -1159,7 +1178,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         id: PeerRequestId,
         peer_id: PeerId,
         request: Request,
-    ) -> NetworkEvent<AppReqId, TSpec> {
+    ) -> NetworkEvent<E> {
         // Increment metrics
         match &request {
             Request::Status(_) => {
@@ -1168,6 +1187,14 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             Request::LightClientBootstrap(_) => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["light_client_bootstrap"])
             }
+            Request::LightClientOptimisticUpdate => metrics::inc_counter_vec(
+                &metrics::TOTAL_RPC_REQUESTS,
+                &["light_client_optimistic_update"],
+            ),
+            Request::LightClientFinalityUpdate => metrics::inc_counter_vec(
+                &metrics::TOTAL_RPC_REQUESTS,
+                &["light_client_finality_update"],
+            ),
             Request::BlocksByRange { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_range"])
             }
@@ -1191,7 +1218,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     /// Dial cached Enrs in discovery service that are in the given `subnet_id` and aren't
     /// in Connected, Dialing or Banned state.
     fn dial_cached_enrs_in_subnet(&mut self, subnet: Subnet) {
-        let predicate = subnet_predicate::<TSpec>(vec![subnet], &self.log);
+        let predicate = subnet_predicate::<E>(vec![subnet], &self.log);
         let peers_to_dial: Vec<Enr> = self
             .discovery()
             .cached_enrs()
@@ -1217,10 +1244,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     /* Sub-behaviour event handling functions */
 
     /// Handle a gossipsub event.
-    fn inject_gs_event(
-        &mut self,
-        event: gossipsub::Event,
-    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
+    fn inject_gs_event(&mut self, event: gossipsub::Event) -> Option<NetworkEvent<E>> {
         match event {
             gossipsub::Event::Message {
                 propagation_source,
@@ -1359,13 +1383,14 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     }
 
     /// Handle an RPC event.
-    fn inject_rpc_event(
-        &mut self,
-        event: RPCMessage<RequestId<AppReqId>, TSpec>,
-    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
+    fn inject_rpc_event(&mut self, event: RPCMessage<RequestId, E>) -> Option<NetworkEvent<E>> {
         let peer_id = event.peer_id;
 
-        if !self.peer_manager().is_connected(&peer_id) {
+        // Do not permit Inbound events from peers that are being disconnected, or RPC requests.
+        if !self.peer_manager().is_connected(&peer_id)
+            && (matches!(event.event, HandlerEvent::Err(HandlerErr::Inbound { .. }))
+                || matches!(event.event, HandlerEvent::Ok(RPCReceived::Request(..))))
+        {
             debug!(
                 self.log,
                 "Ignoring rpc message of disconnecting peer";
@@ -1509,6 +1534,22 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         );
                         Some(event)
                     }
+                    InboundRequest::LightClientOptimisticUpdate => {
+                        let event = self.build_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::LightClientOptimisticUpdate,
+                        );
+                        Some(event)
+                    }
+                    InboundRequest::LightClientFinalityUpdate => {
+                        let event = self.build_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::LightClientFinalityUpdate,
+                        );
+                        Some(event)
+                    }
                 }
             }
             HandlerEvent::Ok(RPCReceived::Response(id, resp)) => {
@@ -1546,6 +1587,16 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     RPCResponse::LightClientBootstrap(bootstrap) => {
                         self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap))
                     }
+                    RPCResponse::LightClientOptimisticUpdate(update) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::LightClientOptimisticUpdate(update),
+                    ),
+                    RPCResponse::LightClientFinalityUpdate(update) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::LightClientFinalityUpdate(update),
+                    ),
                 }
             }
             HandlerEvent::Ok(RPCReceived::EndOfStream(id, termination)) => {
@@ -1565,10 +1616,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     }
 
     /// Handle an identify event.
-    fn inject_identify_event(
-        &mut self,
-        event: identify::Event,
-    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
+    fn inject_identify_event(&mut self, event: identify::Event) -> Option<NetworkEvent<E>> {
         match event {
             identify::Event::Received { peer_id, mut info } => {
                 if info.listen_addrs.len() > MAX_IDENTIFY_ADDRESSES {
@@ -1589,10 +1637,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     }
 
     /// Handle a peer manager event.
-    fn inject_pm_event(
-        &mut self,
-        event: PeerManagerEvent,
-    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
+    fn inject_pm_event(&mut self, event: PeerManagerEvent) -> Option<NetworkEvent<E>> {
         match event {
             PeerManagerEvent::PeerConnectedIncoming(peer_id) => {
                 Some(NetworkEvent::PeerConnectedIncoming(peer_id))
@@ -1651,12 +1696,16 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             libp2p::upnp::Event::NewExternalAddr(addr) => {
                 info!(self.log, "UPnP route established"; "addr" => %addr);
                 let mut iter = addr.iter();
-                // Skip Ip address.
-                iter.next();
+                let is_ip6 = {
+                    let addr = iter.next();
+                    matches!(addr, Some(MProtocol::Ip6(_)))
+                };
                 match iter.next() {
                     Some(multiaddr::Protocol::Udp(udp_port)) => match iter.next() {
                         Some(multiaddr::Protocol::QuicV1) => {
-                            if let Err(e) = self.discovery_mut().update_enr_quic_port(udp_port) {
+                            if let Err(e) =
+                                self.discovery_mut().update_enr_quic_port(udp_port, is_ip6)
+                            {
                                 warn!(self.log, "Failed to update ENR"; "error" => e);
                             }
                         }
@@ -1665,7 +1714,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         }
                     },
                     Some(multiaddr::Protocol::Tcp(tcp_port)) => {
-                        if let Err(e) = self.discovery_mut().update_enr_tcp_port(tcp_port) {
+                        if let Err(e) = self.discovery_mut().update_enr_tcp_port(tcp_port, is_ip6) {
                             warn!(self.log, "Failed to update ENR"; "error" => e);
                         }
                     }
@@ -1692,7 +1741,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     /// Poll the p2p networking stack.
     ///
     /// This will poll the swarm and do maintenance routines.
-    pub fn poll_network(&mut self, cx: &mut Context) -> Poll<NetworkEvent<AppReqId, TSpec>> {
+    pub fn poll_network(&mut self, cx: &mut Context) -> Poll<NetworkEvent<E>> {
         while let Poll::Ready(Some(swarm_event)) = self.swarm.poll_next_unpin(cx) {
             let maybe_event = match swarm_event {
                 SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
@@ -1834,7 +1883,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         Poll::Pending
     }
 
-    pub async fn next_event(&mut self) -> NetworkEvent<AppReqId, TSpec> {
+    pub async fn next_event(&mut self) -> NetworkEvent<E> {
         futures::future::poll_fn(|cx| self.poll_network(cx)).await
     }
 }

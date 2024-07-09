@@ -1,4 +1,5 @@
 use crate::SlotClock;
+use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use types::{EthSpec, Slot};
 
@@ -16,7 +17,7 @@ lazy_static! {
 }
 
 /// Update the global metrics `DEFAULT_REGISTRY` with info from the slot clock.
-pub fn scrape_for_metrics<T: EthSpec, U: SlotClock>(clock: &U) {
+pub fn scrape_for_metrics<E: EthSpec, U: SlotClock>(clock: &U) {
     let present_slot = match clock.now() {
         Some(slot) => slot,
         _ => Slot::new(0),
@@ -25,8 +26,8 @@ pub fn scrape_for_metrics<T: EthSpec, U: SlotClock>(clock: &U) {
     set_gauge(&PRESENT_SLOT, present_slot.as_u64() as i64);
     set_gauge(
         &PRESENT_EPOCH,
-        present_slot.epoch(T::slots_per_epoch()).as_u64() as i64,
+        present_slot.epoch(E::slots_per_epoch()).as_u64() as i64,
     );
-    set_gauge(&SLOTS_PER_EPOCH, T::slots_per_epoch() as i64);
+    set_gauge(&SLOTS_PER_EPOCH, E::slots_per_epoch() as i64);
     set_gauge(&SECONDS_PER_SLOT, clock.slot_duration().as_secs() as i64);
 }

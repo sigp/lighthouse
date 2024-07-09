@@ -37,15 +37,21 @@ impl From<[u8; GRAFFITI_BYTES_LEN]> for Graffiti {
     }
 }
 
-impl Into<[u8; GRAFFITI_BYTES_LEN]> for Graffiti {
-    fn into(self) -> [u8; GRAFFITI_BYTES_LEN] {
-        self.0
+impl From<Graffiti> for [u8; GRAFFITI_BYTES_LEN] {
+    fn from(from: Graffiti) -> [u8; GRAFFITI_BYTES_LEN] {
+        from.0
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Default)]
 #[serde(transparent)]
 pub struct GraffitiString(String);
+
+impl GraffitiString {
+    pub fn empty() -> Self {
+        Self(String::new())
+    }
+}
 
 impl FromStr for GraffitiString {
     type Err = String;
@@ -71,9 +77,9 @@ impl<'de> Deserialize<'de> for GraffitiString {
     }
 }
 
-impl Into<Graffiti> for GraffitiString {
-    fn into(self) -> Graffiti {
-        let graffiti_bytes = self.0.as_bytes();
+impl From<GraffitiString> for Graffiti {
+    fn from(from: GraffitiString) -> Graffiti {
+        let graffiti_bytes = from.0.as_bytes();
         let mut graffiti = [0; GRAFFITI_BYTES_LEN];
 
         let graffiti_len = std::cmp::min(graffiti_bytes.len(), GRAFFITI_BYTES_LEN);

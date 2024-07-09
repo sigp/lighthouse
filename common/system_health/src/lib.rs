@@ -218,11 +218,11 @@ pub fn observe_nat() -> bool {
 }
 
 /// Observes the Beacon Node system health.
-pub fn observe_system_health_bn<TSpec: EthSpec>(
+pub fn observe_system_health_bn<E: EthSpec>(
     sysinfo: Arc<RwLock<System>>,
     data_dir: PathBuf,
     app_uptime: u64,
-    network_globals: Arc<NetworkGlobals<TSpec>>,
+    network_globals: Arc<NetworkGlobals<E>>,
 ) -> SystemHealthBN {
     let system_health = observe_system_health(sysinfo.clone(), data_dir, app_uptime);
 

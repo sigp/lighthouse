@@ -27,18 +27,18 @@ pub enum Error {
     TestRandom,
     arbitrary::Arbitrary,
 )]
-#[serde(bound = "T: EthSpec")]
-#[arbitrary(bound = "T: EthSpec")]
-pub struct SyncCommitteeContribution<T: EthSpec> {
+#[serde(bound = "E: EthSpec")]
+#[arbitrary(bound = "E: EthSpec")]
+pub struct SyncCommitteeContribution<E: EthSpec> {
     pub slot: Slot,
     pub beacon_block_root: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
     pub subcommittee_index: u64,
-    pub aggregation_bits: BitVector<T::SyncSubcommitteeSize>,
+    pub aggregation_bits: BitVector<E::SyncSubcommitteeSize>,
     pub signature: AggregateSignature,
 }
 
-impl<T: EthSpec> SyncCommitteeContribution<T> {
+impl<E: EthSpec> SyncCommitteeContribution<E> {
     /// Create a `SyncCommitteeContribution` from:
     ///
     /// - `message`: A single `SyncCommitteeMessage`.
@@ -63,13 +63,6 @@ impl<T: EthSpec> SyncCommitteeContribution<T> {
         })
     }
 
-    /// Are the aggregation bitfields of these sync contribution disjoint?
-    pub fn signers_disjoint_from(&self, other: &Self) -> bool {
-        self.aggregation_bits
-            .intersection(&other.aggregation_bits)
-            .is_zero()
-    }
-
     /// Aggregate another `SyncCommitteeContribution` into this one.
     ///
     /// The aggregation bitfields must be disjoint, and the data must be the same.
@@ -77,7 +70,6 @@ impl<T: EthSpec> SyncCommitteeContribution<T> {
         debug_assert_eq!(self.slot, other.slot);
         debug_assert_eq!(self.beacon_block_root, other.beacon_block_root);
         debug_assert_eq!(self.subcommittee_index, other.subcommittee_index);
-        debug_assert!(self.signers_disjoint_from(other));
 
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
         self.signature.add_assign_aggregate(&other.signature);
@@ -95,7 +87,7 @@ pub struct SyncContributionData {
 }
 
 impl SyncContributionData {
-    pub fn from_contribution<T: EthSpec>(signing_data: &SyncCommitteeContribution<T>) -> Self {
+    pub fn from_contribution<E: EthSpec>(signing_data: &SyncCommitteeContribution<E>) -> Self {
         Self {
             slot: signing_data.slot,
             beacon_block_root: signing_data.beacon_block_root,
@@ -104,7 +96,13 @@ impl SyncContributionData {
     }
 }
 
-impl<T: EthSpec> SlotData for SyncCommitteeContribution<T> {
+impl<E: EthSpec> SlotData for SyncCommitteeContribution<E> {
+    fn get_slot(&self) -> Slot {
+        self.slot
+    }
+}
+
+impl<E: EthSpec> SlotData for &SyncCommitteeContribution<E> {
     fn get_slot(&self) -> Slot {
         self.slot
     }

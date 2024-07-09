@@ -3,7 +3,8 @@ use beacon_chain::{
     slot_clock::SystemTimeSlotClock,
 };
 use beacon_node::{get_data_dir, get_slots_per_restore_point, ClientConfig};
-use clap::{App, Arg, ArgMatches};
+use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::{get_color_style, FLAG_HEADER};
 use environment::{Environment, RuntimeContext};
 use slog::{info, warn, Logger};
 use std::fs;
@@ -20,147 +21,173 @@ use types::{BeaconState, EthSpec, Slot};
 
 pub const CMD: &str = "database_manager";
 
-pub fn version_cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("version")
-        .visible_aliases(&["v"])
-        .setting(clap::AppSettings::ColoredHelp)
+pub fn version_cli_app() -> Command {
+    Command::new("version")
+        .visible_aliases(["v"])
+        .styles(get_color_style())
         .about("Display database schema version")
 }
 
-pub fn migrate_cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("migrate")
-        .setting(clap::AppSettings::ColoredHelp)
+pub fn migrate_cli_app() -> Command {
+    Command::new("migrate")
+        .styles(get_color_style())
         .about("Migrate the database to a specific schema version")
         .arg(
-            Arg::with_name("to")
+            Arg::new("to")
                 .long("to")
                 .value_name("VERSION")
                 .help("Schema version to migrate to")
-                .takes_value(true)
+                .action(ArgAction::Set)
                 .required(true),
         )
 }
 
-pub fn inspect_cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("inspect")
-        .setting(clap::AppSettings::ColoredHelp)
+pub fn inspect_cli_app() -> Command {
+    Command::new("inspect")
+        .styles(get_color_style())
         .about("Inspect raw database values")
         .arg(
-            Arg::with_name("column")
+            Arg::new("column")
                 .long("column")
                 .value_name("TAG")
                 .help("3-byte column ID (see `DBColumn`)")
-                .takes_value(true)
-                .required(true),
+                .action(ArgAction::Set)
+                .required(true)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name("output")
+            Arg::new("output")
                 .long("output")
                 .value_name("TARGET")
                 .help("Select the type of output to show")
                 .default_value("sizes")
-                .possible_values(InspectTarget::VARIANTS),
+                .value_parser(InspectTarget::VARIANTS.to_vec())
+                .display_order(0),
         )
         .arg(
-            Arg::with_name("skip")
+            Arg::new("skip")
                 .long("skip")
                 .value_name("N")
-                .help("Skip over the first N keys"),
+                .help("Skip over the first N keys")
+                .display_order(0),
         )
         .arg(
-            Arg::with_name("limit")
+            Arg::new("limit")
                 .long("limit")
                 .value_name("N")
-                .help("Output at most N keys"),
+                .help("Output at most N keys")
+                .display_order(0),
         )
         .arg(
-            Arg::with_name("freezer")
+            Arg::new("freezer")
                 .long("freezer")
                 .help("Inspect the freezer DB rather than the hot DB")
-                .takes_value(false)
-                .conflicts_with("blobs-db"),
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .conflicts_with("blobs-db")
+                .display_order(0),
         )
         .arg(
-            Arg::with_name("blobs-db")
+            Arg::new("blobs-db")
                 .long("blobs-db")
                 .help("Inspect the blobs DB rather than the hot DB")
-                .takes_value(false)
-                .conflicts_with("freezer"),
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .conflicts_with("freezer")
+                .display_order(0),
         )
         .arg(
-            Arg::with_name("output-dir")
+            Arg::new("output-dir")
                 .long("output-dir")
                 .value_name("DIR")
                 .help("Base directory for the output files. Defaults to the current directory")
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
 }
 
-pub fn compact_cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("compact")
-        .setting(clap::AppSettings::ColoredHelp)
+pub fn compact_cli_app() -> Command {
+    Command::new("compact")
+        .styles(get_color_style())
         .about("Compact database manually")
         .arg(
-            Arg::with_name("column")
+            Arg::new("column")
                 .long("column")
                 .value_name("TAG")
                 .help("3-byte column ID (see `DBColumn`)")
-                .takes_value(true)
-                .required(true),
+                .action(ArgAction::Set)
+                .required(true)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name("freezer")
+            Arg::new("freezer")
                 .long("freezer")
                 .help("Inspect the freezer DB rather than the hot DB")
-                .takes_value(false)
-                .conflicts_with("blobs-db"),
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .conflicts_with("blobs-db")
+                .display_order(0),
         )
         .arg(
-            Arg::with_name("blobs-db")
+            Arg::new("blobs-db")
                 .long("blobs-db")
                 .help("Inspect the blobs DB rather than the hot DB")
-                .takes_value(false)
-                .conflicts_with("freezer"),
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .conflicts_with("freezer")
+                .display_order(0),
         )
 }
 
-pub fn prune_payloads_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("prune-payloads")
+pub fn prune_payloads_app() -> Command {
+    Command::new("prune-payloads")
         .alias("prune_payloads")
-        .setting(clap::AppSettings::ColoredHelp)
+        .styles(get_color_style())
         .about("Prune finalized execution payloads")
 }
 
-pub fn prune_blobs_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("prune-blobs")
+pub fn prune_blobs_app() -> Command {
+    Command::new("prune-blobs")
         .alias("prune_blobs")
-        .setting(clap::AppSettings::ColoredHelp)
+        .styles(get_color_style())
         .about("Prune blobs older than data availability boundary")
 }
 
-pub fn prune_states_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("prune-states")
+pub fn prune_states_app() -> Command {
+    Command::new("prune-states")
         .alias("prune_states")
         .arg(
-            Arg::with_name("confirm")
+            Arg::new("confirm")
                 .long("confirm")
                 .help(
                     "Commit to pruning states irreversably. Without this flag the command will \
                      just check that the database is capable of being pruned.",
                 )
-                .takes_value(false),
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0),
         )
-        .setting(clap::AppSettings::ColoredHelp)
+        .styles(get_color_style())
         .about("Prune all beacon states from the freezer database")
 }
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
-        .visible_aliases(&["db"])
-        .setting(clap::AppSettings::ColoredHelp)
+pub fn cli_app() -> Command {
+    Command::new(CMD)
+        .display_order(0)
+        .visible_aliases(["db"])
+        .styles(get_color_style())
         .about("Manage a beacon node database")
         .arg(
-            Arg::with_name("slots-per-restore-point")
+            Arg::new("help")
+                .long("help")
+                .short('h')
+                .help("Prints help information")
+                .action(ArgAction::HelpLong)
+                .display_order(0)
+                .help_heading(FLAG_HEADER),
+        )
+        .arg(
+            Arg::new("slots-per-restore-point")
                 .long("slots-per-restore-point")
                 .value_name("SLOT_COUNT")
                 .help(
@@ -168,32 +195,36 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        Cannot be changed after initialization. \
                        [default: 2048 (mainnet) or 64 (minimal)]",
                 )
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name("freezer-dir")
+            Arg::new("freezer-dir")
                 .long("freezer-dir")
                 .value_name("DIR")
                 .help("Data directory for the freezer database.")
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
-            Arg::with_name("blob-prune-margin-epochs")
+            Arg::new("blob-prune-margin-epochs")
                 .long("blob-prune-margin-epochs")
                 .value_name("EPOCHS")
                 .help(
                     "The margin for blob pruning in epochs. The oldest blobs are pruned \
                        up until data_availability_boundary - blob_prune_margin_epochs.",
                 )
-                .takes_value(true)
-                .default_value("0"),
+                .action(ArgAction::Set)
+                .default_value("0")
+                .display_order(0),
         )
         .arg(
-            Arg::with_name("blobs-dir")
+            Arg::new("blobs-dir")
                 .long("blobs-dir")
                 .value_name("DIR")
                 .help("Data directory for the blobs database.")
-                .takes_value(true),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .subcommand(migrate_cli_app())
         .subcommand(version_cli_app())
@@ -298,8 +329,8 @@ fn parse_inspect_config(cli_args: &ArgMatches) -> Result<InspectConfig, String> 
     let target = clap_utils::parse_required(cli_args, "output")?;
     let skip = clap_utils::parse_optional(cli_args, "skip")?;
     let limit = clap_utils::parse_optional(cli_args, "limit")?;
-    let freezer = cli_args.is_present("freezer");
-    let blobs_db = cli_args.is_present("blobs-db");
+    let freezer = cli_args.get_flag("freezer");
+    let blobs_db = cli_args.get_flag("blobs-db");
 
     let output_dir: PathBuf =
         clap_utils::parse_optional(cli_args, "output-dir")?.unwrap_or_else(PathBuf::new);
@@ -421,8 +452,8 @@ pub struct CompactConfig {
 
 fn parse_compact_config(cli_args: &ArgMatches) -> Result<CompactConfig, String> {
     let column = clap_utils::parse_required(cli_args, "column")?;
-    let freezer = cli_args.is_present("freezer");
-    let blobs_db = cli_args.is_present("blobs-db");
+    let freezer = cli_args.get_flag("freezer");
+    let blobs_db = cli_args.get_flag("blobs-db");
     Ok(CompactConfig {
         column,
         freezer,
@@ -566,7 +597,7 @@ pub struct PruneStatesConfig {
 }
 
 fn parse_prune_states_config(cli_args: &ArgMatches) -> Result<PruneStatesConfig, String> {
-    let confirm = cli_args.is_present("confirm");
+    let confirm = cli_args.get_flag("confirm");
     Ok(PruneStatesConfig { confirm })
 }
 
@@ -645,33 +676,33 @@ pub fn prune_states<E: EthSpec>(
 }
 
 /// Run the database manager, returning an error string if the operation did not succeed.
-pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result<(), String> {
+pub fn run<E: EthSpec>(cli_args: &ArgMatches, env: Environment<E>) -> Result<(), String> {
     let client_config = parse_client_config(cli_args, &env)?;
     let context = env.core_context();
     let log = context.log().clone();
     let format_err = |e| format!("Fatal error: {:?}", e);
 
     match cli_args.subcommand() {
-        ("version", Some(_)) => {
+        Some(("version", _)) => {
             display_db_version(client_config, &context, log).map_err(format_err)
         }
-        ("migrate", Some(cli_args)) => {
+        Some(("migrate", cli_args)) => {
             let migrate_config = parse_migrate_config(cli_args)?;
             migrate_db(migrate_config, client_config, &context, log).map_err(format_err)
         }
-        ("inspect", Some(cli_args)) => {
+        Some(("inspect", cli_args)) => {
             let inspect_config = parse_inspect_config(cli_args)?;
-            inspect_db::<T>(inspect_config, client_config)
+            inspect_db::<E>(inspect_config, client_config)
         }
-        ("compact", Some(cli_args)) => {
+        Some(("compact", cli_args)) => {
             let compact_config = parse_compact_config(cli_args)?;
-            compact_db::<T>(compact_config, client_config, log).map_err(format_err)
+            compact_db::<E>(compact_config, client_config, log).map_err(format_err)
         }
-        ("prune-payloads", Some(_)) => {
+        Some(("prune-payloads", _)) => {
             prune_payloads(client_config, &context, log).map_err(format_err)
         }
-        ("prune-blobs", Some(_)) => prune_blobs(client_config, &context, log).map_err(format_err),
-        ("prune-states", Some(cli_args)) => {
+        Some(("prune-blobs", _)) => prune_blobs(client_config, &context, log).map_err(format_err),
+        Some(("prune-states", cli_args)) => {
             let executor = env.core_context().executor;
             let network_config = context
                 .eth2_network_config
@@ -680,7 +711,7 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
 
             let genesis_state = executor
                 .block_on_dangerous(
-                    network_config.genesis_state::<T>(
+                    network_config.genesis_state::<E>(
                         client_config.genesis_state_url.as_deref(),
                         client_config.genesis_state_url_timeout,
                         &log,

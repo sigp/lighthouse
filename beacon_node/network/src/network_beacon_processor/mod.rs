@@ -1,18 +1,13 @@
-use crate::{
-    service::NetworkMessage,
-    sync::{manager::BlockProcessType, SyncMessage},
-};
+use crate::sync::manager::BlockProcessType;
+use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::{
-    builder::Witness, eth1_chain::CachingEth1Backend, test_utils::BeaconChainHarness, BeaconChain,
-};
+use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend, BeaconChain};
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{
     work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorChannels, BeaconProcessorSend,
     DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
     WorkEvent as BeaconWorkEvent,
 };
-use environment::null_logger;
 use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
@@ -24,7 +19,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
-use task_executor::test_utils::TestRuntime;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use types::*;
@@ -106,14 +100,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
             work: Work::GossipAttestation {
-                attestation: GossipAttestationPackage {
+                attestation: Box::new(GossipAttestationPackage {
                     message_id,
                     peer_id,
                     attestation: Box::new(attestation),
                     subnet_id,
                     should_import,
                     seen_timestamp,
-                },
+                }),
                 process_individual: Box::new(process_individual),
                 process_batch: Box::new(process_batch),
             },
@@ -148,17 +142,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             processor.process_gossip_aggregate_batch(aggregates, Some(reprocess_tx))
         };
 
-        let beacon_block_root = aggregate.message.aggregate.data.beacon_block_root;
+        let beacon_block_root = aggregate.message().aggregate().data().beacon_block_root;
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
             work: Work::GossipAggregate {
-                aggregate: GossipAggregatePackage {
+                aggregate: Box::new(GossipAggregatePackage {
                     message_id,
                     peer_id,
                     aggregate: Box::new(aggregate),
                     beacon_block_root,
                     seen_timestamp,
-                },
+                }),
                 process_individual: Box::new(process_individual),
                 process_batch: Box::new(process_batch),
             },
@@ -512,20 +506,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: BlocksByRangeRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = move |send_idle_on_drop| {
-            let executor = processor.executor.clone();
-            processor.handle_blocks_by_range_request(
-                executor,
-                send_idle_on_drop,
-                peer_id,
-                request_id,
-                request,
-            )
+        let process_fn = async move {
+            processor
+                .handle_blocks_by_range_request(peer_id, request_id, request)
+                .await;
         };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
-            work: Work::BlocksByRangeRequest(Box::new(process_fn)),
+            work: Work::BlocksByRangeRequest(Box::pin(process_fn)),
         })
     }
 
@@ -537,20 +526,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: BlocksByRootRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = move |send_idle_on_drop| {
-            let executor = processor.executor.clone();
-            processor.handle_blocks_by_root_request(
-                executor,
-                send_idle_on_drop,
-                peer_id,
-                request_id,
-                request,
-            )
+        let process_fn = async move {
+            processor
+                .handle_blocks_by_root_request(peer_id, request_id, request)
+                .await;
         };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
-            work: Work::BlocksByRootsRequest(Box::new(process_fn)),
+            work: Work::BlocksByRootsRequest(Box::pin(process_fn)),
         })
     }
 
@@ -605,6 +589,37 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new work event to process a `LightClientOptimisticUpdate` request from the RPC network.
+    pub fn send_light_client_optimistic_update_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn =
+            move || processor.handle_light_client_optimistic_update(peer_id, request_id);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::LightClientOptimisticUpdateRequest(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process a `LightClientFinalityUpdate` request from the RPC network.
+    pub fn send_light_client_finality_update_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = move || processor.handle_light_client_finality_update(peer_id, request_id);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::LightClientFinalityUpdateRequest(Box::new(process_fn)),
+        })
+    }
+
     /// Send a message to `sync_tx`.
     ///
     /// Creates a log if there is an internal error.
@@ -636,6 +651,9 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
     // processor (but not much else).
     pub fn null_for_testing(
         network_globals: Arc<NetworkGlobals<E>>,
+        chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
+        executor: TaskExecutor,
+        log: Logger,
     ) -> (Self, mpsc::Receiver<BeaconWorkEvent<E>>) {
         let BeaconProcessorChannels {
             beacon_processor_tx,
@@ -646,27 +664,17 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
 
         let (network_tx, _network_rx) = mpsc::unbounded_channel();
         let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
-        let log = null_logger().unwrap();
-        let harness: BeaconChainHarness<TestBeaconChainType<E>> =
-            BeaconChainHarness::builder(E::default())
-                .spec(E::default_spec())
-                .deterministic_keypairs(8)
-                .logger(log.clone())
-                .fresh_ephemeral_store()
-                .mock_execution_layer()
-                .build();
-        let runtime = TestRuntime::default();
 
         let network_beacon_processor = Self {
             beacon_processor_send: beacon_processor_tx,
             duplicate_cache: DuplicateCache::default(),
-            chain: harness.chain,
+            chain,
             network_tx,
             sync_tx,
             reprocess_tx: work_reprocessing_tx,
             network_globals,
             invalid_block_storage: InvalidBlockStorage::Disabled,
-            executor: runtime.task_executor.clone(),
+            executor,
             log,
         };
 

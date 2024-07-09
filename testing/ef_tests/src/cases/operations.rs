@@ -5,6 +5,7 @@ use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yam
 use serde::Deserialize;
 use ssz::Decode;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
+use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::{
     per_block_processing::{
         errors::BlockProcessingError,
@@ -19,8 +20,8 @@ use state_processing::{
 };
 use std::fmt::Debug;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyCapella,
-    BeaconBlockBodyDeneb, BeaconBlockBodyMerge, BeaconState, BlindedPayload, Deposit,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
+    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconState, BlindedPayload, Deposit,
     ExecutionPayload, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
     SignedVoluntaryExit, SyncAggregate,
 };
@@ -38,8 +39,8 @@ struct ExecutionMetadata {
 
 /// Newtype for testing withdrawals.
 #[derive(Debug, Clone, Deserialize)]
-pub struct WithdrawalsPayload<T: EthSpec> {
-    payload: FullPayload<T>,
+pub struct WithdrawalsPayload<E: EthSpec> {
+    payload: FullPayload<E>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,8 +78,12 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         "attestation".into()
     }
 
-    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        ssz_decode_file(path)
+    fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        if fork_name < ForkName::Electra {
+            Ok(Self::Base(ssz_decode_file(path)?))
+        } else {
+            Ok(Self::Electra(ssz_decode_file(path)?))
+        }
     }
 
     fn apply_to(
@@ -87,23 +92,25 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
+        initialize_epoch_cache(state, spec)?;
         let mut ctxt = ConsensusContext::new(state.slot());
         match state {
             BeaconState::Base(_) => base::process_attestations(
                 state,
-                &[self.clone()],
+                [self.clone().to_ref()].into_iter(),
                 VerifySignatures::True,
                 &mut ctxt,
                 spec,
             ),
             BeaconState::Altair(_)
-            | BeaconState::Merge(_)
+            | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
-            | BeaconState::Deneb(_) => {
-                initialize_progressive_balances_cache(state, None, spec)?;
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_) => {
+                initialize_progressive_balances_cache(state, spec)?;
                 altair_deneb::process_attestation(
                     state,
-                    self,
+                    self.to_ref(),
                     0,
                     &mut ctxt,
                     VerifySignatures::True,
@@ -119,8 +126,15 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         "attester_slashing".into()
     }
 
-    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
-        ssz_decode_file(path)
+    fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        Ok(match fork_name {
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Bellatrix
+            | ForkName::Capella
+            | ForkName::Deneb => Self::Base(ssz_decode_file(path)?),
+            ForkName::Electra => Self::Electra(ssz_decode_file(path)?),
+        })
     }
 
     fn apply_to(
@@ -130,10 +144,10 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let mut ctxt = ConsensusContext::new(state.slot());
-        initialize_progressive_balances_cache(state, None, spec)?;
+        initialize_progressive_balances_cache(state, spec)?;
         process_attester_slashings(
             state,
-            &[self.clone()],
+            [self.clone().to_ref()].into_iter(),
             VerifySignatures::True,
             &mut ctxt,
             spec,
@@ -181,7 +195,7 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let mut ctxt = ConsensusContext::new(state.slot());
-        initialize_progressive_balances_cache(state, None, spec)?;
+        initialize_progressive_balances_cache(state, spec)?;
         process_proposer_slashings(
             state,
             &[self.clone()],
@@ -286,7 +300,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file_with(path, |bytes| {
             Ok(match fork_name {
-                ForkName::Merge => BeaconBlockBody::Merge(<_>::from_ssz_bytes(bytes)?),
+                ForkName::Bellatrix => BeaconBlockBody::Bellatrix(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Capella => BeaconBlockBody::Capella(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Deneb => BeaconBlockBody::Deneb(<_>::from_ssz_bytes(bytes)?),
                 _ => panic!(),
@@ -327,9 +341,10 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file_with(path, |bytes| {
             Ok(match fork_name {
-                ForkName::Merge => {
-                    let inner = <BeaconBlockBodyMerge<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
-                    BeaconBlockBody::Merge(inner.clone_as_blinded())
+                ForkName::Bellatrix => {
+                    let inner =
+                        <BeaconBlockBodyBellatrix<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Bellatrix(inner.clone_as_blinded())
                 }
                 ForkName::Capella => {
                     let inner = <BeaconBlockBodyCapella<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
@@ -372,7 +387,9 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base && fork_name != ForkName::Altair && fork_name != ForkName::Merge
+        fork_name != ForkName::Base
+            && fork_name != ForkName::Altair
+            && fork_name != ForkName::Bellatrix
     }
 
     fn decode(path: &Path, fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
@@ -404,7 +421,9 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base && fork_name != ForkName::Altair && fork_name != ForkName::Merge
+        fork_name != ForkName::Base
+            && fork_name != ForkName::Altair
+            && fork_name != ForkName::Bellatrix
     }
 
     fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
@@ -483,14 +502,22 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let spec = &testing_spec::<E>(fork_name);
-        let mut state = self.pre.clone();
-        let mut expected = self.post.clone();
 
+        let mut pre_state = self.pre.clone();
         // Processing requires the committee caches.
         // NOTE: some of the withdrawals tests have 0 active validators, do not try
         // to build the commitee cache in this case.
         if O::handler_name() != "withdrawals" {
-            state.build_all_committee_caches(spec).unwrap();
+            pre_state.build_all_committee_caches(spec).unwrap();
+        }
+
+        let mut state = pre_state.clone();
+        let mut expected = self.post.clone();
+
+        if O::handler_name() != "withdrawals" {
+            if let Some(post_state) = expected.as_mut() {
+                post_state.build_all_committee_caches(spec).unwrap();
+            }
         }
 
         let mut result = self

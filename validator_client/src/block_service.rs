@@ -892,6 +892,7 @@ impl<E: EthSpec> UnsignedBlock<E> {
     }
 }
 
+#[derive(Debug)]
 pub enum SignedBlock<E: EthSpec> {
     Full(PublishBlockRequest<E>),
     Blinded(Arc<SignedBlindedBeaconBlock<E>>),
@@ -918,8 +919,8 @@ impl<E: EthSpec> SignedBlock<E> {
     }
     pub fn num_attestations(&self) -> usize {
         match self {
-            SignedBlock::Full(block) => block.signed_block().message().body().attestations().len(),
-            SignedBlock::Blinded(block) => block.message().body().attestations().len(),
+            SignedBlock::Full(block) => block.signed_block().message().body().attestations_len(),
+            SignedBlock::Blinded(block) => block.message().body().attestations_len(),
         }
     }
 }

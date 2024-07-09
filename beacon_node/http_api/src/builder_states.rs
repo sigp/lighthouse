@@ -33,7 +33,7 @@ pub fn get_next_withdrawals<T: BeaconChainTypes>(
     }
 
     match get_expected_withdrawals(&state, &chain.spec) {
-        Ok(withdrawals) => Ok(withdrawals),
+        Ok((withdrawals, _)) => Ok(withdrawals),
         Err(e) => Err(warp_utils::reject::custom_server_error(format!(
             "failed to get expected withdrawal: {:?}",
             e
@@ -53,7 +53,7 @@ fn get_next_withdrawals_sanity_checks<T: BeaconChainTypes>(
     }
 
     let fork = chain.spec.fork_name_at_slot::<T::EthSpec>(proposal_slot);
-    if let ForkName::Base | ForkName::Altair | ForkName::Merge = fork {
+    if let ForkName::Base | ForkName::Altair | ForkName::Bellatrix = fork {
         return Err(warp_utils::reject::custom_bad_request(
             "the specified state is a pre-capella state.".to_string(),
         ));

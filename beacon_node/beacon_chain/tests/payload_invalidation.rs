@@ -25,7 +25,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::ShutdownReason;
-use tree_hash::TreeHash;
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
@@ -223,7 +222,7 @@ impl InvalidPayloadRig {
         let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
 
         let head = self.harness.chain.head_snapshot();
-        let state = head.beacon_state.clone_with_only_committee_caches();
+        let state = head.beacon_state.clone();
         let slot = slot_override.unwrap_or(state.slot() + 1);
         let ((block, blobs), post_state) = self.harness.make_block(state, slot).await;
         let block_root = block.canonical_root();
@@ -702,6 +701,7 @@ async fn invalidates_all_descendants() {
             fork_block.canonical_root(),
             fork_block,
             NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await
@@ -802,6 +802,7 @@ async fn switches_heads() {
             fork_block.canonical_root(),
             fork_block,
             NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await
@@ -1061,7 +1062,7 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for import.
     assert!(matches!(
-        rig.harness.chain.process_block(block.canonical_root(), block.clone(), NotifyExecutionLayer::Yes,
+        rig.harness.chain.process_block(block.canonical_root(), block.clone(), NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
             || Ok(()),
         ).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
@@ -1077,9 +1078,7 @@ async fn invalid_parent() {
             Duration::from_secs(0),
             &state,
             PayloadVerificationStatus::Optimistic,
-            rig.harness.chain.config.progressive_balances_mode,
             &rig.harness.chain.spec,
-            rig.harness.logger()
         ),
         Err(ForkChoiceError::ProtoArrayStringError(message))
         if message.contains(&format!(
@@ -1193,15 +1192,23 @@ async fn attesting_to_optimistic_head() {
             .produce_unaggregated_attestation(Slot::new(0), 0)
             .unwrap();
 
-        attestation.aggregation_bits.set(0, true).unwrap();
-        attestation.data.slot = slot;
-        attestation.data.beacon_block_root = root;
+        match &mut attestation {
+            Attestation::Base(ref mut att) => {
+                att.aggregation_bits.set(0, true).unwrap();
+            }
+            Attestation::Electra(ref mut att) => {
+                att.aggregation_bits.set(0, true).unwrap();
+            }
+        }
+
+        attestation.data_mut().slot = slot;
+        attestation.data_mut().beacon_block_root = root;
 
         rig.harness
             .chain
             .naive_aggregation_pool
             .write()
-            .insert(&attestation)
+            .insert(attestation.to_ref())
             .unwrap();
 
         attestation
@@ -1216,16 +1223,13 @@ async fn attesting_to_optimistic_head() {
     let get_aggregated = || {
         rig.harness
             .chain
-            .get_aggregated_attestation(&attestation.data)
+            .get_aggregated_attestation(attestation.to_ref())
     };
 
     let get_aggregated_by_slot_and_root = || {
         rig.harness
             .chain
-            .get_aggregated_attestation_by_slot_and_root(
-                attestation.data.slot,
-                &attestation.data.tree_hash_root(),
-            )
+            .get_aggregated_attestation(attestation.to_ref())
     };
 
     /*
@@ -1354,6 +1358,7 @@ async fn build_optimistic_chain(
                 block.canonical_root(),
                 block,
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
                 || Ok(()),
             )
             .await
@@ -1928,6 +1933,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
             fork_block.canonical_root(),
             fork_block.clone(),
             NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await
@@ -2050,7 +2056,7 @@ async fn weights_after_resetting_optimistic_status() {
             .fork_choice_read_lock()
             .get_block_weight(&head.head_block_root())
             .unwrap(),
-        head.snapshot.beacon_state.validators()[0].effective_balance,
+        head.snapshot.beacon_state.validators().get(0).unwrap().effective_balance,
         "proposer boost should be removed from the head block and the vote of a single validator applied"
     );
 

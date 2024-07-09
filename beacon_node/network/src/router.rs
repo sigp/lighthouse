@@ -7,9 +7,8 @@
 
 use crate::error;
 use crate::network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor};
-use crate::service::{NetworkMessage, RequestId};
+use crate::service::NetworkMessage;
 use crate::status::status_message;
-use crate::sync::manager::RequestId as SyncId;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use beacon_processor::{
@@ -18,6 +17,7 @@ use beacon_processor::{
 use futures::prelude::*;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
+    service::api_types::{AppRequestId, SyncRequestId},
     MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
 };
 use logging::TimeLatch;
@@ -49,7 +49,7 @@ pub struct Router<T: BeaconChainTypes> {
 
 /// Types of messages the router can receive.
 #[derive(Debug)]
-pub enum RouterMessage<T: EthSpec> {
+pub enum RouterMessage<E: EthSpec> {
     /// Peer has disconnected.
     PeerDisconnected(PeerId),
     /// An RPC request has been received.
@@ -61,19 +61,19 @@ pub enum RouterMessage<T: EthSpec> {
     /// An RPC response has been received.
     RPCResponseReceived {
         peer_id: PeerId,
-        request_id: RequestId,
-        response: Response<T>,
+        request_id: AppRequestId,
+        response: Response<E>,
     },
     /// An RPC request failed
     RPCFailed {
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: AppRequestId,
         error: RPCError,
     },
     /// A gossip message has been received. The fields are: message id, the peer that sent us this
     /// message, the message itself and a bool which indicates if the message should be processed
     /// by the beacon chain after successful verification.
-    PubsubMessage(MessageId, PeerId, PubsubMessage<T>, bool),
+    PubsubMessage(MessageId, PeerId, PubsubMessage<E>, bool),
     /// The peer manager has requested we re-status a peer.
     StatusPeer(PeerId),
 }
@@ -220,6 +220,14 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.network_beacon_processor
                     .send_light_client_bootstrap_request(peer_id, request_id, request),
             ),
+            Request::LightClientOptimisticUpdate => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_light_client_optimistic_update_request(peer_id, request_id),
+            ),
+            Request::LightClientFinalityUpdate => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_light_client_finality_update_request(peer_id, request_id),
+            ),
         }
     }
 
@@ -227,7 +235,7 @@ impl<T: BeaconChainTypes> Router<T> {
     fn handle_rpc_response(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: AppRequestId,
         response: Response<T::EthSpec>,
     ) {
         match response {
@@ -250,7 +258,10 @@ impl<T: BeaconChainTypes> Router<T> {
             Response::BlobsByRoot(blob) => {
                 self.on_blobs_by_root_response(peer_id, request_id, blob);
             }
-            Response::LightClientBootstrap(_) => unreachable!(),
+            // Light client responses should not be received
+            Response::LightClientBootstrap(_)
+            | Response::LightClientOptimisticUpdate(_)
+            | Response::LightClientFinalityUpdate(_) => unreachable!(),
         }
     }
 
@@ -437,9 +448,9 @@ impl<T: BeaconChainTypes> Router<T> {
 
     /// An error occurred during an RPC request. The state is maintained by the sync manager, so
     /// this function notifies the sync manager of the error.
-    pub fn on_rpc_error(&mut self, peer_id: PeerId, request_id: RequestId, error: RPCError) {
+    pub fn on_rpc_error(&mut self, peer_id: PeerId, request_id: AppRequestId, error: RPCError) {
         // Check if the failed RPC belongs to sync
-        if let RequestId::Sync(request_id) = request_id {
+        if let AppRequestId::Sync(request_id) = request_id {
             self.send_to_sync(SyncMessage::RpcError {
                 peer_id,
                 request_id,
@@ -477,24 +488,18 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_blocks_by_range_response(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: AppRequestId,
         beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         let request_id = match request_id {
-            RequestId::Sync(sync_id) => match sync_id {
-                SyncId::SingleBlock { .. }
-                | SyncId::SingleBlob { .. }
-                | SyncId::ParentLookup { .. }
-                | SyncId::ParentLookupBlob { .. } => {
+            AppRequestId::Sync(sync_id) => match sync_id {
+                SyncRequestId::SingleBlock { .. } | SyncRequestId::SingleBlob { .. } => {
                     crit!(self.log, "Block lookups do not request BBRange requests"; "peer_id" => %peer_id);
                     return;
                 }
-                id @ (SyncId::BackFillBlocks { .. }
-                | SyncId::RangeBlocks { .. }
-                | SyncId::BackFillBlockAndBlobs { .. }
-                | SyncId::RangeBlockAndBlobs { .. }) => id,
+                id @ SyncRequestId::RangeBlockAndBlobs { .. } => id,
             },
-            RequestId::Router => {
+            AppRequestId::Router => {
                 crit!(self.log, "All BBRange requests belong to sync"; "peer_id" => %peer_id);
                 return;
             }
@@ -517,7 +522,7 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_blobs_by_range_response(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: AppRequestId,
         blob_sidecar: Option<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
         trace!(
@@ -526,7 +531,7 @@ impl<T: BeaconChainTypes> Router<T> {
             "peer" => %peer_id,
         );
 
-        if let RequestId::Sync(id) = request_id {
+        if let AppRequestId::Sync(id) = request_id {
             self.send_to_sync(SyncMessage::RpcBlob {
                 peer_id,
                 request_id: id,
@@ -545,25 +550,22 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_blocks_by_root_response(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: AppRequestId,
         beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         let request_id = match request_id {
-            RequestId::Sync(sync_id) => match sync_id {
-                id @ (SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. }) => id,
-                SyncId::BackFillBlocks { .. }
-                | SyncId::RangeBlocks { .. }
-                | SyncId::RangeBlockAndBlobs { .. }
-                | SyncId::BackFillBlockAndBlobs { .. } => {
+            AppRequestId::Sync(sync_id) => match sync_id {
+                id @ SyncRequestId::SingleBlock { .. } => id,
+                SyncRequestId::RangeBlockAndBlobs { .. } => {
                     crit!(self.log, "Batch syncing do not request BBRoot requests"; "peer_id" => %peer_id);
                     return;
                 }
-                SyncId::SingleBlob { .. } | SyncId::ParentLookupBlob { .. } => {
+                SyncRequestId::SingleBlob { .. } => {
                     crit!(self.log, "Blob response to block by roots request"; "peer_id" => %peer_id);
                     return;
                 }
             },
-            RequestId::Router => {
+            AppRequestId::Router => {
                 crit!(self.log, "All BBRoot requests belong to sync"; "peer_id" => %peer_id);
                 return;
             }
@@ -586,25 +588,22 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_blobs_by_root_response(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: AppRequestId,
         blob_sidecar: Option<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
         let request_id = match request_id {
-            RequestId::Sync(sync_id) => match sync_id {
-                id @ (SyncId::SingleBlob { .. } | SyncId::ParentLookupBlob { .. }) => id,
-                SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. } => {
+            AppRequestId::Sync(sync_id) => match sync_id {
+                id @ SyncRequestId::SingleBlob { .. } => id,
+                SyncRequestId::SingleBlock { .. } => {
                     crit!(self.log, "Block response to blobs by roots request"; "peer_id" => %peer_id);
                     return;
                 }
-                SyncId::BackFillBlocks { .. }
-                | SyncId::RangeBlocks { .. }
-                | SyncId::RangeBlockAndBlobs { .. }
-                | SyncId::BackFillBlockAndBlobs { .. } => {
+                SyncRequestId::RangeBlockAndBlobs { .. } => {
                     crit!(self.log, "Batch syncing does not request BBRoot requests"; "peer_id" => %peer_id);
                     return;
                 }
             },
-            RequestId::Router => {
+            AppRequestId::Router => {
                 crit!(self.log, "All BlobsByRoot requests belong to sync"; "peer_id" => %peer_id);
                 return;
             }
@@ -645,20 +644,20 @@ impl<T: BeaconChainTypes> Router<T> {
 /// Wraps a Network Channel to employ various RPC related network functionality for the
 /// processor.
 #[derive(Clone)]
-pub struct HandlerNetworkContext<T: EthSpec> {
+pub struct HandlerNetworkContext<E: EthSpec> {
     /// The network channel to relay messages to the Network service.
-    network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
+    network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
     /// Logger for the `NetworkContext`.
     log: slog::Logger,
 }
 
-impl<T: EthSpec> HandlerNetworkContext<T> {
-    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage<T>>, log: slog::Logger) -> Self {
+impl<E: EthSpec> HandlerNetworkContext<E> {
+    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage<E>>, log: slog::Logger) -> Self {
         Self { network_send, log }
     }
 
     /// Sends a message to the network task.
-    fn inform_network(&mut self, msg: NetworkMessage<T>) {
+    fn inform_network(&mut self, msg: NetworkMessage<E>) {
         self.network_send.send(msg).unwrap_or_else(
             |e| warn!(self.log, "Could not send message to the network service"; "error" => %e),
         )
@@ -668,13 +667,13 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
     pub fn send_processor_request(&mut self, peer_id: PeerId, request: Request) {
         self.inform_network(NetworkMessage::SendRequest {
             peer_id,
-            request_id: RequestId::Router,
+            request_id: AppRequestId::Router,
             request,
         })
     }
 
     /// Sends a response to the network task.
-    pub fn send_response(&mut self, peer_id: PeerId, response: Response<T>, id: PeerRequestId) {
+    pub fn send_response(&mut self, peer_id: PeerId, response: Response<E>, id: PeerRequestId) {
         self.inform_network(NetworkMessage::SendResponse {
             peer_id,
             id,

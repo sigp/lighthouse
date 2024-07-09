@@ -39,7 +39,7 @@ mod tests {
     use tempfile::{tempdir, TempDir};
     use tokio::sync::OnceCell;
     use tokio::time::sleep;
-    use types::*;
+    use types::{attestation::AttestationBase, *};
     use url::Url;
     use validator_client::{
         initialized_validators::{
@@ -542,7 +542,7 @@ mod tests {
 
     /// Get a generic, arbitrary attestation for signing.
     fn get_attestation() -> Attestation<E> {
-        Attestation {
+        Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(1).unwrap(),
             data: AttestationData {
                 slot: <_>::default(),
@@ -558,7 +558,7 @@ mod tests {
                 },
             },
             signature: AggregateSignature::empty(),
-        }
+        })
     }
 
     fn get_validator_registration(pubkey: PublicKeyBytes) -> ValidatorRegistrationData {
@@ -724,11 +724,11 @@ mod tests {
         .await;
     }
 
-    /// Test all the Merge types.
-    async fn test_merge_types(network: &str, listen_port: u16) {
+    /// Test all the Bellatrix types.
+    async fn test_bellatrix_types(network: &str, listen_port: u16) {
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
         let spec = &network_config.chain_spec::<E>().unwrap();
-        let merge_fork_slot = spec
+        let bellatrix_fork_slot = spec
             .bellatrix_fork_epoch
             .unwrap()
             .start_slot(E::slots_per_epoch());
@@ -740,14 +740,21 @@ mod tests {
             listen_port,
         )
         .await
-        .assert_signatures_match("beacon_block_merge", |pubkey, validator_store| async move {
-            let mut merge_block = BeaconBlockMerge::empty(spec);
-            merge_block.slot = merge_fork_slot;
-            validator_store
-                .sign_block(pubkey, BeaconBlock::Merge(merge_block), merge_fork_slot)
-                .await
-                .unwrap()
-        })
+        .assert_signatures_match(
+            "beacon_block_bellatrix",
+            |pubkey, validator_store| async move {
+                let mut bellatrix_block = BeaconBlockBellatrix::empty(spec);
+                bellatrix_block.slot = bellatrix_fork_slot;
+                validator_store
+                    .sign_block(
+                        pubkey,
+                        BeaconBlock::Bellatrix(bellatrix_block),
+                        bellatrix_fork_slot,
+                    )
+                    .await
+                    .unwrap()
+            },
+        )
         .await;
     }
 
@@ -760,7 +767,7 @@ mod tests {
 
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
         let spec = &network_config.chain_spec::<E>().unwrap();
-        let merge_fork_slot = spec
+        let bellatrix_fork_slot = spec
             .bellatrix_fork_epoch
             .unwrap()
             .start_slot(E::slots_per_epoch());
@@ -771,35 +778,35 @@ mod tests {
 
         let first_attestation = || {
             let mut attestation = get_attestation();
-            attestation.data.source.epoch = Epoch::new(1);
-            attestation.data.target.epoch = Epoch::new(4);
+            attestation.data_mut().source.epoch = Epoch::new(1);
+            attestation.data_mut().target.epoch = Epoch::new(4);
             attestation
         };
 
         let double_vote_attestation = || {
             let mut attestation = first_attestation();
-            attestation.data.beacon_block_root = Hash256::from_low_u64_be(1);
+            attestation.data_mut().beacon_block_root = Hash256::from_low_u64_be(1);
             attestation
         };
 
         let surrounding_attestation = || {
             let mut attestation = first_attestation();
-            attestation.data.source.epoch = Epoch::new(0);
-            attestation.data.target.epoch = Epoch::new(5);
+            attestation.data_mut().source.epoch = Epoch::new(0);
+            attestation.data_mut().target.epoch = Epoch::new(5);
             attestation
         };
 
         let surrounded_attestation = || {
             let mut attestation = first_attestation();
-            attestation.data.source.epoch = Epoch::new(2);
-            attestation.data.target.epoch = Epoch::new(3);
+            attestation.data_mut().source.epoch = Epoch::new(2);
+            attestation.data_mut().target.epoch = Epoch::new(3);
             attestation
         };
 
         let first_block = || {
-            let mut merge_block = BeaconBlockMerge::empty(spec);
-            merge_block.slot = merge_fork_slot;
-            BeaconBlock::Merge(merge_block)
+            let mut bellatrix_block = BeaconBlockBellatrix::empty(spec);
+            bellatrix_block.slot = bellatrix_fork_slot;
+            BeaconBlock::Bellatrix(bellatrix_block)
         };
 
         let double_vote_block = || {
@@ -894,13 +901,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn prater_base_types() {
-        test_base_types("prater", 4246).await
+    async fn mainnet_bellatrix_types() {
+        test_bellatrix_types("mainnet", 4244).await
     }
 
     #[tokio::test]
-    async fn prater_altair_types() {
-        test_altair_types("prater", 4247).await
+    async fn holesky_bellatrix_types() {
+        // web3signer does not support forks prior to Bellatrix on Holesky
+        test_bellatrix_types("holesky", 4247).await
     }
 
     #[tokio::test]
@@ -914,8 +922,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sepolia_merge_types() {
-        test_merge_types("sepolia", 4252).await
+    async fn sepolia_bellatrix_types() {
+        test_bellatrix_types("sepolia", 4252).await
     }
 
     #[tokio::test]

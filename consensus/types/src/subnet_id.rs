@@ -1,5 +1,6 @@
 //! Identifies each shard by an integer identifier.
-use crate::{AttestationData, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
+use crate::{AttestationRef, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
+use lazy_static::lazy_static;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
@@ -37,16 +38,18 @@ impl SubnetId {
         id.into()
     }
 
-    /// Compute the subnet for an attestation with `attestation_data` where each slot in the
+    /// Compute the subnet for an attestation where each slot in the
     /// attestation epoch contains `committee_count_per_slot` committees.
-    pub fn compute_subnet_for_attestation_data<T: EthSpec>(
-        attestation_data: &AttestationData,
+    pub fn compute_subnet_for_attestation<E: EthSpec>(
+        attestation: AttestationRef<E>,
         committee_count_per_slot: u64,
         spec: &ChainSpec,
     ) -> Result<SubnetId, ArithError> {
-        Self::compute_subnet::<T>(
-            attestation_data.slot,
-            attestation_data.index,
+        let committee_index = attestation.committee_index().ok_or(ArithError::Overflow)?;
+
+        Self::compute_subnet::<E>(
+            attestation.data().slot,
+            committee_index,
             committee_count_per_slot,
             spec,
         )
@@ -55,13 +58,13 @@ impl SubnetId {
     /// Compute the subnet for an attestation with `attestation.data.slot == slot` and
     /// `attestation.data.index == committee_index` where each slot in the attestation epoch
     /// contains `committee_count_at_slot` committees.
-    pub fn compute_subnet<T: EthSpec>(
+    pub fn compute_subnet<E: EthSpec>(
         slot: Slot,
         committee_index: CommitteeIndex,
         committee_count_at_slot: u64,
         spec: &ChainSpec,
     ) -> Result<SubnetId, ArithError> {
-        let slots_since_epoch_start: u64 = slot.as_u64().safe_rem(T::slots_per_epoch())?;
+        let slots_since_epoch_start: u64 = slot.as_u64().safe_rem(E::slots_per_epoch())?;
 
         let committees_since_epoch_start =
             committee_count_at_slot.safe_mul(slots_since_epoch_start)?;
@@ -75,7 +78,7 @@ impl SubnetId {
     /// Computes the set of subnets the node should be subscribed to during the current epoch,
     /// along with the first epoch in which these subscriptions are no longer valid.
     #[allow(clippy::arithmetic_side_effects)]
-    pub fn compute_subnets_for_epoch<T: EthSpec>(
+    pub fn compute_subnets_for_epoch<E: EthSpec>(
         node_id: ethereum_types::U256,
         epoch: Epoch,
         spec: &ChainSpec,
@@ -149,15 +152,15 @@ impl From<u64> for SubnetId {
     }
 }
 
-impl Into<u64> for SubnetId {
-    fn into(self) -> u64 {
-        self.0
+impl From<SubnetId> for u64 {
+    fn from(from: SubnetId) -> u64 {
+        from.0
     }
 }
 
-impl Into<u64> for &SubnetId {
-    fn into(self) -> u64 {
-        self.0
+impl From<&SubnetId> for u64 {
+    fn from(from: &SubnetId) -> u64 {
+        from.0
     }
 }
 

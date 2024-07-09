@@ -15,6 +15,7 @@ use state_processing::state_advance::{partial_state_advance, Error as StateAdvan
 use std::collections::HashMap;
 use std::ops::Range;
 use types::{
+    attestation::Error as AttestationError,
     beacon_state::{
         compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
     },
@@ -59,6 +60,7 @@ pub enum Error {
     InverseRange {
         range: Range<usize>,
     },
+    AttestationError(AttestationError),
 }
 
 impl From<BeaconStateError> for Error {
@@ -84,7 +86,7 @@ pub struct CommitteeLengths {
 
 impl CommitteeLengths {
     /// Instantiate `Self` using `state.current_epoch()`.
-    pub fn new<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> Result<Self, Error> {
+    pub fn new<E: EthSpec>(state: &BeaconState<E>, spec: &ChainSpec) -> Result<Self, Error> {
         let active_validator_indices_len = if let Ok(committee_cache) =
             state.committee_cache(RelativeEpoch::Current)
         {
@@ -102,21 +104,21 @@ impl CommitteeLengths {
     }
 
     /// Get the count of committees per each slot of `self.epoch`.
-    pub fn get_committee_count_per_slot<T: EthSpec>(
+    pub fn get_committee_count_per_slot<E: EthSpec>(
         &self,
         spec: &ChainSpec,
     ) -> Result<usize, Error> {
-        T::get_committee_count_per_slot(self.active_validator_indices_len, spec).map_err(Into::into)
+        E::get_committee_count_per_slot(self.active_validator_indices_len, spec).map_err(Into::into)
     }
 
     /// Get the length of the committee at the given `slot` and `committee_index`.
-    pub fn get_committee_length<T: EthSpec>(
+    pub fn get_committee_length<E: EthSpec>(
         &self,
         slot: Slot,
         committee_index: CommitteeIndex,
         spec: &ChainSpec,
     ) -> Result<CommitteeLength, Error> {
-        let slots_per_epoch = T::slots_per_epoch();
+        let slots_per_epoch = E::slots_per_epoch();
         let request_epoch = slot.epoch(slots_per_epoch);
 
         // Sanity check.
@@ -128,7 +130,7 @@ impl CommitteeLengths {
         }
 
         let slots_per_epoch = slots_per_epoch as usize;
-        let committees_per_slot = self.get_committee_count_per_slot::<T>(spec)?;
+        let committees_per_slot = self.get_committee_count_per_slot::<E>(spec)?;
         let index_in_epoch = compute_committee_index_in_epoch(
             slot,
             slots_per_epoch,
@@ -162,7 +164,7 @@ pub struct AttesterCacheValue {
 
 impl AttesterCacheValue {
     /// Instantiate `Self` using `state.current_epoch()`.
-    pub fn new<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> Result<Self, Error> {
+    pub fn new<E: EthSpec>(state: &BeaconState<E>, spec: &ChainSpec) -> Result<Self, Error> {
         let current_justified_checkpoint = state.current_justified_checkpoint();
         let committee_lengths = CommitteeLengths::new(state, spec)?;
         Ok(Self {
@@ -172,14 +174,14 @@ impl AttesterCacheValue {
     }
 
     /// Get the justified checkpoint and committee length for some `slot` and `committee_index`.
-    fn get<T: EthSpec>(
+    fn get<E: EthSpec>(
         &self,
         slot: Slot,
         committee_index: CommitteeIndex,
         spec: &ChainSpec,
     ) -> Result<(JustifiedCheckpoint, CommitteeLength), Error> {
         self.committee_lengths
-            .get_committee_length::<T>(slot, committee_index, spec)
+            .get_committee_length::<E>(slot, committee_index, spec)
             .map(|committee_length| (self.current_justified_checkpoint, committee_length))
     }
 }
@@ -216,12 +218,12 @@ impl AttesterCacheKey {
     /// ## Errors
     ///
     /// May error if `epoch` is out of the range of `state.block_roots`.
-    pub fn new<T: EthSpec>(
+    pub fn new<E: EthSpec>(
         epoch: Epoch,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         latest_block_root: Hash256,
     ) -> Result<Self, Error> {
-        let slots_per_epoch = T::slots_per_epoch();
+        let slots_per_epoch = E::slots_per_epoch();
         let decision_slot = epoch.start_slot(slots_per_epoch).saturating_sub(1_u64);
 
         let decision_root = if decision_slot.epoch(slots_per_epoch) == epoch {
@@ -255,7 +257,7 @@ pub struct AttesterCache {
 impl AttesterCache {
     /// Get the justified checkpoint and committee length for the `slot` and `committee_index` in
     /// the state identified by the cache `key`.
-    pub fn get<T: EthSpec>(
+    pub fn get<E: EthSpec>(
         &self,
         key: &AttesterCacheKey,
         slot: Slot,
@@ -265,14 +267,14 @@ impl AttesterCache {
         self.cache
             .read()
             .get(key)
-            .map(|cache_item| cache_item.get::<T>(slot, committee_index, spec))
+            .map(|cache_item| cache_item.get::<E>(slot, committee_index, spec))
             .transpose()
     }
 
     /// Cache the `state.current_epoch()` values if they are not already present in the state.
-    pub fn maybe_cache_state<T: EthSpec>(
+    pub fn maybe_cache_state<E: EthSpec>(
         &self,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         latest_block_root: Hash256,
         spec: &ChainSpec,
     ) -> Result<(), Error> {

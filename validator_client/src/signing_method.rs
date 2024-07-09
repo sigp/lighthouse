@@ -7,7 +7,7 @@ use crate::http_metrics::metrics;
 use eth2_keystore::Keystore;
 use lockfile::Lockfile;
 use parking_lot::Mutex;
-use reqwest::Client;
+use reqwest::{header::ACCEPT, Client};
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
@@ -34,23 +34,23 @@ pub enum Error {
 }
 
 /// Enumerates all messages that can be signed by a validator.
-pub enum SignableMessage<'a, T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
+pub enum SignableMessage<'a, E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
     RandaoReveal(Epoch),
-    BeaconBlock(&'a BeaconBlock<T, Payload>),
+    BeaconBlock(&'a BeaconBlock<E, Payload>),
     AttestationData(&'a AttestationData),
-    SignedAggregateAndProof(&'a AggregateAndProof<T>),
+    SignedAggregateAndProof(AggregateAndProofRef<'a, E>),
     SelectionProof(Slot),
     SyncSelectionProof(&'a SyncAggregatorSelectionData),
     SyncCommitteeSignature {
         beacon_block_root: Hash256,
         slot: Slot,
     },
-    SignedContributionAndProof(&'a ContributionAndProof<T>),
+    SignedContributionAndProof(&'a ContributionAndProof<E>),
     ValidatorRegistration(&'a ValidatorRegistrationData),
     VoluntaryExit(&'a VoluntaryExit),
 }
 
-impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> SignableMessage<'a, T, Payload> {
+impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'a, E, Payload> {
     /// Returns the `SignedRoot` for the contained message.
     ///
     /// The actual `SignedRoot` trait is not used since it also requires a `TreeHash` impl, which is
@@ -132,9 +132,9 @@ impl SigningMethod {
     }
 
     /// Return the signature of `signable_message`, with respect to the `signing_context`.
-    pub async fn get_signature<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn get_signature<E: EthSpec, Payload: AbstractExecPayload<E>>(
         &self,
-        signable_message: SignableMessage<'_, T, Payload>,
+        signable_message: SignableMessage<'_, E, Payload>,
         signing_context: SigningContext,
         spec: &ChainSpec,
         executor: &TaskExecutor,
@@ -157,9 +157,9 @@ impl SigningMethod {
             .await
     }
 
-    pub async fn get_signature_from_root<T: EthSpec, Payload: AbstractExecPayload<T>>(
+    pub async fn get_signature_from_root<E: EthSpec, Payload: AbstractExecPayload<E>>(
         &self,
-        signable_message: SignableMessage<'_, T, Payload>,
+        signable_message: SignableMessage<'_, E, Payload>,
         signing_root: Hash256,
         executor: &TaskExecutor,
         fork_info: Option<ForkInfo>,
@@ -243,6 +243,7 @@ impl SigningMethod {
                 // Request a signature from the Web3Signer instance via HTTP(S).
                 let response: SigningResponse = http_client
                     .post(signing_url.clone())
+                    .header(ACCEPT, "application/json")
                     .json(&request)
                     .send()
                     .await

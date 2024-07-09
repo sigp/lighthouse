@@ -7,8 +7,8 @@ use types::*;
 const VALIDATOR_COUNT: usize = 32;
 type E = MainnetEthSpec;
 
-fn verify_execution_payload_chain<T: EthSpec>(chain: &[FullPayload<T>]) {
-    let mut prev_ep: Option<FullPayload<T>> = None;
+fn verify_execution_payload_chain<E: EthSpec>(chain: &[FullPayload<E>]) {
+    let mut prev_ep: Option<FullPayload<E>> = None;
 
     for ep in chain {
         assert!(!ep.is_default_with_empty_roots());
@@ -25,11 +25,11 @@ fn verify_execution_payload_chain<T: EthSpec>(chain: &[FullPayload<T>]) {
 }
 
 #[tokio::test]
-async fn base_altair_merge_capella() {
+async fn base_altair_bellatrix_capella() {
     let altair_fork_epoch = Epoch::new(4);
     let altair_fork_slot = altair_fork_epoch.start_slot(E::slots_per_epoch());
     let bellatrix_fork_epoch = Epoch::new(8);
-    let merge_fork_slot = bellatrix_fork_epoch.start_slot(E::slots_per_epoch());
+    let bellatrix_fork_slot = bellatrix_fork_epoch.start_slot(E::slots_per_epoch());
     let capella_fork_epoch = Epoch::new(12);
     let capella_fork_slot = capella_fork_epoch.start_slot(E::slots_per_epoch());
 
@@ -61,39 +61,39 @@ async fn base_altair_merge_capella() {
     assert_eq!(altair_head.slot(), altair_fork_slot);
 
     /*
-     * Do the merge fork, without a terminal PoW block.
+     * Do the Bellatrix fork, without a terminal PoW block.
      */
-    harness.extend_to_slot(merge_fork_slot).await;
+    harness.extend_to_slot(bellatrix_fork_slot).await;
 
-    let merge_head = &harness.chain.head_snapshot().beacon_block;
-    assert!(merge_head.as_merge().is_ok());
-    assert_eq!(merge_head.slot(), merge_fork_slot);
+    let bellatrix_head = &harness.chain.head_snapshot().beacon_block;
+    assert!(bellatrix_head.as_bellatrix().is_ok());
+    assert_eq!(bellatrix_head.slot(), bellatrix_fork_slot);
     assert!(
-        merge_head
+        bellatrix_head
             .message()
             .body()
             .execution_payload()
             .unwrap()
             .is_default_with_empty_roots(),
-        "Merge head is default payload"
+        "Bellatrix head is default payload"
     );
 
     /*
-     * Next merge block shouldn't include an exec payload.
+     * Next Bellatrix block shouldn't include an exec payload.
      */
     harness.extend_slots(1).await;
 
-    let one_after_merge_head = &harness.chain.head_snapshot().beacon_block;
+    let one_after_bellatrix_head = &harness.chain.head_snapshot().beacon_block;
     assert!(
-        one_after_merge_head
+        one_after_bellatrix_head
             .message()
             .body()
             .execution_payload()
             .unwrap()
             .is_default_with_empty_roots(),
-        "One after merge head is default payload"
+        "One after bellatrix head is default payload"
     );
-    assert_eq!(one_after_merge_head.slot(), merge_fork_slot + 1);
+    assert_eq!(one_after_bellatrix_head.slot(), bellatrix_fork_slot + 1);
 
     /*
      * Trigger the terminal PoW block.
@@ -114,23 +114,23 @@ async fn base_altair_merge_capella() {
         });
     harness.extend_slots(1).await;
 
-    let two_after_merge_head = &harness.chain.head_snapshot().beacon_block;
+    let two_after_bellatrix_head = &harness.chain.head_snapshot().beacon_block;
     assert!(
-        two_after_merge_head
+        two_after_bellatrix_head
             .message()
             .body()
             .execution_payload()
             .unwrap()
             .is_default_with_empty_roots(),
-        "Two after merge head is default payload"
+        "Two after bellatrix head is default payload"
     );
-    assert_eq!(two_after_merge_head.slot(), merge_fork_slot + 2);
+    assert_eq!(two_after_bellatrix_head.slot(), bellatrix_fork_slot + 2);
 
     /*
-     * Next merge block should include an exec payload.
+     * Next Bellatrix block should include an exec payload.
      */
     let mut execution_payloads = vec![];
-    for _ in (merge_fork_slot.as_u64() + 3)..capella_fork_slot.as_u64() {
+    for _ in (bellatrix_fork_slot.as_u64() + 3)..capella_fork_slot.as_u64() {
         harness.extend_slots(1).await;
         let block = &harness.chain.head_snapshot().beacon_block;
         let full_payload: FullPayload<E> =

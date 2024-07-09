@@ -28,6 +28,7 @@ pub enum ForkName {
     Bellatrix,
     Capella,
     Deneb,
+    Electra,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -37,17 +38,17 @@ pub struct ForkInfo {
 }
 
 #[derive(Debug, PartialEq, Serialize)]
-#[serde(bound = "T: EthSpec", rename_all = "snake_case")]
-pub enum Web3SignerObject<'a, T: EthSpec, Payload: AbstractExecPayload<T>> {
+#[serde(bound = "E: EthSpec", rename_all = "snake_case")]
+pub enum Web3SignerObject<'a, E: EthSpec, Payload: AbstractExecPayload<E>> {
     AggregationSlot {
         slot: Slot,
     },
-    AggregateAndProof(&'a AggregateAndProof<T>),
+    AggregateAndProof(AggregateAndProofRef<'a, E>),
     Attestation(&'a AttestationData),
     BeaconBlock {
         version: ForkName,
         #[serde(skip_serializing_if = "Option::is_none")]
-        block: Option<&'a BeaconBlock<T, Payload>>,
+        block: Option<&'a BeaconBlock<E, Payload>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         block_header: Option<BeaconBlockHeader>,
     },
@@ -69,12 +70,12 @@ pub enum Web3SignerObject<'a, T: EthSpec, Payload: AbstractExecPayload<T>> {
         slot: Slot,
     },
     SyncAggregatorSelectionData(&'a SyncAggregatorSelectionData),
-    ContributionAndProof(&'a ContributionAndProof<T>),
+    ContributionAndProof(&'a ContributionAndProof<E>),
     ValidatorRegistration(&'a ValidatorRegistrationData),
 }
 
-impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> Web3SignerObject<'a, T, Payload> {
-    pub fn beacon_block(block: &'a BeaconBlock<T, Payload>) -> Result<Self, Error> {
+impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Payload> {
+    pub fn beacon_block(block: &'a BeaconBlock<E, Payload>) -> Result<Self, Error> {
         match block {
             BeaconBlock::Base(_) => Ok(Web3SignerObject::BeaconBlock {
                 version: ForkName::Phase0,
@@ -86,7 +87,7 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> Web3SignerObject<'a, T, Pa
                 block: Some(block),
                 block_header: None,
             }),
-            BeaconBlock::Merge(_) => Ok(Web3SignerObject::BeaconBlock {
+            BeaconBlock::Bellatrix(_) => Ok(Web3SignerObject::BeaconBlock {
                 version: ForkName::Bellatrix,
                 block: None,
                 block_header: Some(block.block_header()),
@@ -98,6 +99,11 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> Web3SignerObject<'a, T, Pa
             }),
             BeaconBlock::Deneb(_) => Ok(Web3SignerObject::BeaconBlock {
                 version: ForkName::Deneb,
+                block: None,
+                block_header: Some(block.block_header()),
+            }),
+            BeaconBlock::Electra(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Electra,
                 block: None,
                 block_header: Some(block.block_header()),
             }),
@@ -126,8 +132,8 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> Web3SignerObject<'a, T, Pa
 }
 
 #[derive(Debug, PartialEq, Serialize)]
-#[serde(bound = "T: EthSpec")]
-pub struct SigningRequest<'a, T: EthSpec, Payload: AbstractExecPayload<T>> {
+#[serde(bound = "E: EthSpec")]
+pub struct SigningRequest<'a, E: EthSpec, Payload: AbstractExecPayload<E>> {
     #[serde(rename = "type")]
     pub message_type: MessageType,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -135,7 +141,7 @@ pub struct SigningRequest<'a, T: EthSpec, Payload: AbstractExecPayload<T>> {
     #[serde(rename = "signingRoot")]
     pub signing_root: Hash256,
     #[serde(flatten)]
-    pub object: Web3SignerObject<'a, T, Payload>,
+    pub object: Web3SignerObject<'a, E, Payload>,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]

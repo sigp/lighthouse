@@ -4,9 +4,8 @@ use operation_pool::RewardCache;
 use safe_arith::SafeArith;
 use slog::error;
 use state_processing::{
-    common::{
-        altair, get_attestation_participation_flag_indices, get_attesting_indices_from_state,
-    },
+    common::{get_attestation_participation_flag_indices, get_attesting_indices_from_state},
+    epoch_cache::initialize_epoch_cache,
     per_block_processing::{
         altair::sync_committee::compute_sync_aggregate_rewards, get_slashable_indices,
     },
@@ -32,6 +31,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         state.build_committee_cache(RelativeEpoch::Previous, &self.spec)?;
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        initialize_epoch_cache(state, &self.spec)?;
 
         self.compute_beacon_block_reward_with_cache(block, block_root, state)
     }
@@ -191,10 +191,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &BeaconState<T::EthSpec>,
     ) -> Result<BeaconBlockSubRewardValue, BeaconChainError> {
-        let total_active_balance = state.get_total_active_balance()?;
-        let base_reward_per_increment =
-            altair::BaseRewardPerIncrement::new(total_active_balance, &self.spec)?;
-
         let mut total_proposer_reward = 0;
 
         let proposer_reward_denominator = WEIGHT_DENOMINATOR
@@ -206,7 +202,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut previous_epoch_participation = state.previous_epoch_participation()?.clone();
 
         for attestation in block.body().attestations() {
-            let data = &attestation.data;
+            let data = attestation.data();
             let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
             // [Modified in Deneb:EIP7045]
             let participation_flag_indices = get_attestation_participation_flag_indices(
@@ -235,15 +231,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         && !validator_participation.has_flag(flag_index)?
                     {
                         validator_participation.add_flag(flag_index)?;
-                        proposer_reward_numerator.safe_add_assign(
-                            altair::get_base_reward(
-                                state,
-                                index,
-                                base_reward_per_increment,
-                                &self.spec,
-                            )?
-                            .safe_mul(weight)?,
-                        )?;
+                        proposer_reward_numerator
+                            .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
                     }
                 }
             }

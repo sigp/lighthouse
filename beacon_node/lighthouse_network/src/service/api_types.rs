@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use libp2p::swarm::ConnectionId;
-use types::{BlobSidecar, EthSpec, LightClientBootstrap, SignedBeaconBlock};
+use types::{
+    BlobSidecar, EthSpec, LightClientBootstrap, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, SignedBeaconBlock,
+};
 
 use crate::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use crate::rpc::{
@@ -16,10 +19,36 @@ use crate::rpc::{
 /// Identifier of requests sent by a peer.
 pub type PeerRequestId = (ConnectionId, SubstreamId);
 
-/// Identifier of a request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RequestId<AppReqId> {
-    Application(AppReqId),
+pub type Id = u32;
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct SingleLookupReqId {
+    pub lookup_id: Id,
+    pub req_id: Id,
+}
+
+/// Id of rpc requests sent by sync to the network.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum SyncRequestId {
+    /// Request searching for a block given a hash.
+    SingleBlock { id: SingleLookupReqId },
+    /// Request searching for a set of blobs given a hash.
+    SingleBlob { id: SingleLookupReqId },
+    /// Range request that is composed by both a block range request and a blob range request.
+    RangeBlockAndBlobs { id: Id },
+}
+
+/// Application level requests sent to the network.
+#[derive(Debug, Clone, Copy)]
+pub enum AppRequestId {
+    Sync(SyncRequestId),
+    Router,
+}
+
+/// Global identifier of a request.
+#[derive(Debug, Clone, Copy)]
+pub enum RequestId {
+    Application(AppRequestId),
     Internal,
 }
 
@@ -40,12 +69,16 @@ pub enum Request {
     BlocksByRoot(BlocksByRootRequest),
     // light client bootstrap request
     LightClientBootstrap(LightClientBootstrapRequest),
+    // light client optimistic update request
+    LightClientOptimisticUpdate,
+    // light client finality update request
+    LightClientFinalityUpdate,
     /// A request blobs root request.
     BlobsByRoot(BlobsByRootRequest),
 }
 
-impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
-    fn from(req: Request) -> OutboundRequest<TSpec> {
+impl<E: EthSpec> std::convert::From<Request> for OutboundRequest<E> {
+    fn from(req: Request) -> OutboundRequest<E> {
         match req {
             Request::BlocksByRoot(r) => OutboundRequest::BlocksByRoot(r),
             Request::BlocksByRange(r) => match r {
@@ -64,7 +97,9 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
                     }),
                 ),
             },
-            Request::LightClientBootstrap(_) => {
+            Request::LightClientBootstrap(_)
+            | Request::LightClientOptimisticUpdate
+            | Request::LightClientFinalityUpdate => {
                 unreachable!("Lighthouse never makes an outbound light client request")
             }
             Request::BlobsByRange(r) => OutboundRequest::BlobsByRange(r),
@@ -81,23 +116,27 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
 //       Behaviour. For all protocol reponses managed by RPC see `RPCResponse` and
 //       `RPCCodedResponse`.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Response<TSpec: EthSpec> {
+pub enum Response<E: EthSpec> {
     /// A Status message.
     Status(StatusMessage),
     /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
-    BlocksByRange(Option<Arc<SignedBeaconBlock<TSpec>>>),
+    BlocksByRange(Option<Arc<SignedBeaconBlock<E>>>),
     /// A response to a get BLOBS_BY_RANGE request. A None response signals the end of the batch.
-    BlobsByRange(Option<Arc<BlobSidecar<TSpec>>>),
+    BlobsByRange(Option<Arc<BlobSidecar<E>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
-    BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
+    BlocksByRoot(Option<Arc<SignedBeaconBlock<E>>>),
     /// A response to a get BLOBS_BY_ROOT request.
-    BlobsByRoot(Option<Arc<BlobSidecar<TSpec>>>),
+    BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
     /// A response to a LightClientUpdate request.
-    LightClientBootstrap(LightClientBootstrap<TSpec>),
+    LightClientBootstrap(Arc<LightClientBootstrap<E>>),
+    /// A response to a LightClientOptimisticUpdate request.
+    LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<E>>),
+    /// A response to a LightClientFinalityUpdate request.
+    LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
 }
 
-impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {
-    fn from(resp: Response<TSpec>) -> RPCCodedResponse<TSpec> {
+impl<E: EthSpec> std::convert::From<Response<E>> for RPCCodedResponse<E> {
+    fn from(resp: Response<E>) -> RPCCodedResponse<E> {
         match resp {
             Response::BlocksByRoot(r) => match r {
                 Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRoot(b)),
@@ -119,11 +158,17 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
             Response::LightClientBootstrap(b) => {
                 RPCCodedResponse::Success(RPCResponse::LightClientBootstrap(b))
             }
+            Response::LightClientOptimisticUpdate(o) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientOptimisticUpdate(o))
+            }
+            Response::LightClientFinalityUpdate(f) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientFinalityUpdate(f))
+            }
         }
     }
 }
 
-impl<AppReqId: std::fmt::Debug> slog::Value for RequestId<AppReqId> {
+impl slog::Value for RequestId {
     fn serialize(
         &self,
         record: &slog::Record,

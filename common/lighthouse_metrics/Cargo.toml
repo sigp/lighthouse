@@ -7,5 +7,4 @@ edition = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-lazy_static = { workspace = true }
 prometheus = "0.13.0"

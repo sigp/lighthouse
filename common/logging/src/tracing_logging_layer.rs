@@ -7,9 +7,9 @@ use tracing_subscriber::Layer;
 
 pub struct LoggingLayer {
     pub libp2p_non_blocking_writer: NonBlocking,
-    pub libp2p_guard: WorkerGuard,
+    pub _libp2p_guard: WorkerGuard,
     pub discv5_non_blocking_writer: NonBlocking,
-    pub discv5_guard: WorkerGuard,
+    pub _discv5_guard: WorkerGuard,
 }
 
 impl<S> Layer<S> for LoggingLayer
@@ -27,7 +27,7 @@ where
         };
 
         let mut writer = match target {
-            "libp2p_gossipsub" => self.libp2p_non_blocking_writer.clone(),
+            "gossipsub" => self.libp2p_non_blocking_writer.clone(),
             "discv5" => self.discv5_non_blocking_writer.clone(),
             _ => return,
         };

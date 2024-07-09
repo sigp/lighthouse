@@ -1,6 +1,4 @@
-#[macro_use]
-extern crate lazy_static;
-
+use lazy_static::lazy_static;
 use lighthouse_metrics::{
     inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult,
 };
@@ -256,14 +254,14 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
         return;
     };
 
-    let (libp2p_non_blocking_writer, libp2p_guard) = NonBlocking::new(libp2p_writer);
-    let (discv5_non_blocking_writer, discv5_guard) = NonBlocking::new(discv5_writer);
+    let (libp2p_non_blocking_writer, _libp2p_guard) = NonBlocking::new(libp2p_writer);
+    let (discv5_non_blocking_writer, _discv5_guard) = NonBlocking::new(discv5_writer);
 
     let custom_layer = LoggingLayer {
         libp2p_non_blocking_writer,
-        libp2p_guard,
+        _libp2p_guard,
         discv5_non_blocking_writer,
-        discv5_guard,
+        _discv5_guard,
     };
 
     if let Err(e) = tracing_subscriber::fmt()

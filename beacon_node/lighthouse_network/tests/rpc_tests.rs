@@ -4,6 +4,7 @@ mod common;
 
 use common::Protocol;
 use lighthouse_network::rpc::methods::*;
+use lighthouse_network::service::api_types::AppRequestId;
 use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Request, Response};
 use slog::{debug, warn, Level};
 use ssz::Encode;
@@ -13,37 +14,37 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, BlobSidecar, ChainSpec,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BlobSidecar, ChainSpec,
     EmptyBlock, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Signature,
     SignedBeaconBlock, Slot,
 };
 
 type E = MinimalEthSpec;
 
-/// Merge block with length < max_rpc_size.
-fn merge_block_small(fork_context: &ForkContext, spec: &ChainSpec) -> BeaconBlock<E> {
-    let mut block = BeaconBlockMerge::<E>::empty(spec);
+/// Bellatrix block with length < max_rpc_size.
+fn bellatrix_block_small(fork_context: &ForkContext, spec: &ChainSpec) -> BeaconBlock<E> {
+    let mut block = BeaconBlockBellatrix::<E>::empty(spec);
     let tx = VariableList::from(vec![0; 1024]);
     let txs = VariableList::from(std::iter::repeat(tx).take(5000).collect::<Vec<_>>());
 
     block.body.execution_payload.execution_payload.transactions = txs;
 
-    let block = BeaconBlock::Merge(block);
+    let block = BeaconBlock::Bellatrix(block);
     assert!(block.ssz_bytes_len() <= max_rpc_size(fork_context, spec.max_chunk_size as usize));
     block
 }
 
-/// Merge block with length > MAX_RPC_SIZE.
-/// The max limit for a merge block is in the order of ~16GiB which wouldn't fit in memory.
-/// Hence, we generate a merge block just greater than `MAX_RPC_SIZE` to test rejection on the rpc layer.
-fn merge_block_large(fork_context: &ForkContext, spec: &ChainSpec) -> BeaconBlock<E> {
-    let mut block = BeaconBlockMerge::<E>::empty(spec);
+/// Bellatrix block with length > MAX_RPC_SIZE.
+/// The max limit for a bellatrix block is in the order of ~16GiB which wouldn't fit in memory.
+/// Hence, we generate a bellatrix block just greater than `MAX_RPC_SIZE` to test rejection on the rpc layer.
+fn bellatrix_block_large(fork_context: &ForkContext, spec: &ChainSpec) -> BeaconBlock<E> {
+    let mut block = BeaconBlockBellatrix::<E>::empty(spec);
     let tx = VariableList::from(vec![0; 1024]);
     let txs = VariableList::from(std::iter::repeat(tx).take(100000).collect::<Vec<_>>());
 
     block.body.execution_payload.execution_payload.transactions = txs;
 
-    let block = BeaconBlock::Merge(block);
+    let block = BeaconBlock::Bellatrix(block);
     assert!(block.ssz_bytes_len() > max_rpc_size(fork_context, spec.max_chunk_size as usize));
     block
 }
@@ -98,11 +99,13 @@ fn test_tcp_status_rpc() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, 10, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        id: 10,
+                        id: AppRequestId::Router,
                         response,
                     } => {
                         // Should receive the RPC response
@@ -167,7 +170,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
             &log,
-            ForkName::Merge,
+            ForkName::Bellatrix,
             &spec,
             Protocol::Tcp,
         )
@@ -187,13 +190,13 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_altair = Response::BlocksByRange(Some(Arc::new(signed_full_block)));
 
-        let full_block = merge_block_small(&common::fork_context(ForkName::Merge), &spec);
+        let full_block = bellatrix_block_small(&common::fork_context(ForkName::Bellatrix), &spec);
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
-        let rpc_response_merge_small = Response::BlocksByRange(Some(Arc::new(signed_full_block)));
+        let rpc_response_bellatrix_small =
+            Response::BlocksByRange(Some(Arc::new(signed_full_block)));
 
         // keep count of the number of messages received
         let mut messages_received = 0;
-        let request_id = messages_to_send as usize;
         // build the sender future
         let sender_future = async {
             loop {
@@ -201,7 +204,9 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, request_id, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
@@ -216,7 +221,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                                 } else if messages_received < 4 {
                                     assert_eq!(response, rpc_response_altair.clone());
                                 } else {
-                                    assert_eq!(response, rpc_response_merge_small.clone());
+                                    assert_eq!(response, rpc_response_bellatrix_small.clone());
                                 }
                                 messages_received += 1;
                                 warn!(log, "Chunk received");
@@ -249,13 +254,13 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                             warn!(log, "Receiver got request");
                             for i in 0..messages_to_send {
                                 // Send first third of responses as base blocks,
-                                // second as altair and third as merge.
+                                // second as altair and third as bellatrix.
                                 let rpc_response = if i < 2 {
                                     rpc_response_base.clone()
                                 } else if i < 4 {
                                     rpc_response_altair.clone()
                                 } else {
-                                    rpc_response_merge_small.clone()
+                                    rpc_response_bellatrix_small.clone()
                                 };
                                 receiver.send_response(peer_id, id, rpc_response.clone());
                             }
@@ -318,7 +323,6 @@ fn test_blobs_by_range_chunked_rpc() {
 
         // keep count of the number of messages received
         let mut messages_received = 0;
-        let request_id = messages_to_send as usize;
         // build the sender future
         let sender_future = async {
             loop {
@@ -326,7 +330,9 @@ fn test_blobs_by_range_chunked_rpc() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, request_id, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
@@ -368,7 +374,7 @@ fn test_blobs_by_range_chunked_rpc() {
                             warn!(log, "Receiver got request");
                             for _ in 0..messages_to_send {
                                 // Send first third of responses as base blocks,
-                                // second as altair and third as merge.
+                                // second as altair and third as bellatrix.
                                 receiver.send_response(peer_id, id, rpc_response.clone());
                             }
                             // send the stream termination
@@ -411,7 +417,7 @@ fn test_tcp_blocks_by_range_over_limit() {
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
             &log,
-            ForkName::Merge,
+            ForkName::Bellatrix,
             &spec,
             Protocol::Tcp,
         )
@@ -421,11 +427,11 @@ fn test_tcp_blocks_by_range_over_limit() {
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
 
         // BlocksByRange Response
-        let full_block = merge_block_large(&common::fork_context(ForkName::Merge), &spec);
+        let full_block = bellatrix_block_large(&common::fork_context(ForkName::Bellatrix), &spec);
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
-        let rpc_response_merge_large = Response::BlocksByRange(Some(Arc::new(signed_full_block)));
+        let rpc_response_bellatrix_large =
+            Response::BlocksByRange(Some(Arc::new(signed_full_block)));
 
-        let request_id = messages_to_send as usize;
         // build the sender future
         let sender_future = async {
             loop {
@@ -433,11 +439,13 @@ fn test_tcp_blocks_by_range_over_limit() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, request_id, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
                     }
                     // The request will fail because the sender will refuse to send anything > MAX_RPC_SIZE
                     NetworkEvent::RPCFailed { id, .. } => {
-                        assert_eq!(id, request_id);
+                        assert!(matches!(id, AppRequestId::Router));
                         return;
                     }
                     _ => {} // Ignore other behaviour events
@@ -458,7 +466,7 @@ fn test_tcp_blocks_by_range_over_limit() {
                             // send the response
                             warn!(log, "Receiver got request");
                             for _ in 0..messages_to_send {
-                                let rpc_response = rpc_response_merge_large.clone();
+                                let rpc_response = rpc_response_bellatrix_large.clone();
                                 receiver.send_response(peer_id, id, rpc_response.clone());
                             }
                             // send the stream termination
@@ -518,7 +526,6 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
 
         // keep count of the number of messages received
         let mut messages_received: u64 = 0;
-        let request_id = messages_to_send as usize;
         // build the sender future
         let sender_future = async {
             loop {
@@ -526,7 +533,9 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, request_id, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
@@ -655,11 +664,13 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, 10, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        id: 10,
+                        id: AppRequestId::Router,
                         response,
                     } => match response {
                         Response::BlocksByRange(Some(_)) => {
@@ -736,7 +747,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
             &log,
-            ForkName::Merge,
+            ForkName::Bellatrix,
             &spec,
             Protocol::Tcp,
         )
@@ -764,9 +775,10 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_altair = Response::BlocksByRoot(Some(Arc::new(signed_full_block)));
 
-        let full_block = merge_block_small(&common::fork_context(ForkName::Merge), &spec);
+        let full_block = bellatrix_block_small(&common::fork_context(ForkName::Bellatrix), &spec);
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
-        let rpc_response_merge_small = Response::BlocksByRoot(Some(Arc::new(signed_full_block)));
+        let rpc_response_bellatrix_small =
+            Response::BlocksByRoot(Some(Arc::new(signed_full_block)));
 
         // keep count of the number of messages received
         let mut messages_received = 0;
@@ -777,11 +789,13 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, 6, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        id: 6,
+                        id: AppRequestId::Router,
                         response,
                     } => match response {
                         Response::BlocksByRoot(Some(_)) => {
@@ -790,7 +804,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                             } else if messages_received < 4 {
                                 assert_eq!(response, rpc_response_altair.clone());
                             } else {
-                                assert_eq!(response, rpc_response_merge_small.clone());
+                                assert_eq!(response, rpc_response_bellatrix_small.clone());
                             }
                             messages_received += 1;
                             debug!(log, "Chunk received");
@@ -822,13 +836,13 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                             debug!(log, "Receiver got request");
 
                             for i in 0..messages_to_send {
-                                // Send equal base, altair and merge blocks
+                                // Send equal base, altair and bellatrix blocks
                                 let rpc_response = if i < 2 {
                                     rpc_response_base.clone()
                                 } else if i < 4 {
                                     rpc_response_altair.clone()
                                 } else {
-                                    rpc_response_merge_small.clone()
+                                    rpc_response_bellatrix_small.clone()
                                 };
                                 receiver.send_response(peer_id, id, rpc_response);
                                 debug!(log, "Sending message");
@@ -908,11 +922,13 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.send_request(peer_id, 10, rpc_request.clone());
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        id: 10,
+                        id: AppRequestId::Router,
                         response,
                     } => {
                         debug!(log, "Sender received a response");

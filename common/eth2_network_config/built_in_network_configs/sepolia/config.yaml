@@ -21,7 +21,7 @@ GENESIS_DELAY: 86400
 ALTAIR_FORK_VERSION: 0x90000070
 ALTAIR_FORK_EPOCH: 50
 
-# Merge
+# Bellatrix
 BELLATRIX_FORK_VERSION: 0x90000071
 BELLATRIX_FORK_EPOCH: 100
 TERMINAL_TOTAL_DIFFICULTY: 17000000000000000
@@ -69,6 +69,10 @@ MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 8
 # ---------------------------------------------------------------
 # 40%
 PROPOSER_SCORE_BOOST: 40
+# 20%
+REORG_HEAD_WEIGHT_THRESHOLD: 20
+# 160%
+REORG_PARENT_WEIGHT_THRESHOLD: 160
 
 # Deposit contract
 # ---------------------------------------------------------------

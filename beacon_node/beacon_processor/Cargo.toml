@@ -15,12 +15,12 @@ strum = { workspace = true }
 task_executor = { workspace = true }
 slot_clock = { workspace = true }
 lighthouse_network = { workspace = true }
-hex = { workspace = true }
-derivative = { workspace = true }
 types = { workspace = true }
-ethereum_ssz = { workspace = true }
 lazy_static = { workspace = true }
 lighthouse_metrics = { workspace = true }
 parking_lot = { workspace = true }
 num_cpus = { workspace = true }
 serde = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

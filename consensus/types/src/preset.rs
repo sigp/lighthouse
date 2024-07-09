@@ -81,11 +81,11 @@ pub struct BasePreset {
 }
 
 impl BasePreset {
-    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
             max_committees_per_slot: spec.max_committees_per_slot as u64,
             target_committee_size: spec.target_committee_size as u64,
-            max_validators_per_committee: T::MaxValidatorsPerCommittee::to_u64(),
+            max_validators_per_committee: E::MaxValidatorsPerCommittee::to_u64(),
             shuffle_round_count: spec.shuffle_round_count,
             hysteresis_quotient: spec.hysteresis_quotient,
             hysteresis_downward_multiplier: spec.hysteresis_downward_multiplier,
@@ -95,27 +95,27 @@ impl BasePreset {
             max_effective_balance: spec.max_effective_balance,
             effective_balance_increment: spec.effective_balance_increment,
             min_attestation_inclusion_delay: spec.min_attestation_inclusion_delay,
-            slots_per_epoch: T::SlotsPerEpoch::to_u64(),
+            slots_per_epoch: E::SlotsPerEpoch::to_u64(),
             min_seed_lookahead: spec.min_seed_lookahead,
             max_seed_lookahead: spec.max_seed_lookahead,
-            epochs_per_eth1_voting_period: T::EpochsPerEth1VotingPeriod::to_u64(),
-            slots_per_historical_root: T::SlotsPerHistoricalRoot::to_u64(),
+            epochs_per_eth1_voting_period: E::EpochsPerEth1VotingPeriod::to_u64(),
+            slots_per_historical_root: E::SlotsPerHistoricalRoot::to_u64(),
             min_epochs_to_inactivity_penalty: spec.min_epochs_to_inactivity_penalty,
-            epochs_per_historical_vector: T::EpochsPerHistoricalVector::to_u64(),
-            epochs_per_slashings_vector: T::EpochsPerSlashingsVector::to_u64(),
-            historical_roots_limit: T::HistoricalRootsLimit::to_u64(),
-            validator_registry_limit: T::ValidatorRegistryLimit::to_u64(),
+            epochs_per_historical_vector: E::EpochsPerHistoricalVector::to_u64(),
+            epochs_per_slashings_vector: E::EpochsPerSlashingsVector::to_u64(),
+            historical_roots_limit: E::HistoricalRootsLimit::to_u64(),
+            validator_registry_limit: E::ValidatorRegistryLimit::to_u64(),
             base_reward_factor: spec.base_reward_factor,
             whistleblower_reward_quotient: spec.whistleblower_reward_quotient,
             proposer_reward_quotient: spec.proposer_reward_quotient,
             inactivity_penalty_quotient: spec.inactivity_penalty_quotient,
             min_slashing_penalty_quotient: spec.min_slashing_penalty_quotient,
             proportional_slashing_multiplier: spec.proportional_slashing_multiplier,
-            max_proposer_slashings: T::MaxProposerSlashings::to_u64(),
-            max_attester_slashings: T::MaxAttesterSlashings::to_u64(),
-            max_attestations: T::MaxAttestations::to_u64(),
-            max_deposits: T::MaxDeposits::to_u64(),
-            max_voluntary_exits: T::MaxVoluntaryExits::to_u64(),
+            max_proposer_slashings: E::MaxProposerSlashings::to_u64(),
+            max_attester_slashings: E::MaxAttesterSlashings::to_u64(),
+            max_attestations: E::MaxAttestations::to_u64(),
+            max_deposits: E::MaxDeposits::to_u64(),
+            max_voluntary_exits: E::MaxVoluntaryExits::to_u64(),
         }
     }
 }
@@ -138,12 +138,12 @@ pub struct AltairPreset {
 }
 
 impl AltairPreset {
-    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
             inactivity_penalty_quotient_altair: spec.inactivity_penalty_quotient_altair,
             min_slashing_penalty_quotient_altair: spec.min_slashing_penalty_quotient_altair,
             proportional_slashing_multiplier_altair: spec.proportional_slashing_multiplier_altair,
-            sync_committee_size: T::SyncCommitteeSize::to_u64(),
+            sync_committee_size: E::SyncCommitteeSize::to_u64(),
             epochs_per_sync_committee_period: spec.epochs_per_sync_committee_period,
             min_sync_committee_participants: spec.min_sync_committee_participants,
         }
@@ -170,16 +170,16 @@ pub struct BellatrixPreset {
 }
 
 impl BellatrixPreset {
-    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
             inactivity_penalty_quotient_bellatrix: spec.inactivity_penalty_quotient_bellatrix,
             min_slashing_penalty_quotient_bellatrix: spec.min_slashing_penalty_quotient_bellatrix,
             proportional_slashing_multiplier_bellatrix: spec
                 .proportional_slashing_multiplier_bellatrix,
-            max_bytes_per_transaction: T::max_bytes_per_transaction() as u64,
-            max_transactions_per_payload: T::max_transactions_per_payload() as u64,
-            bytes_per_logs_bloom: T::bytes_per_logs_bloom() as u64,
-            max_extra_data_bytes: T::max_extra_data_bytes() as u64,
+            max_bytes_per_transaction: E::max_bytes_per_transaction() as u64,
+            max_transactions_per_payload: E::max_transactions_per_payload() as u64,
+            bytes_per_logs_bloom: E::bytes_per_logs_bloom() as u64,
+            max_extra_data_bytes: E::max_extra_data_bytes() as u64,
         }
     }
 }
@@ -196,10 +196,10 @@ pub struct CapellaPreset {
 }
 
 impl CapellaPreset {
-    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
-            max_bls_to_execution_changes: T::max_bls_to_execution_changes() as u64,
-            max_withdrawals_per_payload: T::max_withdrawals_per_payload() as u64,
+            max_bls_to_execution_changes: E::max_bls_to_execution_changes() as u64,
+            max_withdrawals_per_payload: E::max_withdrawals_per_payload() as u64,
             max_validators_per_withdrawals_sweep: spec.max_validators_per_withdrawals_sweep,
         }
     }
@@ -217,11 +217,63 @@ pub struct DenebPreset {
 }
 
 impl DenebPreset {
-    pub fn from_chain_spec<T: EthSpec>(_spec: &ChainSpec) -> Self {
+    pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
         Self {
-            max_blobs_per_block: T::max_blobs_per_block() as u64,
-            max_blob_commitments_per_block: T::max_blob_commitments_per_block() as u64,
-            field_elements_per_blob: T::field_elements_per_blob() as u64,
+            max_blobs_per_block: E::max_blobs_per_block() as u64,
+            max_blob_commitments_per_block: E::max_blob_commitments_per_block() as u64,
+            field_elements_per_blob: E::field_elements_per_blob() as u64,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct ElectraPreset {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub min_activation_balance: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_effective_balance_electra: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub min_slashing_penalty_quotient_electra: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub whistleblower_reward_quotient_electra: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_pending_partials_per_withdrawals_sweep: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub pending_balance_deposits_limit: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub pending_partial_withdrawals_limit: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub pending_consolidations_limit: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_consolidations: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_deposit_requests_per_payload: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_attester_slashings_electra: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_attestations_electra: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_withdrawal_requests_per_payload: u64,
+}
+
+impl ElectraPreset {
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
+        Self {
+            min_activation_balance: spec.min_activation_balance,
+            max_effective_balance_electra: spec.max_effective_balance_electra,
+            min_slashing_penalty_quotient_electra: spec.min_slashing_penalty_quotient_electra,
+            whistleblower_reward_quotient_electra: spec.whistleblower_reward_quotient_electra,
+            max_pending_partials_per_withdrawals_sweep: spec
+                .max_pending_partials_per_withdrawals_sweep,
+            pending_balance_deposits_limit: E::pending_balance_deposits_limit() as u64,
+            pending_partial_withdrawals_limit: E::pending_partial_withdrawals_limit() as u64,
+            pending_consolidations_limit: E::pending_consolidations_limit() as u64,
+            max_consolidations: E::max_consolidations() as u64,
+            max_deposit_requests_per_payload: E::max_deposit_requests_per_payload() as u64,
+            max_attester_slashings_electra: E::max_attester_slashings_electra() as u64,
+            max_attestations_electra: E::max_attestations_electra() as u64,
+            max_withdrawal_requests_per_payload: E::max_withdrawal_requests_per_payload() as u64,
         }
     }
 }
@@ -267,6 +319,9 @@ mod test {
 
         let deneb: DenebPreset = preset_from_file(&preset_name, "deneb.yaml");
         assert_eq!(deneb, DenebPreset::from_chain_spec::<E>(&spec));
+
+        let electra: ElectraPreset = preset_from_file(&preset_name, "electra.yaml");
+        assert_eq!(electra, ElectraPreset::from_chain_spec::<E>(&spec));
     }
 
     #[test]
