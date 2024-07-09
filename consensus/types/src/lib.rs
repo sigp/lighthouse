@@ -104,6 +104,7 @@ pub mod slot_data;
 pub mod sqlite;
 
 pub mod blob_sidecar;
+pub mod data_column_sidecar;
 pub mod light_client_header;
 pub mod non_zero_usize;
 pub mod runtime_var_list;
