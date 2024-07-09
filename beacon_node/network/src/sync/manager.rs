@@ -570,6 +570,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // unless there is a bug.
         let mut prune_lookups_interval = tokio::time::interval(Duration::from_secs(15));
 
+        let mut register_metrics_interval = tokio::time::interval(Duration::from_secs(5));
+
         // process any inbound messages
         loop {
             tokio::select! {
@@ -581,6 +583,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 _ = prune_lookups_interval.tick() => {
                     self.block_lookups.prune_lookups();
+                }
+                _ = register_metrics_interval.tick() => {
+                    self.network.register_metrics();
                 }
             }
         }

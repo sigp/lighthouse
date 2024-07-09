@@ -5,6 +5,7 @@ use self::requests::{ActiveBlobsByRootRequest, ActiveBlocksByRootRequest};
 pub use self::requests::{BlobsByRootSingleBlockRequest, BlocksByRootSingleRequest};
 use super::block_sidecar_coupling::BlocksAndBlobsRequestInfo;
 use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
+use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
@@ -348,27 +349,28 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request_id: Id,
         block_or_blob: BlockOrBlob<T::EthSpec>,
     ) -> Option<BlocksAndBlobsByRangeResponse<T::EthSpec>> {
-        match self.range_blocks_and_blobs_requests.entry(request_id) {
-            Entry::Occupied(mut entry) => {
-                let (_, info) = entry.get_mut();
-                match block_or_blob {
-                    BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
-                    BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
-                }
-                if info.is_finished() {
-                    // If the request is finished, dequeue everything
-                    let (sender_id, info) = entry.remove();
-                    let request_type = info.get_request_type();
-                    Some(BlocksAndBlobsByRangeResponse {
-                        sender_id,
-                        request_type,
-                        responses: info.into_responses(),
-                    })
-                } else {
-                    None
-                }
-            }
-            Entry::Vacant(_) => None,
+        let Entry::Occupied(mut entry) = self.range_blocks_and_blobs_requests.entry(request_id)
+        else {
+            metrics::inc_counter_vec(&metrics::SYNC_UNKNOWN_NETWORK_REQUESTS, &["range_blocks"]);
+            return None;
+        };
+
+        let (_, info) = entry.get_mut();
+        match block_or_blob {
+            BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
+            BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
+        }
+        if info.is_finished() {
+            // If the request is finished, dequeue everything
+            let (sender_id, info) = entry.remove();
+            let request_type = info.get_request_type();
+            Some(BlocksAndBlobsByRangeResponse {
+                sender_id,
+                request_type,
+                responses: info.into_responses(),
+            })
+        } else {
+            None
         }
     }
 
@@ -631,6 +633,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> Option<RpcResponseResult<Arc<SignedBeaconBlock<T::EthSpec>>>> {
         let Entry::Occupied(mut request) = self.blocks_by_root_requests.entry(request_id) else {
+            metrics::inc_counter_vec(&metrics::SYNC_UNKNOWN_NETWORK_REQUESTS, &["blocks_by_root"]);
             return None;
         };
 
@@ -668,6 +671,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
     ) -> Option<RpcResponseResult<FixedBlobSidecarList<T::EthSpec>>> {
         let Entry::Occupied(mut request) = self.blobs_by_root_requests.entry(request_id) else {
+            metrics::inc_counter_vec(&metrics::SYNC_UNKNOWN_NETWORK_REQUESTS, &["blobs_by_root"]);
             return None;
         };
 
@@ -770,6 +774,24 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 );
                 SendErrorProcessor::SendError
             })
+    }
+
+    pub(crate) fn register_metrics(&self) {
+        metrics::set_gauge_vec(
+            &metrics::SYNC_ACTIVE_NETWORK_REQUESTS,
+            &["blocks_by_root"],
+            self.blocks_by_root_requests.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::SYNC_ACTIVE_NETWORK_REQUESTS,
+            &["blobs_by_root"],
+            self.blobs_by_root_requests.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::SYNC_ACTIVE_NETWORK_REQUESTS,
+            &["range_blocks"],
+            self.range_blocks_and_blobs_requests.len() as i64,
+        );
     }
 }
 
