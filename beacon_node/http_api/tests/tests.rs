@@ -1664,7 +1664,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_post_beacon_pool_attestations_valid(mut self) -> Self {
+    pub async fn test_post_beacon_pool_attestations_valid_v1(mut self) -> Self {
         self.client
             .post_beacon_pool_attestations_v1(self.attestations.as_slice())
             .await
@@ -1675,6 +1675,10 @@ impl ApiTester {
             "valid attestation should be sent to network"
         );
 
+        self
+    }
+
+    pub async fn test_post_beacon_pool_attestations_valid_v2(mut self) -> Self {
         let fork_name = self
             .attestations
             .first()
@@ -1692,7 +1696,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_post_beacon_pool_attestations_invalid(mut self) -> Self {
+    pub async fn test_post_beacon_pool_attestations_invalid_v1(mut self) -> Self {
         let mut attestations = Vec::new();
         for attestation in &self.attestations {
             let mut invalid_attestation = attestation.clone();
@@ -1725,6 +1729,19 @@ impl ApiTester {
             self.network_rx.network_recv.recv().await.is_some(),
             "if some attestations are valid, we should send them to the network"
         );
+
+        self
+    }
+    pub async fn test_post_beacon_pool_attestations_invalid_v2(mut self) -> Self {
+        let mut attestations = Vec::new();
+        for attestation in &self.attestations {
+            let mut invalid_attestation = attestation.clone();
+            invalid_attestation.data_mut().slot += 1;
+
+            // add both to ensure we only fail on invalid attestations
+            attestations.push(attestation.clone());
+            attestations.push(invalid_attestation);
+        }
 
         let fork_name = self
             .attestations
@@ -1841,7 +1858,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_post_beacon_pool_attester_slashings_valid(mut self) -> Self {
+    pub async fn test_post_beacon_pool_attester_slashings_valid_v1(mut self) -> Self {
         self.client
             .post_beacon_pool_attester_slashings_v1(&self.attester_slashing)
             .await
@@ -1852,6 +1869,10 @@ impl ApiTester {
             "valid attester slashing should be sent to network"
         );
 
+        self
+    }
+
+    pub async fn test_post_beacon_pool_attester_slashings_valid_v2(mut self) -> Self {
         let fork_name = self
             .chain
             .spec
@@ -1869,7 +1890,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_post_beacon_pool_attester_slashings_invalid(mut self) -> Self {
+    pub async fn test_post_beacon_pool_attester_slashings_invalid_v1(mut self) -> Self {
         let mut slashing = self.attester_slashing.clone();
         match &mut slashing {
             AttesterSlashing::Base(ref mut slashing) => {
@@ -1889,6 +1910,20 @@ impl ApiTester {
             self.network_rx.network_recv.recv().now_or_never().is_none(),
             "invalid attester slashing should not be sent to network"
         );
+
+        self
+    }
+
+    pub async fn test_post_beacon_pool_attester_slashings_invalid_v2(mut self) -> Self {
+        let mut slashing = self.attester_slashing.clone();
+        match &mut slashing {
+            AttesterSlashing::Base(ref mut slashing) => {
+                slashing.attestation_1.data.slot += 1;
+            }
+            AttesterSlashing::Electra(ref mut slashing) => {
+                slashing.attestation_1.data.slot += 1;
+            }
+        }
 
         let fork_name = self
             .chain
@@ -3429,22 +3464,11 @@ impl ApiTester {
         )
     }
 
-    pub async fn test_get_validator_aggregate_and_proofs_valid(mut self) -> Self {
+    pub async fn test_get_validator_aggregate_and_proofs_valid_v1(mut self) -> Self {
         let aggregate = self.get_aggregate().await;
 
         self.client
-            .post_validator_aggregate_and_proof_v1::<E>(&[aggregate.clone()])
-            .await
-            .unwrap();
-
-        assert!(self.network_rx.network_recv.recv().await.is_some());
-
-        let fork_name = self
-            .chain
-            .spec
-            .fork_name_at_slot::<E>(aggregate.message().aggregate().data().slot);
-        self.client
-            .post_validator_aggregate_and_proof_v2::<E>(&[aggregate], fork_name)
+            .post_validator_aggregate_and_proof_v1::<E>(&[aggregate])
             .await
             .unwrap();
 
@@ -3453,7 +3477,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_validator_aggregate_and_proofs_invalid(mut self) -> Self {
+    pub async fn test_get_validator_aggregate_and_proofs_invalid_v1(mut self) -> Self {
         let mut aggregate = self.get_aggregate().await;
         match &mut aggregate {
             SignedAggregateAndProof::Base(ref mut aggregate) => {
@@ -3470,6 +3494,36 @@ impl ApiTester {
             .unwrap_err();
 
         assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        self
+    }
+
+    pub async fn test_get_validator_aggregate_and_proofs_valid_v2(mut self) -> Self {
+        let aggregate = self.get_aggregate().await;
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(aggregate.message().aggregate().data().slot);
+        self.client
+            .post_validator_aggregate_and_proof_v2::<E>(&[aggregate], fork_name)
+            .await
+            .unwrap();
+
+        assert!(self.network_rx.network_recv.recv().await.is_some());
+
+        self
+    }
+
+    pub async fn test_get_validator_aggregate_and_proofs_invalid_v2(mut self) -> Self {
+        let mut aggregate = self.get_aggregate().await;
+        match &mut aggregate {
+            SignedAggregateAndProof::Base(ref mut aggregate) => {
+                aggregate.message.aggregate.data.slot += 1;
+            }
+            SignedAggregateAndProof::Electra(ref mut aggregate) => {
+                aggregate.message.aggregate.data.slot += 1;
+            }
+        }
 
         let fork_name = self
             .chain
@@ -5888,34 +5942,66 @@ async fn post_beacon_blocks_duplicate() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn beacon_pools_post_attestations_valid() {
+async fn beacon_pools_post_attestations_valid_v1() {
     ApiTester::new()
         .await
-        .test_post_beacon_pool_attestations_valid()
+        .test_post_beacon_pool_attestations_valid_v1()
         .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn beacon_pools_post_attestations_invalid() {
+async fn beacon_pools_post_attestations_invalid_v1() {
     ApiTester::new()
         .await
-        .test_post_beacon_pool_attestations_invalid()
+        .test_post_beacon_pool_attestations_invalid_v1()
         .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn beacon_pools_post_attester_slashings_valid() {
+async fn beacon_pools_post_attestations_valid_v2() {
     ApiTester::new()
         .await
-        .test_post_beacon_pool_attester_slashings_valid()
+        .test_post_beacon_pool_attestations_valid_v2()
         .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn beacon_pools_post_attester_slashings_invalid() {
+async fn beacon_pools_post_attestations_invalid_v2() {
     ApiTester::new()
         .await
-        .test_post_beacon_pool_attester_slashings_invalid()
+        .test_post_beacon_pool_attestations_invalid_v2()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_pools_post_attester_slashings_valid_v1() {
+    ApiTester::new()
+        .await
+        .test_post_beacon_pool_attester_slashings_valid_v1()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_pools_post_attester_slashings_invalid_v1() {
+    ApiTester::new()
+        .await
+        .test_post_beacon_pool_attester_slashings_invalid_v1()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_pools_post_attester_slashings_valid_v2() {
+    ApiTester::new()
+        .await
+        .test_post_beacon_pool_attester_slashings_valid_v2()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_pools_post_attester_slashings_invalid_v2() {
+    ApiTester::new()
+        .await
+        .test_post_beacon_pool_attester_slashings_invalid_v2()
         .await;
 }
 
@@ -6243,36 +6329,70 @@ async fn get_validator_aggregate_attestation_with_skip_slots() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_validator_aggregate_and_proofs_valid() {
+async fn get_validator_aggregate_and_proofs_valid_v1() {
     ApiTester::new()
         .await
-        .test_get_validator_aggregate_and_proofs_valid()
+        .test_get_validator_aggregate_and_proofs_valid_v1()
         .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_validator_aggregate_and_proofs_valid_with_skip_slots() {
+async fn get_validator_aggregate_and_proofs_valid_with_skip_slots_v1() {
     ApiTester::new()
         .await
         .skip_slots(E::slots_per_epoch() * 2)
-        .test_get_validator_aggregate_and_proofs_valid()
+        .test_get_validator_aggregate_and_proofs_valid_v1()
         .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_validator_aggregate_and_proofs_invalid() {
+async fn get_validator_aggregate_and_proofs_valid_v2() {
     ApiTester::new()
         .await
-        .test_get_validator_aggregate_and_proofs_invalid()
+        .test_get_validator_aggregate_and_proofs_valid_v2()
         .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_validator_aggregate_and_proofs_invalid_with_skip_slots() {
+async fn get_validator_aggregate_and_proofs_valid_with_skip_slots_v2() {
     ApiTester::new()
         .await
         .skip_slots(E::slots_per_epoch() * 2)
-        .test_get_validator_aggregate_and_proofs_invalid()
+        .test_get_validator_aggregate_and_proofs_valid_v2()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_aggregate_and_proofs_invalid_v1() {
+    ApiTester::new()
+        .await
+        .test_get_validator_aggregate_and_proofs_invalid_v1()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_aggregate_and_proofs_invalid_with_skip_slots_v1() {
+    ApiTester::new()
+        .await
+        .skip_slots(E::slots_per_epoch() * 2)
+        .test_get_validator_aggregate_and_proofs_invalid_v1()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_aggregate_and_proofs_invalid_v2() {
+    ApiTester::new()
+        .await
+        .test_get_validator_aggregate_and_proofs_invalid_v2()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_aggregate_and_proofs_invalid_with_skip_slots_v2() {
+    ApiTester::new()
+        .await
+        .skip_slots(E::slots_per_epoch() * 2)
+        .test_get_validator_aggregate_and_proofs_invalid_v2()
         .await;
 }
 
