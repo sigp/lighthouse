@@ -339,18 +339,3 @@ fn check_password_on_keystore(
         Err(e) => Err(format!("Error whilst decrypting keypair: {:?}", e)),
     }
 }
-
-/// Prompts the user for a password and returns the user input.
-/// Returns `None` if the user returns an empty password.
-fn get_password(stdin_inputs: bool) -> Option<ZeroizeString> {
-    eprintln!();
-    eprintln!("{}", PASSWORD_PROMPT);
-
-    let password_from_user = read_password_from_user(stdin_inputs).ok()?;
-    if password_from_user.as_ref().is_empty() {
-        eprintln!("Continuing without password.");
-        sleep(Duration::from_secs(1)); // Provides nicer UX.
-        return None;
-    }
-    Some(password_from_user)
-}
