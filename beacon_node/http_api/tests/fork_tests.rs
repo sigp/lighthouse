@@ -150,8 +150,13 @@ async fn attestations_across_fork_with_skip_slots() {
         .collect::<Vec<_>>();
 
     assert!(!unaggregated_attestations.is_empty());
+    let fork_name = harness.spec.fork_name_at_slot::<E>(fork_slot);
     client
-        .post_beacon_pool_attestations(&unaggregated_attestations)
+        .post_beacon_pool_attestations_v1(&unaggregated_attestations)
+        .await
+        .unwrap();
+    client
+        .post_beacon_pool_attestations_v2(&unaggregated_attestations, fork_name)
         .await
         .unwrap();
 
@@ -162,7 +167,11 @@ async fn attestations_across_fork_with_skip_slots() {
     assert!(!signed_aggregates.is_empty());
 
     client
-        .post_validator_aggregate_and_proof(&signed_aggregates)
+        .post_validator_aggregate_and_proof_v1(&signed_aggregates)
+        .await
+        .unwrap();
+    client
+        .post_validator_aggregate_and_proof_v2(&signed_aggregates, fork_name)
         .await
         .unwrap();
 }

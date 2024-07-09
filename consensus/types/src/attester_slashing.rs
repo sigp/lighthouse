@@ -160,6 +160,29 @@ impl<E: EthSpec> AttesterSlashing<E> {
     }
 }
 
+impl<E: EthSpec> crate::ForkVersionDeserialize for Vec<AttesterSlashing<E>> {
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::Value,
+        fork_name: crate::ForkName,
+    ) -> Result<Self, D::Error> {
+        if fork_name.electra_enabled() {
+            let slashings: Vec<AttesterSlashingElectra<E>> =
+                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+            Ok(slashings
+                .into_iter()
+                .map(AttesterSlashing::Electra)
+                .collect::<Vec<_>>())
+        } else {
+            let slashings: Vec<AttesterSlashingBase<E>> =
+                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+            Ok(slashings
+                .into_iter()
+                .map(AttesterSlashing::Base)
+                .collect::<Vec<_>>())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

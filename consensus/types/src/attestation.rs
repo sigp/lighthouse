@@ -1,6 +1,6 @@
 use crate::slot_data::SlotData;
-use crate::Checkpoint;
 use crate::{test_utils::TestRandom, Hash256, Slot};
+use crate::{Checkpoint, ForkVersionDeserialize};
 use derivative::Derivative;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
@@ -483,6 +483,29 @@ impl<'a, E: EthSpec> From<AttestationRefOnDisk<'a, E>> for AttestationRef<'a, E>
         match attestation {
             AttestationRefOnDisk::Base(attestation) => Self::Base(attestation),
             AttestationRefOnDisk::Electra(attestation) => Self::Electra(attestation),
+        }
+    }
+}
+
+impl<E: EthSpec> ForkVersionDeserialize for Vec<Attestation<E>> {
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::Value,
+        fork_name: crate::ForkName,
+    ) -> Result<Self, D::Error> {
+        if fork_name.electra_enabled() {
+            let attestations: Vec<AttestationElectra<E>> =
+                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+            Ok(attestations
+                .into_iter()
+                .map(Attestation::Electra)
+                .collect::<Vec<_>>())
+        } else {
+            let attestations: Vec<AttestationBase<E>> =
+                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+            Ok(attestations
+                .into_iter()
+                .map(Attestation::Base)
+                .collect::<Vec<_>>())
         }
     }
 }
