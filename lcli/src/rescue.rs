@@ -1,9 +1,9 @@
 use clap::ArgMatches;
-use clap_utils::parse_required;
+use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{
     types::{BlockId, ChainSpec, ForkName, PublishBlockRequest, SignedBlockContents},
-    BeaconNodeHttpClient, SensitiveUrl, Timeouts,
+    BeaconNodeHttpClient, Error, SensitiveUrl, Timeouts,
 };
 use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
@@ -26,8 +26,6 @@ pub fn run<T: EthSpec>(
         .handle()
         .ok_or("shutdown in progress")?
         .block_on(async move { run_async::<T>(network_config, matches).await })
-        .unwrap();
-    Ok(())
 }
 
 pub async fn run_async<T: EthSpec>(
@@ -38,6 +36,8 @@ pub async fn run_async<T: EthSpec>(
     let source_url: SensitiveUrl = parse_required(matches, "source-url")?;
     let target_url: SensitiveUrl = parse_required(matches, "target-url")?;
     let start_block: BlockId = parse_required(matches, "start-block")?;
+    let maybe_common_ancestor_block: Option<BlockId> =
+        parse_optional(matches, "known–common-ancestor")?;
 
     let source = BeaconNodeHttpClient::new(source_url, Timeouts::set_all(HTTP_TIMEOUT));
     let target = BeaconNodeHttpClient::new(target_url, Timeouts::set_all(HTTP_TIMEOUT));
@@ -54,6 +54,13 @@ pub async fn run_async<T: EthSpec>(
         next_block_id = BlockId::Root(block.parent_root());
         blocks.push((block.slot(), publish_block_req));
 
+        if let Some(ref common_ancestor_block) = maybe_common_ancestor_block {
+            if common_ancestor_block == &next_block_id {
+                println!("reached known common ancestor: {next_block_id:?}");
+                break;
+            }
+        }
+
         let block_exists_in_target = target
             .get_beacon_blocks_ssz::<T>(next_block_id, spec)
             .await
@@ -69,7 +76,12 @@ pub async fn run_async<T: EthSpec>(
     for (slot, block) in blocks.iter().rev() {
         println!("posting block at slot {slot}");
         if let Err(e) = target.post_beacon_blocks(block).await {
-            println!("error posting {slot}: {e:?}");
+            if let Error::ServerMessage(ref e) = e {
+                if e.code == 202 {
+                    continue;
+                }
+            }
+            return Err(format!("error posting {slot}: {e:?}"));
         } else {
             println!("success");
         }

@@ -604,6 +604,14 @@ fn main() {
                         .conflicts_with("testnet-dir")
                         .display_order(0)
                 )
+                .arg(
+                    Arg::new("known-common-ancestor")
+                        .long("known-common-ancestor")
+                        .value_name("BLOCK_ID")
+                        .action(ArgAction::Set)
+                        .help("Block ID of common ancestor, if known.")
+                        .display_order(0)
+                )
         )
         .get_matches();
 
