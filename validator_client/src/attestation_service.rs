@@ -548,7 +548,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         &metrics::ATTESTATION_SERVICE_TIMES,
                         &[metrics::AGGREGATES_HTTP_GET],
                     );
-                    let aggregate_attestation_result = if fork_name.electra_enabled() {
+                    if fork_name.electra_enabled() {
                         beacon_node
                             .get_validator_aggregate_attestation_v2(
                                 attestation_data.slot,
@@ -556,6 +556,13 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 committee_index,
                             )
                             .await
+                            .map_err(|e| {
+                                format!("Failed to produce an aggregate attestation: {:?}", e)
+                            })?
+                            .ok_or_else(|| {
+                                format!("No aggregate available for {:?}", attestation_data)
+                            })
+                            .map(|result| result.data)
                     } else {
                         beacon_node
                             .get_validator_aggregate_attestation_v1(
@@ -563,14 +570,14 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 attestation_data.tree_hash_root(),
                             )
                             .await
-                    };
-
-                    aggregate_attestation_result
-                        .map_err(|e| {
-                            format!("Failed to produce an aggregate attestation: {:?}", e)
-                        })?
-                        .ok_or_else(|| format!("No aggregate available for {:?}", attestation_data))
-                        .map(|result| result.data)
+                            .map_err(|e| {
+                                format!("Failed to produce an aggregate attestation: {:?}", e)
+                            })?
+                            .ok_or_else(|| {
+                                format!("No aggregate available for {:?}", attestation_data)
+                            })
+                            .map(|result| result.data)
+                    }
                 },
             )
             .await

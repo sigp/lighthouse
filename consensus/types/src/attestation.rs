@@ -487,6 +487,23 @@ impl<'a, E: EthSpec> From<AttestationRefOnDisk<'a, E>> for AttestationRef<'a, E>
     }
 }
 
+impl<E: EthSpec> ForkVersionDeserialize for Attestation<E> {
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::Value,
+        fork_name: crate::ForkName,
+    ) -> Result<Self, D::Error> {
+        if fork_name.electra_enabled() {
+            let attestation: AttestationElectra<E> =
+                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+            Ok(Attestation::Electra(attestation))
+        } else {
+            let attestation: AttestationBase<E> =
+                serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+            Ok(Attestation::Base(attestation))
+        }
+    }
+}
+
 impl<E: EthSpec> ForkVersionDeserialize for Vec<Attestation<E>> {
     fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
         value: serde_json::Value,

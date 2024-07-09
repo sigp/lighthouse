@@ -346,7 +346,7 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
-    /// Perform a HTTP POST request with a custom timeout.
+    /// Perform a HTTP POST request with a custom timeout and consensus header.
     async fn post_with_timeout_and_consensus_header<T: Serialize, U: IntoUrl>(
         &self,
         url: U,
@@ -410,6 +410,7 @@ impl BeaconNodeHttpClient {
 
     /// Generic POST function supporting arbitrary responses and timeouts.
     /// Does not include Content-Type application/json in the request header.
+    /// Does include Eth-Consensus-Version in the request header.
     async fn post_generic_json_without_content_type_header_but_with_consensus_header<
         T: Serialize,
         U: IntoUrl,
@@ -2358,7 +2359,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         attestation_data_root: Hash256,
         committee_index: CommitteeIndex,
-    ) -> Result<Option<GenericResponse<Attestation<E>>>, Error> {
+    ) -> Result<Option<ForkVersionedResponse<Attestation<E>>>, Error> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()

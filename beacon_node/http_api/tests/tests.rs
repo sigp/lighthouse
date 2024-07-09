@@ -3289,7 +3289,7 @@ impl ApiTester {
             .chain
             .spec
             .fork_name_at_slot::<E>(self.chain.slot().unwrap())
-            >= ForkName::Electra
+            .electra_enabled()
         {
             for attestation in self.chain.naive_aggregation_pool.read().iter() {
                 let result = self
