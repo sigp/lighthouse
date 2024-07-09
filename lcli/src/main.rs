@@ -612,6 +612,14 @@ fn main() {
                         .help("Block ID of common ancestor, if known.")
                         .display_order(0)
                 )
+                .arg(
+                    Arg::new("block-cache-dir")
+                        .long("block-cache-dir")
+                        .value_name("PATH")
+                        .action(ArgAction::Set)
+                        .help("Directory to keep a cache of the downloaded SSZ blocks.")
+                        .display_order(0)
+                )
         )
         .get_matches();
 
