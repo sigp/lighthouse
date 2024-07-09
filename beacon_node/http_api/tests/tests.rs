@@ -3478,7 +3478,7 @@ impl ApiTester {
         self.client
             .post_validator_aggregate_and_proof_v2::<E>(&[aggregate], fork_name)
             .await
-            .unwrap();
+            .unwrap_err();
         assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
 
         self
