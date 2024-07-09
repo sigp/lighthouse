@@ -7,7 +7,7 @@ use keccak_hash::KECCAK_EMPTY_LIST_RLP;
 use triehash::ordered_trie_root;
 use types::{
     EncodableExecutionBlockHeader, EthSpec, ExecutionBlockHash, ExecutionBlockHeader,
-    ExecutionPayloadRef, Hash256
+    ExecutionPayloadRef, Hash256,
 };
 
 /// Calculate the block hash of an execution block.
