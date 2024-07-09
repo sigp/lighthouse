@@ -1202,21 +1202,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cached_tree_hash"
-version = "0.1.0"
-dependencies = [
- "ethereum-types 0.14.1",
- "ethereum_hashing",
- "ethereum_ssz",
- "ethereum_ssz_derive",
- "quickcheck",
- "quickcheck_macros",
- "smallvec",
- "ssz_types",
- "tree_hash",
-]
-
-[[package]]
 name = "camino"
 version = "1.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8969,7 +8954,6 @@ dependencies = [
  "arbitrary",
  "beacon_chain",
  "bls",
- "cached_tree_hash",
  "compare_fields",
  "compare_fields_derive",
  "criterion",
