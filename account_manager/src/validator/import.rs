@@ -173,10 +173,8 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
                     break Some(password);
                 } else {
                     eprintln!("Reused password incorrect. Retry!");
-                    if let Some(password) = get_password(stdin_inputs) {
-                        previous_password = Some(password.clone());
-                        break Some(password);
-                    }
+                    previous_password = None;
+                    continue;
                 }
             }
             eprintln!();
