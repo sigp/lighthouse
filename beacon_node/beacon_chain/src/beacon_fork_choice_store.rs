@@ -321,9 +321,17 @@ where
                 .deconstruct()
                 .0;
 
-            let state = self
+            let max_slot = self
+                .justified_checkpoint
+                .epoch
+                .start_slot(E::slots_per_epoch());
+            let (_, state) = self
                 .store
-                .get_state(&justified_block.state_root(), Some(justified_block.slot()))
+                .get_advanced_hot_state(
+                    self.justified_checkpoint.root,
+                    max_slot,
+                    justified_block.state_root(),
+                )
                 .map_err(Error::FailedToReadState)?
                 .ok_or_else(|| Error::MissingState(justified_block.state_root()))?;
 
@@ -381,35 +389,35 @@ pub struct PersistedForkChoiceStore {
     pub equivocating_indices: BTreeSet<u64>,
 }
 
-impl Into<PersistedForkChoiceStore> for PersistedForkChoiceStoreV11 {
-    fn into(self) -> PersistedForkChoiceStore {
+impl From<PersistedForkChoiceStoreV11> for PersistedForkChoiceStore {
+    fn from(from: PersistedForkChoiceStoreV11) -> PersistedForkChoiceStore {
         PersistedForkChoiceStore {
-            balances_cache: self.balances_cache,
-            time: self.time,
-            finalized_checkpoint: self.finalized_checkpoint,
-            justified_checkpoint: self.justified_checkpoint,
-            justified_balances: self.justified_balances,
-            unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
-            unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
-            proposer_boost_root: self.proposer_boost_root,
-            equivocating_indices: self.equivocating_indices,
+            balances_cache: from.balances_cache,
+            time: from.time,
+            finalized_checkpoint: from.finalized_checkpoint,
+            justified_checkpoint: from.justified_checkpoint,
+            justified_balances: from.justified_balances,
+            unrealized_justified_checkpoint: from.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: from.unrealized_finalized_checkpoint,
+            proposer_boost_root: from.proposer_boost_root,
+            equivocating_indices: from.equivocating_indices,
         }
     }
 }
 
-impl Into<PersistedForkChoiceStoreV11> for PersistedForkChoiceStore {
-    fn into(self) -> PersistedForkChoiceStoreV11 {
+impl From<PersistedForkChoiceStore> for PersistedForkChoiceStoreV11 {
+    fn from(from: PersistedForkChoiceStore) -> PersistedForkChoiceStoreV11 {
         PersistedForkChoiceStoreV11 {
-            balances_cache: self.balances_cache,
-            time: self.time,
-            finalized_checkpoint: self.finalized_checkpoint,
-            justified_checkpoint: self.justified_checkpoint,
-            justified_balances: self.justified_balances,
+            balances_cache: from.balances_cache,
+            time: from.time,
+            finalized_checkpoint: from.finalized_checkpoint,
+            justified_checkpoint: from.justified_checkpoint,
+            justified_balances: from.justified_balances,
             best_justified_checkpoint: JUNK_BEST_JUSTIFIED_CHECKPOINT,
-            unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
-            unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
-            proposer_boost_root: self.proposer_boost_root,
-            equivocating_indices: self.equivocating_indices,
+            unrealized_justified_checkpoint: from.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: from.unrealized_finalized_checkpoint,
+            proposer_boost_root: from.proposer_boost_root,
+            equivocating_indices: from.equivocating_indices,
         }
     }
 }

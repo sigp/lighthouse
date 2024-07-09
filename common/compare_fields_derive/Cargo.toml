@@ -2,11 +2,11 @@
 name = "compare_fields_derive"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 [lib]
 proc-macro = true
 
 [dependencies]
-syn = "1.0.42"
-quote = "1.0.7"
+syn = { workspace = true }
+quote = { workspace = true }

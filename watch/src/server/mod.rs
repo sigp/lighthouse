@@ -5,16 +5,14 @@ use crate::config::Config as FullConfig;
 use crate::database::{self, PgPool};
 use crate::suboptimal_attestations::{attestation_routes, blockprint_attestation_routes};
 use axum::{
-    handler::Handler,
     http::{StatusCode, Uri},
     routing::get,
     Extension, Json, Router,
 };
 use eth2::types::ErrorMessage;
 use log::info;
-use std::future::Future;
-use std::net::SocketAddr;
-use tokio::sync::oneshot;
+use std::future::{Future, IntoFuture};
+use std::net::{SocketAddr, TcpListener};
 
 pub use config::Config;
 pub use error::Error;
@@ -23,7 +21,7 @@ mod config;
 mod error;
 mod handler;
 
-pub async fn serve(config: FullConfig, shutdown: oneshot::Receiver<()>) -> Result<(), Error> {
+pub async fn serve(config: FullConfig) -> Result<(), Error> {
     let db = database::build_connection_pool(&config.database)?;
     let (_, slots_per_epoch) = database::get_active_config(&mut database::get_connection(&db)?)?
         .ok_or_else(|| {
@@ -33,9 +31,7 @@ pub async fn serve(config: FullConfig, shutdown: oneshot::Receiver<()>) -> Resul
             )
         })?;
 
-    let server = start_server(&config, slots_per_epoch as u64, db, async {
-        let _ = shutdown.await;
-    })?;
+    let (_addr, server) = start_server(&config, slots_per_epoch as u64, db)?;
 
     server.await?;
 
@@ -62,8 +58,13 @@ pub fn start_server(
     config: &FullConfig,
     slots_per_epoch: u64,
     pool: PgPool,
-    shutdown: impl Future<Output = ()> + Send + Sync + 'static,
-) -> Result<impl Future<Output = Result<(), hyper::Error>> + 'static, Error> {
+) -> Result<
+    (
+        SocketAddr,
+        impl Future<Output = Result<(), std::io::Error>> + 'static,
+    ),
+    Error,
+> {
     let mut routes = Router::new()
         .route("/v1/slots", get(handler::get_slots_by_range))
         .route("/v1/slots/:slot", get(handler::get_slot))
@@ -104,21 +105,22 @@ pub fn start_server(
     }
 
     let app = routes
-        .fallback(route_not_found.into_service())
+        .fallback(route_not_found)
         .layer(Extension(pool))
         .layer(Extension(slots_per_epoch));
 
     let addr = SocketAddr::new(config.server.listen_addr, config.server.listen_port);
+    let listener = TcpListener::bind(addr)?;
+    listener.set_nonblocking(true)?;
 
-    let server = axum::Server::try_bind(&addr)?.serve(app.into_make_service());
+    // Read the socket address (it may be different from `addr` if listening on port 0).
+    let socket_addr = listener.local_addr()?;
 
-    let server = server.with_graceful_shutdown(async {
-        shutdown.await;
-    });
+    let serve = axum::serve(tokio::net::TcpListener::from_std(listener)?, app);
 
     info!("HTTP server listening on {}", addr);
 
-    Ok(server)
+    Ok((socket_addr, serve.into_future()))
 }
 
 // The default route indicating that no available routes matched the request.

@@ -20,8 +20,7 @@
 //! ## Example
 //!
 //! ```rust
-//! #[macro_use]
-//! extern crate lazy_static;
+//! use lazy_static::lazy_static;
 //! use lighthouse_metrics::*;
 //!
 //! // These metrics are "magically" linked to the global registry defined in `lighthouse_metrics`.

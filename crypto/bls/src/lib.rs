@@ -9,15 +9,13 @@
 //! are supported via compile-time flags. There are three backends supported via features:
 //!
 //! - `supranational`: the pure-assembly, highly optimized version from the `blst` crate.
-//! - `milagro`: the classic pure-Rust `milagro_bls` crate.
 //! - `fake_crypto`: an always-returns-valid implementation that is only useful for testing
 //!     scenarios which intend to *ignore* real cryptography.
 //!
 //! This crate uses traits to reduce code-duplication between the two implementations. For example,
 //! the `GenericPublicKey` struct exported from this crate is generic across the `TPublicKey` trait
 //! (i.e., `PublicKey<TPublicKey>`). `TPublicKey` is implemented by all three backends (see the
-//! `impls.rs` module). When compiling with the `milagro` feature, we export
-//! `type PublicKey = GenericPublicKey<milagro::PublicKey>`.
+//! `impls.rs` module).
 
 #[macro_use]
 mod macros;
@@ -35,7 +33,9 @@ mod zeroize_hash;
 
 pub mod impls;
 
-pub use generic_public_key::{INFINITY_PUBLIC_KEY, PUBLIC_KEY_BYTES_LEN};
+pub use generic_public_key::{
+    INFINITY_PUBLIC_KEY, PUBLIC_KEY_BYTES_LEN, PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN,
+};
 pub use generic_secret_key::SECRET_KEY_BYTES_LEN;
 pub use generic_signature::{INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN};
 pub use get_withdrawal_credentials::get_withdrawal_credentials;
@@ -43,16 +43,11 @@ pub use zeroize_hash::ZeroizeHash;
 
 #[cfg(feature = "supranational")]
 use blst::BLST_ERROR as BlstError;
-#[cfg(feature = "milagro")]
-use milagro_bls::AmclError;
 
 pub type Hash256 = ethereum_types::H256;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
-    /// An error was raised from the Milagro BLS library.
-    #[cfg(feature = "milagro")]
-    MilagroError(AmclError),
     /// An error was raised from the Supranational BLST BLS library.
     #[cfg(feature = "supranational")]
     BlstError(BlstError),
@@ -64,13 +59,6 @@ pub enum Error {
     InvalidInfinityPublicKey,
     /// The secret key is all zero bytes, which is invalid.
     InvalidZeroSecretKey,
-}
-
-#[cfg(feature = "milagro")]
-impl From<AmclError> for Error {
-    fn from(e: AmclError) -> Error {
-        Error::MilagroError(e)
-    }
 }
 
 #[cfg(feature = "supranational")]
@@ -94,8 +82,7 @@ pub mod generics {
 }
 
 /// Defines all the fundamental BLS points which should be exported by this crate by making
-/// concrete the generic type parameters using the points from some external BLS library (e.g.,
-/// Milagro, BLST).
+/// concrete the generic type parameters using the points from some external BLS library (e.g.,BLST).
 macro_rules! define_mod {
     ($name: ident, $mod: path) => {
         pub mod $name {
@@ -139,8 +126,6 @@ macro_rules! define_mod {
     };
 }
 
-#[cfg(feature = "milagro")]
-define_mod!(milagro_implementations, crate::impls::milagro::types);
 #[cfg(feature = "supranational")]
 define_mod!(blst_implementations, crate::impls::blst::types);
 #[cfg(feature = "fake_crypto")]
@@ -149,14 +134,7 @@ define_mod!(
     crate::impls::fake_crypto::types
 );
 
-#[cfg(all(feature = "milagro", not(feature = "fake_crypto"),))]
-pub use milagro_implementations::*;
-
-#[cfg(all(
-    feature = "supranational",
-    not(feature = "fake_crypto"),
-    not(feature = "milagro")
-))]
+#[cfg(all(feature = "supranational", not(feature = "fake_crypto"),))]
 pub use blst_implementations::*;
 
 #[cfg(feature = "fake_crypto")]

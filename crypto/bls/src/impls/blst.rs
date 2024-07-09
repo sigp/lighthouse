@@ -1,15 +1,16 @@
 use crate::{
     generic_aggregate_public_key::TAggregatePublicKey,
     generic_aggregate_signature::TAggregateSignature,
-    generic_public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
+    generic_public_key::{
+        GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN, PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN,
+    },
     generic_secret_key::TSecretKey,
     generic_signature::{TSignature, SIGNATURE_BYTES_LEN},
-    Error, Hash256, ZeroizeHash, INFINITY_SIGNATURE,
+    BlstError, Error, Hash256, ZeroizeHash, INFINITY_SIGNATURE,
 };
 pub use blst::min_pk as blst_core;
 use blst::{blst_scalar, BLST_ERROR};
 use rand::Rng;
-use std::iter::ExactSizeIterator;
 
 pub const DST: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
 pub const RAND_BITS: usize = 64;
@@ -99,9 +100,8 @@ pub fn verify_signature_sets<'a>(
 
         // Aggregate all the public keys.
         // Public keys have already been checked for subgroup and infinity
-        let agg_pk = match blst_core::AggregatePublicKey::aggregate(&signing_keys, false) {
-            Ok(agg_pk) => agg_pk,
-            Err(_) => return false,
+        let Ok(agg_pk) = blst_core::AggregatePublicKey::aggregate(&signing_keys, false) else {
+            return false;
         };
         pks.push(agg_pk.to_public_key());
     }
@@ -123,6 +123,10 @@ impl TPublicKey for blst_core::PublicKey {
         self.compress()
     }
 
+    fn serialize_uncompressed(&self) -> [u8; PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN] {
+        blst_core::PublicKey::serialize(self)
+    }
+
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         // key_validate accepts uncompressed bytes too so enforce byte length here.
         // It also does subgroup checks, noting infinity check is done in `generic_public_key.rs`.
@@ -133,6 +137,19 @@ impl TPublicKey for blst_core::PublicKey {
             });
         }
         Self::key_validate(bytes).map_err(Into::into)
+    }
+
+    fn deserialize_uncompressed(bytes: &[u8]) -> Result<Self, Error> {
+        if bytes.len() != PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN {
+            return Err(Error::InvalidByteLength {
+                got: bytes.len(),
+                expected: PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN,
+            });
+        }
+        // Ensure we use the `blst` function rather than the one from this trait.
+        let result: Result<Self, BlstError> = Self::deserialize(bytes);
+        let key = result?;
+        Ok(key)
     }
 }
 

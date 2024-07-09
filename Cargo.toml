@@ -4,10 +4,12 @@ members = [
 
     "beacon_node",
     "beacon_node/beacon_chain",
+    "beacon_node/beacon_processor",
     "beacon_node/builder_client",
     "beacon_node/client",
     "beacon_node/eth1",
     "beacon_node/lighthouse_network",
+    "beacon_node/lighthouse_network/gossipsub",
     "beacon_node/execution_layer",
     "beacon_node/http_api",
     "beacon_node/http_metrics",
@@ -35,6 +37,7 @@ members = [
     "common/lru_cache",
     "common/malloc_utils",
     "common/oneshot_broadcast",
+    "common/pretty_reqwest_error",
     "common/sensitive_url",
     "common/slot_clock",
     "common/system_health",
@@ -57,6 +60,7 @@ members = [
     "consensus/swap_or_not_shuffle",
 
     "crypto/bls",
+    "crypto/kzg",
     "crypto/eth2_key_derivation",
     "crypto/eth2_keystore",
     "crypto/eth2_wallet",
@@ -81,21 +85,158 @@ members = [
     "validator_client",
     "validator_client/slashing_protection",
 
+    "validator_manager",
+
     "watch",
 ]
 resolver = "2"
 
-[patch]
-[patch.crates-io]
-warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
-arbitrary = { git = "https://github.com/michaelsproul/arbitrary", rev="f002b99989b561ddce62e4cf2887b0f8860ae991" }
+[workspace.package]
+edition = "2021"
 
-[patch."https://github.com/ralexstokes/mev-rs"]
-mev-rs = { git = "https://github.com/ralexstokes//mev-rs", rev = "7813d4a4a564e0754e9aaab2d95520ba437c3889" }
-[patch."https://github.com/ralexstokes/ethereum-consensus"]
-ethereum-consensus = { git = "https://github.com/ralexstokes//ethereum-consensus", rev = "9b0ee0a8a45b968c8df5e7e64ea1c094e16f053d" }
-[patch."https://github.com/ralexstokes/ssz-rs"]
-ssz-rs = { git = "https://github.com/ralexstokes//ssz-rs", rev = "adf1a0b14cef90b9536f28ef89da1fab316465e1" }
+[workspace.dependencies]
+anyhow = "1"
+arbitrary = { version = "1", features = ["derive"] }
+async-channel = "1.9.0"
+bincode = "1"
+bitvec = "1"
+byteorder = "1"
+bytes = "1"
+clap = { version = "4.5.4", features = ["cargo", "wrap_help"] }
+# Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
+# feature ourselves when desired.
+c-kzg = { version = "1", default-features =  false }
+compare_fields_derive = { path = "common/compare_fields_derive" }
+criterion = "0.5"
+delay_map = "0.3"
+derivative = "2"
+dirs = "3"
+either = "1.9"
+discv5 = { version = "0.4.1", features = ["libp2p"] }
+env_logger = "0.9"
+error-chain = "0.12"
+ethereum-types = "0.14"
+ethereum_hashing = "0.6.0"
+ethereum_serde_utils = "0.5.2"
+ethereum_ssz = "0.5"
+ethereum_ssz_derive = "0.5"
+ethers-core = "1"
+ethers-providers = { version = "1", default-features = false }
+exit-future = "0.2"
+fnv = "1"
+fs2 = "0.4"
+futures = "0.3"
+hex = "0.4"
+hyper = "1"
+itertools = "0.10"
+lazy_static = "1"
+libsecp256k1 = "0.7"
+log = "0.4"
+lru = "0.12"
+maplit = "1"
+milhouse = "0.1"
+num_cpus = "1"
+parking_lot = "0.12"
+paste = "1"
+quickcheck = "1"
+quickcheck_macros = "1"
+quote = "1"
+r2d2 = "0.8"
+rand = "0.8"
+rayon = "1.7"
+regex = "1"
+reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "stream", "rustls-tls", "native-tls-vendored"] }
+ring = "0.16"
+rpds = "0.11"
+rusqlite = { version = "0.28", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_repr = "0.1"
+serde_yaml = "0.9"
+sha2 = "0.9"
+slog = { version = "2", features = ["max_level_trace", "release_max_level_trace", "nested-values"] }
+slog-async = "2"
+slog-term = "2"
+sloggers = { version = "2", features = ["json"] }
+smallvec = { version = "1.11.2", features = ["arbitrary"] }
+snap = "1"
+ssz_types = "0.6"
+strum = { version = "0.24", features = ["derive"] }
+superstruct = "0.8"
+syn = "1"
+sysinfo = "0.26"
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-util = { version = "0.7", features = ["codec", "compat", "time"] }
+tracing = "0.1.40"
+tracing-appender = "0.2"
+tracing-core = "0.1"
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tree_hash = "0.6"
+tree_hash_derive = "0.6"
+url = "2"
+uuid = { version = "0.8", features = ["serde", "v4"] }
+warp = { version = "0.3.7", default-features = false, features = ["tls"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
+zip = "0.6"
+
+# Local crates.
+account_utils = { path = "common/account_utils" }
+beacon_chain = { path = "beacon_node/beacon_chain" }
+beacon_node = { path = "beacon_node" }
+beacon_processor = { path = "beacon_node/beacon_processor" }
+bls = { path = "crypto/bls" }
+cached_tree_hash = { path = "consensus/cached_tree_hash" }
+clap_utils = { path = "common/clap_utils" }
+compare_fields = { path = "common/compare_fields" }
+deposit_contract = { path = "common/deposit_contract" }
+directory = { path = "common/directory" }
+environment = { path = "lighthouse/environment" }
+eth1 = { path = "beacon_node/eth1" }
+eth1_test_rig = { path = "testing/eth1_test_rig" }
+eth2 = { path = "common/eth2" }
+eth2_config = { path = "common/eth2_config" }
+eth2_key_derivation = { path = "crypto/eth2_key_derivation" }
+eth2_keystore = { path = "crypto/eth2_keystore" }
+eth2_network_config = { path = "common/eth2_network_config" }
+eth2_wallet = { path = "crypto/eth2_wallet" }
+execution_layer = { path = "beacon_node/execution_layer" }
+filesystem = { path = "common/filesystem" }
+fork_choice = { path = "consensus/fork_choice" }
+genesis = { path = "beacon_node/genesis" }
+gossipsub = { path = "beacon_node/lighthouse_network/gossipsub/" }
+http_api = { path = "beacon_node/http_api" }
+int_to_bytes = { path = "consensus/int_to_bytes" }
+kzg = { path = "crypto/kzg" }
+lighthouse_metrics = { path = "common/lighthouse_metrics" }
+lighthouse_network = { path = "beacon_node/lighthouse_network" }
+lighthouse_version = { path = "common/lighthouse_version" }
+lockfile = { path = "common/lockfile" }
+logging = { path = "common/logging" }
+lru_cache = { path = "common/lru_cache" }
+malloc_utils = { path = "common/malloc_utils" }
+merkle_proof = { path = "consensus/merkle_proof" }
+monitoring_api = { path = "common/monitoring_api" }
+network = { path = "beacon_node/network" }
+operation_pool = { path = "beacon_node/operation_pool" }
+pretty_reqwest_error = { path = "common/pretty_reqwest_error" }
+proto_array = { path = "consensus/proto_array" }
+safe_arith = { path = "consensus/safe_arith" }
+sensitive_url = { path = "common/sensitive_url" }
+slasher = { path = "slasher" }
+slashing_protection = { path = "validator_client/slashing_protection" }
+slot_clock = { path = "common/slot_clock" }
+state_processing = { path = "consensus/state_processing" }
+store = { path = "beacon_node/store" }
+swap_or_not_shuffle = { path = "consensus/swap_or_not_shuffle" }
+task_executor = { path = "common/task_executor" }
+types = { path = "consensus/types" }
+unused_port = { path = "common/unused_port" }
+validator_client = { path = "validator_client" }
+validator_dir = { path = "common/validator_dir" }
+warp_utils = { path = "common/warp_utils" }
 
 [profile.maxperf]
 inherits = "release"

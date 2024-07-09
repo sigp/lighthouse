@@ -1,5 +1,5 @@
-use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
-use crate::validator_store::{DoppelgangerStatus, ValidatorStore};
+use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback, RequireSynced};
+use crate::validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, ValidatorStore};
 use crate::OfflineOnFailure;
 use bls::PublicKeyBytes;
 use environment::RuntimeContext;
@@ -23,9 +23,6 @@ const PROPOSER_PREPARATION_LOOKAHEAD_EPOCHS: u64 = 2;
 /// Number of epochs to wait before re-submitting validator registration.
 const EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION: u64 = 1;
 
-/// The number of validator registrations to include per request to the beacon node.
-const VALIDATOR_REGISTRATION_BATCH_SIZE: usize = 500;
-
 /// Builds an `PreparationService`.
 pub struct PreparationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     validator_store: Option<Arc<ValidatorStore<T, E>>>,
@@ -33,6 +30,7 @@ pub struct PreparationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
     builder_registration_timestamp_override: Option<u64>,
+    validator_registration_batch_size: Option<usize>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
@@ -43,6 +41,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
             beacon_nodes: None,
             context: None,
             builder_registration_timestamp_override: None,
+            validator_registration_batch_size: None,
         }
     }
 
@@ -74,6 +73,14 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
         self
     }
 
+    pub fn validator_registration_batch_size(
+        mut self,
+        validator_registration_batch_size: usize,
+    ) -> Self {
+        self.validator_registration_batch_size = Some(validator_registration_batch_size);
+        self
+    }
+
     pub fn build(self) -> Result<PreparationService<T, E>, String> {
         Ok(PreparationService {
             inner: Arc::new(Inner {
@@ -91,6 +98,9 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
                     .ok_or("Cannot build PreparationService without runtime_context")?,
                 builder_registration_timestamp_override: self
                     .builder_registration_timestamp_override,
+                validator_registration_batch_size: self.validator_registration_batch_size.ok_or(
+                    "Cannot build PreparationService without validator_registration_batch_size",
+                )?,
                 validator_registration_cache: RwLock::new(HashMap::new()),
             }),
         })
@@ -107,6 +117,7 @@ pub struct Inner<T, E: EthSpec> {
     // Used to track unpublished validator registration changes.
     validator_registration_cache:
         RwLock<HashMap<ValidatorRegistrationKey, SignedValidatorRegistrationData>>,
+    validator_registration_batch_size: usize,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
@@ -331,9 +342,10 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         let preparation_entries = preparation_data.as_slice();
         match self
             .beacon_nodes
-            .run(
+            .request(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
+                ApiTopic::Subscriptions,
                 |beacon_node| async move {
                     beacon_node
                         .post_validator_prepare_beacon_proposer(preparation_entries)
@@ -431,8 +443,23 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                     .await
                 {
                     Ok(data) => data,
+                    Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
+                        // A pubkey can be missing when a validator was recently
+                        // removed via the API.
+                        debug!(
+                            log,
+                            "Missing pubkey for registration data";
+                            "pubkey" => ?pubkey,
+                        );
+                        continue;
+                    }
                     Err(e) => {
-                        error!(log, "Unable to sign validator registration data"; "error" => ?e, "pubkey" => ?pubkey);
+                        error!(
+                            log,
+                            "Unable to sign validator registration data";
+                            "error" => ?e,
+                            "pubkey" => ?pubkey
+                        );
                         continue;
                     }
                 };
@@ -447,10 +474,10 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         }
 
         if !signed.is_empty() {
-            for batch in signed.chunks(VALIDATOR_REGISTRATION_BATCH_SIZE) {
+            for batch in signed.chunks(self.validator_registration_batch_size) {
                 match self
                     .beacon_nodes
-                    .first_success(
+                    .broadcast(
                         RequireSynced::No,
                         OfflineOnFailure::No,
                         |beacon_node| async move {
@@ -462,7 +489,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                     Ok(()) => info!(
                         log,
                         "Published validator registrations to the builder network";
-                        "count" => registration_data_len,
+                        "count" => batch.len(),
                     ),
                     Err(e) => warn!(
                         log,

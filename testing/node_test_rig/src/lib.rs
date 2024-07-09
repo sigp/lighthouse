@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::{Builder as TempBuilder, TempDir};
+use tokio::time::timeout;
 use types::EthSpec;
 use validator_client::ProductionValidatorClient;
 use validator_dir::insecure_keys::build_deterministic_validator_dirs;
@@ -20,10 +21,12 @@ pub use eth2;
 pub use execution_layer::test_utils::{
     Config as MockServerConfig, MockExecutionConfig, MockServer,
 };
-pub use validator_client::Config as ValidatorConfig;
+pub use validator_client::{ApiTopic, Config as ValidatorConfig};
 
 /// The global timeout for HTTP requests to the beacon node.
-const HTTP_TIMEOUT: Duration = Duration::from_secs(4);
+const HTTP_TIMEOUT: Duration = Duration::from_secs(8);
+/// The timeout for a beacon node to start up.
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Provides a beacon node that is running in the current process on a given tokio executor (it
 /// is _local_ to this process).
@@ -51,12 +54,16 @@ impl<E: EthSpec> LocalBeaconNode<E> {
         client_config.set_data_dir(datadir.path().into());
         client_config.network.network_dir = PathBuf::from(datadir.path()).join("network");
 
-        ProductionBeaconNode::new(context, client_config)
-            .await
-            .map(move |client| Self {
-                client: client.into_inner(),
-                datadir,
-            })
+        timeout(
+            STARTUP_TIMEOUT,
+            ProductionBeaconNode::new(context, client_config),
+        )
+        .await
+        .map_err(|_| format!("Beacon node startup timed out after {:?}", STARTUP_TIMEOUT))?
+        .map(move |client| Self {
+            client: client.into_inner(),
+            datadir,
+        })
     }
 }
 
@@ -91,7 +98,7 @@ pub fn testing_client_config() -> ClientConfig {
     // Setting ports to `0` means that the OS will choose some available port.
     client_config
         .network
-        .set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 0, 0);
+        .set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 0, 0, 0);
     client_config.network.upnp_enabled = false;
     client_config.http_api.enabled = true;
     client_config.http_api.listen_port = 0;
@@ -107,6 +114,14 @@ pub fn testing_client_config() -> ClientConfig {
         validator_count: 8,
         genesis_time: now,
     };
+
+    // Simulator tests expect historic states to be available for post-run checks.
+    client_config.chain.reconstruct_historic_states = true;
+
+    // Specify a constant count of beacon processor workers. Having this number
+    // too low can cause annoying HTTP timeouts, especially on Github runners
+    // with 2 logical CPUs.
+    client_config.beacon_processor.max_workers = 4;
 
     client_config
 }
@@ -166,8 +181,8 @@ impl ValidatorFiles {
 /// is _local_ to this process).
 ///
 /// Intended for use in testing and simulation. Not for production.
-pub struct LocalValidatorClient<T: EthSpec> {
-    pub client: ProductionValidatorClient<T>,
+pub struct LocalValidatorClient<E: EthSpec> {
+    pub client: ProductionValidatorClient<E>,
     pub files: ValidatorFiles,
 }
 
@@ -205,14 +220,13 @@ impl<E: EthSpec> LocalValidatorClient<E> {
         config.validator_dir = files.validator_dir.path().into();
         config.secrets_dir = files.secrets_dir.path().into();
 
-        ProductionValidatorClient::new(context, config)
+        let mut client = ProductionValidatorClient::new(context, config).await?;
+
+        client
+            .start_service()
             .await
-            .map(move |mut client| {
-                client
-                    .start_service()
-                    .expect("should start validator services");
-                Self { client, files }
-            })
+            .expect("should start validator services");
+        Ok(Self { client, files })
     }
 }
 
@@ -236,7 +250,7 @@ impl<E: EthSpec> LocalExecutionNode<E> {
             panic!("Failed to write jwt file {}", e);
         }
         Self {
-            server: MockServer::new_with_config(&context.executor.handle().unwrap(), config),
+            server: MockServer::new_with_config(&context.executor.handle().unwrap(), config, None),
             datadir,
         }
     }

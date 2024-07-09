@@ -1,10 +1,9 @@
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes, BlockProcessStatus};
 use execution_layer::{ExecutionLayer, ExecutionPayloadBodyV1};
-use slog::{crit, debug, Logger};
+use slog::{crit, debug, error, Logger};
 use std::collections::HashMap;
 use std::sync::Arc;
-use store::DatabaseBlock;
-use task_executor::TaskExecutor;
+use store::{DatabaseBlock, ExecutionPayloadDeneb};
 use tokio::sync::{
     mpsc::{self, UnboundedSender},
     RwLock,
@@ -15,11 +14,12 @@ use types::{
     SignedBlindedBeaconBlock, Slot,
 };
 use types::{
-    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadHeader, ExecutionPayloadMerge,
+    ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadElectra,
+    ExecutionPayloadHeader,
 };
 
 #[derive(PartialEq)]
-pub enum CheckEarlyAttesterCache {
+pub enum CheckCaches {
     Yes,
     No,
 }
@@ -95,8 +95,10 @@ fn reconstruct_default_header_block<E: EthSpec>(
         .map_err(BeaconChainError::InconsistentFork)?;
 
     let payload: ExecutionPayload<E> = match fork {
-        ForkName::Merge => ExecutionPayloadMerge::default().into(),
+        ForkName::Bellatrix => ExecutionPayloadBellatrix::default().into(),
         ForkName::Capella => ExecutionPayloadCapella::default().into(),
+        ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
+        ForkName::Electra => ExecutionPayloadElectra::default().into(),
         ForkName::Base | ForkName::Altair => {
             return Err(Error::PayloadReconstruction(format!(
                 "Block with fork variant {} has execution payload",
@@ -384,66 +386,81 @@ impl<E: EthSpec> EngineRequest<E> {
 
 pub struct BeaconBlockStreamer<T: BeaconChainTypes> {
     execution_layer: ExecutionLayer<T::EthSpec>,
-    check_early_attester_cache: CheckEarlyAttesterCache,
+    check_caches: CheckCaches,
     beacon_chain: Arc<BeaconChain<T>>,
 }
 
 impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
     pub fn new(
         beacon_chain: &Arc<BeaconChain<T>>,
-        check_early_attester_cache: CheckEarlyAttesterCache,
-    ) -> Result<Self, BeaconChainError> {
+        check_caches: CheckCaches,
+    ) -> Result<Arc<Self>, BeaconChainError> {
         let execution_layer = beacon_chain
             .execution_layer
             .as_ref()
             .ok_or(BeaconChainError::ExecutionLayerMissing)?
             .clone();
 
-        Ok(Self {
+        Ok(Arc::new(Self {
             execution_layer,
-            check_early_attester_cache,
+            check_caches,
             beacon_chain: beacon_chain.clone(),
-        })
+        }))
     }
 
-    fn check_early_attester_cache(
-        &self,
-        root: Hash256,
-    ) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
-        if self.check_early_attester_cache == CheckEarlyAttesterCache::Yes {
-            self.beacon_chain.early_attester_cache.get_block(root)
+    fn check_caches(&self, root: Hash256) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
+        if self.check_caches == CheckCaches::Yes {
+            match self.beacon_chain.get_block_process_status(&root) {
+                BlockProcessStatus::Unknown => None,
+                BlockProcessStatus::NotValidated(block)
+                | BlockProcessStatus::ExecutionValidated(block) => {
+                    metrics::inc_counter(&metrics::BEACON_REQRESP_PRE_IMPORT_CACHE_HITS);
+                    Some(block)
+                }
+            }
         } else {
             None
         }
     }
 
-    fn load_payloads(&self, block_roots: Vec<Hash256>) -> Vec<(Hash256, LoadResult<T::EthSpec>)> {
-        let mut db_blocks = Vec::new();
-
-        for root in block_roots {
-            if let Some(cached_block) = self
-                .check_early_attester_cache(root)
-                .map(LoadedBeaconBlock::Full)
-            {
-                db_blocks.push((root, Ok(Some(cached_block))));
-                continue;
-            }
-
-            match self.beacon_chain.store.try_get_full_block(&root) {
-                Err(e) => db_blocks.push((root, Err(e.into()))),
-                Ok(opt_block) => db_blocks.push((
-                    root,
-                    Ok(opt_block.map(|db_block| match db_block {
-                        DatabaseBlock::Full(block) => LoadedBeaconBlock::Full(Arc::new(block)),
-                        DatabaseBlock::Blinded(block) => {
-                            LoadedBeaconBlock::Blinded(Box::new(block))
+    async fn load_payloads(
+        self: &Arc<Self>,
+        block_roots: Vec<Hash256>,
+    ) -> Result<Vec<(Hash256, LoadResult<T::EthSpec>)>, BeaconChainError> {
+        let streamer = self.clone();
+        // Loading from the DB is slow -> spawn a blocking task
+        self.beacon_chain
+            .spawn_blocking_handle(
+                move || {
+                    let mut db_blocks = Vec::new();
+                    for root in block_roots {
+                        if let Some(cached_block) =
+                            streamer.check_caches(root).map(LoadedBeaconBlock::Full)
+                        {
+                            db_blocks.push((root, Ok(Some(cached_block))));
+                            continue;
                         }
-                    })),
-                )),
-            }
-        }
 
-        db_blocks
+                        match streamer.beacon_chain.store.try_get_full_block(&root) {
+                            Err(e) => db_blocks.push((root, Err(e.into()))),
+                            Ok(opt_block) => db_blocks.push((
+                                root,
+                                Ok(opt_block.map(|db_block| match db_block {
+                                    DatabaseBlock::Full(block) => {
+                                        LoadedBeaconBlock::Full(Arc::new(block))
+                                    }
+                                    DatabaseBlock::Blinded(block) => {
+                                        LoadedBeaconBlock::Blinded(Box::new(block))
+                                    }
+                                })),
+                            )),
+                        }
+                    }
+                    db_blocks
+                },
+                "load_beacon_blocks",
+            )
+            .await
     }
 
     /// Pre-process the loaded blocks into execution engine requests.
@@ -544,7 +561,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
 
     // used when the execution engine doesn't support the payload bodies methods
     async fn stream_blocks_fallback(
-        &self,
+        self: Arc<Self>,
         block_roots: Vec<Hash256>,
         sender: UnboundedSender<(Hash256, Arc<BlockResult<T::EthSpec>>)>,
     ) {
@@ -553,7 +570,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
             "Using slower fallback method of eth_getBlockByHash()"
         );
         for root in block_roots {
-            let cached_block = self.check_early_attester_cache(root);
+            let cached_block = self.check_caches(root);
             let block_result = if cached_block.is_some() {
                 Ok(cached_block)
             } else {
@@ -570,7 +587,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
     }
 
     async fn stream_blocks(
-        &self,
+        self: Arc<Self>,
         block_roots: Vec<Hash256>,
         sender: UnboundedSender<(Hash256, Arc<BlockResult<T::EthSpec>>)>,
     ) {
@@ -579,7 +596,17 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         let mut n_sent = 0usize;
         let mut engine_requests = 0usize;
 
-        let payloads = self.load_payloads(block_roots);
+        let payloads = match self.load_payloads(block_roots).await {
+            Ok(payloads) => payloads,
+            Err(e) => {
+                error!(
+                    self.beacon_chain.log,
+                    "BeaconBlockStreamer: Failed to load payloads";
+                    "error" => ?e
+                );
+                return;
+            }
+        };
         let requests = self.get_requests(payloads).await;
 
         for (root, request) in requests {
@@ -619,7 +646,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
     }
 
     pub async fn stream(
-        self,
+        self: Arc<Self>,
         block_roots: Vec<Hash256>,
         sender: UnboundedSender<(Hash256, Arc<BlockResult<T::EthSpec>>)>,
     ) {
@@ -645,9 +672,8 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
     }
 
     pub fn launch_stream(
-        self,
+        self: Arc<Self>,
         block_roots: Vec<Hash256>,
-        executor: &TaskExecutor,
     ) -> impl Stream<Item = (Hash256, Arc<BlockResult<T::EthSpec>>)> {
         let (block_tx, block_rx) = mpsc::unbounded_channel();
         debug!(
@@ -655,6 +681,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
             "Launching a BeaconBlockStreamer";
             "blocks" => block_roots.len(),
         );
+        let executor = self.beacon_chain.task_executor.clone();
         executor.spawn(self.stream(block_roots, block_tx), "get_blocks_sender");
         UnboundedReceiverStream::new(block_rx)
     }
@@ -681,7 +708,7 @@ impl From<Error> for BeaconChainError {
 
 #[cfg(test)]
 mod tests {
-    use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckEarlyAttesterCache};
+    use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
     use crate::test_utils::{test_spec, BeaconChainHarness, EphemeralHarnessType};
     use execution_layer::test_utils::{Block, DEFAULT_ENGINE_CAPABILITIES};
     use execution_layer::EngineCapabilities;
@@ -714,19 +741,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_all_blocks_from_altair_to_capella() {
+    async fn check_all_blocks_from_altair_to_electra() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
-        let num_epochs = 8;
+        let num_epochs = 10;
         let bellatrix_fork_epoch = 2usize;
         let capella_fork_epoch = 4usize;
+        let deneb_fork_epoch = 6usize;
+        let electra_fork_epoch = 8usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
 
         let mut spec = test_spec::<MinimalEthSpec>();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
+        spec.deneb_fork_epoch = Some(Epoch::new(deneb_fork_epoch as u64));
+        spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
 
-        let harness = get_harness(VALIDATOR_COUNT, spec);
+        let harness = get_harness(VALIDATOR_COUNT, spec.clone());
         // go to bellatrix fork
         harness
             .extend_slots(bellatrix_fork_epoch * slots_per_epoch)
@@ -801,7 +832,7 @@ mod tests {
             let start = epoch * slots_per_epoch;
             let mut epoch_roots = vec![Hash256::zero(); slots_per_epoch];
             epoch_roots[..].clone_from_slice(&block_roots[start..(start + slots_per_epoch)]);
-            let streamer = BeaconBlockStreamer::new(&harness.chain, CheckEarlyAttesterCache::No)
+            let streamer = BeaconBlockStreamer::new(&harness.chain, CheckCaches::No)
                 .expect("should create streamer");
             let (block_tx, mut block_rx) = mpsc::unbounded_channel();
             streamer.stream(epoch_roots.clone(), block_tx).await;
@@ -833,17 +864,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn check_fallback_altair_to_capella() {
+    async fn check_fallback_altair_to_electra() {
         let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
-        let num_epochs = 8;
+        let num_epochs = 10;
         let bellatrix_fork_epoch = 2usize;
         let capella_fork_epoch = 4usize;
+        let deneb_fork_epoch = 6usize;
+        let electra_fork_epoch = 8usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
 
         let mut spec = test_spec::<MinimalEthSpec>();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
+        spec.deneb_fork_epoch = Some(Epoch::new(deneb_fork_epoch as u64));
+        spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
 
         let harness = get_harness(VALIDATOR_COUNT, spec);
 
@@ -940,7 +975,7 @@ mod tests {
             let start = epoch * slots_per_epoch;
             let mut epoch_roots = vec![Hash256::zero(); slots_per_epoch];
             epoch_roots[..].clone_from_slice(&block_roots[start..(start + slots_per_epoch)]);
-            let streamer = BeaconBlockStreamer::new(&harness.chain, CheckEarlyAttesterCache::No)
+            let streamer = BeaconBlockStreamer::new(&harness.chain, CheckCaches::No)
                 .expect("should create streamer");
             let (block_tx, mut block_rx) = mpsc::unbounded_channel();
             streamer.stream(epoch_roots.clone(), block_tx).await;

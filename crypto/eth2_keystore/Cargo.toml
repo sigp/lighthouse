@@ -2,26 +2,26 @@
 name = "eth2_keystore"
 version = "0.1.0"
 authors = ["Pawan Dhananjay <pawan@sigmaprime.io", "Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rand = "0.8.5"
+rand = { workspace = true }
 hmac = "0.11.0"
 pbkdf2 = { version = "0.8.0", default-features = false }
 scrypt = { version = "0.7.0", default-features = false }
-sha2 = "0.9.2"
-uuid = { version = "0.8.1", features = ["serde", "v4"] }
-zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
-serde = "1.0.116"
-serde_repr = "0.1.6"
-hex = "0.4.2"
-bls = { path = "../bls" }
-serde_json = "1.0.58"
-eth2_key_derivation = { path = "../eth2_key_derivation" }
+sha2 = { workspace = true }
+uuid = { workspace = true }
+zeroize = { workspace = true }
+serde = { workspace = true }
+serde_repr = { workspace = true }
+hex = { workspace = true }
+bls = { workspace = true }
+serde_json = { workspace = true }
+eth2_key_derivation = { workspace = true }
 unicode-normalization = "0.1.16"
 aes = { version = "0.7", features = ["ctr"] }
 
 [dev-dependencies]
-tempfile = "3.1.0"
+tempfile = { workspace = true }

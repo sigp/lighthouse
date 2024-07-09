@@ -1,5 +1,6 @@
 use super::sync::manager::RequestId as SyncId;
-use crate::beacon_processor::InvalidBlockStorage;
+use crate::nat;
+use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::SyncCommitteeService;
@@ -9,6 +10,7 @@ use crate::{
     NetworkConfig,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend};
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
@@ -25,7 +27,8 @@ use lighthouse_network::{
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
 use slog::{crit, debug, error, info, o, trace, warn};
-use std::{collections::HashSet, net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
+use std::collections::BTreeSet;
+use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
 use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
@@ -58,7 +61,7 @@ pub enum RequestId {
 /// Types of messages that the network service can receive.
 #[derive(Debug, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
-pub enum NetworkMessage<T: EthSpec> {
+pub enum NetworkMessage<E: EthSpec> {
     /// Subscribes the beacon node to the core gossipsub topics. We do this when we are either
     /// synced or close to the head slot.
     SubscribeCoreTopics,
@@ -71,7 +74,7 @@ pub enum NetworkMessage<T: EthSpec> {
     /// Send a successful Response to the libp2p service.
     SendResponse {
         peer_id: PeerId,
-        response: Response<T>,
+        response: Response<E>,
         id: PeerRequestId,
     },
     /// Sends an error response to an RPC request.
@@ -82,7 +85,7 @@ pub enum NetworkMessage<T: EthSpec> {
         id: PeerRequestId,
     },
     /// Publish a list of messages to the gossipsub protocol.
-    Publish { messages: Vec<PubsubMessage<T>> },
+    Publish { messages: Vec<PubsubMessage<E>> },
     /// Validates a received gossipsub message. This will propagate the message on the network.
     ValidationResult {
         /// The peer that sent us the message. We don't send back to this peer.
@@ -91,13 +94,6 @@ pub enum NetworkMessage<T: EthSpec> {
         message_id: MessageId,
         /// The result of the validation
         validation_result: MessageAcceptance,
-    },
-    /// Called if a known external TCP socket address has been updated.
-    UPnPMappingEstablished {
-        /// The external TCP address has been updated.
-        tcp_socket: Option<SocketAddr>,
-        /// The external UDP address has been updated.
-        udp_socket: Option<SocketAddr>,
     },
     /// Reports a peer to the peer manager for performing an action.
     ReportPeer {
@@ -124,7 +120,7 @@ pub enum NetworkMessage<T: EthSpec> {
 pub enum ValidatorSubscriptionMessage {
     /// Subscribes a list of validators to specific slots for attestation duties.
     AttestationSubscribe {
-        subscriptions: Vec<ValidatorSubscription>,
+        subscriptions: BTreeSet<ValidatorSubscription>,
     },
     SyncCommitteeSubscribe {
         subscriptions: Vec<SyncCommitteeSubscription>,
@@ -188,12 +184,6 @@ pub struct NetworkService<T: BeaconChainTypes> {
     store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     /// A collection of global variables, accessible outside of the network service.
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
-    /// Stores potentially created UPnP mappings to be removed on shutdown. (TCP port and UDP
-    /// port).
-    upnp_mappings: (Option<u16>, Option<u16>),
-    /// Keeps track of if discovery is auto-updating or not. This is used to inform us if we should
-    /// update the UDP socket of discovery if the UPnP mappings get established.
-    discovery_auto_update: bool,
     /// A delay that expires when a new fork takes place.
     next_fork_update: Pin<Box<OptionFuture<Sleep>>>,
     /// A delay that expires when we need to subscribe to a new fork's topics.
@@ -218,33 +208,46 @@ pub struct NetworkService<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> NetworkService<T> {
-    #[allow(clippy::type_complexity)]
-    pub async fn start(
+    async fn build(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
         executor: task_executor::TaskExecutor,
-        gossipsub_registry: Option<&'_ mut Registry>,
-    ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>)> {
+        libp2p_registry: Option<&'_ mut Registry>,
+        beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+        beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
+    ) -> error::Result<(
+        NetworkService<T>,
+        Arc<NetworkGlobals<T::EthSpec>>,
+        NetworkSenders<T::EthSpec>,
+    )> {
         let network_log = executor.log().clone();
         // build the channels for external comms
-        let (network_senders, network_recievers) = NetworkSenders::new();
+        let (network_senders, network_receivers) = NetworkSenders::new();
 
-        // try and construct UPnP port mappings if required.
-        if let Some(upnp_config) = crate::nat::UPnPConfig::from_config(config) {
-            let upnp_log = network_log.new(o!("service" => "UPnP"));
-            let upnp_network_send = network_senders.network_send();
-            if config.upnp_enabled {
-                executor.spawn_blocking(
-                    move || {
-                        crate::nat::construct_upnp_mappings(
-                            upnp_config,
-                            upnp_network_send,
-                            upnp_log,
-                        )
-                    },
-                    "UPnP",
-                );
-            }
+        #[cfg(feature = "disable-backfill")]
+        warn!(
+            network_log,
+            "Backfill is disabled. DO NOT RUN IN PRODUCTION"
+        );
+
+        if let (true, false, Some(v4)) = (
+            config.upnp_enabled,
+            config.disable_discovery,
+            config.listen_addrs().v4(),
+        ) {
+            let nw = network_log.clone();
+            let v4 = v4.clone();
+            executor.spawn(
+                async move {
+                    info!(nw, "UPnP Attempting to initialise routes");
+                    if let Err(e) =
+                        nat::construct_upnp_mappings(v4.addr, v4.disc_port, nw.clone()).await
+                    {
+                        info!(nw, "Could not UPnP map Discovery port"; "error" => %e);
+                    }
+                },
+                "UPnP",
+            );
         }
 
         // get a reference to the beacon chain store
@@ -277,7 +280,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             enr_fork_id,
             fork_context: fork_context.clone(),
             chain_spec: &beacon_chain.spec,
-            gossipsub_registry,
+            libp2p_registry,
         };
 
         // launch libp2p service
@@ -311,6 +314,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_senders.network_send(),
             executor.clone(),
             invalid_block_storage,
+            beacon_processor_send,
+            beacon_processor_reprocess_tx,
             network_log.clone(),
         )?;
 
@@ -334,7 +339,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let NetworkReceivers {
             network_recv,
             validator_subscription_recv,
-        } = network_recievers;
+        } = network_receivers;
 
         // create the network service and spawn the task
         let network_log = network_log.new(o!("service" => "network"));
@@ -348,8 +353,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             router_send,
             store,
             network_globals: network_globals.clone(),
-            upnp_mappings: (None, None),
-            discovery_auto_update: config.discv5_config.enr_update,
             next_fork_update,
             next_fork_subscriptions,
             next_unsubscribe,
@@ -362,6 +365,28 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             log: network_log,
             enable_light_client_server: config.enable_light_client_server,
         };
+
+        Ok((network_service, network_globals, network_senders))
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub async fn start(
+        beacon_chain: Arc<BeaconChain<T>>,
+        config: &NetworkConfig,
+        executor: task_executor::TaskExecutor,
+        libp2p_registry: Option<&'_ mut Registry>,
+        beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+        beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
+    ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>)> {
+        let (network_service, network_globals, network_senders) = Self::build(
+            beacon_chain,
+            config,
+            executor.clone(),
+            libp2p_registry,
+            beacon_processor_send,
+            beacon_processor_reprocess_tx,
+        )
+        .await?;
 
         network_service.spawn_service(executor);
 
@@ -466,7 +491,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         }
                     }
                 }
-                metrics::update_bandwidth_metrics(self.libp2p.bandwidth.clone());
             }
         };
         executor.spawn(service_fut, "network");
@@ -482,10 +506,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                 self.send_to_router(RouterMessage::StatusPeer(peer_id));
             }
-            NetworkEvent::PeerConnectedIncoming(_)
-            | NetworkEvent::PeerBanned(_)
-            | NetworkEvent::PeerUnbanned(_) => {
-                // No action required for these events.
+            NetworkEvent::PeerConnectedIncoming(_) => {
+                // No action required for this event.
             }
             NetworkEvent::PeerDisconnected(peer_id) => {
                 self.send_to_router(RouterMessage::PeerDisconnected(peer_id));
@@ -512,10 +534,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     response,
                 });
             }
-            NetworkEvent::RPCFailed { id, peer_id } => {
+            NetworkEvent::RPCFailed { id, peer_id, error } => {
                 self.send_to_router(RouterMessage::RPCFailed {
                     peer_id,
                     request_id: id,
+                    error,
                 });
             }
             NetworkEvent::StatusPeer(peer_id) => {
@@ -590,7 +613,15 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 request,
                 request_id,
             } => {
-                self.libp2p.send_request(peer_id, request_id, request);
+                if let Err((request_id, error)) =
+                    self.libp2p.send_request(peer_id, request_id, request)
+                {
+                    self.send_to_router(RouterMessage::RPCFailed {
+                        peer_id,
+                        request_id,
+                        error,
+                    });
+                }
             }
             NetworkMessage::SendResponse {
                 peer_id,
@@ -605,36 +636,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 id,
                 reason,
             } => {
-                self.libp2p.send_error_reponse(peer_id, id, error, reason);
-            }
-            NetworkMessage::UPnPMappingEstablished {
-                tcp_socket,
-                udp_socket,
-            } => {
-                self.upnp_mappings = (tcp_socket.map(|s| s.port()), udp_socket.map(|s| s.port()));
-                // If there is an external TCP port update, modify our local ENR.
-                if let Some(tcp_socket) = tcp_socket {
-                    if let Err(e) = self
-                        .libp2p
-                        .discovery_mut()
-                        .update_enr_tcp_port(tcp_socket.port())
-                    {
-                        warn!(self.log, "Failed to update ENR"; "error" => e);
-                    }
-                }
-                // if the discovery service is not auto-updating, update it with the
-                // UPnP mappings
-                if !self.discovery_auto_update {
-                    if let Some(udp_socket) = udp_socket {
-                        if let Err(e) = self
-                            .libp2p
-                            .discovery_mut()
-                            .update_enr_udp_socket(udp_socket)
-                        {
-                            warn!(self.log, "Failed to update ENR"; "error" => e);
-                        }
-                    }
-                }
+                self.libp2p.send_error_response(peer_id, id, error, reason);
             }
             NetworkMessage::ValidationResult {
                 propagation_source,
@@ -701,7 +703,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
 
                 let mut subscribed_topics: Vec<GossipTopic> = vec![];
-                for topic_kind in core_topics_to_subscribe(self.fork_context.current_fork()) {
+                for topic_kind in core_topics_to_subscribe::<T::EthSpec>(
+                    self.fork_context.current_fork(),
+                    &self.fork_context.spec,
+                ) {
                     for fork_digest in self.required_gossip_fork_digests() {
                         let topic = GossipTopic::new(
                             topic_kind.clone(),
@@ -787,7 +792,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             ValidatorSubscriptionMessage::AttestationSubscribe { subscriptions } => {
                 if let Err(e) = self
                     .attestation_service
-                    .validator_subscriptions(subscriptions)
+                    .validator_subscriptions(subscriptions.into_iter())
                 {
                     warn!(self.log, "Attestation validator subscription failed"; "error" => e);
                 }
@@ -892,9 +897,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
     fn update_next_fork(&mut self) {
         let new_enr_fork_id = self.beacon_chain.enr_fork_id();
+        let new_fork_digest = new_enr_fork_id.fork_digest;
 
         let fork_context = &self.fork_context;
-        if let Some(new_fork_name) = fork_context.from_context_bytes(new_enr_fork_id.fork_digest) {
+        if let Some(new_fork_name) = fork_context.from_context_bytes(new_fork_digest) {
             info!(
                 self.log,
                 "Transitioned to new fork";
@@ -917,13 +923,20 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 Box::pin(next_fork_subscriptions_delay(&self.beacon_chain).into());
             self.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
             info!(self.log, "Network will unsubscribe from old fork gossip topics in a few epochs"; "remaining_epochs" => UNSUBSCRIBE_DELAY_EPOCHS);
+
+            // Remove topic weight from old fork topics to prevent peers that left on the mesh on
+            // old topics from being penalized for not sending us messages.
+            self.libp2p.remove_topic_weight_except(new_fork_digest);
         } else {
             crit!(self.log, "Unknown new enr fork id"; "new_fork_id" => ?new_enr_fork_id);
         }
     }
 
     fn subscribed_core_topics(&self) -> bool {
-        let core_topics = core_topics_to_subscribe(self.fork_context.current_fork());
+        let core_topics = core_topics_to_subscribe::<T::EthSpec>(
+            self.fork_context.current_fork(),
+            &self.fork_context.spec,
+        );
         let core_topics: HashSet<&GossipKind> = HashSet::from_iter(&core_topics);
         let subscriptions = self.network_globals.gossipsub_subscriptions.read();
         let subscribed_topics: HashSet<&GossipKind> =
@@ -983,10 +996,6 @@ impl<T: BeaconChainTypes> Drop for NetworkService<T> {
                 "Saved DHT state";
             ),
         }
-
-        // attempt to remove port mappings
-        crate::nat::remove_mappings(self.upnp_mappings.0, self.upnp_mappings.1, &self.log);
-
         info!(self.log, "Network service shutdown");
     }
 }

@@ -32,6 +32,12 @@ pub struct ValidatorRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_boost_factor: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefer_builder_proposals: Option<bool>,
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_gwei: u64,
 }
@@ -83,6 +89,15 @@ pub struct ValidatorPatchRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graffiti: Option<GraffitiString>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_boost_factor: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefer_builder_proposals: Option<bool>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -102,6 +117,12 @@ pub struct KeystoreValidatorsPostRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_boost_factor: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefer_builder_proposals: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -132,6 +153,12 @@ pub struct Web3SignerValidatorRequest {
     pub client_identity_path: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_identity_password: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_boost_factor: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefer_builder_proposals: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -148,4 +175,25 @@ pub struct UpdateGasLimitRequest {
 #[derive(Deserialize)]
 pub struct VoluntaryExitQuery {
     pub epoch: Option<Epoch>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct ExportKeystoresResponse {
+    pub data: Vec<SingleExportKeystoresResponse>,
+    #[serde(with = "serde_utils::json_str")]
+    pub slashing_protection: Interchange,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct SingleExportKeystoresResponse {
+    pub status: Status<DeleteKeystoreStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validating_keystore: Option<KeystoreJsonStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validating_keystore_password: Option<ZeroizeString>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SetGraffitiRequest {
+    pub graffiti: GraffitiString,
 }

@@ -1,17 +1,25 @@
 #![recursion_limit = "256"]
 #![cfg(unix)]
 
-use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+use beacon_chain::{
+    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
+    ChainConfig,
 };
 use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use http_api::test_utils::{create_api_server, ApiServer};
+use log::error;
+use logging::test_logger;
 use network::NetworkReceivers;
-
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-use tokio::sync::oneshot;
+use std::collections::HashMap;
+use std::env;
+use std::time::Duration;
+use testcontainers::{clients::Cli, core::WaitFor, Image, RunnableImage};
+use tokio::{runtime, task::JoinHandle};
+use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls};
 use types::{Hash256, MainnetEthSpec, Slot};
+use unused_port::unused_tcp4_port;
 use url::Url;
 use watch::{
     client::WatchHttpClient,
@@ -21,20 +29,51 @@ use watch::{
     updater::{handler::*, run_updater, Config as UpdaterConfig, WatchSpec},
 };
 
-use log::error;
-use std::net::SocketAddr;
-use std::time::Duration;
-use tokio::{runtime, task::JoinHandle};
-use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls};
-use unused_port::unused_tcp4_port;
+#[derive(Debug)]
+pub struct Postgres(HashMap<String, String>);
 
-use testcontainers::{clients::Cli, images::postgres::Postgres, RunnableImage};
+impl Default for Postgres {
+    fn default() -> Self {
+        let mut env_vars = HashMap::new();
+        env_vars.insert("POSTGRES_DB".to_owned(), "postgres".to_owned());
+        env_vars.insert("POSTGRES_HOST_AUTH_METHOD".into(), "trust".into());
+
+        Self(env_vars)
+    }
+}
+
+impl Image for Postgres {
+    type Args = ();
+
+    fn name(&self) -> String {
+        "postgres".to_owned()
+    }
+
+    fn tag(&self) -> String {
+        "11-alpine".to_owned()
+    }
+
+    fn ready_conditions(&self) -> Vec<WaitFor> {
+        vec![WaitFor::message_on_stderr(
+            "database system is ready to accept connections",
+        )]
+    }
+
+    fn env_vars(&self) -> Box<dyn Iterator<Item = (&String, &String)> + '_> {
+        Box::new(self.0.iter())
+    }
+}
 
 type E = MainnetEthSpec;
 
 const VALIDATOR_COUNT: usize = 32;
 const SLOTS_PER_EPOCH: u64 = 32;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Set this environment variable to use a different hostname for connecting to
+/// the database. Can be set to `host.docker.internal` for docker-in-docker
+/// setups.
+const WATCH_HOST_ENV_VARIABLE: &str = "WATCH_HOST";
 
 fn build_test_config(config: &DatabaseConfig) -> PostgresConfig {
     let mut postgres_config = PostgresConfig::new();
@@ -71,17 +110,25 @@ pub async fn create_test_database(config: &DatabaseConfig) {
         .expect("Database creation failed");
 }
 
+pub fn get_host_from_env() -> String {
+    env::var(WATCH_HOST_ENV_VARIABLE).unwrap_or_else(|_| "localhost".to_string())
+}
+
 struct TesterBuilder {
     pub harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     pub config: Config,
     _bn_network_rx: NetworkReceivers<E>,
-    _bn_api_shutdown_tx: oneshot::Sender<()>,
 }
 
 impl TesterBuilder {
     pub async fn new() -> TesterBuilder {
         let harness = BeaconChainHarness::builder(E::default())
             .default_spec()
+            .chain_config(ChainConfig {
+                reconstruct_historic_states: true,
+                ..ChainConfig::default()
+            })
+            .logger(test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .build();
@@ -92,21 +139,26 @@ impl TesterBuilder {
         let ApiServer {
             server,
             listening_socket: bn_api_listening_socket,
-            shutdown_tx: _bn_api_shutdown_tx,
             network_rx: _bn_network_rx,
             ..
-        } = create_api_server(harness.chain.clone(), harness.logger().clone()).await;
+        } = create_api_server(
+            harness.chain.clone(),
+            &harness.runtime,
+            harness.logger().clone(),
+        )
+        .await;
         tokio::spawn(server);
 
         /*
          * Create a watch configuration
          */
         let database_port = unused_tcp4_port().expect("Unable to find unused port.");
-        let server_port = unused_tcp4_port().expect("Unable to find unused port.");
+        let server_port = 0;
         let config = Config {
             database: DatabaseConfig {
                 dbname: random_dbname(),
                 port: database_port,
+                host: get_host_from_env(),
                 ..Default::default()
             },
             server: ServerConfig {
@@ -128,24 +180,14 @@ impl TesterBuilder {
             harness,
             config,
             _bn_network_rx,
-            _bn_api_shutdown_tx,
         }
     }
     pub async fn build(self, pool: PgPool) -> Tester {
         /*
          * Spawn a Watch HTTP API.
          */
-        let (_watch_shutdown_tx, watch_shutdown_rx) = oneshot::channel();
-        let watch_server = start_server(&self.config, SLOTS_PER_EPOCH, pool, async {
-            let _ = watch_shutdown_rx.await;
-        })
-        .unwrap();
+        let (addr, watch_server) = start_server(&self.config, SLOTS_PER_EPOCH, pool).unwrap();
         tokio::spawn(watch_server);
-
-        let addr = SocketAddr::new(
-            self.config.server.listen_addr,
-            self.config.server.listen_port,
-        );
 
         /*
          * Create a HTTP client to talk to the watch HTTP API.
@@ -175,8 +217,6 @@ impl TesterBuilder {
             config: self.config,
             updater,
             _bn_network_rx: self._bn_network_rx,
-            _bn_api_shutdown_tx: self._bn_api_shutdown_tx,
-            _watch_shutdown_tx,
         }
     }
     async fn initialize_database(&self) -> PgPool {
@@ -193,8 +233,6 @@ struct Tester {
     pub config: Config,
     pub updater: UpdateHandler<E>,
     _bn_network_rx: NetworkReceivers<E>,
-    _bn_api_shutdown_tx: oneshot::Sender<()>,
-    _watch_shutdown_tx: oneshot::Sender<()>,
 }
 
 impl Tester {

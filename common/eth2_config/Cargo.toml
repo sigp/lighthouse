@@ -2,8 +2,8 @@
 name = "eth2_config"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 [dependencies]
-types = { path = "../../consensus/types" }
-paste = "1.0.5"
+types = { workspace = true }
+paste = { workspace = true }

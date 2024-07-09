@@ -1,4 +1,4 @@
-TESTS_TAG := v5.2.1
+TESTS_TAG := v5.3.0
 GENERATE_DIR := generated-tests
 OUTPUT_DIR := interchange-tests
 TARBALL := $(OUTPUT_DIR)-$(TESTS_TAG).tar.gz
@@ -6,20 +6,23 @@ ARCHIVE_URL := https://github.com/eth-clients/slashing-protection-interchange-te
 
 ifeq ($(OS),Windows_NT)
 ifeq (, $(shell where rm))
-	rmfile = if exist $(1) (del /F /Q $(1))
-	rmdir  = if exist $(1) (rmdir /Q /S $(1))
+	rmfile  = if exist $(1) (del /F /Q $(1))
+	rmdir   = if exist $(1) (rmdir /Q /S $(1))
+	makedir = if not exist $(1) (mkdir $(1))
 else
-	rmfile = rm -f $(1)
-	rmdir  = rm -rf $(1)
+	rmfile  = rm -f $(1)
+	rmdir   = rm -rf $(1)
+	makedir = mkdir -p $(1)
 endif
 else
-	rmfile = rm -f $(1)
-	rmdir  = rm -rf $(1)
+	rmfile  = rm -f $(1)
+	rmdir   = rm -rf $(1)
+	makedir = mkdir -p $(1)
 endif
 
 $(OUTPUT_DIR): $(TARBALL)
 	$(call rmdir,$@)
-	mkdir $@
+	$(call makedir,$@)
 	tar --strip-components=1 -xzf $^ -C $@
 
 $(TARBALL):

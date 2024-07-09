@@ -9,15 +9,51 @@ on:
       - 'pr/*'
   pull_request:
   merge_group:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   # Deny warnings in CI
   # Disable debug info (see https://github.com/sigp/lighthouse/issues/4005)
   RUSTFLAGS: "-D warnings -C debuginfo=0"
-  # The Nightly version used for cargo-udeps, might need updating from time to time.
-  PINNED_NIGHTLY: nightly-2023-04-16
   # Prevent Github API rate limiting.
   LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # Enable self-hosted runners for the sigp repo only.
+  SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
+  # Self-hosted runners need to reference a different host for `./watch` tests.
+  WATCH_HOST: ${{ github.repository == 'sigp/lighthouse' && 'host.docker.internal' || 'localhost' }}
+  # Disable incremental compilation
+  CARGO_INCREMENTAL: 0
+  # Enable portable to prevent issues with caching `blst` for the wrong CPU type
+  TEST_FEATURES: portable
 jobs:
+  check-labels:
+    runs-on: ubuntu-latest
+    name: Check for 'skip-ci' label
+    outputs:
+      skip_ci: ${{ steps.set-output.outputs.SKIP_CI }}
+    steps:
+     - name: check for skip-ci label
+       id: set-output
+       env:
+         LABELS: ${{ toJson(github.event.pull_request.labels) }}
+       run: |
+         SKIP_CI="false"
+         if [ -z "${LABELS}" ]  || [ "${LABELS}" = "null" ]; then
+           LABELS="none";
+         else
+           LABELS=$(echo ${LABELS} | jq -r '.[].name')
+         fi
+         for label in ${LABELS}; do
+           if [ "$label" = "skip-ci" ]; then
+             SKIP_CI="true"
+             break
+           fi
+         done
+         echo "skip_ci=$SKIP_CI" >> $GITHUB_OUTPUT
+
   target-branch-check:
     name: target-branch-check
     runs-on: ubuntu-latest
@@ -25,362 +61,305 @@ jobs:
     steps:
         - name: Check that the pull request is not targeting the stable branch
           run: test ${{ github.base_ref }} != "stable"
-  extract-msrv:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Extract Minimum Supported Rust Version (MSRV)
-      run: |
-        metadata=$(cargo metadata --no-deps --format-version 1)
-        msrv=$(echo $metadata | jq -r '.packages | map(select(.name == "lighthouse")) | .[0].rust_version')
-        echo "MSRV=$msrv" >> $GITHUB_OUTPUT
-      id: extract_msrv
-    outputs:
-      MSRV: ${{ steps.extract_msrv.outputs.MSRV }}
-  cargo-fmt:
-    name: cargo-fmt
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Check formatting with cargo fmt
-      run: make cargo-fmt
   release-tests-ubuntu:
     name: release-tests-ubuntu
-    runs-on: ubuntu-latest
-    needs: cargo-fmt
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    # Use self-hosted runners only on the sigp repo.
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
+      if: env.SELF_HOSTED_RUNNERS == 'false'
+      uses: moonrepo/setup-rust@v1
       with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Install Foundry (anvil)
+      if: env.SELF_HOSTED_RUNNERS == 'false'
+      uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in release
-      run: make test-release
+      run: make nextest-release
+    - name: Show cache stats
+      if: env.SELF_HOSTED_RUNNERS == 'true'
+      run: sccache --show-stats
   release-tests-windows:
     name: release-tests-windows
-    runs-on: windows-2019
-    needs: cargo-fmt
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "CI"]') || 'windows-2019'  }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Use Node.js
-      uses: actions/setup-node@v2
+      if: env.SELF_HOSTED_RUNNERS == 'false'
+      uses: moonrepo/setup-rust@v1
       with:
-        node-version: '14'
-    - name: Install windows build tools
-      run: |
-        choco install python protoc visualstudio2019-workload-vctools -y
-        npm config set msvs_version 2019
-    - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Install Foundry (anvil)
+      if: env.SELF_HOSTED_RUNNERS == 'false'
+      uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Install make
+      if: env.SELF_HOSTED_RUNNERS == 'false'
       run: choco install -y make
-    - uses: KyleMayes/install-llvm-action@v1
-      with:
-        version: "15.0"
-        directory: ${{ runner.temp }}/llvm
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Run tests in release
-      run: make test-release
+      run: make nextest-release
+    - name: Show cache stats
+      if: env.SELF_HOSTED_RUNNERS == 'true'
+      run: sccache --show-stats
   beacon-chain-tests:
     name: beacon-chain-tests
-    runs-on: ubuntu-latest
-    needs: cargo-fmt
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    # Use self-hosted runners only on the sigp repo.
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
+      if: env.SELF_HOSTED_RUNNERS == 'false'
+      uses: moonrepo/setup-rust@v1
       with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
     - name: Run beacon_chain tests for all known forks
       run: make test-beacon-chain
+    - name: Show cache stats
+      if: env.SELF_HOSTED_RUNNERS == 'true'
+      run: sccache --show-stats
   op-pool-tests:
     name: op-pool-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
-    needs: cargo-fmt
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
+      uses: moonrepo/setup-rust@v1
       with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
     - name: Run operation_pool tests for all known forks
       run: make test-op-pool
+  network-tests:
+    name: network-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+        channel: stable
+        cache-target: release
+        bins: cargo-nextest
+    - name: Run network tests for all known forks
+      run: make test-network
   slasher-tests:
     name: slasher-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
-    needs: cargo-fmt
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
-      run: rustup update stable
+      uses: moonrepo/setup-rust@v1
+      with:
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
     - name: Run slasher tests for all supported backends
       run: make test-slasher
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
-    runs-on: ubuntu-22.04
-    needs: cargo-fmt
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    # Use self-hosted runners only on the sigp repo.
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
+      if: env.SELF_HOSTED_RUNNERS == 'false'
+      uses: moonrepo/setup-rust@v1
       with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
+          channel: stable
+          bins: cargo-nextest
+    - name: Install Foundry (anvil)
+      if: env.SELF_HOSTED_RUNNERS == 'false'
+      uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in debug
-      run: make test-debug
+      run: make nextest-debug
+    - name: Show cache stats
+      if: env.SELF_HOSTED_RUNNERS == 'true'
+      run: sccache --show-stats
   state-transition-vectors-ubuntu:
     name: state-transition-vectors-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
+      uses: moonrepo/setup-rust@v1
       with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
+          channel: stable
+          cache-target: release
     - name: Run state_transition_vectors in release.
       run: make run-state-transition-tests
   ef-tests-ubuntu:
     name: ef-tests-ubuntu
-    runs-on: ubuntu-latest
-    needs: cargo-fmt
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    # Use self-hosted runners only on the sigp repo.
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
+      if: env.SELF_HOSTED_RUNNERS == 'false'
+      uses: moonrepo/setup-rust@v1
       with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Run consensus-spec-tests with blst, milagro and fake_crypto
-      run: make test-ef
-  dockerfile-ubuntu:
-    name: dockerfile-ubuntu
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+    - name: Run consensus-spec-tests with blst and fake_crypto
+      run: make nextest-ef
+    - name: Show cache stats
+      if: env.SELF_HOSTED_RUNNERS == 'true'
+      run: sccache --show-stats
+  basic-simulator-ubuntu:
+    name: basic-simulator-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Build the root Dockerfile
-      run: docker build --build-arg FEATURES=portable -t lighthouse:local .
-    - name: Test the built image
-      run: docker run -t lighthouse:local lighthouse --version
-  eth1-simulator-ubuntu:
-    name: eth1-simulator-ubuntu
-    runs-on: ubuntu-latest
-    needs: cargo-fmt
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
+      uses: moonrepo/setup-rust@v1
       with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
-    - name: Run the beacon chain sim that starts from an eth1 contract
-      run: cargo run --release --bin simulator eth1-sim
-  merge-transition-ubuntu:
-    name: merge-transition-ubuntu
+          channel: stable
+          cache-target: release
+    - name: Run a basic beacon chain sim that starts from Bellatrix
+      run: cargo run --release --bin simulator basic-sim
+  fallback-simulator-ubuntu:
+    name: fallback-simulator-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
+      uses: moonrepo/setup-rust@v1
       with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
-    - name: Run the beacon chain sim and go through the merge transition
-      run: cargo run --release --bin simulator eth1-sim --post-merge
-  no-eth1-simulator-ubuntu:
-    name: no-eth1-simulator-ubuntu
-    runs-on: ubuntu-latest
-    needs: cargo-fmt
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Run the beacon chain sim without an eth1 connection
-      run: cargo run --release --bin simulator no-eth1-sim
-  syncing-simulator-ubuntu:
-    name: syncing-simulator-ubuntu
-    runs-on: ubuntu-latest
-    needs: cargo-fmt
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
-    - name: Run the syncing simulator
-      run: cargo run --release --bin simulator syncing-sim
-  doppelganger-protection-test:
-    name: doppelganger-protection-test
-    runs-on: ubuntu-latest
-    needs: cargo-fmt
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install geth
-      run: |
-          sudo add-apt-repository -y ppa:ethereum/ethereum
-          sudo apt-get update
-          sudo apt-get install ethereum
-    - name: Install lighthouse and lcli
-      run: |
-          make
-          make install-lcli
-    - name: Run the doppelganger protection failure test script
-      run: |
-          cd scripts/tests
-          ./doppelganger_protection.sh failure genesis.json
-    - name: Run the doppelganger protection success test script
-      run: |
-          cd scripts/tests
-          ./doppelganger_protection.sh success genesis.json
+          channel: stable
+          cache-target: release
+    - name: Run a beacon chain sim which tests VC fallback behaviour
+      run: cargo run --release --bin simulator fallback-sim
   execution-engine-integration-ubuntu:
     name: execution-engine-integration-ubuntu
-    runs-on: ubuntu-latest
-    needs: cargo-fmt
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-go@v3
-      with:
-        go-version: '1.20'
-    - uses: actions/setup-dotnet@v3
-      with:
-        dotnet-version: '6.0.201'
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
+      if: env.SELF_HOSTED_RUNNERS == 'false'
+      uses: moonrepo/setup-rust@v1
       with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
+          channel: stable
+          cache-target: release
+          cache: false
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Add go compiler to $PATH
+      if: env.SELF_HOSTED_RUNNERS == 'true'
+      run: echo "/usr/local/go/bin" >> $GITHUB_PATH
     - name: Run exec engine integration tests in release
       run: make test-exec-engine
-  check-benchmarks:
-    name: check-benchmarks
+  check-code:
+    name: check-code
     runs-on: ubuntu-latest
-    needs: cargo-fmt
+    env:
+      CARGO_INCREMENTAL: 1
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
+      uses: moonrepo/setup-rust@v1
       with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Typecheck benchmark code without running it
-      run: make check-benches
-  clippy:
-    name: clippy
-    runs-on: ubuntu-latest
-    needs: cargo-fmt
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
+          channel: stable
+          cache-target: release
+          components: rustfmt,clippy
+          bins: cargo-audit
+    - name: Check formatting with cargo fmt
+      run: make cargo-fmt
     - name: Lint code for quality and style with Clippy
       run: make lint
     - name: Certify Cargo.lock freshness
       run: git diff --exit-code Cargo.lock
+    - name: Typecheck benchmark code without running it
+      run: make check-benches
+    - name: Validate state_processing feature arbitrary-fuzz
+      run:  make arbitrary-fuzz
+    - name: Run cargo audit
+      run: make audit-CI
+    - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
+      run:  CARGO_HOME=$(readlink -f $HOME) make vendor
+    - name: Markdown-linter
+      run: make mdlint
   check-msrv:
     name: check-msrv
     runs-on: ubuntu-latest
-    needs: [cargo-fmt, extract-msrv]
     steps:
-    - uses: actions/checkout@v3
-    - name: Install Rust @ MSRV (${{ needs.extract-msrv.outputs.MSRV }})
-      run: rustup override set ${{ needs.extract-msrv.outputs.MSRV }}
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
+    - uses: actions/checkout@v4
+    - name: Install Rust at Minimum Supported Rust Version (MSRV)
+      run: |
+        metadata=$(cargo metadata --no-deps --format-version 1)
+        msrv=$(echo $metadata | jq -r '.packages | map(select(.name == "lighthouse")) | .[0].rust_version')
+        rustup override set $msrv
     - name: Run cargo check
       run: cargo check --workspace
-  arbitrary-check:
-    name: arbitrary-check
-    runs-on: ubuntu-latest
-    needs: cargo-fmt
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Validate state_processing feature arbitrary-fuzz
-      run:  make arbitrary-fuzz
-  cargo-audit:
-    name: cargo-audit
-    runs-on: ubuntu-latest
-    needs: cargo-fmt
-    steps:
-    - uses: actions/checkout@v3
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Run cargo audit to identify known security vulnerabilities reported to the RustSec Advisory Database
-      run:  make audit
-  cargo-vendor:
-    name: cargo-vendor
-    runs-on: ubuntu-latest
-    needs: cargo-fmt
-    steps:
-    - uses: actions/checkout@v3
-    - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
-      run:  CARGO_HOME=$(readlink -f $HOME) make vendor
   cargo-udeps:
     name: cargo-udeps
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
-    needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v3
-    - name: Install Rust (${{ env.PINNED_NIGHTLY }})
-      run: rustup toolchain install $PINNED_NIGHTLY
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
+    - uses: actions/checkout@v4
+    - name: Get latest version of nightly Rust
+      uses: moonrepo/setup-rust@v1
       with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Install cargo-udeps
-      run: cargo install cargo-udeps --locked --force
+          channel: nightly
+          bins: cargo-udeps
+          cache: false
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Create Cargo config dir
       run: mkdir -p .cargo
     - name: Install custom Cargo config
@@ -392,12 +371,59 @@ jobs:
       RUSTFLAGS: ""
   compile-with-beta-compiler:
     name: compile-with-beta-compiler
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Install dependencies
-      run: sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang protobuf-compiler
+      run: sudo apt update && sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
     - name: Use Rust beta
       run: rustup override set beta
     - name: Run make
       run: make
+  cli-check:
+    name: cli-check
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+        channel: stable
+        cache-target: release
+    - name: Run Makefile to trigger the bash script
+      run: make cli
+  # This job succeeds ONLY IF all others succeed. It is used by the merge queue to determine whether
+  # a PR is safe to merge. New jobs should be added here.
+  test-suite-success:
+    name: test-suite-success
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ubuntu-latest
+    needs: [
+      'check-labels',
+      'target-branch-check',
+      'release-tests-ubuntu',
+      'release-tests-windows',
+      'beacon-chain-tests',
+      'op-pool-tests',
+      'network-tests',
+      'slasher-tests',
+      'debug-tests-ubuntu',
+      'state-transition-vectors-ubuntu',
+      'ef-tests-ubuntu',
+      'basic-simulator-ubuntu',
+      'fallback-simulator-ubuntu',
+      'execution-engine-integration-ubuntu',
+      'check-code',
+      'check-msrv',
+      'cargo-udeps',
+      'compile-with-beta-compiler',
+      'cli-check',
+    ]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check that success job is dependent on all others
+        run: ./scripts/ci/check-success-job.sh ./.github/workflows/test-suite.yml test-suite-success

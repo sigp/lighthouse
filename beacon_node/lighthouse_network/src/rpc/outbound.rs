@@ -1,15 +1,11 @@
-use std::marker::PhantomData;
-
 use super::methods::*;
-use super::protocol::Protocol;
 use super::protocol::ProtocolId;
+use super::protocol::SupportedProtocol;
 use super::RPCError;
-use crate::rpc::protocol::Encoding;
-use crate::rpc::protocol::Version;
-use crate::rpc::{
-    codec::{base::BaseOutboundCodec, ssz_snappy::SSZSnappyOutboundCodec, OutboundCodec},
-    methods::ResponseTermination,
+use crate::rpc::codec::{
+    base::BaseOutboundCodec, ssz_snappy::SSZSnappyOutboundCodec, OutboundCodec,
 };
+use crate::rpc::protocol::Encoding;
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, SinkExt};
@@ -26,24 +22,25 @@ use types::{EthSpec, ForkContext};
 // `OutboundUpgrade`
 
 #[derive(Debug, Clone)]
-pub struct OutboundRequestContainer<TSpec: EthSpec> {
-    pub req: OutboundRequest<TSpec>,
+pub struct OutboundRequestContainer<E: EthSpec> {
+    pub req: OutboundRequest<E>,
     pub fork_context: Arc<ForkContext>,
     pub max_rpc_size: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum OutboundRequest<TSpec: EthSpec> {
+pub enum OutboundRequest<E: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
-    LightClientBootstrap(LightClientBootstrapRequest),
+    BlobsByRange(BlobsByRangeRequest),
+    BlobsByRoot(BlobsByRootRequest),
     Ping(Ping),
-    MetaData(PhantomData<TSpec>),
+    MetaData(MetadataRequest<E>),
 }
 
-impl<TSpec: EthSpec> UpgradeInfo for OutboundRequestContainer<TSpec> {
+impl<E: EthSpec> UpgradeInfo for OutboundRequestContainer<E> {
     type Info = ProtocolId;
     type InfoIter = Vec<Self::Info>;
 
@@ -54,68 +51,93 @@ impl<TSpec: EthSpec> UpgradeInfo for OutboundRequestContainer<TSpec> {
 }
 
 /// Implements the encoding per supported protocol for `RPCRequest`.
-impl<TSpec: EthSpec> OutboundRequest<TSpec> {
+impl<E: EthSpec> OutboundRequest<E> {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
         match self {
             // add more protocols when versions/encodings are supported
             OutboundRequest::Status(_) => vec![ProtocolId::new(
-                Protocol::Status,
-                Version::V1,
+                SupportedProtocol::StatusV1,
                 Encoding::SSZSnappy,
             )],
             OutboundRequest::Goodbye(_) => vec![ProtocolId::new(
-                Protocol::Goodbye,
-                Version::V1,
+                SupportedProtocol::GoodbyeV1,
                 Encoding::SSZSnappy,
             )],
             OutboundRequest::BlocksByRange(_) => vec![
-                ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlocksByRangeV2, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlocksByRangeV1, Encoding::SSZSnappy),
             ],
             OutboundRequest::BlocksByRoot(_) => vec![
-                ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlocksByRootV2, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlocksByRootV1, Encoding::SSZSnappy),
             ],
+            OutboundRequest::BlobsByRange(_) => vec![ProtocolId::new(
+                SupportedProtocol::BlobsByRangeV1,
+                Encoding::SSZSnappy,
+            )],
+            OutboundRequest::BlobsByRoot(_) => vec![ProtocolId::new(
+                SupportedProtocol::BlobsByRootV1,
+                Encoding::SSZSnappy,
+            )],
             OutboundRequest::Ping(_) => vec![ProtocolId::new(
-                Protocol::Ping,
-                Version::V1,
+                SupportedProtocol::PingV1,
                 Encoding::SSZSnappy,
             )],
             OutboundRequest::MetaData(_) => vec![
-                ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::MetaDataV2, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::MetaDataV1, Encoding::SSZSnappy),
             ],
-            // Note: This match arm is technically unreachable as we only respond to light client requests
-            // that we generate from the beacon state.
-            // We do not make light client rpc requests from the beacon node
-            OutboundRequest::LightClientBootstrap(_) => vec![],
         }
     }
     /* These functions are used in the handler for stream management */
 
-    /// Number of responses expected for this request.
-    pub fn expected_responses(&self) -> u64 {
+    /// Maximum number of responses expected for this request.
+    pub fn max_responses(&self) -> u64 {
         match self {
             OutboundRequest::Status(_) => 1,
             OutboundRequest::Goodbye(_) => 0,
-            OutboundRequest::BlocksByRange(req) => req.count,
-            OutboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
+            OutboundRequest::BlocksByRange(req) => *req.count(),
+            OutboundRequest::BlocksByRoot(req) => req.block_roots().len() as u64,
+            OutboundRequest::BlobsByRange(req) => req.max_blobs_requested::<E>(),
+            OutboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
-            OutboundRequest::LightClientBootstrap(_) => 1,
         }
     }
 
-    /// Gives the corresponding `Protocol` to this request.
-    pub fn protocol(&self) -> Protocol {
+    pub fn expect_exactly_one_response(&self) -> bool {
         match self {
-            OutboundRequest::Status(_) => Protocol::Status,
-            OutboundRequest::Goodbye(_) => Protocol::Goodbye,
-            OutboundRequest::BlocksByRange(_) => Protocol::BlocksByRange,
-            OutboundRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
-            OutboundRequest::Ping(_) => Protocol::Ping,
-            OutboundRequest::MetaData(_) => Protocol::MetaData,
-            OutboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
+            OutboundRequest::Status(_) => true,
+            OutboundRequest::Goodbye(_) => false,
+            OutboundRequest::BlocksByRange(_) => false,
+            OutboundRequest::BlocksByRoot(_) => false,
+            OutboundRequest::BlobsByRange(_) => false,
+            OutboundRequest::BlobsByRoot(_) => false,
+            OutboundRequest::Ping(_) => true,
+            OutboundRequest::MetaData(_) => true,
+        }
+    }
+
+    /// Gives the corresponding `SupportedProtocol` to this request.
+    pub fn versioned_protocol(&self) -> SupportedProtocol {
+        match self {
+            OutboundRequest::Status(_) => SupportedProtocol::StatusV1,
+            OutboundRequest::Goodbye(_) => SupportedProtocol::GoodbyeV1,
+            OutboundRequest::BlocksByRange(req) => match req {
+                OldBlocksByRangeRequest::V1(_) => SupportedProtocol::BlocksByRangeV1,
+                OldBlocksByRangeRequest::V2(_) => SupportedProtocol::BlocksByRangeV2,
+            },
+            OutboundRequest::BlocksByRoot(req) => match req {
+                BlocksByRootRequest::V1(_) => SupportedProtocol::BlocksByRootV1,
+                BlocksByRootRequest::V2(_) => SupportedProtocol::BlocksByRootV2,
+            },
+            OutboundRequest::BlobsByRange(_) => SupportedProtocol::BlobsByRangeV1,
+            OutboundRequest::BlobsByRoot(_) => SupportedProtocol::BlobsByRootV1,
+            OutboundRequest::Ping(_) => SupportedProtocol::PingV1,
+            OutboundRequest::MetaData(req) => match req {
+                MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
+                MetadataRequest::V2(_) => SupportedProtocol::MetaDataV2,
+            },
         }
     }
 
@@ -127,7 +149,8 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             // variants that have `multiple_responses()` can have values.
             OutboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             OutboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
-            OutboundRequest::LightClientBootstrap(_) => unreachable!(),
+            OutboundRequest::BlobsByRange(_) => ResponseTermination::BlobsByRange,
+            OutboundRequest::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
             OutboundRequest::Status(_) => unreachable!(),
             OutboundRequest::Goodbye(_) => unreachable!(),
             OutboundRequest::Ping(_) => unreachable!(),
@@ -140,14 +163,14 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
 
 /* Outbound upgrades */
 
-pub type OutboundFramed<TSocket, TSpec> = Framed<Compat<TSocket>, OutboundCodec<TSpec>>;
+pub type OutboundFramed<TSocket, E> = Framed<Compat<TSocket>, OutboundCodec<E>>;
 
-impl<TSocket, TSpec> OutboundUpgrade<TSocket> for OutboundRequestContainer<TSpec>
+impl<TSocket, E> OutboundUpgrade<TSocket> for OutboundRequestContainer<E>
 where
-    TSpec: EthSpec + Send + 'static,
+    E: EthSpec + Send + 'static,
     TSocket: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    type Output = OutboundFramed<TSocket, TSpec>;
+    type Output = OutboundFramed<TSocket, E>;
     type Error = RPCError;
     type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
 
@@ -176,18 +199,17 @@ where
     }
 }
 
-impl<TSpec: EthSpec> std::fmt::Display for OutboundRequest<TSpec> {
+impl<E: EthSpec> std::fmt::Display for OutboundRequest<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OutboundRequest::Status(status) => write!(f, "Status Message: {}", status),
             OutboundRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             OutboundRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
             OutboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
+            OutboundRequest::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
+            OutboundRequest::BlobsByRoot(req) => write!(f, "Blobs by root: {:?}", req),
             OutboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             OutboundRequest::MetaData(_) => write!(f, "MetaData request"),
-            OutboundRequest::LightClientBootstrap(bootstrap) => {
-                write!(f, "Lightclient Bootstrap: {}", bootstrap.root)
-            }
         }
     }
 }

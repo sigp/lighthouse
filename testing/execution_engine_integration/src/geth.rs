@@ -3,7 +3,7 @@ use crate::execution_engine::GenericExecutionEngine;
 use crate::genesis_json::geth_genesis_json;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
-use std::{env, fs::File};
+use std::{env, fs};
 use tempfile::TempDir;
 use unused_port::unused_tcp4_port;
 
@@ -36,6 +36,13 @@ pub fn build(execution_clients_dir: &Path) {
     });
 }
 
+pub fn clean(execution_clients_dir: &Path) {
+    let repo_dir = execution_clients_dir.join("go-ethereum");
+    if let Err(e) = fs::remove_dir_all(repo_dir) {
+        eprintln!("Error while deleting folder: {}", e);
+    }
+}
+
 /*
  * Geth-specific Implementation for GenericExecutionEngine
  */
@@ -60,7 +67,7 @@ impl GenericExecutionEngine for GethEngine {
         let datadir = TempDir::new().unwrap();
 
         let genesis_json_path = datadir.path().join("genesis.json");
-        let mut file = File::create(&genesis_json_path).unwrap();
+        let mut file = fs::File::create(&genesis_json_path).unwrap();
         let json = geth_genesis_json();
         serde_json::to_writer(&mut file, &json).unwrap();
 

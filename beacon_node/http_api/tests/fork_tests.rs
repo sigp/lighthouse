@@ -4,6 +4,7 @@ use beacon_chain::{
     StateSkipConfig,
 };
 use eth2::types::{IndexedErrorMessage, StateId, SyncSubcommittee};
+use execution_layer::test_utils::generate_genesis_header;
 use genesis::{bls_withdrawal_credentials, interop_genesis_state_with_withdrawal_credentials};
 use http_api::test_utils::*;
 use std::collections::HashSet;
@@ -127,17 +128,18 @@ async fn attestations_across_fork_with_skip_slots() {
     let all_validators = harness.get_all_validators();
 
     let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
-    let fork_state = harness
+    let mut fork_state = harness
         .chain
         .state_at_slot(fork_slot, StateSkipConfig::WithStateRoots)
         .unwrap();
+    let fork_state_root = fork_state.update_tree_hash_cache().unwrap();
 
     harness.set_current_slot(fork_slot);
 
     let attestations = harness.make_attestations(
         &all_validators,
         &fork_state,
-        fork_state.canonical_root(),
+        fork_state_root,
         (*fork_state.get_block_root(fork_slot - 1).unwrap()).into(),
         fork_slot,
     );
@@ -326,11 +328,8 @@ async fn sync_committee_indices_across_fork() {
 
 /// Assert that an HTTP API error has the given status code and indexed errors for the given indices.
 fn assert_server_indexed_error(error: eth2::Error, status_code: u16, indices: Vec<usize>) {
-    let eth2::Error::ServerIndexedMessage(IndexedErrorMessage {
-        code,
-        failures,
-        ..
-    }) = error else {
+    let eth2::Error::ServerIndexedMessage(IndexedErrorMessage { code, failures, .. }) = error
+    else {
         panic!("wrong error, expected ServerIndexedMessage, got: {error:?}")
     };
     assert_eq!(code, status_code);
@@ -357,12 +356,13 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         .iter()
         .map(|keypair| bls_withdrawal_credentials(&keypair.as_ref().unwrap().pk, &spec))
         .collect::<Vec<_>>();
+    let header = generate_genesis_header(&spec, true);
     let genesis_state = interop_genesis_state_with_withdrawal_credentials(
         &validator_keypairs,
         &withdrawal_credentials,
         HARNESS_GENESIS_TIME,
         Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
-        None,
+        header,
         &spec,
     )
     .unwrap();

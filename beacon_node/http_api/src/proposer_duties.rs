@@ -3,14 +3,14 @@
 use crate::state_id::StateId;
 use beacon_chain::{
     beacon_proposer_cache::{compute_proposer_duties_from_head, ensure_state_is_in_epoch},
-    BeaconChain, BeaconChainError, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use eth2::types::{self as api_types};
 use safe_arith::SafeArith;
 use slog::{debug, Logger};
 use slot_clock::SlotClock;
 use std::cmp::Ordering;
-use types::{CloneConfig, Epoch, EthSpec, Hash256, Slot};
+use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// The struct that is returned to the requesting HTTP client.
 type ApiDuties = api_types::DutiesResponse<Vec<api_types::ProposerData>>;
@@ -33,7 +33,7 @@ pub fn proposer_duties<T: BeaconChainTypes>(
     // will equal `current_epoch + 1`
     let tolerant_current_epoch = chain
         .slot_clock
-        .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
         .ok_or_else(|| warp_utils::reject::custom_server_error("unable to read slot clock".into()))?
         .epoch(T::EthSpec::slots_per_epoch());
 
@@ -97,12 +97,12 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
     let head = chain.canonical_head.cached_head();
     let head_block = &head.snapshot.beacon_block;
     let head_block_root = head.head_block_root();
+    let head_epoch = head_block.slot().epoch(T::EthSpec::slots_per_epoch());
     let head_decision_root = head
         .snapshot
         .beacon_state
         .proposer_shuffling_decision_root(head_block_root)
         .map_err(warp_utils::reject::beacon_state_error)?;
-    let head_epoch = head_block.slot().epoch(T::EthSpec::slots_per_epoch());
     let execution_optimistic = chain
         .is_optimistic_or_invalid_head_block(head_block)
         .map_err(warp_utils::reject::beacon_chain_error)?;
@@ -192,8 +192,7 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
         if head.beacon_state.current_epoch() <= epoch {
             Some((
                 head.beacon_state_root(),
-                head.beacon_state
-                    .clone_with(CloneConfig::committee_caches_only()),
+                head.beacon_state.clone(),
                 execution_status.is_optimistic_or_invalid(),
             ))
         } else {

@@ -5,10 +5,11 @@ use beacon_chain::{
     sync_committee_verification::Error as SyncCommitteeError,
 };
 use fnv::FnvHashMap;
+use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use lighthouse_network::{
-    peer_manager::peerdb::client::ClientKind, types::GossipKind, BandwidthSinks, GossipTopic,
-    Gossipsub, NetworkGlobals,
+    peer_manager::peerdb::client::ClientKind, types::GossipKind, GossipTopic, Gossipsub,
+    NetworkGlobals,
 };
 use std::sync::Arc;
 use strum::IntoEnumIterator;
@@ -49,47 +50,8 @@ lazy_static! {
     /*
      * Gossip processor
      */
-    pub static ref BEACON_PROCESSOR_WORK_EVENTS_RX_COUNT: Result<IntCounterVec> = try_create_int_counter_vec(
-        "beacon_processor_work_events_rx_count",
-        "Count of work events received (but not necessarily processed)",
-        &["type"]
-    );
-    pub static ref BEACON_PROCESSOR_WORK_EVENTS_IGNORED_COUNT: Result<IntCounterVec> = try_create_int_counter_vec(
-        "beacon_processor_work_events_ignored_count",
-        "Count of work events purposefully ignored",
-        &["type"]
-    );
-    pub static ref BEACON_PROCESSOR_WORK_EVENTS_STARTED_COUNT: Result<IntCounterVec> = try_create_int_counter_vec(
-        "beacon_processor_work_events_started_count",
-        "Count of work events which have been started by a worker",
-        &["type"]
-    );
-    pub static ref BEACON_PROCESSOR_WORKER_TIME: Result<HistogramVec> = try_create_histogram_vec(
-        "beacon_processor_worker_time",
-        "Time taken for a worker to fully process some parcel of work.",
-        &["type"]
-    );
-    pub static ref BEACON_PROCESSOR_WORKERS_SPAWNED_TOTAL: Result<IntCounter> = try_create_int_counter(
-        "beacon_processor_workers_spawned_total",
-        "The number of workers ever spawned by the gossip processing pool."
-    );
-    pub static ref BEACON_PROCESSOR_WORKERS_ACTIVE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_processor_workers_active_total",
-        "Count of active workers in the gossip processing pool."
-    );
-    pub static ref BEACON_PROCESSOR_IDLE_EVENTS_TOTAL: Result<IntCounter> = try_create_int_counter(
-        "beacon_processor_idle_events_total",
-        "Count of idle events processed by the gossip processor manager."
-    );
-    pub static ref BEACON_PROCESSOR_EVENT_HANDLING_SECONDS: Result<Histogram> = try_create_histogram(
-        "beacon_processor_event_handling_seconds",
-        "Time spent handling a new message and allocating it to a queue or worker."
-    );
+
     // Gossip blocks.
-    pub static ref BEACON_PROCESSOR_GOSSIP_BLOCK_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_processor_gossip_block_queue_total",
-        "Count of blocks from gossip waiting to be verified."
-    );
     pub static ref BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_gossip_block_verified_total",
         "Total number of gossip blocks verified for propagation."
@@ -106,11 +68,11 @@ lazy_static! {
         "beacon_processor_gossip_block_early_seconds",
         "Whenever a gossip block is received early this metrics is set to how early that block was."
     );
-    // Gossip Exits.
-    pub static ref BEACON_PROCESSOR_EXIT_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_processor_exit_queue_total",
-        "Count of exits from gossip waiting to be verified."
+    pub static ref BEACON_PROCESSOR_GOSSIP_BLOB_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_gossip_blob_verified_total",
+        "Total number of gossip blob verified for propagation."
     );
+    // Gossip Exits.
     pub static ref BEACON_PROCESSOR_EXIT_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_exit_verified_total",
         "Total number of voluntary exits verified for propagation."
@@ -120,10 +82,6 @@ lazy_static! {
         "Total number of voluntary exits imported to the op pool."
     );
     // Gossip proposer slashings.
-    pub static ref BEACON_PROCESSOR_PROPOSER_SLASHING_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_processor_proposer_slashing_queue_total",
-        "Count of proposer slashings from gossip waiting to be verified."
-    );
     pub static ref BEACON_PROCESSOR_PROPOSER_SLASHING_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_proposer_slashing_verified_total",
         "Total number of proposer slashings verified for propagation."
@@ -133,10 +91,6 @@ lazy_static! {
         "Total number of proposer slashings imported to the op pool."
     );
     // Gossip attester slashings.
-    pub static ref BEACON_PROCESSOR_ATTESTER_SLASHING_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_processor_attester_slashing_queue_total",
-        "Count of attester slashings from gossip waiting to be verified."
-    );
     pub static ref BEACON_PROCESSOR_ATTESTER_SLASHING_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_attester_slashing_verified_total",
         "Total number of attester slashings verified for propagation."
@@ -146,10 +100,6 @@ lazy_static! {
         "Total number of attester slashings imported to the op pool."
     );
     // Gossip BLS to execution changes.
-    pub static ref BEACON_PROCESSOR_BLS_TO_EXECUTION_CHANGE_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_processor_bls_to_execution_change_queue_total",
-        "Count of address changes from gossip waiting to be verified."
-    );
     pub static ref BEACON_PROCESSOR_BLS_TO_EXECUTION_CHANGE_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_bls_to_execution_change_verified_total",
         "Total number of address changes verified for propagation."
@@ -158,24 +108,16 @@ lazy_static! {
         "beacon_processor_bls_to_execution_change_imported_total",
         "Total number of address changes imported to the op pool."
     );
+}
+
+// Need to split up this `lazy_static!` due to recursion limits.
+lazy_static! {
     // Rpc blocks.
-    pub static ref BEACON_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_processor_rpc_block_queue_total",
-        "Count of blocks from the rpc waiting to be verified."
-    );
     pub static ref BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_rpc_block_imported_total",
         "Total number of gossip blocks imported to fork choice, etc."
     );
     // Chain segments.
-    pub static ref BEACON_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_processor_chain_segment_queue_total",
-        "Count of chain segments from the rpc waiting to be verified."
-    );
-    pub static ref BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_processor_backfill_chain_segment_queue_total",
-        "Count of backfill chain segments from the rpc waiting to be verified."
-    );
     pub static ref BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_chain_segment_success_total",
         "Total number of chain segments successfully processed."
@@ -193,10 +135,6 @@ lazy_static! {
         "Total number of backfill chain segments that failed processing."
     );
     // Unaggregated attestations.
-    pub static ref BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_processor_unaggregated_attestation_queue_total",
-        "Count of unagg. attestations waiting to be processed."
-    );
     pub static ref BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_unaggregated_attestation_verified_total",
         "Total number of unaggregated attestations verified for gossip."
@@ -210,10 +148,6 @@ lazy_static! {
         "Total number of unaggregated attestations that referenced an unknown block and were re-queued."
     );
     // Aggregated attestations.
-    pub static ref BEACON_PROCESSOR_AGGREGATED_ATTESTATION_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_processor_aggregated_attestation_queue_total",
-        "Count of agg. attestations waiting to be processed."
-    );
     pub static ref BEACON_PROCESSOR_AGGREGATED_ATTESTATION_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_aggregated_attestation_verified_total",
         "Total number of aggregated attestations verified for gossip."
@@ -227,10 +161,6 @@ lazy_static! {
         "Total number of aggregated attestations that referenced an unknown block and were re-queued."
     );
     // Sync committee messages.
-    pub static ref BEACON_PROCESSOR_SYNC_MESSAGE_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_processor_sync_message_queue_total",
-        "Count of sync committee messages waiting to be processed."
-    );
     pub static ref BEACON_PROCESSOR_SYNC_MESSAGE_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_sync_message_verified_total",
         "Total number of sync committee messages verified for gossip."
@@ -240,10 +170,6 @@ lazy_static! {
         "Total number of sync committee messages imported to fork choice, etc."
     );
     // Sync contribution.
-    pub static ref BEACON_PROCESSOR_SYNC_CONTRIBUTION_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
-        "beacon_processor_sync_contribution_queue_total",
-        "Count of sync committee contributions waiting to be processed."
-    );
     pub static ref BEACON_PROCESSOR_SYNC_CONTRIBUTION_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_sync_contribution_verified_total",
         "Total number of sync committee contributions verified for gossip."
@@ -299,22 +225,6 @@ lazy_static! {
 lazy_static! {
 
     /*
-     * Bandwidth metrics
-     */
-    pub static ref INBOUND_LIBP2P_BYTES: Result<IntGauge> =
-        try_create_int_gauge("libp2p_inbound_bytes", "The inbound bandwidth over libp2p");
-
-    pub static ref OUTBOUND_LIBP2P_BYTES: Result<IntGauge> = try_create_int_gauge(
-        "libp2p_outbound_bytes",
-        "The outbound bandwidth over libp2p"
-    );
-    pub static ref TOTAL_LIBP2P_BANDWIDTH: Result<IntGauge> = try_create_int_gauge(
-        "libp2p_total_bandwidth",
-        "The total inbound/outbound bandwidth over libp2p"
-    );
-
-
-    /*
      * Sync related metrics
      */
     pub static ref PEERS_PER_SYNC_TYPE: Result<IntGaugeVec> = try_create_int_gauge_vec(
@@ -335,19 +245,65 @@ lazy_static! {
         "sync_parent_block_lookups",
         "Number of parent block lookups underway"
     );
+    pub static ref SYNC_LOOKUP_CREATED: Result<IntCounter> = try_create_int_counter(
+        "sync_lookups_created_total",
+        "Total count of sync lookups created",
+    );
+    pub static ref SYNC_LOOKUP_DROPPED: Result<IntCounterVec> = try_create_int_counter_vec(
+        "sync_lookups_dropped_total",
+        "Total count of sync lookups dropped by reason",
+        &["reason"]
+    );
+    pub static ref SYNC_LOOKUP_COMPLETED: Result<IntCounter> = try_create_int_counter(
+        "sync_lookups_completed_total",
+        "Total count of sync lookups completed",
+    );
+    pub static ref SYNC_LOOKUPS_STUCK: Result<IntCounter> = try_create_int_counter(
+        "sync_lookups_stuck_total",
+        "Total count of sync lookups that are stuck and dropped",
+    );
 
     /*
      * Block Delay Metrics
      */
-    pub static ref BEACON_BLOCK_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_block_gossip_propagation_verification_delay_time",
-        "Duration between when the block is received and when it is verified for propagation.",
-        // [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
-        decimal_buckets(-3,-1)
+    pub static ref BEACON_BLOCK_DELAY_GOSSIP: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_gossip",
+        "The first time we see this block from gossip as a delay from the start of the slot"
     );
-    pub static ref BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_block_gossip_slot_start_delay_time",
-        "Duration between when the block is received and the start of the slot it belongs to.",
+    pub static ref BEACON_BLOCK_DELAY_GOSSIP_VERIFICATION: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_gossip_verification",
+        "Keeps track of the time delay from the start of the slot to the point we propagate the block"
+    );
+    pub static ref BEACON_BLOCK_DELAY_FULL_VERIFICATION: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_full_verification",
+        "The time it takes to verify a beacon block."
+    );
+
+    pub static ref BEACON_BLOCK_DELAY_GOSSIP_ARRIVED_LATE_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_delay_gossip_arrived_late_total",
+        "Count of times when a gossip block arrived from the network later than the attestation deadline.",
+    );
+
+    /*
+     * Blob Delay Metrics
+     */
+    pub static ref BEACON_BLOB_DELAY_GOSSIP: Result<IntGauge> = try_create_int_gauge(
+        "beacon_blob_delay_gossip_last_delay",
+        "The first time we see this blob as a delay from the start of the slot"
+    );
+
+    pub static ref BEACON_BLOB_DELAY_GOSSIP_VERIFICATION: Result<IntGauge> = try_create_int_gauge(
+        "beacon_blob_delay_gossip_verification",
+        "Keeps track of the time delay from the start of the slot to the point we propagate the blob"
+    );
+    pub static ref BEACON_BLOB_DELAY_FULL_VERIFICATION: Result<IntGauge> = try_create_int_gauge(
+        "beacon_blob_last_full_verification_delay",
+        "The time it takes to verify a beacon blob"
+    );
+
+    pub static ref BEACON_BLOB_RPC_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_blob_rpc_slot_start_delay_time",
+        "Duration between when a blob is received over rpc and the start of the slot it belongs to.",
         // Create a custom bucket list for greater granularity in block delay
         Ok(vec![0.1, 0.2, 0.3,0.4,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.5,3.0,3.5,4.0,5.0,6.0,7.0,8.0,9.0,10.0,15.0,20.0])
         // NOTE: Previous values, which we may want to switch back to.
@@ -355,57 +311,18 @@ lazy_static! {
         //decimal_buckets(-1,2)
 
     );
-    pub static ref BEACON_BLOCK_LAST_DELAY: Result<IntGauge> = try_create_int_gauge(
-        "beacon_block_last_delay",
-        "Keeps track of the last block's delay from the start of the slot"
-    );
 
-    pub static ref BEACON_BLOCK_GOSSIP_ARRIVED_LATE_TOTAL: Result<IntCounter> = try_create_int_counter(
-        "beacon_block_gossip_arrived_late_total",
-        "Count of times when a gossip block arrived from the network later than the attestation deadline.",
-    );
-
-    /*
-     * Attestation reprocessing queue metrics.
-     */
-    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL: Result<IntGaugeVec> =
-        try_create_int_gauge_vec(
-        "beacon_processor_reprocessing_queue_total",
-        "Count of items in a reprocessing queue.",
-        &["type"]
-    );
-    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS: Result<IntCounter> = try_create_int_counter(
-        "beacon_processor_reprocessing_queue_expired_attestations",
-        "Number of queued attestations which have expired before a matching block has been found."
-    );
-    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS: Result<IntCounter> = try_create_int_counter(
-        "beacon_processor_reprocessing_queue_matched_attestations",
-        "Number of queued attestations where as matching block has been imported."
+    pub static ref BEACON_BLOB_GOSSIP_ARRIVED_LATE_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_blob_gossip_arrived_late_total",
+        "Count of times when a gossip blob arrived from the network later than the attestation deadline.",
     );
 
     /*
      * Light client update reprocessing queue metrics.
      */
-    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_OPTIMISTIC_UPDATES: Result<IntCounter> = try_create_int_counter(
-        "beacon_processor_reprocessing_queue_expired_optimistic_updates",
-        "Number of queued light client optimistic updates which have expired before a matching block has been found."
-    );
-    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_OPTIMISTIC_UPDATES: Result<IntCounter> = try_create_int_counter(
-        "beacon_processor_reprocessing_queue_matched_optimistic_updates",
-        "Number of queued light client optimistic updates where as matching block has been imported."
-    );
     pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_SENT_OPTIMISTIC_UPDATES: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_reprocessing_queue_sent_optimistic_updates",
         "Number of queued light client optimistic updates where as matching block has been imported."
-    );
-}
-
-pub fn update_bandwidth_metrics(bandwidth: Arc<BandwidthSinks>) {
-    set_gauge(&INBOUND_LIBP2P_BYTES, bandwidth.total_inbound() as i64);
-    set_gauge(&OUTBOUND_LIBP2P_BYTES, bandwidth.total_outbound() as i64);
-    set_gauge(
-        &TOTAL_LIBP2P_BANDWIDTH,
-        (bandwidth.total_inbound() + bandwidth.total_outbound()) as i64,
     );
 }
 
@@ -425,9 +342,9 @@ pub fn register_sync_committee_error(error: &SyncCommitteeError) {
     inc_counter_vec(&GOSSIP_SYNC_COMMITTEE_ERRORS_PER_TYPE, &[error.as_ref()]);
 }
 
-pub fn update_gossip_metrics<T: EthSpec>(
+pub fn update_gossip_metrics<E: EthSpec>(
     gossipsub: &Gossipsub,
-    network_globals: &Arc<NetworkGlobals<T>>,
+    network_globals: &Arc<NetworkGlobals<E>>,
 ) {
     // Mesh peers per client
     // Reset the gauges
@@ -486,7 +403,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
     }
 }
 
-pub fn update_sync_metrics<T: EthSpec>(network_globals: &Arc<NetworkGlobals<T>>) {
+pub fn update_sync_metrics<E: EthSpec>(network_globals: &Arc<NetworkGlobals<E>>) {
     // reset the counts
     if PEERS_PER_SYNC_TYPE
         .as_ref()

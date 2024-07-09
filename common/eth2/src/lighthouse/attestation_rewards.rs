@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_utils::quoted_u64::Quoted;
 
 // Details about the rewards paid for attestations
 // All rewards in GWei
@@ -17,6 +18,12 @@ pub struct IdealAttestationRewards {
     // Ideal attester's reward for source vote in gwei
     #[serde(with = "serde_utils::quoted_u64")]
     pub source: u64,
+    // Ideal attester's inclusion_delay reward in gwei (phase0 only)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inclusion_delay: Option<Quoted<u64>>,
+    // Ideal attester's inactivity penalty in gwei
+    #[serde(with = "serde_utils::quoted_i64")]
+    pub inactivity: i64,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -25,16 +32,20 @@ pub struct TotalAttestationRewards {
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     // attester's reward for head vote in gwei
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub head: u64,
+    #[serde(with = "serde_utils::quoted_i64")]
+    pub head: i64,
     // attester's reward for target vote in gwei
     #[serde(with = "serde_utils::quoted_i64")]
     pub target: i64,
     // attester's reward for source vote in gwei
     #[serde(with = "serde_utils::quoted_i64")]
     pub source: i64,
-    // TBD attester's inclusion_delay reward in gwei (phase0 only)
-    // pub inclusion_delay: u64,
+    // attester's inclusion_delay reward in gwei (phase0 only)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inclusion_delay: Option<Quoted<u64>>,
+    // attester's inactivity penalty in gwei
+    #[serde(with = "serde_utils::quoted_i64")]
+    pub inactivity: i64,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]

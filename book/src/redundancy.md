@@ -1,7 +1,5 @@
 # Redundancy
 
-[subscribe-api]: https://ethereum.github.io/beacon-APIs/#/Validator/prepareBeaconCommitteeSubnet
-
 There are three places in Lighthouse where redundancy is notable:
 
 1. ✅ GOOD: Using a redundant beacon node in `lighthouse vc --beacon-nodes`
@@ -38,9 +36,9 @@ duties as long as *at least one* of the beacon nodes is available.
 There are a few interesting properties about the list of `--beacon-nodes`:
 
 - *Ordering matters*: the validator client prefers a beacon node that is
-	earlier in the list.
+ earlier in the list.
 - *Synced is preferred*: the validator client prefers a synced beacon node over
-	one that is still syncing.
+ one that is still syncing.
 - *Failure is sticky*: if a beacon node fails, it will be flagged as offline
     and won't be retried again for the rest of the slot (12 seconds). This helps prevent the impact
     of time-outs and other lengthy errors.
@@ -48,7 +46,6 @@ There are a few interesting properties about the list of `--beacon-nodes`:
 > Note: When supplying multiple beacon nodes the `http://localhost:5052` address must be explicitly
 > provided (if it is desired). It will only be used as default if no `--beacon-nodes` flag is
 > provided at all.
-
 
 ### Configuring a redundant Beacon Node
 
@@ -58,8 +55,10 @@ following flags:
 
 - `--http`: starts the HTTP API server.
 - `--http-address local_IP`: where `local_IP` is the private IP address of the computer running the beacon node. This is only required if your backup beacon node is on a different host.
+
  > Note: You could also use `--http-address 0.0.0.0`, but this allows *any* external IP address to access the HTTP server. As such, a firewall should be configured to deny unauthorized access to port `5052`.
- - `--execution-endpoint`: see [Merge Migration](./merge-migration.md).
+
+- `--execution-endpoint`: see [Merge Migration](./merge-migration.md).
 - `--execution-jwt`: see [Merge Migration](./merge-migration.md).
 
 For example one could use the following command to provide a backup beacon node:
@@ -75,12 +74,39 @@ lighthouse bn \
 Prior to v3.2.0 fallback beacon nodes also required the `--subscribe-all-subnets` and
 `--import-all-attestations` flags. These flags are no longer required as the validator client will
 now broadcast subscriptions to all connected beacon nodes by default. This broadcast behaviour
-can be disabled using the `--disable-run-on-all` flag for `lighthouse vc`.
+can be disabled using the `--broadcast none` flag for `lighthouse vc` (or `--disable-run-on-all`
+[deprecated]).
+
+### Broadcast modes
+
+Since v4.6.0, the Lighthouse VC can be configured to broadcast messages to all configured beacon
+nodes rather than just the first available.
+
+The flag to control this behaviour is `--broadcast`, which takes multiple comma-separated values
+from this list:
+
+- `subscriptions`: Send subnet subscriptions & other control messages which keep the beacon nodes
+  primed and ready to process messages. It is recommended to leave this enabled.
+- `attestations`: Send attestations & aggregates to all beacon nodes. This can improve
+  propagation of attestations throughout the network, at the cost of increased load on the beacon
+  nodes and increased bandwidth between the VC and the BNs.
+- `blocks`: Send proposed blocks to all beacon nodes. This can improve propagation of blocks
+  throughout the network, at the cost of slightly increased load on the beacon nodes and increased
+  bandwidth between the VC and the BNs. If you are looking to improve performance in a multi-BN
+  setup this is the first option we would recommend enabling.
+- `sync-committee`: Send sync committee signatures & aggregates to all beacon nodes. This can
+  improve propagation of sync committee messages with similar tradeoffs to broadcasting
+  attestations, although occurring less often due to the infrequency of sync committee duties.
+- `none`: Disable all broadcasting. This option only has an effect when provided alone, otherwise
+   it is ignored. Not recommended except for expert tweakers.
+
+The default is `--broadcast subscriptions`. To also broadcast blocks for example, use
+`--broadcast subscriptions,blocks`.
 
 ## Redundant execution nodes
 
 Lighthouse previously supported redundant execution nodes for fetching data from the deposit
-contract. On merged networks _this is no longer supported_. Each Lighthouse beacon node must be
+contract. On merged networks *this is no longer supported*. Each Lighthouse beacon node must be
 configured in a 1:1 relationship with an execution node. For more information on the rationale
 behind this decision please see the [Merge Migration](./merge-migration.md) documentation.
 

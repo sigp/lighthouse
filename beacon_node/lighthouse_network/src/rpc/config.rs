@@ -4,9 +4,9 @@ use std::{
     time::Duration,
 };
 
-use super::{methods, rate_limiter::Quota, Protocol};
+use super::{rate_limiter::Quota, Protocol};
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 /// Auxiliary struct to aid on configuration parsing.
 ///
@@ -89,7 +89,11 @@ pub struct RateLimiterConfig {
     pub(super) goodbye_quota: Quota,
     pub(super) blocks_by_range_quota: Quota,
     pub(super) blocks_by_root_quota: Quota,
+    pub(super) blobs_by_range_quota: Quota,
+    pub(super) blobs_by_root_quota: Quota,
     pub(super) light_client_bootstrap_quota: Quota,
+    pub(super) light_client_optimistic_update_quota: Quota,
+    pub(super) light_client_finality_update_quota: Quota,
 }
 
 impl RateLimiterConfig {
@@ -97,10 +101,13 @@ impl RateLimiterConfig {
     pub const DEFAULT_META_DATA_QUOTA: Quota = Quota::n_every(2, 5);
     pub const DEFAULT_STATUS_QUOTA: Quota = Quota::n_every(5, 15);
     pub const DEFAULT_GOODBYE_QUOTA: Quota = Quota::one_every(10);
-    pub const DEFAULT_BLOCKS_BY_RANGE_QUOTA: Quota =
-        Quota::n_every(methods::MAX_REQUEST_BLOCKS, 10);
+    pub const DEFAULT_BLOCKS_BY_RANGE_QUOTA: Quota = Quota::n_every(1024, 10);
     pub const DEFAULT_BLOCKS_BY_ROOT_QUOTA: Quota = Quota::n_every(128, 10);
+    pub const DEFAULT_BLOBS_BY_RANGE_QUOTA: Quota = Quota::n_every(768, 10);
+    pub const DEFAULT_BLOBS_BY_ROOT_QUOTA: Quota = Quota::n_every(128, 10);
     pub const DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA: Quota = Quota::one_every(10);
+    pub const DEFAULT_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUOTA: Quota = Quota::one_every(10);
+    pub const DEFAULT_LIGHT_CLIENT_FINALITY_UPDATE_QUOTA: Quota = Quota::one_every(10);
 }
 
 impl Default for RateLimiterConfig {
@@ -112,7 +119,12 @@ impl Default for RateLimiterConfig {
             goodbye_quota: Self::DEFAULT_GOODBYE_QUOTA,
             blocks_by_range_quota: Self::DEFAULT_BLOCKS_BY_RANGE_QUOTA,
             blocks_by_root_quota: Self::DEFAULT_BLOCKS_BY_ROOT_QUOTA,
+            blobs_by_range_quota: Self::DEFAULT_BLOBS_BY_RANGE_QUOTA,
+            blobs_by_root_quota: Self::DEFAULT_BLOBS_BY_ROOT_QUOTA,
             light_client_bootstrap_quota: Self::DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA,
+            light_client_optimistic_update_quota:
+                Self::DEFAULT_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUOTA,
+            light_client_finality_update_quota: Self::DEFAULT_LIGHT_CLIENT_FINALITY_UPDATE_QUOTA,
         }
     }
 }
@@ -136,6 +148,8 @@ impl Debug for RateLimiterConfig {
             .field("goodbye", fmt_q!(&self.goodbye_quota))
             .field("blocks_by_range", fmt_q!(&self.blocks_by_range_quota))
             .field("blocks_by_root", fmt_q!(&self.blocks_by_root_quota))
+            .field("blobs_by_range", fmt_q!(&self.blobs_by_range_quota))
+            .field("blobs_by_root", fmt_q!(&self.blobs_by_root_quota))
             .finish()
     }
 }
@@ -154,7 +168,11 @@ impl FromStr for RateLimiterConfig {
         let mut goodbye_quota = None;
         let mut blocks_by_range_quota = None;
         let mut blocks_by_root_quota = None;
+        let mut blobs_by_range_quota = None;
+        let mut blobs_by_root_quota = None;
         let mut light_client_bootstrap_quota = None;
+        let mut light_client_optimistic_update_quota = None;
+        let mut light_client_finality_update_quota = None;
 
         for proto_def in s.split(';') {
             let ProtocolQuota { protocol, quota } = proto_def.parse()?;
@@ -164,10 +182,20 @@ impl FromStr for RateLimiterConfig {
                 Protocol::Goodbye => goodbye_quota = goodbye_quota.or(quota),
                 Protocol::BlocksByRange => blocks_by_range_quota = blocks_by_range_quota.or(quota),
                 Protocol::BlocksByRoot => blocks_by_root_quota = blocks_by_root_quota.or(quota),
+                Protocol::BlobsByRange => blobs_by_range_quota = blobs_by_range_quota.or(quota),
+                Protocol::BlobsByRoot => blobs_by_root_quota = blobs_by_root_quota.or(quota),
                 Protocol::Ping => ping_quota = ping_quota.or(quota),
                 Protocol::MetaData => meta_data_quota = meta_data_quota.or(quota),
                 Protocol::LightClientBootstrap => {
                     light_client_bootstrap_quota = light_client_bootstrap_quota.or(quota)
+                }
+                Protocol::LightClientOptimisticUpdate => {
+                    light_client_optimistic_update_quota =
+                        light_client_optimistic_update_quota.or(quota)
+                }
+                Protocol::LightClientFinalityUpdate => {
+                    light_client_finality_update_quota =
+                        light_client_finality_update_quota.or(quota)
                 }
             }
         }
@@ -180,8 +208,15 @@ impl FromStr for RateLimiterConfig {
                 .unwrap_or(Self::DEFAULT_BLOCKS_BY_RANGE_QUOTA),
             blocks_by_root_quota: blocks_by_root_quota
                 .unwrap_or(Self::DEFAULT_BLOCKS_BY_ROOT_QUOTA),
+            blobs_by_range_quota: blobs_by_range_quota
+                .unwrap_or(Self::DEFAULT_BLOBS_BY_RANGE_QUOTA),
+            blobs_by_root_quota: blobs_by_root_quota.unwrap_or(Self::DEFAULT_BLOBS_BY_ROOT_QUOTA),
             light_client_bootstrap_quota: light_client_bootstrap_quota
                 .unwrap_or(Self::DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA),
+            light_client_optimistic_update_quota: light_client_optimistic_update_quota
+                .unwrap_or(Self::DEFAULT_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUOTA),
+            light_client_finality_update_quota: light_client_finality_update_quota
+                .unwrap_or(Self::DEFAULT_LIGHT_CLIENT_FINALITY_UPDATE_QUOTA),
         })
     }
 }

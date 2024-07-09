@@ -1,0 +1,26 @@
+[package]
+name = "beacon_processor"
+version = "0.1.0"
+edition = { workspace = true }
+
+[dependencies]
+slog = { workspace = true }
+itertools = { workspace = true }
+logging = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+futures = { workspace = true }
+fnv = { workspace = true }
+strum = { workspace = true }
+task_executor = { workspace = true }
+slot_clock = { workspace = true }
+lighthouse_network = { workspace = true }
+types = { workspace = true }
+lazy_static = { workspace = true }
+lighthouse_metrics = { workspace = true }
+parking_lot = { workspace = true }
+num_cpus = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

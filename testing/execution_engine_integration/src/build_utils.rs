@@ -66,6 +66,7 @@ pub fn get_latest_release(repo_dir: &Path, branch_name: &str) -> Result<String, 
         Command::new("git")
             .arg("fetch")
             .arg("--tags")
+            .arg("--force")
             .current_dir(repo_dir)
             .output()
             .map_err(|e| format!("Failed to fetch tags for {repo_dir:?}: Err: {e}"))?,

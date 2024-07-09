@@ -1,4 +1,5 @@
 use slog::{debug, Logger};
+use ssz_derive::{Decode, Encode};
 use std::cmp;
 use std::collections::BTreeMap;
 use types::{Checkpoint, Epoch, Eth1Data, Hash256 as Root};
@@ -10,7 +11,7 @@ pub const DEFAULT_ETH1_CACHE_SIZE: usize = 5;
 
 /// These fields are named the same as the corresponding fields in the `BeaconState`
 /// as this structure stores these values from the `BeaconState` at a `Checkpoint`
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Encode, Decode)]
 pub struct Eth1FinalizationData {
     pub eth1_data: Eth1Data,
     pub eth1_deposit_index: u64,
@@ -66,7 +67,7 @@ impl CheckpointMap {
     pub fn insert(&mut self, checkpoint: Checkpoint, eth1_finalization_data: Eth1FinalizationData) {
         self.store
             .entry(checkpoint.epoch)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push((checkpoint.root, eth1_finalization_data));
 
         // faster to reduce size after the fact than do pre-checking to see

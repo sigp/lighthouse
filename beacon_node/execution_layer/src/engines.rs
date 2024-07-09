@@ -4,22 +4,24 @@ use crate::engine_api::{
     EngineCapabilities, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes,
     PayloadId,
 };
-use crate::HttpJsonRpc;
+use crate::{ClientVersionV1, HttpJsonRpc};
 use lru::LruCache;
 use slog::{debug, error, info, warn, Logger};
 use std::future::Future;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::{watch, Mutex, RwLock};
 use tokio_stream::wrappers::WatchStream;
+use types::non_zero_usize::new_non_zero_usize;
 use types::ExecutionBlockHash;
 
 /// The number of payload IDs that will be stored for each `Engine`.
 ///
 /// Since the size of each value is small (~800 bytes) a large number is used for safety.
-const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
-const CACHED_ENGINE_CAPABILITIES_AGE_LIMIT: Duration = Duration::from_secs(900); // 15 minutes
+const PAYLOAD_ID_LRU_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(512);
+const CACHED_RESPONSE_AGE_LIMIT: Duration = Duration::from_secs(900); // 15 minutes
 
 /// Stores the remembered state of a engine.
 #[derive(Copy, Clone, PartialEq, Debug, Eq, Default)]
@@ -32,11 +34,11 @@ enum EngineStateInternal {
 }
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
-enum CapabilitiesCacheAction {
+enum ResponseCacheAction {
     #[default]
     None,
-    Update,
-    Clear,
+    Update, // Update cached responses
+    Clear,  // Clear cached responses
 }
 
 /// A subset of the engine state to inform other services if the engine is online or offline.
@@ -264,12 +266,12 @@ impl Engine {
                     );
                 }
                 state.update(EngineStateInternal::Synced);
-                (**state, CapabilitiesCacheAction::Update)
+                (**state, ResponseCacheAction::Update)
             }
             Err(EngineApiError::IsSyncing) => {
                 let mut state = self.state.write().await;
                 state.update(EngineStateInternal::Syncing);
-                (**state, CapabilitiesCacheAction::Update)
+                (**state, ResponseCacheAction::Update)
             }
             Err(EngineApiError::Auth(err)) => {
                 error!(
@@ -280,7 +282,7 @@ impl Engine {
 
                 let mut state = self.state.write().await;
                 state.update(EngineStateInternal::AuthFailed);
-                (**state, CapabilitiesCacheAction::Clear)
+                (**state, ResponseCacheAction::Clear)
             }
             Err(e) => {
                 error!(
@@ -291,28 +293,37 @@ impl Engine {
 
                 let mut state = self.state.write().await;
                 state.update(EngineStateInternal::Offline);
-                // need to clear the engine capabilities cache if we detect the
-                // execution engine is offline as it is likely the engine is being
-                // updated to a newer version with new capabilities
-                (**state, CapabilitiesCacheAction::Clear)
+                // need to clear cached responses if we detect the execution engine
+                // is offline as it is likely the engine is being updated to a newer
+                // version which might also have new capabilities
+                (**state, ResponseCacheAction::Clear)
             }
         };
 
         // do this after dropping state lock guard to avoid holding two locks at once
         match cache_action {
-            CapabilitiesCacheAction::None => {}
-            CapabilitiesCacheAction::Update => {
+            ResponseCacheAction::None => {}
+            ResponseCacheAction::Update => {
                 if let Err(e) = self
-                    .get_engine_capabilities(Some(CACHED_ENGINE_CAPABILITIES_AGE_LIMIT))
+                    .get_engine_capabilities(Some(CACHED_RESPONSE_AGE_LIMIT))
                     .await
                 {
                     warn!(self.log,
                         "Error during exchange capabilities";
                         "error" => ?e,
                     )
+                } else {
+                    // no point in running this if there was an error fetching the capabilities
+                    // as it will just result in an error again
+                    let _ = self
+                        .get_engine_version(Some(CACHED_RESPONSE_AGE_LIMIT))
+                        .await;
                 }
             }
-            CapabilitiesCacheAction::Clear => self.api.clear_exchange_capabilties_cache().await,
+            ResponseCacheAction::Clear => {
+                self.api.clear_exchange_capabilties_cache().await;
+                self.api.clear_engine_version_cache().await;
+            }
         }
 
         debug!(
@@ -336,6 +347,22 @@ impl Engine {
         age_limit: Option<Duration>,
     ) -> Result<EngineCapabilities, EngineApiError> {
         self.api.get_engine_capabilities(age_limit).await
+    }
+
+    /// Returns the execution engine version resulting from a call to
+    /// engine_clientVersionV1. If the version cache is not populated, or if it
+    /// is populated with a cached result of age >= `age_limit`, this method will
+    /// fetch the result from the execution engine and populate the cache before
+    /// returning it. Otherwise it will return the cached result from an earlier
+    /// call.
+    ///
+    /// Set `age_limit` to `None` to always return the cached result
+    /// Set `age_limit` to `Some(Duration::ZERO)` to force fetching from EE
+    pub async fn get_engine_version(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<Vec<ClientVersionV1>, EngineApiError> {
+        self.api.get_engine_version(age_limit).await
     }
 
     /// Run `func` on the node regardless of the node's current state.

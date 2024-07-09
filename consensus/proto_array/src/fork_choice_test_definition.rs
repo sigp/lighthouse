@@ -5,7 +5,7 @@ mod votes;
 
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, ProtoArrayForkChoice};
 use crate::{InvalidationOperation, JustifiedBalances};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use types::{
     AttestationShufflingId, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
@@ -80,6 +80,7 @@ impl ForkChoiceTestDefinition {
         let junk_shuffling_id =
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
         let mut fork_choice = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+            self.finalized_block_slot,
             self.finalized_block_slot,
             Hash256::zero(),
             self.justified_checkpoint,
@@ -284,17 +285,17 @@ impl ForkChoiceTestDefinition {
     }
 }
 
-/// Gives a root that is not the zero hash (unless i is `usize::max_value)`.
+/// Gives a root that is not the zero hash (unless i is `usize::MAX)`.
 fn get_root(i: u64) -> Hash256 {
     Hash256::from_low_u64_be(i + 1)
 }
 
-/// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
+/// Gives a hash that is not the zero hash (unless i is `usize::MAX)`.
 fn get_hash(i: u64) -> ExecutionBlockHash {
     ExecutionBlockHash::from_root(get_root(i))
 }
 
-/// Gives a checkpoint with a root that is not the zero hash (unless i is `usize::max_value)`.
+/// Gives a checkpoint with a root that is not the zero hash (unless i is `usize::MAX)`.
 /// `Epoch` will always equal `i`.
 fn get_checkpoint(i: u64) -> Checkpoint {
     Checkpoint {

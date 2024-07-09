@@ -1,5 +1,5 @@
 use crate::builder::{
-    ETH1_DEPOSIT_AMOUNT_FILE, ETH1_DEPOSIT_DATA_FILE, VOTING_KEYSTORE_FILE,
+    keystore_password_path, ETH1_DEPOSIT_AMOUNT_FILE, ETH1_DEPOSIT_DATA_FILE, VOTING_KEYSTORE_FILE,
     WITHDRAWAL_KEYSTORE_FILE,
 };
 use deposit_contract::decode_eth1_tx_data;
@@ -39,8 +39,6 @@ pub enum Error {
     /// generally caused by supplying an `amount` at deposit-time that is different to the one used
     /// at generation-time.
     Eth1DepositRootMismatch,
-    #[cfg(feature = "unencrypted_keys")]
-    SszKeypairError(String),
 }
 
 /// Information required to submit a deposit to the Eth1 deposit contract.
@@ -219,9 +217,7 @@ pub fn unlock_keypair<P: AsRef<Path>>(
     )
     .map_err(Error::UnableToReadKeystore)?;
 
-    let password_path = password_dir
-        .as_ref()
-        .join(format!("0x{}", keystore.pubkey()));
+    let password_path = keystore_password_path(password_dir, &keystore);
     let password: PlainText = read(&password_path)
         .map_err(|_| Error::UnableToReadPassword(password_path))?
         .into();

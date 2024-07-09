@@ -1,4 +1,4 @@
-use parking_lot::RwLock;
+use parking_lot::{RwLock, RwLockReadGuard};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use types::{Hash256, Slot};
@@ -15,6 +15,8 @@ pub enum Error {
 /// registered here.
 #[derive(Default, Debug)]
 pub struct HeadTracker(pub RwLock<HashMap<Hash256, Slot>>);
+
+pub type HeadTrackerReader<'a> = RwLockReadGuard<'a, HashMap<Hash256, Slot>>;
 
 impl HeadTracker {
     /// Register a block with `Self`, so it may or may not be included in a `Self::heads` call.
@@ -44,6 +46,11 @@ impl HeadTracker {
 
     /// Returns a `SszHeadTracker`, which contains all necessary information to restore the state
     /// of `Self` at some later point.
+    ///
+    /// Should ONLY be used for tests, due to the potential for database races.
+    ///
+    /// See <https://github.com/sigp/lighthouse/issues/4773>
+    #[cfg(test)]
     pub fn to_ssz_container(&self) -> SszHeadTracker {
         SszHeadTracker::from_map(&self.0.read())
     }

@@ -20,6 +20,8 @@ pub struct GossipCache {
     topic_msgs: HashMap<GossipTopic, HashMap<Vec<u8>, Key>>,
     /// Timeout for blocks.
     beacon_block: Option<Duration>,
+    /// Timeout for blobs.
+    blob_sidecar: Option<Duration>,
     /// Timeout for aggregate attestations.
     aggregates: Option<Duration>,
     /// Timeout for attestations.
@@ -47,6 +49,8 @@ pub struct GossipCacheBuilder {
     default_timeout: Option<Duration>,
     /// Timeout for blocks.
     beacon_block: Option<Duration>,
+    /// Timeout for blob sidecars.
+    blob_sidecar: Option<Duration>,
     /// Timeout for aggregate attestations.
     aggregates: Option<Duration>,
     /// Timeout for attestations.
@@ -147,6 +151,7 @@ impl GossipCacheBuilder {
         let GossipCacheBuilder {
             default_timeout,
             beacon_block,
+            blob_sidecar,
             aggregates,
             attestation,
             voluntary_exit,
@@ -162,6 +167,7 @@ impl GossipCacheBuilder {
             expirations: DelayQueue::default(),
             topic_msgs: HashMap::default(),
             beacon_block: beacon_block.or(default_timeout),
+            blob_sidecar: blob_sidecar.or(default_timeout),
             aggregates: aggregates.or(default_timeout),
             attestation: attestation.or(default_timeout),
             voluntary_exit: voluntary_exit.or(default_timeout),
@@ -187,6 +193,7 @@ impl GossipCache {
     pub fn insert(&mut self, topic: GossipTopic, data: Vec<u8>) {
         let expire_timeout = match topic.kind() {
             GossipKind::BeaconBlock => self.beacon_block,
+            GossipKind::BlobSidecar(_) => self.blob_sidecar,
             GossipKind::BeaconAggregateAndProof => self.aggregates,
             GossipKind::Attestation(_) => self.attestation,
             GossipKind::VoluntaryExit => self.voluntary_exit,
@@ -198,9 +205,8 @@ impl GossipCache {
             GossipKind::LightClientFinalityUpdate => self.light_client_finality_update,
             GossipKind::LightClientOptimisticUpdate => self.light_client_optimistic_update,
         };
-        let expire_timeout = match expire_timeout {
-            Some(expire_timeout) => expire_timeout,
-            None => return,
+        let Some(expire_timeout) = expire_timeout else {
+            return;
         };
         match self
             .topic_msgs
@@ -234,7 +240,7 @@ impl futures::stream::Stream for GossipCache {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.expirations.poll_expired(cx) {
-            Poll::Ready(Some(Ok(expired))) => {
+            Poll::Ready(Some(expired)) => {
                 let expected_key = expired.key();
                 let (topic, data) = expired.into_inner();
                 match self.topic_msgs.get_mut(&topic) {
@@ -253,7 +259,6 @@ impl futures::stream::Stream for GossipCache {
                 }
                 Poll::Ready(Some(Ok(topic)))
             }
-            Poll::Ready(Some(Err(x))) => Poll::Ready(Some(Err(x.to_string()))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
@@ -262,8 +267,6 @@ impl futures::stream::Stream for GossipCache {
 
 #[cfg(test)]
 mod tests {
-    use crate::types::GossipKind;
-
     use super::*;
     use futures::stream::StreamExt;
 

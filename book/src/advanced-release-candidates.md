@@ -20,7 +20,7 @@ you're looking for stable Lighthouse**.
 From time to time, Lighthouse may use the terms "release candidate" and "pre release"
 interchangeably. A pre release is identical to a release candidate.
 
-### Examples
+## Examples
 
 [`v1.4.0-rc.0`] has `rc` in the version string and is therefore a release candidate. This release is
 *not* stable and is *not* intended for critical tasks on mainnet (e.g., staking).
@@ -36,9 +36,8 @@ Users may wish to try a release candidate for the following reasons:
 - To help detect bugs and regressions before they reach production.
 - To provide feedback on annoyances before they make it into a release and become harder to change or revert.
 
-There can also be a scenario that a bug has been found and requires an urgent fix. An example of incidence is [v4.0.2-rc.0](https://github.com/sigp/lighthouse/releases/tag/v4.0.2-rc.0) which contains a hot-fix to address high CPU usage experienced after the [Capella](https://ethereum.org/en/history/#capella) upgrade on 12<sup>th</sup> April 2023.  In this scenario, we will announce the release candidate on [Github](https://github.com/sigp/lighthouse/releases) and also on [Discord](https://discord.gg/cyAszAh) to recommend users to update to the release candidate version. 
+There can also be a scenario that a bug has been found and requires an urgent fix. An example of incidence is [v4.0.2-rc.0](https://github.com/sigp/lighthouse/releases/tag/v4.0.2-rc.0) which contains a hot-fix to address high CPU usage experienced after the [Capella](https://ethereum.org/en/history/#capella) upgrade on 12<sup>th</sup> April 2023.  In this scenario, we will announce the release candidate on [Github](https://github.com/sigp/lighthouse/releases) and also on [Discord](https://discord.gg/cyAszAh) to recommend users to update to the release candidate version.
 
 ## When *not* to use a release candidate
 
-Other than the above scenarios, it is generally not recommended to use release candidates for any critical tasks on mainnet (e.g., staking). To test new release candidate features, try one of the testnets (e.g., Goerli).
-
+Other than the above scenarios, it is generally not recommended to use release candidates for any critical tasks on mainnet (e.g., staking). To test new release candidate features, try one of the testnets (e.g., Holesky).

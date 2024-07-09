@@ -2,18 +2,18 @@
 name = "clap_utils"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = "2.33.3"
-hex = "0.4.2"
-dirs = "3.0.1"
-eth2_network_config = { path = "../eth2_network_config" }
-ethereum_ssz = "0.5.0"
-ethereum-types = "0.14.1"
-serde = "1.0.116"
-serde_json = "1.0.59"
-serde_yaml = "0.8.13"
-types = { path = "../../consensus/types"}
+clap = { workspace = true }
+hex = { workspace = true }
+dirs = { workspace = true }
+eth2_network_config = { workspace = true }
+ethereum_ssz = { workspace = true }
+ethereum-types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+types = { workspace = true }

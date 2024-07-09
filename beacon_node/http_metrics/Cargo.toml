@@ -2,25 +2,25 @@
 name = "http_metrics"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2021"
+edition = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-warp = "0.3.2"
-serde = { version = "1.0.116", features = ["derive"] }
-slog = "2.5.2"
-beacon_chain = { path = "../beacon_chain" }
-store = { path = "../store" }
-lighthouse_network = { path = "../lighthouse_network" }
-slot_clock = { path = "../../common/slot_clock" }
-lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
-lighthouse_version = { path = "../../common/lighthouse_version" }
-warp_utils = { path = "../../common/warp_utils" }
-malloc_utils = { path = "../../common/malloc_utils" }
+warp = { workspace = true }
+serde = { workspace = true }
+slog = { workspace = true }
+beacon_chain = { workspace = true }
+store = { workspace = true }
+lighthouse_network = { workspace = true }
+slot_clock = { workspace = true }
+lighthouse_metrics = { workspace = true }
+lighthouse_version = { workspace = true }
+warp_utils = { workspace = true }
+malloc_utils = { workspace = true }
 
 [dev-dependencies]
-tokio = { version = "1.14.0", features = ["sync"] }
-reqwest = { version = "0.11.0", features = ["json"] }
-environment = { path = "../../lighthouse/environment" }
-types = { path = "../../consensus/types" }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+environment = { workspace = true }
+types = { workspace = true }

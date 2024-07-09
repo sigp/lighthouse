@@ -2,12 +2,12 @@
 name = "test_random_derive"
 version = "0.2.0"
 authors = ["thojest <thojest@gmail.com>"]
-edition = "2021"
+edition = { workspace = true }
 description = "Procedural derive macros for implementation of TestRandom trait"
 
 [lib]
 proc-macro = true
 
 [dependencies]
-syn = "1.0.42"
-quote = "1.0.7"
+syn = { workspace = true }
+quote = { workspace = true }

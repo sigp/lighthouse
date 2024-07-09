@@ -1,6 +1,6 @@
 use crate::{consts::altair::NUM_FLAG_INDICES, test_utils::TestRandom, Hash256};
 use safe_arith::{ArithError, SafeArith};
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::{PackedEncoding, TreeHash, TreeHashType};

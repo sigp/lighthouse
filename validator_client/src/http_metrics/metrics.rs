@@ -29,6 +29,7 @@ pub const UPDATE_ATTESTERS_FETCH: &str = "update_attesters_fetch";
 pub const UPDATE_ATTESTERS_STORE: &str = "update_attesters_store";
 pub const ATTESTER_DUTIES_HTTP_POST: &str = "attester_duties_http_post";
 pub const PROPOSER_DUTIES_HTTP_GET: &str = "proposer_duties_http_get";
+pub const VALIDATOR_DUTIES_SYNC_HTTP_POST: &str = "validator_duties_sync_http_post";
 pub const VALIDATOR_ID_HTTP_GET: &str = "validator_id_http_get";
 pub const SUBSCRIPTIONS_HTTP_POST: &str = "subscriptions_http_post";
 pub const UPDATE_PROPOSERS: &str = "update_proposers";
@@ -202,8 +203,8 @@ lazy_static::lazy_static! {
     );
 }
 
-pub fn gather_prometheus_metrics<T: EthSpec>(
-    ctx: &Context<T>,
+pub fn gather_prometheus_metrics<E: EthSpec>(
+    ctx: &Context<E>,
 ) -> std::result::Result<String, String> {
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
@@ -220,7 +221,7 @@ pub fn gather_prometheus_metrics<T: EthSpec>(
 
         if let Some(duties_service) = &shared.duties_service {
             if let Some(slot) = duties_service.slot_clock.now() {
-                let current_epoch = slot.epoch(T::slots_per_epoch());
+                let current_epoch = slot.epoch(E::slots_per_epoch());
                 let next_epoch = current_epoch + 1;
 
                 set_int_gauge(

@@ -1,4 +1,7 @@
-use crate::common::{base::get_base_reward, decrease_balance, increase_balance};
+use crate::common::{
+    base::{get_base_reward, SqrtTotalActiveBalance},
+    decrease_balance, increase_balance,
+};
 use crate::per_epoch_processing::{
     base::{TotalBalances, ValidatorStatus, ValidatorStatuses},
     Delta, Error,
@@ -43,12 +46,12 @@ impl AttestationDelta {
 }
 
 /// Apply attester and proposer rewards.
-pub fn process_rewards_and_penalties<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    validator_statuses: &mut ValidatorStatuses,
+pub fn process_rewards_and_penalties<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    if state.current_epoch() == T::genesis_epoch() {
+    if state.current_epoch() == E::genesis_epoch() {
         return Ok(());
     }
 
@@ -59,7 +62,7 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
         return Err(Error::ValidatorStatusesInconsistent);
     }
 
-    let deltas = get_attestation_deltas(state, validator_statuses, spec)?;
+    let deltas = get_attestation_deltas_all(state, validator_statuses, spec)?;
 
     // Apply the deltas, erroring on overflow above but not on overflow below (saturating at 0
     // instead).
@@ -73,12 +76,42 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 }
 
 /// Apply rewards for participation in attestations during the previous epoch.
-pub fn get_attestation_deltas<T: EthSpec>(
-    state: &BeaconState<T>,
+pub fn get_attestation_deltas_all<E: EthSpec>(
+    state: &BeaconState<E>,
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
-    let previous_epoch = state.previous_epoch();
+    get_attestation_deltas(state, validator_statuses, None, spec)
+}
+
+/// Apply rewards for participation in attestations during the previous epoch, and only compute
+/// rewards for a subset of validators.
+pub fn get_attestation_deltas_subset<E: EthSpec>(
+    state: &BeaconState<E>,
+    validator_statuses: &ValidatorStatuses,
+    validators_subset: &Vec<usize>,
+    spec: &ChainSpec,
+) -> Result<Vec<(usize, AttestationDelta)>, Error> {
+    get_attestation_deltas(state, validator_statuses, Some(validators_subset), spec).map(|deltas| {
+        deltas
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| validators_subset.contains(index))
+            .collect()
+    })
+}
+
+/// Apply rewards for participation in attestations during the previous epoch.
+/// If `maybe_validators_subset` specified, only the deltas for the specified validator subset is
+/// returned, otherwise deltas for all validators are returned.
+///
+/// Returns a vec of validator indices to `AttestationDelta`.
+fn get_attestation_deltas<E: EthSpec>(
+    state: &BeaconState<E>,
+    validator_statuses: &ValidatorStatuses,
+    maybe_validators_subset: Option<&Vec<usize>>,
+    spec: &ChainSpec,
+) -> Result<Vec<AttestationDelta>, Error> {
     let finality_delay = state
         .previous_epoch()
         .safe_sub(state.finalized_checkpoint().epoch)?
@@ -87,53 +120,70 @@ pub fn get_attestation_deltas<T: EthSpec>(
     let mut deltas = vec![AttestationDelta::default(); state.validators().len()];
 
     let total_balances = &validator_statuses.total_balances;
+    let sqrt_total_active_balance = SqrtTotalActiveBalance::new(total_balances.current_epoch());
+
+    // Ignore validator if a subset is specified and validator is not in the subset
+    let include_validator_delta = |idx| match maybe_validators_subset.as_ref() {
+        None => true,
+        Some(validators_subset) if validators_subset.contains(&idx) => true,
+        Some(_) => false,
+    };
 
     for (index, validator) in validator_statuses.statuses.iter().enumerate() {
         // Ignore ineligible validators. All sub-functions of the spec do this except for
         // `get_inclusion_delay_deltas`. It's safe to do so here because any validator that is in
         // the unslashed indices of the matching source attestations is active, and therefore
         // eligible.
-        if !state.is_eligible_validator(previous_epoch, index)? {
+        if !validator.is_eligible {
             continue;
         }
 
-        let base_reward = get_base_reward(state, index, total_balances.current_epoch(), spec)?;
+        let base_reward = get_base_reward(
+            validator.current_epoch_effective_balance,
+            sqrt_total_active_balance,
+            spec,
+        )?;
 
-        let source_delta =
-            get_source_delta(validator, base_reward, total_balances, finality_delay, spec)?;
-        let target_delta =
-            get_target_delta(validator, base_reward, total_balances, finality_delay, spec)?;
-        let head_delta =
-            get_head_delta(validator, base_reward, total_balances, finality_delay, spec)?;
         let (inclusion_delay_delta, proposer_delta) =
             get_inclusion_delay_delta(validator, base_reward, spec)?;
-        let inactivity_penalty_delta =
-            get_inactivity_penalty_delta(validator, base_reward, finality_delay, spec)?;
 
-        let delta = deltas
-            .get_mut(index)
-            .ok_or(Error::DeltaOutOfBounds(index))?;
-        delta.source_delta.combine(source_delta)?;
-        delta.target_delta.combine(target_delta)?;
-        delta.head_delta.combine(head_delta)?;
-        delta.inclusion_delay_delta.combine(inclusion_delay_delta)?;
-        delta
-            .inactivity_penalty_delta
-            .combine(inactivity_penalty_delta)?;
+        if include_validator_delta(index) {
+            let source_delta =
+                get_source_delta(validator, base_reward, total_balances, finality_delay, spec)?;
+            let target_delta =
+                get_target_delta(validator, base_reward, total_balances, finality_delay, spec)?;
+            let head_delta =
+                get_head_delta(validator, base_reward, total_balances, finality_delay, spec)?;
+            let inactivity_penalty_delta =
+                get_inactivity_penalty_delta(validator, base_reward, finality_delay, spec)?;
+
+            let delta = deltas
+                .get_mut(index)
+                .ok_or(Error::DeltaOutOfBounds(index))?;
+            delta.source_delta.combine(source_delta)?;
+            delta.target_delta.combine(target_delta)?;
+            delta.head_delta.combine(head_delta)?;
+            delta.inclusion_delay_delta.combine(inclusion_delay_delta)?;
+            delta
+                .inactivity_penalty_delta
+                .combine(inactivity_penalty_delta)?;
+        }
 
         if let Some((proposer_index, proposer_delta)) = proposer_delta {
-            deltas
-                .get_mut(proposer_index)
-                .ok_or(Error::ValidatorStatusesInconsistent)?
-                .inclusion_delay_delta
-                .combine(proposer_delta)?;
+            if include_validator_delta(proposer_index) {
+                deltas
+                    .get_mut(proposer_index)
+                    .ok_or(Error::ValidatorStatusesInconsistent)?
+                    .inclusion_delay_delta
+                    .combine(proposer_delta)?;
+            }
         }
     }
 
     Ok(deltas)
 }
 
-fn get_attestation_component_delta(
+pub fn get_attestation_component_delta(
     index_in_unslashed_attesting_indices: bool,
     attesting_balance: u64,
     total_balances: &TotalBalances,
@@ -216,7 +266,7 @@ fn get_head_delta(
     )
 }
 
-fn get_inclusion_delay_delta(
+pub fn get_inclusion_delay_delta(
     validator: &ValidatorStatus,
     base_reward: u64,
     spec: &ChainSpec,
@@ -242,7 +292,7 @@ fn get_inclusion_delay_delta(
     }
 }
 
-fn get_inactivity_penalty_delta(
+pub fn get_inactivity_penalty_delta(
     validator: &ValidatorStatus,
     base_reward: u64,
     finality_delay: u64,

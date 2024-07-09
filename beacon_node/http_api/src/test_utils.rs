@@ -1,20 +1,18 @@
 use crate::{Config, Context};
 use beacon_chain::{
-    test_utils::{
-        BeaconChainHarness, BoxedMutator, Builder as HarnessBuilder, EphemeralHarnessType,
-    },
+    test_utils::{BeaconChainHarness, BoxedMutator, Builder, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
+};
+use beacon_processor::{
+    BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig, BeaconProcessorQueueLengths,
 };
 use directory::DEFAULT_ROOT_DIR;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use lighthouse_network::{
-    discv5::enr::{CombinedKey, EnrBuilder},
-    libp2p::{
-        core::connection::ConnectionId,
-        swarm::{
-            behaviour::{ConnectionEstablished, FromSwarm},
-            NetworkBehaviour,
-        },
+    discv5::enr::CombinedKey,
+    libp2p::swarm::{
+        behaviour::{ConnectionEstablished, FromSwarm},
+        ConnectionId, NetworkBehaviour,
     },
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
@@ -25,11 +23,11 @@ use network::{NetworkReceivers, NetworkSenders};
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
 use std::future::Future;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
-use tokio::sync::oneshot;
+use task_executor::test_utils::TestRuntime;
 use types::{ChainSpec, EthSpec};
 
 pub const TCP_PORT: u16 = 42;
@@ -39,27 +37,26 @@ pub const EXTERNAL_ADDR: &str = "/ip4/0.0.0.0/tcp/9000";
 
 /// HTTP API tester that allows interaction with the underlying beacon chain harness.
 pub struct InteractiveTester<E: EthSpec> {
+    pub ctx: Arc<Context<EphemeralHarnessType<E>>>,
     pub harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     pub client: BeaconNodeHttpClient,
     pub network_rx: NetworkReceivers<E>,
-    _server_shutdown: oneshot::Sender<()>,
 }
 
 /// The result of calling `create_api_server`.
 ///
 /// Glue-type between `tests::ApiTester` and `InteractiveTester`.
-pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
+pub struct ApiServer<T: BeaconChainTypes, SFut: Future<Output = ()>> {
+    pub ctx: Arc<Context<T>>,
     pub server: SFut,
     pub listening_socket: SocketAddr,
-    pub shutdown_tx: oneshot::Sender<()>,
-    pub network_rx: NetworkReceivers<E>,
+    pub network_rx: NetworkReceivers<T::EthSpec>,
     pub local_enr: Enr,
     pub external_peer_id: PeerId,
 }
 
-type Initializer<E> = Box<
-    dyn FnOnce(HarnessBuilder<EphemeralHarnessType<E>>) -> HarnessBuilder<EphemeralHarnessType<E>>,
->;
+type HarnessBuilder<E> = Builder<EphemeralHarnessType<E>>;
+type Initializer<E> = Box<dyn FnOnce(HarnessBuilder<E>) -> HarnessBuilder<E>>;
 type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>>;
 
 impl<E: EthSpec> InteractiveTester<E> {
@@ -97,12 +94,17 @@ impl<E: EthSpec> InteractiveTester<E> {
         let harness = harness_builder.build();
 
         let ApiServer {
+            ctx,
             server,
             listening_socket,
-            shutdown_tx: _server_shutdown,
             network_rx,
             ..
-        } = create_api_server(harness.chain.clone(), harness.logger().clone()).await;
+        } = create_api_server(
+            harness.chain.clone(),
+            &harness.runtime,
+            harness.logger().clone(),
+        )
+        .await;
 
         tokio::spawn(server);
 
@@ -117,28 +119,22 @@ impl<E: EthSpec> InteractiveTester<E> {
         );
 
         Self {
+            ctx,
             harness,
             client,
             network_rx,
-            _server_shutdown,
         }
     }
 }
 
 pub async fn create_api_server<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
+    test_runtime: &TestRuntime,
     log: Logger,
-) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
-    // Get a random unused port.
-    let port = unused_port::unused_tcp4_port().unwrap();
-    create_api_server_on_port(chain, log, port).await
-}
+) -> ApiServer<T, impl Future<Output = ()>> {
+    // Use port 0 to allocate a new unused port.
+    let port = 0;
 
-pub async fn create_api_server_on_port<T: BeaconChainTypes>(
-    chain: Arc<BeaconChain<T>>,
-    log: Logger,
-    port: u16,
-) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
     let (network_senders, network_receivers) = NetworkSenders::new();
 
     // Default metadata
@@ -148,11 +144,9 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
         syncnets: EnrSyncCommitteeBitfield::<T::EthSpec>::default(),
     });
     let enr_key = CombinedKey::generate_secp256k1();
-    let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
+    let enr = Enr::builder().build(&enr_key).unwrap();
     let network_globals = Arc::new(NetworkGlobals::new(
         enr.clone(),
-        Some(TCP_PORT),
-        None,
         meta_data,
         vec![],
         false,
@@ -170,7 +164,7 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
         local_addr: EXTERNAL_ADDR.parse().unwrap(),
         send_back_addr: EXTERNAL_ADDR.parse().unwrap(),
     };
-    let connection_id = ConnectionId::new(1);
+    let connection_id = ConnectionId::new_unchecked(1);
     pm.on_swarm_event(FromSwarm::ConnectionEstablished(ConnectionEstablished {
         peer_id,
         connection_id,
@@ -183,36 +177,70 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     let eth1_service =
         eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone()).unwrap();
 
+    let beacon_processor_config = BeaconProcessorConfig {
+        // The number of workers must be greater than one. Tests which use the
+        // builder workflow sometimes require an internal HTTP request in order
+        // to fulfill an already in-flight HTTP request, therefore having only
+        // one worker will result in a deadlock.
+        max_workers: 2,
+        ..BeaconProcessorConfig::default()
+    };
+    let BeaconProcessorChannels {
+        beacon_processor_tx,
+        beacon_processor_rx,
+        work_reprocessing_tx,
+        work_reprocessing_rx,
+    } = BeaconProcessorChannels::new(&beacon_processor_config);
+
+    let beacon_processor_send = beacon_processor_tx;
+    let reprocess_send = work_reprocessing_tx.clone();
+    BeaconProcessor {
+        network_globals: network_globals.clone(),
+        executor: test_runtime.task_executor.clone(),
+        current_workers: 0,
+        config: beacon_processor_config,
+        log: log.clone(),
+    }
+    .spawn_manager(
+        beacon_processor_rx,
+        work_reprocessing_tx,
+        work_reprocessing_rx,
+        None,
+        chain.slot_clock.clone(),
+        chain.spec.maximum_gossip_clock_disparity(),
+        BeaconProcessorQueueLengths::from_state(
+            &chain.canonical_head.cached_head().snapshot.beacon_state,
+            &chain.spec,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+
     let ctx = Arc::new(Context {
         config: Config {
             enabled: true,
-            listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             listen_port: port,
-            allow_origin: None,
-            tls_config: None,
-            allow_sync_stalled: false,
             data_dir: std::path::PathBuf::from(DEFAULT_ROOT_DIR),
-            spec_fork_name: None,
+            enable_light_client_server: true,
+            ..Config::default()
         },
         chain: Some(chain),
         network_senders: Some(network_senders),
         network_globals: Some(network_globals),
+        beacon_processor_send: Some(beacon_processor_send),
+        beacon_processor_reprocess_send: Some(reprocess_send),
         eth1_service: Some(eth1_service),
         sse_logging_components: None,
         log,
     });
 
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let server_shutdown = async {
-        // It's not really interesting why this triggered, just that it happened.
-        let _ = shutdown_rx.await;
-    };
-    let (listening_socket, server) = crate::serve(ctx, server_shutdown).unwrap();
+    let (listening_socket, server) =
+        crate::serve(ctx.clone(), test_runtime.task_executor.exit()).unwrap();
 
     ApiServer {
+        ctx,
         server,
         listening_socket,
-        shutdown_tx,
         network_rx: network_receivers,
         local_enr: enr,
         external_peer_id: peer_id,

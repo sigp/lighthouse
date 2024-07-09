@@ -1,5 +1,7 @@
 use clap::ArgMatches;
 use clap_utils::parse_required;
+use eth2_network_config::Eth2NetworkConfig;
+use log::info;
 use serde::Serialize;
 use snap::raw::Decoder;
 use ssz::Decode;
@@ -26,9 +28,16 @@ impl FromStr for OutputFormat {
     }
 }
 
-pub fn run_parse_ssz<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
-    let type_str = matches.value_of("type").ok_or("No type supplied")?;
-    let filename = matches.value_of("ssz-file").ok_or("No file supplied")?;
+pub fn run_parse_ssz<E: EthSpec>(
+    network_config: Eth2NetworkConfig,
+    matches: &ArgMatches,
+) -> Result<(), String> {
+    let type_str = matches
+        .get_one::<String>("type")
+        .ok_or("No type supplied")?;
+    let filename = matches
+        .get_one::<String>("ssz-file")
+        .ok_or("No file supplied")?;
     let format = parse_required(matches, "format")?;
 
     let bytes = if filename.ends_with("ssz_snappy") {
@@ -44,44 +53,96 @@ pub fn run_parse_ssz<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         bytes
     };
 
-    info!("Using {} spec", T::spec_name());
-    info!("Type: {:?}", type_str);
+    let spec = &network_config.chain_spec::<E>()?;
+    info!(
+        "Using {} network config ({} preset)",
+        spec.config_name.as_deref().unwrap_or("unknown"),
+        E::spec_name()
+    );
+    info!("Type: {type_str}");
 
-    match type_str {
-        "signed_block_base" => decode_and_print::<SignedBeaconBlockBase<T>>(&bytes, format)?,
-        "signed_block_altair" => decode_and_print::<SignedBeaconBlockAltair<T>>(&bytes, format)?,
-        "signed_block_merge" => decode_and_print::<SignedBeaconBlockMerge<T>>(&bytes, format)?,
-        "block_base" => decode_and_print::<BeaconBlockBase<T>>(&bytes, format)?,
-        "block_altair" => decode_and_print::<BeaconBlockAltair<T>>(&bytes, format)?,
-        "block_merge" => decode_and_print::<BeaconBlockMerge<T>>(&bytes, format)?,
-        "state_base" => decode_and_print::<BeaconStateBase<T>>(&bytes, format)?,
-        "state_altair" => decode_and_print::<BeaconStateAltair<T>>(&bytes, format)?,
-        "state_merge" => decode_and_print::<BeaconStateMerge<T>>(&bytes, format)?,
+    // More fork-specific decoders may need to be added in future, but shouldn't be 100% necessary,
+    // as the fork-generic decoder will always be available (requires correct --network flag).
+    match type_str.as_str() {
+        "SignedBeaconBlock" => decode_and_print::<SignedBeaconBlock<E>>(
+            &bytes,
+            |bytes| SignedBeaconBlock::from_ssz_bytes(bytes, spec),
+            format,
+        )?,
+        "SignedBeaconBlockBase" | "SignedBeaconBlockPhase0" => {
+            decode_and_print(&bytes, SignedBeaconBlockBase::<E>::from_ssz_bytes, format)?
+        }
+        "SignedBeaconBlockAltair" => {
+            decode_and_print(&bytes, SignedBeaconBlockAltair::<E>::from_ssz_bytes, format)?
+        }
+        "SignedBeaconBlockBellatrix" => decode_and_print(
+            &bytes,
+            SignedBeaconBlockBellatrix::<E>::from_ssz_bytes,
+            format,
+        )?,
+        "SignedBeaconBlockCapella" => decode_and_print(
+            &bytes,
+            SignedBeaconBlockCapella::<E>::from_ssz_bytes,
+            format,
+        )?,
+        "SignedBeaconBlockDeneb" => {
+            decode_and_print(&bytes, SignedBeaconBlockDeneb::<E>::from_ssz_bytes, format)?
+        }
+        "SignedBeaconBlockElectra" => decode_and_print(
+            &bytes,
+            SignedBeaconBlockElectra::<E>::from_ssz_bytes,
+            format,
+        )?,
+        "BeaconState" => decode_and_print::<BeaconState<E>>(
+            &bytes,
+            |bytes| BeaconState::from_ssz_bytes(bytes, spec),
+            format,
+        )?,
+        "BeaconStateBase" | "BeaconStatePhase0" => {
+            decode_and_print(&bytes, BeaconStateBase::<E>::from_ssz_bytes, format)?
+        }
+        "BeaconStateAltair" => {
+            decode_and_print(&bytes, BeaconStateAltair::<E>::from_ssz_bytes, format)?
+        }
+        "BeaconStateBellatrix" => {
+            decode_and_print(&bytes, BeaconStateBellatrix::<E>::from_ssz_bytes, format)?
+        }
+        "BeaconStateCapella" => {
+            decode_and_print(&bytes, BeaconStateCapella::<E>::from_ssz_bytes, format)?
+        }
+        "BeaconStateDeneb" => {
+            decode_and_print(&bytes, BeaconStateDeneb::<E>::from_ssz_bytes, format)?
+        }
+        "BeaconStateElectra" => {
+            decode_and_print(&bytes, BeaconStateElectra::<E>::from_ssz_bytes, format)?
+        }
+        "BlobSidecar" => decode_and_print(&bytes, BlobSidecar::<E>::from_ssz_bytes, format)?,
         other => return Err(format!("Unknown type: {}", other)),
     };
 
     Ok(())
 }
 
-fn decode_and_print<T: Decode + Serialize>(
+fn decode_and_print<T: Serialize>(
     bytes: &[u8],
+    decoder: impl FnOnce(&[u8]) -> Result<T, ssz::DecodeError>,
     output_format: OutputFormat,
 ) -> Result<(), String> {
-    let item = T::from_ssz_bytes(bytes).map_err(|e| format!("SSZ decode failed: {:?}", e))?;
+    let item = decoder(bytes).map_err(|e| format!("SSZ decode failed: {e:?}"))?;
 
     match output_format {
         OutputFormat::Json => {
             println!(
                 "{}",
                 serde_json::to_string(&item)
-                    .map_err(|e| format!("Unable to write object to JSON: {:?}", e))?
+                    .map_err(|e| format!("Unable to write object to JSON: {e:?}"))?
             );
         }
         OutputFormat::Yaml => {
             println!(
                 "{}",
                 serde_yaml::to_string(&item)
-                    .map_err(|e| format!("Unable to write object to YAML: {:?}", e))?
+                    .map_err(|e| format!("Unable to write object to YAML: {e:?}"))?
             );
         }
     }

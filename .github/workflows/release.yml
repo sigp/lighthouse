@@ -5,11 +5,17 @@ on:
         tags:
             - v*
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
     DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
     REPO_NAME: ${{ github.repository_owner }}/lighthouse
     IMAGE_NAME: ${{ github.repository_owner }}/lighthouse
+    # Enable self-hosted runners for the sigp repo only.
+    SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
 
 jobs:
     extract-version:
@@ -25,45 +31,30 @@ jobs:
         strategy:
             matrix:
                 arch: [aarch64-unknown-linux-gnu,
-                       aarch64-unknown-linux-gnu-portable,
                        x86_64-unknown-linux-gnu,
-                       x86_64-unknown-linux-gnu-portable,
                        x86_64-apple-darwin,
-                       x86_64-apple-darwin-portable,
-                       x86_64-windows,
-                       x86_64-windows-portable]
+                       x86_64-windows]
                 include:
                     -   arch: aarch64-unknown-linux-gnu
-                        platform: ubuntu-latest
-                        profile: maxperf
-                    -   arch: aarch64-unknown-linux-gnu-portable
-                        platform: ubuntu-latest
+                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
                         profile: maxperf
                     -   arch: x86_64-unknown-linux-gnu
-                        platform: ubuntu-latest
-                        profile: maxperf
-                    -   arch: x86_64-unknown-linux-gnu-portable
-                        platform: ubuntu-latest
+                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
                         profile: maxperf
                     -   arch: x86_64-apple-darwin
-                        platform: macos-latest
-                        profile: maxperf
-                    -   arch: x86_64-apple-darwin-portable
-                        platform: macos-latest
+                        runner: macos-13
                         profile: maxperf
                     -   arch: x86_64-windows
-                        platform: windows-2019
-                        profile: maxperf
-                    -   arch: x86_64-windows-portable
-                        platform: windows-2019
+                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "release"]') || 'windows-2019'  }}
                         profile: maxperf
 
-        runs-on:    ${{ matrix.platform }}
+        runs-on:    ${{ matrix.runner }}
         needs: extract-version
         steps:
             - name: Checkout sources
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
             - name: Get latest version of stable Rust
+              if: env.SELF_HOSTED_RUNNERS == 'false'
               run: rustup update stable
 
             # ==============================
@@ -71,80 +62,41 @@ jobs:
             # ==============================
 
             - uses: KyleMayes/install-llvm-action@v1
-              if: startsWith(matrix.arch, 'x86_64-windows')
+              if: env.SELF_HOSTED_RUNNERS == 'false' && startsWith(matrix.arch, 'x86_64-windows')
               with:
-                version: "15.0"
+                version: "17.0"
                 directory: ${{ runner.temp }}/llvm
             - name: Set LIBCLANG_PATH
               if: startsWith(matrix.arch, 'x86_64-windows')
               run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
 
             # ==============================
-            # Windows & Mac dependencies
-            # ==============================
-            - name: Install Protoc
-              if: contains(matrix.arch, 'darwin') || contains(matrix.arch, 'windows')
-              uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
-              with:
-                repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-            # ==============================
             #       Builds
             # ==============================
-
-            - name: Build Lighthouse for aarch64-unknown-linux-gnu-portable
-              if:   matrix.arch == 'aarch64-unknown-linux-gnu-portable'
-              run:  |
-                cargo install cross
-                env CROSS_PROFILE=${{ matrix.profile }} make build-aarch64-portable
 
             - name: Build Lighthouse for aarch64-unknown-linux-gnu
               if:   matrix.arch == 'aarch64-unknown-linux-gnu'
               run:  |
                 cargo install cross
-                env CROSS_PROFILE=${{ matrix.profile }} make build-aarch64
-
-            - name: Build Lighthouse for x86_64-unknown-linux-gnu-portable
-              if:   matrix.arch == 'x86_64-unknown-linux-gnu-portable'
-              run:  |
-                cargo install cross
-                env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64-portable
+                env CROSS_PROFILE=${{ matrix.profile }} make build-aarch64-portable
 
             - name: Build Lighthouse for x86_64-unknown-linux-gnu
               if:   matrix.arch == 'x86_64-unknown-linux-gnu'
               run:  |
                 cargo install cross
-                env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64
+                env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64-portable
 
             - name: Move cross-compiled binary
-              if:  startsWith(matrix.arch, 'aarch64')
-              run: mv target/aarch64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ~/.cargo/bin/lighthouse
+              if:  contains(matrix.arch, 'unknown-linux-gnu')
+              run: mv target/${{ matrix.arch }}/${{ matrix.profile }}/lighthouse ~/.cargo/bin/lighthouse
 
-            - name: Move cross-compiled binary
-              if:  startsWith(matrix.arch, 'x86_64-unknown-linux-gnu')
-              run: mv target/x86_64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ~/.cargo/bin/lighthouse
-
-            - name: Build Lighthouse for x86_64-apple-darwin portable
-              if:   matrix.arch == 'x86_64-apple-darwin-portable'
+            - name: Build Lighthouse for x86_64-apple-darwin
+              if:   matrix.arch == 'x86_64-apple-darwin'
               run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile ${{ matrix.profile }}
 
-            - name: Build Lighthouse for x86_64-apple-darwin modern
-              if:   matrix.arch == 'x86_64-apple-darwin'
-              run:  cargo install --path lighthouse --force --locked --features modern,gnosis --profile ${{ matrix.profile }}
-
-            - name: Build Lighthouse for Windows portable
-              if:   matrix.arch == 'x86_64-windows-portable'
-              # NOTE: profile set to release until this rustc issue is fixed:
-              #
-              # https://github.com/rust-lang/rust/issues/107781
-              #
-              # tracked at: https://github.com/sigp/lighthouse/issues/3964
-              run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile release
-
-            - name: Build Lighthouse for Windows modern
+            - name: Build Lighthouse for Windows
               if:   matrix.arch == 'x86_64-windows'
-              # NOTE: profile set to release (see above)
-              run:  cargo install --path lighthouse --force --locked --features modern,gnosis --profile release
+              run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile ${{ matrix.profile }}
 
             - name: Configure GPG and create artifacts
               if: startsWith(matrix.arch, 'x86_64-windows') != true
@@ -159,6 +111,11 @@ jobs:
                   cd artifacts
                   tar -czf lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz lighthouse
                   echo "$GPG_PASSPHRASE" | gpg --passphrase-fd 0 --pinentry-mode loopback --batch -ab lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
+                  for ext in "tar.gz" "tar.gz.asc";\
+                  do for f in *.$ext;\
+                    do cp $f "../${f%.$ext}-portable.$ext";\
+                    done;\
+                  done
                   mv *tar.gz* ..
 
             - name: Configure GPG and create artifacts Windows
@@ -180,17 +137,35 @@ jobs:
             # This is required to share artifacts between different jobs
             # =======================================================================
 
-            - name:  Upload artifact
-              uses:  actions/upload-artifact@v3
+            - name: Upload artifact
+              uses: actions/upload-artifact@v4
               with:
                   name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
                   path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
+                  compression-level: 0
+
+            - name: Upload artifact (copy)
+              if: startsWith(matrix.arch, 'x86_64-windows') != true
+              uses: actions/upload-artifact@v4
+              with:
+                  name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}-portable.tar.gz
+                  path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}-portable.tar.gz
+                  compression-level: 0
 
             - name: Upload signature
-              uses: actions/upload-artifact@v3
+              uses: actions/upload-artifact@v4
               with:
                   name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
                   path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
+                  compression-level: 0
+
+            - name: Upload signature (copy)
+              if: startsWith(matrix.arch, 'x86_64-windows') != true
+              uses: actions/upload-artifact@v4
+              with:
+                  name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}-portable.tar.gz.asc
+                  path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}-portable.tar.gz.asc
+                  compression-level: 0
 
     draft-release:
         name:   Draft Release
@@ -201,7 +176,7 @@ jobs:
         steps:
             # This is necessary for generating the changelog. It has to come before "Download Artifacts" or else it deletes the artifacts.
             - name: Checkout sources
-              uses: actions/checkout@v3
+              uses: actions/checkout@v4
               with:
                   fetch-depth: 0
 
@@ -210,7 +185,7 @@ jobs:
             # ==============================
 
             - name: Download artifacts
-              uses: actions/download-artifact@v3
+              uses: actions/download-artifact@v4
 
             # ==============================
             #       Create release draft
@@ -235,9 +210,9 @@ jobs:
 
                   ## Testing Checklist (DELETE ME)
 
-                  - [ ] Run on synced Prater Sigma Prime nodes.
+                  - [ ] Run on synced Holesky Sigma Prime nodes.
                   - [ ] Run on synced Canary (mainnet) Sigma Prime nodes.
-                  - [ ] Resync a Prater node.
+                  - [ ] Resync a Holesky node.
                   - [ ] Resync a mainnet node.
 
                   ## Release Checklist (DELETE ME)
@@ -290,9 +265,6 @@ jobs:
                   | <img src="https://simpleicons.org/icons/docker.svg" style="width: 32px;"/> | Docker | [${{ env.VERSION }}](https://hub.docker.com/r/${{ env.IMAGE_NAME }}/tags?page=1&ordering=last_updated&name=${{ env.VERSION }}) | [${{ env.IMAGE_NAME }}](https://hub.docker.com/r/${{ env.IMAGE_NAME }}) |
                   ENDBODY
                   )
-                  assets=()
-                  for asset in ./lighthouse-*.tar.gz*; do
-                      assets+=("-a" "$asset/$asset")
-                  done
+                  assets=(./lighthouse-*.tar.gz*/lighthouse-*.tar.gz*)
                   tag_name="${{ env.VERSION }}"
-                  echo "$body" | hub release create --draft "${assets[@]}" -F "-" "$tag_name"
+                  echo "$body" | gh release create --draft -F "-" "$tag_name" "${assets[@]}"

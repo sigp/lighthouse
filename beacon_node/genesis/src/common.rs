@@ -39,7 +39,7 @@ pub fn genesis_deposits(
 
     Ok(deposit_data
         .into_iter()
-        .zip(proofs.into_iter())
+        .zip(proofs)
         .map(|(data, proof)| (data, proof.into()))
         .map(|(data, proof)| Deposit { proof, data })
         .collect())

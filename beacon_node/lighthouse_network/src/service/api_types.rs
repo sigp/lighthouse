@@ -1,13 +1,17 @@
 use std::sync::Arc;
 
-use libp2p::core::connection::ConnectionId;
-use types::light_client_bootstrap::LightClientBootstrap;
-use types::{EthSpec, SignedBeaconBlock};
+use libp2p::swarm::ConnectionId;
+use types::{
+    BlobSidecar, EthSpec, LightClientBootstrap, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, SignedBeaconBlock,
+};
 
+use crate::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use crate::rpc::{
     methods::{
         BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest,
-        OldBlocksByRangeRequest, RPCCodedResponse, RPCResponse, ResponseTermination, StatusMessage,
+        OldBlocksByRangeRequest, OldBlocksByRangeRequestV1, OldBlocksByRangeRequestV2,
+        RPCCodedResponse, RPCResponse, ResponseTermination, StatusMessage,
     },
     OutboundRequest, SubstreamId,
 };
@@ -33,24 +37,47 @@ pub enum Request {
     Status(StatusMessage),
     /// A blocks by range request.
     BlocksByRange(BlocksByRangeRequest),
+    /// A blobs by range request.
+    BlobsByRange(BlobsByRangeRequest),
     /// A request blocks root request.
     BlocksByRoot(BlocksByRootRequest),
     // light client bootstrap request
     LightClientBootstrap(LightClientBootstrapRequest),
+    // light client optimistic update request
+    LightClientOptimisticUpdate,
+    // light client finality update request
+    LightClientFinalityUpdate,
+    /// A request blobs root request.
+    BlobsByRoot(BlobsByRootRequest),
 }
 
-impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
-    fn from(req: Request) -> OutboundRequest<TSpec> {
+impl<E: EthSpec> std::convert::From<Request> for OutboundRequest<E> {
+    fn from(req: Request) -> OutboundRequest<E> {
         match req {
             Request::BlocksByRoot(r) => OutboundRequest::BlocksByRoot(r),
-            Request::BlocksByRange(BlocksByRangeRequest { start_slot, count }) => {
-                OutboundRequest::BlocksByRange(OldBlocksByRangeRequest {
-                    start_slot,
-                    count,
-                    step: 1,
-                })
+            Request::BlocksByRange(r) => match r {
+                BlocksByRangeRequest::V1(req) => OutboundRequest::BlocksByRange(
+                    OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1 {
+                        start_slot: req.start_slot,
+                        count: req.count,
+                        step: 1,
+                    }),
+                ),
+                BlocksByRangeRequest::V2(req) => OutboundRequest::BlocksByRange(
+                    OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2 {
+                        start_slot: req.start_slot,
+                        count: req.count,
+                        step: 1,
+                    }),
+                ),
+            },
+            Request::LightClientBootstrap(_)
+            | Request::LightClientOptimisticUpdate
+            | Request::LightClientFinalityUpdate => {
+                unreachable!("Lighthouse never makes an outbound light client request")
             }
-            Request::LightClientBootstrap(b) => OutboundRequest::LightClientBootstrap(b),
+            Request::BlobsByRange(r) => OutboundRequest::BlobsByRange(r),
+            Request::BlobsByRoot(r) => OutboundRequest::BlobsByRoot(r),
             Request::Status(s) => OutboundRequest::Status(s),
         }
     }
@@ -63,19 +90,27 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
 //       Behaviour. For all protocol reponses managed by RPC see `RPCResponse` and
 //       `RPCCodedResponse`.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Response<TSpec: EthSpec> {
+pub enum Response<E: EthSpec> {
     /// A Status message.
     Status(StatusMessage),
     /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
-    BlocksByRange(Option<Arc<SignedBeaconBlock<TSpec>>>),
+    BlocksByRange(Option<Arc<SignedBeaconBlock<E>>>),
+    /// A response to a get BLOBS_BY_RANGE request. A None response signals the end of the batch.
+    BlobsByRange(Option<Arc<BlobSidecar<E>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
-    BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
+    BlocksByRoot(Option<Arc<SignedBeaconBlock<E>>>),
+    /// A response to a get BLOBS_BY_ROOT request.
+    BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
     /// A response to a LightClientUpdate request.
-    LightClientBootstrap(LightClientBootstrap<TSpec>),
+    LightClientBootstrap(Arc<LightClientBootstrap<E>>),
+    /// A response to a LightClientOptimisticUpdate request.
+    LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<E>>),
+    /// A response to a LightClientFinalityUpdate request.
+    LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
 }
 
-impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {
-    fn from(resp: Response<TSpec>) -> RPCCodedResponse<TSpec> {
+impl<E: EthSpec> std::convert::From<Response<E>> for RPCCodedResponse<E> {
+    fn from(resp: Response<E>) -> RPCCodedResponse<E> {
         match resp {
             Response::BlocksByRoot(r) => match r {
                 Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRoot(b)),
@@ -85,9 +120,23 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
                 Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRange(b)),
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange),
             },
+            Response::BlobsByRoot(r) => match r {
+                Some(b) => RPCCodedResponse::Success(RPCResponse::BlobsByRoot(b)),
+                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlobsByRoot),
+            },
+            Response::BlobsByRange(r) => match r {
+                Some(b) => RPCCodedResponse::Success(RPCResponse::BlobsByRange(b)),
+                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlobsByRange),
+            },
             Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
             Response::LightClientBootstrap(b) => {
                 RPCCodedResponse::Success(RPCResponse::LightClientBootstrap(b))
+            }
+            Response::LightClientOptimisticUpdate(o) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientOptimisticUpdate(o))
+            }
+            Response::LightClientFinalityUpdate(f) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientFinalityUpdate(f))
             }
         }
     }

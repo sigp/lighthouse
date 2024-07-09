@@ -7,7 +7,7 @@ use tokio::time::{sleep, Duration};
 use types::EthSpec;
 
 /// Spawns a notifier service which periodically logs information about the node.
-pub fn spawn_notifier<T: EthSpec>(client: &ProductionValidatorClient<T>) -> Result<(), String> {
+pub fn spawn_notifier<E: EthSpec>(client: &ProductionValidatorClient<E>) -> Result<(), String> {
     let context = client.context.service_context("notifier".into());
     let executor = context.executor.clone();
     let duties_service = client.duties_service.clone();
@@ -94,8 +94,7 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
             info!(
                 log,
                 "No validators present";
-                "msg" => "see `lighthouse account validator create --help` \
-                or the HTTP API documentation"
+                "msg" => "see `lighthouse vm create --help` or the HTTP API documentation"
             )
         } else if total_validators == attesting_validators {
             info!(

@@ -1,7 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::{SignedRoot, Slot};
 
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -25,11 +25,11 @@ pub struct SyncAggregatorSelectionData {
     pub subcommittee_index: u64,
 }
 
+impl SignedRoot for SyncAggregatorSelectionData {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     ssz_and_tree_hash_tests!(SyncAggregatorSelectionData);
 }
-
-impl SignedRoot for SyncAggregatorSelectionData {}

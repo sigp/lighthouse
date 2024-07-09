@@ -1,17 +1,14 @@
-#[macro_use]
-extern crate lazy_static;
-
 mod manual_slot_clock;
 mod metrics;
 mod system_time_slot_clock;
 
 use std::time::Duration;
 
-pub use crate::manual_slot_clock::ManualSlotClock;
 pub use crate::manual_slot_clock::ManualSlotClock as TestingSlotClock;
+pub use crate::manual_slot_clock::ManualSlotClock;
 pub use crate::system_time_slot_clock::SystemTimeSlotClock;
 pub use metrics::scrape_for_metrics;
-use types::consts::merge::INTERVALS_PER_SLOT;
+use types::consts::bellatrix::INTERVALS_PER_SLOT;
 pub use types::Slot;
 
 /// A clock that reports the current slot.
@@ -136,5 +133,14 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
         );
         slot_clock.set_current_time(freeze_at);
         slot_clock
+    }
+
+    /// Returns the delay between the start of the slot and when a request for block components
+    /// missed over gossip in the current slot should be made via RPC.
+    ///
+    /// Currently set equal to 1/2 of the `unagg_attestation_production_delay`, but this may be
+    /// changed in the future.
+    fn single_lookup_delay(&self) -> Duration {
+        self.unagg_attestation_production_delay() / 2
     }
 }

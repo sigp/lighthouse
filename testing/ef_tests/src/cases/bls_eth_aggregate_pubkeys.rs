@@ -2,7 +2,7 @@ use super::*;
 use crate::case_result::compare_result;
 use crate::impl_bls_load_case;
 use bls::{AggregatePublicKey, PublicKeyBytes};
-use serde_derive::Deserialize;
+use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsEthAggregatePubkeys {
@@ -29,10 +29,6 @@ impl Case for BlsEthAggregatePubkeys {
             Err(bls::Error::InvalidInfinityPublicKey | bls::Error::BlstError(_))
                 if self.output.is_none() =>
             {
-                return Ok(());
-            }
-            #[cfg(feature = "milagro")]
-            Err(bls::Error::MilagroError(_)) if self.output.is_none() => {
                 return Ok(());
             }
             Err(e) => return Err(Error::FailedToParseTest(format!("{:?}", e))),

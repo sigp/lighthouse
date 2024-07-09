@@ -1,11 +1,10 @@
-#![cfg(any(feature = "mdbx", feature = "lmdb"))]
+#![cfg(any(feature = "mdbx", feature = "lmdb", feature = "redb"))]
 
 use logging::test_logger;
 use rand::prelude::*;
-use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use slasher::{
     test_utils::{
-        block, indexed_att, slashed_validators_from_attestations,
+        block, chain_spec, indexed_att, slashed_validators_from_attestations,
         slashed_validators_from_slashings, E,
     },
     Config, Slasher,
@@ -50,7 +49,9 @@ fn random_test(seed: u64, test_config: TestConfig) {
     config.chunk_size = 1 << chunk_size_exponent;
     config.history_length = 1 << rng.gen_range(chunk_size_exponent..chunk_size_exponent + 3);
 
-    let slasher = Slasher::<E>::open(config.clone(), test_logger()).unwrap();
+    let spec = chain_spec();
+
+    let slasher = Slasher::<E>::open(config.clone(), spec, test_logger()).unwrap();
 
     let validators = (0..num_validators as u64).collect::<Vec<u64>>();
 

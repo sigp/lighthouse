@@ -76,13 +76,60 @@ pub enum BlockProcessingError {
         expected: u64,
         found: u64,
     },
+    ExecutionInvalidBlobsLen {
+        max: usize,
+        actual: usize,
+    },
     ExecutionInvalid,
     ConsensusContext(ContextError),
+    MilhouseError(milhouse::Error),
+    EpochCacheError(EpochCacheError),
     WithdrawalsRootMismatch {
         expected: Hash256,
         found: Hash256,
     },
     WithdrawalCredentialsInvalid,
+    TooManyPendingConsolidations {
+        consolidations: usize,
+        limit: usize,
+    },
+    ConsolidationChurnLimitTooLow {
+        churn_limit: u64,
+        minimum: u64,
+    },
+    MatchingSourceTargetConsolidation {
+        index: u64,
+    },
+    InactiveConsolidationSource {
+        index: u64,
+        current_epoch: Epoch,
+    },
+    InactiveConsolidationTarget {
+        index: u64,
+        current_epoch: Epoch,
+    },
+    SourceValidatorExiting {
+        index: u64,
+    },
+    TargetValidatorExiting {
+        index: u64,
+    },
+    FutureConsolidationEpoch {
+        current_epoch: Epoch,
+        consolidation_epoch: Epoch,
+    },
+    NoSourceExecutionWithdrawalCredential {
+        index: u64,
+    },
+    NoTargetExecutionWithdrawalCredential {
+        index: u64,
+    },
+    MismatchedWithdrawalCredentials {
+        source_address: Address,
+        target_address: Address,
+    },
+    InavlidConsolidationSignature,
+    PendingAttestationInElectra,
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -124,6 +171,18 @@ impl From<SyncAggregateInvalid> for BlockProcessingError {
 impl From<ContextError> for BlockProcessingError {
     fn from(e: ContextError) -> Self {
         BlockProcessingError::ConsensusContext(e)
+    }
+}
+
+impl From<EpochCacheError> for BlockProcessingError {
+    fn from(e: EpochCacheError) -> Self {
+        BlockProcessingError::EpochCacheError(e)
+    }
+}
+
+impl From<milhouse::Error> for BlockProcessingError {
+    fn from(e: milhouse::Error) -> Self {
+        Self::MilhouseError(e)
     }
 }
 
@@ -315,9 +374,11 @@ pub enum AttestationInvalid {
     ///
     /// `is_current` is `true` if the attestation was compared to the
     /// `state.current_justified_checkpoint`, `false` if compared to `state.previous_justified_checkpoint`.
+    ///
+    /// Checkpoints have been boxed to keep the error size down and prevent clippy failures.
     WrongJustifiedCheckpoint {
-        state: Checkpoint,
-        attestation: Checkpoint,
+        state: Box<Checkpoint>,
+        attestation: Box<Checkpoint>,
         is_current: bool,
     },
     /// The aggregation bitfield length is not the smallest possible size to represent the committee.
@@ -391,7 +452,10 @@ pub enum ExitInvalid {
     /// The specified validator has already initiated exit.
     AlreadyInitiatedExit(u64),
     /// The exit is for a future epoch.
-    FutureEpoch { state: Epoch, exit: Epoch },
+    FutureEpoch {
+        state: Epoch,
+        exit: Epoch,
+    },
     /// The validator has not been active for long enough.
     TooYoungToExit {
         current_epoch: Epoch,
@@ -402,6 +466,7 @@ pub enum ExitInvalid {
     /// There was an error whilst attempting to get a set of signatures. The signatures may have
     /// been invalid or an internal error occurred.
     SignatureSetError(SignatureSetError),
+    PendingWithdrawalInQueue(u64),
 }
 
 #[derive(Debug, PartialEq, Clone)]

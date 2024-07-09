@@ -2,7 +2,7 @@ use super::*;
 use crate::case_result::compare_result;
 use crate::impl_bls_load_case;
 use bls::SecretKey;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use types::Hash256;
 
 #[derive(Debug, Clone, Deserialize)]

@@ -13,7 +13,7 @@ use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
 
 use logging::SSELoggingComponents;
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use slog::{error, info, o, warn, Drain, Duplicate, Level, Logger};
 use sloggers::{file::FileLoggerBuilder, types::Format, types::Severity, Build};
 use std::fs::create_dir_all;
@@ -36,7 +36,7 @@ use {futures::channel::oneshot, std::cell::RefCell};
 
 pub use task_executor::test_utils::null_logger;
 
-const LOG_CHANNEL_SIZE: usize = 2048;
+const LOG_CHANNEL_SIZE: usize = 16384;
 const SSE_LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.
 const MAXIMUM_SHUTDOWN_TIME: u64 = 15;
@@ -254,12 +254,9 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         }
 
         // Disable file logging if no path is specified.
-        let path = match config.path {
-            Some(path) => path,
-            None => {
-                self.log = Some(stdout_logger);
-                return Ok(self);
-            }
+        let Some(path) = config.path else {
+            self.log = Some(stdout_logger);
+            return Ok(self);
         };
 
         // Ensure directories are created becfore the logfile.
@@ -344,21 +341,9 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
-    /// Optionally adds a network configuration to the environment.
-    pub fn optional_eth2_network_config(
-        self,
-        optional_config: Option<Eth2NetworkConfig>,
-    ) -> Result<Self, String> {
-        if let Some(config) = optional_config {
-            self.eth2_network_config(config)
-        } else {
-            Ok(self)
-        }
-    }
-
     /// Consumes the builder, returning an `Environment`.
     pub fn build(self) -> Result<Environment<E>, String> {
-        let (signal, exit) = exit_future::signal();
+        let (signal, exit) = async_channel::bounded(1);
         let (signal_tx, signal_rx) = channel(1);
         Ok(Environment {
             runtime: self
@@ -385,8 +370,8 @@ pub struct Environment<E: EthSpec> {
     signal_rx: Option<Receiver<ShutdownReason>>,
     /// Sender to request shutting down.
     signal_tx: Sender<ShutdownReason>,
-    signal: Option<exit_future::Signal>,
-    exit: exit_future::Exit,
+    signal: Option<async_channel::Sender<()>>,
+    exit: async_channel::Receiver<()>,
     log: Logger,
     sse_logging_components: Option<SSELoggingComponents>,
     eth_spec_instance: E,
@@ -449,7 +434,7 @@ impl<E: EthSpec> Environment<E> {
             async move { rx.next().await.ok_or("Internal shutdown channel exhausted") };
         futures::pin_mut!(inner_shutdown);
 
-        match self.runtime().block_on(async {
+        let register_handlers = async {
             let mut handles = vec![];
 
             // setup for handling SIGTERM
@@ -480,7 +465,9 @@ impl<E: EthSpec> Environment<E> {
             }
 
             future::select(inner_shutdown, future::select_all(handles.into_iter())).await
-        }) {
+        };
+
+        match self.runtime().block_on(register_handlers) {
             future::Either::Left((Ok(reason), _)) => {
                 info!(self.log, "Internal shutdown received"; "reason" => reason.message());
                 Ok(reason)
@@ -556,7 +543,7 @@ impl<E: EthSpec> Environment<E> {
     /// Fire exit signal which shuts down all spawned services
     pub fn fire_signal(&mut self) {
         if let Some(signal) = self.signal.take() {
-            let _ = signal.fire();
+            drop(signal);
         }
     }
 

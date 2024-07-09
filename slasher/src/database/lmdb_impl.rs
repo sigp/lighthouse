@@ -3,15 +3,12 @@
 use crate::{
     config::MEGABYTE,
     database::{
-        interface::{Key, OpenDatabases, Value},
+        interface::{Key, Value},
         *,
     },
-    Config, Error,
 };
 use lmdb::{Cursor as _, DatabaseFlags, Transaction, WriteFlags};
 use lmdb_sys::{MDB_FIRST, MDB_GET_CURRENT, MDB_LAST, MDB_NEXT};
-use std::borrow::Cow;
-use std::marker::PhantomData;
 use std::path::PathBuf;
 
 #[derive(Debug)]
@@ -103,7 +100,7 @@ impl Environment {
 impl<'env> RwTransaction<'env> {
     pub fn get<K: AsRef<[u8]> + ?Sized>(
         &'env self,
-        db: &Database<'env>,
+        db: &'env Database,
         key: &K,
     ) -> Result<Option<Cow<'env, [u8]>>, Error> {
         Ok(self.txn.get(db.db, key).optional()?.map(Cow::Borrowed))
@@ -184,6 +181,29 @@ impl<'env> Cursor<'env> {
         self.cursor
             .put(&key, &value, RwTransaction::write_flags())?;
         Ok(())
+    }
+
+    pub fn delete_while(
+        &mut self,
+        f: impl Fn(&[u8]) -> Result<bool, Error>,
+    ) -> Result<Vec<Cow<'_, [u8]>>, Error> {
+        let mut result = vec![];
+
+        loop {
+            let (key_bytes, value) = self.get_current()?.ok_or(Error::MissingKey)?;
+
+            if f(&key_bytes)? {
+                result.push(value);
+                self.delete_current()?;
+                if self.next_key()?.is_none() {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok(result)
     }
 }
 

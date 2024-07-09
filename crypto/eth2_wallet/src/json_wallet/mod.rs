@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
-use std::convert::TryFrom;
 
 pub use eth2_keystore::json_keystore::{
     Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, Kdf, KdfModule,
@@ -40,9 +39,9 @@ pub enum TypeField {
     Hd,
 }
 
-impl Into<String> for TypeField {
-    fn into(self) -> String {
-        match self {
+impl From<TypeField> for String {
+    fn from(from: TypeField) -> String {
+        match from {
             TypeField::Hd => "hierarchical deterministic".into(),
         }
     }

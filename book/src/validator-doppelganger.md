@@ -16,7 +16,7 @@ achieves this by staying silent for 2-3 epochs after a validator is started so i
 other instances of that validator before starting to sign potentially slashable messages.
 
 > Note: Doppelganger Protection is not yet interoperable, so if it is configured on a Lighthouse
-> validator client, the client must be connected to a Lighthouse beacon node. 
+> validator client, the client must be connected to a Lighthouse beacon node.
 
 ## Initial Considerations
 
@@ -43,13 +43,14 @@ DP works by staying silent on the network for 2-3 epochs before starting to sign
 Staying silent and refusing to sign messages will cause the following:
 
 - 2-3 missed attestations, incurring penalties and missed rewards.
-- 2-3 epochs of missed sync committee contributions (if the validator is in a sync committee, which is unlikely), incurring penalties and missed rewards.
 - Potentially missed rewards by missing a block proposal (if the validator is an elected block
     proposer, which is unlikely).
 
+Notably, sync committee contributions are not slashable and will continue to be produced even when DP is suppressing other messages.
+
 The loss of rewards and penalties incurred due to the missed duties will be very small in
-dollar-values. Generally, they will equate to around one US dollar (at August 2021 figures) or about
-2% of the reward for one validator for one day. Since DP costs so little but can protect a user from
+dollar-values. Neglecting block proposals, generally they will equate to around 0.00002 ETH (equivalent to USD 0.04 assuming ETH is trading at USD 2000), or less than
+1% of the reward for one validator for one day. Since DP costs so little but can protect a user from
 slashing, many users will consider this a worthwhile trade-off.
 
 The 2-3 epochs of missed duties will be incurred whenever the VC is started (e.g., after an update

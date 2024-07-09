@@ -28,12 +28,12 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use task_executor::TaskExecutor;
+use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
-use tokio::runtime::Runtime;
-use tokio::sync::oneshot;
+use types::graffiti::GraffitiString;
 
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
@@ -46,23 +46,18 @@ struct ApiTester {
     validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
     url: SensitiveUrl,
     slot_clock: TestingSlotClock,
-    _server_shutdown: oneshot::Sender<()>,
     _validator_dir: TempDir,
-    _runtime_shutdown: exit_future::Signal,
-}
-
-// Builds a runtime to be used in the testing configuration.
-fn build_runtime() -> Arc<Runtime> {
-    Arc::new(
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("Should be able to build a testing runtime"),
-    )
+    _test_runtime: TestRuntime,
 }
 
 impl ApiTester {
-    pub async fn new(runtime: std::sync::Weak<Runtime>) -> Self {
+    pub async fn new() -> Self {
+        let mut config = Config::default();
+        config.fee_recipient = Some(TEST_DEFAULT_FEE_RECIPIENT);
+        Self::new_with_config(config).await
+    }
+
+    pub async fn new_with_config(mut config: Config) -> Self {
         let log = test_logger();
 
         let validator_dir = tempdir().unwrap();
@@ -73,6 +68,7 @@ impl ApiTester {
         let initialized_validators = InitializedValidators::from_definitions(
             validator_defs,
             validator_dir.path().into(),
+            Config::default(),
             log.clone(),
         )
         .await
@@ -81,10 +77,8 @@ impl ApiTester {
         let api_secret = ApiSecret::create_or_open(validator_dir.path()).unwrap();
         let api_pubkey = api_secret.api_token();
 
-        let mut config = Config::default();
         config.validator_dir = validator_dir.path().into();
         config.secrets_dir = secrets_dir.path().into();
-        config.fee_recipient = Some(TEST_DEFAULT_FEE_RECIPIENT);
 
         let spec = E::default_spec();
 
@@ -98,9 +92,7 @@ impl ApiTester {
             Duration::from_secs(1),
         );
 
-        let (runtime_shutdown, exit) = exit_future::signal();
-        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let executor = TaskExecutor::new(runtime.clone(), exit, log.clone(), shutdown_tx);
+        let test_runtime = TestRuntime::default();
 
         let validator_store = Arc::new(ValidatorStore::<_, E>::new(
             initialized_validators,
@@ -110,7 +102,7 @@ impl ApiTester {
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
             slot_clock.clone(),
             &config,
-            executor.clone(),
+            test_runtime.task_executor.clone(),
             log.clone(),
         ));
 
@@ -121,9 +113,10 @@ impl ApiTester {
         let initialized_validators = validator_store.initialized_validators();
 
         let context = Arc::new(Context {
-            task_executor: executor,
+            task_executor: test_runtime.task_executor.clone(),
             api_secret,
             validator_dir: Some(validator_dir.path().into()),
+            secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
             graffiti_file: None,
             graffiti_flag: Some(Graffiti::default()),
@@ -133,6 +126,8 @@ impl ApiTester {
                 listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
                 listen_port: 0,
                 allow_origin: None,
+                allow_keystore_export: true,
+                store_passwords_in_secrets_dir: false,
             },
             sse_logging_components: None,
             log,
@@ -140,12 +135,8 @@ impl ApiTester {
             _phantom: PhantomData,
         });
         let ctx = context.clone();
-        let (shutdown_tx, shutdown_rx) = oneshot::channel();
-        let server_shutdown = async {
-            // It's not really interesting why this triggered, just that it happened.
-            let _ = shutdown_rx.await;
-        };
-        let (listening_socket, server) = super::serve(ctx, server_shutdown).unwrap();
+        let (listening_socket, server) =
+            super::serve(ctx, test_runtime.task_executor.exit()).unwrap();
 
         tokio::spawn(async { server.await });
 
@@ -164,9 +155,8 @@ impl ApiTester {
             validator_store,
             url,
             slot_clock,
-            _server_shutdown: shutdown_tx,
             _validator_dir: validator_dir,
-            _runtime_shutdown: runtime_shutdown,
+            _test_runtime: test_runtime,
         }
     }
 
@@ -220,9 +210,9 @@ impl ApiTester {
     pub async fn test_get_lighthouse_spec(self) -> Self {
         let result = self
             .client
-            .get_lighthouse_spec::<ConfigAndPresetCapella>()
+            .get_lighthouse_spec::<ConfigAndPresetElectra>()
             .await
-            .map(|res| ConfigAndPreset::Capella(res.data))
+            .map(|res| ConfigAndPreset::Electra(res.data))
             .unwrap();
         let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec(), None);
 
@@ -286,6 +276,8 @@ impl ApiTester {
                 suggested_fee_recipient: None,
                 gas_limit: None,
                 builder_proposals: None,
+                builder_boost_factor: None,
+                prefer_builder_proposals: None,
                 deposit_gwei: E::default_spec().max_effective_balance,
             })
             .collect::<Vec<_>>();
@@ -419,6 +411,8 @@ impl ApiTester {
                 suggested_fee_recipient: None,
                 gas_limit: None,
                 builder_proposals: None,
+                builder_boost_factor: None,
+                prefer_builder_proposals: None,
             };
 
             self.client
@@ -439,6 +433,8 @@ impl ApiTester {
             suggested_fee_recipient: None,
             gas_limit: None,
             builder_proposals: None,
+            builder_boost_factor: None,
+            prefer_builder_proposals: None,
         };
 
         let response = self
@@ -477,6 +473,8 @@ impl ApiTester {
                     suggested_fee_recipient: None,
                     gas_limit: None,
                     builder_proposals: None,
+                    builder_boost_factor: None,
+                    prefer_builder_proposals: None,
                     voting_public_key: kp.pk,
                     url: format!("http://signer_{}.com/", i),
                     root_certificate_path: None,
@@ -517,7 +515,7 @@ impl ApiTester {
             .await;
 
         assert!(resp.is_ok());
-        assert_eq!(resp.unwrap().message.epoch, expected_exit_epoch);
+        assert_eq!(resp.unwrap().data.message.epoch, expected_exit_epoch);
 
         self
     }
@@ -533,7 +531,15 @@ impl ApiTester {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, Some(enabled), None, None)
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                Some(enabled),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -575,7 +581,15 @@ impl ApiTester {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, None, Some(gas_limit), None)
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                None,
+                Some(gas_limit),
+                None,
+                None,
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -602,6 +616,51 @@ impl ApiTester {
                 None,
                 None,
                 Some(builder_proposals),
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        self
+    }
+
+    pub async fn set_builder_boost_factor(self, index: usize, builder_boost_factor: u64) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        self.client
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                None,
+                None,
+                None,
+                Some(builder_boost_factor),
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        self
+    }
+
+    pub async fn set_prefer_builder_proposals(
+        self,
+        index: usize,
+        prefer_builder_proposals: bool,
+    ) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        self.client
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                None,
+                None,
+                None,
+                None,
+                Some(prefer_builder_proposals),
+                None,
             )
             .await
             .unwrap();
@@ -617,6 +676,137 @@ impl ApiTester {
                 .get_builder_proposals(&validator.voting_pubkey),
             builder_proposals
         );
+
+        self
+    }
+
+    pub async fn assert_builder_boost_factor(
+        self,
+        index: usize,
+        builder_boost_factor: Option<u64>,
+    ) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        assert_eq!(
+            self.validator_store
+                .get_builder_boost_factor(&validator.voting_pubkey),
+            builder_boost_factor
+        );
+
+        self
+    }
+
+    pub async fn assert_validator_derived_builder_boost_factor(
+        self,
+        index: usize,
+        builder_boost_factor: Option<u64>,
+    ) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        assert_eq!(
+            self.validator_store
+                .determine_validator_builder_boost_factor(&validator.voting_pubkey),
+            builder_boost_factor
+        );
+
+        self
+    }
+
+    pub fn assert_default_builder_boost_factor(self, builder_boost_factor: Option<u64>) -> Self {
+        assert_eq!(
+            self.validator_store
+                .determine_default_builder_boost_factor(),
+            builder_boost_factor
+        );
+
+        self
+    }
+
+    pub async fn assert_prefer_builder_proposals(
+        self,
+        index: usize,
+        prefer_builder_proposals: bool,
+    ) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        assert_eq!(
+            self.validator_store
+                .get_prefer_builder_proposals(&validator.voting_pubkey),
+            prefer_builder_proposals
+        );
+
+        self
+    }
+
+    pub async fn set_graffiti(self, index: usize, graffiti: &str) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        let graffiti_str = GraffitiString::from_str(graffiti).unwrap();
+        self.client
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(graffiti_str),
+            )
+            .await
+            .unwrap();
+
+        self
+    }
+
+    pub async fn assert_graffiti(self, index: usize, graffiti: &str) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        let graffiti_str = GraffitiString::from_str(graffiti).unwrap();
+        assert_eq!(
+            self.validator_store.graffiti(&validator.voting_pubkey),
+            Some(graffiti_str.into())
+        );
+
+        self
+    }
+
+    pub async fn test_set_graffiti(self, index: usize, graffiti: &str) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        let graffiti_str = GraffitiString::from_str(graffiti).unwrap();
+        let resp = self
+            .client
+            .set_graffiti(&validator.voting_pubkey, graffiti_str)
+            .await;
+
+        assert!(resp.is_ok());
+
+        self
+    }
+
+    pub async fn test_delete_graffiti(self, index: usize) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        let resp = self.client.get_graffiti(&validator.voting_pubkey).await;
+
+        assert!(resp.is_ok());
+        let old_graffiti = resp.unwrap().graffiti;
+
+        let resp = self.client.delete_graffiti(&validator.voting_pubkey).await;
+
+        assert!(resp.is_ok());
+
+        let resp = self.client.get_graffiti(&validator.voting_pubkey).await;
+
+        assert!(resp.is_ok());
+        assert_ne!(old_graffiti, resp.unwrap().graffiti);
+
+        self
+    }
+
+    pub async fn test_get_graffiti(self, index: usize, expected_graffiti: &str) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+        let expected_graffiti_str = GraffitiString::from_str(expected_graffiti).unwrap();
+        let resp = self.client.get_graffiti(&validator.voting_pubkey).await;
+
+        assert!(resp.is_ok());
+        assert_eq!(&resp.unwrap().graffiti, &expected_graffiti_str.into());
 
         self
     }
@@ -639,346 +829,532 @@ struct Web3SignerValidatorScenario {
     enabled: bool,
 }
 
-#[test]
-fn invalid_pubkey() {
-    let runtime = build_runtime();
-    let weak_runtime = Arc::downgrade(&runtime);
-    runtime.block_on(async {
-        ApiTester::new(weak_runtime)
-            .await
-            .invalidate_api_token()
-            .test_get_lighthouse_version_invalid()
-            .await;
-    });
+#[tokio::test]
+async fn invalid_pubkey() {
+    ApiTester::new()
+        .await
+        .invalidate_api_token()
+        .test_get_lighthouse_version_invalid()
+        .await;
 }
 
-#[test]
-fn routes_with_invalid_auth() {
-    let runtime = build_runtime();
-    let weak_runtime = Arc::downgrade(&runtime);
-    runtime.block_on(async {
-        ApiTester::new(weak_runtime)
-            .await
-            .test_with_invalid_auth(|client| async move { client.get_lighthouse_version().await })
-            .await
-            .test_with_invalid_auth(|client| async move { client.get_lighthouse_health().await })
-            .await
-            .test_with_invalid_auth(|client| async move {
-                client.get_lighthouse_spec::<types::Config>().await
-            })
-            .await
-            .test_with_invalid_auth(
-                |client| async move { client.get_lighthouse_validators().await },
-            )
-            .await
-            .test_with_invalid_auth(|client| async move {
-                client
-                    .get_lighthouse_validators_pubkey(&PublicKeyBytes::empty())
-                    .await
-            })
-            .await
-            .test_with_invalid_auth(|client| async move {
-                client
-                    .post_lighthouse_validators(vec![ValidatorRequest {
-                        enable: <_>::default(),
-                        description: <_>::default(),
-                        graffiti: <_>::default(),
-                        suggested_fee_recipient: <_>::default(),
-                        gas_limit: <_>::default(),
-                        builder_proposals: <_>::default(),
-                        deposit_gwei: <_>::default(),
-                    }])
-                    .await
-            })
-            .await
-            .test_with_invalid_auth(|client| async move {
-                client
-                    .post_lighthouse_validators_mnemonic(&CreateValidatorsMnemonicRequest {
-                        mnemonic: String::default().into(),
-                        key_derivation_path_offset: <_>::default(),
-                        validators: <_>::default(),
-                    })
-                    .await
-            })
-            .await
-            .test_with_invalid_auth(|client| async move {
-                let password = random_password();
-                let keypair = Keypair::random();
-                let keystore = KeystoreBuilder::new(&keypair, password.as_bytes(), String::new())
-                    .unwrap()
-                    .build()
-                    .unwrap();
-                client
-                    .post_lighthouse_validators_keystore(&KeystoreValidatorsPostRequest {
-                        password: String::default().into(),
-                        enable: <_>::default(),
-                        keystore,
-                        graffiti: <_>::default(),
-                        suggested_fee_recipient: <_>::default(),
-                        gas_limit: <_>::default(),
-                        builder_proposals: <_>::default(),
-                    })
-                    .await
-            })
-            .await
-            .test_with_invalid_auth(|client| async move {
-                client
-                    .patch_lighthouse_validators(&PublicKeyBytes::empty(), Some(false), None, None)
-                    .await
-            })
-            .await
-            .test_with_invalid_auth(|client| async move { client.get_keystores().await })
-            .await
-            .test_with_invalid_auth(|client| async move {
-                let password = random_password_string();
-                let keypair = Keypair::random();
-                let keystore = KeystoreBuilder::new(&keypair, password.as_ref(), String::new())
-                    .unwrap()
-                    .build()
-                    .map(KeystoreJsonStr)
-                    .unwrap();
-                client
-                    .post_keystores(&ImportKeystoresRequest {
-                        keystores: vec![keystore],
-                        passwords: vec![password],
-                        slashing_protection: None,
-                    })
-                    .await
-            })
-            .await
-            .test_with_invalid_auth(|client| async move {
-                let keypair = Keypair::random();
-                client
-                    .delete_keystores(&DeleteKeystoresRequest {
-                        pubkeys: vec![keypair.pk.compress()],
-                    })
-                    .await
-            })
-            .await
-    });
+#[tokio::test]
+async fn routes_with_invalid_auth() {
+    ApiTester::new()
+        .await
+        .test_with_invalid_auth(|client| async move { client.get_lighthouse_version().await })
+        .await
+        .test_with_invalid_auth(|client| async move { client.get_lighthouse_health().await })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client.get_lighthouse_spec::<types::Config>().await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move { client.get_lighthouse_validators().await })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client
+                .get_lighthouse_validators_pubkey(&PublicKeyBytes::empty())
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client
+                .post_lighthouse_validators(vec![ValidatorRequest {
+                    enable: <_>::default(),
+                    description: <_>::default(),
+                    graffiti: <_>::default(),
+                    suggested_fee_recipient: <_>::default(),
+                    gas_limit: <_>::default(),
+                    builder_proposals: <_>::default(),
+                    deposit_gwei: <_>::default(),
+                    builder_boost_factor: <_>::default(),
+                    prefer_builder_proposals: <_>::default(),
+                }])
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client
+                .post_lighthouse_validators_mnemonic(&CreateValidatorsMnemonicRequest {
+                    mnemonic: String::default().into(),
+                    key_derivation_path_offset: <_>::default(),
+                    validators: <_>::default(),
+                })
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            let password = random_password();
+            let keypair = Keypair::random();
+            let keystore = KeystoreBuilder::new(&keypair, password.as_bytes(), String::new())
+                .unwrap()
+                .build()
+                .unwrap();
+            client
+                .post_lighthouse_validators_keystore(&KeystoreValidatorsPostRequest {
+                    password: String::default().into(),
+                    enable: <_>::default(),
+                    keystore,
+                    graffiti: <_>::default(),
+                    suggested_fee_recipient: <_>::default(),
+                    gas_limit: <_>::default(),
+                    builder_proposals: <_>::default(),
+                    builder_boost_factor: <_>::default(),
+                    prefer_builder_proposals: <_>::default(),
+                })
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client
+                .patch_lighthouse_validators(
+                    &PublicKeyBytes::empty(),
+                    Some(false),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move { client.get_keystores().await })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            let password = random_password_string();
+            let keypair = Keypair::random();
+            let keystore = KeystoreBuilder::new(&keypair, password.as_ref(), String::new())
+                .unwrap()
+                .build()
+                .map(KeystoreJsonStr)
+                .unwrap();
+            client
+                .post_keystores(&ImportKeystoresRequest {
+                    keystores: vec![keystore],
+                    passwords: vec![password],
+                    slashing_protection: None,
+                })
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            let keypair = Keypair::random();
+            client
+                .delete_keystores(&DeleteKeystoresRequest {
+                    pubkeys: vec![keypair.pk.compress()],
+                })
+                .await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client.delete_graffiti(&PublicKeyBytes::empty()).await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client.get_graffiti(&PublicKeyBytes::empty()).await
+        })
+        .await
+        .test_with_invalid_auth(|client| async move {
+            client
+                .set_graffiti(&PublicKeyBytes::empty(), GraffitiString::default())
+                .await
+        })
+        .await;
 }
 
-#[test]
-fn simple_getters() {
-    let runtime = build_runtime();
-    let weak_runtime = Arc::downgrade(&runtime);
-    runtime.block_on(async {
-        ApiTester::new(weak_runtime)
-            .await
-            .test_get_lighthouse_version()
-            .await
-            .test_get_lighthouse_health()
-            .await
-            .test_get_lighthouse_spec()
-            .await;
-    });
+#[tokio::test]
+async fn simple_getters() {
+    ApiTester::new()
+        .await
+        .test_get_lighthouse_version()
+        .await
+        .test_get_lighthouse_health()
+        .await
+        .test_get_lighthouse_spec()
+        .await;
 }
 
-#[test]
-fn hd_validator_creation() {
-    let runtime = build_runtime();
-    let weak_runtime = Arc::downgrade(&runtime);
-    runtime.block_on(async {
-        ApiTester::new(weak_runtime)
-            .await
-            .assert_enabled_validators_count(0)
-            .assert_validators_count(0)
-            .create_hd_validators(HdValidatorScenario {
-                count: 2,
-                specify_mnemonic: true,
-                key_derivation_path_offset: 0,
-                disabled: vec![],
-            })
-            .await
-            .assert_enabled_validators_count(2)
-            .assert_validators_count(2)
-            .create_hd_validators(HdValidatorScenario {
-                count: 1,
-                specify_mnemonic: false,
-                key_derivation_path_offset: 0,
-                disabled: vec![0],
-            })
-            .await
-            .assert_enabled_validators_count(2)
-            .assert_validators_count(3)
-            .create_hd_validators(HdValidatorScenario {
-                count: 0,
-                specify_mnemonic: true,
-                key_derivation_path_offset: 4,
-                disabled: vec![],
-            })
-            .await
-            .assert_enabled_validators_count(2)
-            .assert_validators_count(3);
-    });
+#[tokio::test]
+async fn hd_validator_creation() {
+    ApiTester::new()
+        .await
+        .assert_enabled_validators_count(0)
+        .assert_validators_count(0)
+        .create_hd_validators(HdValidatorScenario {
+            count: 2,
+            specify_mnemonic: true,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2)
+        .create_hd_validators(HdValidatorScenario {
+            count: 1,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![0],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(3)
+        .create_hd_validators(HdValidatorScenario {
+            count: 0,
+            specify_mnemonic: true,
+            key_derivation_path_offset: 4,
+            disabled: vec![],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(3);
 }
 
-#[test]
-fn validator_exit() {
-    let runtime = build_runtime();
-    let weak_runtime = Arc::downgrade(&runtime);
-    runtime.block_on(async {
-        ApiTester::new(weak_runtime)
-            .await
-            .create_hd_validators(HdValidatorScenario {
-                count: 2,
-                specify_mnemonic: false,
-                key_derivation_path_offset: 0,
-                disabled: vec![],
-            })
-            .await
-            .assert_enabled_validators_count(2)
-            .assert_validators_count(2)
-            .test_sign_voluntary_exits(0, None)
-            .await
-            .test_sign_voluntary_exits(0, Some(Epoch::new(256)))
-            .await;
-    });
+#[tokio::test]
+async fn validator_exit() {
+    ApiTester::new()
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 2,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2)
+        .test_sign_voluntary_exits(0, None)
+        .await
+        .test_sign_voluntary_exits(0, Some(Epoch::new(256)))
+        .await;
 }
 
-#[test]
-fn validator_enabling() {
-    let runtime = build_runtime();
-    let weak_runtime = Arc::downgrade(&runtime);
-    runtime.block_on(async {
-        ApiTester::new(weak_runtime)
-            .await
-            .create_hd_validators(HdValidatorScenario {
-                count: 2,
-                specify_mnemonic: false,
-                key_derivation_path_offset: 0,
-                disabled: vec![],
-            })
-            .await
-            .assert_enabled_validators_count(2)
-            .assert_validators_count(2)
-            .set_validator_enabled(0, false)
-            .await
-            .assert_enabled_validators_count(1)
-            .assert_validators_count(2)
-            .set_validator_enabled(0, true)
-            .await
-            .assert_enabled_validators_count(2)
-            .assert_validators_count(2);
-    });
+#[tokio::test]
+async fn validator_enabling() {
+    ApiTester::new()
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 2,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2)
+        .set_validator_enabled(0, false)
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(2)
+        .set_validator_enabled(0, true)
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2);
 }
 
-#[test]
-fn validator_gas_limit() {
-    let runtime = build_runtime();
-    let weak_runtime = Arc::downgrade(&runtime);
-    runtime.block_on(async {
-        ApiTester::new(weak_runtime)
-            .await
-            .create_hd_validators(HdValidatorScenario {
-                count: 2,
-                specify_mnemonic: false,
-                key_derivation_path_offset: 0,
-                disabled: vec![],
-            })
-            .await
-            .assert_enabled_validators_count(2)
-            .assert_validators_count(2)
-            .set_gas_limit(0, 500)
-            .await
-            .assert_gas_limit(0, 500)
-            .await
-            // Update gas limit while validator is disabled.
-            .set_validator_enabled(0, false)
-            .await
-            .assert_enabled_validators_count(1)
-            .assert_validators_count(2)
-            .set_gas_limit(0, 1000)
-            .await
-            .set_validator_enabled(0, true)
-            .await
-            .assert_enabled_validators_count(2)
-            .assert_gas_limit(0, 1000)
-            .await
-    });
+#[tokio::test]
+async fn validator_gas_limit() {
+    ApiTester::new()
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 2,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2)
+        .set_gas_limit(0, 500)
+        .await
+        .assert_gas_limit(0, 500)
+        .await
+        // Update gas limit while validator is disabled.
+        .set_validator_enabled(0, false)
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(2)
+        .set_gas_limit(0, 1000)
+        .await
+        .set_validator_enabled(0, true)
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_gas_limit(0, 1000)
+        .await;
 }
 
-#[test]
-fn validator_builder_proposals() {
-    let runtime = build_runtime();
-    let weak_runtime = Arc::downgrade(&runtime);
-    runtime.block_on(async {
-        ApiTester::new(weak_runtime)
-            .await
-            .create_hd_validators(HdValidatorScenario {
-                count: 2,
-                specify_mnemonic: false,
-                key_derivation_path_offset: 0,
-                disabled: vec![],
-            })
-            .await
-            .assert_enabled_validators_count(2)
-            .assert_validators_count(2)
-            .set_builder_proposals(0, true)
-            .await
-            // Test setting builder proposals while the validator is disabled
-            .set_validator_enabled(0, false)
-            .await
-            .assert_enabled_validators_count(1)
-            .assert_validators_count(2)
-            .set_builder_proposals(0, false)
-            .await
-            .set_validator_enabled(0, true)
-            .await
-            .assert_enabled_validators_count(2)
-            .assert_builder_proposals(0, false)
-            .await
-    });
+#[tokio::test]
+async fn validator_builder_proposals() {
+    ApiTester::new()
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 2,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2)
+        .set_builder_proposals(0, true)
+        .await
+        // Test setting builder proposals while the validator is disabled
+        .set_validator_enabled(0, false)
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(2)
+        .set_builder_proposals(0, false)
+        .await
+        .set_validator_enabled(0, true)
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_builder_proposals(0, false)
+        .await;
 }
 
-#[test]
-fn keystore_validator_creation() {
-    let runtime = build_runtime();
-    let weak_runtime = Arc::downgrade(&runtime);
-    runtime.block_on(async {
-        ApiTester::new(weak_runtime)
-            .await
-            .assert_enabled_validators_count(0)
-            .assert_validators_count(0)
-            .create_keystore_validators(KeystoreValidatorScenario {
-                correct_password: true,
-                enabled: true,
-            })
-            .await
-            .assert_enabled_validators_count(1)
-            .assert_validators_count(1)
-            .create_keystore_validators(KeystoreValidatorScenario {
-                correct_password: false,
-                enabled: true,
-            })
-            .await
-            .assert_enabled_validators_count(1)
-            .assert_validators_count(1)
-            .create_keystore_validators(KeystoreValidatorScenario {
-                correct_password: true,
-                enabled: false,
-            })
-            .await
-            .assert_enabled_validators_count(1)
-            .assert_validators_count(2);
-    });
+#[tokio::test]
+async fn validator_builder_boost_factor() {
+    ApiTester::new()
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 2,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2)
+        .set_builder_boost_factor(0, 120)
+        .await
+        // Test setting builder proposals while the validator is disabled
+        .set_validator_enabled(0, false)
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(2)
+        .set_builder_boost_factor(0, 80)
+        .await
+        .set_validator_enabled(0, true)
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_builder_boost_factor(0, Some(80))
+        .await;
 }
 
-#[test]
-fn web3signer_validator_creation() {
-    let runtime = build_runtime();
-    let weak_runtime = Arc::downgrade(&runtime);
-    runtime.block_on(async {
-        ApiTester::new(weak_runtime)
-            .await
-            .assert_enabled_validators_count(0)
-            .assert_validators_count(0)
-            .create_web3signer_validators(Web3SignerValidatorScenario {
-                count: 1,
-                enabled: true,
-            })
-            .await
-            .assert_enabled_validators_count(1)
-            .assert_validators_count(1);
-    });
+/// Verifies the builder boost factors translated from the `builder_proposals`,
+/// `prefer_builder_proposals` and `builder_boost_factor` values.
+#[tokio::test]
+async fn validator_derived_builder_boost_factor_with_process_defaults() {
+    let config = Config {
+        builder_proposals: true,
+        prefer_builder_proposals: false,
+        builder_boost_factor: Some(80),
+        ..Config::default()
+    };
+    ApiTester::new_with_config(config)
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 3,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_default_builder_boost_factor(Some(80))
+        .assert_validator_derived_builder_boost_factor(0, None)
+        .await
+        .set_builder_proposals(0, false)
+        .await
+        .assert_validator_derived_builder_boost_factor(0, Some(0))
+        .await
+        .set_builder_boost_factor(1, 120)
+        .await
+        .assert_validator_derived_builder_boost_factor(1, Some(120))
+        .await
+        .set_prefer_builder_proposals(2, true)
+        .await
+        .assert_validator_derived_builder_boost_factor(2, Some(u64::MAX))
+        .await;
+}
+
+#[tokio::test]
+async fn validator_builder_boost_factor_global_builder_proposals_true() {
+    let config = Config {
+        builder_proposals: true,
+        prefer_builder_proposals: false,
+        builder_boost_factor: None,
+        ..Config::default()
+    };
+    ApiTester::new_with_config(config)
+        .await
+        .assert_default_builder_boost_factor(None);
+}
+
+#[tokio::test]
+async fn validator_builder_boost_factor_global_builder_proposals_false() {
+    let config = Config {
+        builder_proposals: false,
+        prefer_builder_proposals: false,
+        builder_boost_factor: None,
+        ..Config::default()
+    };
+    ApiTester::new_with_config(config)
+        .await
+        .assert_default_builder_boost_factor(Some(0));
+}
+
+#[tokio::test]
+async fn validator_builder_boost_factor_global_prefer_builder_proposals_true() {
+    let config = Config {
+        builder_proposals: true,
+        prefer_builder_proposals: true,
+        builder_boost_factor: None,
+        ..Config::default()
+    };
+    ApiTester::new_with_config(config)
+        .await
+        .assert_default_builder_boost_factor(Some(u64::MAX));
+}
+
+#[tokio::test]
+async fn validator_builder_boost_factor_global_prefer_builder_proposals_true_override() {
+    let config = Config {
+        builder_proposals: false,
+        prefer_builder_proposals: true,
+        builder_boost_factor: None,
+        ..Config::default()
+    };
+    ApiTester::new_with_config(config)
+        .await
+        .assert_default_builder_boost_factor(Some(u64::MAX));
+}
+
+#[tokio::test]
+async fn prefer_builder_proposals_validator() {
+    ApiTester::new()
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 2,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2)
+        .set_prefer_builder_proposals(0, false)
+        .await
+        // Test setting builder proposals while the validator is disabled
+        .set_validator_enabled(0, false)
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(2)
+        .set_prefer_builder_proposals(0, true)
+        .await
+        .set_validator_enabled(0, true)
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_prefer_builder_proposals(0, true)
+        .await;
+}
+
+#[tokio::test]
+async fn validator_graffiti() {
+    ApiTester::new()
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 2,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2)
+        .set_graffiti(0, "Mr F was here")
+        .await
+        .assert_graffiti(0, "Mr F was here")
+        .await
+        // Test setting graffiti while the validator is disabled
+        .set_validator_enabled(0, false)
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(2)
+        .set_graffiti(0, "Mr F was here again")
+        .await
+        .set_validator_enabled(0, true)
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_graffiti(0, "Mr F was here again")
+        .await;
+}
+
+#[tokio::test]
+async fn validator_graffiti_api() {
+    ApiTester::new()
+        .await
+        .create_hd_validators(HdValidatorScenario {
+            count: 2,
+            specify_mnemonic: false,
+            key_derivation_path_offset: 0,
+            disabled: vec![],
+        })
+        .await
+        .assert_enabled_validators_count(2)
+        .assert_validators_count(2)
+        .set_graffiti(0, "Mr F was here")
+        .await
+        .test_get_graffiti(0, "Mr F was here")
+        .await
+        .test_set_graffiti(0, "Uncle Bill was here")
+        .await
+        .test_get_graffiti(0, "Uncle Bill was here")
+        .await
+        .test_delete_graffiti(0)
+        .await;
+}
+
+#[tokio::test]
+async fn keystore_validator_creation() {
+    ApiTester::new()
+        .await
+        .assert_enabled_validators_count(0)
+        .assert_validators_count(0)
+        .create_keystore_validators(KeystoreValidatorScenario {
+            correct_password: true,
+            enabled: true,
+        })
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(1)
+        .create_keystore_validators(KeystoreValidatorScenario {
+            correct_password: false,
+            enabled: true,
+        })
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(1)
+        .create_keystore_validators(KeystoreValidatorScenario {
+            correct_password: true,
+            enabled: false,
+        })
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(2);
+}
+
+#[tokio::test]
+async fn web3signer_validator_creation() {
+    ApiTester::new()
+        .await
+        .assert_enabled_validators_count(0)
+        .assert_validators_count(0)
+        .create_web3signer_validators(Web3SignerValidatorScenario {
+            count: 1,
+            enabled: true,
+        })
+        .await
+        .assert_enabled_validators_count(1)
+        .assert_validators_count(1);
 }

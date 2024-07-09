@@ -1,4 +1,5 @@
 target/
+vendor/
 **/*.rs.bk
 *.pk
 *.sk
@@ -9,7 +10,11 @@ perf.data*
 /bin
 genesis.ssz
 /clippy.toml
+/.cargo
 
 # IntelliJ
 /*.iml
 .idea
+
+# VSCode
+/.vscode

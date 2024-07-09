@@ -1,11 +1,11 @@
-#![cfg(all(test, not(feature = "fake_crypto")))]
+#![cfg(all(test, not(feature = "fake_crypto"), not(debug_assertions)))]
 
 use crate::per_block_processing::errors::{
     AttestationInvalid, AttesterSlashingInvalid, BlockOperationError, BlockProcessingError,
     DepositInvalid, HeaderInvalid, IndexedAttestationInvalid, IntoWithIndex,
     ProposerSlashingInvalid,
 };
-use crate::{per_block_processing, StateProcessingStrategy};
+use crate::{per_block_processing, BlockReplayError, BlockReplayer};
 use crate::{
     per_block_processing::{process_operations, verify_exit::verify_exit},
     BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
@@ -34,7 +34,7 @@ async fn get_harness<E: EthSpec>(
     // Set the state and block to be in the last slot of the `epoch_offset`th epoch.
     let last_slot_of_epoch =
         (MainnetEthSpec::genesis_epoch() + epoch_offset).end_slot(E::slots_per_epoch());
-    let harness = BeaconChainHarness::builder(E::default())
+    let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
         .default_spec()
         .keypairs(KEYPAIRS[0..num_validators].to_vec())
         .fresh_ephemeral_store()
@@ -63,7 +63,7 @@ async fn valid_block_ok() {
     let state = harness.get_current_state();
 
     let slot = state.slot();
-    let (block, mut state) = harness
+    let ((block, _), mut state) = harness
         .make_block_return_pre_state(state, slot + Slot::new(1))
         .await;
 
@@ -72,7 +72,6 @@ async fn valid_block_ok() {
         &mut state,
         &block,
         BlockSignatureStrategy::VerifyIndividual,
-        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
         &mut ctxt,
         &spec,
@@ -89,8 +88,8 @@ async fn invalid_block_header_state_slot() {
     let state = harness.get_current_state();
     let slot = state.slot() + Slot::new(1);
 
-    let (signed_block, mut state) = harness.make_block_return_pre_state(state, slot).await;
-    let (mut block, signature) = signed_block.deconstruct();
+    let ((signed_block, _), mut state) = harness.make_block_return_pre_state(state, slot).await;
+    let (mut block, signature) = (*signed_block).clone().deconstruct();
     *block.slot_mut() = slot + Slot::new(1);
 
     let mut ctxt = ConsensusContext::new(block.slot());
@@ -98,7 +97,6 @@ async fn invalid_block_header_state_slot() {
         &mut state,
         &SignedBeaconBlock::from_block(block, signature),
         BlockSignatureStrategy::VerifyIndividual,
-        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
         &mut ctxt,
         &spec,
@@ -120,10 +118,10 @@ async fn invalid_parent_block_root() {
     let state = harness.get_current_state();
     let slot = state.slot();
 
-    let (signed_block, mut state) = harness
+    let ((signed_block, _), mut state) = harness
         .make_block_return_pre_state(state, slot + Slot::new(1))
         .await;
-    let (mut block, signature) = signed_block.deconstruct();
+    let (mut block, signature) = (*signed_block).clone().deconstruct();
     *block.parent_root_mut() = Hash256::from([0xAA; 32]);
 
     let mut ctxt = ConsensusContext::new(block.slot());
@@ -131,7 +129,6 @@ async fn invalid_parent_block_root() {
         &mut state,
         &SignedBeaconBlock::from_block(block, signature),
         BlockSignatureStrategy::VerifyIndividual,
-        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
         &mut ctxt,
         &spec,
@@ -155,17 +152,16 @@ async fn invalid_block_signature() {
 
     let state = harness.get_current_state();
     let slot = state.slot();
-    let (signed_block, mut state) = harness
+    let ((signed_block, _), mut state) = harness
         .make_block_return_pre_state(state, slot + Slot::new(1))
         .await;
-    let (block, _) = signed_block.deconstruct();
+    let (block, _) = (*signed_block).clone().deconstruct();
 
     let mut ctxt = ConsensusContext::new(block.slot());
     let result = per_block_processing(
         &mut state,
         &SignedBeaconBlock::from_block(block, Signature::empty()),
         BlockSignatureStrategy::VerifyIndividual,
-        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
         &mut ctxt,
         &spec,
@@ -188,7 +184,7 @@ async fn invalid_randao_reveal_signature() {
     let state = harness.get_current_state();
     let slot = state.slot();
 
-    let (signed_block, mut state) = harness
+    let ((signed_block, _), mut state) = harness
         .make_block_with_modifier(state, slot + 1, |block| {
             *block.body_mut().randao_reveal_mut() = Signature::empty();
         })
@@ -199,7 +195,6 @@ async fn invalid_randao_reveal_signature() {
         &mut state,
         &signed_block,
         BlockSignatureStrategy::VerifyIndividual,
-        StateProcessingStrategy::Accurate,
         VerifyBlockRoot::True,
         &mut ctxt,
         &spec,
@@ -393,8 +388,13 @@ async fn invalid_attestation_no_committee_for_index() {
         .clone()
         .deconstruct()
         .0;
-    head_block.to_mut().body_mut().attestations_mut()[0]
-        .data
+    head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .data_mut()
         .index += 1;
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -428,11 +428,22 @@ async fn invalid_attestation_wrong_justified_checkpoint() {
         .clone()
         .deconstruct()
         .0;
-    let old_justified_checkpoint = head_block.body().attestations()[0].data.source;
+    let old_justified_checkpoint = head_block
+        .body()
+        .attestations()
+        .next()
+        .unwrap()
+        .data()
+        .source;
     let mut new_justified_checkpoint = old_justified_checkpoint;
     new_justified_checkpoint.epoch += Epoch::new(1);
-    head_block.to_mut().body_mut().attestations_mut()[0]
-        .data
+    head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .data_mut()
         .source = new_justified_checkpoint;
 
     let mut ctxt = ConsensusContext::new(state.slot());
@@ -451,8 +462,8 @@ async fn invalid_attestation_wrong_justified_checkpoint() {
         Err(BlockProcessingError::AttestationInvalid {
             index: 0,
             reason: AttestationInvalid::WrongJustifiedCheckpoint {
-                state: old_justified_checkpoint,
-                attestation: new_justified_checkpoint,
+                state: Box::new(old_justified_checkpoint),
+                attestation: Box::new(new_justified_checkpoint),
                 is_current: true,
             }
         })
@@ -472,8 +483,14 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
         .clone()
         .deconstruct()
         .0;
-    head_block.to_mut().body_mut().attestations_mut()[0].aggregation_bits =
-        Bitfield::with_capacity(spec.target_committee_size).unwrap();
+    *head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .aggregation_bits_base_mut()
+        .unwrap() = Bitfield::with_capacity(spec.target_committee_size).unwrap();
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -506,7 +523,13 @@ async fn invalid_attestation_bad_signature() {
         .clone()
         .deconstruct()
         .0;
-    head_block.to_mut().body_mut().attestations_mut()[0].signature = AggregateSignature::empty();
+    *head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .signature_mut() = AggregateSignature::empty();
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -541,10 +564,15 @@ async fn invalid_attestation_included_too_early() {
         .clone()
         .deconstruct()
         .0;
-    let new_attesation_slot = head_block.body().attestations()[0].data.slot
+    let new_attesation_slot = head_block.body().attestations().next().unwrap().data().slot
         + Slot::new(MainnetEthSpec::slots_per_epoch());
-    head_block.to_mut().body_mut().attestations_mut()[0]
-        .data
+    head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .data_mut()
         .slot = new_attesation_slot;
 
     let mut ctxt = ConsensusContext::new(state.slot());
@@ -584,10 +612,15 @@ async fn invalid_attestation_included_too_late() {
         .clone()
         .deconstruct()
         .0;
-    let new_attesation_slot = head_block.body().attestations()[0].data.slot
+    let new_attesation_slot = head_block.body().attestations().next().unwrap().data().slot
         - Slot::new(MainnetEthSpec::slots_per_epoch());
-    head_block.to_mut().body_mut().attestations_mut()[0]
-        .data
+    head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .data_mut()
         .slot = new_attesation_slot;
 
     let mut ctxt = ConsensusContext::new(state.slot());
@@ -624,8 +657,13 @@ async fn invalid_attestation_target_epoch_slot_mismatch() {
         .clone()
         .deconstruct()
         .0;
-    head_block.to_mut().body_mut().attestations_mut()[0]
-        .data
+    head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .data_mut()
         .target
         .epoch += Epoch::new(1);
 
@@ -660,7 +698,7 @@ async fn valid_insert_attester_slashing() {
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attester_slashings(
         &mut state,
-        &[attester_slashing],
+        [attester_slashing.to_ref()].into_iter(),
         VerifySignatures::True,
         &mut ctxt,
         &spec,
@@ -676,13 +714,20 @@ async fn invalid_attester_slashing_not_slashable() {
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
-    attester_slashing.attestation_1 = attester_slashing.attestation_2.clone();
+    match &mut attester_slashing {
+        AttesterSlashing::Base(ref mut attester_slashing) => {
+            attester_slashing.attestation_1 = attester_slashing.attestation_2.clone();
+        }
+        AttesterSlashing::Electra(ref mut attester_slashing) => {
+            attester_slashing.attestation_1 = attester_slashing.attestation_2.clone();
+        }
+    }
 
     let mut state = harness.get_current_state();
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attester_slashings(
         &mut state,
-        &[attester_slashing],
+        [attester_slashing.to_ref()].into_iter(),
         VerifySignatures::True,
         &mut ctxt,
         &spec,
@@ -704,13 +749,20 @@ async fn invalid_attester_slashing_1_invalid() {
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
-    attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2, 1]);
+    match &mut attester_slashing {
+        AttesterSlashing::Base(ref mut attester_slashing) => {
+            attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2, 1]);
+        }
+        AttesterSlashing::Electra(ref mut attester_slashing) => {
+            attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2, 1]);
+        }
+    }
 
     let mut state = harness.get_current_state();
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attester_slashings(
         &mut state,
-        &[attester_slashing],
+        [attester_slashing.to_ref()].into_iter(),
         VerifySignatures::True,
         &mut ctxt,
         &spec,
@@ -735,13 +787,20 @@ async fn invalid_attester_slashing_2_invalid() {
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
-    attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2, 1]);
+    match &mut attester_slashing {
+        AttesterSlashing::Base(ref mut attester_slashing) => {
+            attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2, 1]);
+        }
+        AttesterSlashing::Electra(ref mut attester_slashing) => {
+            attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2, 1]);
+        }
+    }
 
     let mut state = harness.get_current_state();
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attester_slashings(
         &mut state,
-        &[attester_slashing],
+        [attester_slashing.to_ref()].into_iter(),
         VerifySignatures::True,
         &mut ctxt,
         &spec,
@@ -960,7 +1019,7 @@ async fn fork_spanning_exit() {
     spec.bellatrix_fork_epoch = Some(Epoch::new(4));
     spec.shard_committee_period = 0;
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec::default())
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .spec(spec.clone())
         .deterministic_keypairs(VALIDATOR_COUNT)
         .mock_execution_layer()
@@ -1034,4 +1093,52 @@ async fn fork_spanning_exit() {
         &spec,
     )
     .expect_err("phase0 exit does not verify against bellatrix state");
+}
+
+/// Check that the block replayer does not consume state roots unnecessarily.
+#[tokio::test]
+async fn block_replayer_peeking_state_roots() {
+    let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
+
+    let target_state = harness.get_current_state();
+    let target_block_root = harness.head_block_root();
+    let target_block = harness
+        .chain
+        .get_blinded_block(&target_block_root)
+        .unwrap()
+        .unwrap();
+
+    let parent_block_root = target_block.parent_root();
+    let parent_block = harness
+        .chain
+        .get_blinded_block(&parent_block_root)
+        .unwrap()
+        .unwrap();
+    let parent_state = harness
+        .chain
+        .get_state(&parent_block.state_root(), Some(parent_block.slot()))
+        .unwrap()
+        .unwrap();
+
+    // Omit the state root for `target_state` but provide a dummy state root at the *next* slot.
+    // If the block replayer is peeking at the state roots rather than consuming them, then the
+    // dummy state should still be there after block replay completes.
+    let dummy_state_root = Hash256::repeat_byte(0xff);
+    let dummy_slot = target_state.slot() + 1;
+    let state_root_iter = vec![Ok::<_, BlockReplayError>((dummy_state_root, dummy_slot))];
+    let block_replayer = BlockReplayer::new(parent_state, &harness.chain.spec)
+        .state_root_iter(state_root_iter.into_iter())
+        .no_signature_verification()
+        .apply_blocks(vec![target_block], None)
+        .unwrap();
+
+    assert_eq!(
+        block_replayer
+            .state_root_iter
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap(),
+        (dummy_state_root, dummy_slot)
+    );
 }

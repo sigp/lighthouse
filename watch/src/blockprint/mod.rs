@@ -17,13 +17,14 @@ pub use config::Config;
 pub use database::{
     get_blockprint_by_root, get_blockprint_by_slot, get_highest_blockprint, get_lowest_blockprint,
     get_unknown_blockprint, get_validators_clients_at_slot, insert_batch_blockprint,
-    list_consensus_clients, WatchBlockprint,
+    WatchBlockprint,
 };
 pub use server::blockprint_routes;
 
 const TIMEOUT: Duration = Duration::from_secs(50);
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Error {
     Reqwest(reqwest::Error),
     Url(url::ParseError),

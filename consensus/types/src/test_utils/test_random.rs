@@ -2,7 +2,7 @@ use crate::*;
 use rand::RngCore;
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
-use ssz_types::typenum::Unsigned;
+use smallvec::{smallvec, SmallVec};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -10,6 +10,8 @@ mod address;
 mod aggregate_signature;
 mod bitfield;
 mod hash256;
+mod kzg_commitment;
+mod kzg_proof;
 mod public_key;
 mod public_key_bytes;
 mod secret_key;
@@ -28,7 +30,7 @@ pub trait TestRandom {
 
 impl<T> TestRandom for PhantomData<T> {
     fn random_for_test(_rng: &mut impl RngCore) -> Self {
-        PhantomData::default()
+        PhantomData
     }
 }
 
@@ -86,7 +88,7 @@ where
     }
 }
 
-impl<T, N: Unsigned> TestRandom for FixedVector<T, N>
+impl<T, N: Unsigned> TestRandom for ssz_types::FixedVector<T, N>
 where
     T: TestRandom,
 {
@@ -114,6 +116,21 @@ where
         }
 
         output.into()
+    }
+}
+
+impl<U, const N: usize> TestRandom for SmallVec<[U; N]>
+where
+    U: TestRandom,
+{
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        let mut output = smallvec![];
+
+        for _ in 0..(usize::random_for_test(rng) % 4) {
+            output.push(<U>::random_for_test(rng));
+        }
+
+        output
     }
 }
 
