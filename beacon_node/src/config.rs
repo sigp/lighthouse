@@ -27,8 +27,7 @@ use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
-use tracing::{error, info, level_filters::LevelFilter, warn};
-use tracing_subscriber::EnvFilter;
+use tracing::{error, info, warn};
 use types::graffiti::GraffitiString;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes};
 

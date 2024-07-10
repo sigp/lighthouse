@@ -45,7 +45,7 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use timer::spawn_timer;
 use tokio::sync::oneshot;
-use tracing::{debug, error, info, level_filters::LevelFilter, warn};
+use tracing::{debug, info, level_filters::LevelFilter, warn};
 use tracing_subscriber::EnvFilter;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, BlobSidecarList, ChainSpec, EthSpec,

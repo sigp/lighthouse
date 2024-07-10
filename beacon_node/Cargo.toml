@@ -27,7 +27,6 @@ store = { workspace = true }
 client = { path = "client" }
 clap = { workspace = true }
 slog = { workspace = true }
-tracing-subscriber = { workspace = true }
 tracing = { workspace = true }
 dirs = { workspace = true }
 directory = { workspace = true }

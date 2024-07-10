@@ -881,7 +881,6 @@ dependencies = [
  "strum",
  "task_executor",
  "tracing",
- "tracing-subscriber",
  "types",
  "unused_port",
 ]
@@ -1845,6 +1844,7 @@ dependencies = [
  "slog",
  "store",
  "strum",
+ "tracing",
  "types",
 ]
 

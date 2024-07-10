@@ -6,7 +6,7 @@ use beacon_node::{get_data_dir, get_slots_per_restore_point, ClientConfig};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::{get_color_style, FLAG_HEADER};
 use environment::{Environment, RuntimeContext};
-use slog::{info, warn, Logger};
+use slog::Logger;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -17,6 +17,7 @@ use store::{
     DBColumn, HotColdDB, KeyValueStore, LevelDB,
 };
 use strum::{EnumString, EnumVariantNames, VariantNames};
+use tracing::{info, warn};
 use types::{BeaconState, EthSpec, Slot};
 
 pub const CMD: &str = "database_manager";
@@ -288,13 +289,12 @@ pub fn display_db_version<E: EthSpec>(
         log.clone(),
     )?;
 
-    info!(log, "Database version: {}", version.as_u64());
+    info!(version = version.as_u64(), "Database version");
 
     if version != CURRENT_SCHEMA_VERSION {
         info!(
-            log,
-            "Latest schema version: {}",
-            CURRENT_SCHEMA_VERSION.as_u64(),
+            current_schema_version = CURRENT_SCHEMA_VERSION.as_u64(),
+            "Latest schema version"
         );
     }
 
@@ -479,10 +479,9 @@ pub fn compact_db<E: EthSpec>(
         (LevelDB::<E>::open(&hot_path)?, "hot_db")
     };
     info!(
-        log,
-        "Compacting database";
-        "db" => db_name,
-        "column" => ?column
+        db = db_name,
+        column = ?column,
+        "Compacting database"
     );
     sub_db.compact_column(column)?;
     Ok(())
@@ -525,10 +524,9 @@ pub fn migrate_db<E: EthSpec>(
     )?;
 
     info!(
-        log,
-        "Migrating database schema";
-        "from" => from.as_u64(),
-        "to" => to.as_u64(),
+        from = from.as_u64(),
+        to = to.as_u64(),
+        "Migrating database schema"
     );
 
     migrate_schema::<Witness<SystemTimeSlotClock, CachingEth1Backend<E>, _, _, _>>(
@@ -645,22 +643,16 @@ pub fn prune_states<E: EthSpec>(
                 if anchor_info.state_lower_limit == 0
                     && anchor_info.state_upper_limit == STATE_UPPER_LIMIT_NO_RETAIN =>
             {
-                info!(log, "States have already been pruned");
+                info!("States have already been pruned");
                 return Ok(());
             }
             _ => {
-                info!(log, "Ready to prune states");
+                info!("Ready to prune states");
             }
         }
-        warn!(
-            log,
-            "Pruning states is irreversible";
-        );
-        warn!(
-            log,
-            "Re-run this command with --confirm to commit to state deletion"
-        );
-        info!(log, "Nothing has been pruned on this run");
+        warn!("Pruning states is irreversible");
+        warn!("Re-run this command with --confirm to commit to state deletion");
+        info!("Nothing has been pruned on this run");
         return Err("Error: confirmation flag required".into());
     }
 
@@ -671,7 +663,7 @@ pub fn prune_states<E: EthSpec>(
     db.prune_historic_states(genesis_state_root, &genesis_state)
         .map_err(|e| format!("Failed to prune due to error: {e:?}"))?;
 
-    info!(log, "Historic states pruned successfully");
+    info!("Historic states pruned successfully");
     Ok(())
 }
 
