@@ -1713,10 +1713,8 @@ pub fn serve<T: BeaconChainTypes>(
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
                     let indices = indices_res?;
-                    let blob_sidecar_list_filtered =
-                        block_id.blob_sidecar_list_filtered(indices, &chain)?;
-                    let (block, execution_optimistic, finalized) =
-                        block_id.blinded_block(&chain)?;
+                    let (block, blob_sidecar_list_filtered, execution_optimistic, finalized) =
+                        block_id.get_blinded_block_and_blob_list_filtered(indices, &chain)?;
                     let fork_name = block
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;

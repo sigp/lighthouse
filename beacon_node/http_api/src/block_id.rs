@@ -5,6 +5,7 @@ use eth2::types::BlockId as CoreBlockId;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
+use tree_hash::TreeHash;
 use types::{BlobSidecarList, EthSpec, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
@@ -252,23 +253,27 @@ impl BlockId {
         }
     }
 
-    /// Return the `BlobSidecarList` identified by `self`.
-    pub fn blob_sidecar_list<T: BeaconChainTypes>(
-        &self,
-        chain: &BeaconChain<T>,
-    ) -> Result<BlobSidecarList<T::EthSpec>, warp::Rejection> {
-        let root = self.root(chain)?.0;
-        chain
-            .get_blobs(&root)
-            .map_err(warp_utils::reject::beacon_chain_error)
-    }
-
-    pub fn blob_sidecar_list_filtered<T: BeaconChainTypes>(
+    #[allow(clippy::type_complexity)]
+    pub fn get_blinded_block_and_blob_list_filtered<T: BeaconChainTypes>(
         &self,
         indices: BlobIndicesQuery,
         chain: &BeaconChain<T>,
-    ) -> Result<BlobSidecarList<T::EthSpec>, warp::Rejection> {
-        let blob_sidecar_list = self.blob_sidecar_list(chain)?;
+    ) -> Result<
+        (
+            SignedBlindedBeaconBlock<T::EthSpec>,
+            BlobSidecarList<T::EthSpec>,
+            ExecutionOptimistic,
+            Finalized,
+        ),
+        warp::Rejection,
+    > {
+        let (block, execution_optimistic, finalized) = self.blinded_block(chain)?;
+
+        // Return the `BlobSidecarList` identified by `self`.
+        let blob_sidecar_list = chain
+            .get_blobs(&block.message().tree_hash_root())
+            .map_err(warp_utils::reject::beacon_chain_error)?;
+
         let blob_sidecar_list_filtered = match indices.indices {
             Some(vec) => {
                 let list = blob_sidecar_list
@@ -280,7 +285,12 @@ impl BlockId {
             }
             None => blob_sidecar_list,
         };
-        Ok(blob_sidecar_list_filtered)
+        Ok((
+            block,
+            blob_sidecar_list_filtered,
+            execution_optimistic,
+            finalized,
+        ))
     }
 }
 
