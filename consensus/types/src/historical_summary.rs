@@ -4,7 +4,6 @@ use compare_fields_derive::CompareFields;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 /// `HistoricalSummary` matches the components of the phase0 `HistoricalBatch`

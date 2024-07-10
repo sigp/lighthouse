@@ -161,7 +161,7 @@ slog-term = "2"
 sloggers = { version = "2", features = ["json"] }
 smallvec = { version = "1.11.2", features = ["arbitrary"] }
 snap = "1"
-ssz_types = { git = "https://github.com/sigp/ssz_types", branch = "alloy" }
+ssz_types = { git = "https://github.com/eserilev/ssz_types", branch = "alloy-tweaks" }
 strum = { version = "0.24", features = ["derive"] }
 superstruct = "0.8"
 syn = "1"

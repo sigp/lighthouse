@@ -24,7 +24,7 @@ pub struct ExecutionBlockHash(pub Hash256);
 
 impl ExecutionBlockHash {
     pub fn zero() -> Self {
-        Self(Hash256::zero())
+        Self(Hash256::ZERO)
     }
 
     pub fn repeat_byte(b: u8) -> Self {
