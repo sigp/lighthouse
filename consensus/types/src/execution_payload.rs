@@ -13,6 +13,10 @@ pub type Transactions<E> = VariableList<
 >;
 
 pub type Withdrawals<E> = VariableList<Withdrawal, <E as EthSpec>::MaxWithdrawalsPerPayload>;
+pub type DepositRequests<E> =
+    VariableList<DepositRequest, <E as EthSpec>::MaxDepositRequestsPerPayload>;
+pub type WithdrawalRequests<E> =
+    VariableList<ExecutionLayerWithdrawalRequest, <E as EthSpec>::MaxWithdrawalRequestsPerPayload>;
 
 #[superstruct(
     variants(Bellatrix, Capella, Deneb, Electra),
@@ -90,7 +94,7 @@ pub struct ExecutionPayload<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
     #[superstruct(only(Electra))]
-    pub deposit_receipts: VariableList<DepositReceipt, E::MaxDepositReceiptsPerPayload>,
+    pub deposit_requests: VariableList<DepositRequest, E::MaxDepositRequestsPerPayload>,
     #[superstruct(only(Electra))]
     pub withdrawal_requests:
         VariableList<ExecutionLayerWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>,

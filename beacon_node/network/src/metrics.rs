@@ -5,6 +5,7 @@ use beacon_chain::{
     sync_committee_verification::Error as SyncCommitteeError,
 };
 use fnv::FnvHashMap;
+use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use lighthouse_network::{
     peer_manager::peerdb::client::ClientKind, types::GossipKind, GossipTopic, Gossipsub,
@@ -256,6 +257,10 @@ lazy_static! {
     pub static ref SYNC_LOOKUP_COMPLETED: Result<IntCounter> = try_create_int_counter(
         "sync_lookups_completed_total",
         "Total count of sync lookups completed",
+    );
+    pub static ref SYNC_LOOKUPS_STUCK: Result<IntCounter> = try_create_int_counter(
+        "sync_lookups_stuck_total",
+        "Total count of sync lookups that are stuck and dropped",
     );
 
     /*

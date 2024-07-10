@@ -434,11 +434,9 @@ async fn capella_readiness_logging<T: BeaconChainTypes>(
         .canonical_head
         .cached_head()
         .snapshot
-        .beacon_block
-        .message()
-        .body()
-        .execution_payload()
-        .map_or(false, |payload| payload.withdrawals_root().is_ok());
+        .beacon_state
+        .fork_name_unchecked()
+        >= ForkName::Capella;
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 
@@ -496,11 +494,9 @@ async fn deneb_readiness_logging<T: BeaconChainTypes>(
         .canonical_head
         .cached_head()
         .snapshot
-        .beacon_block
-        .message()
-        .body()
-        .execution_payload()
-        .map_or(false, |payload| payload.blob_gas_used().is_ok());
+        .beacon_state
+        .fork_name_unchecked()
+        >= ForkName::Deneb;
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 
@@ -549,17 +545,13 @@ async fn electra_readiness_logging<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
     log: &Logger,
 ) {
-    // TODO(electra): Once Electra has features, this code can be swapped back.
-    let electra_completed = false;
-    //let electra_completed = beacon_chain
-    //    .canonical_head
-    //    .cached_head()
-    //    .snapshot
-    //    .beacon_block
-    //    .message()
-    //    .body()
-    //    .execution_payload()
-    //    .map_or(false, |payload| payload.electra_placeholder().is_ok());
+    let electra_completed = beacon_chain
+        .canonical_head
+        .cached_head()
+        .snapshot
+        .beacon_state
+        .fork_name_unchecked()
+        .electra_enabled();
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 
@@ -729,10 +721,10 @@ fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger
     }
 }
 
-/// Returns the peer count, returning something helpful if it's `usize::max_value` (effectively a
+/// Returns the peer count, returning something helpful if it's `usize::MAX` (effectively a
 /// `None` value).
 fn peer_count_pretty(peer_count: usize) -> String {
-    if peer_count == usize::max_value() {
+    if peer_count == usize::MAX {
         String::from("--")
     } else {
         format!("{}", peer_count)
@@ -832,7 +824,7 @@ impl Speedo {
 
     /// Returns the average of the speeds between each observation.
     ///
-    /// Does not gracefully handle slots that are above `u32::max_value()`.
+    /// Does not gracefully handle slots that are above `u32::MAX`.
     pub fn slots_per_second(&self) -> Option<f64> {
         let speeds = self
             .0

@@ -10,10 +10,7 @@ clap = { workspace = true }
 clap_utils = { workspace = true }
 environment = { workspace = true }
 hex = { workspace = true }
-logging = { workspace = true }
-sloggers = { workspace = true }
 store = { workspace = true }
-tempfile = { workspace = true }
 types = { workspace = true }
 slog = { workspace = true }
 strum = { workspace = true }

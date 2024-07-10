@@ -12,7 +12,8 @@ use lazy_static::lazy_static;
 use operation_pool::PersistedOperationPool;
 use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
 use types::{
-    BeaconState, BeaconStateError, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot,
+    BeaconState, BeaconStateError, BlockImportSource, EthSpec, Hash256, Keypair, MinimalEthSpec,
+    RelativeEpoch, Slot,
 };
 
 // Should ideally be divisible by 3.
@@ -573,7 +574,7 @@ async fn attestations_with_increasing_slots() {
             .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
-        let expected_attestation_slot = attestation.data.slot;
+        let expected_attestation_slot = attestation.data().slot;
         let expected_earliest_permissible_slot =
             current_slot - MinimalEthSpec::slots_per_epoch() - 1;
 
@@ -686,6 +687,7 @@ async fn run_skip_slot_test(skip_slots: u64) {
             harness_a.chain.head_snapshot().beacon_block_root,
             harness_a.get_head_block(),
             NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await

@@ -6,6 +6,7 @@
 //!
 //! The scoring algorithms are currently experimental.
 use crate::service::gossipsub_scoring_parameters::GREYLIST_THRESHOLD as GOSSIPSUB_GREYLIST_THRESHOLD;
+use lazy_static::lazy_static;
 use serde::Serialize;
 use std::time::Instant;
 use strum::AsRefStr;

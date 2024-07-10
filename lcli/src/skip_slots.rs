@@ -50,6 +50,7 @@ use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{types::StateId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use eth2_network_config::Eth2NetworkConfig;
+use log::info;
 use ssz::Encode;
 use state_processing::state_advance::{complete_state_advance, partial_state_advance};
 use state_processing::AllCaches;
@@ -75,7 +76,7 @@ pub fn run<E: EthSpec>(
     let runs: usize = parse_required(matches, "runs")?;
     let slots: u64 = parse_required(matches, "slots")?;
     let cli_state_root: Option<Hash256> = parse_optional(matches, "state-root")?;
-    let partial: bool = matches.is_present("partial-state-advance");
+    let partial: bool = matches.get_flag("partial-state-advance");
 
     info!("Using {} spec", E::spec_name());
     info!("Advancing {} slots", slots);

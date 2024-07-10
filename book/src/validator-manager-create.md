@@ -48,6 +48,7 @@ lighthouse \
     --suggested-fee-recipient <ADDRESS> \
     --output-path ./
 ```
+
 > If the flag `--first-index` is not provided, it will default to using index 0.
 > The `--suggested-fee-recipient` flag may be omitted to use whatever default
 > value the VC uses. It does not necessarily need to be identical to
@@ -63,6 +64,7 @@ lighthouse \
     --validators-file validators.json \
     --vc-token <API-TOKEN-PATH>
 ```
+
 > This is assuming that `validators.json` is in the present working directory. If it is not, insert the directory of the file.
 > Be sure to remove `./validators.json` after the import is successful since it
 > contains unencrypted validator keystores.
@@ -141,7 +143,6 @@ must be known. The location of the file varies, but it is located in the
 `~/.lighthouse/mainnet/validators/api-token.txt`. We will use `<API-TOKEN-PATH>`
 to substitute this value. If you are unsure of the `api-token.txt` path, you can run `curl http://localhost:5062/lighthouse/auth` which will show the path.
 
-
 Once the VC is running, use the `import` command to import the validators to the VC:
 
 ```bash
@@ -166,16 +167,18 @@ The user should now *securely* delete the `validators.json` file (e.g., `shred -
 The `validators.json` contains the unencrypted validator keys and must not be
 shared with anyone.
 At the same time, `lighthouse vc` will log:
+
 ```bash
 INFO Importing keystores via standard HTTP API, count: 1
 WARN No slashing protection data provided with keystores
 INFO Enabled validator                       voting_pubkey: 0xab6e29f1b98fedfca878edce2b471f1b5ee58ee4c3bd216201f98254ef6f6eac40a53d74c8b7da54f51d3e85cacae92f, signing_method: local_keystore
 INFO Modified key_cache saved successfully
 ```
-The WARN message means that the `validators.json` file does not contain the slashing protection data. This is normal if you are starting a new validator. The flag `--enable-doppelganger-protection` will also protect users from potential slashing risk. 
+
+The WARN message means that the `validators.json` file does not contain the slashing protection data. This is normal if you are starting a new validator. The flag `--enable-doppelganger-protection` will also protect users from potential slashing risk.
 The validators will now go through 2-3 epochs of [doppelganger
 protection](./validator-doppelganger.md) and will automatically start performing
-their duties when they are deposited and activated. 
+their duties when they are deposited and activated.
 
 If the host VC contains the same public key as the `validators.json` file, an error will be shown and the `import` process will stop:
 
@@ -194,6 +197,7 @@ lighthouse \
     --vc-token <API-TOKEN-PATH> \
     --ignore-duplicates
 ```
+
 and the output will be as follows:
 
 ```bash
