@@ -10,7 +10,7 @@ use ssz::Encode;
 use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use types::EthSpec;
@@ -107,7 +107,7 @@ async fn get_block_from_source<T: EthSpec>(
     source: &BeaconNodeHttpClient,
     block_id: BlockId,
     spec: &ChainSpec,
-    cache_dir_path: &PathBuf,
+    cache_dir_path: &Path,
 ) -> PublishBlockRequest<T> {
     let mut cache_path = cache_dir_path.join(format!("block_{block_id}"));
 
