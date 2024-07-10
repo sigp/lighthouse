@@ -50,7 +50,6 @@ use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{types::StateId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use eth2_network_config::Eth2NetworkConfig;
-use log::info;
 use ssz::Encode;
 use state_processing::state_advance::{complete_state_advance, partial_state_advance};
 use state_processing::AllCaches;
@@ -58,6 +57,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use tracing::info;
 use types::{BeaconState, EthSpec, Hash256};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);

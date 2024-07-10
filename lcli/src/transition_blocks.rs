@@ -72,7 +72,6 @@ use eth2::{
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
 use eth2_network_config::Eth2NetworkConfig;
-use log::{debug, info};
 use ssz::Encode;
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
@@ -86,6 +85,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::HotColdDB;
+use tracing::{debug, info};
 use types::{BeaconState, ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);

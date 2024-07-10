@@ -4356,6 +4356,7 @@ dependencies = [
  "snap",
  "state_processing",
  "store",
+ "tracing",
  "tree_hash",
  "types",
  "validator_dir",
@@ -8194,6 +8195,7 @@ dependencies = [
  "slog",
  "sloggers",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

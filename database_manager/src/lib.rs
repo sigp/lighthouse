@@ -289,12 +289,12 @@ pub fn display_db_version<E: EthSpec>(
         log.clone(),
     )?;
 
-    info!(version = version.as_u64(), "Database version");
+    info!(version = version.as_u64(), "Database");
 
     if version != CURRENT_SCHEMA_VERSION {
         info!(
             current_schema_version = CURRENT_SCHEMA_VERSION.as_u64(),
-            "Latest schema version"
+            "Latest schema"
         );
     }
 

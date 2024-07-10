@@ -45,8 +45,7 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use timer::spawn_timer;
 use tokio::sync::oneshot;
-use tracing::{debug, info, level_filters::LevelFilter, warn};
-use tracing_subscriber::EnvFilter;
+use tracing::{debug, info, warn};
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, BlobSidecarList, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
@@ -777,11 +776,6 @@ where
             .take()
             .ok_or("build requires a beacon_processor_config")?;
         let log = runtime_context.log().clone();
-        let env_filter = EnvFilter::builder()
-            .with_default_directive(LevelFilter::INFO.into())
-            .from_env_lossy();
-
-        tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
         let http_api_listen_addr = if self.http_api_config.enabled {
             let ctx = Arc::new(http_api::Context {

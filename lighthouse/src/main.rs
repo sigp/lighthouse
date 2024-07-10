@@ -672,7 +672,7 @@ fn run<E: EthSpec>(
     }
 
     if let Some(sub_matches) = matches.subcommand_matches(database_manager::CMD) {
-        info!("Running database manager for {:?} network", network_name);
+        info!(network = network_name, "Running database manager for");
         // Pass the entire `environment` to the database manager so it can run blocking operations.
         database_manager::run(sub_matches, environment)?;
 
@@ -686,7 +686,6 @@ fn run<E: EthSpec>(
     match matches.subcommand() {
         Some(("beacon_node", matches)) => {
             let context = environment.core_context();
-            let log = context.log().clone();
             let executor = context.executor.clone();
             let mut config = beacon_node::get_config::<E>(matches, &context)?;
             config.logger_config = logger_config;
@@ -715,7 +714,6 @@ fn run<E: EthSpec>(
         }
         Some(("validator_client", matches)) => {
             let context = environment.core_context();
-            let log = context.log().clone();
             let executor = context.executor.clone();
             let config = validator_client::Config::from_cli(matches, context.log())
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
