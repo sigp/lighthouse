@@ -129,7 +129,7 @@ impl Validator {
     /// Returns `true` if the validator has eth1 withdrawal credential.
     pub fn has_eth1_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
         self.withdrawal_credentials
-            .as_bytes()
+            .as_slice()
             .first()
             .map(|byte| *byte == spec.eth1_address_withdrawal_prefix_byte)
             .unwrap_or(false)
@@ -282,7 +282,7 @@ impl Default for Validator {
     fn default() -> Self {
         Self {
             pubkey: PublicKeyBytes::empty(),
-            withdrawal_credentials: Hash256::default(),
+            withdrawal_credentials: Hash256::ZERO,
             activation_eligibility_epoch: Epoch::from(u64::MAX),
             activation_epoch: Epoch::from(u64::MAX),
             exit_epoch: Epoch::from(u64::MAX),

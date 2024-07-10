@@ -40,7 +40,7 @@ impl Default for DepositTreeSnapshot {
     fn default() -> Self {
         let mut result = Self {
             finalized: vec![],
-            deposit_root: Hash256::default(),
+            deposit_root: Hash256::ZERO,
             deposit_count: 0,
             execution_block_hash: Hash256::zero(),
             execution_block_height: 0,

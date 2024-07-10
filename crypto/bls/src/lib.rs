@@ -44,7 +44,7 @@ pub use zeroize_hash::ZeroizeHash;
 #[cfg(feature = "supranational")]
 use blst::BLST_ERROR as BlstError;
 
-pub type Hash256 = ethereum_types::H256;
+pub type Hash256 = alloy_primitives::B256;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {

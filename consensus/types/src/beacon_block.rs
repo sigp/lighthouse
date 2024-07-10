@@ -169,7 +169,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
         self.to_ref().block_header()
     }
 
-    /// Returns a "temporary" header, where the `state_root` is `Hash256::zero()`.
+    /// Returns a "temporary" header, where the `state_root` is `Hash256::ZERO`.
     pub fn temporary_block_header(&self) -> BeaconBlockHeader {
         self.to_ref().temporary_block_header()
     }
@@ -263,10 +263,10 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
         }
     }
 
-    /// Returns a "temporary" header, where the `state_root` is `Hash256::zero()`.
+    /// Returns a "temporary" header, where the `state_root` is `Hash256::ZERO`.
     pub fn temporary_block_header(self) -> BeaconBlockHeader {
         BeaconBlockHeader {
-            state_root: Hash256::zero(),
+            state_root: Hash256::ZERO,
             ..self.block_header()
         }
     }
@@ -292,13 +292,13 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockBase
         BeaconBlockBase {
             slot: spec.genesis_slot,
             proposer_index: 0,
-            parent_root: Hash256::zero(),
-            state_root: Hash256::zero(),
+            parent_root: Hash256::ZERO,
+            state_root: Hash256::ZERO,
             body: BeaconBlockBodyBase {
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
-                    deposit_root: Hash256::zero(),
-                    block_hash: Hash256::zero(),
+                    deposit_root: Hash256::ZERO,
+                    block_hash: Hash256::ZERO,
                     deposit_count: 0,
                 },
                 graffiti: Graffiti::default(),
@@ -319,9 +319,9 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
         let header = BeaconBlockHeader {
             slot: Slot::new(1),
             proposer_index: 0,
-            parent_root: Hash256::zero(),
-            state_root: Hash256::zero(),
-            body_root: Hash256::zero(),
+            parent_root: Hash256::ZERO,
+            state_root: Hash256::ZERO,
+            body_root: Hash256::ZERO,
         };
 
         let signed_header = SignedBeaconBlockHeader {
@@ -340,7 +340,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
 
         let deposit_data = DepositData {
             pubkey: PublicKeyBytes::empty(),
-            withdrawal_credentials: Hash256::zero(),
+            withdrawal_credentials: Hash256::ZERO,
             amount: 0,
             signature: SignatureBytes::empty(),
         };
@@ -362,7 +362,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
         };
 
         let deposit = Deposit {
-            proof: FixedVector::from_elem(Hash256::zero()),
+            proof: FixedVector::from_elem(Hash256::ZERO),
             data: deposit_data,
         };
 
@@ -415,13 +415,13 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockAlta
         BeaconBlockAltair {
             slot: spec.genesis_slot,
             proposer_index: 0,
-            parent_root: Hash256::zero(),
-            state_root: Hash256::zero(),
+            parent_root: Hash256::ZERO,
+            state_root: Hash256::ZERO,
             body: BeaconBlockBodyAltair {
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
-                    deposit_root: Hash256::zero(),
-                    block_hash: Hash256::zero(),
+                    deposit_root: Hash256::ZERO,
+                    block_hash: Hash256::ZERO,
                     deposit_count: 0,
                 },
                 graffiti: Graffiti::default(),
@@ -448,8 +448,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockAltair<E, Payload> 
         BeaconBlockAltair {
             slot: spec.genesis_slot,
             proposer_index: 0,
-            parent_root: Hash256::zero(),
-            state_root: Hash256::zero(),
+            parent_root: Hash256::ZERO,
+            state_root: Hash256::ZERO,
             body: BeaconBlockBodyAltair {
                 proposer_slashings: base_block.body.proposer_slashings,
                 attester_slashings: base_block.body.attester_slashings,
@@ -459,8 +459,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockAltair<E, Payload> 
                 sync_aggregate,
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
-                    deposit_root: Hash256::zero(),
-                    block_hash: Hash256::zero(),
+                    deposit_root: Hash256::ZERO,
+                    block_hash: Hash256::ZERO,
                     deposit_count: 0,
                 },
                 graffiti: Graffiti::default(),
@@ -476,13 +476,13 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockBell
         BeaconBlockBellatrix {
             slot: spec.genesis_slot,
             proposer_index: 0,
-            parent_root: Hash256::zero(),
-            state_root: Hash256::zero(),
+            parent_root: Hash256::ZERO,
+            state_root: Hash256::ZERO,
             body: BeaconBlockBodyBellatrix {
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
-                    deposit_root: Hash256::zero(),
-                    block_hash: Hash256::zero(),
+                    deposit_root: Hash256::ZERO,
+                    block_hash: Hash256::ZERO,
                     deposit_count: 0,
                 },
                 graffiti: Graffiti::default(),
@@ -507,7 +507,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockCapella<E, Payload>
                 message: BlsToExecutionChange {
                     validator_index: 0,
                     from_bls_pubkey: PublicKeyBytes::empty(),
-                    to_execution_address: Address::zero(),
+                    to_execution_address: Address::ZERO,
                 },
                 signature: Signature::empty()
             };
@@ -521,8 +521,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockCapella<E, Payload>
         BeaconBlockCapella {
             slot: spec.genesis_slot,
             proposer_index: 0,
-            parent_root: Hash256::zero(),
-            state_root: Hash256::zero(),
+            parent_root: Hash256::ZERO,
+            state_root: Hash256::ZERO,
             body: BeaconBlockBodyCapella {
                 proposer_slashings: base_block.body.proposer_slashings,
                 attester_slashings: base_block.body.attester_slashings,
@@ -533,8 +533,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockCapella<E, Payload>
                 sync_aggregate,
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
-                    deposit_root: Hash256::zero(),
-                    block_hash: Hash256::zero(),
+                    deposit_root: Hash256::ZERO,
+                    block_hash: Hash256::ZERO,
                     deposit_count: 0,
                 },
                 graffiti: Graffiti::default(),
@@ -550,13 +550,13 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockCape
         BeaconBlockCapella {
             slot: spec.genesis_slot,
             proposer_index: 0,
-            parent_root: Hash256::zero(),
-            state_root: Hash256::zero(),
+            parent_root: Hash256::ZERO,
+            state_root: Hash256::ZERO,
             body: BeaconBlockBodyCapella {
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
-                    deposit_root: Hash256::zero(),
-                    block_hash: Hash256::zero(),
+                    deposit_root: Hash256::ZERO,
+                    block_hash: Hash256::ZERO,
                     deposit_count: 0,
                 },
                 graffiti: Graffiti::default(),
@@ -579,13 +579,13 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockDene
         BeaconBlockDeneb {
             slot: spec.genesis_slot,
             proposer_index: 0,
-            parent_root: Hash256::zero(),
-            state_root: Hash256::zero(),
+            parent_root: Hash256::ZERO,
+            state_root: Hash256::ZERO,
             body: BeaconBlockBodyDeneb {
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
-                    deposit_root: Hash256::zero(),
-                    block_hash: Hash256::zero(),
+                    deposit_root: Hash256::ZERO,
+                    block_hash: Hash256::ZERO,
                     deposit_count: 0,
                 },
                 graffiti: Graffiti::default(),
@@ -637,7 +637,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
                 message: BlsToExecutionChange {
                     validator_index: 0,
                     from_bls_pubkey: PublicKeyBytes::empty(),
-                    to_execution_address: Address::zero(),
+                    to_execution_address: Address::ZERO,
                 },
                 signature: Signature::empty()
             };
@@ -651,8 +651,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
         BeaconBlockElectra {
             slot: spec.genesis_slot,
             proposer_index: 0,
-            parent_root: Hash256::zero(),
-            state_root: Hash256::zero(),
+            parent_root: Hash256::ZERO,
+            state_root: Hash256::ZERO,
             body: BeaconBlockBodyElectra {
                 proposer_slashings: base_block.body.proposer_slashings,
                 attester_slashings,
@@ -663,8 +663,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
                 sync_aggregate,
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
-                    deposit_root: Hash256::zero(),
-                    block_hash: Hash256::zero(),
+                    deposit_root: Hash256::ZERO,
+                    block_hash: Hash256::ZERO,
                     deposit_count: 0,
                 },
                 graffiti: Graffiti::default(),
@@ -682,13 +682,13 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockElec
         BeaconBlockElectra {
             slot: spec.genesis_slot,
             proposer_index: 0,
-            parent_root: Hash256::zero(),
-            state_root: Hash256::zero(),
+            parent_root: Hash256::ZERO,
+            state_root: Hash256::ZERO,
             body: BeaconBlockBodyElectra {
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
-                    deposit_root: Hash256::zero(),
-                    block_hash: Hash256::zero(),
+                    deposit_root: Hash256::ZERO,
+                    block_hash: Hash256::ZERO,
                     deposit_count: 0,
                 },
                 graffiti: Graffiti::default(),

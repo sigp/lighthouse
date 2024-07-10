@@ -5,6 +5,7 @@ use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 use swap_or_not_shuffle::compute_shuffled_index;
+use alloy_primitives::B256 as H256;
 
 const MAX_SUBNET_ID: usize = 64;
 
@@ -79,7 +80,7 @@ impl SubnetId {
     /// along with the first epoch in which these subscriptions are no longer valid.
     #[allow(clippy::arithmetic_side_effects)]
     pub fn compute_subnets_for_epoch<E: EthSpec>(
-        node_id: ethereum_types::U256,
+        node_id: H256,
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<(impl Iterator<Item = SubnetId>, Epoch), &'static str> {

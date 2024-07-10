@@ -7,6 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_utils::quoted_u64::MaybeQuoted;
 use ssz::Encode;
 use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 use tree_hash::TreeHash;
@@ -483,7 +484,7 @@ impl ChainSpec {
     ///
     /// Spec v0.12.1
     pub fn get_deposit_domain(&self) -> Hash256 {
-        self.compute_domain(Domain::Deposit, self.genesis_fork_version, Hash256::zero())
+        self.compute_domain(Domain::Deposit, self.genesis_fork_version, Hash256::ZERO)
     }
 
     // This should be updated to include the current fork and the genesis validators root, but discussion is ongoing:
@@ -493,7 +494,7 @@ impl ChainSpec {
         self.compute_domain(
             Domain::ApplicationMask(ApplicationDomain::Builder),
             self.genesis_fork_version,
-            Hash256::zero(),
+            Hash256::ZERO,
         )
     }
 
@@ -524,7 +525,7 @@ impl ChainSpec {
         let mut result = [0; 4];
         let root = Self::compute_fork_data_root(current_version, genesis_validators_root);
         result.copy_from_slice(
-            root.as_bytes()
+            root.as_slice()
                 .get(0..4)
                 .expect("root hash is at least 4 bytes"),
         );
@@ -544,7 +545,7 @@ impl ChainSpec {
         domain[0..4].copy_from_slice(&int_to_bytes4(domain_constant));
         domain[4..].copy_from_slice(
             Self::compute_fork_data_root(fork_version, genesis_validators_root)
-                .as_bytes()
+                .as_slice()
                 .get(..28)
                 .expect("fork has is 32 bytes so first 28 bytes should exist"),
         );
@@ -866,7 +867,7 @@ impl ChainSpec {
                 .expect("subtraction does not overflow")
                 // Add 1 since the spec declares `2**256 - 2**10` and we use
                 // `Uint256::MAX` which is `2*256- 1`.
-                .checked_add(Uint256::one())
+                .checked_add(Uint256::from(2u64.pow(0)))
                 .expect("addition does not overflow"),
             // Capella
             capella_fork_version: [0x03, 0x00, 0x00, 0x01],
@@ -1338,7 +1339,7 @@ fn default_electra_fork_version() -> [u8; 4] {
 ///
 /// Taken from https://github.com/ethereum/consensus-specs/blob/d5e4828aecafaf1c57ef67a5f23c4ae7b08c5137/configs/mainnet.yaml#L15-L16
 const fn default_terminal_total_difficulty() -> Uint256 {
-    ethereum_types::U256([
+    Uint256([
         18446744073709550592,
         18446744073709551615,
         18446744073709551615,
@@ -1449,7 +1450,7 @@ const fn default_maximum_gossip_clock_disparity_millis() -> u64 {
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
     let max_request_blocks = max_request_blocks as usize;
     RuntimeVariableList::<Hash256>::from_vec(
-        vec![Hash256::zero(); max_request_blocks],
+        vec![Hash256::ZERO; max_request_blocks],
         max_request_blocks,
     )
     .as_ssz_bytes()
@@ -1459,7 +1460,7 @@ fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
 fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
     let max_request_blob_sidecars = max_request_blob_sidecars as usize;
     let empty_blob_identifier = BlobIdentifier {
-        block_root: Hash256::zero(),
+        block_root: Hash256::ZERO,
         index: 0,
     };
 

@@ -13,7 +13,7 @@ impl WithdrawalCredentials {
     pub fn eth1(withdrawal_address: Address, spec: &ChainSpec) -> Self {
         let mut withdrawal_credentials = [0; 32];
         withdrawal_credentials[0] = spec.eth1_address_withdrawal_prefix_byte;
-        withdrawal_credentials[12..].copy_from_slice(withdrawal_address.as_bytes());
+        withdrawal_credentials[12..].copy_from_slice(withdrawal_address.as_slice());
         Self(Hash256::from_slice(&withdrawal_credentials))
     }
 }
