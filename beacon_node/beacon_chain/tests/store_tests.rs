@@ -606,7 +606,7 @@ async fn epoch_boundary_state_attestation_processing() {
 
     for (attestation, subnet_id) in late_attestations.into_iter().flatten() {
         // load_epoch_boundary_state is idempotent!
-        let block_root = attestation.data.beacon_block_root;
+        let block_root = attestation.data().beacon_block_root;
         let block = store
             .get_blinded_block(&block_root)
             .unwrap()
@@ -629,7 +629,7 @@ async fn epoch_boundary_state_attestation_processing() {
             .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
-        let expected_attestation_slot = attestation.data.slot;
+        let expected_attestation_slot = attestation.data().slot;
         // Extra -1 to handle gossip clock disparity.
         let expected_earliest_permissible_slot = current_slot - E::slots_per_epoch() - 1;
 
@@ -1014,6 +1014,7 @@ async fn multiple_attestations_per_block() {
         .await;
 
     let head = harness.chain.head_snapshot();
+
     let committees_per_slot = head
         .beacon_state
         .get_committee_count_at_slot(head.beacon_state.slot())
@@ -1022,16 +1023,29 @@ async fn multiple_attestations_per_block() {
 
     for snapshot in harness.chain.chain_dump().unwrap() {
         let slot = snapshot.beacon_block.slot();
-        assert_eq!(
-            snapshot
-                .beacon_block
-                .as_ref()
-                .message()
-                .body()
-                .attestations()
-                .len() as u64,
-            if slot <= 1 { 0 } else { committees_per_slot }
-        );
+        let fork_name = harness.chain.spec.fork_name_at_slot::<E>(slot);
+
+        if fork_name.electra_enabled() {
+            assert_eq!(
+                snapshot
+                    .beacon_block
+                    .as_ref()
+                    .message()
+                    .body()
+                    .attestations_len() as u64,
+                if slot <= 1 { 0 } else { 1 }
+            );
+        } else {
+            assert_eq!(
+                snapshot
+                    .beacon_block
+                    .as_ref()
+                    .message()
+                    .body()
+                    .attestations_len() as u64,
+                if slot <= 1 { 0 } else { committees_per_slot }
+            );
+        }
     }
 }
 
@@ -3036,13 +3050,7 @@ async fn schema_downgrade_to_min_version() {
         )
         .await;
 
-    let min_version = if harness.spec.deneb_fork_epoch.is_some() {
-        // Can't downgrade beyond V18 once Deneb is reached, for simplicity don't test that
-        // at all if Deneb is enabled.
-        SchemaVersion(18)
-    } else {
-        SchemaVersion(16)
-    };
+    let min_version = SchemaVersion(19);
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();

@@ -51,7 +51,6 @@ members = [
 
     "database_manager",
 
-    "consensus/cached_tree_hash",
     "consensus/int_to_bytes",
     "consensus/fork_choice",
     "consensus/proto_array",
@@ -127,6 +126,7 @@ fnv = "1"
 fs2 = "0.4"
 futures = "0.3"
 hex = "0.4"
+hashlink = "0.9.0"
 hyper = "1"
 itertools = "0.10"
 lazy_static = "1"
@@ -158,11 +158,11 @@ slog = { version = "2", features = ["max_level_trace", "release_max_level_trace"
 slog-async = "2"
 slog-term = "2"
 sloggers = { version = "2", features = ["json"] }
-smallvec = "1.11.2"
+smallvec = { version = "1.11.2", features = ["arbitrary"] }
 snap = "1"
 ssz_types = "0.6"
 strum = { version = "0.24", features = ["derive"] }
-superstruct = "0.7"
+superstruct = "0.8"
 syn = "1"
 sysinfo = "0.26"
 tempfile = "3"
@@ -188,7 +188,6 @@ beacon_chain = { path = "beacon_node/beacon_chain" }
 beacon_node = { path = "beacon_node" }
 beacon_processor = { path = "beacon_node/beacon_processor" }
 bls = { path = "crypto/bls" }
-cached_tree_hash = { path = "consensus/cached_tree_hash" }
 clap_utils = { path = "common/clap_utils" }
 compare_fields = { path = "common/compare_fields" }
 deposit_contract = { path = "common/deposit_contract" }
