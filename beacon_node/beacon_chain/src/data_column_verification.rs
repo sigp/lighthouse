@@ -11,3 +11,9 @@ use types::EthSpec;
 pub struct KzgVerifiedCustodyDataColumn<E: EthSpec> {
     data: Arc<DataColumnSidecar<E>>,
 }
+
+impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
+    pub fn as_data_column(&self) -> &DataColumnSidecar<E> {
+        &self.data
+    }
+}
