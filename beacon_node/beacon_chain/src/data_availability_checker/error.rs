@@ -10,6 +10,7 @@ pub enum Error {
         blob_commitment: KzgCommitment,
         block_commitment: KzgCommitment,
     },
+    UnableToDetermineImportRequirement,
     Unexpected,
     SszTypes(ssz_types::Error),
     MissingBlobs,
@@ -41,6 +42,7 @@ impl Error {
             | Error::Unexpected
             | Error::ParentStateMissing(_)
             | Error::BlockReplayError(_)
+            | Error::UnableToDetermineImportRequirement
             | Error::RebuildingStateCaches(_)
             | Error::SlotClockError => ErrorCategory::Internal,
             Error::Kzg(_)

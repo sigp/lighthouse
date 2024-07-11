@@ -74,7 +74,18 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         log: &Logger,
         spec: ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
-        let overflow_cache = OverflowLRUCache::new(OVERFLOW_LRU_CAPACITY, store, spec.clone())?;
+        // TODO(das): support supernode or custom custody requirement
+        let custody_subnet_count = spec.custody_requirement as usize;
+        let custody_column_count =
+            custody_subnet_count.saturating_mul(spec.data_columns_per_subnet());
+
+        let overflow_cache = OverflowLRUCache::new(
+            OVERFLOW_LRU_CAPACITY,
+            store,
+            custody_column_count,
+            spec.clone(),
+        )?;
+
         Ok(Self {
             availability_cache: Arc::new(overflow_cache),
             slot_clock,

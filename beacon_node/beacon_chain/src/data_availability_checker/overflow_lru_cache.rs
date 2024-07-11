@@ -34,6 +34,7 @@ use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableBlock, AvailableExecutedBlock,
 };
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
+use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::store::{DBColumn, KeyValueStore};
 use crate::BeaconChainTypes;
 use lru::LruCache;
@@ -54,7 +55,13 @@ use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
+    pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
+}
+
+pub enum BlockImportRequirement {
+    AllBlobs,
+    CustodyColumns(usize),
 }
 
 impl<E: EthSpec> PendingComponents<E> {
@@ -107,6 +114,11 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Returns the number of blobs that have been received and are stored in the cache.
     pub fn num_received_blobs(&self) -> usize {
         self.get_cached_blobs().iter().flatten().count()
+    }
+
+    /// Returns the number of data columns that have been received and are stored in the cache.
+    pub fn num_received_data_columns(&self) -> usize {
+        self.verified_data_columns.len()
     }
 
     /// Inserts a block into the cache.
@@ -165,15 +177,29 @@ impl<E: EthSpec> PendingComponents<E> {
         self.merge_blobs(reinsert);
     }
 
-    /// Checks if the block and all of its expected blobs are available in the cache.
+    /// Checks if the block and all of its expected blobs or custody columns (post-PeerDAS) are
+    /// available in the cache.
     ///
-    /// Returns `true` if both the block exists and the number of received blobs matches the number
-    /// of expected blobs.
-    pub fn is_available(&self) -> bool {
-        if let Some(num_expected_blobs) = self.num_expected_blobs() {
-            num_expected_blobs == self.num_received_blobs()
-        } else {
-            false
+    /// Returns `true` if both the block exists and the number of received blobs / custody columns
+    /// matches the number of expected blobs / custody columns.
+    pub fn is_available(&self, block_import_requirement: &BlockImportRequirement) -> bool {
+        match block_import_requirement {
+            BlockImportRequirement::AllBlobs => {
+                if let Some(num_expected_blobs) = self.num_expected_blobs() {
+                    num_expected_blobs == self.num_received_blobs()
+                } else {
+                    false
+                }
+            }
+            BlockImportRequirement::CustodyColumns(num_expected_columns) => {
+                let num_received_data_columns = self.num_received_data_columns();
+                if let Some(num_expected_blobs) = self.num_expected_blobs() {
+                    // No data columns when there are 0 blobs
+                    num_expected_blobs == 0 || *num_expected_columns == num_received_data_columns
+                } else {
+                    false
+                }
+            }
         }
     }
 
@@ -182,6 +208,7 @@ impl<E: EthSpec> PendingComponents<E> {
         Self {
             block_root,
             verified_blobs: FixedVector::default(),
+            verified_data_columns: vec![],
             executed_block: None,
         }
     }
@@ -201,6 +228,7 @@ impl<E: EthSpec> PendingComponents<E> {
         let Self {
             block_root,
             verified_blobs,
+            verified_data_columns: _,
             executed_block,
         } = self;
 
@@ -538,12 +566,16 @@ pub struct OverflowLRUCache<T: BeaconChainTypes> {
     maintenance_lock: Mutex<()>,
     /// The capacity of the LRU cache
     capacity: NonZeroUsize,
+    /// The number of data columns the node is custodying.
+    custody_column_count: usize,
+    spec: ChainSpec,
 }
 
 impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     pub fn new(
         capacity: NonZeroUsize,
         beacon_store: BeaconStore<T>,
+        custody_column_count: usize,
         spec: ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
         let overflow_store = OverflowStore(beacon_store.clone());
@@ -552,9 +584,11 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         Ok(Self {
             critical: RwLock::new(critical),
             overflow_store,
-            state_cache: StateLRUCache::new(beacon_store, spec),
+            state_cache: StateLRUCache::new(beacon_store, spec.clone()),
             maintenance_lock: Mutex::new(()),
             capacity,
+            custody_column_count,
+            spec,
         })
     }
 
@@ -598,6 +632,24 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         f(self.critical.read().peek_pending_components(block_root))
     }
 
+    fn block_import_requirement(
+        &self,
+        pending_components: &PendingComponents<T::EthSpec>,
+    ) -> Result<BlockImportRequirement, AvailabilityCheckError> {
+        let epoch = pending_components
+            .epoch()
+            .ok_or(AvailabilityCheckError::UnableToDetermineImportRequirement)?;
+
+        let peer_das_enabled = self.spec.is_peer_das_enabled_for_epoch(epoch);
+        if peer_das_enabled {
+            Ok(BlockImportRequirement::CustodyColumns(
+                self.custody_column_count,
+            ))
+        } else {
+            Ok(BlockImportRequirement::AllBlobs)
+        }
+    }
+
     pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
         &self,
         block_root: Hash256,
@@ -621,7 +673,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         // Merge in the blobs.
         pending_components.merge_blobs(fixed_blobs);
 
-        if pending_components.is_available() {
+        let block_import_requirement = self.block_import_requirement(&pending_components)?;
+        if pending_components.is_available(&block_import_requirement) {
             write_lock.put_pending_components(
                 block_root,
                 pending_components.clone(),
@@ -665,7 +718,8 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
         pending_components.merge_block(diet_executed_block);
 
         // Check if we have all components and entire set is consistent.
-        if pending_components.is_available() {
+        let block_import_requirement = self.block_import_requirement(&pending_components)?;
+        if pending_components.is_available(&block_import_requirement) {
             write_lock.put_pending_components(
                 block_root,
                 pending_components.clone(),
@@ -970,6 +1024,7 @@ mod test {
     use types::{ExecPayload, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
+    const DEFAULT_TEST_CUSTODY_COLUMN_COUNT: usize = 8;
 
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,
@@ -1190,8 +1245,13 @@ mod test {
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
         let cache = Arc::new(
-            OverflowLRUCache::<T>::new(capacity_non_zero, test_store, spec.clone())
-                .expect("should create cache"),
+            OverflowLRUCache::<T>::new(
+                capacity_non_zero,
+                test_store,
+                DEFAULT_TEST_CUSTODY_COLUMN_COUNT,
+                spec.clone(),
+            )
+            .expect("should create cache"),
         );
         (harness, cache, chain_db_path)
     }
@@ -1709,6 +1769,7 @@ mod test {
         let recovered_cache = OverflowLRUCache::<T>::new(
             new_non_zero_usize(capacity),
             harness.chain.store.clone(),
+            DEFAULT_TEST_CUSTODY_COLUMN_COUNT,
             harness.chain.spec.clone(),
         )
         .expect("should recover cache");
