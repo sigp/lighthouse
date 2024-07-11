@@ -1,4 +1,4 @@
-#![cfg(any(feature = "lmdb", feature = "redb"))]
+#![cfg(feature = "lmdb")]
 
 use slasher::{config::MDBX_DATA_FILENAME, Config, DatabaseBackend, DatabaseBackendOverride};
 use std::fs::File;
@@ -41,7 +41,7 @@ fn no_override_with_existing_mdbx_db() {
 }
 
 #[test]
-#[cfg(all(not(feature = "mdbx"), feature = "lmdb", not(feature = "redb")))]
+#[cfg(all(not(feature = "mdbx"), feature = "lmdb"))]
 fn failed_override_with_existing_mdbx_db() {
     let tempdir = tempdir().unwrap();
     let mut config = Config::new(tempdir.path().into());
