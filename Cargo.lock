@@ -874,7 +874,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
  "tree_hash_derive",
  "types",
 ]
@@ -1060,7 +1060,7 @@ dependencies = [
  "hex",
  "rand",
  "serde",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
  "zeroize",
 ]
 
@@ -1917,7 +1917,7 @@ dependencies = [
  "reqwest",
  "serde_json",
  "sha2 0.9.9",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
  "types",
 ]
 
@@ -2264,7 +2264,7 @@ dependencies = [
  "snap",
  "state_processing",
  "swap_or_not_shuffle",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
  "tree_hash_derive",
  "types",
 ]
@@ -2457,7 +2457,7 @@ dependencies = [
  "superstruct",
  "task_executor",
  "tokio",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
  "types",
 ]
 
@@ -2984,7 +2984,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
  "tree_hash_derive",
  "triehash",
  "types",
@@ -3369,7 +3369,7 @@ dependencies = [
  "slog",
  "state_processing",
  "tokio",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
  "types",
 ]
 
@@ -3859,7 +3859,7 @@ dependencies = [
  "task_executor",
  "tokio",
  "tokio-stream",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
  "types",
  "warp",
  "warp_utils",
@@ -4409,7 +4409,7 @@ dependencies = [
  "ethereum_ssz_derive 0.5.4 (git+https://github.com/sigp/ethereum_ssz?branch=alloy)",
  "hex",
  "serde",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
 ]
 
 [[package]]
@@ -4457,7 +4457,7 @@ dependencies = [
  "snap",
  "state_processing",
  "store",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
  "types",
  "validator_dir",
 ]
@@ -5321,7 +5321,7 @@ dependencies = [
 name = "merkle_proof"
 version = "0.2.0"
 dependencies = [
- "ethereum-types 0.14.1",
+ "alloy-primitives 0.7.7",
  "ethereum_hashing",
  "lazy_static",
  "quickcheck",
@@ -7781,7 +7781,7 @@ dependencies = [
  "ssz_types",
  "strum",
  "tempfile",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
  "tree_hash_derive",
  "types",
 ]
@@ -8065,7 +8065,7 @@ dependencies = [
  "ssz_types",
  "test_random_derive",
  "tokio",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
  "types",
 ]
 
@@ -8866,9 +8866,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree_hash"
+version = "0.6.0"
+source = "git+https://github.com/eserilev/tree_hash?branch=alloy-deps#48ec4bf464168d202902de992df4a95c4c336fd2"
+dependencies = [
+ "alloy-primitives 0.7.7",
+ "ethereum_hashing",
+ "smallvec",
+]
+
+[[package]]
 name = "tree_hash_derive"
 version = "0.6.0"
-source = "git+https://github.com/sigp/tree_hash?branch=alloy#0df21e420154c4c8e300a8e7afddcf6aac54bd93"
+source = "git+https://github.com/eserilev/tree_hash?branch=alloy-deps#48ec4bf464168d202902de992df4a95c4c336fd2"
 dependencies = [
  "darling 0.13.4",
  "quote",
@@ -8955,7 +8965,7 @@ dependencies = [
  "tempfile",
  "test_random_derive",
  "tokio",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
  "tree_hash_derive",
 ]
 
@@ -9174,7 +9184,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
  "types",
  "url",
  "validator_dir",
@@ -9196,7 +9206,7 @@ dependencies = [
  "lockfile",
  "rand",
  "tempfile",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
  "types",
 ]
 
@@ -9218,7 +9228,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
  "types",
  "validator_client",
 ]

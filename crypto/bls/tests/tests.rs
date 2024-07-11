@@ -421,7 +421,7 @@ macro_rules! test_suite {
                 self.owned_sets.push(OwnedSignatureSet {
                     signature: AggregateSignature::deserialize(&INFINITY_SIGNATURE).unwrap(),
                     signing_keys: vec![secret_from_u64(42).public_key()],
-                    message: Hash256::zero(),
+                    message: Hash256::ZERO,
                     should_be_valid: false,
                 });
                 self
