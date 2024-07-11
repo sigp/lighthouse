@@ -193,6 +193,7 @@ pub struct ChainSpec {
     /*
      * DAS params
      */
+    pub eip7594_fork_epoch: Option<Epoch>,
     pub number_of_columns: usize,
 
     /*
@@ -390,6 +391,13 @@ impl ChainSpec {
         } else {
             self.min_slashing_penalty_quotient
         }
+    }
+
+    /// Returns true if the given epoch is greater than or equal to the `EIP7594_FORK_EPOCH`.
+    pub fn is_peer_das_enabled_for_epoch(&self, block_epoch: Epoch) -> bool {
+        self.eip7594_fork_epoch.map_or(false, |eip7594_fork_epoch| {
+            block_epoch >= eip7594_fork_epoch
+        })
     }
 
     /// For a given `BeaconState`, return the whistleblower reward quotient associated with its variant.
@@ -777,6 +785,10 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
 
+            /*
+             * DAS params
+             */
+            eip7594_fork_epoch: None,
             number_of_columns: 128,
 
             /*
@@ -880,6 +892,10 @@ impl ChainSpec {
             electra_fork_epoch: None,
             max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 0)
                 .expect("pow does not overflow"),
+            /*
+             * DAS params
+             */
+            eip7594_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -1081,6 +1097,10 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
 
+            /*
+             * DAS params
+             */
+            eip7594_fork_epoch: None,
             number_of_columns: 128,
 
             /*
