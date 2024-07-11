@@ -390,53 +390,6 @@ impl BeaconNodeHttpClient {
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
-    /// Does not include Content-Type application/json in the request header.
-    async fn post_generic_json_without_content_type_header<T: Serialize, U: IntoUrl>(
-        &self,
-        url: U,
-        body: &T,
-        timeout: Option<Duration>,
-    ) -> Result<Response, Error> {
-        let mut builder = self.client.post(url);
-        if let Some(timeout) = timeout {
-            builder = builder.timeout(timeout);
-        }
-
-        let serialized_body = serde_json::to_vec(body).map_err(Error::InvalidJson)?;
-
-        let response = builder.body(serialized_body).send().await?;
-        ok_or_error(response).await
-    }
-
-    /// Generic POST function supporting arbitrary responses and timeouts.
-    /// Does not include Content-Type application/json in the request header.
-    /// Does include Eth-Consensus-Version in the request header.
-    async fn post_generic_json_without_content_type_header_but_with_consensus_header<
-        T: Serialize,
-        U: IntoUrl,
-    >(
-        &self,
-        url: U,
-        body: &T,
-        timeout: Option<Duration>,
-        fork: ForkName,
-    ) -> Result<Response, Error> {
-        let mut builder = self.client.post(url);
-        if let Some(timeout) = timeout {
-            builder = builder.timeout(timeout);
-        }
-
-        let serialized_body = serde_json::to_vec(body).map_err(Error::InvalidJson)?;
-
-        let response = builder
-            .header(CONSENSUS_VERSION_HEADER, fork.to_string())
-            .body(serialized_body)
-            .send()
-            .await?;
-        ok_or_error(response).await
-    }
-
-    /// Generic POST function supporting arbitrary responses and timeouts.
     async fn post_generic_with_consensus_version<T: Serialize, U: IntoUrl>(
         &self,
         url: U,
@@ -1382,8 +1335,7 @@ impl BeaconNodeHttpClient {
             .push("pool")
             .push("attester_slashings");
 
-        self.post_generic_json_without_content_type_header(path, slashing, None)
-            .await?;
+        self.post_generic(path, slashing, None).await?;
 
         Ok(())
     }
@@ -1402,10 +1354,8 @@ impl BeaconNodeHttpClient {
             .push("pool")
             .push("attester_slashings");
 
-        self.post_generic_json_without_content_type_header_but_with_consensus_header(
-            path, slashing, None, fork_name,
-        )
-        .await?;
+        self.post_generic_with_consensus_version(path, slashing, None, fork_name)
+            .await?;
 
         Ok(())
     }
