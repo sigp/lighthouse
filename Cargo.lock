@@ -188,6 +188,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloy-core"
+version = "0.7.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "529fc6310dc1126c8de51c376cbc59c79c7f662bd742be7dc67055d5421a81b4"
+dependencies = [
+ "alloy-primitives 0.7.7",
+]
+
+[[package]]
 name = "alloy-eips"
 version = "0.1.0"
 source = "git+https://github.com/alloy-rs/alloy.git?rev=974d488bab5e21e9f17452a39a4bfa56677367b2#974d488bab5e21e9f17452a39a4bfa56677367b2"
@@ -2911,9 +2920,9 @@ dependencies = [
 name = "execution_engine_integration"
 version = "0.1.0"
 dependencies = [
+ "alloy-core",
  "async-channel",
  "deposit_contract",
- "ethers-core",
  "ethers-providers",
  "execution_layer",
  "fork_choice",
@@ -2935,6 +2944,7 @@ name = "execution_layer"
 version = "0.1.0"
 dependencies = [
  "alloy-consensus",
+ "alloy-primitives 0.7.7",
  "alloy-rlp",
  "arc-swap",
  "builder_client",

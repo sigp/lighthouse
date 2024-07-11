@@ -39,7 +39,7 @@ pub fn fork_context(fork_name: ForkName) -> ForkContext {
         ForkName::Deneb => deneb_fork_epoch.start_slot(E::slots_per_epoch()),
         ForkName::Electra => electra_fork_epoch.start_slot(E::slots_per_epoch()),
     };
-    ForkContext::new::<E>(current_slot, Hash256::zero(), &chain_spec)
+    ForkContext::new::<E>(current_slot, Hash256::ZERO, &chain_spec)
 }
 
 pub struct Libp2pInstance(

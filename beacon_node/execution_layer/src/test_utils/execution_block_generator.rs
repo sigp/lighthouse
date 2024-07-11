@@ -368,7 +368,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
         // Hack the block hash to make this block distinct from any other block with a different
         // `unique_id` (the default is 0).
-        block.block_hash = ExecutionBlockHash::from_root(Hash256::from_low_u64_be(unique_id));
+        block.block_hash = ExecutionBlockHash::from_root(Hash256::from_slice(&unique_id.to_le_bytes()));
         block.block_hash = ExecutionBlockHash::from_root(block.tree_hash_root());
 
         let hash = self.insert_block(Block::PoW(block))?;
@@ -581,7 +581,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 gas_used: GAS_USED,
                 timestamp: pa.timestamp,
                 extra_data: "block gen was here".as_bytes().to_vec().into(),
-                base_fee_per_gas: Uint256::one(),
+                base_fee_per_gas: Uint256::from(1u64),
                 block_hash: ExecutionBlockHash::zero(),
                 transactions: vec![].into(),
             }),
@@ -598,7 +598,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     gas_used: GAS_USED,
                     timestamp: pa.timestamp,
                     extra_data: "block gen was here".as_bytes().to_vec().into(),
-                    base_fee_per_gas: Uint256::one(),
+                    base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].into(),
                 }),
@@ -614,7 +614,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     gas_used: GAS_USED,
                     timestamp: pa.timestamp,
                     extra_data: "block gen was here".as_bytes().to_vec().into(),
-                    base_fee_per_gas: Uint256::one(),
+                    base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].into(),
                     withdrawals: pa.withdrawals.clone().into(),
@@ -634,7 +634,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     gas_used: GAS_USED,
                     timestamp: pa.timestamp,
                     extra_data: "block gen was here".as_bytes().to_vec().into(),
-                    base_fee_per_gas: Uint256::one(),
+                    base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].into(),
                     withdrawals: pa.withdrawals.clone().into(),
@@ -653,7 +653,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     gas_used: GAS_USED,
                     timestamp: pa.timestamp,
                     extra_data: "block gen was here".as_bytes().to_vec().into(),
-                    base_fee_per_gas: Uint256::one(),
+                    base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].into(),
                     withdrawals: pa.withdrawals.clone().into(),
@@ -878,7 +878,7 @@ mod test {
         const DIFFICULTY_INCREMENT: u64 = 1;
 
         let mut generator: ExecutionBlockGenerator<MainnetEthSpec> = ExecutionBlockGenerator::new(
-            TERMINAL_DIFFICULTY.into(),
+            Uint256::from(TERMINAL_DIFFICULTY),
             TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
             None,
@@ -907,7 +907,7 @@ mod test {
 
             assert_eq!(
                 block.total_difficulty().unwrap(),
-                (i * DIFFICULTY_INCREMENT).into()
+                Uint256::from(i * DIFFICULTY_INCREMENT)
             );
 
             assert_eq!(generator.block_by_hash(block.block_hash()).unwrap(), block);

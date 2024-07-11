@@ -545,9 +545,9 @@ mod tests {
         let spec = &E::default_spec();
 
         let eth1_data = Eth1Data {
-            deposit_root: Hash256::zero(),
+            deposit_root: Hash256::ZERO,
             deposit_count: 0,
-            block_hash: Hash256::zero(),
+            block_hash: Hash256::ZERO,
         };
 
         // TODO: figure out how to generate ENR and add some here.

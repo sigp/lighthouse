@@ -1133,7 +1133,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
                 let boosted_relay_value = match builder_boost_factor {
                     Some(builder_boost_factor) => {
-                        (relay_value / 100).saturating_mul(builder_boost_factor.into())
+                        (relay_value / Uint256::from(100)).saturating_mul(Uint256::from(builder_boost_factor))
                     }
                     None => relay_value,
                 };
@@ -2190,7 +2190,7 @@ fn verify_builder_bid<E: EthSpec>(
     let header = &bid.data.message.header();
 
     // Avoid logging values that we can't represent with our Prometheus library.
-    let payload_value_gwei = bid.data.message.value() / 1_000_000_000;
+    let payload_value_gwei = bid.data.message.value() / Uint256::from(1_000_000_000);
     if payload_value_gwei <= Uint256::from(i64::MAX) {
         metrics::set_gauge_vec(
             &metrics::EXECUTION_LAYER_PAYLOAD_BIDS,

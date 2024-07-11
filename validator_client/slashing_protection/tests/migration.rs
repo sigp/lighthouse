@@ -30,7 +30,7 @@ fn add_enabled_column() {
     let db = SlashingDatabase::open(&path).unwrap();
 
     // Check that exporting an interchange file lists all the validators.
-    let interchange = db.export_all_interchange_info(Hash256::zero()).unwrap();
+    let interchange = db.export_all_interchange_info(Hash256::ZERO).unwrap();
     assert_eq!(interchange.data.len(), num_expected_validators);
 
     db.with_transaction(|txn| {

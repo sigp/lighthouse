@@ -31,7 +31,7 @@ impl<E: EthSpec> AllCaches for BeaconState<E> {
     fn all_caches_built(&self) -> bool {
         let current_epoch = self.current_epoch();
         let Ok(epoch_cache_decision_block_root) =
-            self.proposer_shuffling_decision_root(Hash256::zero())
+            self.proposer_shuffling_decision_root(Hash256::ZERO)
         else {
             return false;
         };

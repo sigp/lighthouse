@@ -119,7 +119,7 @@ pub struct ProposerBoost {
 impl Default for ProposerBoost {
     fn default() -> Self {
         Self {
-            root: Hash256::zero(),
+            root: Hash256::ZERO,
             score: 0,
         }
     }
@@ -189,7 +189,7 @@ impl ProtoArray {
             // There is no need to adjust the balances or manage parent of the zero hash since it
             // is an alias to the genesis block. The weight applied to the genesis block is
             // irrelevant as we _always_ choose it and it's impossible for it to have a parent.
-            if node.root == Hash256::zero() {
+            if node.root == Hash256::ZERO {
                 continue;
             }
 
@@ -209,7 +209,7 @@ impl ProtoArray {
 
             // If we find the node for which the proposer boost was previously applied, decrease
             // the delta by the previous score amount.
-            if self.previous_proposer_boost.root != Hash256::zero()
+            if self.previous_proposer_boost.root != Hash256::ZERO
                 && self.previous_proposer_boost.root == node.root
                 // Invalid nodes will always have a weight of zero so there's no need to subtract
                 // the proposer boost delta.
@@ -224,7 +224,7 @@ impl ProtoArray {
             //
             // https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
             if let Some(proposer_score_boost) = spec.proposer_score_boost {
-                if proposer_boost_root != Hash256::zero()
+                if proposer_boost_root != Hash256::ZERO
                     && proposer_boost_root == node.root
                     // Invalid nodes (or their ancestors) should not receive a proposer boost.
                     && !execution_status_is_invalid

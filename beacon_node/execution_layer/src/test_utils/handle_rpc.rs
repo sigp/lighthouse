@@ -330,14 +330,14 @@ pub async fn handle_rpc<E: EthSpec>(
                     JsonExecutionPayload::V1(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV1 {
                             execution_payload,
-                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
                         })
                         .unwrap()
                     }
                     JsonExecutionPayload::V2(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV2 {
                             execution_payload,
-                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
                         })
                         .unwrap()
                     }
@@ -350,7 +350,7 @@ pub async fn handle_rpc<E: EthSpec>(
                     JsonExecutionPayload::V3(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV3 {
                             execution_payload,
-                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
                             blobs_bundle: maybe_blobs
                                 .ok_or((
                                     "No blobs returned despite V3 Payload".to_string(),
@@ -367,7 +367,7 @@ pub async fn handle_rpc<E: EthSpec>(
                     JsonExecutionPayload::V4(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV4 {
                             execution_payload,
-                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
                             blobs_bundle: maybe_blobs
                                 .ok_or((
                                     "No blobs returned despite V4 Payload".to_string(),

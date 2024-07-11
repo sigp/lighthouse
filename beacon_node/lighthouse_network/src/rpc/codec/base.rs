@@ -203,7 +203,7 @@ mod tests {
             ForkName::Deneb => deneb_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Electra => electra_fork_epoch.start_slot(Spec::slots_per_epoch()),
         };
-        ForkContext::new::<Spec>(current_slot, Hash256::zero(), &chain_spec)
+        ForkContext::new::<Spec>(current_slot, Hash256::ZERO, &chain_spec)
     }
 
     #[test]

@@ -93,8 +93,8 @@ fn invalid_double_block_proposal() {
 #[test]
 fn invalid_double_block_proposal_diff_domain() {
     let first_block = block(1);
-    let domain1 = Hash256::from_low_u64_be(1);
-    let domain2 = Hash256::from_low_u64_be(2);
+    let domain1 = Hash256::from_slice(&1u64.to_le_bytes());
+    let domain2 = Hash256::from_slice(&2u64.to_le_bytes());
     StreamTest {
         cases: vec![
             Test::single(first_block.clone()).with_domain(domain1),

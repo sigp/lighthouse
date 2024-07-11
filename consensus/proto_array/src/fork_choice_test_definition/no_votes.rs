@@ -8,14 +8,14 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
         Operation::FindHead {
             justified_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             finalized_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             justified_state_balances: balances.clone(),
-            expected_head: Hash256::zero(),
+            expected_head: Hash256::ZERO,
         },
         // Add block 2
         //
@@ -25,14 +25,14 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
         Operation::ProcessBlock {
             slot: Slot::new(1),
             root: get_root(2),
-            parent_root: Hash256::zero(),
+            parent_root: Hash256::ZERO,
             justified_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             finalized_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
         },
         // Ensure the head is 2
@@ -43,11 +43,11 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
         Operation::FindHead {
             justified_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             finalized_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             justified_state_balances: balances.clone(),
             expected_head: get_root(2),
@@ -63,11 +63,11 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
             parent_root: get_root(0),
             justified_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             finalized_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
         },
         // Ensure the head is still 2
@@ -78,11 +78,11 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
         Operation::FindHead {
             justified_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             finalized_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             justified_state_balances: balances.clone(),
             expected_head: get_root(2),
@@ -100,11 +100,11 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
             parent_root: get_root(1),
             justified_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             finalized_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
         },
         // Ensure 2 is still the head
@@ -117,11 +117,11 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
         Operation::FindHead {
             justified_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             finalized_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             justified_state_balances: balances.clone(),
             expected_head: get_root(2),
@@ -139,11 +139,11 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
             parent_root: get_root(2),
             justified_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             finalized_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
         },
         // Ensure the head is 4.
@@ -156,11 +156,11 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
         Operation::FindHead {
             justified_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             finalized_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             justified_state_balances: balances.clone(),
             expected_head: get_root(4),
@@ -181,7 +181,7 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
             justified_checkpoint: get_checkpoint(2),
             finalized_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
         },
         // Ensure the head is now 5 whilst the justified epoch is 0.
@@ -196,11 +196,11 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
         Operation::FindHead {
             justified_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             finalized_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             justified_state_balances: balances.clone(),
             expected_head: get_root(5),
@@ -226,7 +226,7 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
             },
             finalized_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             justified_state_balances: balances.clone(),
             expected_head: get_root(5),
@@ -244,7 +244,7 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
             justified_checkpoint: get_checkpoint(2),
             finalized_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             justified_state_balances: balances.clone(),
             expected_head: get_root(5),
@@ -267,7 +267,7 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
             justified_checkpoint: get_checkpoint(2),
             finalized_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
         },
         // Ensure 6 is the head
@@ -285,7 +285,7 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
             justified_checkpoint: get_checkpoint(2),
             finalized_checkpoint: Checkpoint {
                 epoch: Epoch::new(1),
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
             },
             justified_state_balances: balances,
             expected_head: get_root(6),
@@ -296,11 +296,11 @@ pub fn get_no_votes_test_definition() -> ForkChoiceTestDefinition {
         finalized_block_slot: Slot::new(0),
         justified_checkpoint: Checkpoint {
             epoch: Epoch::new(1),
-            root: Hash256::zero(),
+            root: Hash256::ZERO,
         },
         finalized_checkpoint: Checkpoint {
             epoch: Epoch::new(1),
-            root: Hash256::zero(),
+            root: Hash256::ZERO,
         },
         operations,
     }

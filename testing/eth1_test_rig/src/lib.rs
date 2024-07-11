@@ -137,7 +137,7 @@ impl DepositContract {
 
         let mut deposit = DepositData {
             pubkey: keypair.pk.into(),
-            withdrawal_credentials: Hash256::zero(),
+            withdrawal_credentials: Hash256::ZERO,
             amount: 32_000_000_000,
             signature: Signature::empty().into(),
         };
@@ -163,7 +163,7 @@ impl DepositContract {
 
         let mut deposit = DepositData {
             pubkey: keypair.pk.into(),
-            withdrawal_credentials: Hash256::zero(),
+            withdrawal_credentials: Hash256::ZERO,
             amount,
             signature: Signature::empty().into(),
         };

@@ -94,7 +94,8 @@ resolver = "2"
 edition = "2021"
 
 [workspace.dependencies]
-alloy-primitives = { version = "0.7.7", features =["arbitrary", "serde", "ssz", "getrandom"] }
+alloy-core = "0.7.0"
+alloy-primitives = { version = "0.7.0", features =["arbitrary", "serde", "ssz", "getrandom"] }
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 async-channel = "1.9.0"

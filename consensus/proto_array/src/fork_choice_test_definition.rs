@@ -78,11 +78,11 @@ impl ForkChoiceTestDefinition {
         spec.proposer_score_boost = Some(50);
 
         let junk_shuffling_id =
-            AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
+            AttestationShufflingId::from_components(Epoch::new(0), Hash256::ZERO);
         let mut fork_choice = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             self.finalized_block_slot,
             self.finalized_block_slot,
-            Hash256::zero(),
+            Hash256::ZERO,
             self.justified_checkpoint,
             self.finalized_checkpoint,
             junk_shuffling_id.clone(),
@@ -108,7 +108,7 @@ impl ForkChoiceTestDefinition {
                             justified_checkpoint,
                             finalized_checkpoint,
                             &justified_balances,
-                            Hash256::zero(),
+                            Hash256::ZERO,
                             &equivocating_indices,
                             Slot::new(0),
                             &spec,
@@ -167,7 +167,7 @@ impl ForkChoiceTestDefinition {
                         justified_checkpoint,
                         finalized_checkpoint,
                         &justified_balances,
-                        Hash256::zero(),
+                        Hash256::ZERO,
                         &equivocating_indices,
                         Slot::new(0),
                         &spec,
@@ -192,15 +192,15 @@ impl ForkChoiceTestDefinition {
                         slot,
                         root,
                         parent_root: Some(parent_root),
-                        state_root: Hash256::zero(),
-                        target_root: Hash256::zero(),
+                        state_root: Hash256::ZERO,
+                        target_root: Hash256::ZERO,
                         current_epoch_shuffling_id: AttestationShufflingId::from_components(
                             Epoch::new(0),
-                            Hash256::zero(),
+                            Hash256::ZERO,
                         ),
                         next_epoch_shuffling_id: AttestationShufflingId::from_components(
                             Epoch::new(0),
-                            Hash256::zero(),
+                            Hash256::ZERO,
                         ),
                         justified_checkpoint,
                         finalized_checkpoint,
@@ -287,7 +287,7 @@ impl ForkChoiceTestDefinition {
 
 /// Gives a root that is not the zero hash (unless i is `usize::MAX)`.
 fn get_root(i: u64) -> Hash256 {
-    Hash256::from_low_u64_be(i + 1)
+    Hash256::from_slice(&(i + 1).to_le_bytes())
 }
 
 /// Gives a hash that is not the zero hash (unless i is `usize::MAX)`.

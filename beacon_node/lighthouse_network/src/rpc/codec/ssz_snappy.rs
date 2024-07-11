@@ -774,7 +774,7 @@ mod tests {
             ForkName::Deneb => deneb_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Electra => electra_fork_epoch.start_slot(Spec::slots_per_epoch()),
         };
-        ForkContext::new::<Spec>(current_slot, Hash256::zero(), &chain_spec)
+        ForkContext::new::<Spec>(current_slot, Hash256::ZERO, &chain_spec)
     }
 
     /// Smallest sized block across all current forks. Useful for testing
@@ -833,9 +833,9 @@ mod tests {
     fn status_message() -> StatusMessage {
         StatusMessage {
             fork_digest: [0; 4],
-            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_root: Hash256::ZERO,
             finalized_epoch: Epoch::new(1),
-            head_root: Hash256::from_low_u64_be(0),
+            head_root: Hash256::ZERO,
             head_slot: Slot::new(1),
         }
     }
@@ -856,17 +856,17 @@ mod tests {
     }
 
     fn bbroot_request_v1(spec: &ChainSpec) -> BlocksByRootRequest {
-        BlocksByRootRequest::new_v1(vec![Hash256::zero()], spec)
+        BlocksByRootRequest::new_v1(vec![Hash256::ZERO], spec)
     }
 
     fn bbroot_request_v2(spec: &ChainSpec) -> BlocksByRootRequest {
-        BlocksByRootRequest::new(vec![Hash256::zero()], spec)
+        BlocksByRootRequest::new(vec![Hash256::ZERO], spec)
     }
 
     fn blbroot_request(spec: &ChainSpec) -> BlobsByRootRequest {
         BlobsByRootRequest::new(
             vec![BlobIdentifier {
-                block_root: Hash256::zero(),
+                block_root: Hash256::ZERO,
                 index: 0,
             }],
             spec,
@@ -1517,9 +1517,9 @@ mod tests {
         // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
         let status_message_bytes = StatusMessage {
             fork_digest: [0; 4],
-            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_root: Hash256::ZERO,
             finalized_epoch: Epoch::new(1),
-            head_root: Hash256::from_low_u64_be(0),
+            head_root: Hash256::ZERO,
             head_slot: Slot::new(1),
         }
         .as_ssz_bytes();
@@ -1640,9 +1640,9 @@ mod tests {
         // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
         let status_message_bytes = StatusMessage {
             fork_digest: [0; 4],
-            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_root: Hash256::ZERO,
             finalized_epoch: Epoch::new(1),
-            head_root: Hash256::from_low_u64_be(0),
+            head_root: Hash256::ZERO,
             head_slot: Slot::new(1),
         }
         .as_ssz_bytes();

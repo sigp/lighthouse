@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = { workspace = true }
 
 [dependencies]
+alloy-core = { workspace = true }
 async-channel = { workspace = true }
 tempfile = { workspace = true }
 serde_json = { workspace = true }
@@ -14,7 +15,6 @@ execution_layer = { workspace = true }
 sensitive_url = { workspace = true }
 types = { workspace = true }
 unused_port = { workspace = true }
-ethers-core = { workspace = true }
 ethers-providers = { workspace = true }
 deposit_contract = { workspace = true }
 reqwest = { workspace = true }

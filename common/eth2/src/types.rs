@@ -1757,12 +1757,12 @@ impl TryFrom<&HeaderMap> for ProduceBlockV3Metadata {
             })?;
         let execution_payload_value =
             parse_required_header(headers, EXECUTION_PAYLOAD_VALUE_HEADER, |s| {
-                Uint256::from_dec_str(s)
+                Uint256::from_str(s)
                     .map_err(|e| format!("invalid {EXECUTION_PAYLOAD_VALUE_HEADER}: {e:?}"))
             })?;
         let consensus_block_value =
             parse_required_header(headers, CONSENSUS_BLOCK_VALUE_HEADER, |s| {
-                Uint256::from_dec_str(s)
+                Uint256::from_str(s)
                     .map_err(|e| format!("invalid {CONSENSUS_BLOCK_VALUE_HEADER}: {e:?}"))
             })?;
 

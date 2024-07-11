@@ -521,7 +521,7 @@ pub fn serve<E: EthSpec>(
                     .await;
 
                 let forkchoice_update_params = ForkchoiceUpdateParameters {
-                    head_root: Hash256::zero(),
+                    head_root: Hash256::ZERO,
                     head_hash: None,
                     justified_hash: Some(justified_execution_hash),
                     finalized_hash: Some(finalized_execution_hash),

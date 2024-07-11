@@ -397,7 +397,7 @@ where
                 justified_hash: None,
                 finalized_hash: None,
                 // This will be updated during the next call to `Self::get_head`.
-                head_root: Hash256::zero(),
+                head_root: Hash256::ZERO,
             },
             _phantom: PhantomData,
         };
@@ -1055,7 +1055,7 @@ where
         // (1) becomes weird once we hit finality and fork choice drops the genesis block. (2) is
         // fine because votes to the genesis block are not useful; all validators implicitly attest
         // to genesis just by being present in the chain.
-        if attestation.data().beacon_block_root == Hash256::zero() {
+        if attestation.data().beacon_block_root == Hash256::ZERO {
             return Ok(());
         }
 
@@ -1139,7 +1139,7 @@ where
 
         // Reset proposer boost if this is a new slot.
         if current_slot > previous_slot {
-            store.set_proposer_boost_root(Hash256::zero());
+            store.set_proposer_boost_root(Hash256::ZERO);
         }
 
         // Not a new epoch, return.
@@ -1465,7 +1465,7 @@ where
                 justified_hash: None,
                 finalized_hash: None,
                 // Will be updated in the following call to `Self::get_head`.
-                head_root: Hash256::zero(),
+                head_root: Hash256::ZERO,
             },
             _phantom: PhantomData,
         };

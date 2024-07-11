@@ -54,7 +54,7 @@ impl RewardCache {
     /// re-calculation in `update`.
     fn latest_block_root<E: EthSpec>(state: &BeaconState<E>) -> Result<Hash256, OpPoolError> {
         if state.slot() == 0 {
-            Ok(Hash256::zero())
+            Ok( Hash256::ZERO)
         } else {
             Ok(*state
                 .get_block_root(state.slot() - 1)

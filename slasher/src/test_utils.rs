@@ -20,14 +20,14 @@ pub fn indexed_att_electra(
         data: AttestationData {
             slot: Slot::new(0),
             index: 0,
-            beacon_block_root: Hash256::zero(),
+            beacon_block_root:  Hash256::ZERO,
             source: Checkpoint {
                 epoch: Epoch::new(source_epoch),
-                root: Hash256::from_low_u64_be(0),
+                root: Hash256::ZERO,
             },
             target: Checkpoint {
                 epoch: Epoch::new(target_epoch),
-                root: Hash256::from_low_u64_be(target_root),
+                root: Hash256::from_slice(&target_root.to_le_bytes()),
             },
         },
         signature: AggregateSignature::empty(),
@@ -45,14 +45,14 @@ pub fn indexed_att(
         data: AttestationData {
             slot: Slot::new(0),
             index: 0,
-            beacon_block_root: Hash256::zero(),
+            beacon_block_root: Hash256::ZERO,
             source: Checkpoint {
                 epoch: Epoch::new(source_epoch),
-                root: Hash256::from_low_u64_be(0),
+                root: Hash256::ZERO,
             },
             target: Checkpoint {
                 epoch: Epoch::new(target_epoch),
-                root: Hash256::from_low_u64_be(target_root),
+                root: Hash256::from_slice(&target_root.to_le_bytes()),
             },
         },
         signature: AggregateSignature::empty(),
@@ -139,9 +139,9 @@ pub fn block(slot: u64, proposer_index: u64, block_root: u64) -> SignedBeaconBlo
         message: BeaconBlockHeader {
             slot: Slot::new(slot),
             proposer_index,
-            parent_root: Hash256::zero(),
-            state_root: Hash256::zero(),
-            body_root: Hash256::from_low_u64_be(block_root),
+            parent_root: Hash256::ZERO,
+            state_root: Hash256::ZERO,
+            body_root: Hash256::from_slice(&block_root.to_le_bytes()),
         },
         signature: Signature::empty(),
     }
