@@ -26,6 +26,12 @@ pub enum Error {
     InvalidCommitteeIndex,
 }
 
+impl From<ssz_types::Error> for Error {
+    fn from(e: ssz_types::Error) -> Self {
+        Error::SszTypesError(e)
+    }
+}
+
 #[superstruct(
     variants(Base, Electra),
     variant_attributes(
@@ -413,6 +419,35 @@ impl<E: EthSpec> AttestationBase<E> {
             extended_aggregation_bits.set(i, bit)?;
         }
         Ok(extended_aggregation_bits)
+    }
+}
+
+impl<E: EthSpec> TryFrom<AttestationBase<E>> for AttestationElectra<E> {
+    type Error = Error;
+    fn try_from(att: AttestationBase<E>) -> Result<Self, Self::Error> {
+        // Extend the aggregation bits list.
+        let aggregation_bits = att.extend_aggregation_bits()?;
+        let AttestationBase {
+            aggregation_bits: _,
+            mut data,
+            signature,
+        } = att;
+
+        // Set the committee index based on the index field.
+        let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
+        committee_bits
+            .set(data.index as usize, true)
+            .map_err(|_| Error::InvalidCommitteeIndex)?;
+
+        // Set the attestation data's index to zero.
+        data.index = 0;
+
+        Ok(Self {
+            aggregation_bits,
+            data,
+            committee_bits,
+            signature,
+        })
     }
 }
 

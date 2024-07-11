@@ -1834,18 +1834,35 @@ pub fn serve<T: BeaconChainTypes>(
                             .filter(|&att| query_filter(att.data()))
                             .cloned(),
                     );
-                    let slot = query
-                        .slot
-                        .or_else(|| {
-                            attestations
-                                .first()
-                                .map(|att| att.data().slot)
-                                .or_else(|| chain.slot_clock.now())
-                        })
-                        .ok_or(warp_utils::reject::custom_server_error(
-                            "unable to read slot clock".to_string(),
-                        ))?;
-                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+                    // Use the current slot to find the fork version, and convert all messages to the
+                    // current fork's format. This is to ensure consistent message types matching
+                    // `Eth-Consensus-Version`.
+                    let current_slot =
+                        chain
+                            .slot_clock
+                            .now()
+                            .ok_or(warp_utils::reject::custom_server_error(
+                                "unable to read slot clock".to_string(),
+                            ))?;
+                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(current_slot);
+
+                    let attestations = if fork_name.electra_enabled() {
+                        attestations
+                            .into_iter()
+                            .map(|att| match att {
+                                Attestation::Base(a) => Ok(Attestation::Electra(a.try_into()?)),
+                                Attestation::Electra(a) => Ok(Attestation::Electra(a)),
+                            })
+                            .collect::<Result<Vec<_>, types::attestation::Error>>()
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "could not convert base attestations to electra {e:?}"
+                                ))
+                            })?
+                    } else {
+                        attestations
+                    };
+
                     let res = fork_versioned_response(endpoint_version, fork_name, &attestations)?;
                     Ok(add_consensus_version_header(
                         warp::reply::json(&res).into_response(),
@@ -1914,14 +1931,30 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
                     let slashings = chain.op_pool.get_all_attester_slashings();
-                    let slot = slashings
-                        .first()
-                        .map(|slashing| slashing.attestation_1().data().slot)
-                        .or_else(|| chain.slot_clock.now())
-                        .ok_or(warp_utils::reject::custom_server_error(
-                            "unable to read slot clock".to_string(),
-                        ))?;
-                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+
+                    // Use the current slot to find the fork version, and convert all messages to the
+                    // current fork's format. This is to ensure consistent message types matching
+                    // `Eth-Consensus-Version`.
+                    let current_slot =
+                        chain
+                            .slot_clock
+                            .now()
+                            .ok_or(warp_utils::reject::custom_server_error(
+                                "unable to read slot clock".to_string(),
+                            ))?;
+                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(current_slot);
+
+                    let slashings = if fork_name.electra_enabled() {
+                        slashings
+                            .into_iter()
+                            .map(|att| match att {
+                                AttesterSlashing::Base(a) => AttesterSlashing::Electra(a.into()),
+                                AttesterSlashing::Electra(a) => AttesterSlashing::Electra(a),
+                            })
+                            .collect::<Vec<_>>()
+                    } else {
+                        slashings
+                    };
                     let res = fork_versioned_response(endpoint_version, fork_name, &slashings)?;
                     Ok(add_consensus_version_header(
                         warp::reply::json(&res).into_response(),
