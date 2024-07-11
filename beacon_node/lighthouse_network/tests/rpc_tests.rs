@@ -4,7 +4,7 @@ mod common;
 
 use common::Protocol;
 use lighthouse_network::rpc::methods::*;
-use lighthouse_network::service::api_types::AppRequestId;
+use lighthouse_network::service::api_types::{AppRequestId, SyncRequestId};
 use lighthouse_network::{
     rpc::max_rpc_size, rpc::RPCError, NetworkEvent, ReportSource, Request, Response,
 };
@@ -1160,17 +1160,16 @@ fn test_delayed_rpc_response() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         debug!(log, "Sending RPC request"; "request_id" => request_id);
                         sender
-                            .send_request(peer_id, request_id, rpc_request.clone())
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
                         request_sent_at = Instant::now();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id,
-                        id,
+                        id: _,
                         response,
                     } => {
                         debug!(log, "Sender received"; "request_id" => request_id);
-                        assert_eq!(id, request_id);
                         assert_eq!(response, rpc_response);
 
                         match request_id {
@@ -1192,16 +1191,16 @@ fn test_delayed_rpc_response() {
                         request_id += 1;
                         debug!(log, "Sending RPC request"; "request_id" => request_id);
                         sender
-                            .send_request(peer_id, request_id, rpc_request.clone())
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
                         request_sent_at = Instant::now();
                     }
                     NetworkEvent::RPCFailed {
-                        id,
+                        id: _,
                         peer_id: _,
                         error,
                     } => {
-                        error!(log, "RPC Failed"; "request_id" => id, "error" => ?error);
+                        error!(log, "RPC Failed"; "error" => ?error);
                         panic!("Rpc failed.");
                     }
                     _ => {}
@@ -1298,10 +1297,10 @@ fn test_request_too_large() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         let request = rpc_requests.pop().unwrap();
                         debug!(log, "Sending RPC request"; "request_id" => request_id, "request" => ?request);
-                        sender.send_request(peer_id, request_id, request).unwrap();
+                        sender.send_request(peer_id, AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id: request_id }), request).unwrap();
                     }
                     NetworkEvent::ResponseReceived { id, response, .. } => {
-                        debug!(log, "Received response"; "request_id" => id, "response" => ?response);
+                        debug!(log, "Received response"; "request_id" => ?id, "response" => ?response);
                         // Handle the response termination.
                         match response {
                             Response::BlocksByRange(None) | Response::BlocksByRoot(None) | Response::BlobsByRange(None) | Response::BlobsByRoot(None) => {},
@@ -1309,15 +1308,14 @@ fn test_request_too_large() {
                         }
                     }
                     NetworkEvent::RPCFailed { id, peer_id, error } => {
-                        debug!(log, "RPC Failed"; "error" => ?error, "request_id" => id);
-                        assert_eq!(id, request_id);
+                        debug!(log, "RPC Failed"; "error" => ?error, "request_id" => ?id);
                         assert!(matches!(error, RPCError::ErrorResponse(RPCResponseErrorCode::RateLimited, .. )));
 
                         failed_request_ids.push(id);
                         if let Some(request) = rpc_requests.pop() {
                             request_id += 1;
                             debug!(log, "Sending RPC request"; "request_id" => request_id, "request" => ?request);
-                            sender.send_request(peer_id, request_id, request).unwrap();
+                            sender.send_request(peer_id, AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id: request_id }), request).unwrap();
                         } else {
                             assert_eq!(failed_request_ids.len(), requests_to_be_failed);
                             // End the test.
@@ -1386,21 +1384,21 @@ fn test_active_requests() {
                         debug!(log, "Sending RPC request");
                         // Send requests in quick succession to intentionally trigger a rate-limited error.
                         sender
-                            .send_request(peer_id, 1, rpc_request.clone())
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
                         sender
-                            .send_request(peer_id, 2, rpc_request.clone())
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
                     }
                     NetworkEvent::ResponseReceived { .. } => {
                         unreachable!();
                     }
                     NetworkEvent::RPCFailed {
-                        id,
+                        id: _,
                         peer_id: _,
                         error,
                     } => {
-                        debug!(log, "RPC Failed"; "request_id" => id, "error" => ?error);
+                        debug!(log, "RPC Failed"; "error" => ?error);
                         // Verify that the sender received a rate-limited error.
                         assert!(matches!(
                             error,
