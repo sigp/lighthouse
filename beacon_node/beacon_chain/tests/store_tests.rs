@@ -56,8 +56,8 @@ fn get_store_generic(
     config: StoreConfig,
     spec: ChainSpec,
 ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
-    let hot_path = db_path.path().join("hot_db");
-    let cold_path = db_path.path().join("cold_db");
+    let hot_path = db_path.path().join("chain_db");
+    let cold_path = db_path.path().join("freezer_db");
     let blobs_path = db_path.path().join("blobs_db");
     let log = test_logger();
 
