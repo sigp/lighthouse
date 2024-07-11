@@ -212,6 +212,26 @@ impl<E: EthSpec> PendingComponents<E> {
             AvailableExecutedBlock::new(available_block, import_data, payload_verification_outcome),
         )))
     }
+
+    /// Returns the epoch of the block if it is cached, otherwise returns the epoch of the first blob.
+    pub fn epoch(&self) -> Option<Epoch> {
+        self.executed_block
+            .as_ref()
+            .map(|pending_block| pending_block.as_block().epoch())
+            .or_else(|| {
+                for maybe_blob in self.verified_blobs.iter() {
+                    if maybe_blob.is_some() {
+                        return maybe_blob.as_ref().map(|kzg_verified_blob| {
+                            kzg_verified_blob
+                                .as_blob()
+                                .slot()
+                                .epoch(E::slots_per_epoch())
+                        });
+                    }
+                }
+                None
+            })
+    }
 }
 
 /// This is the main struct for this module. Outside methods should
@@ -363,7 +383,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // Collect keys of pending blocks from a previous epoch to cutoff
         let mut write_lock = self.critical.write();
         let mut keys_to_remove = vec![];
-        for (key, value) in write_lock.in_memory.iter() {
+        for (key, value) in write_lock.iter() {
             if let Some(epoch) = value.epoch() {
                 if epoch < cutoff_epoch {
                     keys_to_remove.push(*key);
@@ -372,7 +392,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
         // Now remove keys
         for key in keys_to_remove {
-            write_lock.in_memory.pop(&key);
+            write_lock.pop(&key);
         }
 
         Ok(())
