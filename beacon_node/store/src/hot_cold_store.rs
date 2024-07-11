@@ -319,12 +319,15 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         db.compare_and_set_blob_info_with_write(<_>::default(), new_blob_info.clone())?;
 
         let data_column_info = db.load_data_column_info()?;
+        let eip7594_fork_slot = db
+            .spec
+            .eip7594_fork_epoch
+            .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
         let new_data_column_info = match &data_column_info {
-            // TODO[das]: update to EIP-7594 fork
             Some(data_column_info) => {
                 // Set the oldest data column slot to the Deneb fork slot if it is not yet set.
                 let oldest_data_column_slot =
-                    data_column_info.oldest_data_column_slot.or(deneb_fork_slot);
+                    data_column_info.oldest_data_column_slot.or(eip7594_fork_slot);
                 DataColumnInfo {
                     oldest_data_column_slot,
                 }
@@ -332,7 +335,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             // First start.
             None => DataColumnInfo {
                 // Set the oldest data column slot to the Deneb fork slot if it is not yet set.
-                oldest_data_column_slot: deneb_fork_slot,
+                oldest_data_column_slot: eip7594_fork_slot,
             },
         };
         db.compare_and_set_data_column_info_with_write(
