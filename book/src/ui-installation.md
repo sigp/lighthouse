@@ -9,21 +9,21 @@ To ensure proper functionality, the Siren app requires Lighthouse v4.3.0 or high
 
 ## Running the Docker container (Recommended)
 
-The most convenient way to run Siren is to use the images built and published by Sigma Prime. 
+The most convenient way to run Siren is to use the Docker images built and published by Sigma Prime. 
  
  They can be found on [Docker hub](https://hub.docker.com/r/sigp/siren/tags), or pulled directly with `docker pull sigp/siren`
 
-Configuration is done through environment variables, the best way to get started is by copying `.env.example` to `.env` and editing the relevant sections (typically, this would at least include adding `BEACON_URL`, `VALIDATOR_URL` and `API_TOKEN`)
+Configuration is done through environment variables, the easiest way to get started is by copying `.env.example` to `.env` and editing the relevant sections (typically, this would at least include adding `BEACON_URL`, `VALIDATOR_URL` and `API_TOKEN`)
 
 Then to run the image:
 
 `docker compose up`
 or
-`docker run --rm -ti --name siren -p 3443:443 --env-file $PWD/.env sigp/siren`
+`docker run --rm -ti --name siren -p 4443:443 --env-file $PWD/.env sigp/siren`
 
-This command will open port 3443, allowing your browser to connect.
+This command will open port 4443, allowing your browser to connect.
 
-To start Siren, visit `https://localhost:3443` in your web browser. 
+To start Siren, visit `https://localhost:4443` in your web browser. 
 
 Advanced users can mount their own certificates, see the `SSL Certificates` section below 
 
@@ -36,7 +36,7 @@ The docker image can be built with the following command:
 
 ### Building locally
 
-To build from source, ensure that your system has `Node v18.18` and `yarn` installed. Start by configuring your environment variables. The recommended approach is to duplicate the `.env.example` file, rename it to `.env`, and modify the necessary settings. Essential variables typically include `BEACON_URL`, `VALIDATOR_URL`, and `API_TOKEN`.
+To build from source, ensure that your system has `Node v18.18` and `yarn` installed. 
 
 #### Build and run the backend
 
