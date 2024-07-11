@@ -868,7 +868,7 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
     ) -> Result<Option<AvailabilityAndReconstructedColumns<T::EthSpec>>, AvailabilityCheckError>
     {
         // Clone the pending components, so we don't hold the read lock during reconstruction
-        let Some(mut pending_components) = self
+        let Some(pending_components) = self
             .peek_pending_components(&block_root, |pending_components_opt| {
                 pending_components_opt.cloned()
             })
@@ -882,7 +882,12 @@ impl<T: BeaconChainTypes> OverflowLRUCache<T> {
             .map(|r| self.should_reconstruct(&r, &pending_components))?;
 
         if should_reconstruct {
-            pending_components.reconstruction_started();
+            if let Some(pending_components_mut) =
+                self.critical.write().in_memory.get_mut(&block_root)
+            {
+                pending_components_mut.reconstruction_started();
+            }
+
             metrics::inc_counter(&KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS);
             let timer = metrics::start_timer(&metrics::DATA_AVAILABILITY_RECONSTRUCTION_TIME);
 
