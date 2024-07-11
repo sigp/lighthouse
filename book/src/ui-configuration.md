@@ -1,12 +1,12 @@
 # Configuration
 
-Siren requires a connection to both a Lighthouse Validator Client
-and a Lighthouse Beacon Node. To enable connection, you must generate .env file based on the provided .env.example
+Siren requires a connection to both a Lighthouse Validator Client and a Lighthouse Beacon Node.  
+To enable connection, you must generate .env file based on the provided .env.example
 
 ## Connecting to the Clients
 
-Both the Beacon node and the Validator client need to have their HTTP APIs enabled. These ports should be accessible from the computer running Siren. This allows you to enter the address and ports of the associated Lighthouse
-Beacon node and Lighthouse Validator client.
+Both the Beacon node and the Validator client need to have their HTTP APIs enabled.  
+These ports should be accessible from Siren.  
 
 To enable the HTTP API for the beacon node, utilize the `--gui` CLI flag. This action ensures that the HTTP API can be accessed by other software on the same machine.
 
@@ -18,10 +18,7 @@ If you require accessibility from another machine within the network, configure 
 
 In a similar manner, the validator client requires activation of the `--http` flag, along with the optional consideration of configuring the `--http-address` flag. If `--http-address` flag is set on the Validator Client, then the `--unencrypted-http-transport` flag is required as well. These settings will ensure compatibility with Siren's connectivity requirements.
 
-If you run Siren in the browser (by entering `localhost` in the browser), you will need to allow CORS in the HTTP API. This can be done by adding the flag `--http-allow-origin "*"` for both beacon node and validator client.
-
-A green tick will appear once Siren is able to connect to both clients. You
-can specify different ports for each client by clicking on the advanced tab.
+If you run the Docker container, it will fail to startup if your BN/VC are not accessible, or if you provided a wrong API token. 
 
 ## API Token
 
