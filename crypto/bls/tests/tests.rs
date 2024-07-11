@@ -42,7 +42,7 @@ macro_rules! test_suite {
             let mut agg_sig = AggregateSignature::infinity();
             ssz_round_trip(agg_sig.clone());
 
-            let msg = Hash256::from_low_u64_be(42);
+            let msg = Hash256::from_slice(&42u64.to_le_bytes());
             let secret = secret_from_u64(42);
 
             let sig = secret.sign(msg);
@@ -121,7 +121,7 @@ macro_rules! test_suite {
             fn default() -> Self {
                 let secret = SecretKey::deserialize(&[42; 32]).unwrap();
                 let pubkey = secret.public_key();
-                let msg = Hash256::from_low_u64_be(42);
+                let msg = Hash256::from_slice(&42u64.to_le_bytes());
 
                 Self {
                     sig: secret.sign(msg),
@@ -172,7 +172,7 @@ macro_rules! test_suite {
             fn new_with_single_msg(num_pubkeys: u64) -> Self {
                 let mut pubkeys = Vec::with_capacity(num_pubkeys as usize);
                 let mut sig = AggregateSignature::infinity();
-                let msg = Hash256::from_low_u64_be(42);
+                let msg = Hash256::from_slice(&42u64.to_le_bytes());
 
                 for i in 0..num_pubkeys {
                     let secret = secret_from_u64(i);
@@ -195,7 +195,8 @@ macro_rules! test_suite {
             pub fn wrong_sig(mut self) -> Self {
                 let sk = SecretKey::deserialize(&[1; 32]).unwrap();
                 self.sig = AggregateSignature::infinity();
-                self.sig.add_assign(&sk.sign(Hash256::from_low_u64_be(1)));
+                self.sig
+                    .add_assign(&sk.sign(Hash256::from_slice(&1u64.to_le_bytes())));
                 self
             }
 
@@ -380,7 +381,7 @@ macro_rules! test_suite {
         impl SignatureSetTester {
             pub fn push_valid_set(mut self, num_signers: usize) -> Self {
                 let mut signature = AggregateSignature::infinity();
-                let message = Hash256::from_low_u64_be(42);
+                let message = Hash256::from_slice(&42u64.to_le_bytes());
 
                 let signing_keys = (0..num_signers)
                     .map(|i| {
@@ -403,7 +404,7 @@ macro_rules! test_suite {
 
             pub fn push_invalid_set(mut self) -> Self {
                 let mut signature = AggregateSignature::infinity();
-                let message = Hash256::from_low_u64_be(42);
+                let message = Hash256::from_slice(&42u64.to_le_bytes());
 
                 signature.add_assign(&secret_from_u64(0).sign(message));
 

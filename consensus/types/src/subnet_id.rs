@@ -1,11 +1,11 @@
 //! Identifies each shard by an integer identifier.
 use crate::{AttestationRef, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
+use alloy_primitives::B256 as H256;
 use lazy_static::lazy_static;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 use swap_or_not_shuffle::compute_shuffled_index;
-use alloy_primitives::B256 as H256;
 
 const MAX_SUBNET_ID: usize = 64;
 
@@ -90,8 +90,9 @@ impl SubnetId {
         let shuffling_prefix_bits = spec.attestation_subnet_shuffling_prefix_bits as u64;
 
         // calculate the prefixes used to compute the subnet and shuffling
-        let node_id_prefix = (node_id >> (256 - prefix_bits)).as_u64();
-        let shuffling_prefix = (node_id >> (256 - (prefix_bits + shuffling_prefix_bits))).as_u64();
+        // TODO alloy
+        let node_id_prefix = 064; // (node_id >> (256 - prefix_bits)).as_u64();
+        let shuffling_prefix = 064; // (node_id >> (256 - (prefix_bits + shuffling_prefix_bits))).as_u64();
 
         // number of groups the shuffling creates
         let shuffling_groups = 1 << shuffling_prefix_bits;

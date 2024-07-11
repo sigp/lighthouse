@@ -565,7 +565,7 @@ impl<E: EthSpec> BeaconState<E> {
         BeaconState::Base(BeaconStateBase {
             // Versioning
             genesis_time,
-            genesis_validators_root: Hash256::zero(), // Set later.
+            genesis_validators_root: Hash256::ZERO, // Set later.
             slot: spec.genesis_slot,
             fork: Fork {
                 previous_version: spec.genesis_fork_version,
@@ -1030,7 +1030,7 @@ impl<E: EthSpec> BeaconState<E> {
         let epoch = slot.epoch(E::slots_per_epoch());
         let mut preimage = self
             .get_seed(epoch, Domain::BeaconProposer, spec)?
-            .as_bytes()
+            .as_slice()
             .to_vec();
         preimage.append(&mut int_to_bytes8(slot.as_u64()));
         Ok(hash(&preimage))
@@ -1090,14 +1090,14 @@ impl<E: EthSpec> BeaconState<E> {
             let shuffled_index = compute_shuffled_index(
                 i.safe_rem(active_validator_count)?,
                 active_validator_count,
-                seed.as_bytes(),
+                seed.as_slice(),
                 spec.shuffle_round_count,
             )
             .ok_or(Error::UnableToShuffle)?;
             let candidate_index = *active_validator_indices
                 .get(shuffled_index)
                 .ok_or(Error::ShuffleIndexOutOfBounds(shuffled_index))?;
-            let random_byte = Self::shuffling_random_byte(i, seed.as_bytes())?;
+            let random_byte = Self::shuffling_random_byte(i, seed.as_slice())?;
             let effective_balance = self.get_validator(candidate_index)?.effective_balance;
             if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
                 >= spec
@@ -1521,7 +1521,7 @@ impl<E: EthSpec> BeaconState<E> {
         let mut preimage = [0; NUM_DOMAIN_BYTES + NUM_EPOCH_BYTES + NUM_MIX_BYTES];
         preimage[0..NUM_DOMAIN_BYTES].copy_from_slice(&domain_bytes);
         preimage[NUM_DOMAIN_BYTES..MIX_OFFSET].copy_from_slice(&epoch_bytes);
-        preimage[MIX_OFFSET..].copy_from_slice(mix.as_bytes());
+        preimage[MIX_OFFSET..].copy_from_slice(mix.as_slice());
 
         Ok(Hash256::from_slice(&hash(&preimage)))
     }
@@ -2203,7 +2203,7 @@ impl<E: EthSpec> BeaconState<E> {
             .get_mut(validator_index)
             .ok_or(Error::UnknownValidator(validator_index))?;
         if validator.has_eth1_withdrawal_credential(spec) {
-            validator.withdrawal_credentials.as_fixed_bytes_mut()[0] =
+            validator.withdrawal_credentials.as_mut_slice().to_owned()[0] =
                 spec.compounding_withdrawal_prefix_byte;
             self.queue_excess_active_balance(validator_index, spec)?;
         }

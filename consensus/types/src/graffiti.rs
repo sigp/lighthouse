@@ -180,6 +180,6 @@ impl TreeHash for Graffiti {
 
 impl TestRandom for Graffiti {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
-        Self::from(Hash256::random_for_test(rng).to_fixed_bytes())
+        Self::from(Hash256::random_for_test(rng).to_string())
     }
 }

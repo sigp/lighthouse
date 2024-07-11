@@ -132,7 +132,7 @@ impl<E: EthSpec> AggregateAndProof<E> {
         fork: &Fork,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
-    ) -> bool { 
+    ) -> bool {
         let target_epoch = self.aggregate().data().slot.epoch(E::slots_per_epoch());
         let domain = spec.get_domain(
             target_epoch,

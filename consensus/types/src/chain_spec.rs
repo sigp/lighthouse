@@ -7,7 +7,6 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_utils::quoted_u64::MaybeQuoted;
 use ssz::Encode;
 use std::fs::File;
-use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 use tree_hash::TreeHash;
@@ -729,7 +728,8 @@ impl ChainSpec {
             proportional_slashing_multiplier_bellatrix: 3,
             bellatrix_fork_version: [0x02, 0x00, 0x00, 0x00],
             bellatrix_fork_epoch: Some(Epoch::new(144896)),
-            terminal_total_difficulty: Uint256::from_dec_str("58750000000000000000000")
+            terminal_total_difficulty: "58750000000000000000000"
+                .parse()
                 .expect("terminal_total_difficulty is a valid integer"),
             terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
@@ -1031,10 +1031,9 @@ impl ChainSpec {
             proportional_slashing_multiplier_bellatrix: 3,
             bellatrix_fork_version: [0x02, 0x00, 0x00, 0x64],
             bellatrix_fork_epoch: Some(Epoch::new(385536)),
-            terminal_total_difficulty: Uint256::from_dec_str(
-                "8626000000000000000000058750000000000000000000",
-            )
-            .expect("terminal_total_difficulty is a valid integer"),
+            terminal_total_difficulty: "8626000000000000000000058750000000000000000000"
+                .parse()
+                .expect("terminal_total_difficulty is a valid integer"),
             terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
             safe_slots_to_import_optimistically: 128u64,
@@ -1339,12 +1338,14 @@ fn default_electra_fork_version() -> [u8; 4] {
 ///
 /// Taken from https://github.com/ethereum/consensus-specs/blob/d5e4828aecafaf1c57ef67a5f23c4ae7b08c5137/configs/mainnet.yaml#L15-L16
 const fn default_terminal_total_difficulty() -> Uint256 {
-    Uint256([
-        18446744073709550592,
-        18446744073709551615,
-        18446744073709551615,
-        18446744073709551615,
-    ])
+    // TODO alloy
+    todo!()
+    // Uint256([
+    //     18446744073709550592,
+    //     18446744073709551615,
+    //     18446744073709551615,
+    //     18446744073709551615,
+    // ])
 }
 
 fn default_terminal_block_hash() -> ExecutionBlockHash {

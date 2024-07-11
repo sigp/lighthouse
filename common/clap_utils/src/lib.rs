@@ -1,9 +1,9 @@
 //! A helper library for parsing values from `clap::ArgMatches`.
 
+use alloy_primitives::U256 as Uint256;
 use clap::builder::styling::*;
 use clap::ArgMatches;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
-use alloy_primitives::U256 as Uint256;
 use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;

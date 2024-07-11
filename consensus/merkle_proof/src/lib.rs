@@ -1,5 +1,5 @@
-use ethereum_hashing::{hash, hash32_concat, ZERO_HASHES};
 use alloy_primitives::B256 as H256;
+use ethereum_hashing::{hash, hash32_concat, ZERO_HASHES};
 use lazy_static::lazy_static;
 use safe_arith::ArithError;
 
@@ -415,7 +415,10 @@ mod tests {
             return TestResult::discard();
         }
 
-        let leaves: Vec<_> = int_leaves.into_iter().map(|leaf| H256::from_slice(&leaf.to_le_bytes())).collect();
+        let leaves: Vec<_> = int_leaves
+            .into_iter()
+            .map(|leaf| H256::from_slice(&leaf.to_le_bytes()))
+            .collect();
         let merkle_tree = MerkleTree::create(&leaves, depth);
         let merkle_root = merkle_tree.hash();
 
@@ -435,7 +438,9 @@ mod tests {
             return TestResult::discard();
         }
 
-        let leaves_iter = int_leaves.into_iter().map(|leaf| H256::from_slice(&leaf.to_le_bytes()));
+        let leaves_iter = int_leaves
+            .into_iter()
+            .map(|leaf| H256::from_slice(&leaf.to_le_bytes()));
 
         let mut merkle_tree = MerkleTree::create(&[], depth);
 

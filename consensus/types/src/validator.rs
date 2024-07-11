@@ -145,7 +145,7 @@ impl Validator {
         self.has_execution_withdrawal_credential(spec)
             .then(|| {
                 self.withdrawal_credentials
-                    .as_bytes()
+                    .as_slice()
                     .get(12..)
                     .map(Address::from_slice)
             })
@@ -158,7 +158,7 @@ impl Validator {
     pub fn change_withdrawal_credentials(&mut self, execution_address: &Address, spec: &ChainSpec) {
         let mut bytes = [0u8; 32];
         bytes[0] = spec.eth1_address_withdrawal_prefix_byte;
-        bytes[12..].copy_from_slice(execution_address.as_bytes());
+        bytes[12..].copy_from_slice(execution_address.as_slice());
         self.withdrawal_credentials = Hash256::from(bytes);
     }
 
@@ -298,7 +298,7 @@ pub fn is_compounding_withdrawal_credential(
     spec: &ChainSpec,
 ) -> bool {
     withdrawal_credentials
-        .as_bytes()
+        .as_slice()
         .first()
         .map(|prefix_byte| *prefix_byte == spec.compounding_withdrawal_prefix_byte)
         .unwrap_or(false)

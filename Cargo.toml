@@ -94,7 +94,7 @@ resolver = "2"
 edition = "2021"
 
 [workspace.dependencies]
-alloy-primitives = { version = "0.7.7", features =["arbitrary", "serde", "ssz"] }
+alloy-primitives = { version = "0.7.7", features =["arbitrary", "serde", "ssz", "getrandom"] }
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 async-channel = "1.9.0"
@@ -115,7 +115,6 @@ either = "1.9"
 discv5 = { version = "0.4.1", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"
-ethereum-types = "0.14"
 ethereum_hashing = "0.6.0"
 ethereum_serde_utils = { git = "https://github.com/sigp/ethereum_serde_utils", branch = "alloy"}
 ethereum_ssz = { git = "https://github.com/sigp/ethereum_ssz", branch = "alloy" }
@@ -135,7 +134,7 @@ libsecp256k1 = "0.7"
 log = "0.4"
 lru = "0.12"
 maplit = "1"
-milhouse = "0.1"
+milhouse = { git = "https://github.com/eserilev/milhouse", branch = "alloy"}
 num_cpus = "1"
 parking_lot = "0.12"
 paste = "1"
