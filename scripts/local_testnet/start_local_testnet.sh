@@ -33,6 +33,7 @@ while getopts "e:b:n:phck" flag; do
         echo "   -n: kurtosis network params file path           default: $NETWORK_PARAMS_FILE"
         echo "   -p: enable builder proposals"
         echo "   -c: CI mode, run without other additional services like Grafana and Dora explorer"
+        echo "   -k: keeping enclave to allow starting the testnet without destroying the existing one"
         echo "   -h: this help"
         exit
         ;;
