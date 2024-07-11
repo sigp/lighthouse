@@ -13,7 +13,6 @@ use types::{
 };
 
 type E = MinimalEthSpec;
-type ReqId = usize;
 
 use lighthouse_network::rpc::config::InboundRateLimiterConfig;
 use tempfile::Builder as TempBuilder;
@@ -45,14 +44,14 @@ pub fn fork_context(fork_name: ForkName) -> ForkContext {
 }
 
 pub struct Libp2pInstance(
-    LibP2PService<ReqId, E>,
+    LibP2PService<E>,
     #[allow(dead_code)]
     // This field is managed for lifetime purposes may not be used directly, hence the `#[allow(dead_code)]` attribute.
     async_channel::Sender<()>,
 );
 
 impl std::ops::Deref for Libp2pInstance {
-    type Target = LibP2PService<ReqId, E>;
+    type Target = LibP2PService<E>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -134,7 +133,7 @@ pub async fn build_libp2p_instance(
 }
 
 #[allow(dead_code)]
-pub fn get_enr(node: &LibP2PService<ReqId, E>) -> Enr {
+pub fn get_enr(node: &LibP2PService<E>) -> Enr {
     node.local_enr()
 }
 
