@@ -55,19 +55,3 @@ fn failed_override_with_existing_mdbx_db() {
     );
     assert_eq!(config.backend, DatabaseBackend::Lmdb);
 }
-
-#[test]
-#[cfg(feature = "redb")]
-fn failed_override_with_existing_mdbx_db() {
-    let tempdir = tempdir().unwrap();
-    let mut config = Config::new(tempdir.path().into());
-
-    let filename = config.database_path.join(MDBX_DATA_FILENAME);
-    File::create(&filename).unwrap();
-
-    assert_eq!(
-        config.override_backend(),
-        DatabaseBackendOverride::Failure(filename)
-    );
-    assert_eq!(config.backend, DatabaseBackend::Redb);
-}
