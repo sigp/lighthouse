@@ -1165,10 +1165,10 @@ pub fn set_network_config(
                         .parse()
                         .map_err(|_| format!("Not valid as ENR nor Multiaddr: {}", addr))?;
                     if !multi.iter().any(|proto| matches!(proto, Protocol::Udp(_))) {
-                        error!("Missing UDP in Multiaddr {}", multi.to_string());
+                        error!(multiaddr = multi.to_string(), "Missing UDP in Multiaddr");
                     }
                     if !multi.iter().any(|proto| matches!(proto, Protocol::P2p(_))) {
-                        error!("Missing P2P in Multiaddr {}", multi.to_string());
+                        error!(multiaddr =  multi.to_string(), "Missing P2P in Multiaddr");
                     }
                     multiaddrs.push(multi);
                 }
@@ -1430,7 +1430,7 @@ pub fn set_network_config(
             config.target_peers = 15;
         }
         config.proposer_only = true;
-        warn!(info = "Do not connect a validator client to this node unless via the --proposer-nodes flag", "Proposer-only mode enabled");
+        warn!(info = "Proposer-only mode enabled", "Do not connect a validator client to this node unless via the --proposer-nodes flag");
     }
     // The inbound rate limiter is enabled by default unless `disabled` via the
     // `disable-inbound-rate-limiter` flag.
@@ -1507,10 +1507,10 @@ where
 
     if values.len() > 1 {
         warn!(
-            info = "multiple values are deprecated, only the first value will be used",
+            info = "Multiple values provided",
             count = values.len(),
             flag = flag_name,
-            "Multiple values provided"
+            "multiple values are deprecated, only the first value will be used"
         );
     }
 

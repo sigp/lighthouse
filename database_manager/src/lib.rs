@@ -524,8 +524,8 @@ pub fn migrate_db<E: EthSpec>(
     )?;
 
     info!(
-        from = from.as_u64(),
-        to = to.as_u64(),
+        ?from,
+        ?to,
         "Migrating database schema"
     );
 

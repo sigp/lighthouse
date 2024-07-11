@@ -672,7 +672,7 @@ fn run<E: EthSpec>(
     }
 
     if let Some(sub_matches) = matches.subcommand_matches(database_manager::CMD) {
-        info!(network = network_name, "Running database manager for");
+        info!(network_name, "Running database manager");
         // Pass the entire `environment` to the database manager so it can run blocking operations.
         database_manager::run(sub_matches, environment)?;
 
@@ -681,7 +681,7 @@ fn run<E: EthSpec>(
     }
 
     info!(version = VERSION, "Lighthouse started");
-    info!(network = network_name, "Configured for");
+    info!(network_name, "Configured network");
 
     match matches.subcommand() {
         Some(("beacon_node", matches)) => {

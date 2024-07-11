@@ -102,7 +102,7 @@ pub fn run<E: EthSpec>(
     }
 
     if let Some(block_root) = block_root {
-        info!(block_root = %block_root,"Block root");
+        info!(%block_root,"Block root");
     }
 
     Ok(())
