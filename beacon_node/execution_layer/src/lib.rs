@@ -2195,7 +2195,10 @@ fn verify_builder_bid<E: EthSpec>(
         metrics::set_gauge_vec(
             &metrics::EXECUTION_LAYER_PAYLOAD_BIDS,
             &[metrics::BUILDER],
-            payload_value_gwei.low_u64() as i64,
+
+            // TODO(alloy) display as a u64
+            0
+            // payload_value_gwei.to_base_le(10) as i64,
         );
     }
 

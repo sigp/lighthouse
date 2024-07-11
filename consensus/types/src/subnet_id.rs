@@ -90,7 +90,7 @@ impl SubnetId {
         let shuffling_prefix_bits = spec.attestation_subnet_shuffling_prefix_bits as u64;
 
         // calculate the prefixes used to compute the subnet and shuffling
-        // TODO alloy
+        // TODO(alloy) rshift impl
         let node_id_prefix = 064; // (node_id >> (256 - prefix_bits)).as_u64();
         let shuffling_prefix = 064; // (node_id >> (256 - (prefix_bits + shuffling_prefix_bits))).as_u64();
 

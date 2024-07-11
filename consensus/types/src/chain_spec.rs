@@ -1338,7 +1338,7 @@ fn default_electra_fork_version() -> [u8; 4] {
 ///
 /// Taken from https://github.com/ethereum/consensus-specs/blob/d5e4828aecafaf1c57ef67a5f23c4ae7b08c5137/configs/mainnet.yaml#L15-L16
 const fn default_terminal_total_difficulty() -> Uint256 {
-    // TODO alloy
+    // TODO(alloy) 
     todo!()
     // Uint256([
     //     18446744073709550592,
