@@ -209,10 +209,10 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
 impl<E: EthSpec> From<AvailabilityPendingExecutedBlock<E>>
     for DietAvailabilityPendingExecutedBlock<E>
 {
-    fn from(value: AvailabilityPendingExecutedBlock<E>) -> Self {
+    fn from(mut value: AvailabilityPendingExecutedBlock<E>) -> Self {
         Self {
             block: value.block,
-            state_root: value.import_data.state.canonical_root(),
+            state_root: value.import_data.state.canonical_root().unwrap(),
             parent_block: value.import_data.parent_block,
             parent_eth1_finalization_data: value.import_data.parent_eth1_finalization_data,
             confirmed_state_roots: value.import_data.confirmed_state_roots,
