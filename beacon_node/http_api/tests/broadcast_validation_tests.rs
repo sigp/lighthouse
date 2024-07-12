@@ -7,7 +7,6 @@ use eth2::types::{BroadcastValidation, PublishBlockRequest};
 use http_api::test_utils::InteractiveTester;
 use http_api::{publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock};
 use std::sync::Arc;
-use tree_hash::TreeHash;
 use types::{Epoch, EthSpec, ForkName, Hash256, MainnetEthSpec, Slot};
 use warp::Rejection;
 use warp_utils::reject::CustomBadRequest;
@@ -353,13 +352,20 @@ pub async fn consensus_partial_pass_only_consensus() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block_a, _), state_after_a) = tester.harness.make_block(state_a.clone(), slot_b).await;
-    let ((block_b, blobs_b), state_after_b) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block_a, _), mut state_after_a) =
+        tester.harness.make_block(state_a.clone(), slot_b).await;
+    let ((block_b, blobs_b), mut state_after_b) = tester.harness.make_block(state_a, slot_b).await;
     let block_b_root = block_b.canonical_root();
 
     /* check for `make_block` curios */
-    assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
-    assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
+    assert_eq!(
+        block_a.state_root(),
+        state_after_a.canonical_root().unwrap()
+    );
+    assert_eq!(
+        block_b.state_root(),
+        state_after_b.canonical_root().unwrap()
+    );
     assert_ne!(block_a.state_root(), block_b.state_root());
 
     let gossip_block_contents_b = PublishBlockRequest::new(block_b, blobs_b)
@@ -516,13 +522,19 @@ pub async fn equivocation_consensus_early_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block_a, blobs_a), state_after_a) =
+    let ((block_a, blobs_a), mut state_after_a) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
-    let ((block_b, blobs_b), state_after_b) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block_b, blobs_b), mut state_after_b) = tester.harness.make_block(state_a, slot_b).await;
 
     /* check for `make_block` curios */
-    assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
-    assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
+    assert_eq!(
+        block_a.state_root(),
+        state_after_a.canonical_root().unwrap()
+    );
+    assert_eq!(
+        block_b.state_root(),
+        state_after_b.canonical_root().unwrap()
+    );
     assert_ne!(block_a.state_root(), block_b.state_root());
 
     /* submit `block_a` as valid */
@@ -642,13 +654,19 @@ pub async fn equivocation_consensus_late_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block_a, blobs_a), state_after_a) =
+    let ((block_a, blobs_a), mut state_after_a) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
-    let ((block_b, blobs_b), state_after_b) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block_b, blobs_b), mut state_after_b) = tester.harness.make_block(state_a, slot_b).await;
 
     /* check for `make_block` curios */
-    assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
-    assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
+    assert_eq!(
+        block_a.state_root(),
+        state_after_a.canonical_root().unwrap()
+    );
+    assert_eq!(
+        block_b.state_root(),
+        state_after_b.canonical_root().unwrap()
+    );
     assert_ne!(block_a.state_root(), block_b.state_root());
 
     let gossip_block_contents_b = PublishBlockRequest::new(block_b, blobs_b)
@@ -1135,15 +1153,21 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block_a, state_after_a) = tester
+    let (block_a, mut state_after_a) = tester
         .harness
         .make_blinded_block(state_a.clone(), slot_b)
         .await;
-    let (block_b, state_after_b) = tester.harness.make_blinded_block(state_a, slot_b).await;
+    let (block_b, mut state_after_b) = tester.harness.make_blinded_block(state_a, slot_b).await;
 
     /* check for `make_blinded_block` curios */
-    assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
-    assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
+    assert_eq!(
+        block_a.state_root(),
+        state_after_a.canonical_root().unwrap()
+    );
+    assert_eq!(
+        block_b.state_root(),
+        state_after_b.canonical_root().unwrap()
+    );
     assert_ne!(block_a.state_root(), block_b.state_root());
 
     /* submit `block_a` as valid */
@@ -1259,16 +1283,22 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block_a, state_after_a) = tester
+    let (block_a, mut state_after_a) = tester
         .harness
         .make_blinded_block(state_a.clone(), slot_b)
         .await;
-    let (block_b, state_after_b) = tester.harness.make_blinded_block(state_a, slot_b).await;
+    let (block_b, mut state_after_b) = tester.harness.make_blinded_block(state_a, slot_b).await;
     let block_b = Arc::new(block_b);
 
     /* check for `make_blinded_block` curios */
-    assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
-    assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
+    assert_eq!(
+        block_a.state_root(),
+        state_after_a.canonical_root().unwrap()
+    );
+    assert_eq!(
+        block_b.state_root(),
+        state_after_b.canonical_root().unwrap()
+    );
     assert_ne!(block_a.state_root(), block_b.state_root());
 
     let unblinded_block_a = reconstruct_block(
