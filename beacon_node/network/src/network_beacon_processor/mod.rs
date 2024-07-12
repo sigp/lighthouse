@@ -146,7 +146,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             processor.process_gossip_aggregate_batch(aggregates, Some(reprocess_tx))
         };
 
-        let beacon_block_root = aggregate.message.aggregate.data.beacon_block_root;
+        let beacon_block_root = aggregate.message().aggregate().data().beacon_block_root;
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
             work: Work::GossipAggregate {

@@ -92,16 +92,14 @@ bytes = "1"
 clap = { version = "4.5.4", features = ["cargo", "wrap_help"] }
 # Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
 # feature ourselves when desired.
-# TODO(das): switch to c-kzg crate before merging back to unstable (and disable default-features) if possible
-# Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
-# feature ourselves when desired.
-c-kzg = { git = "https://github.com/ethereum/c-kzg-4844", rev = "114fa0382990e9b74b1f90f3b0dc5f97c2f8a7ad" }
+c-kzg = { version = "1", default-features =  false }
 compare_fields_derive = { path = "common/compare_fields_derive" }
 criterion = "0.5"
 delay_map = "0.3"
 derivative = "2"
 dirs = "3"
 either = "1.9"
+peerdas-kzg = { git = "https://github.com/crate-crypto/peerdas-kzg", rev = "bb8295011cf27dc663699539c7f9a17fe273e896", package = "eip7594" }
 discv5 = { version = "0.4.1", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"
@@ -150,11 +148,11 @@ slog = { version = "2", features = ["max_level_trace", "release_max_level_trace"
 slog-async = "2"
 slog-term = "2"
 sloggers = { version = "2", features = ["json"] }
-smallvec = "1.11.2"
+smallvec = { version = "1.11.2", features = ["arbitrary"] }
 snap = "1"
 ssz_types = "0.6"
 strum = { version = "0.24", features = ["derive"] }
-superstruct = "0.7"
+superstruct = "0.8"
 syn = "1"
 sysinfo = "0.26"
 tempfile = "3"

@@ -1,8 +1,8 @@
-#![cfg(any(feature = "mdbx", feature = "lmdb"))]
+#![cfg(any(feature = "mdbx", feature = "lmdb", feature = "redb"))]
 
 use logging::test_logger;
 use slasher::{
-    test_utils::{block as test_block, E},
+    test_utils::{block as test_block, chain_spec, E},
     Config, Slasher,
 };
 use tempfile::tempdir;
@@ -12,7 +12,8 @@ use types::{Epoch, EthSpec};
 fn empty_pruning() {
     let tempdir = tempdir().unwrap();
     let config = Config::new(tempdir.path().into());
-    let slasher = Slasher::<E>::open(config, test_logger()).unwrap();
+    let spec = chain_spec();
+    let slasher = Slasher::<E>::open(config, spec, test_logger()).unwrap();
     slasher.prune_database(Epoch::new(0)).unwrap();
 }
 
@@ -24,8 +25,9 @@ fn block_pruning() {
     let mut config = Config::new(tempdir.path().into());
     config.chunk_size = 2;
     config.history_length = 2;
+    let spec = chain_spec();
 
-    let slasher = Slasher::<E>::open(config.clone(), test_logger()).unwrap();
+    let slasher = Slasher::<E>::open(config.clone(), spec, test_logger()).unwrap();
     let current_epoch = Epoch::from(2 * config.history_length);
 
     // Pruning the empty database should be safe.

@@ -7,9 +7,11 @@ use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
-    Attestation, AttesterSlashing, BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec,
+    Attestation, AttestationBase, AttestationElectra, AttesterSlashing, AttesterSlashingBase,
+    AttesterSlashingElectra, BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec,
     ForkContext, ForkName, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair,
+    ProposerSlashing, SignedAggregateAndProof, SignedAggregateAndProofBase,
+    SignedAggregateAndProofElectra, SignedBeaconBlock, SignedBeaconBlockAltair,
     SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
     SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
@@ -159,15 +161,55 @@ impl<E: EthSpec> PubsubMessage<E> {
                 // the ssz decoders
                 match gossip_topic.kind() {
                     GossipKind::BeaconAggregateAndProof => {
-                        let agg_and_proof = SignedAggregateAndProof::from_ssz_bytes(data)
-                            .map_err(|e| format!("{:?}", e))?;
+                        let signed_aggregate_and_proof =
+                            match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                                Some(&fork_name) => {
+                                    if fork_name.electra_enabled() {
+                                        SignedAggregateAndProof::Electra(
+                                            SignedAggregateAndProofElectra::from_ssz_bytes(data)
+                                                .map_err(|e| format!("{:?}", e))?,
+                                        )
+                                    } else {
+                                        SignedAggregateAndProof::Base(
+                                            SignedAggregateAndProofBase::from_ssz_bytes(data)
+                                                .map_err(|e| format!("{:?}", e))?,
+                                        )
+                                    }
+                                }
+                                None => {
+                                    return Err(format!(
+                                        "Unknown gossipsub fork digest: {:?}",
+                                        gossip_topic.fork_digest
+                                    ))
+                                }
+                            };
                         Ok(PubsubMessage::AggregateAndProofAttestation(Box::new(
-                            agg_and_proof,
+                            signed_aggregate_and_proof,
                         )))
                     }
                     GossipKind::Attestation(subnet_id) => {
                         let attestation =
-                            Attestation::from_ssz_bytes(data).map_err(|e| format!("{:?}", e))?;
+                            match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                                Some(&fork_name) => {
+                                    if fork_name.electra_enabled() {
+                                        Attestation::Electra(
+                                            AttestationElectra::from_ssz_bytes(data)
+                                                .map_err(|e| format!("{:?}", e))?,
+                                        )
+                                    } else {
+                                        Attestation::Base(
+                                            AttestationBase::from_ssz_bytes(data)
+                                                .map_err(|e| format!("{:?}", e))?,
+                                        )
+                                    }
+                                }
+                                None => {
+                                    return Err(format!(
+                                        "Unknown gossipsub fork digest: {:?}",
+                                        gossip_topic.fork_digest
+                                    ))
+                                }
+                            };
                         Ok(PubsubMessage::Attestation(Box::new((
                             *subnet_id,
                             attestation,
@@ -268,8 +310,28 @@ impl<E: EthSpec> PubsubMessage<E> {
                         Ok(PubsubMessage::ProposerSlashing(Box::new(proposer_slashing)))
                     }
                     GossipKind::AttesterSlashing => {
-                        let attester_slashing = AttesterSlashing::from_ssz_bytes(data)
-                            .map_err(|e| format!("{:?}", e))?;
+                        let attester_slashing =
+                            match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                                Some(&fork_name) => {
+                                    if fork_name.electra_enabled() {
+                                        AttesterSlashing::Electra(
+                                            AttesterSlashingElectra::from_ssz_bytes(data)
+                                                .map_err(|e| format!("{:?}", e))?,
+                                        )
+                                    } else {
+                                        AttesterSlashing::Base(
+                                            AttesterSlashingBase::from_ssz_bytes(data)
+                                                .map_err(|e| format!("{:?}", e))?,
+                                        )
+                                    }
+                                }
+                                None => {
+                                    return Err(format!(
+                                        "Unknown gossipsub fork digest: {:?}",
+                                        gossip_topic.fork_digest
+                                    ))
+                                }
+                            };
                         Ok(PubsubMessage::AttesterSlashing(Box::new(attester_slashing)))
                     }
                     GossipKind::SignedContributionAndProof => {
@@ -378,15 +440,17 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,
-                "Aggregate and Proof: slot: {}, index: {}, aggregator_index: {}",
-                att.message.aggregate.data.slot,
-                att.message.aggregate.data.index,
-                att.message.aggregator_index,
+                "Aggregate and Proof: slot: {}, index: {:?}, aggregator_index: {}",
+                att.message().aggregate().data().slot,
+                att.message().aggregate().committee_index(),
+                att.message().aggregator_index(),
             ),
             PubsubMessage::Attestation(data) => write!(
                 f,
-                "Attestation: subnet_id: {}, attestation_slot: {}, attestation_index: {}",
-                *data.0, data.1.data.slot, data.1.data.index,
+                "Attestation: subnet_id: {}, attestation_slot: {}, attestation_index: {:?}",
+                *data.0,
+                data.1.data().slot,
+                data.1.committee_index(),
             ),
             PubsubMessage::VoluntaryExit(_data) => write!(f, "Voluntary Exit"),
             PubsubMessage::ProposerSlashing(_data) => write!(f, "Proposer Slashing"),

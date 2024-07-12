@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use kzg::{Blob as KzgBlob, Bytes48, Cell as KzgCell, Error as KzgError, Kzg};
+use kzg::{Blob as KzgBlob, Bytes48, CellRef as KzgCellRef, Error as KzgError, Kzg};
 use std::sync::Arc;
 use types::data_column_sidecar::Cell;
 use types::{Blob, DataColumnSidecar, EthSpec, Hash256, KzgCommitment, KzgProof};
@@ -12,8 +12,11 @@ fn ssz_blob_to_crypto_blob<E: EthSpec>(blob: &Blob<E>) -> Result<KzgBlob, KzgErr
 
 /// Converts a cell ssz List object to an array to be used with the kzg
 /// crypto library.
-fn ssz_cell_to_crypto_cell<E: EthSpec>(cell: &Cell<E>) -> Result<KzgCell, KzgError> {
-    KzgCell::from_bytes(cell.as_ref()).map_err(Into::into)
+fn ssz_cell_to_crypto_cell<E: EthSpec>(cell: &Cell<E>) -> Result<KzgCellRef, KzgError> {
+    let cell_bytes: &[u8] = cell.as_ref();
+    Ok(cell_bytes
+        .try_into()
+        .expect("expected cell to have size {BYTES_PER_CELL}. This should be guaranteed by the `FixedVector type"))
 }
 
 /// Validate a single blob-commitment-proof triplet from a `BlobSidecar`.

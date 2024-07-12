@@ -435,7 +435,12 @@ impl ForkChoiceTest {
         let validator_committee_index = 0;
         let validator_index = *head
             .beacon_state
-            .get_beacon_committee(current_slot, attestation.data.index)
+            .get_beacon_committee(
+                current_slot,
+                attestation
+                    .committee_index()
+                    .expect("should get committee index"),
+            )
             .expect("should get committees")
             .committee
             .get(validator_committee_index)
@@ -830,8 +835,13 @@ async fn invalid_attestation_empty_bitfield() {
         .await
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
-            |attestation, _| {
-                attestation.attesting_indices = vec![].into();
+            |attestation, _| match attestation {
+                IndexedAttestation::Base(ref mut att) => {
+                    att.attesting_indices = vec![].into();
+                }
+                IndexedAttestation::Electra(ref mut att) => {
+                    att.attesting_indices = vec![].into();
+                }
             },
             |result| {
                 assert_invalid_attestation!(result, InvalidAttestation::EmptyAggregationBitfield)
@@ -853,7 +863,7 @@ async fn invalid_attestation_future_epoch() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |attestation, _| {
-                attestation.data.target.epoch = Epoch::new(2);
+                attestation.data_mut().target.epoch = Epoch::new(2);
             },
             |result| {
                 assert_invalid_attestation!(
@@ -879,7 +889,7 @@ async fn invalid_attestation_past_epoch() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |attestation, _| {
-                attestation.data.target.epoch = Epoch::new(0);
+                attestation.data_mut().target.epoch = Epoch::new(0);
             },
             |result| {
                 assert_invalid_attestation!(
@@ -903,7 +913,7 @@ async fn invalid_attestation_target_epoch() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |attestation, _| {
-                attestation.data.slot = Slot::new(1);
+                attestation.data_mut().slot = Slot::new(1);
             },
             |result| {
                 assert_invalid_attestation!(
@@ -929,7 +939,7 @@ async fn invalid_attestation_unknown_target_root() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |attestation, _| {
-                attestation.data.target.root = junk;
+                attestation.data_mut().target.root = junk;
             },
             |result| {
                 assert_invalid_attestation!(
@@ -955,7 +965,7 @@ async fn invalid_attestation_unknown_beacon_block_root() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |attestation, _| {
-                attestation.data.beacon_block_root = junk;
+                attestation.data_mut().beacon_block_root = junk;
             },
             |result| {
                 assert_invalid_attestation!(
@@ -979,7 +989,7 @@ async fn invalid_attestation_future_block() {
         .apply_attestation_to_chain(
             MutationDelay::Blocks(1),
             |attestation, chain| {
-                attestation.data.beacon_block_root = chain
+                attestation.data_mut().beacon_block_root = chain
                     .block_at_slot(chain.slot().unwrap(), WhenSlotSkipped::Prev)
                     .unwrap()
                     .unwrap()
@@ -1010,13 +1020,13 @@ async fn invalid_attestation_inconsistent_ffg_vote() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |attestation, chain| {
-                attestation.data.target.root = chain
+                attestation.data_mut().target.root = chain
                     .block_at_slot(Slot::new(1), WhenSlotSkipped::Prev)
                     .unwrap()
                     .unwrap()
                     .canonical_root();
 
-                *attestation_opt.lock().unwrap() = Some(attestation.data.target.root);
+                *attestation_opt.lock().unwrap() = Some(attestation.data().target.root);
                 *local_opt.lock().unwrap() = Some(
                     chain
                         .block_at_slot(Slot::new(0), WhenSlotSkipped::Prev)
@@ -1069,8 +1079,8 @@ async fn valid_attestation_skip_across_epoch() {
             MutationDelay::NoDelay,
             |attestation, _chain| {
                 assert_eq!(
-                    attestation.data.target.root,
-                    attestation.data.beacon_block_root
+                    attestation.data().target.root,
+                    attestation.data().beacon_block_root
                 )
             },
             |result| result.unwrap(),

@@ -1,6 +1,7 @@
 use beacon_chain::{
     block_verification_types::RpcBlock, data_column_verification::CustodyDataColumn, get_block_root,
 };
+use lighthouse_network::PeerId;
 use ssz_types::VariableList;
 use std::{
     collections::{HashMap, VecDeque},
@@ -25,10 +26,16 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
     /// Used to determine if this accumulator should wait for a sidecars stream termination
     expects_blobs: bool,
     expects_custody_columns: Option<Vec<ColumnIndex>>,
+    /// The peers the request was made to.
+    pub(crate) peer_ids: Vec<PeerId>,
 }
 
 impl<E: EthSpec> RangeBlockComponentsRequest<E> {
-    pub fn new(expects_blobs: bool, expects_custody_columns: Option<Vec<ColumnIndex>>) -> Self {
+    pub fn new(
+        expects_blobs: bool,
+        expects_custody_columns: Option<Vec<ColumnIndex>>,
+        peer_ids: Vec<PeerId>,
+    ) -> Self {
         Self {
             blocks: <_>::default(),
             blobs: <_>::default(),
@@ -38,6 +45,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             custody_columns_streams_terminated: 0,
             expects_blobs,
             expects_custody_columns,
+            peer_ids,
         }
     }
 
@@ -226,12 +234,14 @@ mod tests {
     use beacon_chain::test_utils::{
         generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec, NumBlobs,
     };
+    use lighthouse_network::PeerId;
     use rand::SeedableRng;
     use types::{test_utils::XorShiftRng, ForkName, MinimalEthSpec as E};
 
     #[test]
     fn no_blobs_into_responses() {
-        let mut info = RangeBlockComponentsRequest::<E>::new(false, None);
+        let peer_id = PeerId::random();
+        let mut info = RangeBlockComponentsRequest::<E>::new(false, None, vec![peer_id]);
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng).0)
@@ -250,7 +260,8 @@ mod tests {
 
     #[test]
     fn empty_blobs_into_responses() {
-        let mut info = RangeBlockComponentsRequest::<E>::new(true, None);
+        let peer_id = PeerId::random();
+        let mut info = RangeBlockComponentsRequest::<E>::new(true, None, vec![peer_id]);
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {
@@ -278,8 +289,11 @@ mod tests {
     fn rpc_block_with_custody_columns() {
         let spec = test_spec::<E>();
         let expects_custody_columns = vec![1, 2, 3, 4];
-        let mut info =
-            RangeBlockComponentsRequest::<E>::new(false, Some(expects_custody_columns.clone()));
+        let mut info = RangeBlockComponentsRequest::<E>::new(
+            false,
+            Some(expects_custody_columns.clone()),
+            vec![PeerId::random()],
+        );
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {
