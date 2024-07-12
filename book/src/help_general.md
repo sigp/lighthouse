@@ -23,7 +23,7 @@ Commands:
           is the recommended way to provide a network boot-node since it has a
           reduced attack surface compared to a full beacon node.
   database_manager
-          Manage a beacon node database [aliases: db]
+          Manage a beacon node database. [aliases: db]
   validator_client
           When connected to a beacon node, performs the duties of a staked
           validator (e.g., proposing blocks and attestations). [aliases: v, vc,
