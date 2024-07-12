@@ -2245,8 +2245,9 @@ where
                 .await
                 .unwrap();
             state = new_state;
+            let state_root = state.update_tree_hash_cache().unwrap();
             block_hash_from_slot.insert(*slot, block_hash);
-            state_hash_from_slot.insert(*slot, state.tree_hash_root().into());
+            state_hash_from_slot.insert(*slot, state_root.into());
             latest_block_hash = Some(block_hash);
         }
         (

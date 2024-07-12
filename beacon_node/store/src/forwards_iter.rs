@@ -2,7 +2,6 @@ use crate::errors::{Error, Result};
 use crate::iter::{BlockRootsIterator, StateRootsIterator};
 use crate::{ColumnIter, DBColumn, HotColdDB, ItemStore};
 use itertools::process_results;
-use slog::debug;
 use std::marker::PhantomData;
 use types::{BeaconState, EthSpec, Hash256, Slot};
 
@@ -276,12 +275,6 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
             // returned.
             let continuation_data =
                 if end_slot.map_or(false, |end_slot| end_slot < freezer_upper_bound) {
-                    debug!(
-                        store.log,
-                        "No continuation data should be required";
-                        "end_slot" => ?end_slot,
-                        "freezer_upper_bound" => freezer_upper_bound,
-                    );
                     None
                 } else {
                     Some(Box::new(get_state()?))

@@ -2059,12 +2059,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<Vec<KeyValueStoreOp>, Error> {
         let mut ops = vec![];
         for slot in start_slot.as_u64()..end_slot.as_u64() {
-            debug!(
-                self.log,
-                "Storing frozen block root";
-                "slot" => slot,
-                "block_root" => ?block_root,
-            );
             ops.push(KeyValueStoreOp::PutKeyValue(
                 get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
                 block_root.as_bytes().to_vec(),

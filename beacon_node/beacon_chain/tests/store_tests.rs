@@ -360,14 +360,16 @@ async fn epoch_boundary_state_attestation_processing() {
             .get_blinded_block(&block_root)
             .unwrap()
             .expect("block exists");
-        let epoch_boundary_state = store
+        let mut epoch_boundary_state = store
             .load_epoch_boundary_state(&block.state_root())
             .expect("no error")
             .expect("epoch boundary state exists");
-        let ebs_of_ebs = store
-            .load_epoch_boundary_state(&epoch_boundary_state.canonical_root())
+        let ebs_state_root = epoch_boundary_state.update_tree_hash_cache().unwrap();
+        let mut ebs_of_ebs = store
+            .load_epoch_boundary_state(&ebs_state_root)
             .expect("no error")
             .expect("ebs of ebs exists");
+        ebs_of_ebs.apply_pending_mutations().unwrap();
         assert_eq!(epoch_boundary_state, ebs_of_ebs);
 
         // If the attestation is pre-finalization it should be rejected.
