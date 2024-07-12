@@ -294,6 +294,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
         }
 
+        // Lookups contain untrusted data, bound the total count of lookups hold in memory to reduce
+        // the risk of OOM in case of bugs of malicious activity.
+        if self.single_block_lookups.len() > MAX_LOOKUPS {
+            warn!(self.log, "Dropping lookup reached max"; "block_root" => ?block_root);
+            return false;
+        }
+
         // If we know that this lookup has unknown parent (is awaiting a parent lookup to resolve),
         // signal here to hold processing downloaded data.
         let mut lookup = SingleBlockLookup::new(block_root, peers, cx.next_id(), awaiting_parent);
@@ -301,13 +308,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // Add block components to the new request
         if let Some(block_component) = block_component {
             lookup.add_child_components(block_component);
-        }
-
-        // Lookups contain untrusted data, bound the total count of lookups hold in memory to reduce
-        // the risk of OOM in case of bugs of malicious activity.
-        if self.single_block_lookups.len() > MAX_LOOKUPS {
-            warn!(self.log, "Dropping lookup reached max"; "block_root" => ?block_root);
-            return false;
         }
 
         let id = lookup.id;
