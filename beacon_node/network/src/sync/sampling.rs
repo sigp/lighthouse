@@ -433,7 +433,6 @@ mod request {
         column_index: ColumnIndex,
         status: Status,
         // TODO(das): Should downscore peers that claim to not have the sample?
-        #[allow(dead_code)]
         peers_dont_have: HashSet<PeerId>,
     }
 
@@ -490,10 +489,12 @@ mod request {
 
             // TODO: When is a fork and only a subset of your peers know about a block, sampling should only
             // be queried on the peers on that fork. Should this case be handled? How to handle it?
-            let peer_ids = cx.get_custodial_peers(
+            let mut peer_ids = cx.get_custodial_peers(
                 block_slot.epoch(<T::EthSpec as EthSpec>::slots_per_epoch()),
                 self.column_index,
             );
+
+            peer_ids.retain(|peer_id| !self.peers_dont_have.contains(peer_id));
 
             // TODO(das) randomize custodial peer and avoid failing peers
             if let Some(peer_id) = peer_ids.first().cloned() {
@@ -521,6 +522,7 @@ mod request {
         pub(crate) fn on_sampling_error(&mut self) -> Result<PeerId, SamplingError> {
             match self.status.clone() {
                 Status::Sampling(peer_id) => {
+                    self.peers_dont_have.insert(peer_id);
                     self.status = Status::NotStarted;
                     Ok(peer_id)
                 }
