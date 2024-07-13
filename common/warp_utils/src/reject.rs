@@ -137,6 +137,15 @@ pub fn invalid_auth(msg: String) -> warp::reject::Rejection {
 }
 
 #[derive(Debug)]
+pub struct UnsupportedMediaType(pub String);
+
+impl Reject for UnsupportedMediaType {}
+
+pub fn unsupported_media_type(msg: String) -> warp::reject::Rejection {
+    warp::reject::custom(UnsupportedMediaType(msg))
+}
+
+#[derive(Debug)]
 pub struct IndexedBadRequestErrors {
     pub message: String,
     pub failures: Vec<Failure>,
@@ -170,6 +179,9 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     if err.is_not_found() {
         code = StatusCode::NOT_FOUND;
         message = "NOT_FOUND".to_string();
+    } else if err.find::<crate::reject::UnsupportedMediaType>().is_some() {
+        code = StatusCode::UNSUPPORTED_MEDIA_TYPE;
+        message = "UNSUPPORTED_MEDIA_TYPE".to_string();
     } else if let Some(e) = err.find::<crate::reject::CustomDeserializeError>() {
         message = format!("BAD_REQUEST: body deserialize error: {}", e.0);
         code = StatusCode::BAD_REQUEST;

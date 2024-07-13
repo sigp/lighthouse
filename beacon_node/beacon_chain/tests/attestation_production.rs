@@ -8,7 +8,9 @@ use beacon_chain::{metrics, StateSkipConfig, WhenSlotSkipped};
 use lazy_static::lazy_static;
 use std::sync::Arc;
 use tree_hash::TreeHash;
-use types::{AggregateSignature, EthSpec, Keypair, MainnetEthSpec, RelativeEpoch, Slot};
+use types::{
+    AggregateSignature, Attestation, EthSpec, Keypair, MainnetEthSpec, RelativeEpoch, Slot,
+};
 
 pub const VALIDATOR_COUNT: usize = 16;
 
@@ -188,20 +190,22 @@ async fn produces_attestations() {
                 .produce_unaggregated_attestation(slot, index)
                 .expect("should produce attestation");
 
-            let data = &attestation.data;
+            let (aggregation_bits_len, aggregation_bits_zero) = match &attestation {
+                Attestation::Base(att) => {
+                    (att.aggregation_bits.len(), att.aggregation_bits.is_zero())
+                }
+                Attestation::Electra(att) => {
+                    (att.aggregation_bits.len(), att.aggregation_bits.is_zero())
+                }
+            };
+            assert_eq!(aggregation_bits_len, committee_len, "bad committee len");
+            assert!(aggregation_bits_zero, "some committee bits are set");
+
+            let data = attestation.data();
 
             assert_eq!(
-                attestation.aggregation_bits.len(),
-                committee_len,
-                "bad committee len"
-            );
-            assert!(
-                attestation.aggregation_bits.is_zero(),
-                "some committee bits are set"
-            );
-            assert_eq!(
-                attestation.signature,
-                AggregateSignature::empty(),
+                attestation.signature(),
+                &AggregateSignature::infinity(),
                 "bad signature"
             );
             assert_eq!(data.index, index, "bad index");
@@ -329,10 +333,10 @@ async fn early_attester_cache_old_request() {
         .produce_unaggregated_attestation(attest_slot, 0)
         .unwrap();
 
-    assert_eq!(attestation.data.slot, attest_slot);
+    assert_eq!(attestation.data().slot, attest_slot);
     let attested_block = harness
         .chain
-        .get_blinded_block(&attestation.data.beacon_block_root)
+        .get_blinded_block(&attestation.data().beacon_block_root)
         .unwrap()
         .unwrap();
     assert_eq!(attested_block.slot(), attest_slot);

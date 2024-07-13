@@ -1,6 +1,7 @@
 pub mod interface;
 mod lmdb_impl;
 mod mdbx_impl;
+mod redb_impl;
 
 use crate::{
     metrics, AttesterRecord, AttesterSlashingStatus, CompactAttesterRecord, Config, Error,
@@ -13,12 +14,15 @@ use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use slog::{info, Logger};
 use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
 use std::borrow::{Borrow, Cow};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
-    Epoch, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, SignedBeaconBlockHeader, Slot,
+    AggregateSignature, AttestationData, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
+    IndexedAttestationBase, IndexedAttestationElectra, ProposerSlashing, SignedBeaconBlockHeader,
+    Slot, VariableList,
 };
 
 /// Current database schema version, to check compatibility of on-disk DB with software.
@@ -69,6 +73,7 @@ pub struct SlasherDB<E: EthSpec> {
     /// LRU cache mapping indexed attestation IDs to their attestation data roots.
     attestation_root_cache: Mutex<LruCache<IndexedAttestationId, Hash256>>,
     pub(crate) config: Arc<Config>,
+    pub(crate) spec: Arc<ChainSpec>,
     _phantom: PhantomData<E>,
 }
 
@@ -235,6 +240,43 @@ impl AsRef<[u8]> for IndexedAttestationId {
     }
 }
 
+/// Indexed attestation that abstracts over Phase0 and Electra variants by using a plain `Vec` for
+/// the attesting indices.
+///
+/// This allows us to avoid rewriting the entire indexed attestation database at Electra, which
+/// saves a lot of execution time. The bytes that it encodes to are the same as the bytes that a
+/// regular IndexedAttestation encodes to, because SSZ doesn't care about the length-bound.
+#[derive(Debug, PartialEq, Decode, Encode)]
+pub struct IndexedAttestationOnDisk {
+    attesting_indices: Vec<u64>,
+    data: AttestationData,
+    signature: AggregateSignature,
+}
+
+impl IndexedAttestationOnDisk {
+    fn into_indexed_attestation<E: EthSpec>(
+        self,
+        spec: &ChainSpec,
+    ) -> Result<IndexedAttestation<E>, Error> {
+        let fork_at_target_epoch = spec.fork_name_at_epoch(self.data.target.epoch);
+        if fork_at_target_epoch.electra_enabled() {
+            let attesting_indices = VariableList::new(self.attesting_indices)?;
+            Ok(IndexedAttestation::Electra(IndexedAttestationElectra {
+                attesting_indices,
+                data: self.data,
+                signature: self.signature,
+            }))
+        } else {
+            let attesting_indices = VariableList::new(self.attesting_indices)?;
+            Ok(IndexedAttestation::Base(IndexedAttestationBase {
+                attesting_indices,
+                data: self.data,
+                signature: self.signature,
+            }))
+        }
+    }
+}
+
 /// Bincode deserialization specialised to `Cow<[u8]>`.
 fn bincode_deserialize<T: DeserializeOwned>(bytes: Cow<[u8]>) -> Result<T, Error> {
     Ok(bincode::deserialize(bytes.borrow())?)
@@ -245,7 +287,7 @@ fn ssz_decode<T: Decode>(bytes: Cow<[u8]>) -> Result<T, Error> {
 }
 
 impl<E: EthSpec> SlasherDB<E> {
-    pub fn open(config: Arc<Config>, log: Logger) -> Result<Self, Error> {
+    pub fn open(config: Arc<Config>, spec: Arc<ChainSpec>, log: Logger) -> Result<Self, Error> {
         info!(log, "Opening slasher database"; "backend" => %config.backend);
 
         std::fs::create_dir_all(&config.database_path)?;
@@ -268,6 +310,7 @@ impl<E: EthSpec> SlasherDB<E> {
             databases,
             attestation_root_cache,
             config,
+            spec,
             _phantom: PhantomData,
         };
 
@@ -438,7 +481,7 @@ impl<E: EthSpec> SlasherDB<E> {
     ) -> Result<u64, Error> {
         // Look-up ID by hash.
         let id_key = IndexedAttestationIdKey::new(
-            indexed_attestation.data.target.epoch,
+            indexed_attestation.data().target.epoch,
             indexed_attestation_hash,
         );
 
@@ -447,8 +490,7 @@ impl<E: EthSpec> SlasherDB<E> {
         }
 
         // Store the new indexed attestation at the end of the current table.
-        let db = &self.databases.indexed_attestation_db;
-        let mut cursor = txn.cursor(db)?;
+        let mut cursor = txn.cursor(&self.databases.indexed_attestation_db)?;
 
         let indexed_att_id = match cursor.last_key()? {
             // First ID is 1 so that 0 can be used to represent `null` in `CompactAttesterRecord`.
@@ -457,11 +499,11 @@ impl<E: EthSpec> SlasherDB<E> {
         };
 
         let attestation_key = IndexedAttestationId::new(indexed_att_id);
+        // IndexedAttestationOnDisk and IndexedAttestation have compatible encodings.
         let data = indexed_attestation.as_ssz_bytes();
 
         cursor.put(attestation_key.as_ref(), &data)?;
         drop(cursor);
-
         // Update the (epoch, hash) to ID mapping.
         self.put_indexed_attestation_id(txn, &id_key, attestation_key)?;
 
@@ -481,7 +523,8 @@ impl<E: EthSpec> SlasherDB<E> {
             .ok_or(Error::MissingIndexedAttestation {
                 id: indexed_attestation_id.as_u64(),
             })?;
-        ssz_decode(bytes)
+        let indexed_attestation_on_disk: IndexedAttestationOnDisk = ssz_decode(bytes)?;
+        indexed_attestation_on_disk.into_indexed_attestation(&self.spec)
     }
 
     fn get_attestation_data_root(
@@ -500,7 +543,7 @@ impl<E: EthSpec> SlasherDB<E> {
 
         // Otherwise, load the indexed attestation, compute the root and cache it.
         let indexed_attestation = self.get_indexed_attestation(txn, indexed_id)?;
-        let attestation_data_root = indexed_attestation.data.tree_hash_root();
+        let attestation_data_root = indexed_attestation.data().tree_hash_root();
 
         cache.put(indexed_id, attestation_data_root);
 
@@ -536,7 +579,7 @@ impl<E: EthSpec> SlasherDB<E> {
         indexed_attestation_id: IndexedAttestationId,
     ) -> Result<AttesterSlashingStatus<E>, Error> {
         // See if there's an existing attestation for this attester.
-        let target_epoch = attestation.data.target.epoch;
+        let target_epoch = attestation.data().target.epoch;
 
         let prev_max_target = self.get_attester_max_target(validator_index, txn)?;
 
@@ -699,21 +742,17 @@ impl<E: EthSpec> SlasherDB<E> {
             return Ok(());
         }
 
-        loop {
-            let (key_bytes, _) = cursor.get_current()?.ok_or(Error::MissingProposerKey)?;
-
-            let (slot, _) = ProposerKey::parse(key_bytes)?;
+        let should_delete = |key: &[u8]| -> Result<bool, Error> {
+            let mut should_delete = false;
+            let (slot, _) = ProposerKey::parse(Cow::from(key))?;
             if slot < min_slot {
-                cursor.delete_current()?;
-
-                // End the loop if there is no next entry.
-                if cursor.next_key()?.is_none() {
-                    break;
-                }
-            } else {
-                break;
+                should_delete = true;
             }
-        }
+
+            Ok(should_delete)
+        };
+
+        cursor.delete_while(should_delete)?;
 
         Ok(())
     }
@@ -727,9 +766,6 @@ impl<E: EthSpec> SlasherDB<E> {
             .saturating_add(1u64)
             .saturating_sub(self.config.history_length as u64);
 
-        // Collect indexed attestation IDs to delete.
-        let mut indexed_attestation_ids = vec![];
-
         let mut cursor = txn.cursor(&self.databases.indexed_attestation_id_db)?;
 
         // Position cursor at first key, bailing out if the database is empty.
@@ -737,27 +773,20 @@ impl<E: EthSpec> SlasherDB<E> {
             return Ok(());
         }
 
-        loop {
-            let (key_bytes, value) = cursor
-                .get_current()?
-                .ok_or(Error::MissingIndexedAttestationIdKey)?;
-
-            let (target_epoch, _) = IndexedAttestationIdKey::parse(key_bytes)?;
-
+        let should_delete = |key: &[u8]| -> Result<bool, Error> {
+            let (target_epoch, _) = IndexedAttestationIdKey::parse(Cow::from(key))?;
             if target_epoch < min_epoch {
-                indexed_attestation_ids.push(IndexedAttestationId::new(
-                    IndexedAttestationId::parse(value)?,
-                ));
-
-                cursor.delete_current()?;
-
-                if cursor.next_key()?.is_none() {
-                    break;
-                }
-            } else {
-                break;
+                return Ok(true);
             }
-        }
+
+            Ok(false)
+        };
+
+        let indexed_attestation_ids = cursor
+            .delete_while(should_delete)?
+            .into_iter()
+            .map(|id| IndexedAttestationId::parse(id).map(IndexedAttestationId::new))
+            .collect::<Result<Vec<IndexedAttestationId>, Error>>()?;
         drop(cursor);
 
         // Delete the indexed attestations.
@@ -769,5 +798,95 @@ impl<E: EthSpec> SlasherDB<E> {
         self.delete_attestation_data_roots(indexed_attestation_ids);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use types::{Checkpoint, ForkName, MainnetEthSpec, Unsigned};
+
+    type E = MainnetEthSpec;
+
+    fn indexed_attestation_on_disk_roundtrip_test(
+        spec: &ChainSpec,
+        make_attestation: fn(
+            Vec<u64>,
+            AttestationData,
+            AggregateSignature,
+        ) -> IndexedAttestation<E>,
+        committee_len: u64,
+    ) {
+        let attestation_data = AttestationData {
+            slot: Slot::new(1000),
+            index: 0,
+            beacon_block_root: Hash256::repeat_byte(0xaa),
+            source: Checkpoint {
+                epoch: Epoch::new(0),
+                root: Hash256::repeat_byte(0xbb),
+            },
+            target: Checkpoint {
+                epoch: Epoch::new(31),
+                root: Hash256::repeat_byte(0xcc),
+            },
+        };
+
+        let attesting_indices = (0..committee_len).collect::<Vec<_>>();
+        let signature = AggregateSignature::infinity();
+
+        let fork_attestation = make_attestation(
+            attesting_indices.clone(),
+            attestation_data.clone(),
+            signature.clone(),
+        );
+
+        let on_disk = IndexedAttestationOnDisk {
+            attesting_indices,
+            data: attestation_data,
+            signature,
+        };
+        let encoded = on_disk.as_ssz_bytes();
+        assert_eq!(encoded, fork_attestation.as_ssz_bytes());
+
+        let decoded_on_disk = IndexedAttestationOnDisk::from_ssz_bytes(&encoded).unwrap();
+        assert_eq!(decoded_on_disk, on_disk);
+
+        let decoded = on_disk.into_indexed_attestation(spec).unwrap();
+        assert_eq!(decoded, fork_attestation);
+    }
+
+    /// Check that `IndexedAttestationOnDisk` and `IndexedAttestation` have compatible encodings.
+    #[test]
+    fn indexed_attestation_on_disk_roundtrip_base() {
+        let spec = ForkName::Base.make_genesis_spec(E::default_spec());
+        let make_attestation = |attesting_indices, data, signature| {
+            IndexedAttestation::<E>::Base(IndexedAttestationBase {
+                attesting_indices: VariableList::new(attesting_indices).unwrap(),
+                data,
+                signature,
+            })
+        };
+        indexed_attestation_on_disk_roundtrip_test(
+            &spec,
+            make_attestation,
+            <E as EthSpec>::MaxValidatorsPerCommittee::to_u64(),
+        )
+    }
+
+    #[test]
+    fn indexed_attestation_on_disk_roundtrip_electra() {
+        let spec = ForkName::Electra.make_genesis_spec(E::default_spec());
+        let make_attestation = |attesting_indices, data, signature| {
+            IndexedAttestation::<E>::Electra(IndexedAttestationElectra {
+                attesting_indices: VariableList::new(attesting_indices).unwrap(),
+                data,
+                signature,
+            })
+        };
+        indexed_attestation_on_disk_roundtrip_test(
+            &spec,
+            make_attestation,
+            <E as EthSpec>::MaxValidatorsPerSlot::to_u64(),
+        )
     }
 }

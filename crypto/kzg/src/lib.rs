@@ -19,11 +19,35 @@ pub enum Error {
     Kzg(c_kzg::Error),
     /// The kzg verification failed
     KzgVerificationFailed,
+    /// Misc indexing error
+    InconsistentArrayLength(String),
 }
 
 impl From<c_kzg::Error> for Error {
     fn from(value: c_kzg::Error) -> Self {
         Error::Kzg(value)
+    }
+}
+
+pub const CELLS_PER_EXT_BLOB: usize = 128;
+
+// TODO(das): use proper crypto once ckzg merges das branch
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct Cell {
+    bytes: [u8; 2048usize],
+}
+
+impl Cell {
+    pub fn from_bytes(b: &[u8]) -> Result<Self, Error> {
+        Ok(Self {
+            bytes: b
+                .try_into()
+                .map_err(|_| Error::Kzg(c_kzg::Error::MismatchLength("".to_owned())))?,
+        })
+    }
+    pub fn into_inner(self) -> [u8; 2048usize] {
+        self.bytes
     }
 }
 
@@ -140,6 +164,55 @@ impl Kzg {
             &self.trusted_setup,
         )
         .map_err(Into::into)
+    }
+
+    /// Computes the cells and associated proofs for a given `blob` at index `index`.
+    #[allow(clippy::type_complexity)]
+    pub fn compute_cells_and_proofs(
+        &self,
+        _blob: &Blob,
+    ) -> Result<
+        (
+            Box<[Cell; CELLS_PER_EXT_BLOB]>,
+            Box<[KzgProof; CELLS_PER_EXT_BLOB]>,
+        ),
+        Error,
+    > {
+        // TODO(das): use proper crypto once ckzg merges das branch
+        let cells = Box::new(core::array::from_fn(|_| Cell { bytes: [0u8; 2048] }));
+        let proofs = Box::new([KzgProof([0u8; BYTES_PER_PROOF]); CELLS_PER_EXT_BLOB]);
+        Ok((cells, proofs))
+    }
+
+    /// Verifies a batch of cell-proof-commitment triplets.
+    ///
+    /// Here, `coordinates` correspond to the (row, col) coordinate of the cell in the extended
+    /// blob "matrix". In the 1D extension, row corresponds to the blob index, and col corresponds
+    /// to the data column index.
+    pub fn verify_cell_proof_batch(
+        &self,
+        _cells: &[Cell],
+        _kzg_proofs: &[Bytes48],
+        _coordinates: &[(u64, u64)],
+        _kzg_commitments: &[Bytes48],
+    ) -> Result<(), Error> {
+        // TODO(das): use proper crypto once ckzg merges das branch
+        Ok(())
+    }
+
+    pub fn cells_to_blob(&self, _cells: &[Cell; CELLS_PER_EXT_BLOB]) -> Result<Blob, Error> {
+        // TODO(das): use proper crypto once ckzg merges das branch
+        Ok(Blob::new([0u8; 131072usize]))
+    }
+
+    pub fn recover_all_cells(
+        &self,
+        _cell_ids: &[u64],
+        _cells: &[Cell],
+    ) -> Result<Box<[Cell; CELLS_PER_EXT_BLOB]>, Error> {
+        // TODO(das): use proper crypto once ckzg merges das branch
+        let cells = Box::new(core::array::from_fn(|_| Cell { bytes: [0u8; 2048] }));
+        Ok(cells)
     }
 }
 
