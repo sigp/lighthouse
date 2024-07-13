@@ -523,11 +523,7 @@ pub fn migrate_db<E: EthSpec>(
         log.clone(),
     )?;
 
-    info!(
-        ?from,
-        ?to,
-        "Migrating database schema"
-    );
+    info!(?from, ?to, "Migrating database schema");
 
     migrate_schema::<Witness<SystemTimeSlotClock, CachingEth1Backend<E>, _, _, _>>(
         db,

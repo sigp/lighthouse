@@ -1168,7 +1168,7 @@ pub fn set_network_config(
                         error!(multiaddr = multi.to_string(), "Missing UDP in Multiaddr");
                     }
                     if !multi.iter().any(|proto| matches!(proto, Protocol::P2p(_))) {
-                        error!(multiaddr =  multi.to_string(), "Missing P2P in Multiaddr");
+                        error!(multiaddr = multi.to_string(), "Missing P2P in Multiaddr");
                     }
                     multiaddrs.push(multi);
                 }
@@ -1430,7 +1430,10 @@ pub fn set_network_config(
             config.target_peers = 15;
         }
         config.proposer_only = true;
-        warn!(info = "Proposer-only mode enabled", "Do not connect a validator client to this node unless via the --proposer-nodes flag");
+        warn!(
+            info = "Proposer-only mode enabled",
+            "Do not connect a validator client to this node unless via the --proposer-nodes flag"
+        );
     }
     // The inbound rate limiter is enabled by default unless `disabled` via the
     // `disable-inbound-rate-limiter` flag.

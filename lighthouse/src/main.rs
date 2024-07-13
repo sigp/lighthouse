@@ -76,12 +76,6 @@ fn main() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
 
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy();
-
-    tracing_subscriber::fmt().with_env_filter(env_filter).init();
-
     // Parse the CLI parameters.
     let matches = Command::new("Lighthouse")
         .version(SHORT_VERSION.as_str())
@@ -417,7 +411,7 @@ fn main() {
     let is_beacon_node = matches.subcommand_name() == Some("beacon_node");
     if is_beacon_node && !matches.get_flag(DISABLE_MALLOC_TUNING_FLAG) {
         if let Err(e) = configure_memory_allocator() {
-            error!(
+            eprintln!(
                 "Unable to configure the memory allocator: {} \n\
                 Try providing the --{} flag",
                 e, DISABLE_MALLOC_TUNING_FLAG
@@ -456,11 +450,11 @@ fn main() {
             EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, eth2_network_config),
             #[cfg(not(all(feature = "spec-minimal", feature = "gnosis")))]
             other => {
-                error!(
+                eprintln!(
                     "Eth spec `{}` is not supported by this build of Lighthouse",
                     other
                 );
-                error!("You must compile with a feature flag to enable this spec variant");
+                eprintln!("You must compile with a feature flag to enable this spec variant");
                 exit(1);
             }
         }
@@ -473,7 +467,7 @@ fn main() {
     match result {
         Ok(()) => exit(0),
         Err(e) => {
-            error!("{}", e);
+            eprintln!("{}", e);
             drop(e);
             exit(1)
         }
@@ -485,6 +479,7 @@ fn run<E: EthSpec>(
     matches: &ArgMatches,
     eth2_network_config: Eth2NetworkConfig,
 ) -> Result<(), String> {
+    tracing_init();
     if std::mem::size_of::<usize>() != 8 {
         return Err(format!(
             "{}-bit architecture is not supported (64-bit only).",
@@ -653,7 +648,7 @@ fn run<E: EthSpec>(
     };
 
     if let Some(sub_matches) = matches.subcommand_matches(account_manager::CMD) {
-        info!("Running account manager for {} network", network_name);
+        eprintln!("Running account manager for {} network", network_name);
         // Pass the entire `environment` to the account manager so it can run blocking operations.
         account_manager::run(sub_matches, environment)?;
 
@@ -662,7 +657,7 @@ fn run<E: EthSpec>(
     }
 
     if let Some(sub_matches) = matches.subcommand_matches(validator_manager::CMD) {
-        info!("Running validator manager for {} network", network_name);
+        eprintln!("Running validator manager for {} network", network_name);
 
         // Pass the entire `environment` to the account manager so it can run blocking operations.
         validator_manager::run::<E>(sub_matches, environment)?;
@@ -761,5 +756,16 @@ fn run<E: EthSpec>(
     match shutdown_reason {
         ShutdownReason::Success(_) => Ok(()),
         ShutdownReason::Failure(msg) => Err(msg.to_string()),
+    }
+}
+fn tracing_init() {
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy();
+    if let Err(e) = tracing_subscriber::fmt()
+        .with_env_filter(env_filter)
+        .try_init()
+    {
+        eprintln!("Failed to initialize logging {e}");
     }
 }

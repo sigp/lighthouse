@@ -509,7 +509,7 @@ where
             }
             ClientGenesis::DepositContract => {
                 info!(
-                    eth1_endpoints = format!("{:?}", &config.eth1.endpoint),
+                    eth1_endpoints = ?config.eth1.endpoint,
                     contract_deploy_block = config.eth1.deposit_contract_deploy_block,
                     deposit_contract = &config.eth1.deposit_contract_address,
                     "Waiting for eth2 genesis from eth1"
