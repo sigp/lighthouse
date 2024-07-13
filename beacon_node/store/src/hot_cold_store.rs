@@ -717,8 +717,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         if state_root != split.state_root {
             warn!(
-                state_root  = ?state_root,
-                block_root = ?block_root,
+                ?state_root,
+                ?block_root,
                 "State cache missed"
             );
         }
@@ -749,7 +749,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 .lock()
                 .put_state(*state_root, block_root, state)?;
             debug!(
-                state_root = ?state_root,
+                ?state_root,
                 slot = ?state.slot(),
                 "Cached state"
             );
@@ -1209,7 +1209,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     {
                         debug!(
                            ?state_root,
-                            slot = ?state_slot,
+                            ?state_slot,
                             "Cached ancestor state"
                         );
                     }
@@ -1505,7 +1505,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|block_replayer| {
                 if have_state_root_iterator && block_replayer.state_root_miss() {
                     warn!(
-                        slot = ?target_slot,
+                        ?target_slot,
                         "State root cache miss during block replay"
                     );
                 }
@@ -2186,7 +2186,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             debug!(
                 ?oldest_blob_slot,
                 ?data_availability_boundary,
-                split_slot = ?split.slot,
+                ?split.slot,
                 ?end_epoch,
                 ?start_epoch,
                 "Blobs are pruned"
