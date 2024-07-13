@@ -415,6 +415,23 @@ impl BeaconNodeHttpClient {
         ok_or_error(response).await
     }
 
+    /// Generic POST function that includes octet-stream content type header.
+    async fn post_generic_with_ssz_header<T: Serialize, U: IntoUrl>(
+        &self,
+        url: U,
+        body: &T,
+    ) -> Result<Response, Error> {
+        let builder = self.client.post(url);
+        let mut headers = HeaderMap::new();
+
+        headers.insert(
+            "Content-Type",
+            HeaderValue::from_static("application/octet-stream"),
+        );
+        let response = builder.headers(headers).json(body).send().await?;
+        ok_or_error(response).await
+    }
+
     /// Generic POST function supporting arbitrary responses and timeouts.
     async fn post_generic_with_consensus_version_and_ssz_body<T: Into<Body>, U: IntoUrl>(
         &self,
@@ -541,6 +558,26 @@ impl BeaconNodeHttpClient {
         }
 
         self.get_opt(path).await
+    }
+
+    /// TESTING ONLY: This request should fail with a 415 response code.
+    pub async fn post_beacon_states_validator_balances_with_ssz_header(
+        &self,
+        state_id: StateId,
+        ids: Vec<ValidatorId>,
+    ) -> Result<Response, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("validator_balances");
+
+        let request = ValidatorBalancesRequestBody { ids };
+
+        self.post_generic_with_ssz_header(path, &request).await
     }
 
     /// `POST beacon/states/{state_id}/validator_balances`

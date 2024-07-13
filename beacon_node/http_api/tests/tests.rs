@@ -10,7 +10,9 @@ use eth2::{
     types::{
         BlockId as CoreBlockId, ForkChoiceNode, ProduceBlockV3Response, StateId as CoreStateId, *,
     },
-    BeaconNodeHttpClient, Error, StatusCode, Timeouts,
+    BeaconNodeHttpClient, Error,
+    Error::ServerMessage,
+    StatusCode, Timeouts,
 };
 use execution_layer::test_utils::{
     MockBuilder, Operation, DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
@@ -802,6 +804,39 @@ impl ApiTester {
             );
 
             assert_eq!(result, expected, "{:?}", state_id);
+        }
+
+        self
+    }
+
+    pub async fn post_beacon_states_validator_balances_unsupported_media_failure(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            for validator_indices in self.interesting_validator_indices() {
+                let validator_index_ids = validator_indices
+                    .iter()
+                    .cloned()
+                    .map(|i| ValidatorId::Index(i))
+                    .collect::<Vec<ValidatorId>>();
+
+                let unsupported_media_response = self
+                    .client
+                    .post_beacon_states_validator_balances_with_ssz_header(
+                        state_id.0,
+                        validator_index_ids,
+                    )
+                    .await;
+
+                if let Err(unsupported_media_response) = unsupported_media_response {
+                    match unsupported_media_response {
+                        ServerMessage(error) => {
+                            assert_eq!(error.code, 415)
+                        }
+                        _ => panic!("Should error with unsupported media response"),
+                    }
+                } else {
+                    panic!("Should error with unsupported media response");
+                }
+            }
         }
 
         self
@@ -5657,6 +5692,14 @@ async fn get_events_from_genesis() {
     ApiTester::new_from_genesis()
         .await
         .test_get_events_from_genesis()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_unsupported_media_response() {
+    ApiTester::new()
+        .await
+        .post_beacon_states_validator_balances_unsupported_media_failure()
         .await;
 }
 
