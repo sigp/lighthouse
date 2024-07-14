@@ -262,6 +262,16 @@ lazy_static! {
         "sync_lookups_stuck_total",
         "Total count of sync lookups that are stuck and dropped",
     );
+    pub static ref SYNC_ACTIVE_NETWORK_REQUESTS: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "sync_active_network_requests",
+        "Current count of active network requests from sync",
+        &["type"],
+    );
+    pub static ref SYNC_UNKNOWN_NETWORK_REQUESTS: Result<IntCounterVec> = try_create_int_counter_vec(
+        "sync_unknwon_network_request",
+        "Total count of network messages received for unknown active requests",
+        &["type"],
+    );
 
     /*
      * Block Delay Metrics

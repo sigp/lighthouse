@@ -174,8 +174,9 @@ test-network-%:
 # Run the tests in the `slasher` crate for all supported database backends.
 test-slasher:
 	cargo nextest run --release -p slasher --features "lmdb,$(TEST_FEATURES)"
+	cargo nextest run --release -p slasher --no-default-features --features "redb,$(TEST_FEATURES)"
 	cargo nextest run --release -p slasher --no-default-features --features "mdbx,$(TEST_FEATURES)"
-	cargo nextest run --release -p slasher --features "lmdb,mdbx,$(TEST_FEATURES)" # both backends enabled
+	cargo nextest run --release -p slasher --features "lmdb,mdbx,redb,$(TEST_FEATURES)" # all backends enabled
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:
