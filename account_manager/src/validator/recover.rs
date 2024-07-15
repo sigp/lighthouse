@@ -31,7 +31,7 @@ pub fn cli_app() -> Command {
                     .action(ArgAction::HelpLong)
                     .display_order(0)
                     .help_heading(FLAG_HEADER)
-            )    
+            )
         .arg(
             Arg::new(FIRST_INDEX_FLAG)
                 .long(FIRST_INDEX_FLAG)

@@ -42,7 +42,7 @@ pub fn cli_app() -> Command {
                         .help("Prints help information")
                         .action(ArgAction::HelpLong)
                         .display_order(0)
-                        .help_heading(FLAG_HEADER),
+                        .help_heading(FLAG_HEADER)
                 )
                 .arg(
                     Arg::new(IMPORT_FILE_ARG)
@@ -62,7 +62,7 @@ pub fn cli_app() -> Command {
                         .help("Prints help information")
                         .action(ArgAction::HelpLong)
                         .display_order(0)
-                        .help_heading(FLAG_HEADER),
+                        .help_heading(FLAG_HEADER)
                 )
                 .arg(
                     Arg::new(EXPORT_FILE_ARG)
