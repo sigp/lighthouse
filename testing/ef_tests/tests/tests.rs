@@ -100,9 +100,10 @@ fn operations_execution_layer_withdrawal_reqeusts() {
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
-fn operations_deposit_receipts() {
-    OperationsHandler::<MinimalEthSpec, DepositRequest>::default().run();
-    OperationsHandler::<MainnetEthSpec, DepositRequest>::default().run();
+fn operations_deposit_requests() {
+    //TODO(electra): re-enable mainnet once they update the name for this
+    // OperationsHandler::<MinimalEthSpec, DepositRequest>::default().run();
+    // OperationsHandler::<MainnetEthSpec, DepositRequest>::default().run();
 }
 
 #[test]
@@ -242,7 +243,7 @@ mod ssz_static {
     use types::blob_sidecar::BlobIdentifier;
     use types::historical_summary::HistoricalSummary;
     use types::{
-        AttesterSlashingBase, AttesterSlashingElectra, Consolidation, DepositRequest,
+        AttesterSlashingBase, AttesterSlashingElectra, Consolidation,
         ExecutionLayerWithdrawalRequest, LightClientBootstrapAltair, PendingBalanceDeposit,
         PendingPartialWithdrawal, *,
     };
@@ -634,11 +635,12 @@ mod ssz_static {
         SszStaticHandler::<Consolidation, MainnetEthSpec>::electra_and_later().run();
     }
 
-    #[test]
-    fn deposit_receipt() {
-        SszStaticHandler::<DepositRequest, MinimalEthSpec>::electra_and_later().run();
-        SszStaticHandler::<DepositRequest, MainnetEthSpec>::electra_and_later().run();
-    }
+    // TODO(electra) re-enable when EF tests are updated
+    // #[test]
+    // fn deposit_request() {
+    //     SszStaticHandler::<DepositRequest, MinimalEthSpec>::electra_and_later().run();
+    //     SszStaticHandler::<DepositRequest, MainnetEthSpec>::electra_and_later().run();
+    // }
 
     #[test]
     fn execution_layer_withdrawal_request() {

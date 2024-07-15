@@ -470,7 +470,7 @@ impl<E: EthSpec> Operation<E> for ExecutionLayerWithdrawalRequest {
 
 impl<E: EthSpec> Operation<E> for DepositRequest {
     fn handler_name() -> String {
-        "deposit_receipt".into()
+        "deposit_request".into()
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
