@@ -1,4 +1,5 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
+use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::network_context::RangeRequestId;
 use crate::sync::{network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult};
@@ -171,6 +172,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         self.validated_batches * EPOCHS_PER_BATCH
     }
 
+    /// Returns the total count of pending blocks in all the batches of this chain
+    pub fn pending_blocks(&self) -> usize {
+        self.batches
+            .values()
+            .map(|batch| batch.pending_blocks())
+            .sum()
+    }
+
     /// Removes a peer from the chain.
     /// If the peer has active batches, those are considered failed and re-requested.
     pub fn remove_peer(
@@ -305,7 +314,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // result callback. This is done, because an empty batch could end a chain and the logic
         // for removing chains and checking completion is in the callback.
 
-        let blocks = batch.start_processing()?;
+        let (blocks, duration_in_awaiting_processing) = batch.start_processing()?;
+        metrics::observe_duration(
+            &metrics::SYNCING_CHAIN_BATCH_AWAITING_PROCESSING,
+            duration_in_awaiting_processing,
+        );
+
         let process_id = ChainSegmentProcessId::RangeBatchId(self.id, batch_id);
         self.current_processing_batch = Some(batch_id);
 

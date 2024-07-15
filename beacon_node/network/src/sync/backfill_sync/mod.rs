@@ -528,7 +528,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // result callback. This is done, because an empty batch could end a chain and the logic
         // for removing chains and checking completion is in the callback.
 
-        let blocks = match batch.start_processing() {
+        let (blocks, _) = match batch.start_processing() {
             Err(e) => {
                 return self
                     .fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))
