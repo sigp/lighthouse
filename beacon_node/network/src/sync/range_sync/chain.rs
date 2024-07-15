@@ -1,4 +1,5 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
+use super::RangeSyncType;
 use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::network_context::RangeRequestId;
@@ -12,6 +13,7 @@ use rand::{seq::SliceRandom, Rng};
 use slog::{crit, debug, o, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
+use strum::IntoStaticStr;
 use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
@@ -54,12 +56,22 @@ pub struct KeepChain;
 pub type ChainId = u64;
 pub type BatchId = Epoch;
 
+#[derive(Debug, Copy, Clone, IntoStaticStr)]
+pub enum SyncingChainType {
+    Head,
+    Finalized,
+    Backfill,
+}
+
 /// A chain of blocks that need to be downloaded. Peers who claim to contain the target head
 /// root are grouped into the peer pool and queried for batches when downloading the
 /// chain.
 pub struct SyncingChain<T: BeaconChainTypes> {
     /// A random id used to identify this chain.
     id: ChainId,
+
+    /// SyncingChain type
+    pub chain_type: SyncingChainType,
 
     /// The start of the chain segment. Any epoch previous to this one has been validated.
     pub start_epoch: Epoch,
@@ -127,6 +139,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         target_head_slot: Slot,
         target_head_root: Hash256,
         peer_id: PeerId,
+        chain_type: SyncingChainType,
         log: &slog::Logger,
     ) -> Self {
         let mut peers = FnvHashMap::default();
@@ -136,6 +149,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         SyncingChain {
             id,
+            chain_type,
             start_epoch,
             target_head_slot,
             target_head_root,
@@ -483,10 +497,27 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // We consider three cases. Batch was successfully processed, Batch failed processing due
         // to a faulty peer, or batch failed processing but the peer can't be deemed faulty.
         match result {
-            BatchProcessResult::Success { was_non_empty } => {
+            BatchProcessResult::Success {
+                sent_blocks,
+                imported_blocks,
+            } => {
+                if sent_blocks > imported_blocks {
+                    let ignored_blocks = sent_blocks - imported_blocks;
+                    metrics::inc_counter_vec_by(
+                        &metrics::SYNCING_CHAINS_IGNORED_BLOCKS,
+                        &[self.chain_type.into()],
+                        ignored_blocks as u64,
+                    );
+                }
+                metrics::inc_counter_vec(
+                    &metrics::SYNCING_CHAINS_PROCESSED_BATCHES,
+                    &[self.chain_type.into()],
+                );
+
                 batch.processing_completed(BatchProcessingResult::Success)?;
 
-                if *was_non_empty {
+                // was not empty = sent_blocks > 0
+                if *sent_blocks > 0 {
                     // If the processed batch was not empty, we can validate previous unvalidated
                     // blocks.
                     self.advance_chain(network, batch_id);
@@ -529,7 +560,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 match batch.processing_completed(BatchProcessingResult::FaultyFailure)? {
                     BatchOperationOutcome::Continue => {
                         // Chain can continue. Check if it can be moved forward.
-                        if *imported_blocks {
+                        if *imported_blocks > 0 {
                             // At least one block was successfully verified and imported, so we can be sure all
                             // previous batches are valid and we only need to download the current failed
                             // batch.
@@ -1154,5 +1185,14 @@ impl RemoveChain {
             self,
             RemoveChain::WrongBatchState(..) | RemoveChain::WrongChainState(..)
         )
+    }
+}
+
+impl From<RangeSyncType> for SyncingChainType {
+    fn from(value: RangeSyncType) -> Self {
+        match value {
+            RangeSyncType::Head => Self::Head,
+            RangeSyncType::Finalized => Self::Finalized,
+        }
     }
 }

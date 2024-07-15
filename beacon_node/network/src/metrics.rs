@@ -252,6 +252,16 @@ lazy_static! {
         "Total count of dropped blocks when removing a syncing chain per range type",
         &["range_type"]
     );
+    pub static ref SYNCING_CHAINS_IGNORED_BLOCKS: Result<IntCounterVec> = try_create_int_counter_vec(
+        "sync_range_chains_ignored_blocks_total",
+        "Total count of ignored blocks when processing a syncing chain batch per chain type",
+        &["chain_type"]
+    );
+    pub static ref SYNCING_CHAINS_PROCESSED_BATCHES: Result<IntCounterVec> = try_create_int_counter_vec(
+        "sync_range_chains_processed_batches_total",
+        "Total count of processed batches in a syncing chain batch per chain type",
+        &["chain_type"]
+    );
     pub static ref SYNCING_CHAIN_BATCH_AWAITING_PROCESSING: Result<Histogram> = try_create_histogram_with_buckets(
         "sync_range_chain_batch_awaiting_processing_seconds",
         "Time range sync batches spend in AwaitingProcessing state",

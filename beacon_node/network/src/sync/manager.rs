@@ -156,11 +156,12 @@ pub enum BlockProcessingResult<E: EthSpec> {
 pub enum BatchProcessResult {
     /// The batch was completed successfully. It carries whether the sent batch contained blocks.
     Success {
-        was_non_empty: bool,
+        sent_blocks: usize,
+        imported_blocks: usize,
     },
     /// The batch processing failed. It carries whether the processing imported any block.
     FaultyFailure {
-        imported_blocks: bool,
+        imported_blocks: usize,
         penalty: PeerAction,
     },
     NonFaultyFailure,

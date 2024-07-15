@@ -493,6 +493,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                     target_head_slot,
                     target_head_root,
                     peer,
+                    sync_type.into(),
                     &self.log,
                 );
                 debug_assert_eq!(new_chain.get_id(), id);
