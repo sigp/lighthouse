@@ -115,7 +115,7 @@ impl<E: EthSpec> Case for SszStaticTHC<BeaconState<E>> {
         check_serialization(&self.value, &self.serialized, |bytes| {
             BeaconState::from_ssz_bytes(bytes, spec)
         })?;
-        
+
         let mut state = self.value.clone();
         let cached_tree_hash_root = state.update_tree_hash_cache().unwrap();
         check_tree_hash(&self.roots.root, cached_tree_hash_root.as_slice())?;

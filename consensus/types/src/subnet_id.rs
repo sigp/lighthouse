@@ -1,9 +1,7 @@
 //! Identifies each shard by an integer identifier.
-use crate::{
-    AttestationRef, ChainSpec, CommitteeIndex, Epoch, EthSpec, Hash256 as H256, Hash256Extended,
-    Slot,
-};
+use crate::{AttestationRef, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
 
+use alloy_primitives::U256;
 use lazy_static::lazy_static;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
@@ -83,7 +81,7 @@ impl SubnetId {
     /// along with the first epoch in which these subscriptions are no longer valid.
     #[allow(clippy::arithmetic_side_effects)]
     pub fn compute_subnets_for_epoch<E: EthSpec>(
-        node_id: H256,
+        node_id: U256,
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<(impl Iterator<Item = SubnetId>, Epoch), &'static str> {
@@ -93,10 +91,19 @@ impl SubnetId {
         let shuffling_prefix_bits = spec.attestation_subnet_shuffling_prefix_bits as u64;
 
         // calculate the prefixes used to compute the subnet and shuffling
-        // TODO(alloy) little endian or big?
-        let node_id_slice = u64::from_le_bytes(node_id.as_slice().try_into().map_err(|_| "error")?);
-        let node_id_prefix = node_id_slice >> 256 - prefix_bits;
-        let shuffling_prefix = node_id_slice >> (256 - (prefix_bits + shuffling_prefix_bits));
+        // TODO(alloy) improve error messaging
+        let node_id_prefix = u64::from_le_bytes(
+            (node_id >> 256 - prefix_bits)
+                .as_le_slice()
+                .try_into()
+                .map_err(|_| "error")?,
+        );
+        let shuffling_prefix = u64::from_le_bytes(
+            (node_id >> (256 - (prefix_bits + shuffling_prefix_bits)))
+                .as_le_slice()
+                .try_into()
+                .map_err(|_| "error")?,
+        );
 
         // number of groups the shuffling creates
         let shuffling_groups = 1 << shuffling_prefix_bits;
