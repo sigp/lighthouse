@@ -273,6 +273,7 @@ fn always_prepare_payload_override() {
             "suggested-fee-recipient",
             Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
         )
+        .flag("execution-endpoint", Some("http://localhost:8551/"))
         .run_with_zero_port()
         .with_config(|config| assert!(config.chain.always_prepare_payload));
 }
