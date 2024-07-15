@@ -271,7 +271,7 @@ fn always_prepare_payload_override() {
         .flag("always-prepare-payload", None)
         .flag(
             "suggested-fee-recipient",
-            "0x00000000219ab540356cbb839cbe05303d7705fa",
+            Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
         )
         .run_with_zero_port()
         .with_config(|config| assert!(config.chain.always_prepare_payload));
