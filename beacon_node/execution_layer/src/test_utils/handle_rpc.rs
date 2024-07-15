@@ -658,7 +658,13 @@ pub async fn handle_rpc<E: EthSpec>(
                             ),
                             consolidation_requests: block.consolidation_requests().ok().map(
                                 |consolidation_requests| {
-                                    VariableList::from(consolidation_requests.clone())
+                                    VariableList::from(
+                                        consolidation_requests
+                                            .clone()
+                                            .into_iter()
+                                            .map(Into::into)
+                                            .collect::<Vec<_>>(),
+                                    )
                                 },
                             ),
                         }));
