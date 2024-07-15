@@ -271,3 +271,23 @@ pub use kzg::{KzgCommitment, KzgProof, VERSIONED_HASH_VERSION_KZG};
 pub use milhouse::{self, List, Vector};
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
 pub use superstruct::superstruct;
+
+pub trait Hash256Extended {
+    fn from_low_u64_be(value: u64) -> alloy_primitives::B256;
+    fn from_low_u64_le(value: u64) -> alloy_primitives::B256;
+    fn zero() -> alloy_primitives::B256;
+}
+
+impl Hash256Extended for alloy_primitives::B256 {
+    fn from_low_u64_be(value: u64) -> alloy_primitives::B256 {
+        alloy_primitives::B256::from_slice(&value.to_be_bytes())
+    }
+
+    fn from_low_u64_le(value: u64) -> alloy_primitives::B256 {
+        alloy_primitives::B256::from_slice(&value.to_le_bytes())
+    }
+
+    fn zero() -> alloy_primitives::B256 {
+        alloy_primitives::B256::ZERO
+    }
+}

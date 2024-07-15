@@ -399,7 +399,7 @@ mod tests {
     use std::collections::HashSet;
     use store::MemoryStore;
     use tokio::sync::mpsc;
-    use types::{ForkName, MinimalEthSpec as E};
+    use types::{ForkName, Hash256Extended, MinimalEthSpec as E};
 
     #[derive(Debug)]
     struct FakeStorage {
@@ -413,9 +413,9 @@ mod tests {
                 known_blocks: RwLock::new(HashSet::new()),
                 status: RwLock::new(StatusMessage {
                     fork_digest: [0; 4],
-                    finalized_root: Hash256::ZERO,
+                    finalized_root: Hash256::zero(),
                     finalized_epoch: 0usize.into(),
-                    head_root: Hash256::ZERO,
+                    head_root: Hash256::zero(),
                     head_slot: 0usize.into(),
                 }),
             }

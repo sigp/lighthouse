@@ -295,8 +295,8 @@ async fn heal_freezer_block_roots_at_genesis() {
             .unwrap()
             .unwrap();
 
-    chunk.values[1] = Hash256::ZERO;
-    chunk.values[2] = Hash256::ZERO;
+    chunk.values[1] = Hash256::zero();
+    chunk.values[2] = Hash256::zero();
 
     let mut ops = vec![];
     chunk
@@ -319,8 +319,8 @@ async fn heal_freezer_block_roots_at_genesis() {
     assert_eq!(
         block_roots,
         vec![
-            (Hash256::ZERO, Slot::new(1)),
-            (Hash256::ZERO, Slot::new(2))
+            (Hash256::zero(), Slot::new(1)),
+            (Hash256::zero(), Slot::new(2))
         ]
     );
 
@@ -1447,7 +1447,7 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     let chain_dump = rig.chain.chain_dump().unwrap();
     assert_eq!(
         get_finalized_epoch_boundary_blocks(&chain_dump),
-        vec![Hash256::ZERO.into()].into_iter().collect(),
+        vec![Hash256::zero().into()].into_iter().collect(),
     );
 
     assert!(get_blocks(&chain_dump).contains(&shared_head));
@@ -2187,7 +2187,7 @@ async fn pruning_test(
     let chain_dump = harness.chain.chain_dump().unwrap();
     assert_eq!(
         get_finalized_epoch_boundary_blocks(&chain_dump),
-        vec![Hash256::ZERO.into()].into_iter().collect(),
+        vec![Hash256::zero().into()].into_iter().collect(),
     );
 
     // Trigger finalization
@@ -2584,7 +2584,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     assert_eq!(forwards, expected);
 
     // All blocks can be loaded.
-    let mut prev_block_root = Hash256::ZERO;
+    let mut prev_block_root = Hash256::zero();
     for (block_root, slot) in beacon_chain
         .forwards_iter_block_roots(Slot::new(0))
         .unwrap()

@@ -105,7 +105,7 @@ impl SszHeadTracker {
 mod test {
     use super::*;
     use ssz::{Decode, Encode};
-    use types::{BeaconBlock, EthSpec, MainnetEthSpec};
+    use types::{BeaconBlock, EthSpec, Hash256Extended, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 

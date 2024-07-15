@@ -1,5 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::Hash256;
+use crate::Hash256Extended;
 use derivative::Derivative;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -24,7 +25,7 @@ pub struct ExecutionBlockHash(pub Hash256);
 
 impl ExecutionBlockHash {
     pub fn zero() -> Self {
-        Self(Hash256::ZERO)
+        Self(Hash256::zero())
     }
 
     pub fn repeat_byte(b: u8) -> Self {

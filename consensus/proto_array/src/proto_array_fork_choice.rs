@@ -16,7 +16,7 @@ use std::{
 };
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    Slot,
+    Hash256Extended, Slot,
 };
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
@@ -895,7 +895,7 @@ impl ProtoArrayForkChoice {
 /// ## Errors
 ///
 /// - If a value in `indices` is greater to or equal to `indices.len()`.
-/// - If some `Hash256` in `votes` is not a key in `indices` (except for `Hash256::ZERO`, this is
+/// - If some `Hash256` in `votes` is not a key in `indices` (except for `Hash256::zero()`, this is
 /// always valid).
 fn compute_deltas(
     indices: &HashMap<Hash256, usize>,
@@ -909,7 +909,7 @@ fn compute_deltas(
     for (val_index, vote) in votes.iter_mut().enumerate() {
         // There is no need to create a score change if the validator has never voted or both their
         // votes are for the zero hash (alias to the genesis block).
-        if vote.current_root == Hash256::ZERO && vote.next_root == Hash256::ZERO {
+        if vote.current_root == Hash256::zero() && vote.next_root == Hash256::zero() {
             continue;
         }
 
@@ -939,7 +939,7 @@ fn compute_deltas(
                     deltas[current_delta_index] = delta;
                 }
 
-                vote.current_root = Hash256::ZERO;
+                vote.current_root = Hash256::zero();
             }
             // We've handled this slashed validator, continue without applying an ordinary delta.
             continue;
@@ -993,11 +993,11 @@ fn compute_deltas(
 #[cfg(test)]
 mod test_compute_deltas {
     use super::*;
-    use types::MainnetEthSpec;
+    use types::{Hash256Extended, MainnetEthSpec};
 
     /// Gives a hash that is not the zero hash (unless i is `usize::MAX)`.
     fn hash_from_index(i: usize) -> Hash256 {
-        Hash256::from_slice(&(i as u64 + 1).to_be_bytes())
+        Hash256::from_low_u64_be(i as u64 + 1)
     }
 
     #[test]
@@ -1005,13 +1005,13 @@ mod test_compute_deltas {
         let genesis_slot = Slot::new(0);
         let genesis_epoch = Epoch::new(0);
 
-        let state_root = Hash256::ZERO;
-        let finalized_root = Hash256::from_slice(&1u64.to_be_bytes());
-        let finalized_desc = Hash256::from_slice(&2u64.to_be_bytes());
-        let not_finalized_desc = Hash256::from_slice(&3u64.to_be_bytes());
-        let unknown = Hash256::from_slice(&4u64.to_be_bytes());
+        let state_root = Hash256::from_low_u64_be(0);
+        let finalized_root = Hash256::from_low_u64_be(1);
+        let finalized_desc = Hash256::from_low_u64_be(2);
+        let not_finalized_desc = Hash256::from_low_u64_be(3);
+        let unknown = Hash256::from_low_u64_be(4);
         let junk_shuffling_id =
-            AttestationShufflingId::from_components(Epoch::new(0), Hash256::ZERO);
+            AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
         let execution_status = ExecutionStatus::irrelevant();
 
         let genesis_checkpoint = Checkpoint {
@@ -1137,16 +1137,16 @@ mod test_compute_deltas {
     /// *checkpoint*, not just the finalized *block*.
     #[test]
     fn finalized_descendant_edge_case() {
-        let get_block_root = Hash256::from_slice;
+        let get_block_root = Hash256::from_low_u64_be;
         let genesis_slot = Slot::new(0);
-        let junk_state_root = Hash256::ZERO;
+        let junk_state_root = Hash256::zero();
         let junk_shuffling_id =
-            AttestationShufflingId::from_components(Epoch::new(0), Hash256::ZERO);
+            AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
         let execution_status = ExecutionStatus::irrelevant();
 
         let genesis_checkpoint = Checkpoint {
             epoch: Epoch::new(0),
-            root: Hash256::ZERO,
+            root: get_block_root(0),
         };
 
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
@@ -1172,15 +1172,15 @@ mod test_compute_deltas {
                 .on_block::<MainnetEthSpec>(
                     Block {
                         slot: Slot::from(block.slot),
-                        root: get_block_root(&block.root.to_be_bytes()),
-                        parent_root: Some(get_block_root(&block.parent_root.to_be_bytes())),
-                        state_root: Hash256::ZERO,
-                        target_root: Hash256::ZERO,
+                        root: get_block_root(block.root),
+                        parent_root: Some(get_block_root(block.parent_root)),
+                        state_root: Hash256::zero(),
+                        target_root: Hash256::zero(),
                         current_epoch_shuffling_id: junk_shuffling_id.clone(),
                         next_epoch_shuffling_id: junk_shuffling_id.clone(),
                         justified_checkpoint: Checkpoint {
                             epoch: Epoch::new(0),
-                            root: Hash256::ZERO,
+                            root: get_block_root(0),
                         },
                         finalized_checkpoint: genesis_checkpoint,
                         execution_status,
@@ -1238,7 +1238,7 @@ mod test_compute_deltas {
             },
         );
 
-        let finalized_root = get_block_root(&last_slot_of_epoch_0.to_be_bytes());
+        let finalized_root = get_block_root(last_slot_of_epoch_0);
 
         // Set the finalized checkpoint to finalize the first slot of epoch 1 on
         // the canonical chain.
@@ -1256,14 +1256,14 @@ mod test_compute_deltas {
         assert!(
             fc.proto_array
                 .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(get_block_root(
-                    &canonical_slot.to_be_bytes()
+                    canonical_slot
                 )),
             "the canonical block is a descendant of the finalized checkpoint"
         );
         assert!(
             !fc.proto_array
                 .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(get_block_root(
-                    &non_canonical_slot.to_be_bytes()
+                    non_canonical_slot
                 )),
             "although the non-canonical block is a descendant of the finalized block, \
             it's not a descendant of the finalized checkpoint"
@@ -1283,8 +1283,8 @@ mod test_compute_deltas {
         for i in 0..validator_count {
             indices.insert(hash_from_index(i), i);
             votes.0.push(VoteTracker {
-                current_root: Hash256::ZERO,
-                next_root: Hash256::ZERO,
+                current_root: Hash256::zero(),
+                next_root: Hash256::zero(),
                 next_epoch: Epoch::new(0),
             });
             old_balances.push(0);
@@ -1334,7 +1334,7 @@ mod test_compute_deltas {
         for i in 0..validator_count {
             indices.insert(hash_from_index(i), i);
             votes.0.push(VoteTracker {
-                current_root: Hash256::ZERO,
+                current_root: Hash256::zero(),
                 next_root: hash_from_index(0),
                 next_epoch: Epoch::new(0),
             });
@@ -1392,7 +1392,7 @@ mod test_compute_deltas {
         for i in 0..validator_count {
             indices.insert(hash_from_index(i), i);
             votes.0.push(VoteTracker {
-                current_root: Hash256::ZERO,
+                current_root: Hash256::zero(),
                 next_root: hash_from_index(i),
                 next_epoch: Epoch::new(0),
             });
@@ -1510,14 +1510,14 @@ mod test_compute_deltas {
         // One validator moves their vote from the block to the zero hash.
         votes.0.push(VoteTracker {
             current_root: hash_from_index(1),
-            next_root: Hash256::ZERO,
+            next_root: Hash256::zero(),
             next_epoch: Epoch::new(0),
         });
 
         // One validator moves their vote from the block to something outside the tree.
         votes.0.push(VoteTracker {
             current_root: hash_from_index(1),
-            next_root: Hash256::from_slice(&1337u64.to_be_bytes()),
+            next_root: Hash256::from_low_u64_be(1337),
             next_epoch: Epoch::new(0),
         });
 
@@ -1772,7 +1772,7 @@ mod test_compute_deltas {
         );
 
         // Validator 0's current root should have been reset.
-        assert_eq!(votes.0[0].current_root, Hash256::ZERO);
+        assert_eq!(votes.0[0].current_root, Hash256::zero());
         assert_eq!(votes.0[0].next_root, hash_from_index(2));
 
         // Validator 1's current root should have been updated.

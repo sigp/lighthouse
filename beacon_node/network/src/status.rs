@@ -1,5 +1,5 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use types::{EthSpec, Hash256};
+use types::{EthSpec, Hash256, Hash256Extended};
 
 use lighthouse_network::rpc::StatusMessage;
 /// Trait to produce a `StatusMessage` representing the state of the given `beacon_chain`.
@@ -26,7 +26,7 @@ pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>)
     let spec = &beacon_chain.spec;
     let genesis_epoch = spec.genesis_slot.epoch(T::EthSpec::slots_per_epoch());
     if finalized_checkpoint.epoch == genesis_epoch {
-        finalized_checkpoint.root = Hash256::ZERO;
+        finalized_checkpoint.root = Hash256::zero();
     }
 
     StatusMessage {

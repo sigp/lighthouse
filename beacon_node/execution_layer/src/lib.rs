@@ -1132,9 +1132,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 let relay_value = *relay.data.message.value();
 
                 let boosted_relay_value = match builder_boost_factor {
-                    Some(builder_boost_factor) => {
-                        (relay_value / Uint256::from(100)).saturating_mul(Uint256::from(builder_boost_factor))
-                    }
+                    Some(builder_boost_factor) => (relay_value / Uint256::from(100))
+                        .saturating_mul(Uint256::from(builder_boost_factor)),
                     None => relay_value,
                 };
 
@@ -2195,10 +2194,8 @@ fn verify_builder_bid<E: EthSpec>(
         metrics::set_gauge_vec(
             &metrics::EXECUTION_LAYER_PAYLOAD_BIDS,
             &[metrics::BUILDER],
-
             // TODO(alloy) display as a u64
-            0
-            // payload_value_gwei.to_base_le(10) as i64,
+            0, // payload_value_gwei.to_base_le(10) as i64,
         );
     }
 

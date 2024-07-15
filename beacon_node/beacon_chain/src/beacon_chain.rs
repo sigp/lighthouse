@@ -533,7 +533,7 @@ impl<E: EthSpec> BeaconBlockResponseWrapper<E> {
     }
 
     pub fn consensus_block_value_wei(&self) -> Uint256 {
-        Uint256::from(self.consensus_block_value_gwei()) * 1_000_000_000
+        Uint256::from(self.consensus_block_value_gwei()) * Uint256::from(1_000_000_000)
     }
 
     pub fn is_blinded(&self) -> bool {
@@ -1415,7 +1415,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 let skip_state_root = match config {
                     StateSkipConfig::WithStateRoots => None,
-                    StateSkipConfig::WithoutStateRoots => Some(Hash256::ZERO),
+                    StateSkipConfig::WithoutStateRoots => Some(Hash256::zero()),
                 };
 
                 while state.slot() < slot {
@@ -3270,7 +3270,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             let mut slashable_cache = self.observed_slashable.write();
             for header in blobs
-                .into_iter()
+                .iter()
                 .filter_map(|b| b.as_ref().map(|b| b.signed_block_header.clone()))
                 .unique()
             {
@@ -5173,7 +5173,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     slot,
                     proposer_index,
                     parent_root,
-                    state_root: Hash256::ZERO,
+                    state_root: Hash256::zero(),
                     body: BeaconBlockBodyBase {
                         randao_reveal,
                         eth1_data,
@@ -5187,14 +5187,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     },
                 }),
                 None,
-                Uint256::zero(),
+                Uint256::ZERO,
             ),
             BeaconState::Altair(_) => (
                 BeaconBlock::Altair(BeaconBlockAltair {
                     slot,
                     proposer_index,
                     parent_root,
-                    state_root: Hash256::ZERO,
+                    state_root: Hash256::zero(),
                     body: BeaconBlockBodyAltair {
                         randao_reveal,
                         eth1_data,
@@ -5210,7 +5210,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     },
                 }),
                 None,
-                Uint256::zero(),
+                Uint256::ZERO,
             ),
             BeaconState::Bellatrix(_) => {
                 let block_proposal_contents =
@@ -5221,7 +5221,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         slot,
                         proposer_index,
                         parent_root,
-                        state_root: Hash256::ZERO,
+                        state_root: Hash256::zero(),
                         body: BeaconBlockBodyBellatrix {
                             randao_reveal,
                             eth1_data,
@@ -5253,7 +5253,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         slot,
                         proposer_index,
                         parent_root,
-                        state_root: Hash256::ZERO,
+                        state_root: Hash256::zero(),
                         body: BeaconBlockBodyCapella {
                             randao_reveal,
                             eth1_data,
@@ -5287,7 +5287,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         slot,
                         proposer_index,
                         parent_root,
-                        state_root: Hash256::ZERO,
+                        state_root: Hash256::zero(),
                         body: BeaconBlockBodyDeneb {
                             randao_reveal,
                             eth1_data,
@@ -5325,7 +5325,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         slot,
                         proposer_index,
                         parent_root,
-                        state_root: Hash256::ZERO,
+                        state_root: Hash256::zero(),
                         body: BeaconBlockBodyElectra {
                             randao_reveal,
                             eth1_data,
@@ -5382,7 +5382,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut ctxt = ConsensusContext::new(block.slot());
 
         let consensus_block_value = self
-            .compute_beacon_block_reward(block.message(), Hash256::ZERO, &mut state)
+            .compute_beacon_block_reward(block.message(), Hash256::zero(), &mut state)
             .map(|reward| reward.total)
             .unwrap_or(0);
 
@@ -6565,7 +6565,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut finalized_blocks: HashSet<Hash256> = HashSet::new();
         let mut justified_blocks: HashSet<Hash256> = HashSet::new();
 
-        let genesis_block_hash = Hash256::ZERO;
+        let genesis_block_hash = Hash256::zero();
         writeln!(output, "digraph beacon {{").unwrap();
         writeln!(output, "\t_{:?}[label=\"zero\"];", genesis_block_hash).unwrap();
 

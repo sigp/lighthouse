@@ -3,8 +3,8 @@ use crate::test_utils::*;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::{
     test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateError,
-    ChainSpec, Domain, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec,
-    RelativeEpoch, Slot, Vector,
+    ChainSpec, Domain, Epoch, EthSpec, Hash256, Hash256Extended, Keypair, MainnetEthSpec,
+    MinimalEthSpec, RelativeEpoch, Slot, Vector,
 };
 use lazy_static::lazy_static;
 use ssz::Encode;
@@ -38,7 +38,7 @@ async fn get_harness<E: EthSpec>(
         harness
             .add_attested_blocks_at_slots(
                 state,
-                Hash256::ZERO,
+                Hash256::zero(),
                 slots.as_slice(),
                 (0..validator_count).collect::<Vec<_>>().as_slice(),
             )

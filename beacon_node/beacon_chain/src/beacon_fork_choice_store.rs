@@ -17,7 +17,7 @@ use store::{Error as StoreError, HotColdDB, ItemStore};
 use superstruct::superstruct;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
-    Hash256, Slot,
+    Hash256, Hash256Extended, Slot,
 };
 
 #[derive(Debug)]
@@ -166,7 +166,7 @@ where
     ) -> Result<Self, Error> {
         let anchor_state = &anchor.beacon_state;
         let mut anchor_block_header = anchor_state.latest_block_header().clone();
-        if anchor_block_header.state_root == Hash256::ZERO {
+        if anchor_block_header.state_root == Hash256::zero() {
             anchor_block_header.state_root = anchor.beacon_state_root();
         }
         let anchor_root = anchor_block_header.canonical_root();
@@ -187,7 +187,7 @@ where
             finalized_checkpoint,
             unrealized_justified_checkpoint: justified_checkpoint,
             unrealized_finalized_checkpoint: finalized_checkpoint,
-            proposer_boost_root: Hash256::ZERO,
+            proposer_boost_root: Hash256::zero(),
             equivocating_indices: BTreeSet::new(),
             _phantom: PhantomData,
         })

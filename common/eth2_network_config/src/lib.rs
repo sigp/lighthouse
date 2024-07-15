@@ -462,7 +462,7 @@ mod tests {
     use super::*;
     use ssz::Encode;
     use tempfile::Builder as TempBuilder;
-    use types::{Eth1Data, GnosisEthSpec, MainnetEthSpec};
+    use types::{Eth1Data, GnosisEthSpec, Hash256Extended, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -545,9 +545,9 @@ mod tests {
         let spec = &E::default_spec();
 
         let eth1_data = Eth1Data {
-            deposit_root: Hash256::ZERO,
+            deposit_root: Hash256::zero(),
             deposit_count: 0,
-            block_hash: Hash256::ZERO,
+            block_hash: Hash256::zero(),
         };
 
         // TODO: figure out how to generate ENR and add some here.

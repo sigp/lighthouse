@@ -339,7 +339,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
     pub fn iter_temporary_state_roots(&self) -> impl Iterator<Item = Result<Hash256, Error>> + '_ {
         let column = DBColumn::BeaconStateTemporary;
         let start_key =
-            BytesKey::from_vec(get_key_for_col(column.into(), Hash256::ZERO.as_slice()));
+            BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_slice()));
 
         let keys_iter = self.hot_db.keys_iter();
         keys_iter.seek(&start_key);
@@ -1404,7 +1404,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let state_root_iter = self.forwards_state_roots_iterator_until(
             low_slot,
             slot,
-            || Ok((high_restore_point, Hash256::ZERO)),
+            || Ok((high_restore_point, Hash256::zero())),
             &self.spec,
         )?;
 
@@ -1898,7 +1898,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Convert a `restore_point_index` into a database key.
     fn restore_point_key(restore_point_index: u64) -> Hash256 {
-        Hash256::from_slice(&restore_point_index.to_le_bytes())
+        Hash256::from_low_u64_be(restore_point_index)
     }
 
     /// Load a frozen state's slot, given its root.
@@ -2422,7 +2422,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             AnchorInfo {
                 anchor_slot: Slot::new(0),
                 oldest_block_slot: Slot::new(0),
-                oldest_block_parent: Hash256::ZERO,
+                oldest_block_parent: Hash256::zero(),
                 state_upper_limit: STATE_UPPER_LIMIT_NO_RETAIN,
                 state_lower_limit: Slot::new(0),
             }

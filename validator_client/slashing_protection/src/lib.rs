@@ -130,12 +130,14 @@ impl Display for NotSafe {
 
 #[cfg(test)]
 mod test {
+    use types::Hash256Extended;
+
     use super::*;
 
     #[test]
     #[allow(clippy::eq_op)]
     fn signing_root_partial_eq() {
-        let h0 = SigningRoot(Hash256::ZERO);
+        let h0 = SigningRoot(Hash256::zero());
         let h1 = SigningRoot(Hash256::repeat_byte(1));
         let h2 = SigningRoot(Hash256::repeat_byte(2));
         assert_ne!(h0, h0);

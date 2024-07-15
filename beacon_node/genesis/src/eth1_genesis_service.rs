@@ -13,7 +13,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use tokio::time::sleep;
-use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256};
+use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256, Hash256Extended};
 
 /// The number of blocks that are pulled per request whilst waiting for genesis.
 const BLOCKS_PER_GENESIS_POLL: usize = 99;
@@ -402,8 +402,8 @@ impl Eth1GenesisService {
         let mut state: BeaconState<E> = BeaconState::new(
             genesis_time,
             Eth1Data {
-                block_hash: Hash256::ZERO,
-                deposit_root: Hash256::ZERO,
+                block_hash: Hash256::zero(),
+                deposit_root: Hash256::zero(),
                 deposit_count: 0,
             },
             spec,
@@ -416,7 +416,7 @@ impl Eth1GenesisService {
                 //
                 // The deposits are coming directly from our own deposit tree to there's no need to
                 // make proofs about their inclusion in it.
-                proof: vec![Hash256::ZERO; spec.deposit_contract_tree_depth as usize].into(),
+                proof: vec![Hash256::zero(); spec.deposit_contract_tree_depth as usize].into(),
                 data: deposit_log.deposit_data.clone(),
             })
             .try_for_each(|deposit| {

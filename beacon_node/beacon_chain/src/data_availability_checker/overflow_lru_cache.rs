@@ -215,9 +215,8 @@ impl<E: EthSpec> PendingComponents<E> {
         };
         let num_blobs_expected = diet_executed_block.num_blobs_expected();
         let Some(verified_blobs) = verified_blobs
-            .into_iter()
-            .cloned()
-            .map(|b| b.map(|b| b.to_blob()))
+            .iter()
+            .map(|b| b.clone().map(|b| b.to_blob()))
             .take(num_blobs_expected)
             .collect::<Option<Vec<_>>>()
         else {
@@ -343,7 +342,7 @@ impl<T: BeaconChainTypes> OverflowStore<T> {
         for res in self
             .0
             .hot_db
-            .iter_raw_entries(DBColumn::OverflowLRUCache, block_root.as_bytes())
+            .iter_raw_entries(DBColumn::OverflowLRUCache, block_root.as_slice())
         {
             let (key_bytes, value_bytes) = res?;
             match OverflowKey::from_ssz_bytes(&key_bytes)? {
@@ -1894,7 +1893,7 @@ mod pending_components_tests {
     use rand::SeedableRng;
     use state_processing::ConsensusContext;
     use types::test_utils::TestRandom;
-    use types::{BeaconState, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot};
+    use types::{BeaconState, ForkName, Hash256Extended, MainnetEthSpec, SignedBeaconBlock, Slot};
 
     type E = MainnetEthSpec;
 
@@ -2009,7 +2008,7 @@ mod pending_components_tests {
         let (block_commitments, blobs, random_blobs) = pre_setup();
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
-        let block_root = Hash256::ZERO;
+        let block_root = Hash256::zero();
         let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_block(block_commitments);
         cache.merge_blobs(random_blobs);
@@ -2023,7 +2022,7 @@ mod pending_components_tests {
         let (block_commitments, blobs, random_blobs) = pre_setup();
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
-        let block_root = Hash256::ZERO;
+        let block_root = Hash256::zero();
         let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_blobs(random_blobs);
         cache.merge_block(block_commitments);
@@ -2038,7 +2037,7 @@ mod pending_components_tests {
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
 
-        let block_root = Hash256::ZERO;
+        let block_root = Hash256::zero();
         let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_blobs(random_blobs);
         cache.merge_blobs(blobs);
@@ -2053,7 +2052,7 @@ mod pending_components_tests {
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
 
-        let block_root = Hash256::ZERO;
+        let block_root = Hash256::zero();
         let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_block(block_commitments);
         cache.merge_blobs(blobs);
@@ -2068,7 +2067,7 @@ mod pending_components_tests {
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
 
-        let block_root = Hash256::ZERO;
+        let block_root = Hash256::zero();
         let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_blobs(blobs);
         cache.merge_block(block_commitments);
@@ -2083,7 +2082,7 @@ mod pending_components_tests {
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
 
-        let block_root = Hash256::ZERO;
+        let block_root = Hash256::zero();
         let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_blobs(blobs);
         cache.merge_blobs(random_blobs);

@@ -715,7 +715,9 @@ mod tests {
     use lazy_static::lazy_static;
     use std::time::Duration;
     use tokio::sync::mpsc;
-    use types::{ChainSpec, Epoch, EthSpec, Hash256, Keypair, MinimalEthSpec, Slot};
+    use types::{
+        ChainSpec, Epoch, EthSpec, Hash256, Hash256Extended, Keypair, MinimalEthSpec, Slot,
+    };
 
     const VALIDATOR_COUNT: usize = 48;
     lazy_static! {
@@ -830,7 +832,7 @@ mod tests {
 
         for epoch in 0..num_epochs {
             let start = epoch * slots_per_epoch;
-            let mut epoch_roots = vec![Hash256::ZERO; slots_per_epoch];
+            let mut epoch_roots = vec![Hash256::zero(); slots_per_epoch];
             epoch_roots[..].clone_from_slice(&block_roots[start..(start + slots_per_epoch)]);
             let streamer = BeaconBlockStreamer::new(&harness.chain, CheckCaches::No)
                 .expect("should create streamer");
@@ -973,7 +975,7 @@ mod tests {
 
         for epoch in 0..num_epochs {
             let start = epoch * slots_per_epoch;
-            let mut epoch_roots = vec![Hash256::ZERO; slots_per_epoch];
+            let mut epoch_roots = vec![Hash256::zero(); slots_per_epoch];
             epoch_roots[..].clone_from_slice(&block_roots[start..(start + slots_per_epoch)]);
             let streamer = BeaconBlockStreamer::new(&harness.chain, CheckCaches::No)
                 .expect("should create streamer");

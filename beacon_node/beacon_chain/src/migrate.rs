@@ -15,7 +15,7 @@ use store::{Error, ItemStore, StoreItem, StoreOp};
 pub use store::{HotColdDB, MemoryStore};
 use types::{
     BeaconState, BeaconStateError, BeaconStateHash, Checkpoint, Epoch, EthSpec, Hash256,
-    SignedBeaconBlockHash, Slot,
+    Hash256Extended, SignedBeaconBlockHash, Slot,
 };
 
 /// Compact at least this frequently, finalization permitting (7 days).
@@ -452,7 +452,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 .load_pruning_checkpoint()?
                 .unwrap_or_else(|| Checkpoint {
                     epoch: Epoch::new(0),
-                    root: Hash256::ZERO,
+                    root: Hash256::zero(),
                 });
 
         let old_finalized_slot = old_finalized_checkpoint

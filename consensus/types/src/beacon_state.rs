@@ -565,7 +565,7 @@ impl<E: EthSpec> BeaconState<E> {
         BeaconState::Base(BeaconStateBase {
             // Versioning
             genesis_time,
-            genesis_validators_root: Hash256::ZERO, // Set later.
+            genesis_validators_root: Hash256::zero(), // Set later.
             slot: spec.genesis_slot,
             fork: Fork {
                 previous_version: spec.genesis_fork_version,

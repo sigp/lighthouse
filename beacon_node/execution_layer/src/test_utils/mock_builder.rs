@@ -20,9 +20,9 @@ use types::builder_bid::{
 };
 use types::{
     Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, ForkName, ForkVersionedResponse, Hash256, PublicKeyBytes,
-    Signature, SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot,
-    Uint256,
+    ExecutionPayloadHeaderRefMut, ForkName, ForkVersionedResponse, Hash256, Hash256Extended,
+    PublicKeyBytes, Signature, SignedBlindedBeaconBlock, SignedRoot,
+    SignedValidatorRegistrationData, Slot, Uint256,
 };
 use types::{ExecutionBlockHash, SecretKey};
 use warp::{Filter, Rejection};
@@ -521,7 +521,7 @@ pub fn serve<E: EthSpec>(
                     .await;
 
                 let forkchoice_update_params = ForkchoiceUpdateParameters {
-                    head_root: Hash256::ZERO,
+                    head_root: Hash256::zero(),
                     head_hash: None,
                     justified_hash: Some(justified_execution_hash),
                     finalized_hash: Some(finalized_execution_hash),

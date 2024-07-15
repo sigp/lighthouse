@@ -2,7 +2,7 @@
 use crate::per_epoch_processing::process_epoch;
 use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_chain::types::{EthSpec, MinimalEthSpec};
-use bls::Hash256;
+use bls::{Hash256, Hash256Extended};
 use env_logger::{Builder, Env};
 use types::Slot;
 
@@ -25,7 +25,7 @@ async fn runs_without_error() {
     harness
         .add_attested_blocks_at_slots(
             state,
-            Hash256::ZERO,
+            Hash256::zero(),
             (1..target_slot.as_u64())
                 .map(Slot::new)
                 .collect::<Vec<_>>()

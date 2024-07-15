@@ -10,7 +10,7 @@ use std::borrow::Cow;
 use std::iter;
 use std::time::Duration;
 use store::{chunked_vector::BlockRoots, AnchorInfo, BlobInfo, ChunkWriter, KeyValueStore};
-use types::{Hash256, Slot};
+use types::{Hash256, Hash256Extended, Slot};
 
 /// Use a longer timeout on the pubkey cache.
 ///
@@ -146,7 +146,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     chunk_writer.set(slot, self.genesis_block_root, &mut cold_batch)?;
                 }
                 prev_block_slot = genesis_slot;
-                expected_block_root = Hash256::ZERO;
+                expected_block_root = Hash256::zero();
                 break;
             }
         }

@@ -5,15 +5,15 @@ use ssz::Encode;
 use std::sync::Arc;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconState, Epoch, Eth1Data, EthSpec, Hash256,
-    MainnetEthSpec, Validator,
+    Hash256Extended, MainnetEthSpec, Validator,
 };
 
 fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
     let spec = &E::default_spec();
     let eth1_data = Eth1Data {
-        deposit_root: Hash256::ZERO,
+        deposit_root: Hash256::zero(),
         deposit_count: 0,
-        block_hash: Hash256::ZERO,
+        block_hash: Hash256::zero(),
     };
 
     let mut state = BeaconState::new(0, eth1_data, spec);

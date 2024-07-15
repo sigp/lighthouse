@@ -18,7 +18,7 @@ use tokio::time::sleep;
 use types::payload::BlockProductionVersion;
 use types::{
     Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
-    ForkName, Hash256, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
+    ForkName, Hash256, Hash256Extended, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
 };
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -115,7 +115,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
         let mut spec = TEST_FORK.make_genesis_spec(MainnetEthSpec::default_spec());
-        spec.terminal_total_difficulty = Uint256::zero();
+        spec.terminal_total_difficulty = Uint256::ZERO;
 
         let fee_recipient = None;
 
@@ -252,8 +252,8 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
 
         let parent_hash = terminal_pow_block_hash;
         let timestamp = timestamp_now();
-        let prev_randao = Hash256::ZERO;
-        let head_root = Hash256::ZERO;
+        let prev_randao = Hash256::zero();
+        let head_root = Hash256::zero();
         let justified_block_hash = ExecutionBlockHash::zero();
         let finalized_block_hash = ExecutionBlockHash::zero();
         let forkchoice_update_params = ForkchoiceUpdateParameters {
@@ -294,7 +294,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 justified_block_hash,
                 finalized_block_hash,
                 Slot::new(0),
-                Hash256::ZERO,
+                Hash256::zero(),
             )
             .await
             .unwrap();
@@ -457,7 +457,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
 
         let parent_hash = valid_payload.block_hash();
         let timestamp = valid_payload.timestamp() + 1;
-        let prev_randao = Hash256::ZERO;
+        let prev_randao = Hash256::zero();
         let proposer_index = 0;
         let builder_params = BuilderParams {
             pubkey: PublicKeyBytes::empty(),

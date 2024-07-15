@@ -19,8 +19,8 @@ use types::{
     beacon_state::{
         compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
     },
-    BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, RelativeEpoch,
-    Slot,
+    BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Hash256Extended,
+    RelativeEpoch, Slot,
 };
 
 type JustifiedCheckpoint = Checkpoint;
@@ -229,7 +229,7 @@ impl AttesterCacheKey {
         let decision_root = if decision_slot.epoch(slots_per_epoch) == epoch {
             // This scenario is only possible during the genesis epoch. In this scenario, all-zeros
             // is used as an alias to the genesis block.
-            Hash256::ZERO
+            Hash256::zero()
         } else if epoch > state.current_epoch() {
             // If the requested epoch is higher than the current epoch, the latest block will always
             // be the decision root.

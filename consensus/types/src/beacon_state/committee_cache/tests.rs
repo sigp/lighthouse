@@ -42,7 +42,7 @@ async fn new_state<E: EthSpec>(validator_count: usize, slot: Slot) -> BeaconStat
         harness
             .add_attested_blocks_at_slots(
                 head_state,
-                Hash256::ZERO,
+                Hash256::zero(),
                 (1..=slot.as_u64())
                     .map(Slot::new)
                     .collect::<Vec<_>>()

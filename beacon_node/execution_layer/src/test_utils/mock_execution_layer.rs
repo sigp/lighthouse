@@ -4,10 +4,10 @@ use crate::{
     },
     *,
 };
-use kzg::Kzg;
 use alloy_primitives::B256 as H256;
+use kzg::Kzg;
 use tempfile::NamedTempFile;
-use types::MainnetEthSpec;
+use types::{Hash256Extended, MainnetEthSpec};
 
 pub struct MockExecutionLayer<E: EthSpec> {
     pub server: MockServer<E>,
@@ -92,7 +92,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         let parent_hash = latest_execution_block.block_hash();
         let block_number = latest_execution_block.block_number() + 1;
         let timestamp = block_number;
-        let prev_randao = Hash256::from_slice(&block_number.to_be_bytes());
+        let prev_randao = Hash256::from_low_u64_be(block_number);
         let head_block_root = Hash256::repeat_byte(42);
         let forkchoice_update_params = ForkchoiceUpdateParameters {
             head_root: head_block_root,

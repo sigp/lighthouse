@@ -1,6 +1,8 @@
 use crate::OpPoolError;
 use bitvec::vec::BitVec;
-use types::{BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, ParticipationFlags};
+use types::{
+    BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, Hash256Extended, ParticipationFlags,
+};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct Initialization {
@@ -54,7 +56,7 @@ impl RewardCache {
     /// re-calculation in `update`.
     fn latest_block_root<E: EthSpec>(state: &BeaconState<E>) -> Result<Hash256, OpPoolError> {
         if state.slot() == 0 {
-            Ok( Hash256::ZERO)
+            Ok(Hash256::zero())
         } else {
             Ok(*state
                 .get_block_root(state.slot() - 1)

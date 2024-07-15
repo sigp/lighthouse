@@ -242,12 +242,13 @@ impl BlockTimesCache {
 #[cfg(test)]
 mod test {
     use super::*;
+    use types::Hash256Extended;
 
     #[test]
     fn observed_time_uses_minimum() {
         let mut cache = BlockTimesCache::default();
 
-        let block_root = Hash256::ZERO;
+        let block_root = Hash256::zero();
         let slot = Slot::new(100);
 
         let slot_start_time = Duration::from_secs(0);

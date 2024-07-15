@@ -2,12 +2,12 @@
 
 use crate::test_utils::*;
 use crate::*;
-use types::{AttestationData, Checkpoint, Epoch, Slot};
+use types::{AttestationData, Checkpoint, Epoch, Hash256Extended, Slot};
 
 pub fn build_checkpoint(epoch_num: u64) -> Checkpoint {
     Checkpoint {
         epoch: Epoch::from(epoch_num),
-        root: Hash256::ZERO,
+        root: Hash256::zero(),
     }
 }
 
@@ -20,7 +20,7 @@ pub fn attestation_data_builder(source: u64, target: u64) -> AttestationData {
     AttestationData {
         slot,
         index,
-        beacon_block_root: Hash256::ZERO,
+        beacon_block_root: Hash256::zero(),
         source,
         target,
     }
@@ -230,8 +230,8 @@ fn invalid_double_vote_diff_data() {
 #[test]
 fn invalid_double_vote_diff_domain() {
     let first = attestation_data_builder(0, 2);
-    let domain1 = Hash256::from_slice(&1u64.to_be_bytes());
-    let domain2 = Hash256::from_slice(&2u64.to_be_bytes());
+    let domain1 = Hash256::from_low_u64_le(1);
+    let domain2 = Hash256::from_low_u64_le(2);
 
     StreamTest {
         cases: vec![

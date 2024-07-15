@@ -865,7 +865,7 @@ mod release_tests {
         harness
             .add_attested_blocks_at_slots(
                 state,
-                Hash256::ZERO,
+                Hash256::zero(),
                 &[Slot::new(1)],
                 (0..num_validators).collect::<Vec<_>>().as_slice(),
             )
@@ -898,8 +898,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::ZERO,
-            SignedBeaconBlockHash::from(Hash256::ZERO),
+            Hash256::zero(),
+            SignedBeaconBlockHash::from(Hash256::zero()),
             slot,
         );
 
@@ -987,8 +987,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::ZERO,
-            SignedBeaconBlockHash::from(Hash256::ZERO),
+            Hash256::zero(),
+            SignedBeaconBlockHash::from(Hash256::zero()),
             slot,
         );
 
@@ -1058,8 +1058,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::ZERO,
-            SignedBeaconBlockHash::from(Hash256::ZERO),
+            Hash256::zero(),
+            SignedBeaconBlockHash::from(Hash256::zero()),
             slot,
         );
 
@@ -1102,8 +1102,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::ZERO,
-            SignedBeaconBlockHash::from(Hash256::ZERO),
+            Hash256::zero(),
+            SignedBeaconBlockHash::from(Hash256::zero()),
             slot,
         );
 
@@ -1204,8 +1204,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::ZERO,
-            SignedBeaconBlockHash::from(Hash256::ZERO),
+            Hash256::zero(),
+            SignedBeaconBlockHash::from(Hash256::zero()),
             slot,
         );
 
@@ -1324,8 +1324,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::ZERO,
-            SignedBeaconBlockHash::from(Hash256::ZERO),
+            Hash256::zero(),
+            SignedBeaconBlockHash::from(Hash256::zero()),
             slot,
         );
 

@@ -101,7 +101,7 @@ fn cache_state<E: EthSpec>(
     state.set_state_root(previous_slot, previous_state_root)?;
 
     // Cache latest block header state root
-    if state.latest_block_header().state_root == Hash256::ZERO {
+    if state.latest_block_header().state_root == Hash256::zero() {
         state.latest_block_header_mut().state_root = previous_state_root;
     }
 

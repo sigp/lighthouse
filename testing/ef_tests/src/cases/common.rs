@@ -5,47 +5,49 @@ use std::fmt::Debug;
 use tree_hash::TreeHash;
 use types::ForkName;
 
-/// Macro to wrap U128 and U256 so they deserialize correctly.
-macro_rules! uint_wrapper {
-    ($wrapper_name:ident, $wrapped_type:ty) => {
-        #[derive(Debug, Clone, Copy, Default, PartialEq, Decode, Encode, Deserialize)]
-        #[serde(try_from = "String")]
-        pub struct $wrapper_name {
-            pub x: $wrapped_type,
-        }
+// TODO(alloy) do we need this?
 
-        impl TryFrom<String> for $wrapper_name {
-            type Error = String;
+// /// Macro to wrap U128 and U256 so they deserialize correctly.
+// macro_rules! uint_wrapper {
+//     ($wrapper_name:ident, $wrapped_type:ty) => {
+//         #[derive(Debug, Clone, Copy, Default, PartialEq, Decode, Encode, Deserialize)]
+//         #[serde(try_from = "String")]
+//         pub struct $wrapper_name {
+//             pub x: $wrapped_type,
+//         }
 
-            fn try_from(s: String) -> Result<Self, Self::Error> {
-                <$wrapped_type>::from_dec_str(&s)
-                    .map(|x| Self { x })
-                    .map_err(|e| format!("{:?}", e))
-            }
-        }
+//         impl TryFrom<String> for $wrapper_name {
+//             type Error = String;
 
-        impl tree_hash::TreeHash for $wrapper_name {
-            fn tree_hash_type() -> tree_hash::TreeHashType {
-                <$wrapped_type>::tree_hash_type()
-            }
+//             fn try_from(s: String) -> Result<Self, Self::Error> {
+//                 <$wrapped_type>::from_dec_str(&s)
+//                     .map(|x| Self { x })
+//                     .map_err(|e| format!("{:?}", e))
+//             }
+//         }
 
-            fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
-                self.x.tree_hash_packed_encoding()
-            }
+//         impl tree_hash::TreeHash for $wrapper_name {
+//             fn tree_hash_type() -> tree_hash::TreeHashType {
+//                 <$wrapped_type>::tree_hash_type()
+//             }
 
-            fn tree_hash_packing_factor() -> usize {
-                <$wrapped_type>::tree_hash_packing_factor()
-            }
+//             fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
+//                 self.x.tree_hash_packed_encoding()
+//             }
 
-            fn tree_hash_root(&self) -> tree_hash::Hash256 {
-                self.x.tree_hash_root()
-            }
-        }
-    };
-}
+//             fn tree_hash_packing_factor() -> usize {
+//                 <$wrapped_type>::tree_hash_packing_factor()
+//             }
 
-uint_wrapper!(TestU128, ethereum_types::U128);
-uint_wrapper!(TestU256, ethereum_types::U256);
+//             fn tree_hash_root(&self) -> tree_hash::Hash256 {
+//                 self.x.tree_hash_root()
+//             }
+//         }
+//     };
+// }
+
+// uint_wrapper!(TestU128, ethereum_types::U128);
+// uint_wrapper!(TestU256, ethereum_types::U256);
 
 /// Trait for types that can be used in SSZ static tests.
 pub trait SszStaticType:

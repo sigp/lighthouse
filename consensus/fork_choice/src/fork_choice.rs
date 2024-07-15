@@ -15,8 +15,8 @@ use std::time::Duration;
 use types::{
     consts::bellatrix::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
     AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
-    Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestationRef, RelativeEpoch,
-    SignedBeaconBlock, Slot,
+    Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, Hash256Extended,
+    IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -397,7 +397,7 @@ where
                 justified_hash: None,
                 finalized_hash: None,
                 // This will be updated during the next call to `Self::get_head`.
-                head_root: Hash256::ZERO,
+                head_root: Hash256::zero(),
             },
             _phantom: PhantomData,
         };
@@ -1055,7 +1055,7 @@ where
         // (1) becomes weird once we hit finality and fork choice drops the genesis block. (2) is
         // fine because votes to the genesis block are not useful; all validators implicitly attest
         // to genesis just by being present in the chain.
-        if attestation.data().beacon_block_root == Hash256::ZERO {
+        if attestation.data().beacon_block_root == Hash256::zero() {
             return Ok(());
         }
 
@@ -1139,7 +1139,7 @@ where
 
         // Reset proposer boost if this is a new slot.
         if current_slot > previous_slot {
-            store.set_proposer_boost_root(Hash256::ZERO);
+            store.set_proposer_boost_root(Hash256::zero());
         }
 
         // Not a new epoch, return.
@@ -1465,7 +1465,7 @@ where
                 justified_hash: None,
                 finalized_hash: None,
                 // Will be updated in the following call to `Self::get_head`.
-                head_root: Hash256::ZERO,
+                head_root: Hash256::zero(),
             },
             _phantom: PhantomData,
         };
@@ -1546,7 +1546,7 @@ mod tests {
             .map(|i| QueuedAttestation {
                 slot: Slot::new(i),
                 attesting_indices: vec![],
-                block_root: Hash256::ZERO,
+                block_root: Hash256::zero(),
                 target_epoch: Epoch::new(0),
             })
             .collect()

@@ -1,6 +1,6 @@
 use crate::{
     test_utils::TestRandom, Address, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, ForkName,
-    Hash256, PublicKeyBytes,
+    Hash256, Hash256Extended, PublicKeyBytes,
 };
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -282,7 +282,7 @@ impl Default for Validator {
     fn default() -> Self {
         Self {
             pubkey: PublicKeyBytes::empty(),
-            withdrawal_credentials: Hash256::ZERO,
+            withdrawal_credentials: Hash256::zero(),
             activation_eligibility_epoch: Epoch::from(u64::MAX),
             activation_epoch: Epoch::from(u64::MAX),
             exit_epoch: Epoch::from(u64::MAX),

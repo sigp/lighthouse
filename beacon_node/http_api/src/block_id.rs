@@ -5,7 +5,10 @@ use eth2::types::BlockId as CoreBlockId;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
-use types::{BlobSidecarList, EthSpec, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
+use types::{
+    BlobSidecarList, EthSpec, Hash256, Hash256Extended, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, Slot,
+};
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
 /// `BlockId`.
@@ -81,7 +84,7 @@ impl BlockId {
             }
             CoreBlockId::Root(root) => {
                 // This matches the behaviour of other consensus clients (e.g. Teku).
-                if root == &Hash256::ZERO {
+                if root == &Hash256::zero() {
                     return Err(warp_utils::reject::custom_not_found(format!(
                         "beacon block with root {}",
                         root

@@ -683,7 +683,7 @@ mod tests {
             "sync_committee_signature",
             |pubkey, validator_store| async move {
                 validator_store
-                    .produce_sync_committee_signature(altair_fork_slot, Hash256::ZERO, 0, &pubkey)
+                    .produce_sync_committee_signature(altair_fork_slot, Hash256::zero(), 0, &pubkey)
                     .await
                     .unwrap()
             },

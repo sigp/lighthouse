@@ -2923,6 +2923,7 @@ dependencies = [
  "alloy-core",
  "async-channel",
  "deposit_contract",
+ "ethers-core",
  "ethers-providers",
  "execution_layer",
  "fork_choice",

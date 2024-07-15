@@ -619,6 +619,7 @@ impl SlotSubcommitteeIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use types::Hash256Extended;
 
     type E = types::MainnetEthSpec;
 
@@ -629,7 +630,7 @@ mod tests {
         let mut store: Container = <_>::default();
         let key = Slot::new(0);
         let validator_index = 0;
-        let value = Hash256::ZERO;
+        let value = Hash256::zero();
 
         // Assert there is no entry.
         assert!(store
@@ -1171,7 +1172,7 @@ mod tests {
     test_suite_slot!(
         observed_sync_contributors,
         ObservedSyncContributors,
-        Hash256::ZERO
+        Hash256::zero()
     );
     test_suite_slot!(observed_sync_aggregators, ObservedSyncAggregators, ());
 }

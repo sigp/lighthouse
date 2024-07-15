@@ -3,6 +3,7 @@
 use crate::test_utils::pubkey;
 use crate::*;
 use tempfile::tempdir;
+use types::Hash256Extended;
 
 #[test]
 fn export_non_existent_key() {
@@ -15,7 +16,7 @@ fn export_non_existent_key() {
 
     // Exporting two non-existent keys should fail on the first one.
     let err = slashing_db
-        .export_interchange_info(Hash256::ZERO, Some(&[key1, key2]))
+        .export_interchange_info(Hash256::zero(), Some(&[key1, key2]))
         .unwrap_err();
     assert!(matches!(
         err,
@@ -26,7 +27,7 @@ fn export_non_existent_key() {
 
     // Exporting one key that exists and one that doesn't should fail on the one that doesn't.
     let err = slashing_db
-        .export_interchange_info(Hash256::ZERO, Some(&[key1, key2]))
+        .export_interchange_info(Hash256::zero(), Some(&[key1, key2]))
         .unwrap_err();
     assert!(matches!(
         err,
@@ -35,7 +36,7 @@ fn export_non_existent_key() {
 
     // Exporting only keys that exist should work.
     let interchange = slashing_db
-        .export_interchange_info(Hash256::ZERO, Some(&[key1]))
+        .export_interchange_info(Hash256::zero(), Some(&[key1]))
         .unwrap();
     assert_eq!(interchange.data.len(), 1);
     assert_eq!(interchange.data[0].pubkey, key1);
@@ -52,10 +53,10 @@ fn export_same_key_twice() {
     slashing_db.register_validator(key1).unwrap();
 
     let export_single = slashing_db
-        .export_interchange_info(Hash256::ZERO, Some(&[key1]))
+        .export_interchange_info(Hash256::zero(), Some(&[key1]))
         .unwrap();
     let export_double = slashing_db
-        .export_interchange_info(Hash256::ZERO, Some(&[key1, key1]))
+        .export_interchange_info(Hash256::zero(), Some(&[key1, key1]))
         .unwrap();
 
     assert_eq!(export_single.data.len(), 1);

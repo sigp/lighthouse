@@ -1330,7 +1330,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{MainnetEthSpec, Unsigned};
+    use types::{Hash256Extended, MainnetEthSpec, Unsigned};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,
@@ -1620,7 +1620,7 @@ mod test {
                             },
                             Some(PayloadAttributes::V1(PayloadAttributesV1 {
                                 timestamp: 5,
-                                prev_randao: Hash256::ZERO,
+                                prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::repeat_byte(0),
                             })),
                         )
@@ -1655,7 +1655,7 @@ mod test {
                         },
                         Some(PayloadAttributes::V1(PayloadAttributesV1 {
                             timestamp: 5,
-                            prev_randao: Hash256::ZERO,
+                            prev_randao: Hash256::zero(),
                             suggested_fee_recipient: Address::repeat_byte(0),
                         })),
                     )
@@ -1842,7 +1842,7 @@ mod test {
                             },
                             Some(PayloadAttributes::V1(PayloadAttributesV1 {
                                 timestamp: 5,
-                                prev_randao: Hash256::ZERO,
+                                prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             }))
                         )
@@ -1889,7 +1889,7 @@ mod test {
                             },
                             Some(PayloadAttributes::V1(PayloadAttributesV1 {
                                 timestamp: 5,
-                                prev_randao: Hash256::ZERO,
+                                prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             }))
                         )
@@ -1957,7 +1957,7 @@ mod test {
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
                             receipts_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
                             logs_bloom: vec![0; 256].into(),
-                            prev_randao: Hash256::ZERO,
+                            prev_randao: Hash256::zero(),
                             block_number: 1,
                             gas_limit: u64::from_str_radix("1c95111",16).unwrap(),
                             gas_used: 0,
@@ -1982,7 +1982,7 @@ mod test {
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
                             receipts_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
                             logs_bloom: vec![0; 256].into(),
-                            prev_randao: Hash256::ZERO,
+                            prev_randao: Hash256::zero(),
                             block_number: 1,
                             gas_limit: u64::from_str_radix("1c9c380",16).unwrap(),
                             gas_used: 0,

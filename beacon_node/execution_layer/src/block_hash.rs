@@ -2,7 +2,7 @@ use crate::{
     json_structures::JsonWithdrawal,
     keccak::{keccak256, KeccakHasher},
 };
-use ethers_core::utils::rlp::RlpStream;
+use alloy_rlp::Encodable;
 use keccak_hash::KECCAK_EMPTY_LIST_RLP;
 use triehash::ordered_trie_root;
 use types::{
@@ -60,36 +60,36 @@ pub fn calculate_execution_block_hash<E: EthSpec>(
 
 /// RLP encode a withdrawal.
 pub fn rlp_encode_withdrawal(withdrawal: &JsonWithdrawal) -> Vec<u8> {
-    let mut rlp_stream = RlpStream::new();
-    rlp_stream.begin_list(4);
-    rlp_stream.append(&withdrawal.index);
-    rlp_stream.append(&withdrawal.validator_index);
-    rlp_stream.append(&withdrawal.address.as_slice());
-    rlp_stream.append(&withdrawal.amount);
-    rlp_stream.out().into()
+    let mut rlp_buffer = Vec::<u8>::new();
+    withdrawal.index.encode(&mut rlp_buffer);
+    withdrawal.validator_index.encode(&mut rlp_buffer);
+    withdrawal.address.as_slice().encode(&mut rlp_buffer);
+    withdrawal.amount.encode(&mut rlp_buffer);
+
+    rlp_buffer
 }
 
 /// RLP encode an execution block header.
 pub fn rlp_encode_block_header(header: &ExecutionBlockHeader) -> Vec<u8> {
-    let mut rlp_header_stream = RlpStream::new();
-    rlp_header_stream.begin_unbounded_list();
+    let mut rlp_buffer = Vec::<u8>::new();
+
     map_execution_block_header_fields_base!(&header, |_, field| {
-        rlp_header_stream.append(field);
+        field.encode(&mut rlp_buffer);
     });
     if let Some(withdrawals_root) = &header.withdrawals_root {
-        rlp_header_stream.append(withdrawals_root);
+        withdrawals_root.encode(&mut rlp_buffer);
     }
     if let Some(blob_gas_used) = &header.blob_gas_used {
-        rlp_header_stream.append(blob_gas_used);
+        blob_gas_used.encode(&mut rlp_buffer);
     }
     if let Some(excess_blob_gas) = &header.excess_blob_gas {
-        rlp_header_stream.append(excess_blob_gas);
+        excess_blob_gas.encode(&mut rlp_buffer);
     }
     if let Some(parent_beacon_block_root) = &header.parent_beacon_block_root {
-        rlp_header_stream.append(parent_beacon_block_root);
+        parent_beacon_block_root.encode(&mut rlp_buffer);
     }
-    rlp_header_stream.finalize_unbounded_list();
-    rlp_header_stream.out().into()
+
+    rlp_buffer
 }
 
 #[cfg(test)]

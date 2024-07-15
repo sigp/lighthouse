@@ -13,7 +13,7 @@ use std::process::exit;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, EthSpec, Keypair, SignedBeaconBlock,
 };
-use types::{Hash256, MainnetEthSpec, Slot};
+use types::{Hash256, Hash256Extended, MainnetEthSpec, Slot};
 
 type E = MainnetEthSpec;
 
@@ -65,7 +65,7 @@ async fn get_harness<E: EthSpec>(
         harness
             .add_attested_blocks_at_slots(
                 state,
-                Hash256::ZERO,
+                Hash256::zero(),
                 (skip_to_slot.as_u64()..slot.as_u64())
                     .map(Slot::new)
                     .collect::<Vec<_>>()

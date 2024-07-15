@@ -6,7 +6,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use tempfile::tempdir;
-use types::{Epoch, Hash256, PublicKeyBytes, Slot};
+use types::{Epoch, Hash256, Hash256Extended, PublicKeyBytes, Slot};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
@@ -200,7 +200,7 @@ impl TestCase {
                 TestBlock {
                     pubkey: pubkey(pk),
                     slot: Slot::new(slot),
-                    signing_root: Hash256::from_slice(&signing_root.to_be_bytes()),
+                    signing_root: Hash256::from_low_u64_be(signing_root),
                     should_succeed,
                     should_succeed_complete,
                 }
@@ -234,7 +234,7 @@ impl TestCase {
                     pubkey: pubkey(pk),
                     source_epoch: Epoch::new(source),
                     target_epoch: Epoch::new(target),
-                    signing_root: Hash256::from_slice(&signing_root.to_be_bytes()),
+                    signing_root: Hash256::from_low_u64_be(signing_root),
                     should_succeed,
                     should_succeed_complete,
                 }

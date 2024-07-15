@@ -44,7 +44,7 @@ async fn get_harness<E: EthSpec>(
         harness
             .add_attested_blocks_at_slots(
                 state,
-                Hash256::ZERO,
+                Hash256::zero(),
                 (1..last_slot_of_epoch.as_u64())
                     .map(Slot::new)
                     .collect::<Vec<_>>()

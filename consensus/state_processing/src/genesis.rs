@@ -21,7 +21,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     let genesis_time = eth2_genesis_time(eth1_timestamp, spec)?;
     let eth1_data = Eth1Data {
         // Temporary deposit root
-        deposit_root: Hash256::ZERO,
+        deposit_root: Hash256::zero(),
         deposit_count: deposits.len() as u64,
         block_hash: eth1_block_hash,
     };

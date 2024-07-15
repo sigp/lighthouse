@@ -19,8 +19,8 @@ use ethers_core::{
 pub use ethers_providers::{Http, Middleware, Provider};
 use std::time::Duration;
 use tokio::time::sleep;
-use types::DepositData;
 use types::{test_utils::generate_deterministic_keypair, EthSpec, Hash256, Keypair, Signature};
+use types::{DepositData, Hash256Extended};
 
 pub const DEPLOYER_ACCOUNTS_INDEX: usize = 0;
 pub const DEPOSIT_ACCOUNTS_INDEX: usize = 0;
@@ -137,7 +137,7 @@ impl DepositContract {
 
         let mut deposit = DepositData {
             pubkey: keypair.pk.into(),
-            withdrawal_credentials: Hash256::ZERO,
+            withdrawal_credentials: Hash256::zero(),
             amount: 32_000_000_000,
             signature: Signature::empty().into(),
         };
@@ -163,7 +163,7 @@ impl DepositContract {
 
         let mut deposit = DepositData {
             pubkey: keypair.pk.into(),
-            withdrawal_credentials: Hash256::ZERO,
+            withdrawal_credentials: Hash256::zero(),
             amount,
             signature: Signature::empty().into(),
         };

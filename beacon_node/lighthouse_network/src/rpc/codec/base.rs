@@ -176,7 +176,7 @@ mod tests {
     use crate::rpc::protocol::*;
 
     use std::sync::Arc;
-    use types::{Epoch, ForkContext, ForkName, Hash256, Slot};
+    use types::{Epoch, ForkContext, ForkName, Hash256, Hash256Extended, Slot};
     use unsigned_varint::codec::Uvi;
 
     type Spec = types::MainnetEthSpec;
@@ -203,7 +203,7 @@ mod tests {
             ForkName::Deneb => deneb_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Electra => electra_fork_epoch.start_slot(Spec::slots_per_epoch()),
         };
-        ForkContext::new::<Spec>(current_slot, Hash256::ZERO, &chain_spec)
+        ForkContext::new::<Spec>(current_slot, Hash256::zero(), &chain_spec)
     }
 
     #[test]

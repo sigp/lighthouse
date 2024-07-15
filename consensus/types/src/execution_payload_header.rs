@@ -153,7 +153,7 @@ impl<E: EthSpec> ExecutionPayloadHeaderBellatrix<E> {
             base_fee_per_gas: self.base_fee_per_gas,
             block_hash: self.block_hash,
             transactions_root: self.transactions_root,
-            withdrawals_root: Hash256::ZERO,
+            withdrawals_root: Hash256::zero(),
         }
     }
 }
@@ -202,8 +202,8 @@ impl<E: EthSpec> ExecutionPayloadHeaderDeneb<E> {
             withdrawals_root: self.withdrawals_root,
             blob_gas_used: self.blob_gas_used,
             excess_blob_gas: self.excess_blob_gas,
-            deposit_receipts_root: Hash256::ZERO,
-            withdrawal_requests_root: Hash256::ZERO,
+            deposit_receipts_root: Hash256::zero(),
+            withdrawal_requests_root: Hash256::zero(),
         }
     }
 }

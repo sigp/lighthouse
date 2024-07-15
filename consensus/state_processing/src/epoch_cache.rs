@@ -3,7 +3,7 @@ use crate::common::base::SqrtTotalActiveBalance;
 use crate::common::{altair, base};
 use safe_arith::SafeArith;
 use types::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
-use types::{ActivationQueue, BeaconState, ChainSpec, EthSpec, ForkName, Hash256};
+use types::{ActivationQueue, BeaconState, ChainSpec, EthSpec, ForkName, Hash256, Hash256Extended};
 
 /// Precursor to an `EpochCache`.
 pub struct PreEpochCache {
@@ -119,7 +119,7 @@ pub fn is_epoch_cache_initialized<E: EthSpec>(
     let current_epoch = state.current_epoch();
     let epoch_cache: &EpochCache = state.epoch_cache();
     let decision_block_root = state
-        .proposer_shuffling_decision_root(Hash256::ZERO)
+        .proposer_shuffling_decision_root(Hash256::zero())
         .map_err(EpochCacheError::BeaconState)?;
 
     Ok(epoch_cache
@@ -139,7 +139,7 @@ pub fn initialize_epoch_cache<E: EthSpec>(
     let current_epoch = state.current_epoch();
     let next_epoch = state.next_epoch().map_err(EpochCacheError::BeaconState)?;
     let decision_block_root = state
-        .proposer_shuffling_decision_root(Hash256::ZERO)
+        .proposer_shuffling_decision_root(Hash256::zero())
         .map_err(EpochCacheError::BeaconState)?;
 
     state.build_total_active_balance_cache(spec)?;

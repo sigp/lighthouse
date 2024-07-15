@@ -678,7 +678,7 @@ fn is_candidate_block(block: &Eth1Block, period_start: u64, spec: &ChainSpec) ->
 mod test {
     use super::*;
     use environment::null_logger;
-    use types::{DepositData, MinimalEthSpec, Signature};
+    use types::{DepositData, Hash256Extended, MinimalEthSpec, Signature};
 
     type E = MinimalEthSpec;
 
@@ -752,7 +752,7 @@ mod test {
             let keypair = generate_deterministic_keypair(i as usize);
             let mut deposit = DepositData {
                 pubkey: keypair.pk.into(),
-                withdrawal_credentials: Hash256::ZERO,
+                withdrawal_credentials: Hash256::zero(),
                 amount: spec.max_effective_balance,
                 signature: Signature::empty().into(),
             };

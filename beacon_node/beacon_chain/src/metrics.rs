@@ -1400,7 +1400,9 @@ fn set_gauge_by_epoch(gauge: &Result<IntGauge>, value: Epoch) {
 }
 
 fn set_gauge_by_hash(gauge: &Result<IntGauge>, value: Hash256) {
-    set_gauge(gauge, value.to_low_u64_le() as i64);
+    // TODO(alloy) implement this
+    // set_gauge(gauge, value.to_low_u64_le() as i64);
+    todo!()
 }
 
 fn set_gauge_by_usize(gauge: &Result<IntGauge>, value: usize) {

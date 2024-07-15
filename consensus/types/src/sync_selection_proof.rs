@@ -105,7 +105,7 @@ impl From<Signature> for SyncSelectionProof {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::{Hash256Extended, MainnetEthSpec};
     use eth2_interop_keypairs::keypair;
 
     #[test]
@@ -114,7 +114,7 @@ mod test {
         let subcommittee_index = 12;
         let key = keypair(1);
         let fork = &Fork::default();
-        let genesis_validators_root = Hash256::ZERO;
+        let genesis_validators_root = Hash256::zero();
         let spec = &ChainSpec::mainnet();
 
         let proof = SyncSelectionProof::new::<MainnetEthSpec>(

@@ -39,7 +39,7 @@ mod test {
             get_withdrawal_credentials(&keypair.pk, spec.bls_withdrawal_prefix_byte);
         let hash: Hash256 = credentials.into();
         assert_eq!(hash[0], spec.bls_withdrawal_prefix_byte);
-        assert_eq!(hash.as_bytes(), &manually_generated_credentials);
+        assert_eq!(hash.as_slice(), &manually_generated_credentials);
     }
 
     #[test]

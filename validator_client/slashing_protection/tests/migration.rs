@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
-use types::Hash256;
+use types::{Hash256, Hash256Extended};
 
 fn test_data_dir() -> PathBuf {
     Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("migration-tests")
@@ -30,7 +30,7 @@ fn add_enabled_column() {
     let db = SlashingDatabase::open(&path).unwrap();
 
     // Check that exporting an interchange file lists all the validators.
-    let interchange = db.export_all_interchange_info(Hash256::ZERO).unwrap();
+    let interchange = db.export_all_interchange_info(Hash256::zero()).unwrap();
     assert_eq!(interchange.data.len(), num_expected_validators);
 
     db.with_transaction(|txn| {

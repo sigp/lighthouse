@@ -40,7 +40,7 @@ use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256,
-    Signature, SignedBeaconBlock, Slot,
+    Hash256Extended, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -364,7 +364,7 @@ where
 
         // Store the genesis block under the `ZERO_HASH` key.
         store
-            .put_block(&Hash256::ZERO, beacon_block.clone())
+            .put_block(&Hash256::zero(), beacon_block.clone())
             .map_err(|e| {
                 format!(
                     "Failed to store genesis block under 0x00..00 alias: {:?}",
@@ -1212,7 +1212,7 @@ mod test {
         assert_eq!(
             chain
                 .store
-                .get_blinded_block(&Hash256::ZERO)
+                .get_blinded_block(&Hash256::zero())
                 .expect("should read db")
                 .expect("should find genesis block"),
             block.clone_as_blinded(),

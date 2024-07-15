@@ -7,7 +7,7 @@ use slashing_protection::SUPPORTED_INTERCHANGE_FORMAT_VERSION;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
-use types::{Epoch, Hash256, Slot};
+use types::{Epoch, Hash256, Hash256Extended, Slot};
 
 fn metadata(genesis_validators_root: Hash256) -> InterchangeMetadata {
     InterchangeMetadata {
@@ -50,7 +50,7 @@ fn interchange_with_signing_roots(
                 .into_iter()
                 .map(|(slot, signing_root)| SignedBlock {
                     slot: Slot::new(slot),
-                    signing_root: signing_root.map(|root| Hash256::from_slice(&root.to_be_bytes())),
+                    signing_root: signing_root.map(Hash256::from_low_u64_be),
                 })
                 .collect(),
             signed_attestations: attestations
@@ -58,7 +58,7 @@ fn interchange_with_signing_roots(
                 .map(|(source, target, signing_root)| SignedAttestation {
                     source_epoch: Epoch::new(source),
                     target_epoch: Epoch::new(target),
-                    signing_root: signing_root.map(|root| Hash256::from_slice(&root.to_be_bytes())),
+                    signing_root: signing_root.map(Hash256::from_low_u64_be),
                 })
                 .collect(),
         })
@@ -199,7 +199,7 @@ fn main() {
             "wrong_genesis_validators_root",
             TestCase::new(interchange(vec![])).should_fail(),
         )
-        .gvr(Hash256::from_slice(&1u64.to_le_bytes())),
+        .gvr(Hash256::from_low_u64_be(1)),
         MultiTestCase::new(
             "multiple_interchanges_single_validator_single_message_gap",
             vec![

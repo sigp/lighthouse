@@ -65,7 +65,7 @@ fn basic() {
             .map(|i| {
                 deposit_contract.deposit_helper::<MinimalEthSpec>(
                     generate_deterministic_keypair(i as usize),
-                    Hash256::from_low_u64_le(i),
+                    Hash256::from_slice(&i.to_le_bytes()),
                     32_000_000_000,
                 )
             })

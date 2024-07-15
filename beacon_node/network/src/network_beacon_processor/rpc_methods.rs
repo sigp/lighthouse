@@ -13,7 +13,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
-use types::{Epoch, EthSpec, ForkName, Hash256, Slot};
+use types::{Epoch, EthSpec, ForkName, Hash256, Hash256Extended, Slot};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
@@ -85,8 +85,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // their or our system's clock is incorrect.
             Some("Different system clocks or genesis time".to_string())
         } else if remote.finalized_epoch <= local.finalized_epoch
-            && remote.finalized_root != Hash256::ZERO
-            && local.finalized_root != Hash256::ZERO
+            && remote.finalized_root != Hash256::zero()
+            && local.finalized_root != Hash256::zero()
             && self
                 .chain
                 .block_root_at_slot(start_slot(remote.finalized_epoch), WhenSlotSkipped::Prev)
