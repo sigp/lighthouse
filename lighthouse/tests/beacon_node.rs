@@ -274,10 +274,7 @@ fn always_prepare_payload_override() {
             Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
         )
         .flag("execution-endpoint", Some("http://localhost:8551/"))
-        .flag(
-            "execution-jwt",
-            dir.path().join("jwt-file").as_os_str().to_str(),
-        )
+        .flag("execution-jwt-secret-key", Some(jwt_secret_key))
         .run_with_zero_port()
         .with_config(|config| assert!(config.chain.always_prepare_payload));
 }
