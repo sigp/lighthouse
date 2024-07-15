@@ -204,21 +204,36 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             }
 
             let Some(peer_id) = self.use_rand_available_peer() else {
-                // Allow lookup to not have any peers. In that case do nothing. If the lookup does
-                // not have peers for some time, it will be dropped.
+                // Allow lookup to not have any peers and do nothing. This is an optimization to not
+                // lose progress of lookups created from a block with unknown parent before we receive
+                // attestations for said block.
+                // Lookup sync event safety: If a lookup requires peers to make progress, and does
+                // not receive any new peers for some time it will be dropped. If it receives a new
+                // peer it must attempt to make progress.
+                R::request_state_mut(self)
+                    .get_state_mut()
+                    .update_awaiting_download_status("no peers");
                 return Ok(());
             };
 
             let request = R::request_state_mut(self);
             match request.make_request(id, peer_id, downloaded_block_expected_blobs, cx)? {
                 LookupRequestResult::RequestSent(req_id) => {
+                    // Lookup sync event safety: If make_request returns `RequestSent`, we are
+                    // guaranteed that `BlockLookups::on_download_response` will be called exactly
+                    // with this `req_id`.
                     request.get_state_mut().on_download_start(req_id)?
                 }
                 LookupRequestResult::NoRequestNeeded => {
+                    // Lookup sync event safety: Advances this request to the terminal `Processed`
+                    // state. If all requests reach this state, the request is marked as completed
+                    // in `Self::continue_requests`.
                     request.get_state_mut().on_completed_request()?
                 }
                 // Sync will receive a future event to make progress on the request, do nothing now
                 LookupRequestResult::Pending(reason) => {
+                    // Lookup sync event safety: Refer to the code paths constructing
+                    // `LookupRequestResult::Pending`
                     request
                         .get_state_mut()
                         .update_awaiting_download_status(reason);
@@ -229,15 +244,27 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         // Otherwise, attempt to progress awaiting processing
         // If this request is awaiting a parent lookup to be processed, do not send for processing.
         // The request will be rejected with unknown parent error.
+        //
+        // TODO: The condition `block_is_processed || Block` can be dropped after checking for
+        // unknown parent root when import RPC blobs
         } else if !awaiting_parent
             && (block_is_processed || matches!(R::response_type(), ResponseType::Block))
         {
             // maybe_start_processing returns Some if state == AwaitingProcess. This pattern is
             // useful to conditionally access the result data.
             if let Some(result) = request.get_state_mut().maybe_start_processing() {
+                // Lookup sync event safety: If `send_for_processing` returns Ok() we are guaranteed
+                // that `BlockLookups::on_processing_result` will be called exactly once with this
+                // lookup_id
                 return R::send_for_processing(id, result, cx);
             }
+            // Lookup sync event safety: If the request is not in `AwaitingDownload` or
+            // `AwaitingProcessing` state it is guaranteed to receive some event to make progress.
         }
+
+        // Lookup sync event safety: If a lookup is awaiting a parent we are guaranteed to either:
+        // (1) attempt to make progress with `BlockLookups::continue_child_lookups` if the parent
+        // lookup completes, or (2) get dropped if the parent fails and is dropped.
 
         Ok(())
     }
@@ -253,10 +280,9 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         self.peers.insert(peer_id)
     }
 
-    /// Remove peer from available peers. Return true if there are no more available peers and all
-    /// requests are not expecting any future event (AwaitingDownload).
-    pub fn remove_peer(&mut self, peer_id: &PeerId) -> bool {
-        self.peers.remove(peer_id)
+    /// Remove peer from available peers.
+    pub fn remove_peer(&mut self, peer_id: &PeerId) {
+        self.peers.remove(peer_id);
     }
 
     /// Returns true if this lookup has zero peers

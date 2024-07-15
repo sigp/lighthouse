@@ -9,7 +9,7 @@ use bls::Signature;
 use derivative::Derivative;
 #[cfg_attr(test, double)]
 use kzg::Kzg;
-use kzg::{Blob as KzgBlob, Cell as KzgCell, Error as KzgError};
+use kzg::{Blob as KzgBlob, CellRef as KzgCellRef, Error as KzgError};
 use kzg::{KzgCommitment, KzgProof};
 use merkle_proof::verify_merkle_proof;
 #[cfg(test)]
@@ -144,11 +144,7 @@ impl<E: EthSpec> DataColumnSidecar<E> {
                         .ok_or(DataColumnSidecarError::InconsistentArrayLength(format!(
                             "Missing blob cell at index {col}"
                         )))?;
-                let cell: Vec<u8> = cell
-                    .into_inner()
-                    .into_iter()
-                    .flat_map(|data| (*data).into_iter())
-                    .collect();
+                let cell: Vec<u8> = cell.to_vec();
                 let cell = Cell::<E>::from(cell);
 
                 let proof = blob_cell_proofs.get(col).ok_or(
@@ -213,7 +209,7 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         let blob_cells_and_proofs_vec = (0..num_of_blobs)
             .into_par_iter()
             .map(|row_index| {
-                let mut cells: Vec<KzgCell> = vec![];
+                let mut cells: Vec<KzgCellRef> = vec![];
                 let mut cell_ids: Vec<u64> = vec![];
                 for data_column in data_columns {
                     let cell = data_column.column.get(row_index).ok_or(
@@ -239,11 +235,7 @@ impl<E: EthSpec> DataColumnSidecar<E> {
                     .ok_or(KzgError::InconsistentArrayLength(format!(
                         "Missing blob cell at index {col}"
                     )))?;
-                let cell: Vec<u8> = cell
-                    .into_inner()
-                    .into_iter()
-                    .flat_map(|data| (*data).into_iter())
-                    .collect();
+                let cell: Vec<u8> = cell.to_vec();
                 let cell = Cell::<E>::from(cell);
 
                 let proof = blob_cell_proofs
@@ -392,8 +384,11 @@ impl From<SszError> for DataColumnSidecarError {
 
 /// Converts a cell ssz List object to an array to be used with the kzg
 /// crypto library.
-fn ssz_cell_to_crypto_cell<E: EthSpec>(cell: &Cell<E>) -> Result<KzgCell, KzgError> {
-    KzgCell::from_bytes(cell.as_ref()).map_err(Into::into)
+fn ssz_cell_to_crypto_cell<E: EthSpec>(cell: &Cell<E>) -> Result<KzgCellRef, KzgError> {
+    let cell_bytes: &[u8] = cell.as_ref();
+    Ok(cell_bytes
+        .try_into()
+        .expect("expected cell to have size {BYTES_PER_CELL}. This should be guaranteed by the `FixedVector type"))
 }
 
 #[cfg(test)]

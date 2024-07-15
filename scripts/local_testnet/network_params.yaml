@@ -1,4 +1,4 @@
-# Full configuration reference [here](https://github.com/kurtosis-tech/ethereum-package?tab=readme-ov-file#configuration).
+# Full configuration reference [here](https://github.com/ethpandaops/ethereum-package?tab=readme-ov-file#configuration).
 participants:
   - el_type: geth
     el_image: ethereum/client-go:latest
@@ -12,3 +12,6 @@ network_params:
   seconds_per_slot: 3
 global_log_level: debug
 snooper_enabled: false
+additional_services:
+  - dora
+  - prometheus_grafana

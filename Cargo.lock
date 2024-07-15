@@ -856,7 +856,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "5.2.0"
+version = "5.2.1"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -919,21 +919,22 @@ dependencies = [
 
 [[package]]
 name = "bindgen"
-version = "0.59.2"
+version = "0.69.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bd2a9a458e8f4304c52c43ebb0cfbd520289f8379a52e329a38afda99bf8eb8"
+checksum = "a00dc851838a2120612785d195287475a3ac45514741da670b735818822129a0"
 dependencies = [
- "bitflags 1.3.2",
+ "bitflags 2.5.0",
  "cexpr",
  "clang-sys",
+ "itertools",
  "lazy_static",
  "lazycell",
- "peeking_take_while",
  "proc-macro2",
  "quote",
  "regex",
  "rustc-hash",
  "shlex",
+ "syn 2.0.66",
 ]
 
 [[package]]
@@ -1051,6 +1052,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "blstrs"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a8a8ed6fefbeef4a8c7b460e4110e12c5e22a5b7cf32621aae6ad650c4dcf29"
+dependencies = [
+ "blst",
+ "byte-slice-cast",
+ "ff 0.13.0",
+ "group 0.13.0",
+ "pairing",
+ "rand_core",
+ "serde",
+ "subtle",
+]
+
+[[package]]
 name = "bollard-stubs"
 version = "1.42.0-rc.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1062,7 +1079,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "5.2.0"
+version = "5.2.1"
 dependencies = [
  "beacon_node",
  "clap",
@@ -1159,14 +1176,14 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "1.0.2"
-source = "git+https://github.com/ethereum/c-kzg-4844?rev=114fa0382990e9b74b1f90f3b0dc5f97c2f8a7ad#114fa0382990e9b74b1f90f3b0dc5f97c2f8a7ad"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdf100c4cea8f207e883ff91ca886d621d8a166cb04971dfaa9bb8fd99ed95df"
 dependencies = [
  "blst",
  "cc",
  "glob",
  "hex",
  "libc",
- "serde",
 ]
 
 [[package]]
@@ -1536,6 +1553,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "53fe5e26ff1b7aef8bca9c6080520cfb8d9333c7568e1829cef191a9723e5504"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "crate_crypto_internal_peerdas_bls12_381"
+version = "0.3.0"
+source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=bb8295011cf27dc663699539c7f9a17fe273e896#bb8295011cf27dc663699539c7f9a17fe273e896"
+dependencies = [
+ "blst",
+ "blstrs",
+ "ff 0.13.0",
+ "group 0.13.0",
+ "pairing",
+ "rayon",
+]
+
+[[package]]
+name = "crate_crypto_internal_peerdas_erasure_codes"
+version = "0.3.0"
+source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=bb8295011cf27dc663699539c7f9a17fe273e896#bb8295011cf27dc663699539c7f9a17fe273e896"
+dependencies = [
+ "crate_crypto_internal_peerdas_bls12_381",
+ "crate_crypto_internal_peerdas_polynomial",
+]
+
+[[package]]
+name = "crate_crypto_internal_peerdas_polynomial"
+version = "0.3.0"
+source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=bb8295011cf27dc663699539c7f9a17fe273e896#bb8295011cf27dc663699539c7f9a17fe273e896"
+dependencies = [
+ "crate_crypto_internal_peerdas_bls12_381",
+]
+
+[[package]]
+name = "crate_crypto_kzg_multi_open_fk20"
+version = "0.3.0"
+source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=bb8295011cf27dc663699539c7f9a17fe273e896#bb8295011cf27dc663699539c7f9a17fe273e896"
+dependencies = [
+ "crate_crypto_internal_peerdas_bls12_381",
+ "crate_crypto_internal_peerdas_polynomial",
+ "hex",
+ "rayon",
+ "sha2 0.10.8",
 ]
 
 [[package]]
@@ -2213,6 +2272,21 @@ dependencies = [
  "tree_hash",
  "tree_hash_derive",
  "types",
+]
+
+[[package]]
+name = "eip7594"
+version = "0.3.0"
+source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=bb8295011cf27dc663699539c7f9a17fe273e896#bb8295011cf27dc663699539c7f9a17fe273e896"
+dependencies = [
+ "crate_crypto_internal_peerdas_bls12_381",
+ "crate_crypto_internal_peerdas_erasure_codes",
+ "crate_crypto_kzg_multi_open_fk20",
+ "hex",
+ "rayon",
+ "rust-embed",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2983,6 +3057,7 @@ version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ded41244b729663b1e574f1b4fb731469f69f79c17667b5d776b16cda0479449"
 dependencies = [
+ "bitvec 1.0.1",
  "rand_core",
  "subtle",
 ]
@@ -3418,7 +3493,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0f9ef7462f7c099f518d754361858f86d8a07af53ba9af0fe635bbccb151a63"
 dependencies = [
  "ff 0.13.0",
+ "rand",
  "rand_core",
+ "rand_xorshift",
  "subtle",
 ]
 
@@ -4060,6 +4137,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "include-flate"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2e11569346406931d20276cc460215ee2826e7cad43aa986999cb244dd7adb0"
+dependencies = [
+ "include-flate-codegen-exports",
+ "lazy_static",
+ "libflate 1.4.0",
+]
+
+[[package]]
+name = "include-flate-codegen"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a7d6e1419fa3129eb0802b4c99603c0d425c79fb5d76191d5a20d0ab0d664e8"
+dependencies = [
+ "libflate 1.4.0",
+ "proc-macro-hack",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "include-flate-codegen-exports"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75657043ffe3d8280f1cb8aef0f505532b392ed7758e0baeac22edadcee31a03"
+dependencies = [
+ "include-flate-codegen",
+ "proc-macro-hack",
+]
+
+[[package]]
 name = "indenter"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4311,6 +4422,7 @@ dependencies = [
  "arbitrary",
  "c-kzg",
  "derivative",
+ "eip7594",
  "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
@@ -4338,7 +4450,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "5.2.0"
+version = "5.2.1"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -4402,6 +4514,17 @@ checksum = "97b3888a4aecf77e811145cadf6eef5901f4782c53886191b2f693f24761847c"
 
 [[package]]
 name = "libflate"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ff4ae71b685bbad2f2f391fe74f6b7659a34871c08b210fdc039e43bee07d18"
+dependencies = [
+ "adler32",
+ "crc32fast",
+ "libflate_lz77 1.2.0",
+]
+
+[[package]]
+name = "libflate"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45d9dfdc14ea4ef0900c1cddbc8dcd553fbaacd8a4a282cf4018ae9dd04fb21e"
@@ -4410,7 +4533,16 @@ dependencies = [
  "core2",
  "crc32fast",
  "dary_heap",
- "libflate_lz77",
+ "libflate_lz77 2.1.0",
+]
+
+[[package]]
+name = "libflate_lz77"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a52d3a8bfc85f250440e4424db7d857e241a3aebbbe301f3eb606ab15c39acbf"
+dependencies = [
+ "rle-decode-fast",
 ]
 
 [[package]]
@@ -4443,7 +4575,7 @@ checksum = "4ec2a862134d2a7d32d7983ddcdd1c4923530833c9f2ea1a44fc5fa473989058"
 [[package]]
 name = "libmdbx"
 version = "0.1.4"
-source = "git+https://github.com/sigp/libmdbx-rs?tag=v0.1.4#096da80a83d14343f8df833006483f48075cd135"
+source = "git+https://github.com/sigp/libmdbx-rs?rev=e6ff4b9377c1619bcf0bfdf52bee5a980a432a1a#e6ff4b9377c1619bcf0bfdf52bee5a980a432a1a"
 dependencies = [
  "bitflags 1.3.2",
  "byteorder",
@@ -4909,7 +5041,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "5.2.0"
+version = "5.2.1"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -5198,7 +5330,7 @@ dependencies = [
 [[package]]
 name = "mdbx-sys"
 version = "0.11.6-4"
-source = "git+https://github.com/sigp/libmdbx-rs?tag=v0.1.4#096da80a83d14343f8df833006483f48075cd135"
+source = "git+https://github.com/sigp/libmdbx-rs?rev=e6ff4b9377c1619bcf0bfdf52bee5a980a432a1a#e6ff4b9377c1619bcf0bfdf52bee5a980a432a1a"
 dependencies = [
  "bindgen",
  "cc",
@@ -5913,6 +6045,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pairing"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81fec4625e73cf41ef4bb6846cafa6d44736525f442ba45e407c4a000a13996f"
+dependencies = [
+ "group 0.13.0",
+]
+
+[[package]]
 name = "parity-scale-codec"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6055,12 +6196,6 @@ dependencies = [
  "password-hash",
  "sha2 0.10.8",
 ]
-
-[[package]]
-name = "peeking_take_while"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19b17cddbe7ec3f8bc800887bab5e717348c95ea2ca0b1bf0837fb964dc67099"
 
 [[package]]
 name = "pem"
@@ -6417,6 +6552,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "proc-macro-hack"
+version = "0.5.20+deprecated"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc375e1527247fe1a97d8b7156678dfe7c1af2fc075c9a4db3690ecd2a148068"
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.84"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6761,6 +6902,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "redb"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed7508e692a49b6b2290b56540384ccae9b1fb4d77065640b165835b56ffe3bb"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7052,6 +7202,41 @@ dependencies = [
  "hashlink",
  "libsqlite3-sys",
  "smallvec",
+]
+
+[[package]]
+name = "rust-embed"
+version = "8.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19549741604902eb99a7ed0ee177a0663ee1eda51a29f71401f166e47e77806a"
+dependencies = [
+ "include-flate",
+ "rust-embed-impl",
+ "rust-embed-utils",
+ "walkdir",
+]
+
+[[package]]
+name = "rust-embed-impl"
+version = "8.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb9f96e283ec64401f30d3df8ee2aaeb2561f34c824381efa24a35f79bf40ee4"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "rust-embed-utils",
+ "syn 2.0.66",
+ "walkdir",
+]
+
+[[package]]
+name = "rust-embed-utils"
+version = "8.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38c74a686185620830701348de757fd36bef4aa9680fd23c49fc539ddcc1af32"
+dependencies = [
+ "sha2 0.10.8",
+ "walkdir",
 ]
 
 [[package]]
@@ -7717,6 +7902,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "byteorder",
+ "derivative",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "filesystem",
@@ -7732,9 +7918,11 @@ dependencies = [
  "parking_lot 0.12.3",
  "rand",
  "rayon",
+ "redb",
  "safe_arith",
  "serde",
  "slog",
+ "ssz_types",
  "strum",
  "tempfile",
  "tree_hash",
@@ -7863,7 +8051,7 @@ checksum = "75062c2738b82cd45ae633623caae3393f43eb00aada1dc2d3ebe88db6b0db9b"
 dependencies = [
  "chrono",
  "libc",
- "libflate",
+ "libflate 2.1.0",
  "once_cell",
  "regex",
  "serde",
@@ -7894,6 +8082,9 @@ name = "smallvec"
 version = "1.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c5e1a9a646d36c3599cd173a41282daf47c44583ad367b8e6837255952e5c67"
+dependencies = [
+ "arbitrary",
+]
 
 [[package]]
 name = "snap"
@@ -8012,10 +8203,12 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "merkle_proof",
+ "rand",
  "rayon",
  "safe_arith",
  "smallvec",
  "ssz_types",
+ "test_random_derive",
  "tokio",
  "tree_hash",
  "types",
@@ -8116,9 +8309,9 @@ checksum = "81cdd64d312baedb58e21336b31bc043b77e01cc99033ce76ef539f78e965ebc"
 
 [[package]]
 name = "superstruct"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f4e1f478a7728f8855d7e620e9a152cf8932c6614f86564c886f9b8141f3201"
+checksum = "bf0f31f730ad9e579364950e10d6172b4a9bd04b447edf5988b066a860cc340e"
 dependencies = [
  "darling",
  "itertools",

@@ -218,12 +218,9 @@ mod ssz_static {
         FeatureName, Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler,
     };
     use types::historical_summary::HistoricalSummary;
-    use types::*;
+    use types::{AttesterSlashingBase, AttesterSlashingElectra, LightClientBootstrapAltair, *};
 
-    ssz_static_test!(aggregate_and_proof, AggregateAndProof<_>);
-    ssz_static_test!(attestation, Attestation<_>);
     ssz_static_test!(attestation_data, AttestationData);
-    ssz_static_test!(attester_slashing, AttesterSlashing<_>);
     ssz_static_test!(beacon_block, SszStaticWithSpecHandler, BeaconBlock<_>);
     ssz_static_test!(beacon_block_header, BeaconBlockHeader);
     ssz_static_test!(beacon_state, SszStaticTHCHandler, BeaconState<_>);
@@ -236,10 +233,8 @@ mod ssz_static {
     ssz_static_test!(fork, Fork);
     ssz_static_test!(fork_data, ForkData);
     ssz_static_test!(historical_batch, HistoricalBatch<_>);
-    ssz_static_test!(indexed_attestation, IndexedAttestation<_>);
     ssz_static_test!(pending_attestation, PendingAttestation<_>);
     ssz_static_test!(proposer_slashing, ProposerSlashing);
-    ssz_static_test!(signed_aggregate_and_proof, SignedAggregateAndProof<_>);
     ssz_static_test!(
         signed_beacon_block,
         SszStaticWithSpecHandler,
@@ -250,6 +245,59 @@ mod ssz_static {
     ssz_static_test!(signing_data, SigningData);
     ssz_static_test!(validator, Validator);
     ssz_static_test!(voluntary_exit, VoluntaryExit);
+
+    #[test]
+    fn attestation() {
+        SszStaticHandler::<AttestationBase<MinimalEthSpec>, MinimalEthSpec>::pre_electra().run();
+        SszStaticHandler::<AttestationBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra().run();
+        SszStaticHandler::<AttestationElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only()
+            .run();
+        SszStaticHandler::<AttestationElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only()
+            .run();
+    }
+
+    #[test]
+    fn attester_slashing() {
+        SszStaticHandler::<AttesterSlashingBase<MinimalEthSpec>, MinimalEthSpec>::pre_electra()
+            .run();
+        SszStaticHandler::<AttesterSlashingBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra()
+            .run();
+        SszStaticHandler::<AttesterSlashingElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only()
+            .run();
+        SszStaticHandler::<AttesterSlashingElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only()
+            .run();
+    }
+
+    #[test]
+    fn signed_aggregate_and_proof() {
+        SszStaticHandler::<SignedAggregateAndProofBase<MinimalEthSpec>, MinimalEthSpec>::pre_electra(
+        )
+        .run();
+        SszStaticHandler::<SignedAggregateAndProofBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra(
+        )
+        .run();
+        SszStaticHandler::<SignedAggregateAndProofElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
+        )
+        .run();
+        SszStaticHandler::<SignedAggregateAndProofElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
+        )
+        .run();
+    }
+
+    #[test]
+    fn aggregate_and_proof() {
+        SszStaticHandler::<AggregateAndProofBase<MinimalEthSpec>, MinimalEthSpec>::pre_electra()
+            .run();
+        SszStaticHandler::<AggregateAndProofBase<MainnetEthSpec>, MainnetEthSpec>::pre_electra()
+            .run();
+        SszStaticHandler::<AggregateAndProofElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
+        )
+        .run();
+        SszStaticHandler::<AggregateAndProofElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
+        )
+        .run();
+    }
+
     // BeaconBlockBody has no internal indicator of which fork it is for, so we test it separately.
     #[test]
     fn beacon_block_body() {

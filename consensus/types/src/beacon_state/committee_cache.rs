@@ -183,6 +183,8 @@ impl CommitteeCache {
     }
 
     /// Get all the Beacon committees at a given `slot`.
+    ///
+    /// Committees are sorted by ascending index order 0..committees_per_slot
     pub fn get_beacon_committees_at_slot(&self, slot: Slot) -> Result<Vec<BeaconCommittee>, Error> {
         if self.initialized_epoch.is_none() {
             return Err(Error::CommitteeCacheUninitialized(None));

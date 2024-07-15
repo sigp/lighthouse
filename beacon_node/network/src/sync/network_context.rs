@@ -237,6 +237,46 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
+    /// Returns the ids of all the requests made to the given peer_id.
+    pub fn peer_disconnected(&mut self, peer_id: &PeerId) -> Vec<SyncRequestId> {
+        let failed_range_ids =
+            self.range_block_components_requests
+                .iter()
+                .filter_map(|(id, request)| {
+                    if request.1.peer_ids.contains(peer_id) {
+                        Some(SyncRequestId::RangeBlockComponents(*id))
+                    } else {
+                        None
+                    }
+                });
+
+        let failed_block_ids = self
+            .blocks_by_root_requests
+            .iter()
+            .filter_map(|(id, request)| {
+                if request.peer_id == *peer_id {
+                    Some(SyncRequestId::SingleBlock { id: *id })
+                } else {
+                    None
+                }
+            });
+        let failed_blob_ids = self
+            .blobs_by_root_requests
+            .iter()
+            .filter_map(|(id, request)| {
+                if request.peer_id == *peer_id {
+                    Some(SyncRequestId::SingleBlob { id: *id })
+                } else {
+                    None
+                }
+            });
+
+        failed_range_ids
+            .chain(failed_block_ids)
+            .chain(failed_blob_ids)
+            .collect()
+    }
+
     // TODO(das): epoch argument left here in case custody rotation is implemented
     pub fn get_custodial_peers(&self, _epoch: Epoch, column_index: ColumnIndex) -> Vec<PeerId> {
         self.network_globals()
@@ -301,6 +341,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Result<Id, RpcRequestSendError> {
         let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
         let id = self.next_id();
+        let mut requested_peers = vec![peer_id];
         debug!(
             self.log,
             "Sending BlocksByRange request";
@@ -352,6 +393,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             for (peer_id, columns_by_range_request) in
                 self.make_columns_by_range_requests(epoch, request, &custody_indexes)?
             {
+                requested_peers.push(peer_id);
+
                 debug!(
                     self.log,
                     "Sending DataColumnsByRange requests";
@@ -375,7 +418,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             None
         };
 
-        let info = RangeBlockComponentsRequest::new(expected_blobs, expects_custody_columns);
+        let info = RangeBlockComponentsRequest::new(
+            expected_blobs,
+            expects_custody_columns,
+            requested_peers,
+        );
         self.range_block_components_requests
             .insert(id, (sender_id, info));
         Ok(id)
@@ -481,7 +528,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // Block is known are currently processing, expect a future event with the result of
             // processing.
             BlockProcessStatus::NotValidated { .. } => {
-                return Ok(LookupRequestResult::Pending("block in processing cache"))
+                // Lookup sync event safety: If the block is currently in the processing cache, we
+                // are guaranteed to receive a `SyncMessage::GossipBlockProcessResult` that will
+                // make progress on this lookup
+                return Ok(LookupRequestResult::Pending("block in processing cache"));
             }
             // Block is fully validated. If it's not yet imported it's waiting for missing block
             // components. Consider this request completed and do nothing.
@@ -504,6 +554,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let request = BlocksByRootSingleRequest(block_root);
 
+        // Lookup sync event safety: If network_send.send() returns Ok(_) we are guaranteed that
+        // eventually at least one this 3 events will be received:
+        // - StreamTermination(request_id): handled by `Self::on_single_block_response`
+        // - RPCError(request_id): handled by `Self::on_single_block_response`
+        // - Disconnect(peer_id) handled by `Self::peer_disconnected``which converts it to a
+        // ` RPCError(request_id)`event handled by the above method
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
@@ -513,7 +569,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
 
         self.blocks_by_root_requests
-            .insert(id, ActiveBlocksByRootRequest::new(request));
+            .insert(id, ActiveBlocksByRootRequest::new(request, peer_id));
 
         Ok(LookupRequestResult::RequestSent(req_id))
     }
@@ -561,6 +617,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // latter handle the case where if the peer sent no blobs, penalize.
             // - if `downloaded_block_expected_blobs` is Some = block is downloading or processing.
             // - if `num_expected_blobs` returns Some = block is processed.
+            //
+            // Lookup sync event safety: Reaching this code means that a block is not in any pre-import
+            // cache nor in the request state of this lookup. Therefore, the block must either: (1) not
+            // be downloaded yet or (2) the block is already imported into the fork-choice.
+            // In case (1) the lookup must either successfully download the block or get dropped.
+            // In case (2) the block will be downloaded, processed, reach `BlockIsAlreadyKnown` and
+            // get dropped as completed.
             return Ok(LookupRequestResult::Pending("waiting for block download"));
         };
 
@@ -597,6 +660,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             indices,
         };
 
+        // Lookup sync event safety: Refer to `Self::block_lookup_request` `network_send.send` call
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
@@ -606,7 +670,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
 
         self.blobs_by_root_requests
-            .insert(id, ActiveBlobsByRootRequest::new(request));
+            .insert(id, ActiveBlobsByRootRequest::new(request, peer_id));
 
         Ok(LookupRequestResult::RequestSent(req_id))
     }
@@ -1061,6 +1125,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
 
         debug!(self.log, "Sending block for processing"; "block" => ?block_root, "id" => id);
+        // Lookup sync event safety: If `beacon_processor.send_rpc_beacon_block` returns Ok() sync
+        // must receive a single `SyncMessage::BlockComponentProcessed` with this process type
         beacon_processor
             .send_rpc_beacon_block(
                 block_root,
@@ -1090,6 +1156,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
 
         debug!(self.log, "Sending blobs for processing"; "block" => ?block_root, "id" => id);
+        // Lookup sync event safety: If `beacon_processor.send_rpc_blobs` returns Ok() sync
+        // must receive a single `SyncMessage::BlockComponentProcessed` event with this process type
         beacon_processor
             .send_rpc_blobs(
                 block_root,
