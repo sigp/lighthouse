@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
 use task_executor::TaskExecutor;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use types::*;
 
@@ -751,7 +752,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Send a message to `sync_tx`.
     ///
     /// Creates a log if there is an internal error.
-    fn send_sync_message(&self, message: SyncMessage<T::EthSpec>) {
+    pub(crate) fn send_sync_message(&self, message: SyncMessage<T::EthSpec>) {
         self.sync_tx.send(message).unwrap_or_else(|e| {
             debug!(self.log, "Could not send message to the sync service";
                    "error" => %e)
@@ -779,6 +780,7 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
     // processor (but not much else).
     pub fn null_for_testing(
         network_globals: Arc<NetworkGlobals<E>>,
+        sync_tx: UnboundedSender<SyncMessage<E>>,
         chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
         executor: TaskExecutor,
         log: Logger,
@@ -791,7 +793,6 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         } = <_>::default();
 
         let (network_tx, _network_rx) = mpsc::unbounded_channel();
-        let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
 
         let network_beacon_processor = Self {
             beacon_processor_send: beacon_processor_tx,

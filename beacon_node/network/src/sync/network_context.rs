@@ -7,6 +7,7 @@ pub use self::requests::{BlocksByRootSingleRequest, DataColumnsByRootSingleBlock
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
 use super::manager::BlockProcessType;
 use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
+use super::SyncMessage;
 use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::NetworkMessage;
@@ -232,6 +233,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             chain,
             log,
         }
+    }
+
+    pub fn send_sync_message(&mut self, sync_message: SyncMessage<T::EthSpec>) {
+        self.network_beacon_processor
+            .send_sync_message(sync_message);
     }
 
     /// Returns the ids of all the requests made to the given peer_id.

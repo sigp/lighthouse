@@ -2604,7 +2604,7 @@ pub struct MakeAttestationOptions {
 pub fn build_log(level: slog::Level, enabled: bool) -> Logger {
     let decorator = TermDecorator::new().build();
     let drain = FullFormat::new(decorator).build().fuse();
-    let drain = Async::new(drain).build().fuse();
+    let drain = Async::new(drain).chan_size(10_000).build().fuse();
 
     if enabled {
         Logger::root(drain.filter_level(level).fuse(), o!())

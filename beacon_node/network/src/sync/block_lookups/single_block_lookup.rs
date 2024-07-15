@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use store::Hash256;
 use strum::IntoStaticStr;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{DataColumnSidecarList, EthSpec, SignedBeaconBlock};
+use types::{DataColumnSidecarList, EthSpec, SignedBeaconBlock, Slot};
 
 // Dedicated enum for LookupResult to force its usage
 #[must_use = "LookupResult must be handled with on_lookup_result"]
@@ -90,6 +90,14 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             awaiting_parent,
             created: Instant::now(),
         }
+    }
+
+    /// Return the slot of this lookup's block if it's currently cached as `AwaitingProcessing`
+    pub fn peek_downloaded_block_slot(&self) -> Option<Slot> {
+        self.block_request_state
+            .state
+            .peek_downloaded_data()
+            .map(|block| block.slot())
     }
 
     /// Get the block root that is being requested.
