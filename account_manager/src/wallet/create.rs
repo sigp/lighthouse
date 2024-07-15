@@ -4,6 +4,7 @@ use account_utils::{
     is_password_sufficiently_complex, random_password, read_password_from_user, strip_off_newlines,
 };
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use eth2_wallet::{
     bip39::{Language, Mnemonic, MnemonicType},
     PlainText,
@@ -36,6 +37,15 @@ pub const RETYPE_PASSWORD_PROMPT: &str = "Please re-enter your wallet's new pass
 pub fn cli_app() -> Command {
     Command::new(CMD)
         .about("Creates a new HD (hierarchical-deterministic) EIP-2386 wallet.")
+        .arg(
+            Arg::new("help")
+                .long("help")
+                .short('h')
+                .help("Prints help information")
+                .action(ArgAction::HelpLong)
+                .display_order(0)
+                .help_heading(FLAG_HEADER)
+        )
         .arg(
             Arg::new(NAME_FLAG)
                 .long(NAME_FLAG)

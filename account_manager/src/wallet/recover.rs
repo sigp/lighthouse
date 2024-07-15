@@ -2,6 +2,7 @@ use crate::wallet::create::{create_wallet_from_mnemonic, STDIN_INPUTS_FLAG};
 use crate::wallet::create::{HD_TYPE, NAME_FLAG, PASSWORD_FLAG, TYPE_FLAG};
 use account_utils::read_mnemonic_from_cli;
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use std::path::PathBuf;
 
 pub const CMD: &str = "recover";
@@ -10,6 +11,15 @@ pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 pub fn cli_app() -> Command {
     Command::new(CMD)
         .about("Recovers an EIP-2386 wallet from a given a BIP-39 mnemonic phrase.")
+        .arg(
+            Arg::new("help")
+                .long("help")
+                .short('h')
+                .help("Prints help information")
+                .action(ArgAction::HelpLong)
+                .display_order(0)
+                .help_heading(FLAG_HEADER),
+        )
         .arg(
             Arg::new(NAME_FLAG)
                 .long(NAME_FLAG)
