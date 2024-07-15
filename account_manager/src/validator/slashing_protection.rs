@@ -22,6 +22,15 @@ pub fn cli_app() -> Command {
     Command::new(CMD)
         .about("Import or export slashing protection data to or from another client")
         .display_order(0)
+        .arg(
+            Arg::new("help")
+                .long("help")
+                .short('h')
+                .help("Prints help information")
+                .action(ArgAction::HelpLong)
+                .display_order(0)
+                .help_heading(FLAG_HEADER)
+        )
         .subcommand(
             Command::new(IMPORT_CMD)
                 .about("Import an interchange file")
