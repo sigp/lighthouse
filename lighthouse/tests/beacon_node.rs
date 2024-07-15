@@ -269,15 +269,12 @@ fn always_prepare_payload_default() {
 fn always_prepare_payload_override() {
     CommandLineTest::new()
         .flag("always-prepare-payload", None)
+        .flag(
+            "suggested-fee-recipient",
+            "0x00000000219ab540356cbb839cbe05303d7705fa",
+        )
         .run_with_zero_port()
-        .with_config(|config| {
-            assert!(config.chain.always_prepare_payload);
-            let config = config.execution_layer.as_ref().unwrap();
-            assert_eq!(
-                config.suggested_fee_recipient,
-                Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
-            )
-        });
+        .with_config(|config| assert!(config.chain.always_prepare_payload));
 }
 
 #[test]
