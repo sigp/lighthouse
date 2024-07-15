@@ -191,6 +191,11 @@ pub struct ChainSpec {
     pub max_per_epoch_activation_exit_churn_limit: u64,
 
     /*
+     * DAS params
+     */
+    pub number_of_columns: usize,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -772,6 +777,8 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
 
+            number_of_columns: 128,
+
             /*
              * Network specific
              */
@@ -1073,6 +1080,8 @@ impl ChainSpec {
                 u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
+
+            number_of_columns: 128,
 
             /*
              * Network specific

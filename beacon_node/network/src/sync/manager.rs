@@ -156,11 +156,12 @@ pub enum BlockProcessingResult<E: EthSpec> {
 pub enum BatchProcessResult {
     /// The batch was completed successfully. It carries whether the sent batch contained blocks.
     Success {
-        was_non_empty: bool,
+        sent_blocks: usize,
+        imported_blocks: usize,
     },
     /// The batch processing failed. It carries whether the processing imported any block.
     FaultyFailure {
-        imported_blocks: bool,
+        imported_blocks: usize,
         penalty: PeerAction,
     },
     NonFaultyFailure,
@@ -570,6 +571,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // unless there is a bug.
         let mut prune_lookups_interval = tokio::time::interval(Duration::from_secs(15));
 
+        let mut register_metrics_interval = tokio::time::interval(Duration::from_secs(5));
+
         // process any inbound messages
         loop {
             tokio::select! {
@@ -581,6 +584,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 _ = prune_lookups_interval.tick() => {
                     self.block_lookups.prune_lookups();
+                }
+                _ = register_metrics_interval.tick() => {
+                    self.network.register_metrics();
                 }
             }
         }
