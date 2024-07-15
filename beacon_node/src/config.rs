@@ -1420,12 +1420,10 @@ pub fn set_network_config(
     // the default params will be used.
     config.outbound_rate_limiter_config = if parse_flag(cli_args, "disable-self-limiter") {
         None
+    } else if let Some(protocols) = cli_args.get_one::<String>("self-limiter-protocols") {
+        Some(protocols.parse()?)
     } else {
-        if let Some(protocols) = cli_args.get_one::<String>("self-limiter-protocols") {
-            Some(protocols.parse()?)
-        } else {
-            Some(Default::default())
-        }
+        Some(Default::default())
     };
 
     // Proposer-only mode overrides a number of previous configuration parameters.
