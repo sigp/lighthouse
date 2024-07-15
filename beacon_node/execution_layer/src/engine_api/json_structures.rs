@@ -108,7 +108,7 @@ pub struct JsonExecutionPayload<E: EthSpec> {
         VariableList<JsonWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>,
     #[superstruct(only(V4))]
     pub consolidation_requests:
-        VariableList<ConsolidationRequest, E::MaxConsolidationRequestsPerPayload>,
+        VariableList<JsonConsolidationRequest, E::MaxConsolidationRequestsPerPayload>,
 }
 
 impl<E: EthSpec> From<ExecutionPayloadBellatrix<E>> for JsonExecutionPayloadV1<E> {
@@ -223,7 +223,12 @@ impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> 
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
-            consolidation_requests: payload.consolidation_requests,
+            consolidation_requests: payload
+                .consolidation_requests
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 }
@@ -352,7 +357,12 @@ impl<E: EthSpec> From<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> 
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
-            consolidation_requests: payload.consolidation_requests,
+            consolidation_requests: payload
+                .consolidation_requests
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 }
@@ -924,6 +934,34 @@ impl From<JsonWithdrawalRequest> for WithdrawalRequest {
             source_address: json_withdrawal_request.source_address,
             validator_pubkey: json_withdrawal_request.validator_pubkey,
             amount: json_withdrawal_request.amount,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonConsolidationRequest {
+    pub source_address: Address,
+    pub source_pubkey: PublicKeyBytes,
+    pub target_pubkey: PublicKeyBytes,
+}
+
+impl From<ConsolidationRequest> for JsonConsolidationRequest {
+    fn from(consolidation_request: ConsolidationRequest) -> Self {
+        Self {
+            source_address: consolidation_request.source_address,
+            source_pubkey: consolidation_request.source_pubkey,
+            target_pubkey: consolidation_request.target_pubkey,
+        }
+    }
+}
+
+impl From<JsonConsolidationRequest> for ConsolidationRequest {
+    fn from(json_consolidation_request: JsonConsolidationRequest) -> Self {
+        Self {
+            source_address: json_consolidation_request.source_address,
+            source_pubkey: json_consolidation_request.source_pubkey,
+            target_pubkey: json_consolidation_request.target_pubkey,
         }
     }
 }

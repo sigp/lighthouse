@@ -43,7 +43,7 @@ pub use new_payload_request::{
     NewPayloadRequestDeneb, NewPayloadRequestElectra,
 };
 
-use self::json_structures::{JsonDepositRequest, JsonWithdrawalRequest};
+use self::json_structures::{JsonConsolidationRequest, JsonDepositRequest, JsonWithdrawalRequest};
 
 pub const LATEST_TAG: &str = "latest";
 
@@ -210,8 +210,7 @@ pub struct ExecutionBlockWithTransactions<E: EthSpec> {
     #[superstruct(only(Electra))]
     pub withdrawal_requests: Vec<JsonWithdrawalRequest>,
     #[superstruct(only(Electra))]
-    // TODO(electra): I don't think we need a JsonConsolidationRequest here because the bytes should be little-endian but we need to confirm
-    pub consolidation_requests: Vec<ConsolidationRequest>,
+    pub consolidation_requests: Vec<JsonConsolidationRequest>,
 }
 
 impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for ExecutionBlockWithTransactions<E> {
@@ -329,7 +328,11 @@ impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for ExecutionBlockWithTransactions
                         .into_iter()
                         .map(|withdrawal| withdrawal.into())
                         .collect(),
-                    consolidation_requests: block.consolidation_requests.to_vec(),
+                    consolidation_requests: block
+                        .consolidation_requests
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
                 })
             }
         };

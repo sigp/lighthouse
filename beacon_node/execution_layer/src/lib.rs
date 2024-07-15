@@ -2011,9 +2011,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 )
                 .map_err(ApiError::DeserializeWithdrawalRequests)?;
                 let n_consolidations = electra_block.consolidation_requests.len();
-                let consolidation_requests =
-                    VariableList::new(electra_block.consolidation_requests)
-                        .map_err(|_| ApiError::TooManyConsolidationRequests(n_consolidations))?;
+                let consolidation_requests = VariableList::new(
+                    electra_block
+                        .consolidation_requests
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+                .map_err(|_| ApiError::TooManyConsolidationRequests(n_consolidations))?;
                 ExecutionPayload::Electra(ExecutionPayloadElectra {
                     parent_hash: electra_block.parent_hash,
                     fee_recipient: electra_block.fee_recipient,
