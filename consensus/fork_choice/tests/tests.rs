@@ -527,12 +527,12 @@ fn justified_and_finalized_blocks() {
 
     let justified_checkpoint = fork_choice.justified_checkpoint();
     assert_eq!(justified_checkpoint.epoch, 0);
-    assert!(justified_checkpoint.root != Hash256::zero());
+    assert!(justified_checkpoint.root != Hash256::ZERO);
     assert!(fork_choice.get_justified_block().is_ok());
 
     let finalized_checkpoint = fork_choice.finalized_checkpoint();
     assert_eq!(finalized_checkpoint.epoch, 0);
-    assert!(finalized_checkpoint.root != Hash256::zero());
+    assert!(finalized_checkpoint.root != Hash256::ZERO);
     assert!(fork_choice.get_finalized_block().is_ok());
 }
 
@@ -772,7 +772,7 @@ async fn invalid_block_finalized_slot() {
 /// https://github.com/ethereum/eth2.0-specs/pull/1884
 #[tokio::test]
 async fn invalid_block_finalized_descendant() {
-    let invalid_ancestor = Mutex::new(Hash256::zero());
+    let invalid_ancestor = Mutex::new(Hash256::ZERO);
 
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
@@ -1116,7 +1116,7 @@ fn weak_subjectivity_fail_on_startup() {
 #[tokio::test]
 async fn weak_subjectivity_pass_on_startup() {
     let epoch = Epoch::new(0);
-    let root = Hash256::zero();
+    let root = Hash256::ZERO;
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(Checkpoint { epoch, root }),
@@ -1222,7 +1222,7 @@ async fn weak_subjectivity_check_fails_incorrect_root() {
 
     let mut checkpoint = setup_harness.harness.finalized_checkpoint();
 
-    checkpoint.root = Hash256::zero();
+    checkpoint.root = Hash256::ZERO;
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(checkpoint),

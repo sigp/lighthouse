@@ -364,7 +364,7 @@ where
 
         // Store the genesis block under the `ZERO_HASH` key.
         store
-            .put_block(&Hash256::zero(), beacon_block.clone())
+            .put_block(&Hash256::ZERO, beacon_block.clone())
             .map_err(|e| {
                 format!(
                     "Failed to store genesis block under 0x00..00 alias: {:?}",
@@ -1212,7 +1212,7 @@ mod test {
         assert_eq!(
             chain
                 .store
-                .get_blinded_block(&Hash256::zero())
+                .get_blinded_block(&Hash256::ZERO)
                 .expect("should read db")
                 .expect("should find genesis block"),
             block.clone_as_blinded(),

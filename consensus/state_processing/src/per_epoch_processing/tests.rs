@@ -25,7 +25,7 @@ async fn runs_without_error() {
     harness
         .add_attested_blocks_at_slots(
             state,
-            Hash256::zero(),
+            Hash256::ZERO,
             (1..target_slot.as_u64())
                 .map(Slot::new)
                 .collect::<Vec<_>>()

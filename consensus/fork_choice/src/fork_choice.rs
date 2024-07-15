@@ -1546,7 +1546,7 @@ mod tests {
             .map(|i| QueuedAttestation {
                 slot: Slot::new(i),
                 attesting_indices: vec![],
-                block_root: Hash256::zero(),
+                block_root: Hash256::ZERO,
                 target_epoch: Epoch::new(0),
             })
             .collect()

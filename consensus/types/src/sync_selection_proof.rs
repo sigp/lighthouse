@@ -114,7 +114,7 @@ mod test {
         let subcommittee_index = 12;
         let key = keypair(1);
         let fork = &Fork::default();
-        let genesis_validators_root = Hash256::zero();
+        let genesis_validators_root = Hash256::ZERO;
         let spec = &ChainSpec::mainnet();
 
         let proof = SyncSelectionProof::new::<MainnetEthSpec>(

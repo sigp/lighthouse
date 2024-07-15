@@ -38,7 +38,7 @@ async fn get_harness<E: EthSpec>(
         harness
             .add_attested_blocks_at_slots(
                 state,
-                Hash256::zero(),
+                Hash256::ZERO,
                 slots.as_slice(),
                 (0..validator_count).collect::<Vec<_>>().as_slice(),
             )

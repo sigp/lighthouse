@@ -571,7 +571,7 @@ async fn import_invalid_slashing_protection() {
         let slashing_protection = Interchange {
             metadata: InterchangeMetadata {
                 interchange_format_version: 0,
-                genesis_validators_root: Hash256::zero(),
+                genesis_validators_root: Hash256::ZERO,
             },
             data: vec![],
         };

@@ -252,8 +252,8 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
 
         let parent_hash = terminal_pow_block_hash;
         let timestamp = timestamp_now();
-        let prev_randao = Hash256::zero();
-        let head_root = Hash256::zero();
+        let prev_randao = Hash256::ZERO;
+        let head_root = Hash256::ZERO;
         let justified_block_hash = ExecutionBlockHash::zero();
         let finalized_block_hash = ExecutionBlockHash::zero();
         let forkchoice_update_params = ForkchoiceUpdateParameters {
@@ -294,7 +294,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 justified_block_hash,
                 finalized_block_hash,
                 Slot::new(0),
-                Hash256::zero(),
+                Hash256::ZERO,
             )
             .await
             .unwrap();
@@ -457,7 +457,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
 
         let parent_hash = valid_payload.block_hash();
         let timestamp = valid_payload.timestamp() + 1;
-        let prev_randao = Hash256::zero();
+        let prev_randao = Hash256::ZERO;
         let proposer_index = 0;
         let builder_params = BuilderParams {
             pubkey: PublicKeyBytes::empty(),

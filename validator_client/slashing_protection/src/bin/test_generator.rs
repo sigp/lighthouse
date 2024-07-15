@@ -50,7 +50,7 @@ fn interchange_with_signing_roots(
                 .into_iter()
                 .map(|(slot, signing_root)| SignedBlock {
                     slot: Slot::new(slot),
-                    signing_root: signing_root.map(|root| Hash256::from_slice(&root.to_le_bytes())),
+                    signing_root: signing_root.map(|root| Hash256::from_slice(&root.to_be_bytes())),
                 })
                 .collect(),
             signed_attestations: attestations
@@ -58,7 +58,7 @@ fn interchange_with_signing_roots(
                 .map(|(source, target, signing_root)| SignedAttestation {
                     source_epoch: Epoch::new(source),
                     target_epoch: Epoch::new(target),
-                    signing_root: signing_root.map(|root| Hash256::from_slice(&root.to_le_bytes())),
+                    signing_root: signing_root.map(|root| Hash256::from_slice(&root.to_be_bytes())),
                 })
                 .collect(),
         })

@@ -166,7 +166,7 @@ where
     ) -> Result<Self, Error> {
         let anchor_state = &anchor.beacon_state;
         let mut anchor_block_header = anchor_state.latest_block_header().clone();
-        if anchor_block_header.state_root == Hash256::zero() {
+        if anchor_block_header.state_root == Hash256::ZERO {
             anchor_block_header.state_root = anchor.beacon_state_root();
         }
         let anchor_root = anchor_block_header.canonical_root();
@@ -187,7 +187,7 @@ where
             finalized_checkpoint,
             unrealized_justified_checkpoint: justified_checkpoint,
             unrealized_finalized_checkpoint: finalized_checkpoint,
-            proposer_boost_root: Hash256::zero(),
+            proposer_boost_root: Hash256::ZERO,
             equivocating_indices: BTreeSet::new(),
             _phantom: PhantomData,
         })

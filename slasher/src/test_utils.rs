@@ -27,7 +27,7 @@ pub fn indexed_att_electra(
             },
             target: Checkpoint {
                 epoch: Epoch::new(target_epoch),
-                root: Hash256::from_slice(&target_root.to_le_bytes()),
+                root: Hash256::from_slice(&target_root.to_be_bytes()),
             },
         },
         signature: AggregateSignature::empty(),
@@ -52,7 +52,7 @@ pub fn indexed_att(
             },
             target: Checkpoint {
                 epoch: Epoch::new(target_epoch),
-                root: Hash256::from_slice(&target_root.to_le_bytes()),
+                root: Hash256::from_slice(&target_root.to_be_bytes()),
             },
         },
         signature: AggregateSignature::empty(),
@@ -141,7 +141,7 @@ pub fn block(slot: u64, proposer_index: u64, block_root: u64) -> SignedBeaconBlo
             proposer_index,
             parent_root: Hash256::ZERO,
             state_root: Hash256::ZERO,
-            body_root: Hash256::from_slice(&block_root.to_le_bytes()),
+            body_root: Hash256::from_slice(&block_root.to_be_bytes()),
         },
         signature: Signature::empty(),
     }

@@ -229,7 +229,7 @@ impl AttesterCacheKey {
         let decision_root = if decision_slot.epoch(slots_per_epoch) == epoch {
             // This scenario is only possible during the genesis epoch. In this scenario, all-zeros
             // is used as an alias to the genesis block.
-            Hash256::zero()
+            Hash256::ZERO
         } else if epoch > state.current_epoch() {
             // If the requested epoch is higher than the current epoch, the latest block will always
             // be the decision root.

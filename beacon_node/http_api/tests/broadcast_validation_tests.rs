@@ -66,8 +66,8 @@ pub async fn gossip_invalid() {
     let ((block, blobs), _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
-            *b.state_root_mut() = Hash256::zero();
-            *b.parent_root_mut() = Hash256::zero();
+            *b.state_root_mut() = Hash256::ZERO;
+            *b.parent_root_mut() = Hash256::ZERO;
         })
         .await;
 
@@ -254,8 +254,8 @@ pub async fn consensus_invalid() {
     let ((block, blobs), _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
-            *b.state_root_mut() = Hash256::zero();
-            *b.parent_root_mut() = Hash256::zero();
+            *b.state_root_mut() = Hash256::ZERO;
+            *b.parent_root_mut() = Hash256::ZERO;
         })
         .await;
 
@@ -305,7 +305,7 @@ pub async fn consensus_gossip() {
     let state_a = tester.harness.get_current_state();
     let ((block, blobs), _) = tester
         .harness
-        .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::zero())
+        .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::ZERO)
         .await;
 
     let response: Result<(), eth2::Error> = tester
@@ -466,8 +466,8 @@ pub async fn equivocation_invalid() {
     let ((block, blobs), _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
-            *b.state_root_mut() = Hash256::zero();
-            *b.parent_root_mut() = Hash256::zero();
+            *b.state_root_mut() = Hash256::ZERO;
+            *b.parent_root_mut() = Hash256::ZERO;
         })
         .await;
 
@@ -589,7 +589,7 @@ pub async fn equivocation_gossip() {
     let state_a = tester.harness.get_current_state();
     let ((block, blobs), _) = tester
         .harness
-        .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::zero())
+        .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::ZERO)
         .await;
 
     let response: Result<(), eth2::Error> = tester
@@ -760,8 +760,8 @@ pub async fn blinded_gossip_invalid() {
     let (block_contents_tuple, _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
-            *b.state_root_mut() = Hash256::zero();
-            *b.parent_root_mut() = Hash256::zero();
+            *b.state_root_mut() = Hash256::ZERO;
+            *b.parent_root_mut() = Hash256::ZERO;
         })
         .await;
 
@@ -812,7 +812,7 @@ pub async fn blinded_gossip_partial_pass() {
     let (block_contents_tuple, _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
-            *b.state_root_mut() = Hash256::zero()
+            *b.state_root_mut() = Hash256::ZERO
         })
         .await;
 
@@ -941,8 +941,8 @@ pub async fn blinded_consensus_invalid() {
     let (block_contents_tuple, _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
-            *b.state_root_mut() = Hash256::zero();
-            *b.parent_root_mut() = Hash256::zero();
+            *b.state_root_mut() = Hash256::ZERO;
+            *b.parent_root_mut() = Hash256::ZERO;
         })
         .await;
 
@@ -992,7 +992,7 @@ pub async fn blinded_consensus_gossip() {
     let state_a = tester.harness.get_current_state();
     let (block_contents_tuple, _) = tester
         .harness
-        .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::zero())
+        .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::ZERO)
         .await;
 
     let response: Result<(), eth2::Error> = tester
@@ -1085,8 +1085,8 @@ pub async fn blinded_equivocation_invalid() {
     let (block_contents_tuple, _) = tester
         .harness
         .make_block_with_modifier(chain_state_before, slot, |b| {
-            *b.state_root_mut() = Hash256::zero();
-            *b.parent_root_mut() = Hash256::zero();
+            *b.state_root_mut() = Hash256::ZERO;
+            *b.parent_root_mut() = Hash256::ZERO;
         })
         .await;
 
@@ -1204,7 +1204,7 @@ pub async fn blinded_equivocation_gossip() {
     let state_a = tester.harness.get_current_state();
     let (block_contents_tuple, _) = tester
         .harness
-        .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::zero())
+        .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::ZERO)
         .await;
 
     let response: Result<(), eth2::Error> = tester

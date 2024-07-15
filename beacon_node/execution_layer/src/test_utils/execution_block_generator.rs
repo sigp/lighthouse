@@ -368,7 +368,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
         // Hack the block hash to make this block distinct from any other block with a different
         // `unique_id` (the default is 0).
-        block.block_hash = ExecutionBlockHash::from_root(Hash256::from_slice(&unique_id.to_le_bytes()));
+        block.block_hash = ExecutionBlockHash::from_root(Hash256::from_slice(&unique_id.to_be_bytes()));
         block.block_hash = ExecutionBlockHash::from_root(block.tree_hash_root());
 
         let hash = self.insert_block(Block::PoW(block))?;

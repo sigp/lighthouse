@@ -11,9 +11,9 @@ use types::{
 fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
     let spec = &E::default_spec();
     let eth1_data = Eth1Data {
-        deposit_root: Hash256::zero(),
+        deposit_root: Hash256::ZERO,
         deposit_count: 0,
-        block_hash: Hash256::zero(),
+        block_hash: Hash256::ZERO,
     };
 
     let mut state = BeaconState::new(0, eth1_data, spec);

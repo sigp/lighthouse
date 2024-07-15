@@ -444,7 +444,7 @@ impl ApiTester {
             StateId(CoreStateId::Slot(Slot::from(SKIPPED_SLOTS[1]))),
             StateId(CoreStateId::Slot(Slot::from(SKIPPED_SLOTS[2]))),
             StateId(CoreStateId::Slot(Slot::from(SKIPPED_SLOTS[3]))),
-            StateId(CoreStateId::Root(Hash256::zero())),
+            StateId(CoreStateId::Root(Hash256::ZERO)),
         ];
         ids.push(StateId(CoreStateId::Root(
             self.chain.canonical_head.cached_head().head_state_root(),
@@ -464,7 +464,7 @@ impl ApiTester {
             BlockId(CoreBlockId::Slot(Slot::from(SKIPPED_SLOTS[1]))),
             BlockId(CoreBlockId::Slot(Slot::from(SKIPPED_SLOTS[2]))),
             BlockId(CoreBlockId::Slot(Slot::from(SKIPPED_SLOTS[3]))),
-            BlockId(CoreBlockId::Root(Hash256::zero())),
+            BlockId(CoreBlockId::Root(Hash256::ZERO)),
         ];
         ids.push(BlockId(CoreBlockId::Root(
             self.chain.canonical_head.cached_head().head_block_root(),
@@ -1322,7 +1322,7 @@ impl ApiTester {
                 self.harness.get_current_state(),
                 self.harness.get_current_slot(),
                 |b| {
-                    *b.state_root_mut() = Hash256::zero();
+                    *b.state_root_mut() = Hash256::ZERO;
                 },
             )
             .await
@@ -1349,7 +1349,7 @@ impl ApiTester {
                 self.harness.get_current_state(),
                 self.harness.get_current_slot(),
                 |b| {
-                    *b.state_root_mut() = Hash256::zero();
+                    *b.state_root_mut() = Hash256::ZERO;
                 },
             )
             .await
@@ -3405,7 +3405,7 @@ impl ApiTester {
                 genesis_epoch,
                 Domain::ApplicationMask(ApplicationDomain::Builder),
                 &fork,
-                Hash256::zero(),
+                Hash256::ZERO,
             );
             let message = data.signing_root(domain);
             let signature = keypair.sk.sign(message);
@@ -3488,7 +3488,7 @@ impl ApiTester {
                 genesis_epoch,
                 Domain::ApplicationMask(ApplicationDomain::Builder),
                 &fork,
-                Hash256::zero(),
+                Hash256::ZERO,
             );
             let message = data.signing_root(domain);
             let signature = keypair.sk.sign(message);
@@ -5440,7 +5440,7 @@ impl ApiTester {
     }
 
     pub async fn test_get_expected_withdrawals_invalid_state(self) -> Self {
-        let state_id = CoreStateId::Root(Hash256::zero());
+        let state_id = CoreStateId::Root(Hash256::ZERO);
 
         let result = self.client.get_expected_withdrawals(&state_id).await;
 

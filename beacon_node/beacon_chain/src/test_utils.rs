@@ -1510,13 +1510,13 @@ where
         let data = AttestationData {
             slot: Slot::new(0),
             index: 0,
-            beacon_block_root: Hash256::zero(),
+            beacon_block_root: Hash256::ZERO,
             target: Checkpoint {
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
                 epoch: target1.unwrap_or(fork.epoch),
             },
             source: Checkpoint {
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
                 epoch: source1.unwrap_or(Epoch::new(0)),
             },
         };
@@ -1601,13 +1601,13 @@ where
         let data = AttestationData {
             slot: Slot::new(0),
             index: 0,
-            beacon_block_root: Hash256::zero(),
+            beacon_block_root: Hash256::ZERO,
             target: Checkpoint {
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
                 epoch: Epoch::new(0),
             },
             source: Checkpoint {
-                root: Hash256::zero(),
+                root: Hash256::ZERO,
                 epoch: Epoch::new(0),
             },
         };
@@ -1719,7 +1719,7 @@ where
         }
 
         let mut block_header_2 = block_header_1.clone();
-        block_header_2.state_root = Hash256::zero();
+        block_header_2.state_root = Hash256::ZERO;
 
         let sk = &self.validator_keypairs[validator_index as usize].sk;
         let fork = self.chain.canonical_head.cached_head().head_fork();
@@ -2292,7 +2292,7 @@ where
                     validators,
                     HashMap::new(),
                     HashMap::new(),
-                    SignedBeaconBlockHash::from(Hash256::zero()),
+                    SignedBeaconBlockHash::from(Hash256::ZERO),
                 )
             })
             .collect::<Vec<_>>();
@@ -2357,7 +2357,7 @@ where
             .iter()
             .cloned()
             .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root)
-            .filter(|block_hash| *block_hash != Hash256::zero())
+            .filter(|block_hash| *block_hash != Hash256::ZERO)
             .map(|hash| hash.into())
             .collect()
     }

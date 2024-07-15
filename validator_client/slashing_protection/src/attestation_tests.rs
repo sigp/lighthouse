@@ -230,8 +230,8 @@ fn invalid_double_vote_diff_data() {
 #[test]
 fn invalid_double_vote_diff_domain() {
     let first = attestation_data_builder(0, 2);
-    let domain1 = Hash256::from_slice(&1u64.to_le_bytes());
-    let domain2 = Hash256::from_slice(&2u64.to_le_bytes());
+    let domain1 = Hash256::from_slice(&1u64.to_be_bytes());
+    let domain2 = Hash256::from_slice(&2u64.to_be_bytes());
 
     StreamTest {
         cases: vec![

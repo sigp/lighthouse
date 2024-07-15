@@ -997,7 +997,7 @@ mod test_compute_deltas {
 
     /// Gives a hash that is not the zero hash (unless i is `usize::MAX)`.
     fn hash_from_index(i: usize) -> Hash256 {
-        Hash256::from_slice(&(i as u64 + 1).to_le_bytes())
+        Hash256::from_slice(&(i as u64 + 1).to_be_bytes())
     }
 
     #[test]
@@ -1006,10 +1006,10 @@ mod test_compute_deltas {
         let genesis_epoch = Epoch::new(0);
 
         let state_root = Hash256::ZERO;
-        let finalized_root = Hash256::from_slice(&1u64.to_le_bytes());
-        let finalized_desc = Hash256::from_slice(&2u64.to_le_bytes());
-        let not_finalized_desc = Hash256::from_slice(&3u64.to_le_bytes());
-        let unknown = Hash256::from_slice(&4u64.to_le_bytes());
+        let finalized_root = Hash256::from_slice(&1u64.to_be_bytes());
+        let finalized_desc = Hash256::from_slice(&2u64.to_be_bytes());
+        let not_finalized_desc = Hash256::from_slice(&3u64.to_be_bytes());
+        let unknown = Hash256::from_slice(&4u64.to_be_bytes());
         let junk_shuffling_id =
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::ZERO);
         let execution_status = ExecutionStatus::irrelevant();
@@ -1172,8 +1172,8 @@ mod test_compute_deltas {
                 .on_block::<MainnetEthSpec>(
                     Block {
                         slot: Slot::from(block.slot),
-                        root: get_block_root(&block.root.to_le_bytes()),
-                        parent_root: Some(get_block_root(&block.parent_root.to_le_bytes())),
+                        root: get_block_root(&block.root.to_be_bytes()),
+                        parent_root: Some(get_block_root(&block.parent_root.to_be_bytes())),
                         state_root: Hash256::ZERO,
                         target_root: Hash256::ZERO,
                         current_epoch_shuffling_id: junk_shuffling_id.clone(),
@@ -1238,7 +1238,7 @@ mod test_compute_deltas {
             },
         );
 
-        let finalized_root = get_block_root(&last_slot_of_epoch_0.to_le_bytes());
+        let finalized_root = get_block_root(&last_slot_of_epoch_0.to_be_bytes());
 
         // Set the finalized checkpoint to finalize the first slot of epoch 1 on
         // the canonical chain.
@@ -1256,14 +1256,14 @@ mod test_compute_deltas {
         assert!(
             fc.proto_array
                 .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(get_block_root(
-                    &canonical_slot.to_le_bytes()
+                    &canonical_slot.to_be_bytes()
                 )),
             "the canonical block is a descendant of the finalized checkpoint"
         );
         assert!(
             !fc.proto_array
                 .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(get_block_root(
-                    &non_canonical_slot.to_le_bytes()
+                    &non_canonical_slot.to_be_bytes()
                 )),
             "although the non-canonical block is a descendant of the finalized block, \
             it's not a descendant of the finalized checkpoint"
@@ -1517,7 +1517,7 @@ mod test_compute_deltas {
         // One validator moves their vote from the block to something outside the tree.
         votes.0.push(VoteTracker {
             current_root: hash_from_index(1),
-            next_root: Hash256::from_slice(&1337u64.to_le_bytes()),
+            next_root: Hash256::from_slice(&1337u64.to_be_bytes()),
             next_epoch: Epoch::new(0),
         });
 

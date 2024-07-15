@@ -143,10 +143,10 @@ pub const VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1)
 pub const ETH1_FINALIZATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_millis(200);
 
 // These keys are all zero because they get stored in different columns, see `DBColumn` type.
-pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::zero();
-pub const OP_POOL_DB_KEY: Hash256 = Hash256::zero();
-pub const ETH1_CACHE_DB_KEY: Hash256 = Hash256::zero();
-pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::zero();
+pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::ZERO;
+pub const OP_POOL_DB_KEY: Hash256 = Hash256::ZERO;
+pub const ETH1_CACHE_DB_KEY: Hash256 = Hash256::ZERO;
+pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::ZERO;
 
 /// Defines how old a block can be before it's no longer a candidate for the early attester cache.
 const EARLY_ATTESTER_CACHE_HISTORIC_SLOTS: u64 = 4;
@@ -1415,7 +1415,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 let skip_state_root = match config {
                     StateSkipConfig::WithStateRoots => None,
-                    StateSkipConfig::WithoutStateRoots => Some(Hash256::zero()),
+                    StateSkipConfig::WithoutStateRoots => Some(Hash256::ZERO),
                 };
 
                 while state.slot() < slot {
@@ -5173,7 +5173,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     slot,
                     proposer_index,
                     parent_root,
-                    state_root: Hash256::zero(),
+                    state_root: Hash256::ZERO,
                     body: BeaconBlockBodyBase {
                         randao_reveal,
                         eth1_data,
@@ -5194,7 +5194,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     slot,
                     proposer_index,
                     parent_root,
-                    state_root: Hash256::zero(),
+                    state_root: Hash256::ZERO,
                     body: BeaconBlockBodyAltair {
                         randao_reveal,
                         eth1_data,
@@ -5221,7 +5221,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         slot,
                         proposer_index,
                         parent_root,
-                        state_root: Hash256::zero(),
+                        state_root: Hash256::ZERO,
                         body: BeaconBlockBodyBellatrix {
                             randao_reveal,
                             eth1_data,
@@ -5253,7 +5253,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         slot,
                         proposer_index,
                         parent_root,
-                        state_root: Hash256::zero(),
+                        state_root: Hash256::ZERO,
                         body: BeaconBlockBodyCapella {
                             randao_reveal,
                             eth1_data,
@@ -5287,7 +5287,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         slot,
                         proposer_index,
                         parent_root,
-                        state_root: Hash256::zero(),
+                        state_root: Hash256::ZERO,
                         body: BeaconBlockBodyDeneb {
                             randao_reveal,
                             eth1_data,
@@ -5325,7 +5325,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         slot,
                         proposer_index,
                         parent_root,
-                        state_root: Hash256::zero(),
+                        state_root: Hash256::ZERO,
                         body: BeaconBlockBodyElectra {
                             randao_reveal,
                             eth1_data,
@@ -5382,7 +5382,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut ctxt = ConsensusContext::new(block.slot());
 
         let consensus_block_value = self
-            .compute_beacon_block_reward(block.message(), Hash256::zero(), &mut state)
+            .compute_beacon_block_reward(block.message(), Hash256::ZERO, &mut state)
             .map(|reward| reward.total)
             .unwrap_or(0);
 
@@ -6565,7 +6565,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut finalized_blocks: HashSet<Hash256> = HashSet::new();
         let mut justified_blocks: HashSet<Hash256> = HashSet::new();
 
-        let genesis_block_hash = Hash256::zero();
+        let genesis_block_hash = Hash256::ZERO;
         writeln!(output, "digraph beacon {{").unwrap();
         writeln!(output, "\t_{:?}[label=\"zero\"];", genesis_block_hash).unwrap();
 

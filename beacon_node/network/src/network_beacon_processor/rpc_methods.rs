@@ -85,8 +85,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // their or our system's clock is incorrect.
             Some("Different system clocks or genesis time".to_string())
         } else if remote.finalized_epoch <= local.finalized_epoch
-            && remote.finalized_root != Hash256::zero()
-            && local.finalized_root != Hash256::zero()
+            && remote.finalized_root != Hash256::ZERO
+            && local.finalized_root != Hash256::ZERO
             && self
                 .chain
                 .block_root_at_slot(start_slot(remote.finalized_epoch), WhenSlotSkipped::Prev)

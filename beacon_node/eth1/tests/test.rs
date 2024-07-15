@@ -39,7 +39,7 @@ fn random_deposit_data() -> DepositData {
 
     let mut deposit = DepositData {
         pubkey: keypair.pk.into(),
-        withdrawal_credentials: Hash256::zero(),
+        withdrawal_credentials: Hash256::ZERO,
         amount: 32_000_000_000,
         signature: Signature::empty().into(),
     };

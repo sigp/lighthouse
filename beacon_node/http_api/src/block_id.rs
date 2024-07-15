@@ -81,7 +81,7 @@ impl BlockId {
             }
             CoreBlockId::Root(root) => {
                 // This matches the behaviour of other consensus clients (e.g. Teku).
-                if root == &Hash256::zero() {
+                if root == &Hash256::ZERO {
                     return Err(warp_utils::reject::custom_not_found(format!(
                         "beacon block with root {}",
                         root

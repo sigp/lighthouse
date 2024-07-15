@@ -2009,7 +2009,7 @@ mod pending_components_tests {
         let (block_commitments, blobs, random_blobs) = pre_setup();
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
-        let block_root = Hash256::zero();
+        let block_root = Hash256::ZERO;
         let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_block(block_commitments);
         cache.merge_blobs(random_blobs);
@@ -2023,7 +2023,7 @@ mod pending_components_tests {
         let (block_commitments, blobs, random_blobs) = pre_setup();
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
-        let block_root = Hash256::zero();
+        let block_root = Hash256::ZERO;
         let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_blobs(random_blobs);
         cache.merge_block(block_commitments);
@@ -2038,7 +2038,7 @@ mod pending_components_tests {
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
 
-        let block_root = Hash256::zero();
+        let block_root = Hash256::ZERO;
         let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_blobs(random_blobs);
         cache.merge_blobs(blobs);
@@ -2053,7 +2053,7 @@ mod pending_components_tests {
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
 
-        let block_root = Hash256::zero();
+        let block_root = Hash256::ZERO;
         let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_block(block_commitments);
         cache.merge_blobs(blobs);
@@ -2068,7 +2068,7 @@ mod pending_components_tests {
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
 
-        let block_root = Hash256::zero();
+        let block_root = Hash256::ZERO;
         let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_blobs(blobs);
         cache.merge_block(block_commitments);
@@ -2083,7 +2083,7 @@ mod pending_components_tests {
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
 
-        let block_root = Hash256::zero();
+        let block_root = Hash256::ZERO;
         let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_blobs(blobs);
         cache.merge_blobs(random_blobs);

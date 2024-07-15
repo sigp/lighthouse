@@ -452,7 +452,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 .load_pruning_checkpoint()?
                 .unwrap_or_else(|| Checkpoint {
                     epoch: Epoch::new(0),
-                    root: Hash256::zero(),
+                    root: Hash256::ZERO,
                 });
 
         let old_finalized_slot = old_finalized_checkpoint

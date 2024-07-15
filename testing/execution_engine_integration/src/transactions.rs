@@ -75,7 +75,7 @@ impl Transaction {
                 let amount: u64 = 32_000_000_000;
                 let mut deposit = DepositData {
                     pubkey: keypair.pk.into(),
-                    withdrawal_credentials: Hash256::zero(),
+                    withdrawal_credentials: Hash256::ZERO,
                     amount,
                     signature: Signature::empty().into(),
                 };

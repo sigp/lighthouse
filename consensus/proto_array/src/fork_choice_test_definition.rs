@@ -287,7 +287,7 @@ impl ForkChoiceTestDefinition {
 
 /// Gives a root that is not the zero hash (unless i is `usize::MAX)`.
 fn get_root(i: u64) -> Hash256 {
-    Hash256::from_slice(&(i + 1).to_le_bytes())
+    Hash256::from_slice(&(i + 1).to_be_bytes())
 }
 
 /// Gives a hash that is not the zero hash (unless i is `usize::MAX)`.

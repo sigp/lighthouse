@@ -200,7 +200,7 @@ impl TestCase {
                 TestBlock {
                     pubkey: pubkey(pk),
                     slot: Slot::new(slot),
-                    signing_root: Hash256::from_slice(&signing_root.to_le_bytes()),
+                    signing_root: Hash256::from_slice(&signing_root.to_be_bytes()),
                     should_succeed,
                     should_succeed_complete,
                 }
@@ -234,7 +234,7 @@ impl TestCase {
                     pubkey: pubkey(pk),
                     source_epoch: Epoch::new(source),
                     target_epoch: Epoch::new(target),
-                    signing_root: Hash256::from_slice(&signing_root.to_le_bytes()),
+                    signing_root: Hash256::from_slice(&signing_root.to_be_bytes()),
                     should_succeed,
                     should_succeed_complete,
                 }

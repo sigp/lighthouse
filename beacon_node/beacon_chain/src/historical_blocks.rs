@@ -146,7 +146,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     chunk_writer.set(slot, self.genesis_block_root, &mut cold_batch)?;
                 }
                 prev_block_slot = genesis_slot;
-                expected_block_root = Hash256::zero();
+                expected_block_root = Hash256::ZERO;
                 break;
             }
         }

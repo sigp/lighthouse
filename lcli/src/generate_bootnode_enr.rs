@@ -33,7 +33,7 @@ pub fn run<E: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let secp256k1_keypair = secp256k1::Keypair::generate();
     let enr_key = CombinedKey::from_secp256k1(&secp256k1_keypair);
     let enr_fork_id = EnrForkId {
-        fork_digest: ChainSpec::compute_fork_digest(genesis_fork_version, Hash256::zero()),
+        fork_digest: ChainSpec::compute_fork_digest(genesis_fork_version, Hash256::ZERO),
         next_fork_version: genesis_fork_version,
         next_fork_epoch: Epoch::max_value(), // FAR_FUTURE_EPOCH
     };

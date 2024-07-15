@@ -92,7 +92,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         let parent_hash = latest_execution_block.block_hash();
         let block_number = latest_execution_block.block_number() + 1;
         let timestamp = block_number;
-        let prev_randao = Hash256::from_slice(&block_number.to_le_bytes());
+        let prev_randao = Hash256::from_slice(&block_number.to_be_bytes());
         let head_block_root = Hash256::repeat_byte(42);
         let forkchoice_update_params = ForkchoiceUpdateParameters {
             head_root: head_block_root,

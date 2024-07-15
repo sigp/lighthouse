@@ -752,7 +752,7 @@ mod test {
             let keypair = generate_deterministic_keypair(i as usize);
             let mut deposit = DepositData {
                 pubkey: keypair.pk.into(),
-                withdrawal_credentials: Hash256::zero(),
+                withdrawal_credentials: Hash256::ZERO,
                 amount: spec.max_effective_balance,
                 signature: Signature::empty().into(),
             };

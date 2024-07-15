@@ -333,7 +333,7 @@ async fn chain_segment_non_linear_parent_roots() {
         .collect();
 
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
-    *block.parent_root_mut() = Hash256::zero();
+    *block.parent_root_mut() = Hash256::ZERO;
     blocks[3] = RpcBlock::new_without_blobs(
         None,
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
@@ -676,14 +676,14 @@ async fn invalid_signature_attester_slashing() {
                 data: AttestationData {
                     slot: Slot::new(0),
                     index: 0,
-                    beacon_block_root: Hash256::zero(),
+                    beacon_block_root: Hash256::ZERO,
                     source: Checkpoint {
                         epoch: Epoch::new(0),
-                        root: Hash256::zero(),
+                        root: Hash256::ZERO,
                     },
                     target: Checkpoint {
                         epoch: Epoch::new(0),
-                        root: Hash256::zero(),
+                        root: Hash256::ZERO,
                     },
                 },
                 signature: junk_aggregate_signature(),
@@ -700,14 +700,14 @@ async fn invalid_signature_attester_slashing() {
                 data: AttestationData {
                     slot: Slot::new(0),
                     index: 0,
-                    beacon_block_root: Hash256::zero(),
+                    beacon_block_root: Hash256::ZERO,
                     source: Checkpoint {
                         epoch: Epoch::new(0),
-                        root: Hash256::zero(),
+                        root: Hash256::ZERO,
                     },
                     target: Checkpoint {
                         epoch: Epoch::new(0),
-                        root: Hash256::zero(),
+                        root: Hash256::ZERO,
                     },
                 },
                 signature: junk_aggregate_signature(),
@@ -845,10 +845,10 @@ async fn invalid_signature_deposit() {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
         let deposit = Deposit {
-            proof: vec![Hash256::zero(); DEPOSIT_TREE_DEPTH + 1].into(),
+            proof: vec![Hash256::ZERO; DEPOSIT_TREE_DEPTH + 1].into(),
             data: DepositData {
                 pubkey: Keypair::random().pk.into(),
-                withdrawal_credentials: Hash256::zero(),
+                withdrawal_credentials: Hash256::ZERO,
                 amount: 0,
                 signature: junk_signature().into(),
             },
