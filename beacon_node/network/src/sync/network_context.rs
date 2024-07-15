@@ -437,6 +437,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let mut peer_id_to_request_map = HashMap::new();
 
         for column_index in custody_indexes {
+            // TODO(das): The peer selection logic here needs to be improved - we should probably
+            // avoid retrying from failed peers, however `BatchState` currently only tracks the peer
+            // serving the blocks.
             let Some(custody_peer) = self.get_random_custodial_peer(epoch, *column_index) else {
                 // TODO(das): this will be pretty bad UX. To improve we should:
                 // - Attempt to fetch custody requests first, before requesting blocks
