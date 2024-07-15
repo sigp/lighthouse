@@ -2,7 +2,6 @@ use serde::Deserialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::fmt::Debug;
-use tree_hash::TreeHash;
 use types::ForkName;
 
 // TODO(alloy) do we need this?
@@ -51,12 +50,12 @@ use types::ForkName;
 
 /// Trait for types that can be used in SSZ static tests.
 pub trait SszStaticType:
-    serde::de::DeserializeOwned + Encode + TreeHash + Clone + PartialEq + Debug + Sync
+    serde::de::DeserializeOwned + Encode + Clone + PartialEq + Debug + Sync
 {
 }
 
 impl<T> SszStaticType for T where
-    T: serde::de::DeserializeOwned + Encode + TreeHash + Clone + PartialEq + Debug + Sync
+    T: serde::de::DeserializeOwned + Encode + Clone + PartialEq + Debug + Sync
 {
 }
 

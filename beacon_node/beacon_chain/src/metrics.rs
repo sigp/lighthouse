@@ -401,8 +401,6 @@ lazy_static! {
         try_create_histogram("beacon_persist_eth1_cache", "Time taken to persist the eth1 caches");
     pub static ref PERSIST_FORK_CHOICE: Result<Histogram> =
         try_create_histogram("beacon_persist_fork_choice", "Time taken to persist the fork choice struct");
-    pub static ref PERSIST_DATA_AVAILABILITY_CHECKER: Result<Histogram> =
-        try_create_histogram("beacon_persist_data_availability_checker", "Time taken to persist the data availability checker");
 
     /*
      * Eth1
@@ -1212,10 +1210,6 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     set_gauge_by_usize(
         &DATA_AVAILABILITY_OVERFLOW_MEMORY_STATE_CACHE_SIZE,
         da_checker_metrics.state_cache_size,
-    );
-    set_gauge_by_usize(
-        &DATA_AVAILABILITY_OVERFLOW_STORE_CACHE_SIZE,
-        da_checker_metrics.num_store_entries,
     );
 
     if let Some((size, num_lookups)) = beacon_chain.pre_finalization_block_cache.metrics() {

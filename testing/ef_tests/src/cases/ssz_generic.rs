@@ -6,6 +6,7 @@ use crate::cases::ssz_static::{check_serialization, check_tree_hash};
 use crate::decode::{log_file_access, snappy_decode_file, yaml_decode_file};
 use serde::{de::Error as SerdeError, Deserialize, Deserializer};
 use ssz_derive::{Decode, Encode};
+use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::typenum::*;
 use types::{BitList, BitVector, FixedVector, ForkName, VariableList, Vector};
@@ -206,7 +207,7 @@ impl Case for SszGeneric {
     }
 }
 
-fn ssz_generic_test<T: SszStaticType + ssz::Decode>(path: &Path) -> Result<(), Error> {
+fn ssz_generic_test<T: SszStaticType + TreeHash + ssz::Decode>(path: &Path) -> Result<(), Error> {
     let meta_path = path.join("meta.yaml");
     let meta: Option<Metadata> = if meta_path.is_file() {
         Some(yaml_decode_file(&meta_path)?)
