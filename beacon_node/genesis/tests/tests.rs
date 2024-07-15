@@ -6,7 +6,7 @@ use genesis::{Eth1Config, Eth1GenesisService};
 use sensitive_url::SensitiveUrl;
 use state_processing::is_valid_genesis_state;
 use std::time::Duration;
-use types::{test_utils::generate_deterministic_keypair, Hash256, MinimalEthSpec};
+use types::{test_utils::generate_deterministic_keypair, Hash256, Hash256Extended, MinimalEthSpec};
 
 pub fn new_env() -> Environment<MinimalEthSpec> {
     EnvironmentBuilder::minimal()
@@ -65,7 +65,7 @@ fn basic() {
             .map(|i| {
                 deposit_contract.deposit_helper::<MinimalEthSpec>(
                     generate_deterministic_keypair(i as usize),
-                    Hash256::from_slice(&i.to_le_bytes()),
+                    Hash256::from_low_u64_le(i),
                     32_000_000_000,
                 )
             })

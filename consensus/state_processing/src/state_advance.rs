@@ -73,7 +73,7 @@ pub fn partial_state_advance<E: EthSpec>(
     // `state.block_roots` array, since the `state.latest_block_header` would contain an invalid
     // (all-zeros) state root.
     let mut initial_state_root = Some(if state.slot() > state.latest_block_header().slot {
-        state_root_opt.unwrap_or_else(|| Hash256::zero())
+        state_root_opt.unwrap_or_else(Hash256::zero)
     } else {
         state_root_opt.ok_or(Error::StateRootNotProvided)?
     });
@@ -85,7 +85,7 @@ pub fn partial_state_advance<E: EthSpec>(
         // Failing to provide the correct state root on the initial iteration may result in
         // corrupting the `state.block_roots` array since the latest block header may not be updated
         // with the correct state root.
-        let state_root = initial_state_root.take().unwrap_or_else(|| Hash256::zero());
+        let state_root = initial_state_root.take().unwrap_or_else(Hash256::zero);
 
         per_slot_processing(state, Some(state_root), spec).map_err(Error::PerSlotProcessing)?;
     }

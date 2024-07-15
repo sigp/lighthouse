@@ -74,9 +74,11 @@ impl ExecutionBlockHeader {
             receipts_root: payload.receipts_root(),
             logs_bloom: payload.logs_bloom().clone().into(),
             difficulty: Uint256::ZERO,
-            number: Uint256::from_le_bytes(payload.block_number().to_le_bytes()),
-            gas_limit: Uint256::from_le_bytes(payload.gas_limit().to_le_bytes()),
-            gas_used: Uint256::from_le_bytes(payload.gas_used().to_le_bytes()),
+
+            // TODO(alloy) are these big edian or little?
+            number: Uint256::from_be_bytes(payload.block_number().from_be_bytes()),
+            gas_limit: Uint256::from_be_bytes(payload.gas_limit().from_be_bytes()),
+            gas_used: Uint256::from_be_bytes(payload.gas_used().from_be_bytes()),
             timestamp: payload.timestamp(),
             extra_data: payload.extra_data().clone().into(),
             mix_hash: payload.prev_randao(),

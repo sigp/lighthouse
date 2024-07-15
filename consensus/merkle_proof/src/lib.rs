@@ -1,7 +1,28 @@
-use alloy_primitives::B256 as H256;
 use ethereum_hashing::{hash, hash32_concat, ZERO_HASHES};
 use lazy_static::lazy_static;
 use safe_arith::ArithError;
+
+type H256 = alloy_primitives::B256;
+
+pub trait Hash256Extended {
+    fn from_low_u64_be(value: u64) -> alloy_primitives::B256;
+    fn from_low_u64_le(value: u64) -> alloy_primitives::B256;
+    fn zero() -> alloy_primitives::B256;
+}
+
+impl Hash256Extended for alloy_primitives::B256 {
+    fn from_low_u64_be(value: u64) -> alloy_primitives::B256 {
+        alloy_primitives::B256::from_slice(&value.to_be_bytes())
+    }
+
+    fn from_low_u64_le(value: u64) -> alloy_primitives::B256 {
+        alloy_primitives::B256::from_slice(&value.to_le_bytes())
+    }
+
+    fn zero() -> alloy_primitives::B256 {
+        alloy_primitives::B256::ZERO
+    }
+}
 
 const MAX_TREE_DEPTH: usize = 32;
 const EMPTY_SLICE: &[H256] = &[];
@@ -415,10 +436,7 @@ mod tests {
             return TestResult::discard();
         }
 
-        let leaves: Vec<_> = int_leaves
-            .into_iter()
-            .map(|leaf| H256::from_slice(&leaf.to_le_bytes()))
-            .collect();
+        let leaves: Vec<_> = int_leaves.into_iter().map(H256::from_low_u64_be).collect();
         let merkle_tree = MerkleTree::create(&leaves, depth);
         let merkle_root = merkle_tree.hash();
 
@@ -438,10 +456,7 @@ mod tests {
             return TestResult::discard();
         }
 
-        let leaves_iter = int_leaves
-            .into_iter()
-            .map(|leaf| H256::from_slice(&leaf.to_le_bytes()));
-
+        let leaves_iter = int_leaves.into_iter().map(H256::from_low_u64_be);
         let mut merkle_tree = MerkleTree::create(&[], depth);
 
         let proofs_ok = leaves_iter.enumerate().all(|(i, leaf)| {
