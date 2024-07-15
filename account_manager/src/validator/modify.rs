@@ -28,6 +28,15 @@ pub fn cli_app() -> Command {
             Command::new(ENABLE)
                 .about("Enable validator(s) in validator_definitions.yml.")
                 .arg(
+                    Arg::new("help")
+                        .long("help")
+                        .short('h')
+                        .help("Prints help information")
+                        .action(ArgAction::HelpLong)
+                        .display_order(0)
+                        .help_heading(FLAG_HEADER),
+                )
+                .arg(
                     Arg::new(PUBKEY_FLAG)
                         .long(PUBKEY_FLAG)
                         .value_name("PUBKEY")
@@ -48,6 +57,15 @@ pub fn cli_app() -> Command {
         .subcommand(
             Command::new(DISABLE)
                 .about("Disable validator(s) in validator_definitions.yml.")
+                .arg(
+                    Arg::new("help")
+                        .long("help")
+                        .short('h')
+                        .help("Prints help information")
+                        .action(ArgAction::HelpLong)
+                        .display_order(0)
+                        .help_heading(FLAG_HEADER),
+                )
                 .arg(
                     Arg::new(PUBKEY_FLAG)
                         .long(PUBKEY_FLAG)
