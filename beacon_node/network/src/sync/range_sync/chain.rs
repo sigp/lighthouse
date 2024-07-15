@@ -11,6 +11,7 @@ use rand::{seq::SliceRandom, Rng};
 use slog::{crit, debug, o, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::time::Instant;
 use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
@@ -109,6 +110,9 @@ pub struct SyncingChain<T: BeaconChainTypes> {
 pub enum ChainSyncingState {
     /// The chain is not being synced.
     Stopped,
+    /// The chain should not download any more batches, but should attempt to processing everything
+    /// that is already downloaded.
+    Stopping(Instant),
     /// The chain is undergoing syncing.
     Syncing,
 }
@@ -866,6 +870,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> ProcessingResult {
+        // If chain is stopping do not request any more batches.
+        if matches!(self.state, ChainSyncingState::Stopping) {
+            return Ok(KeepChain);
+        }
+
         let Some(batch) = self.batches.get_mut(&batch_id) else {
             return Ok(KeepChain);
         };
@@ -972,7 +981,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     pub fn is_syncing(&self) -> bool {
         match self.state {
             ChainSyncingState::Syncing => true,
-            ChainSyncingState::Stopped => false,
+            ChainSyncingState::Stopped | ChainSyncingState::Stopping { .. } => false,
         }
     }
 
@@ -991,6 +1000,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Attempts to request the next required batches from the peer pool if the chain is syncing. It will exhaust the peer
     /// pool and left over batches until the batch buffer is reached or all peers are exhausted.
     fn request_batches(&mut self, network: &mut SyncNetworkContext<T>) -> ProcessingResult {
+        // If chain is stopped or stopping do not request any more batches.
         if !matches!(self.state, ChainSyncingState::Syncing) {
             return Ok(KeepChain);
         }
