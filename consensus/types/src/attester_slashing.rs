@@ -1,5 +1,5 @@
 use crate::indexed_attestation::{
-    IndexedAttestation, IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationRef,
+    IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationRef,
 };
 use crate::{test_utils::TestRandom, EthSpec};
 use derivative::Derivative;
@@ -157,19 +157,6 @@ impl<E: EthSpec> AttesterSlashing<E> {
             AttesterSlashing::Electra(attester_slashing) => {
                 IndexedAttestationRef::Electra(&attester_slashing.attestation_2)
             }
-        }
-    }
-}
-
-impl<E: EthSpec> From<AttesterSlashingBase<E>> for AttesterSlashingElectra<E> {
-    fn from(attester_slashing: AttesterSlashingBase<E>) -> Self {
-        let AttesterSlashingBase {
-            attestation_1,
-            attestation_2,
-        } = attester_slashing;
-        AttesterSlashingElectra {
-            attestation_1: IndexedAttestation::Base(attestation_1).to_electra(),
-            attestation_2: IndexedAttestation::Base(attestation_2).to_electra(),
         }
     }
 }

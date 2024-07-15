@@ -1845,23 +1845,14 @@ pub fn serve<T: BeaconChainTypes>(
                                 "unable to read slot clock".to_string(),
                             ))?;
                     let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(current_slot);
-
-                    let attestations = if fork_name.electra_enabled() {
-                        attestations
-                            .into_iter()
-                            .map(|att| match att {
-                                Attestation::Base(a) => Ok(Attestation::Electra(a.try_into()?)),
-                                Attestation::Electra(a) => Ok(Attestation::Electra(a)),
-                            })
-                            .collect::<Result<Vec<_>, types::attestation::Error>>()
-                            .map_err(|e| {
-                                warp_utils::reject::custom_server_error(format!(
-                                    "could not convert base attestations to electra {e:?}"
-                                ))
-                            })?
-                    } else {
-                        attestations
-                    };
+                    let attestations = attestations
+                        .into_iter()
+                        .filter(|att| {
+                            (fork_name.electra_enabled() && matches!(att, Attestation::Electra(_)))
+                                || (!fork_name.electra_enabled()
+                                    && matches!(att, Attestation::Base(_)))
+                        })
+                        .collect::<Vec<_>>();
 
                     let res = fork_versioned_response(endpoint_version, fork_name, &attestations)?;
                     Ok(add_consensus_version_header(
@@ -1921,48 +1912,45 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // GET beacon/pool/attester_slashings
-    let get_beacon_pool_attester_slashings = beacon_pool_path_any
-        .clone()
-        .and(warp::path("attester_slashings"))
-        .and(warp::path::end())
-        .then(
-            |endpoint_version: EndpointVersion,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_response_task(Priority::P1, move || {
-                    let slashings = chain.op_pool.get_all_attester_slashings();
+    let get_beacon_pool_attester_slashings =
+        beacon_pool_path_any
+            .clone()
+            .and(warp::path("attester_slashings"))
+            .and(warp::path::end())
+            .then(
+                |endpoint_version: EndpointVersion,
+                 task_spawner: TaskSpawner<T::EthSpec>,
+                 chain: Arc<BeaconChain<T>>| {
+                    task_spawner.blocking_response_task(Priority::P1, move || {
+                        let slashings = chain.op_pool.get_all_attester_slashings();
 
-                    // Use the current slot to find the fork version, and convert all messages to the
-                    // current fork's format. This is to ensure consistent message types matching
-                    // `Eth-Consensus-Version`.
-                    let current_slot =
-                        chain
-                            .slot_clock
-                            .now()
-                            .ok_or(warp_utils::reject::custom_server_error(
+                        // Use the current slot to find the fork version, and convert all messages to the
+                        // current fork's format. This is to ensure consistent message types matching
+                        // `Eth-Consensus-Version`.
+                        let current_slot = chain.slot_clock.now().ok_or(
+                            warp_utils::reject::custom_server_error(
                                 "unable to read slot clock".to_string(),
-                            ))?;
-                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(current_slot);
-
-                    let slashings = if fork_name.electra_enabled() {
-                        slashings
+                            ),
+                        )?;
+                        let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(current_slot);
+                        let slashings = slashings
                             .into_iter()
-                            .map(|att| match att {
-                                AttesterSlashing::Base(a) => AttesterSlashing::Electra(a.into()),
-                                AttesterSlashing::Electra(a) => AttesterSlashing::Electra(a),
+                            .filter(|slashing| {
+                                (fork_name.electra_enabled()
+                                    && matches!(slashing, AttesterSlashing::Electra(_)))
+                                    || (!fork_name.electra_enabled()
+                                        && matches!(slashing, AttesterSlashing::Base(_)))
                             })
-                            .collect::<Vec<_>>()
-                    } else {
-                        slashings
-                    };
-                    let res = fork_versioned_response(endpoint_version, fork_name, &slashings)?;
-                    Ok(add_consensus_version_header(
-                        warp::reply::json(&res).into_response(),
-                        fork_name,
-                    ))
-                })
-            },
-        );
+                            .collect::<Vec<_>>();
+
+                        let res = fork_versioned_response(endpoint_version, fork_name, &slashings)?;
+                        Ok(add_consensus_version_header(
+                            warp::reply::json(&res).into_response(),
+                            fork_name,
+                        ))
+                    })
+                },
+            );
 
     // POST beacon/pool/proposer_slashings
     let post_beacon_pool_proposer_slashings = beacon_pool_path
