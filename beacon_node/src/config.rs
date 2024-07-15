@@ -1416,16 +1416,15 @@ pub fn set_network_config(
     // Light client server config.
     config.enable_light_client_server = parse_flag(cli_args, "light-client-server");
 
-    // The self limiter is disabled by default. If the `self-limiter` flag is provided
-    // without the `self-limiter-protocols` flag, the default params will be used.
-    if parse_flag(cli_args, "self-limiter") {
-        config.outbound_rate_limiter_config =
-            if let Some(protocols) = cli_args.get_one::<String>("self-limiter-protocols") {
-                Some(protocols.parse()?)
-            } else {
-                Some(Default::default())
-            };
-    }
+    // The self limiter is enabled by default. If the `self-limiter-protocols` flag is not provided,
+    // the default params will be used.
+    config.outbound_rate_limiter_config = if parse_flag(cli_args, "disable-self-limiter") {
+        None
+    } else if let Some(protocols) = cli_args.get_one::<String>("self-limiter-protocols") {
+        Some(protocols.parse()?)
+    } else {
+        Some(Default::default())
+    };
 
     // Proposer-only mode overrides a number of previous configuration parameters.
     // Specifically, we avoid subscribing to long-lived subnets and wish to maintain a minimal set
