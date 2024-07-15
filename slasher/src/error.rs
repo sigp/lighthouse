@@ -8,6 +8,8 @@ pub enum Error {
     DatabaseMdbxError(mdbx::Error),
     #[cfg(feature = "lmdb")]
     DatabaseLmdbError(lmdb::Error),
+    #[cfg(feature = "redb")]
+    DatabaseRedbError(redb::Error),
     SlasherDatabaseBackendDisabled,
     MismatchedDatabaseVariant,
     DatabaseIOError(io::Error),
@@ -67,6 +69,7 @@ pub enum Error {
     MissingIndexedAttestationId,
     MissingIndexedAttestationIdKey,
     InconsistentAttestationDataRoot,
+    MissingKey,
 }
 
 #[cfg(feature = "mdbx")]
@@ -86,6 +89,41 @@ impl From<lmdb::Error> for Error {
             lmdb::Error::Other(os_error) => Error::from(io::Error::from_raw_os_error(os_error)),
             _ => Error::DatabaseLmdbError(e),
         }
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::TableError> for Error {
+    fn from(e: redb::TableError) -> Self {
+        Error::DatabaseRedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::TransactionError> for Error {
+    fn from(e: redb::TransactionError) -> Self {
+        Error::DatabaseRedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::DatabaseError> for Error {
+    fn from(e: redb::DatabaseError) -> Self {
+        Error::DatabaseRedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::StorageError> for Error {
+    fn from(e: redb::StorageError) -> Self {
+        Error::DatabaseRedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::CommitError> for Error {
+    fn from(e: redb::CommitError) -> Self {
+        Error::DatabaseRedbError(e.into())
     }
 }
 

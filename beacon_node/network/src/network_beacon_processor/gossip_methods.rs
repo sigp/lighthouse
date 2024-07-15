@@ -907,16 +907,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             get_block_delay_ms(seen_duration, block.message(), &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
 
-        metrics::set_gauge(
-            &metrics::BEACON_BLOCK_DELAY_GOSSIP,
-            block_delay.as_millis() as i64,
-        );
-
         let verification_result = self
             .chain
             .clone()
             .verify_block_for_gossip(block.clone())
             .await;
+
+        if verification_result.is_ok() {
+            metrics::set_gauge(
+                &metrics::BEACON_BLOCK_DELAY_GOSSIP,
+                block_delay.as_millis() as i64,
+            );
+        }
 
         let block_root = if let Ok(verified_block) = &verification_result {
             verified_block.block_root
@@ -1010,16 +1012,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
-            Err(e @ BlockError::FutureSlot { .. })
-            | Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
-            | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
-                debug!(self.log, "Could not verify block for gossip. Ignoring the block";
-                            "error" => %e);
+            Err(e @ BlockError::FutureSlot { .. }) => {
+                debug!(
+                    self.log,
+                    "Could not verify block for gossip. Ignoring the block";
+                    "error" => %e
+                );
                 // Prevent recurring behaviour by penalizing the peer slightly.
                 self.gossip_penalize_peer(
                     peer_id,
                     PeerAction::HighToleranceError,
                     "gossip_block_high",
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
+            }
+            Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
+            | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
+                debug!(
+                    self.log,
+                    "Could not verify block for gossip. Ignoring the block";
+                    "error" => %e
+                );
+                // The spec says we must IGNORE these blocks but there's no reason for an honest
+                // and non-buggy client to be gossiping blocks that blatantly conflict with
+                // finalization. Old versions of Erigon/Caplin are known to gossip pre-finalization
+                // blocks and we want to isolate them to encourage an update.
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_block_low",
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;

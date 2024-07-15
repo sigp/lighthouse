@@ -180,7 +180,7 @@ pub struct ChainSpec {
     pub electra_fork_version: [u8; 4],
     /// The Electra fork epoch is optional, with `None` representing "Electra never happens".
     pub electra_fork_epoch: Option<Epoch>,
-    pub unset_deposit_receipts_start_index: u64,
+    pub unset_deposit_requests_start_index: u64,
     pub full_exit_request_amount: u64,
     pub min_activation_balance: u64,
     pub max_effective_balance_electra: u64,
@@ -189,6 +189,11 @@ pub struct ChainSpec {
     pub max_pending_partials_per_withdrawals_sweep: u64,
     pub min_per_epoch_churn_limit_electra: u64,
     pub max_per_epoch_activation_exit_churn_limit: u64,
+
+    /*
+     * DAS params
+     */
+    pub number_of_columns: usize,
 
     /*
      * Networking
@@ -393,7 +398,7 @@ impl ChainSpec {
         state: &BeaconState<E>,
     ) -> u64 {
         let fork_name = state.fork_name_unchecked();
-        if fork_name >= ForkName::Electra {
+        if fork_name.electra_enabled() {
             self.whistleblower_reward_quotient_electra
         } else {
             self.whistleblower_reward_quotient
@@ -401,7 +406,7 @@ impl ChainSpec {
     }
 
     pub fn max_effective_balance_for_fork(&self, fork_name: ForkName) -> u64 {
-        if fork_name >= ForkName::Electra {
+        if fork_name.electra_enabled() {
             self.max_effective_balance_electra
         } else {
             self.max_effective_balance
@@ -747,7 +752,7 @@ impl ChainSpec {
              */
             electra_fork_version: [0x05, 00, 00, 00],
             electra_fork_epoch: None,
-            unset_deposit_receipts_start_index: u64::MAX,
+            unset_deposit_requests_start_index: u64::MAX,
             full_exit_request_amount: 0,
             min_activation_balance: option_wrapper(|| {
                 u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
@@ -771,6 +776,8 @@ impl ChainSpec {
                 u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
+
+            number_of_columns: 128,
 
             /*
              * Network specific
@@ -1057,7 +1064,7 @@ impl ChainSpec {
              */
             electra_fork_version: [0x05, 0x00, 0x00, 0x64],
             electra_fork_epoch: None,
-            unset_deposit_receipts_start_index: u64::MAX,
+            unset_deposit_requests_start_index: u64::MAX,
             full_exit_request_amount: 0,
             min_activation_balance: option_wrapper(|| {
                 u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
@@ -1081,6 +1088,8 @@ impl ChainSpec {
                 u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
+
+            number_of_columns: 128,
 
             /*
              * Network specific

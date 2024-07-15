@@ -14,7 +14,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
-use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, ForkName, Slot};
+use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
 
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
@@ -449,6 +449,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             warn!(log, "No attestations were published");
             return Ok(None);
         }
+        let fork_name = self
+            .context
+            .eth2_config
+            .spec
+            .fork_name_at_slot::<E>(attestation_data.slot);
 
         // Post the attestations to the BN.
         match self
@@ -462,9 +467,15 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         &metrics::ATTESTATION_SERVICE_TIMES,
                         &[metrics::ATTESTATIONS_HTTP_POST],
                     );
-                    beacon_node
-                        .post_beacon_pool_attestations(attestations)
-                        .await
+                    if fork_name.electra_enabled() {
+                        beacon_node
+                            .post_beacon_pool_attestations_v2(attestations, fork_name)
+                            .await
+                    } else {
+                        beacon_node
+                            .post_beacon_pool_attestations_v1(attestations)
+                            .await
+                    }
                 },
             )
             .await
@@ -537,7 +548,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         &metrics::ATTESTATION_SERVICE_TIMES,
                         &[metrics::AGGREGATES_HTTP_GET],
                     );
-                    let aggregate_attestation_result = if fork_name >= ForkName::Electra {
+                    if fork_name.electra_enabled() {
                         beacon_node
                             .get_validator_aggregate_attestation_v2(
                                 attestation_data.slot,
@@ -545,6 +556,13 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 committee_index,
                             )
                             .await
+                            .map_err(|e| {
+                                format!("Failed to produce an aggregate attestation: {:?}", e)
+                            })?
+                            .ok_or_else(|| {
+                                format!("No aggregate available for {:?}", attestation_data)
+                            })
+                            .map(|result| result.data)
                     } else {
                         beacon_node
                             .get_validator_aggregate_attestation_v1(
@@ -552,14 +570,14 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 attestation_data.tree_hash_root(),
                             )
                             .await
-                    };
-
-                    aggregate_attestation_result
-                        .map_err(|e| {
-                            format!("Failed to produce an aggregate attestation: {:?}", e)
-                        })?
-                        .ok_or_else(|| format!("No aggregate available for {:?}", attestation_data))
-                        .map(|result| result.data)
+                            .map_err(|e| {
+                                format!("Failed to produce an aggregate attestation: {:?}", e)
+                            })?
+                            .ok_or_else(|| {
+                                format!("No aggregate available for {:?}", attestation_data)
+                            })
+                            .map(|result| result.data)
+                    }
                 },
             )
             .await
@@ -627,9 +645,20 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             &metrics::ATTESTATION_SERVICE_TIMES,
                             &[metrics::AGGREGATES_HTTP_POST],
                         );
-                        beacon_node
-                            .post_validator_aggregate_and_proof(signed_aggregate_and_proofs_slice)
-                            .await
+                        if fork_name.electra_enabled() {
+                            beacon_node
+                                .post_validator_aggregate_and_proof_v2(
+                                    signed_aggregate_and_proofs_slice,
+                                    fork_name,
+                                )
+                                .await
+                        } else {
+                            beacon_node
+                                .post_validator_aggregate_and_proof_v1(
+                                    signed_aggregate_and_proofs_slice,
+                                )
+                                .await
+                        }
                     },
                 )
                 .await

@@ -589,8 +589,8 @@ pub async fn handle_rpc<E: EthSpec>(
                                 .withdrawals()
                                 .ok()
                                 .map(|withdrawals| VariableList::from(withdrawals.clone())),
-                            deposit_receipts: block.deposit_receipts().ok().map(
-                                |deposit_receipts| VariableList::from(deposit_receipts.clone()),
+                            deposit_requests: block.deposit_requests().ok().map(
+                                |deposit_requests| VariableList::from(deposit_requests.clone()),
                             ),
                             withdrawal_requests: block.withdrawal_requests().ok().map(
                                 |withdrawal_requests| {
