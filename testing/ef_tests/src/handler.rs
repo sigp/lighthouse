@@ -584,7 +584,7 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
 
         // No FCU override tests prior to bellatrix.
         if self.handler_name == "should_override_forkchoice_update"
-            && fork_name < ForkName::Bellatrix
+            && !fork_name.bellatrix_enabled()
         {
             return false;
         }
