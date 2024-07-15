@@ -65,7 +65,7 @@ type_name_generic!(ContributionAndProof);
 type_name!(Deposit);
 type_name!(DepositData);
 type_name!(DepositMessage);
-type_name!(DepositReceipt);
+type_name!(DepositRequest);
 type_name!(Eth1Data);
 type_name!(ExecutionLayerWithdrawalRequest);
 type_name_generic!(ExecutionPayload);
