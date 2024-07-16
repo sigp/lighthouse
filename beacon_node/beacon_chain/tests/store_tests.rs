@@ -3198,15 +3198,15 @@ async fn prune_historic_states() {
         )
         .await;
 
-    // Check historical state is present.
-    let state_roots_iter = harness
+    // Check historical states are present.
+    let first_epoch_state_roots = harness
         .chain
         .forwards_iter_state_roots(Slot::new(0))
-        .unwrap();
-    for (state_root, slot) in state_roots_iter
+        .unwrap()
         .take(E::slots_per_epoch() as usize)
         .map(Result::unwrap)
-    {
+        .collect::<Vec<_>>();
+    for &(state_root, slot) in &first_epoch_state_roots {
         assert!(store.get_state(&state_root, Some(slot)).unwrap().is_some());
     }
 
@@ -3219,24 +3219,13 @@ async fn prune_historic_states() {
     assert_eq!(anchor_info.state_lower_limit, 0);
     assert_eq!(anchor_info.state_upper_limit, STATE_UPPER_LIMIT_NO_RETAIN);
 
-    // Historical states should be pruned.
-    let state_roots_iter = harness
-        .chain
-        .forwards_iter_state_roots(Slot::new(1))
-        .unwrap();
-    for (state_root, slot) in state_roots_iter
-        .take(E::slots_per_epoch() as usize)
-        .map(Result::unwrap)
-    {
-        assert!(store.get_state(&state_root, Some(slot)).unwrap().is_none());
+    // Ensure all epoch 0 states other than the genesis have been pruned.
+    for &(state_root, slot) in &first_epoch_state_roots {
+        assert_eq!(
+            store.get_state(&state_root, Some(slot)).unwrap().is_some(),
+            slot == 0
+        );
     }
-
-    // Ensure that genesis state is still accessible
-    let genesis_state_root = harness.chain.genesis_state_root;
-    assert!(store
-        .get_state(&genesis_state_root, Some(Slot::new(0)))
-        .unwrap()
-        .is_some());
 
     // Run for another two epochs.
     let additional_blocks_produced = 2 * E::slots_per_epoch();

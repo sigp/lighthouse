@@ -77,7 +77,6 @@ pub enum Error {
     CacheBuildError(EpochCacheError),
     ForwardsIterInvalidColumn(DBColumn),
     ForwardsIterGap(DBColumn, Slot, Slot),
-    ForwardsIterBadStart(DBColumn, Slot),
     StateShouldNotBeRequired(Slot),
     MissingBlock(Hash256),
 }

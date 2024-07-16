@@ -254,48 +254,45 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
 
         // First slot at which this field is *not* available in the freezer. i.e. all slots less
         // than this slot have their data available in the freezer.
-        let freezer_upper_bound = store
-            .freezer_upper_bound_for_column(column, start_slot)?
-            .ok_or(Error::ForwardsIterBadStart(column, start_slot))?;
+        let opt_freezer_upper_bound = store.freezer_upper_bound_for_column(column, start_slot)?;
 
-        let result = if start_slot < freezer_upper_bound {
-            // EXCLUSIVE end slot for the frozen portion of the iterator.
-            let frozen_end_slot = end_slot.map_or(freezer_upper_bound, |end_slot| {
-                std::cmp::min(end_slot + 1, freezer_upper_bound)
-            });
-            let iter = Box::new(FrozenForwardsIterator::new(
-                store,
-                column,
-                start_slot,
-                frozen_end_slot,
-            )?);
+        match opt_freezer_upper_bound {
+            Some(freezer_upper_bound) if start_slot < freezer_upper_bound => {
+                // EXCLUSIVE end slot for the frozen portion of the iterator.
+                let frozen_end_slot = end_slot.map_or(freezer_upper_bound, |end_slot| {
+                    std::cmp::min(end_slot + 1, freezer_upper_bound)
+                });
+                let iter = Box::new(FrozenForwardsIterator::new(
+                    store,
+                    column,
+                    start_slot,
+                    frozen_end_slot,
+                )?);
 
-            // No continuation data is needed if the forwards iterator plans to halt before
-            // `end_slot`. If it tries to continue further a `NoContinuationData` error will be
-            // returned.
-            let continuation_data =
-                if end_slot.map_or(false, |end_slot| end_slot < freezer_upper_bound) {
-                    None
-                } else {
-                    Some(Box::new(get_state()?))
-                };
-            PreFinalization {
-                iter,
-                store,
-                end_slot,
-                column,
-                continuation_data,
+                // No continuation data is needed if the forwards iterator plans to halt before
+                // `end_slot`. If it tries to continue further a `NoContinuationData` error will be
+                // returned.
+                let continuation_data =
+                    if end_slot.map_or(false, |end_slot| end_slot < freezer_upper_bound) {
+                        None
+                    } else {
+                        Some(Box::new(get_state()?))
+                    };
+                Ok(PreFinalization {
+                    iter,
+                    store,
+                    end_slot,
+                    column,
+                    continuation_data,
+                })
             }
-        } else {
-            PostFinalizationLazy {
+            _ => Ok(PostFinalizationLazy {
                 continuation_data: Some(Box::new(get_state()?)),
                 store,
                 start_slot,
                 column,
-            }
-        };
-
-        Ok(result)
+            }),
+        }
     }
 
     fn do_next(&mut self) -> Result<Option<(Hash256, Slot)>> {
