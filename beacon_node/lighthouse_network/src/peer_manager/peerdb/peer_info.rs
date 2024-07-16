@@ -94,8 +94,15 @@ impl<E: EthSpec> PeerInfo<E> {
                         .syncnets()
                         .map_or(false, |s| s.get(**id as usize).unwrap_or(false))
                 }
-                // TODO(das) Add data column nets bitfield
-                Subnet::DataColumn(_) => return false,
+                Subnet::DataColumn(_) => {
+                    // TODO(das): Pending spec PR https://github.com/ethereum/consensus-specs/pull/3821
+                    // We should use MetaDataV3 for peer selection rather than
+                    // looking at subscribed peers (current behavior). Until MetaDataV3 is
+                    // implemented, this is the perhaps the only viable option on the current devnet
+                    // as the peer count is low and it's important to identify supernodes to get a
+                    // good distribution of peers across subnets.
+                    return true;
+                }
             }
         }
         false

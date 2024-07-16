@@ -426,6 +426,8 @@ mod request {
     };
     use beacon_chain::BeaconChainTypes;
     use lighthouse_network::PeerId;
+    use rand::seq::SliceRandom;
+    use rand::thread_rng;
     use std::collections::HashSet;
     use types::{data_column_sidecar::ColumnIndex, EthSpec, Hash256, Slot};
 
@@ -496,8 +498,7 @@ mod request {
 
             peer_ids.retain(|peer_id| !self.peers_dont_have.contains(peer_id));
 
-            // TODO(das) randomize custodial peer and avoid failing peers
-            if let Some(peer_id) = peer_ids.first().cloned() {
+            if let Some(peer_id) = peer_ids.choose(&mut thread_rng()).cloned() {
                 cx.data_column_lookup_request(
                     DataColumnsByRootRequester::Sampling(SamplingId {
                         id: requester,

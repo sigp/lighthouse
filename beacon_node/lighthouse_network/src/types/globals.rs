@@ -2,9 +2,9 @@
 use crate::peer_manager::peerdb::PeerDB;
 use crate::rpc::{MetaData, MetaDataV2};
 use crate::types::{BackFillState, SyncState};
-use crate::EnrExt;
 use crate::{Client, Eth2Enr};
 use crate::{Enr, GossipTopic, Multiaddr, PeerId};
+use crate::{EnrExt, Subnet};
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use types::data_column_sidecar::ColumnIndex;
@@ -120,6 +120,34 @@ impl<E: EthSpec> NetworkGlobals<E> {
             .collect()
     }
 
+    /// Compute custody data column subnets the node is assigned to custody.
+    pub fn custody_subnets(&self, spec: &ChainSpec) -> impl Iterator<Item = DataColumnSubnetId> {
+        let enr = self.local_enr();
+        let node_id = enr.node_id().raw().into();
+        let custody_subnet_count = enr.custody_subnet_count::<E>(spec);
+        DataColumnSubnetId::compute_custody_subnets::<E>(node_id, custody_subnet_count, spec)
+    }
+
+    /// Returns a connected peer that:
+    /// 1. is connected
+    /// 2. assigned to custody the column based on it's `custody_subnet_count` from metadata (WIP)
+    /// 3. has a good score
+    /// 4. subscribed to the specified column - this condition can be removed later, so we can
+    ///    identify and penalise peers that are supposed to custody the column.
+    pub fn custody_peers_for_column(
+        &self,
+        column_index: ColumnIndex,
+        spec: &ChainSpec,
+    ) -> Vec<PeerId> {
+        self.peers
+            .read()
+            .good_peers_on_subnet(Subnet::DataColumn(
+                DataColumnSubnetId::from_column_index::<E>(column_index as usize, spec),
+            ))
+            .cloned()
+            .collect::<Vec<_>>()
+    }
+
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.
     pub fn new_test_globals(trusted_peers: Vec<PeerId>, log: &slog::Logger) -> NetworkGlobals<E> {
         use crate::CombinedKeyExt;
@@ -142,7 +170,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
 
 #[cfg(test)]
 mod test {
-    use crate::NetworkGlobals;
+    use super::*;
     use types::{Epoch, EthSpec, MainnetEthSpec as E};
 
     #[test]

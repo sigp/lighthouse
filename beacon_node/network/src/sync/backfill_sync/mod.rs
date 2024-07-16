@@ -371,7 +371,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             // A batch could be retried without the peer failing the request (disconnecting/
             // sending an error /timeout) if the peer is removed from the chain for other
             // reasons. Check that this block belongs to the expected peer
-            if !batch.is_expecting_block(peer_id, &request_id) {
+            // TODO(das): removed peer_id matching as the node may request a different peer for data
+            // columns.
+            if !batch.is_expecting_block(&request_id) {
                 return Ok(());
             }
             debug!(self.log, "Batch failed"; "batch_epoch" => batch_id, "error" => "rpc_error");
@@ -419,7 +421,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 // sending an error /timeout) if the peer is removed from the chain for other
                 // reasons. Check that this block belongs to the expected peer, and that the
                 // request_id matches
-                if !batch.is_expecting_block(peer_id, &request_id) {
+                // TODO(das): removed peer_id matching as the node may request a different peer for data
+                // columns.
+                if !batch.is_expecting_block(&request_id) {
                     return Ok(ProcessResult::Successful);
                 }
                 batch

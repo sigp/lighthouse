@@ -25,9 +25,9 @@ use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineStat
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::methods::{BlobsByRangeRequest, DataColumnsByRangeRequest};
 use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError};
-use lighthouse_network::{
-    Client, Eth2Enr, NetworkGlobals, PeerAction, PeerId, ReportSource, Request,
-};
+use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 pub use requests::LookupVerifyError;
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
@@ -38,8 +38,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSubnetId, Epoch, EthSpec, Hash256,
-    SignedBeaconBlock, Slot,
+    BlobSidecar, ColumnIndex, DataColumnSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 pub mod custody;
@@ -280,29 +279,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     // TODO(das): epoch argument left here in case custody rotation is implemented
     pub fn get_custodial_peers(&self, _epoch: Epoch, column_index: ColumnIndex) -> Vec<PeerId> {
-        let mut peer_ids = vec![];
+        self.network_globals()
+            .custody_peers_for_column(column_index, &self.chain.spec)
+    }
 
-        for (peer_id, peer_info) in self.network_globals().peers.read().connected_peers() {
-            if let Some(enr) = peer_info.enr() {
-                let custody_subnet_count = enr.custody_subnet_count::<T::EthSpec>(&self.chain.spec);
-                // TODO(das): consider caching a map of subnet -> Vec<PeerId> and invalidating
-                // whenever a peer connected or disconnect event in received
-                let mut subnets = DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
-                    enr.node_id().raw().into(),
-                    custody_subnet_count,
-                    &self.chain.spec,
-                );
-                if subnets.any(|subnet| {
-                    subnet
-                        .columns::<T::EthSpec>(&self.chain.spec)
-                        .any(|index| index == column_index)
-                }) {
-                    peer_ids.push(*peer_id)
-                }
-            }
-        }
-
-        peer_ids
+    pub fn get_random_custodial_peer(
+        &self,
+        epoch: Epoch,
+        column_index: ColumnIndex,
+    ) -> Option<PeerId> {
+        self.get_custodial_peers(epoch, column_index)
+            .choose(&mut thread_rng())
+            .cloned()
     }
 
     pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
@@ -402,37 +390,24 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 .network_globals()
                 .custody_columns(epoch, &self.chain.spec);
 
-            for column_index in &custody_indexes {
-                let custody_peer_ids = self.get_custodial_peers(epoch, *column_index);
-                let Some(custody_peer) = custody_peer_ids.first().cloned() else {
-                    // TODO(das): this will be pretty bad UX. To improve we should:
-                    // - Attempt to fetch custody requests first, before requesting blocks
-                    // - Handle the no peers case gracefully, maybe add some timeout and give a few
-                    //   minutes / seconds to the peer manager to locate peers on this subnet before
-                    //   abandoing progress on the chain completely.
-                    return Err(RpcRequestSendError::NoCustodyPeers);
-                };
-
-                requested_peers.push(custody_peer);
+            for (peer_id, columns_by_range_request) in
+                self.make_columns_by_range_requests(epoch, request, &custody_indexes)?
+            {
+                requested_peers.push(peer_id);
 
                 debug!(
                     self.log,
                     "Sending DataColumnsByRange requests";
                     "method" => "DataColumnsByRange",
-                    "count" => request.count(),
+                    "count" => columns_by_range_request.count,
                     "epoch" => epoch,
-                    "index" => column_index,
-                    "peer" => %custody_peer,
+                    "columns" => ?columns_by_range_request.columns,
+                    "peer" => %peer_id,
                 );
 
-                // Create the blob request based on the blocks request.
                 self.send_network_msg(NetworkMessage::SendRequest {
-                    peer_id: custody_peer,
-                    request: Request::DataColumnsByRange(DataColumnsByRangeRequest {
-                        start_slot: *request.start_slot(),
-                        count: *request.count(),
-                        columns: vec![*column_index],
-                    }),
+                    peer_id,
+                    request: Request::DataColumnsByRange(columns_by_range_request),
                     request_id: RequestId::Sync(SyncRequestId::RangeBlockComponents(id)),
                 })
                 .map_err(|_| RpcRequestSendError::NetworkSendError)?;
@@ -451,6 +426,41 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.range_block_components_requests
             .insert(id, (sender_id, info));
         Ok(id)
+    }
+
+    fn make_columns_by_range_requests(
+        &self,
+        epoch: Epoch,
+        request: BlocksByRangeRequest,
+        custody_indexes: &Vec<ColumnIndex>,
+    ) -> Result<HashMap<PeerId, DataColumnsByRangeRequest>, RpcRequestSendError> {
+        let mut peer_id_to_request_map = HashMap::new();
+
+        for column_index in custody_indexes {
+            // TODO(das): The peer selection logic here needs to be improved - we should probably
+            // avoid retrying from failed peers, however `BatchState` currently only tracks the peer
+            // serving the blocks.
+            let Some(custody_peer) = self.get_random_custodial_peer(epoch, *column_index) else {
+                // TODO(das): this will be pretty bad UX. To improve we should:
+                // - Attempt to fetch custody requests first, before requesting blocks
+                // - Handle the no peers case gracefully, maybe add some timeout and give a few
+                //   minutes / seconds to the peer manager to locate peers on this subnet before
+                //   abandoing progress on the chain completely.
+                return Err(RpcRequestSendError::NoCustodyPeers);
+            };
+
+            let columns_by_range_request = peer_id_to_request_map
+                .entry(custody_peer)
+                .or_insert_with(|| DataColumnsByRangeRequest {
+                    start_slot: *request.start_slot(),
+                    count: *request.count(),
+                    columns: vec![],
+                });
+
+            columns_by_range_request.columns.push(*column_index);
+        }
+
+        Ok(peer_id_to_request_map)
     }
 
     pub fn range_request_failed(&mut self, request_id: Id) -> Option<RangeRequestId> {
