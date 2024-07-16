@@ -5,11 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use warp::Filter;
 
-/// The name of the file which stores the public key.
-///
-/// For users, this public key is a "secret" that can be shared with API consumers to provide them
-/// access to the API. We avoid calling it a "public" key to users, since they should not post this
-/// value in a public forum.
+/// The name of the file which stores the API token.
 pub const PK_FILENAME: &str = "api-token.txt";
 
 pub const PK_LEN: usize = 33;
