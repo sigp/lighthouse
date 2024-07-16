@@ -1344,6 +1344,13 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             // The specification declares that this should be run *inside* `per_block_processing`,
             // however we run it here to keep `per_block_processing` pure (i.e., no calls to external
             // servers).
+            if let Some(started_execution) = chain.slot_clock.now_duration() {
+                chain.block_times_cache.write().set_time_started_execution(
+                    block_root,
+                    block.slot(),
+                    started_execution,
+                );
+            }
             let payload_verification_status = payload_notifier.notify_new_payload().await?;
 
             // If the payload did not validate or invalidate the block, check to see if this block is
