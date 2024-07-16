@@ -1176,14 +1176,16 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdf100c4cea8f207e883ff91ca886d621d8a166cb04971dfaa9bb8fd99ed95df"
+source = "git+https://github.com/ethereum/c-kzg-4844?rev=0e753e2603db4b81c5b408ba54b737ef35d2d24e#0e753e2603db4b81c5b408ba54b737ef35d2d24e"
 dependencies = [
+ "arbitrary",
  "blst",
  "cc",
  "glob",
  "hex",
  "libc",
+ "once_cell",
+ "serde",
 ]
 
 [[package]]
