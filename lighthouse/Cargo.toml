@@ -1,6 +1,6 @@
 [package]
 name = "lighthouse"
-version = "5.2.0"
+version = "5.2.1"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
@@ -22,8 +22,16 @@ gnosis = []
 slasher-mdbx = ["slasher/mdbx"]
 # Support slasher LMDB backend.
 slasher-lmdb = ["slasher/lmdb"]
-# Use jemalloc.
-jemalloc = ["malloc_utils/jemalloc"]
+# Support slasher redb backend.
+slasher-redb = ["slasher/redb"]
+# Deprecated. This is now enabled by default on non windows targets.
+jemalloc = []
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+malloc_utils = { workspace = true, features = ["jemalloc"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+malloc_utils = { workspace = true }
 
 [dependencies]
 beacon_node = { workspace = true }

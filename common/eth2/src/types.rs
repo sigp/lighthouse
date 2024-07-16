@@ -716,6 +716,21 @@ pub struct AttesterData {
     pub slot: Slot,
 }
 
+impl AttesterData {
+    pub fn match_attestation_data<E: EthSpec>(
+        &self,
+        attestation_data: &AttestationData,
+        spec: &ChainSpec,
+    ) -> bool {
+        if spec.fork_name_at_slot::<E>(attestation_data.slot) < ForkName::Electra {
+            self.slot == attestation_data.slot && self.committee_index == attestation_data.index
+        } else {
+            // After electra `attestation_data.index` is set to 0 and does not match the duties
+            self.slot == attestation_data.slot
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProposerData {
     pub pubkey: PublicKeyBytes,
@@ -765,6 +780,8 @@ pub struct ValidatorAttestationDataQuery {
 pub struct ValidatorAggregateAttestationQuery {
     pub attestation_data_root: Hash256,
     pub slot: Slot,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub committee_index: Option<CommitteeIndex>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
@@ -954,6 +971,11 @@ pub struct SseHead {
     pub execution_optimistic: bool,
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct BlockGossip {
+    pub slot: Slot,
+    pub block: Hash256,
+}
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseChainReorg {
     pub slot: Slot,
@@ -1083,6 +1105,7 @@ pub enum EventKind<E: EthSpec> {
     ProposerSlashing(Box<ProposerSlashing>),
     AttesterSlashing(Box<AttesterSlashing<E>>),
     BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
+    BlockGossip(Box<BlockGossip>),
 }
 
 impl<E: EthSpec> EventKind<E> {
@@ -1105,6 +1128,7 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::ProposerSlashing(_) => "proposer_slashing",
             EventKind::AttesterSlashing(_) => "attester_slashing",
             EventKind::BlsToExecutionChange(_) => "bls_to_execution_change",
+            EventKind::BlockGossip(_) => "block_gossip",
         }
     }
 
@@ -1200,6 +1224,9 @@ impl<E: EthSpec> EventKind<E> {
                     ServerError::InvalidServerSentEvent(format!("Bls To Execution Change: {:?}", e))
                 })?,
             )),
+            "block_gossip" => Ok(EventKind::BlockGossip(serde_json::from_str(data).map_err(
+                |e| ServerError::InvalidServerSentEvent(format!("Block Gossip: {:?}", e)),
+            )?)),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
@@ -1234,6 +1261,7 @@ pub enum EventTopic {
     AttesterSlashing,
     ProposerSlashing,
     BlsToExecutionChange,
+    BlockGossip,
 }
 
 impl FromStr for EventTopic {
@@ -1258,6 +1286,7 @@ impl FromStr for EventTopic {
             "attester_slashing" => Ok(EventTopic::AttesterSlashing),
             "proposer_slashing" => Ok(EventTopic::ProposerSlashing),
             "bls_to_execution_change" => Ok(EventTopic::BlsToExecutionChange),
+            "block_gossip" => Ok(EventTopic::BlockGossip),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -1283,6 +1312,7 @@ impl fmt::Display for EventTopic {
             EventTopic::AttesterSlashing => write!(f, "attester_slashing"),
             EventTopic::ProposerSlashing => write!(f, "proposer_slashing"),
             EventTopic::BlsToExecutionChange => write!(f, "bls_to_execution_change"),
+            EventTopic::BlockGossip => write!(f, "block_gossip"),
         }
     }
 }

@@ -393,7 +393,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .map(|tracked_vals| {
                 tracked_vals.contains_key(&ExactSubnet {
                     subnet_id: subnet,
-                    slot: attestation.data.slot,
+                    slot: attestation.data().slot,
                 })
             })
             .unwrap_or(true)

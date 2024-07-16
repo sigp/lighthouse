@@ -20,26 +20,12 @@ use types::{
     Hash256, Slot,
 };
 
-/// Ensure this justified checkpoint has an epoch of 0 so that it is never
-/// greater than the justified checkpoint and enshrined as the actual justified
-/// checkpoint.
-const JUNK_BEST_JUSTIFIED_CHECKPOINT: Checkpoint = Checkpoint {
-    epoch: Epoch::new(0),
-    root: Hash256::repeat_byte(0),
-};
-
 #[derive(Debug)]
 pub enum Error {
-    UnableToReadSlot,
-    UnableToReadTime,
-    InvalidGenesisSnapshot(Slot),
-    AncestorUnknown { ancestor_slot: Slot },
-    UninitializedBestJustifiedBalances,
     FailedToReadBlock(StoreError),
     MissingBlock(Hash256),
     FailedToReadState(StoreError),
     MissingState(Hash256),
-    InvalidPersistedBytes(ssz::DecodeError),
     BeaconStateError(BeaconStateError),
     Arith(ArithError),
 }
@@ -66,7 +52,6 @@ const MAX_BALANCE_CACHE_SIZE: usize = 4;
 )]
 pub(crate) struct CacheItem {
     pub(crate) block_root: Hash256,
-    #[superstruct(only(V8))]
     pub(crate) epoch: Epoch,
     pub(crate) balances: Vec<u64>,
 }
@@ -79,7 +64,6 @@ pub(crate) type CacheItem = CacheItemV8;
     no_enum
 )]
 pub struct BalancesCache {
-    #[superstruct(only(V8))]
     pub(crate) items: Vec<CacheItemV8>,
 }
 
@@ -365,59 +349,15 @@ where
 pub type PersistedForkChoiceStore = PersistedForkChoiceStoreV17;
 
 /// A container which allows persisting the `BeaconForkChoiceStore` to the on-disk database.
-#[superstruct(
-    variants(V11, V17),
-    variant_attributes(derive(Encode, Decode)),
-    no_enum
-)]
+#[superstruct(variants(V17), variant_attributes(derive(Encode, Decode)), no_enum)]
 pub struct PersistedForkChoiceStore {
-    #[superstruct(only(V11, V17))]
     pub balances_cache: BalancesCacheV8,
     pub time: Slot,
     pub finalized_checkpoint: Checkpoint,
     pub justified_checkpoint: Checkpoint,
     pub justified_balances: Vec<u64>,
-    #[superstruct(only(V11))]
-    pub best_justified_checkpoint: Checkpoint,
-    #[superstruct(only(V11, V17))]
     pub unrealized_justified_checkpoint: Checkpoint,
-    #[superstruct(only(V11, V17))]
     pub unrealized_finalized_checkpoint: Checkpoint,
-    #[superstruct(only(V11, V17))]
     pub proposer_boost_root: Hash256,
-    #[superstruct(only(V11, V17))]
     pub equivocating_indices: BTreeSet<u64>,
-}
-
-impl From<PersistedForkChoiceStoreV11> for PersistedForkChoiceStore {
-    fn from(from: PersistedForkChoiceStoreV11) -> PersistedForkChoiceStore {
-        PersistedForkChoiceStore {
-            balances_cache: from.balances_cache,
-            time: from.time,
-            finalized_checkpoint: from.finalized_checkpoint,
-            justified_checkpoint: from.justified_checkpoint,
-            justified_balances: from.justified_balances,
-            unrealized_justified_checkpoint: from.unrealized_justified_checkpoint,
-            unrealized_finalized_checkpoint: from.unrealized_finalized_checkpoint,
-            proposer_boost_root: from.proposer_boost_root,
-            equivocating_indices: from.equivocating_indices,
-        }
-    }
-}
-
-impl From<PersistedForkChoiceStore> for PersistedForkChoiceStoreV11 {
-    fn from(from: PersistedForkChoiceStore) -> PersistedForkChoiceStoreV11 {
-        PersistedForkChoiceStoreV11 {
-            balances_cache: from.balances_cache,
-            time: from.time,
-            finalized_checkpoint: from.finalized_checkpoint,
-            justified_checkpoint: from.justified_checkpoint,
-            justified_balances: from.justified_balances,
-            best_justified_checkpoint: JUNK_BEST_JUSTIFIED_CHECKPOINT,
-            unrealized_justified_checkpoint: from.unrealized_justified_checkpoint,
-            unrealized_finalized_checkpoint: from.unrealized_finalized_checkpoint,
-            proposer_boost_root: from.proposer_boost_root,
-            equivocating_indices: from.equivocating_indices,
-        }
-    }
 }
