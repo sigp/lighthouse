@@ -169,7 +169,7 @@ fn main() {
                     "The maximum number of log files that will be stored. If set to 0, \
                     background file logging is disabled.")
                 .action(ArgAction::Set)
-                .default_value("5")
+                .default_value("10")
                 .global(true)
                 .display_order(0)
         )
