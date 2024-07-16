@@ -14,10 +14,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
-use types::{
-    AggregateSignature, Attestation, AttestationData, BitList, ChainSpec, CommitteeIndex, EthSpec,
-    Slot,
-};
+use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
 
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
@@ -290,17 +287,21 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             // Then download, sign and publish a `SignedAggregateAndProof` for each
             // validator that is elected to aggregate for this `slot` and
             // `committee_index`.
-            self.produce_and_publish_aggregates(&attestation_data, &validator_duties)
-                .await
-                .map_err(move |e| {
-                    crit!(
-                        log,
-                        "Error during attestation routine";
-                        "error" => format!("{:?}", e),
-                        "committee_index" => committee_index,
-                        "slot" => slot.as_u64(),
-                    )
-                })?;
+            self.produce_and_publish_aggregates(
+                &attestation_data,
+                committee_index,
+                &validator_duties,
+            )
+            .await
+            .map_err(move |e| {
+                crit!(
+                    log,
+                    "Error during attestation routine";
+                    "error" => format!("{:?}", e),
+                    "committee_index" => committee_index,
+                    "slot" => slot.as_u64(),
+                )
+            })?;
         }
 
         Ok(())
@@ -363,9 +364,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let attestation_data = attestation_data_ref;
 
             // Ensure that the attestation matches the duties.
-            #[allow(clippy::suspicious_operation_groupings)]
-            if duty.slot != attestation_data.slot || duty.committee_index != attestation_data.index
-            {
+            if !duty.match_attestation_data::<E>(attestation_data, &self.context.eth2_config.spec) {
                 crit!(
                     log,
                     "Inconsistent validator duties during signing";
@@ -378,10 +377,26 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 return None;
             }
 
-            let mut attestation = Attestation {
-                aggregation_bits: BitList::with_capacity(duty.committee_length as usize).unwrap(),
-                data: attestation_data.clone(),
-                signature: AggregateSignature::infinity(),
+            let mut attestation = match Attestation::<E>::empty_for_signing(
+                duty.committee_index,
+                duty.committee_length as usize,
+                attestation_data.slot,
+                attestation_data.beacon_block_root,
+                attestation_data.source,
+                attestation_data.target,
+                &self.context.eth2_config.spec,
+            ) {
+                Ok(attestation) => attestation,
+                Err(err) => {
+                    crit!(
+                        log,
+                        "Invalid validator duties during signing";
+                        "validator" => ?duty.pubkey,
+                        "duty" => ?duty,
+                        "err" => ?err,
+                    );
+                    return None;
+                }
             };
 
             match self
@@ -434,6 +449,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             warn!(log, "No attestations were published");
             return Ok(None);
         }
+        let fork_name = self
+            .context
+            .eth2_config
+            .spec
+            .fork_name_at_slot::<E>(attestation_data.slot);
 
         // Post the attestations to the BN.
         match self
@@ -447,9 +467,15 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         &metrics::ATTESTATION_SERVICE_TIMES,
                         &[metrics::ATTESTATIONS_HTTP_POST],
                     );
-                    beacon_node
-                        .post_beacon_pool_attestations(attestations)
-                        .await
+                    if fork_name.electra_enabled() {
+                        beacon_node
+                            .post_beacon_pool_attestations_v2(attestations, fork_name)
+                            .await
+                    } else {
+                        beacon_node
+                            .post_beacon_pool_attestations_v1(attestations)
+                            .await
+                    }
                 },
             )
             .await
@@ -493,6 +519,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     async fn produce_and_publish_aggregates(
         &self,
         attestation_data: &AttestationData,
+        committee_index: CommitteeIndex,
         validator_duties: &[DutyAndProof],
     ) -> Result<(), String> {
         let log = self.context.log();
@@ -505,6 +532,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             return Ok(());
         }
 
+        let fork_name = self
+            .context
+            .eth2_config
+            .spec
+            .fork_name_at_slot::<E>(attestation_data.slot);
+
         let aggregated_attestation = &self
             .beacon_nodes
             .first_success(
@@ -515,17 +548,36 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         &metrics::ATTESTATION_SERVICE_TIMES,
                         &[metrics::AGGREGATES_HTTP_GET],
                     );
-                    beacon_node
-                        .get_validator_aggregate_attestation(
-                            attestation_data.slot,
-                            attestation_data.tree_hash_root(),
-                        )
-                        .await
-                        .map_err(|e| {
-                            format!("Failed to produce an aggregate attestation: {:?}", e)
-                        })?
-                        .ok_or_else(|| format!("No aggregate available for {:?}", attestation_data))
-                        .map(|result| result.data)
+                    if fork_name.electra_enabled() {
+                        beacon_node
+                            .get_validator_aggregate_attestation_v2(
+                                attestation_data.slot,
+                                attestation_data.tree_hash_root(),
+                                committee_index,
+                            )
+                            .await
+                            .map_err(|e| {
+                                format!("Failed to produce an aggregate attestation: {:?}", e)
+                            })?
+                            .ok_or_else(|| {
+                                format!("No aggregate available for {:?}", attestation_data)
+                            })
+                            .map(|result| result.data)
+                    } else {
+                        beacon_node
+                            .get_validator_aggregate_attestation_v1(
+                                attestation_data.slot,
+                                attestation_data.tree_hash_root(),
+                            )
+                            .await
+                            .map_err(|e| {
+                                format!("Failed to produce an aggregate attestation: {:?}", e)
+                            })?
+                            .ok_or_else(|| {
+                                format!("No aggregate available for {:?}", attestation_data)
+                            })
+                            .map(|result| result.data)
+                    }
                 },
             )
             .await
@@ -536,10 +588,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let duty = &duty_and_proof.duty;
             let selection_proof = duty_and_proof.selection_proof.as_ref()?;
 
-            let slot = attestation_data.slot;
-            let committee_index = attestation_data.index;
-
-            if duty.slot != slot || duty.committee_index != committee_index {
+            if !duty.match_attestation_data::<E>(attestation_data, &self.context.eth2_config.spec) {
                 crit!(log, "Inconsistent validator duties during signing");
                 return None;
             }
@@ -596,38 +645,49 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             &metrics::ATTESTATION_SERVICE_TIMES,
                             &[metrics::AGGREGATES_HTTP_POST],
                         );
-                        beacon_node
-                            .post_validator_aggregate_and_proof(signed_aggregate_and_proofs_slice)
-                            .await
+                        if fork_name.electra_enabled() {
+                            beacon_node
+                                .post_validator_aggregate_and_proof_v2(
+                                    signed_aggregate_and_proofs_slice,
+                                    fork_name,
+                                )
+                                .await
+                        } else {
+                            beacon_node
+                                .post_validator_aggregate_and_proof_v1(
+                                    signed_aggregate_and_proofs_slice,
+                                )
+                                .await
+                        }
                     },
                 )
                 .await
             {
                 Ok(()) => {
                     for signed_aggregate_and_proof in signed_aggregate_and_proofs {
-                        let attestation = &signed_aggregate_and_proof.message.aggregate;
+                        let attestation = signed_aggregate_and_proof.message().aggregate();
                         info!(
                             log,
                             "Successfully published attestation";
-                            "aggregator" => signed_aggregate_and_proof.message.aggregator_index,
-                            "signatures" => attestation.aggregation_bits.num_set_bits(),
-                            "head_block" => format!("{:?}", attestation.data.beacon_block_root),
-                            "committee_index" => attestation.data.index,
-                            "slot" => attestation.data.slot.as_u64(),
+                            "aggregator" => signed_aggregate_and_proof.message().aggregator_index(),
+                            "signatures" => attestation.num_set_aggregation_bits(),
+                            "head_block" => format!("{:?}", attestation.data().beacon_block_root),
+                            "committee_index" => attestation.committee_index(),
+                            "slot" => attestation.data().slot.as_u64(),
                             "type" => "aggregated",
                         );
                     }
                 }
                 Err(e) => {
                     for signed_aggregate_and_proof in signed_aggregate_and_proofs {
-                        let attestation = &signed_aggregate_and_proof.message.aggregate;
+                        let attestation = &signed_aggregate_and_proof.message().aggregate();
                         crit!(
                             log,
                             "Failed to publish attestation";
                             "error" => %e,
-                            "aggregator" => signed_aggregate_and_proof.message.aggregator_index,
-                            "committee_index" => attestation.data.index,
-                            "slot" => attestation.data.slot.as_u64(),
+                            "aggregator" => signed_aggregate_and_proof.message().aggregator_index(),
+                            "committee_index" => attestation.committee_index(),
+                            "slot" => attestation.data().slot.as_u64(),
                             "type" => "aggregated",
                         );
                     }

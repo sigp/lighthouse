@@ -54,7 +54,7 @@ pub enum Error {
 pub type SszDepositCache = SszDepositCacheV13;
 
 #[superstruct(
-    variants(V1, V13),
+    variants(V13),
     variant_attributes(derive(Encode, Decode, Clone)),
     no_enum
 )]
@@ -62,11 +62,8 @@ pub struct SszDepositCache {
     pub logs: Vec<DepositLog>,
     pub leaves: Vec<Hash256>,
     pub deposit_contract_deploy_block: u64,
-    #[superstruct(only(V13))]
     pub finalized_deposit_count: u64,
-    #[superstruct(only(V13))]
     pub finalized_block_height: u64,
-    #[superstruct(only(V13))]
     pub deposit_tree_snapshot: Option<DepositTreeSnapshot>,
     pub deposit_roots: Vec<Hash256>,
 }

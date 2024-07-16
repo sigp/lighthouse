@@ -58,13 +58,22 @@ impl CommandLineTest {
 
     fn run_with_zero_port(&mut self) -> CompletedTest<Config> {
         // Required since Deneb was enabled on mainnet.
-        self.cmd.arg("--allow-insecure-genesis-sync");
-        self.run_with_zero_port_and_no_genesis_sync()
+        self.set_allow_insecure_genesis_sync()
+            .run_with_zero_port_and_no_genesis_sync()
     }
 
     fn run_with_zero_port_and_no_genesis_sync(&mut self) -> CompletedTest<Config> {
+        self.set_zero_port().run()
+    }
+
+    fn set_allow_insecure_genesis_sync(&mut self) -> &mut Self {
+        self.cmd.arg("--allow-insecure-genesis-sync");
+        self
+    }
+
+    fn set_zero_port(&mut self) -> &mut Self {
         self.cmd.arg("-z");
-        self.run()
+        self
     }
 }
 
@@ -101,9 +110,20 @@ fn staking_flag() {
 }
 
 #[test]
-#[should_panic]
 fn allow_insecure_genesis_sync_default() {
-    CommandLineTest::new().run_with_zero_port_and_no_genesis_sync();
+    CommandLineTest::new()
+        .run_with_zero_port_and_no_genesis_sync()
+        .with_config(|config| {
+            assert_eq!(config.allow_insecure_genesis_sync, false);
+        });
+}
+
+#[test]
+#[should_panic]
+fn insecure_genesis_sync_should_panic() {
+    CommandLineTest::new()
+        .set_zero_port()
+        .run_with_immediate_shutdown(false);
 }
 
 #[test]
@@ -632,6 +652,26 @@ fn builder_fallback_flags() {
         None,
         |config| {
             assert_eq!(config.chain.builder_fallback_disable_checks, true);
+        },
+    );
+}
+
+#[test]
+fn builder_get_header_timeout() {
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-header-timeout"),
+        Some("1500"),
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .builder_header_timeout,
+                Some(Duration::from_millis(1500))
+            );
         },
     );
 }
@@ -1578,7 +1618,7 @@ fn empty_inbound_rate_limiter_flag() {
 #[test]
 fn disable_inbound_rate_limiter_flag() {
     CommandLineTest::new()
-        .flag("inbound-rate-limiter", Some("disabled"))
+        .flag("disable-inbound-rate-limiter", None)
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.network.inbound_rate_limiter_config, None));
 }
@@ -1844,6 +1884,19 @@ fn block_cache_size_flag() {
         .flag("block-cache-size", Some("4"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.store.block_cache_size, new_non_zero_usize(4)));
+}
+#[test]
+fn state_cache_size_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(128)));
+}
+#[test]
+fn state_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("state-cache-size", Some("64"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(64)));
 }
 #[test]
 fn historic_state_cache_size_flag() {
@@ -2121,7 +2174,6 @@ fn slasher_broadcast_flag_no_args() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-max-db-size", Some("1"))
-        .flag("slasher-broadcast", None)
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config
@@ -2136,6 +2188,21 @@ fn slasher_broadcast_flag_no_default() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-max-db-size", Some("1"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert!(slasher_config.broadcast);
+        });
+}
+#[test]
+fn slasher_broadcast_flag_no_argument() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
+        .flag("slasher-broadcast", None)
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config
@@ -2175,6 +2242,8 @@ fn slasher_broadcast_flag_false() {
             assert!(!slasher_config.broadcast);
         });
 }
+
+#[cfg(all(feature = "lmdb"))]
 #[test]
 fn slasher_backend_override_to_default() {
     // Hard to test this flag because all but one backend is disabled by default and the backend
@@ -2205,7 +2274,9 @@ fn ensure_panic_on_failed_launch() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-chunk-size", Some("10"))
-        .run_with_zero_port()
+        .set_allow_insecure_genesis_sync()
+        .set_zero_port()
+        .run_with_immediate_shutdown(false)
         .with_config(|config| {
             let slasher_config = config
                 .slasher
@@ -2300,7 +2371,7 @@ fn proposer_re_org_disallowed_offsets_default() {
 #[test]
 fn proposer_re_org_disallowed_offsets_override() {
     CommandLineTest::new()
-        .flag("--proposer-reorg-disallowed-offsets", Some("1,2,3"))
+        .flag("proposer-reorg-disallowed-offsets", Some("1,2,3"))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
@@ -2314,7 +2385,7 @@ fn proposer_re_org_disallowed_offsets_override() {
 #[should_panic]
 fn proposer_re_org_disallowed_offsets_invalid() {
     CommandLineTest::new()
-        .flag("--proposer-reorg-disallowed-offsets", Some("32,33,34"))
+        .flag("proposer-reorg-disallowed-offsets", Some("32,33,34"))
         .run_with_zero_port();
 }
 

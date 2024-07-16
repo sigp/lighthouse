@@ -1,7 +1,6 @@
 //! Utilities for managing database schema changes.
-mod migration_schema_v17;
-mod migration_schema_v18;
-mod migration_schema_v19;
+mod migration_schema_v20;
+mod migration_schema_v21;
 
 use crate::beacon_chain::BeaconChainTypes;
 use crate::types::ChainSpec;
@@ -52,30 +51,22 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         }
 
         //
-        // Migrations from before SchemaVersion(16) are deprecated.
+        // Migrations from before SchemaVersion(19) are deprecated.
         //
-        (SchemaVersion(16), SchemaVersion(17)) => {
-            let ops = migration_schema_v17::upgrade_to_v17::<T>(db.clone(), log)?;
+        (SchemaVersion(19), SchemaVersion(20)) => {
+            let ops = migration_schema_v20::upgrade_to_v20::<T>(db.clone(), log)?;
             db.store_schema_version_atomically(to, ops)
         }
-        (SchemaVersion(17), SchemaVersion(16)) => {
-            let ops = migration_schema_v17::downgrade_from_v17::<T>(db.clone(), log)?;
+        (SchemaVersion(20), SchemaVersion(19)) => {
+            let ops = migration_schema_v20::downgrade_from_v20::<T>(db.clone(), log)?;
             db.store_schema_version_atomically(to, ops)
         }
-        (SchemaVersion(17), SchemaVersion(18)) => {
-            let ops = migration_schema_v18::upgrade_to_v18::<T>(db.clone(), log)?;
+        (SchemaVersion(20), SchemaVersion(21)) => {
+            let ops = migration_schema_v21::upgrade_to_v21::<T>(db.clone(), log)?;
             db.store_schema_version_atomically(to, ops)
         }
-        (SchemaVersion(18), SchemaVersion(17)) => {
-            let ops = migration_schema_v18::downgrade_from_v18::<T>(db.clone(), log)?;
-            db.store_schema_version_atomically(to, ops)
-        }
-        (SchemaVersion(18), SchemaVersion(19)) => {
-            let ops = migration_schema_v19::upgrade_to_v19::<T>(db.clone(), log)?;
-            db.store_schema_version_atomically(to, ops)
-        }
-        (SchemaVersion(19), SchemaVersion(18)) => {
-            let ops = migration_schema_v19::downgrade_from_v19::<T>(db.clone(), log)?;
+        (SchemaVersion(21), SchemaVersion(20)) => {
+            let ops = migration_schema_v21::downgrade_from_v21::<T>(db.clone(), log)?;
             db.store_schema_version_atomically(to, ops)
         }
         // Anything else is an error.

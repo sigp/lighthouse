@@ -10,7 +10,6 @@ use crate::block_verification::{
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::{metrics, BeaconChainError};
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
-use merkle_proof::MerkleTreeError;
 use slog::debug;
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
@@ -127,13 +126,6 @@ pub enum GossipBlobError<E: EthSpec> {
     ///
     /// The blob sidecar is invalid and the peer is faulty.
     KzgError(kzg::Error),
-
-    /// The kzg commitment inclusion proof failed.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The blob sidecar is invalid
-    InclusionProof(MerkleTreeError),
 
     /// The pubkey cache timed out.
     ///
@@ -459,10 +451,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
 
     // Verify the inclusion proof in the sidecar
     let _timer = metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_VERIFICATION);
-    if !blob_sidecar
-        .verify_blob_sidecar_inclusion_proof()
-        .map_err(GossipBlobError::InclusionProof)?
-    {
+    if !blob_sidecar.verify_blob_sidecar_inclusion_proof() {
         return Err(GossipBlobError::InvalidInclusionProof);
     }
     drop(_timer);
@@ -571,6 +560,14 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         });
     }
 
+    // Kzg verification for gossip blob sidecar
+    let kzg = chain
+        .kzg
+        .as_ref()
+        .ok_or(GossipBlobError::KzgNotInitialized)?;
+    let kzg_verified_blob = KzgVerifiedBlob::new(blob_sidecar.clone(), kzg, seen_timestamp)
+        .map_err(GossipBlobError::KzgError)?;
+
     chain
         .observed_slashable
         .write()
@@ -604,14 +601,6 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
             index: blob_index,
         });
     }
-
-    // Kzg verification for gossip blob sidecar
-    let kzg = chain
-        .kzg
-        .as_ref()
-        .ok_or(GossipBlobError::KzgNotInitialized)?;
-    let kzg_verified_blob = KzgVerifiedBlob::new(blob_sidecar, kzg, seen_timestamp)
-        .map_err(GossipBlobError::KzgError)?;
 
     Ok(GossipVerifiedBlob {
         block_root,

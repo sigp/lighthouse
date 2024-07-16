@@ -708,8 +708,8 @@ where
             .ok_or("Cannot build without a genesis state root")?;
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
         let head_tracker = Arc::new(self.head_tracker.unwrap_or_default());
-
         let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> = <_>::default();
+
         let mut validator_monitor = ValidatorMonitor::new(
             validator_monitor_config,
             beacon_proposer_cache.clone(),
@@ -1195,7 +1195,7 @@ mod test {
 
         let head = chain.head_snapshot();
 
-        let state = &head.beacon_state;
+        let mut state = head.beacon_state.clone();
         let block = &head.beacon_block;
 
         assert_eq!(state.slot(), Slot::new(0), "should start from genesis");
@@ -1206,7 +1206,7 @@ mod test {
         );
         assert_eq!(
             block.state_root(),
-            state.canonical_root(),
+            state.canonical_root().unwrap(),
             "block should have correct state root"
         );
         assert_eq!(

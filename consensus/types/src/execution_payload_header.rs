@@ -77,19 +77,18 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
     pub transactions_root: Hash256,
-    #[superstruct(only(Capella, Deneb, Electra))]
-    #[superstruct(getter(copy))]
+    #[superstruct(only(Capella, Deneb, Electra), partial_getter(copy))]
     pub withdrawals_root: Hash256,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(only(Deneb, Electra), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
-    #[superstruct(getter(copy))]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(only(Deneb, Electra), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
-    #[superstruct(getter(copy))]
     pub excess_blob_gas: u64,
     #[superstruct(only(Electra), partial_getter(copy))]
-    pub deposit_receipts_root: Hash256,
+    //TODO(electra) remove alias once EF tests are updates with correct name
+    #[serde(alias = "deposit_receipts_root")]
+    pub deposit_requests_root: Hash256,
     #[superstruct(only(Electra), partial_getter(copy))]
     pub withdrawal_requests_root: Hash256,
 }
@@ -120,14 +119,9 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
         // Matching here in case variable fields are added in future forks.
-        // TODO(electra): review electra changes
         match fork_name {
-            ForkName::Base
-            | ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra => {
+            ForkName::Base | ForkName::Altair => 0,
+            ForkName::Bellatrix | ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
                 // Max size of variable length `extra_data` field
                 E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len()
             }
@@ -210,7 +204,7 @@ impl<E: EthSpec> ExecutionPayloadHeaderDeneb<E> {
             withdrawals_root: self.withdrawals_root,
             blob_gas_used: self.blob_gas_used,
             excess_blob_gas: self.excess_blob_gas,
-            deposit_receipts_root: Hash256::zero(),
+            deposit_requests_root: Hash256::zero(),
             withdrawal_requests_root: Hash256::zero(),
         }
     }
@@ -303,7 +297,7 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadElectra<E>> for ExecutionPayloadHe
             withdrawals_root: payload.withdrawals.tree_hash_root(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-            deposit_receipts_root: payload.deposit_receipts.tree_hash_root(),
+            deposit_requests_root: payload.deposit_requests.tree_hash_root(),
             withdrawal_requests_root: payload.withdrawal_requests.tree_hash_root(),
         }
     }

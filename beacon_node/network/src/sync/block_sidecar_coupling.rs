@@ -1,4 +1,5 @@
 use beacon_chain::block_verification_types::RpcBlock;
+use lighthouse_network::PeerId;
 use ssz_types::VariableList;
 use std::{collections::VecDeque, sync::Arc};
 use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
@@ -17,16 +18,19 @@ pub struct BlocksAndBlobsRequestInfo<E: EthSpec> {
     is_sidecars_stream_terminated: bool,
     /// Used to determine if this accumulator should wait for a sidecars stream termination
     request_type: ByRangeRequestType,
+    /// The peer the request was made to.
+    pub(crate) peer_id: PeerId,
 }
 
 impl<E: EthSpec> BlocksAndBlobsRequestInfo<E> {
-    pub fn new(request_type: ByRangeRequestType) -> Self {
+    pub fn new(request_type: ByRangeRequestType, peer_id: PeerId) -> Self {
         Self {
             accumulated_blocks: <_>::default(),
             accumulated_sidecars: <_>::default(),
             is_blocks_stream_terminated: <_>::default(),
             is_sidecars_stream_terminated: <_>::default(),
             request_type,
+            peer_id,
         }
     }
 
@@ -109,12 +113,14 @@ mod tests {
     use super::BlocksAndBlobsRequestInfo;
     use crate::sync::range_sync::ByRangeRequestType;
     use beacon_chain::test_utils::{generate_rand_block_and_blobs, NumBlobs};
+    use lighthouse_network::PeerId;
     use rand::SeedableRng;
     use types::{test_utils::XorShiftRng, ForkName, MinimalEthSpec as E};
 
     #[test]
     fn no_blobs_into_responses() {
-        let mut info = BlocksAndBlobsRequestInfo::<E>::new(ByRangeRequestType::Blocks);
+        let peer_id = PeerId::random();
+        let mut info = BlocksAndBlobsRequestInfo::<E>::new(ByRangeRequestType::Blocks, peer_id);
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng).0)
@@ -127,6 +133,34 @@ mod tests {
         info.add_block_response(None);
 
         // Assert response is finished and RpcBlocks can be constructed
+        assert!(info.is_finished());
+        info.into_responses().unwrap();
+    }
+
+    #[test]
+    fn empty_blobs_into_responses() {
+        let peer_id = PeerId::random();
+        let mut info =
+            BlocksAndBlobsRequestInfo::<E>::new(ByRangeRequestType::BlocksAndBlobs, peer_id);
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let blocks = (0..4)
+            .map(|_| {
+                // Always generate some blobs.
+                generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Number(3), &mut rng).0
+            })
+            .collect::<Vec<_>>();
+
+        // Send blocks and complete terminate response
+        for block in blocks {
+            info.add_block_response(Some(block.into()));
+        }
+        info.add_block_response(None);
+        // Expect no blobs returned
+        info.add_sidecar_response(None);
+
+        // Assert response is finished and RpcBlocks can be constructed, even if blobs weren't returned.
+        // This makes sure we don't expect blobs here when they have expired. Checking this logic should
+        // be hendled elsewhere.
         assert!(info.is_finished());
         info.into_responses().unwrap();
     }

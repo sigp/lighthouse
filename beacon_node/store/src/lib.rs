@@ -7,9 +7,6 @@
 //!
 //! Provides a simple API for storing/retrieving all types that sometimes needs type-hints. See
 //! tests for implementation examples.
-#[macro_use]
-extern crate lazy_static;
-
 mod chunk_writer;
 pub mod chunked_iter;
 pub mod chunked_vector;
@@ -292,7 +289,7 @@ impl DBColumn {
     /// This function returns the number of bytes used by keys in a given column.
     pub fn key_size(self) -> usize {
         match self {
-            Self::OverflowLRUCache => 33, // See `OverflowKey` encode impl.
+            Self::OverflowLRUCache => 33, // DEPRECATED
             Self::BeaconMeta
             | Self::BeaconBlock
             | Self::BeaconState

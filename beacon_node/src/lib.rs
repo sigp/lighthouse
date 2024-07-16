@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate clap;
-
 mod cli;
 mod config;
 
@@ -20,7 +17,7 @@ use slasher::{DatabaseBackendOverride, Slasher};
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-use types::EthSpec;
+use types::{ChainSpec, Epoch, EthSpec, ForkName};
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
 pub type ProductionClient<E> =
@@ -44,7 +41,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// configurations hosted remotely.
     pub async fn new_from_cli(
         context: RuntimeContext<E>,
-        matches: ArgMatches<'static>,
+        matches: ArgMatches,
     ) -> Result<Self, String> {
         let client_config = get_config::<E>(&matches, &context)?;
         Self::new(context, client_config).await
@@ -81,9 +78,19 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             TimeoutRwLock::disable_timeouts()
         }
 
+        if let Err(misaligned_forks) = validator_fork_epochs(&spec) {
+            warn!(
+                log,
+                "Fork boundaries are not well aligned / multiples of 256";
+                "info" => "This may cause issues as fork boundaries do not align with the \
+                    start of sync committee period.",
+                "misaligned_forks" => ?misaligned_forks,
+            );
+        }
+
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)
-            .chain_spec(spec)
+            .chain_spec(spec.clone())
             .beacon_processor(client_config.beacon_processor.clone())
             .http_api_config(client_config.http_api.clone())
             .disk_store(
@@ -116,8 +123,12 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 _ => {}
             }
             let slasher = Arc::new(
-                Slasher::open(slasher_config, log.new(slog::o!("service" => "slasher")))
-                    .map_err(|e| format!("Slasher open error: {:?}", e))?,
+                Slasher::open(
+                    slasher_config,
+                    Arc::new(spec),
+                    log.new(slog::o!("service" => "slasher")),
+                )
+                .map_err(|e| format!("Slasher open error: {:?}", e))?,
             );
             builder.slasher(slasher)
         } else {
@@ -182,6 +193,28 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     }
 }
 
+fn validator_fork_epochs(spec: &ChainSpec) -> Result<(), Vec<(ForkName, Epoch)>> {
+    // @dapplion: "We try to schedule forks such that the fork epoch is a multiple of 256, to keep
+    // historical vectors in the same fork. Indirectly that makes light client periods align with
+    // fork boundaries."
+    let sync_committee_period = spec.epochs_per_sync_committee_period; // 256
+    let is_fork_boundary_misaligned = |epoch: Epoch| epoch % sync_committee_period != 0;
+
+    let forks_with_misaligned_epochs = ForkName::list_all_fork_epochs(spec)
+        .iter()
+        .filter_map(|(fork, fork_epoch_opt)| {
+            fork_epoch_opt
+                .and_then(|epoch| is_fork_boundary_misaligned(epoch).then_some((*fork, epoch)))
+        })
+        .collect::<Vec<_>>();
+
+    if forks_with_misaligned_epochs.is_empty() {
+        Ok(())
+    } else {
+        Err(forks_with_misaligned_epochs)
+    }
+}
+
 impl<E: EthSpec> Deref for ProductionBeaconNode<E> {
     type Target = ProductionClient<E>;
 
@@ -203,5 +236,25 @@ struct Discv5Executor(task_executor::TaskExecutor);
 impl lighthouse_network::discv5::Executor for Discv5Executor {
     fn spawn(&self, future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>) {
         self.0.spawn(future, "discv5")
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use types::MainnetEthSpec;
+
+    #[test]
+    fn test_validator_fork_epoch_alignments() {
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(256));
+        spec.deneb_fork_epoch = Some(Epoch::new(257));
+        spec.electra_fork_epoch = None;
+        let result = validator_fork_epochs(&spec);
+        assert_eq!(
+            result,
+            Err(vec![(ForkName::Deneb, spec.deneb_fork_epoch.unwrap())])
+        );
     }
 }

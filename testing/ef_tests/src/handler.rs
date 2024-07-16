@@ -20,9 +20,8 @@ pub trait Handler {
 
     // Add forks here to exclude them from EF spec testing. Helpful for adding future or
     // unspecified forks.
-    // TODO(electra): Enable Electra once spec tests are available.
     fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![ForkName::Electra]
+        vec![]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
@@ -229,6 +228,10 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Deneb])
     }
 
+    pub fn electra_only() -> Self {
+        Self::for_forks(vec![ForkName::Electra])
+    }
+
     pub fn altair_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[1..].to_vec())
     }
@@ -239,6 +242,18 @@ impl<T, E> SszStaticHandler<T, E> {
 
     pub fn capella_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[3..].to_vec())
+    }
+
+    pub fn deneb_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[4..].to_vec())
+    }
+
+    pub fn electra_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[5..].to_vec())
+    }
+
+    pub fn pre_electra() -> Self {
+        Self::for_forks(ForkName::list_all()[0..5].to_vec())
     }
 }
 
@@ -254,7 +269,7 @@ pub struct SszStaticWithSpecHandler<T, E>(PhantomData<(T, E)>);
 
 impl<T, E> Handler for SszStaticHandler<T, E>
 where
-    T: cases::SszStaticType + ssz::Decode + TypeName,
+    T: cases::SszStaticType + tree_hash::TreeHash + ssz::Decode + TypeName,
     E: TypeName,
 {
     type Case = cases::SszStatic<T>;
@@ -569,7 +584,7 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
 
         // No FCU override tests prior to bellatrix.
         if self.handler_name == "should_override_forkchoice_update"
-            && (fork_name == ForkName::Base || fork_name == ForkName::Altair)
+            && !fork_name.bellatrix_enabled()
         {
             return false;
         }
@@ -605,9 +620,7 @@ impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base
-            && fork_name != ForkName::Altair
-            && cfg!(not(feature = "fake_crypto"))
+        fork_name.bellatrix_enabled() && cfg!(not(feature = "fake_crypto"))
     }
 }
 
@@ -790,13 +803,12 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
         "single_merkle_proof".into()
     }
 
-    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base
-            // Test is skipped due to some changes in the Capella light client
-            // spec.
-            //
-            // https://github.com/sigp/lighthouse/issues/4022
-            && fork_name != ForkName::Capella && fork_name != ForkName::Deneb
+    fn is_enabled_for_fork(&self, _fork_name: ForkName) -> bool {
+        // Test is skipped due to some changes in the Capella light client
+        // spec.
+        //
+        // https://github.com/sigp/lighthouse/issues/4022
+        false
     }
 }
 
@@ -821,10 +833,7 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Enabled in Deneb
-        fork_name != ForkName::Base
-            && fork_name != ForkName::Altair
-            && fork_name != ForkName::Bellatrix
-            && fork_name != ForkName::Capella
+        fork_name == ForkName::Deneb
     }
 }
 

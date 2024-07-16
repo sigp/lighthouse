@@ -8,5 +8,4 @@ lighthouse_network = { workspace = true }
 types = { workspace = true }
 sysinfo = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
 parking_lot = { workspace = true }

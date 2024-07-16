@@ -1,6 +1,5 @@
 # Key Recovery
 
-
 Generally, validator keystore files are generated alongside a *mnemonic*. If
 the keystore and/or the keystore password are lost, this mnemonic can
 regenerate a new, equivalent keystore with a new password.
@@ -8,9 +7,9 @@ regenerate a new, equivalent keystore with a new password.
 There are two ways to recover keys using the `lighthouse` CLI:
 
 - `lighthouse account validator recover`: recover one or more EIP-2335 keystores from a mnemonic.
-	These keys can be used directly in a validator client.
+ These keys can be used directly in a validator client.
 - `lighthouse account wallet recover`: recover an EIP-2386 wallet from a
-	mnemonic.
+ mnemonic.
 
 ## ⚠️ Warning
 
@@ -18,10 +17,10 @@ There are two ways to recover keys using the `lighthouse` CLI:
 resort.** Key recovery entails significant risks:
 
 - Exposing your mnemonic to a computer at any time puts it at risk of being
-	compromised. Your mnemonic is **not encrypted** and is a target for theft.
+ compromised. Your mnemonic is **not encrypted** and is a target for theft.
 - It's completely possible to regenerate a validator keypairs that is already active
-	on some other validator client. Running the same keypairs on two different
-	validator clients is very likely to result in slashing.
+ on some other validator client. Running the same keypairs on two different
+ validator clients is very likely to result in slashing.
 
 ## Recover EIP-2335 validator keystores
 
@@ -32,7 +31,6 @@ index on the same mnemonic always results in the same validator keypair being
 generated (see [EIP-2334](https://eips.ethereum.org/EIPS/eip-2334) for more
 detail).
 
-
 Using the `lighthouse account validator recover` command you can generate the
 keystores that correspond to one or more indices in the mnemonic:
 
@@ -40,7 +38,6 @@ keystores that correspond to one or more indices in the mnemonic:
 - `lighthouse account validator recover --count 2`: recover indices `0, 1`.
 - `lighthouse account validator recover --first-index 1`: recover only index `1`.
 - `lighthouse account validator recover --first-index 1 --count 2`: recover indices `1, 2`.
-
 
 For each of the indices recovered in the above commands, a directory will be
 created in the `--validator-dir` location (default `~/.lighthouse/{network}/validators`)

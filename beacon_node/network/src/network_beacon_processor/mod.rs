@@ -1,7 +1,5 @@
-use crate::{
-    service::NetworkMessage,
-    sync::{manager::BlockProcessType, SyncMessage},
-};
+use crate::sync::manager::BlockProcessType;
+use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend, BeaconChain};
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
@@ -144,7 +142,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             processor.process_gossip_aggregate_batch(aggregates, Some(reprocess_tx))
         };
 
-        let beacon_block_root = aggregate.message.aggregate.data.beacon_block_root;
+        let beacon_block_root = aggregate.message().aggregate().data().beacon_block_root;
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
             work: Work::GossipAggregate {

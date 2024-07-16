@@ -641,9 +641,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         current_epoch: Epoch,
     ) -> Result<(), Error> {
         // Make sure the target epoch is not higher than the current epoch to avoid potential attacks.
-        if attestation.data.target.epoch > current_epoch {
+        if attestation.data().target.epoch > current_epoch {
             return Err(Error::GreaterThanCurrentEpoch {
-                epoch: attestation.data.target.epoch,
+                epoch: attestation.data().target.epoch,
                 current_epoch,
             });
         }
@@ -652,7 +652,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
 
         // Checking for slashing conditions.
-        let signing_epoch = attestation.data.target.epoch;
+        let signing_epoch = attestation.data().target.epoch;
         let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
         let domain_hash = signing_context.domain_hash(&self.spec);
         let slashing_status = if signing_method
@@ -660,7 +660,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         {
             self.slashing_protection.check_and_insert_attestation(
                 &validator_pubkey,
-                &attestation.data,
+                attestation.data(),
                 domain_hash,
             )
         } else {
@@ -672,7 +672,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             Ok(Safe::Valid) => {
                 let signature = signing_method
                     .get_signature::<E, BlindedPayload<E>>(
-                        SignableMessage::AttestationData(&attestation.data),
+                        SignableMessage::AttestationData(attestation.data()),
                         signing_context,
                         &self.spec,
                         &self.task_executor,
@@ -714,7 +714,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 crit!(
                     self.log,
                     "Not signing slashable attestation";
-                    "attestation" => format!("{:?}", attestation.data),
+                    "attestation" => format!("{:?}", attestation.data()),
                     "error" => format!("{:?}", e)
                 );
                 metrics::inc_counter_vec(
@@ -792,19 +792,16 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         aggregate: Attestation<E>,
         selection_proof: SelectionProof,
     ) -> Result<SignedAggregateAndProof<E>, Error> {
-        let signing_epoch = aggregate.data.target.epoch;
+        let signing_epoch = aggregate.data().target.epoch;
         let signing_context = self.signing_context(Domain::AggregateAndProof, signing_epoch);
 
-        let message = AggregateAndProof {
-            aggregator_index,
-            aggregate,
-            selection_proof: selection_proof.into(),
-        };
+        let message =
+            AggregateAndProof::from_attestation(aggregator_index, aggregate, selection_proof);
 
         let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
         let signature = signing_method
             .get_signature::<E, BlindedPayload<E>>(
-                SignableMessage::SignedAggregateAndProof(&message),
+                SignableMessage::SignedAggregateAndProof(message.to_ref()),
                 signing_context,
                 &self.spec,
                 &self.task_executor,
@@ -813,7 +810,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         metrics::inc_counter_vec(&metrics::SIGNED_AGGREGATES_TOTAL, &[metrics::SUCCESS]);
 
-        Ok(SignedAggregateAndProof { message, signature })
+        Ok(SignedAggregateAndProof::from_aggregate_and_proof(
+            message, signature,
+        ))
     }
 
     /// Produces a `SelectionProof` for the `slot`, signed by with corresponding secret key to

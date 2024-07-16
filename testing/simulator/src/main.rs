@@ -10,10 +10,6 @@
 //! simulation uses `println` to communicate some info. It might be nice if the nodes logged to
 //! easy-to-find files and stdout only contained info from the simulation.
 //!
-
-#[macro_use]
-extern crate clap;
-
 mod basic_sim;
 mod checks;
 mod cli;
@@ -34,14 +30,14 @@ fn main() {
 
     let matches = cli_app().get_matches();
     match matches.subcommand() {
-        ("basic-sim", Some(matches)) => match basic_sim::run_basic_sim(matches) {
+        Some(("basic-sim", matches)) => match basic_sim::run_basic_sim(matches) {
             Ok(()) => println!("Simulation exited successfully"),
             Err(e) => {
                 eprintln!("Simulation exited with error: {}", e);
                 std::process::exit(1)
             }
         },
-        ("fallback-sim", Some(matches)) => match fallback_sim::run_fallback_sim(matches) {
+        Some(("fallback-sim", matches)) => match fallback_sim::run_fallback_sim(matches) {
             Ok(()) => println!("Simulation exited successfully"),
             Err(e) => {
                 eprintln!("Simulation exited with error: {}", e);
