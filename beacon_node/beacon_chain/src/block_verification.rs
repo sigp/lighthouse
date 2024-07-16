@@ -65,7 +65,7 @@ use crate::{
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
-use eth2::types::EventKind;
+use eth2::types::{BlockGossip, EventKind};
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
 
@@ -91,7 +91,6 @@ use std::io::Write;
 use std::sync::Arc;
 use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
-use tree_hash::TreeHash;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ExecPayload,
     ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
@@ -958,6 +957,16 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Validate the block's execution_payload (if any).
         validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
+        // Beacon API block_gossip events
+        if let Some(event_handler) = chain.event_handler.as_ref() {
+            if event_handler.has_block_gossip_subscribers() {
+                event_handler.register(EventKind::BlockGossip(Box::new(BlockGossip {
+                    slot: block.slot(),
+                    block: block_root,
+                })));
+            }
+        }
+
         // Having checked the proposer index and the block root we can cache them.
         let consensus_context = ConsensusContext::new(block.slot())
             .set_current_block_root(block_root)
@@ -1318,6 +1327,13 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             // The specification declares that this should be run *inside* `per_block_processing`,
             // however we run it here to keep `per_block_processing` pure (i.e., no calls to external
             // servers).
+            if let Some(started_execution) = chain.slot_clock.now_duration() {
+                chain.block_times_cache.write().set_time_started_execution(
+                    block_root,
+                    block.slot(),
+                    started_execution,
+                );
+            }
             let payload_verification_status = payload_notifier.notify_new_payload().await?;
 
             // If the payload did not validate or invalidate the block, check to see if this block is
@@ -1365,18 +1381,20 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
 
         // Stage a batch of operations to be completed atomically if this block is imported
-        // successfully. We include the state root of the pre-state, which may be an advanced state
-        // that was stored in the DB with a `temporary` flag.
+        // successfully. If there is a skipped slot, we include the state root of the pre-state,
+        // which may be an advanced state that was stored in the DB with a `temporary` flag.
         let mut state = parent.pre_state;
 
-        let mut confirmed_state_roots = if state.slot() > parent.beacon_block.slot() {
-            // Advanced pre-state. Delete its temporary flag.
-            let pre_state_root = state.update_tree_hash_cache()?;
-            vec![pre_state_root]
-        } else {
-            // Pre state is parent state. It is already stored in the DB without temporary status.
-            vec![]
-        };
+        let mut confirmed_state_roots =
+            if block.slot() > state.slot() && state.slot() > parent.beacon_block.slot() {
+                // Advanced pre-state. Delete its temporary flag.
+                let pre_state_root = state.update_tree_hash_cache()?;
+                vec![pre_state_root]
+            } else {
+                // Pre state is either unadvanced, or should not be stored long-term because there
+                // is no skipped slot between `parent` and `block`.
+                vec![]
+            };
 
         // The block must have a higher slot than its parent.
         if block.slot() <= parent.beacon_block.slot() {
@@ -1606,7 +1624,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         }
 
         // Register each attestation in the block with fork choice.
-        for (i, attestation) in block.message().body().attestations().iter().enumerate() {
+        for (i, attestation) in block.message().body().attestations().enumerate() {
             let _fork_choice_attestation_timer =
                 metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
 
@@ -2088,7 +2106,14 @@ pub fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
 
 fn write_state<E: EthSpec>(prefix: &str, state: &BeaconState<E>, log: &Logger) {
     if WRITE_BLOCK_PROCESSING_SSZ {
-        let root = state.tree_hash_root();
+        let mut state = state.clone();
+        let Ok(root) = state.canonical_root() else {
+            error!(
+                log,
+                "Unable to hash state for writing";
+            );
+            return;
+        };
         let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot(), root);
         let mut path = std::env::temp_dir().join("lighthouse");
         let _ = fs::create_dir_all(path.clone());

@@ -63,6 +63,8 @@ pub trait EthSpec:
      * Misc
      */
     type MaxValidatorsPerCommittee: Unsigned + Clone + Sync + Send + Debug + PartialEq + Eq;
+    type MaxValidatorsPerSlot: Unsigned + Clone + Sync + Send + Debug + PartialEq + Eq;
+    type MaxCommitteesPerSlot: Unsigned + Clone + Sync + Send + Debug + PartialEq + Eq;
     /*
      * Time parameters
      */
@@ -113,6 +115,12 @@ pub trait EthSpec:
     type BytesPerFieldElement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type KzgCommitmentInclusionProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
+     * New in PeerDAS
+     */
+    type FieldElementsPerCell: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type FieldElementsPerExtBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type KzgCommitmentsInclusionProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /*
      * Derived values (set these CAREFULLY)
      */
     /// The length of the `{previous,current}_epoch_attestations` lists.
@@ -135,6 +143,11 @@ pub trait EthSpec:
     /// Must be set to `BytesPerFieldElement * FieldElementsPerBlob`.
     type BytesPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
+    /// The total length of a data column in bytes.
+    ///
+    /// Must be set to `BytesPerFieldElement * FieldElementsPerCell`.
+    type BytesPerCell: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+
     /*
      * New in Electra
      */
@@ -142,7 +155,7 @@ pub trait EthSpec:
     type PendingPartialWithdrawalsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type PendingConsolidationsLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxConsolidations: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type MaxDepositReceiptsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxDepositRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxAttesterSlashingsElectra: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxAttestationsElectra: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxWithdrawalRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -282,6 +295,16 @@ pub trait EthSpec:
         Self::FieldElementsPerBlob::to_usize()
     }
 
+    /// Returns the `FIELD_ELEMENTS_PER_EXT_BLOB` constant for this specification.
+    fn field_elements_per_ext_blob() -> usize {
+        Self::FieldElementsPerExtBlob::to_usize()
+    }
+
+    /// Returns the `FIELD_ELEMENTS_PER_CELL` constant for this specification.
+    fn field_elements_per_cell() -> usize {
+        Self::FieldElementsPerCell::to_usize()
+    }
+
     /// Returns the `BYTES_PER_BLOB` constant for this specification.
     fn bytes_per_blob() -> usize {
         Self::BytesPerBlob::to_usize()
@@ -290,6 +313,22 @@ pub trait EthSpec:
     /// Returns the `KZG_COMMITMENT_INCLUSION_PROOF_DEPTH` preset for this specification.
     fn kzg_proof_inclusion_proof_depth() -> usize {
         Self::KzgCommitmentInclusionProofDepth::to_usize()
+    }
+
+    fn kzg_commitments_tree_depth() -> usize {
+        // Depth of the subtree rooted at `blob_kzg_commitments` in the `BeaconBlockBody`
+        // is equal to depth of the ssz List max size + 1 for the length mixin
+        Self::max_blob_commitments_per_block()
+            .next_power_of_two()
+            .ilog2()
+            .safe_add(1)
+            .expect("The log of max_blob_commitments_per_block can not overflow") as usize
+    }
+
+    fn block_body_tree_depth() -> usize {
+        Self::kzg_proof_inclusion_proof_depth()
+            .safe_sub(Self::kzg_commitments_tree_depth())
+            .expect("Preset values are not configurable and never result in non-positive block body depth")
     }
 
     /// Returns the `PENDING_BALANCE_DEPOSITS_LIMIT` constant for this specification.
@@ -312,9 +351,9 @@ pub trait EthSpec:
         Self::MaxConsolidations::to_usize()
     }
 
-    /// Returns the `MAX_DEPOSIT_RECEIPTS_PER_PAYLOAD` constant for this specification.
-    fn max_deposit_receipts_per_payload() -> usize {
-        Self::MaxDepositReceiptsPerPayload::to_usize()
+    /// Returns the `MAX_DEPOSIT_REQUESTS_PER_PAYLOAD` constant for this specification.
+    fn max_deposit_requests_per_payload() -> usize {
+        Self::MaxDepositRequestsPerPayload::to_usize()
     }
 
     /// Returns the `MAX_ATTESTER_SLASHINGS_ELECTRA` constant for this specification.
@@ -330,6 +369,10 @@ pub trait EthSpec:
     /// Returns the `MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD` constant for this specification.
     fn max_withdrawal_requests_per_payload() -> usize {
         Self::MaxWithdrawalRequestsPerPayload::to_usize()
+    }
+
+    fn kzg_commitments_inclusion_proof_depth() -> usize {
+        Self::KzgCommitmentsInclusionProofDepth::to_usize()
     }
 }
 
@@ -349,6 +392,8 @@ impl EthSpec for MainnetEthSpec {
     type JustificationBitsLength = U4;
     type SubnetBitfieldLength = U64;
     type MaxValidatorsPerCommittee = U2048;
+    type MaxCommitteesPerSlot = U64;
+    type MaxValidatorsPerSlot = U131072;
     type GenesisEpoch = U0;
     type SlotsPerEpoch = U32;
     type EpochsPerEth1VotingPeriod = U64;
@@ -374,8 +419,12 @@ impl EthSpec for MainnetEthSpec {
     type MaxBlobCommitmentsPerBlock = U4096;
     type BytesPerFieldElement = U32;
     type FieldElementsPerBlob = U4096;
+    type FieldElementsPerCell = U64;
+    type FieldElementsPerExtBlob = U8192;
     type BytesPerBlob = U131072;
+    type BytesPerCell = U2048;
     type KzgCommitmentInclusionProofDepth = U17;
+    type KzgCommitmentsInclusionProofDepth = U4; // inclusion of the whole list of commitments
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
@@ -385,7 +434,7 @@ impl EthSpec for MainnetEthSpec {
     type PendingPartialWithdrawalsLimit = U134217728;
     type PendingConsolidationsLimit = U262144;
     type MaxConsolidations = U1;
-    type MaxDepositReceiptsPerPayload = U8192;
+    type MaxDepositRequestsPerPayload = U8192;
     type MaxAttesterSlashingsElectra = U1;
     type MaxAttestationsElectra = U8;
     type MaxWithdrawalRequestsPerPayload = U16;
@@ -404,6 +453,8 @@ impl EthSpec for MainnetEthSpec {
 pub struct MinimalEthSpec;
 
 impl EthSpec for MinimalEthSpec {
+    type MaxCommitteesPerSlot = U4;
+    type MaxValidatorsPerSlot = U8192;
     type SlotsPerEpoch = U8;
     type EpochsPerEth1VotingPeriod = U4;
     type SlotsPerHistoricalRoot = U64;
@@ -420,8 +471,12 @@ impl EthSpec for MinimalEthSpec {
     type KzgCommitmentInclusionProofDepth = U9;
     type PendingPartialWithdrawalsLimit = U64;
     type PendingConsolidationsLimit = U64;
-    type MaxDepositReceiptsPerPayload = U4;
+    type MaxDepositRequestsPerPayload = U4;
     type MaxWithdrawalRequestsPerPayload = U2;
+    type FieldElementsPerCell = U64;
+    type FieldElementsPerExtBlob = U8192;
+    type BytesPerCell = U2048;
+    type KzgCommitmentsInclusionProofDepth = U4;
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -468,6 +523,8 @@ impl EthSpec for GnosisEthSpec {
     type JustificationBitsLength = U4;
     type SubnetBitfieldLength = U64;
     type MaxValidatorsPerCommittee = U2048;
+    type MaxCommitteesPerSlot = U64;
+    type MaxValidatorsPerSlot = U131072;
     type GenesisEpoch = U0;
     type SlotsPerEpoch = U16;
     type EpochsPerEth1VotingPeriod = U64;
@@ -504,10 +561,14 @@ impl EthSpec for GnosisEthSpec {
     type PendingPartialWithdrawalsLimit = U134217728;
     type PendingConsolidationsLimit = U262144;
     type MaxConsolidations = U1;
-    type MaxDepositReceiptsPerPayload = U8192;
+    type MaxDepositRequestsPerPayload = U8192;
     type MaxAttesterSlashingsElectra = U1;
     type MaxAttestationsElectra = U8;
     type MaxWithdrawalRequestsPerPayload = U16;
+    type FieldElementsPerCell = U64;
+    type FieldElementsPerExtBlob = U8192;
+    type BytesPerCell = U2048;
+    type KzgCommitmentsInclusionProofDepth = U4;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()
@@ -515,5 +576,30 @@ impl EthSpec for GnosisEthSpec {
 
     fn spec_name() -> EthSpecId {
         EthSpecId::Gnosis
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+    use ssz_types::typenum::Unsigned;
+
+    fn assert_valid_spec<E: EthSpec>() {
+        E::kzg_commitments_tree_depth();
+        E::block_body_tree_depth();
+        assert!(E::MaxValidatorsPerSlot::to_i32() >= E::MaxValidatorsPerCommittee::to_i32());
+    }
+
+    #[test]
+    fn mainnet_spec() {
+        assert_valid_spec::<MainnetEthSpec>();
+    }
+    #[test]
+    fn minimal_spec() {
+        assert_valid_spec::<MinimalEthSpec>();
+    }
+    #[test]
+    fn gnosis_spec() {
+        assert_valid_spec::<GnosisEthSpec>();
     }
 }

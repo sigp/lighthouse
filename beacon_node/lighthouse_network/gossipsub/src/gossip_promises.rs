@@ -21,9 +21,9 @@
 use super::peer_score::RejectReason;
 use super::MessageId;
 use super::ValidationError;
-use instant::Instant;
 use libp2p::identity::PeerId;
 use std::collections::HashMap;
+use web_time::Instant;
 
 /// Tracks recently sent `IWANT` messages and checks if peers respond to them.
 #[derive(Default)]
@@ -39,6 +39,14 @@ impl GossipPromises {
     /// Returns true if the message id exists in the promises.
     pub(crate) fn contains(&self, message: &MessageId) -> bool {
         self.promises.contains_key(message)
+    }
+
+    ///Get the peers we sent IWANT the input message id.
+    pub(crate) fn peers_for_message(&self, message_id: &MessageId) -> Vec<PeerId> {
+        self.promises
+            .get(message_id)
+            .map(|peers| peers.keys().copied().collect())
+            .unwrap_or_default()
     }
 
     /// Track a promise to deliver a message from a list of [`MessageId`]s we are requesting.

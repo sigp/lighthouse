@@ -2,10 +2,10 @@ use crate::sync::block_lookups::single_block_lookup::{
     LookupRequestError, SingleBlockLookup, SingleLookupRequestState,
 };
 use crate::sync::block_lookups::{BlobRequestState, BlockRequestState, PeerId};
-use crate::sync::manager::{Id, SLOT_IMPORT_TOLERANCE};
 use crate::sync::network_context::{LookupRequestResult, SyncNetworkContext};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
+use lighthouse_network::service::api_types::Id;
 use std::sync::Arc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::SignedBeaconBlock;
@@ -18,11 +18,6 @@ pub enum ResponseType {
     Block,
     Blob,
 }
-
-/// The maximum depth we will search for a parent block. In principle we should have sync'd any
-/// canonical chain to its head once the peer connects. A chain should not appear where it's depth
-/// is further back than the most recent head slot.
-pub(crate) const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE * 2;
 
 /// This trait unifies common single block lookup functionality across blocks and blobs. This
 /// includes making requests, verifying responses, and handling processing results. A
@@ -82,7 +77,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupRequestResult, LookupRequestError> {
         cx.block_lookup_request(id, peer_id, self.requested_block_root)
-            .map_err(LookupRequestError::SendFailed)
+            .map_err(LookupRequestError::SendFailedNetwork)
     }
 
     fn send_for_processing(
@@ -102,7 +97,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
             RpcBlock::new_without_blobs(Some(block_root), value),
             seen_timestamp,
         )
-        .map_err(LookupRequestError::SendFailed)
+        .map_err(LookupRequestError::SendFailedProcessor)
     }
 
     fn response_type() -> ResponseType {
@@ -135,7 +130,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
             self.block_root,
             downloaded_block_expected_blobs,
         )
-        .map_err(LookupRequestError::SendFailed)
+        .map_err(LookupRequestError::SendFailedNetwork)
     }
 
     fn send_for_processing(
@@ -150,7 +145,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
             peer_id: _,
         } = download_result;
         cx.send_blobs_for_processing(id, block_root, value, seen_timestamp)
-            .map_err(LookupRequestError::SendFailed)
+            .map_err(LookupRequestError::SendFailedProcessor)
     }
 
     fn response_type() -> ResponseType {

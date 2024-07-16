@@ -5,6 +5,7 @@ use beacon_chain::{
     sync_committee_verification::Error as SyncCommitteeError,
 };
 use fnv::FnvHashMap;
+use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use lighthouse_network::{
     peer_manager::peerdb::client::ClientKind, types::GossipKind, GossipTopic, Gossipsub,
@@ -236,6 +237,36 @@ lazy_static! {
         "Number of Syncing chains in range, per range type",
         &["range_type"]
     );
+    pub static ref SYNCING_CHAINS_REMOVED: Result<IntCounterVec> = try_create_int_counter_vec(
+        "sync_range_removed_chains_total",
+        "Total count of range syncing chains removed per range type",
+        &["range_type"]
+    );
+    pub static ref SYNCING_CHAINS_ADDED: Result<IntCounterVec> = try_create_int_counter_vec(
+        "sync_range_added_chains_total",
+        "Total count of range syncing chains added per range type",
+        &["range_type"]
+    );
+    pub static ref SYNCING_CHAINS_DROPPED_BLOCKS: Result<IntCounterVec> = try_create_int_counter_vec(
+        "sync_range_chains_dropped_blocks_total",
+        "Total count of dropped blocks when removing a syncing chain per range type",
+        &["range_type"]
+    );
+    pub static ref SYNCING_CHAINS_IGNORED_BLOCKS: Result<IntCounterVec> = try_create_int_counter_vec(
+        "sync_range_chains_ignored_blocks_total",
+        "Total count of ignored blocks when processing a syncing chain batch per chain type",
+        &["chain_type"]
+    );
+    pub static ref SYNCING_CHAINS_PROCESSED_BATCHES: Result<IntCounterVec> = try_create_int_counter_vec(
+        "sync_range_chains_processed_batches_total",
+        "Total count of processed batches in a syncing chain batch per chain type",
+        &["chain_type"]
+    );
+    pub static ref SYNCING_CHAIN_BATCH_AWAITING_PROCESSING: Result<Histogram> = try_create_histogram_with_buckets(
+        "sync_range_chain_batch_awaiting_processing_seconds",
+        "Time range sync batches spend in AwaitingProcessing state",
+        Ok(vec![0.01,0.02,0.05,0.1,0.2,0.5,1.0,2.0,5.0,10.0,20.0])
+    );
     pub static ref SYNC_SINGLE_BLOCK_LOOKUPS: Result<IntGauge> = try_create_int_gauge(
         "sync_single_block_lookups",
         "Number of single block lookups underway"
@@ -256,6 +287,20 @@ lazy_static! {
     pub static ref SYNC_LOOKUP_COMPLETED: Result<IntCounter> = try_create_int_counter(
         "sync_lookups_completed_total",
         "Total count of sync lookups completed",
+    );
+    pub static ref SYNC_LOOKUPS_STUCK: Result<IntCounter> = try_create_int_counter(
+        "sync_lookups_stuck_total",
+        "Total count of sync lookups that are stuck and dropped",
+    );
+    pub static ref SYNC_ACTIVE_NETWORK_REQUESTS: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "sync_active_network_requests",
+        "Current count of active network requests from sync",
+        &["type"],
+    );
+    pub static ref SYNC_UNKNOWN_NETWORK_REQUESTS: Result<IntCounterVec> = try_create_int_counter_vec(
+        "sync_unknwon_network_request",
+        "Total count of network messages received for unknown active requests",
+        &["type"],
     );
 
     /*

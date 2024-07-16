@@ -25,7 +25,7 @@ use async_channel::{Receiver, Sender};
 use futures::stream::Peekable;
 use futures::{Future, Stream, StreamExt};
 use futures_timer::Delay;
-use instant::Duration;
+use hashlink::LinkedHashMap;
 use libp2p::identity::PeerId;
 use libp2p::swarm::ConnectionId;
 use prometheus_client::encoding::EncodeLabelValue;
@@ -35,7 +35,9 @@ use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Instant;
 use std::{fmt, pin::Pin};
+use web_time::Duration;
 
 use crate::rpc_proto::proto;
 #[cfg(feature = "serde")]
@@ -121,11 +123,16 @@ pub(crate) struct PeerConnections {
     pub(crate) sender: RpcSender,
     /// Subscribed topics.
     pub(crate) topics: BTreeSet<TopicHash>,
+    /// Don't send messages.
+    pub(crate) dont_send: LinkedHashMap<MessageId, Instant>,
 }
 
 /// Describes the types of peers that can exist in the gossipsub context.
 #[derive(Debug, Clone, PartialEq, Hash, EncodeLabelValue, Eq)]
+#[allow(non_camel_case_types)]
 pub enum PeerKind {
+    /// A gossipsub 1.2 peer.
+    Gossipsubv1_2_beta,
     /// A gossipsub 1.1 peer.
     Gossipsubv1_1,
     /// A gossipsub 1.0 peer.
@@ -134,6 +141,16 @@ pub enum PeerKind {
     Floodsub,
     /// The peer doesn't support any of the protocols.
     NotSupported,
+}
+
+impl PeerKind {
+    /// Returns true if peer speaks any gossipsub version.
+    pub(crate) fn is_gossipsub(&self) -> bool {
+        matches!(
+            self,
+            Self::Gossipsubv1_2_beta | Self::Gossipsubv1_1 | Self::Gossipsub
+        )
+    }
 }
 
 /// A message received by the gossipsub system and stored locally in caches..
@@ -257,6 +274,8 @@ pub enum ControlAction {
     Graft(Graft),
     /// The node has been removed from the mesh - Prune control message.
     Prune(Prune),
+    /// The node requests us to not forward message ids (peer_id + sequence _number) - IDontWant control message.
+    IDontWant(IDontWant),
 }
 
 /// Node broadcasts known messages per topic - IHave control message.
@@ -293,6 +312,13 @@ pub struct Prune {
     pub(crate) backoff: Option<u64>,
 }
 
+/// The node requests us to not forward message ids - IDontWant control message.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct IDontWant {
+    /// A list of known message ids.
+    pub(crate) message_ids: Vec<MessageId>,
+}
+
 /// A Gossipsub RPC message sent.
 #[derive(Debug)]
 pub enum RpcOut {
@@ -314,6 +340,8 @@ pub enum RpcOut {
     IHave(IHave),
     /// Send a IWant control message.
     IWant(IWant),
+    /// Send a IDontWant control message.
+    IDontWant(IDontWant),
 }
 
 impl RpcOut {
@@ -374,6 +402,7 @@ impl From<RpcOut> for proto::RPC {
                     iwant: vec![],
                     graft: vec![],
                     prune: vec![],
+                    idontwant: vec![],
                 }),
             },
             RpcOut::IWant(IWant { message_ids }) => proto::RPC {
@@ -386,6 +415,7 @@ impl From<RpcOut> for proto::RPC {
                     }],
                     graft: vec![],
                     prune: vec![],
+                    idontwant: vec![],
                 }),
             },
             RpcOut::Graft(Graft { topic_hash }) => proto::RPC {
@@ -398,6 +428,7 @@ impl From<RpcOut> for proto::RPC {
                         topic_id: Some(topic_hash.into_string()),
                     }],
                     prune: vec![],
+                    idontwant: vec![],
                 }),
             },
             RpcOut::Prune(Prune {
@@ -424,9 +455,23 @@ impl From<RpcOut> for proto::RPC {
                                 .collect(),
                             backoff,
                         }],
+                        idontwant: vec![],
                     }),
                 }
             }
+            RpcOut::IDontWant(IDontWant { message_ids }) => proto::RPC {
+                publish: Vec::new(),
+                subscriptions: Vec::new(),
+                control: Some(proto::ControlMessage {
+                    ihave: vec![],
+                    iwant: vec![],
+                    graft: vec![],
+                    prune: vec![],
+                    idontwant: vec![proto::ControlIDontWant {
+                        message_ids: message_ids.into_iter().map(|msg_id| msg_id.0).collect(),
+                    }],
+                }),
+            },
         }
     }
 }
@@ -485,6 +530,7 @@ impl From<Rpc> for proto::RPC {
             iwant: Vec::new(),
             graft: Vec::new(),
             prune: Vec::new(),
+            idontwant: Vec::new(),
         };
 
         let empty_control_msg = rpc.control_msgs.is_empty();
@@ -533,6 +579,12 @@ impl From<Rpc> for proto::RPC {
                     };
                     control.prune.push(rpc_prune);
                 }
+                ControlAction::IDontWant(IDontWant { message_ids }) => {
+                    let rpc_idontwant = proto::ControlIDontWant {
+                        message_ids: message_ids.into_iter().map(|msg_id| msg_id.0).collect(),
+                    };
+                    control.idontwant.push(rpc_idontwant);
+                }
             }
         }
 
@@ -571,6 +623,7 @@ impl PeerKind {
             Self::Floodsub => "Floodsub",
             Self::Gossipsub => "Gossipsub v1.0",
             Self::Gossipsubv1_1 => "Gossipsub v1.1",
+            Self::Gossipsubv1_2_beta => "Gossipsub v1.2-beta",
         }
     }
 }
@@ -654,6 +707,15 @@ impl RpcSender {
     pub(crate) fn iwant(&mut self, iwant: IWant) -> Result<(), RpcOut> {
         self.non_priority_sender
             .try_send(RpcOut::IWant(iwant))
+            .map_err(|err| err.into_inner())
+    }
+
+    /// Send a `RpcOut::IWant` message to the `RpcReceiver`
+    /// this is low priority, if the queue is full an Err is returned.
+    #[allow(clippy::result_large_err)]
+    pub(crate) fn idontwant(&mut self, idontwant: IDontWant) -> Result<(), RpcOut> {
+        self.non_priority_sender
+            .try_send(RpcOut::IDontWant(idontwant))
             .map_err(|err| err.into_inner())
     }
 

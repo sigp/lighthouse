@@ -401,8 +401,6 @@ lazy_static! {
         try_create_histogram("beacon_persist_eth1_cache", "Time taken to persist the eth1 caches");
     pub static ref PERSIST_FORK_CHOICE: Result<Histogram> =
         try_create_histogram("beacon_persist_fork_choice", "Time taken to persist the fork choice struct");
-    pub static ref PERSIST_DATA_AVAILABILITY_CHECKER: Result<Histogram> =
-        try_create_histogram("beacon_persist_data_availability_checker", "Time taken to persist the data availability checker");
 
     /*
      * Eth1
@@ -859,6 +857,11 @@ lazy_static! {
         "Duration between the start of the block's slot and the time the block was observed.",
     );
 
+    pub static ref BEACON_BLOCK_DELAY_CONSENSUS_VERIFICATION_TIME: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_consensus_verification_time",
+        "The time taken to verify the block within Lighthouse",
+    );
+
     pub static ref BEACON_BLOCK_DELAY_EXECUTION_TIME: Result<IntGauge> = try_create_int_gauge(
         "beacon_block_delay_execution_time",
         "The duration in verifying the block with the execution layer.",
@@ -1192,6 +1195,7 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     }
 
     let attestation_stats = beacon_chain.op_pool.attestation_stats();
+    let chain_metrics = beacon_chain.metrics();
 
     set_gauge_by_usize(
         &BLOCK_PROCESSING_SNAPSHOT_CACHE_SIZE,
@@ -1200,7 +1204,7 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
 
     set_gauge_by_usize(
         &BEACON_REQRESP_PRE_IMPORT_CACHE_SIZE,
-        beacon_chain.reqresp_pre_import_cache.read().len(),
+        chain_metrics.reqresp_pre_import_cache_len,
     );
 
     let da_checker_metrics = beacon_chain.data_availability_checker.metrics();
@@ -1211,10 +1215,6 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     set_gauge_by_usize(
         &DATA_AVAILABILITY_OVERFLOW_MEMORY_STATE_CACHE_SIZE,
         da_checker_metrics.state_cache_size,
-    );
-    set_gauge_by_usize(
-        &DATA_AVAILABILITY_OVERFLOW_STORE_CACHE_SIZE,
-        da_checker_metrics.num_store_entries,
     );
 
     if let Some((size, num_lookups)) = beacon_chain.pre_finalization_block_cache.metrics() {

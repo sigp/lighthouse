@@ -10,7 +10,7 @@ use libp2p::swarm::{
     handler::ConnectionHandler, CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler,
     ToSwarm,
 };
-use libp2p::swarm::{FromSwarm, SubstreamProtocol, THandlerInEvent};
+use libp2p::swarm::{ConnectionClosed, FromSwarm, SubstreamProtocol, THandlerInEvent};
 use libp2p::PeerId;
 use rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr};
 use slog::{crit, debug, o};
@@ -283,9 +283,61 @@ where
         Ok(handler)
     }
 
-    fn on_swarm_event(&mut self, _event: FromSwarm) {
+    fn on_swarm_event(&mut self, event: FromSwarm) {
         // NOTE: FromSwarm is a non exhaustive enum so updates should be based on release notes more
         // than compiler feedback
+        // The self rate limiter holds on to requests and attempts to process them within our rate
+        // limits. If a peer disconnects whilst we are self-rate limiting, we want to terminate any
+        // pending requests and return an error response to the application.
+
+        if let FromSwarm::ConnectionClosed(ConnectionClosed {
+            peer_id,
+            remaining_established,
+            connection_id,
+            ..
+        }) = event
+        {
+            // If there are still connections remaining, do nothing.
+            if remaining_established > 0 {
+                return;
+            }
+            // Get a list of pending requests from the self rate limiter
+            if let Some(limiter) = self.self_limiter.as_mut() {
+                for (id, proto) in limiter.peer_disconnected(peer_id) {
+                    let error_msg = ToSwarm::GenerateEvent(RPCMessage {
+                        peer_id,
+                        conn_id: connection_id,
+                        event: HandlerEvent::Err(HandlerErr::Outbound {
+                            id,
+                            proto,
+                            error: RPCError::Disconnected,
+                        }),
+                    });
+                    self.events.push(error_msg);
+                }
+            }
+
+            // Replace the pending Requests to the disconnected peer
+            // with reports of failed requests.
+            self.events.iter_mut().for_each(|event| match &event {
+                ToSwarm::NotifyHandler {
+                    peer_id: p,
+                    event: RPCSend::Request(request_id, req),
+                    ..
+                } if *p == peer_id => {
+                    *event = ToSwarm::GenerateEvent(RPCMessage {
+                        peer_id,
+                        conn_id: connection_id,
+                        event: HandlerEvent::Err(HandlerErr::Outbound {
+                            id: *request_id,
+                            proto: req.versioned_protocol().protocol(),
+                            error: RPCError::Disconnected,
+                        }),
+                    });
+                }
+                _ => {}
+            });
+        }
     }
 
     fn on_connection_handler_event(

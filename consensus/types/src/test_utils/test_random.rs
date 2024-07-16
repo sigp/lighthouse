@@ -2,6 +2,7 @@ use crate::*;
 use rand::RngCore;
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
+use smallvec::{smallvec, SmallVec};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -115,6 +116,21 @@ where
         }
 
         output.into()
+    }
+}
+
+impl<U, const N: usize> TestRandom for SmallVec<[U; N]>
+where
+    U: TestRandom,
+{
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        let mut output = smallvec![];
+
+        for _ in 0..(usize::random_for_test(rng) % 4) {
+            output.push(<U>::random_for_test(rng));
+        }
+
+        output
     }
 }
 
