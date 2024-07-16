@@ -131,7 +131,7 @@ impl Default for Config {
             validator_registration_batch_size: 500,
             enable_web3signer_slashing_protection: true,
             produce_block_v3: false,
-            builder_boost_factor: None,
+            builder_boost_factor: Some(90),
             prefer_builder_proposals: false,
             distributed: false,
             web3_signer_keep_alive_timeout: DEFAULT_WEB3SIGNER_KEEP_ALIVE,
