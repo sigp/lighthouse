@@ -1199,7 +1199,7 @@ mod test {
 
         let head = chain.head_snapshot();
 
-        let state = &head.beacon_state;
+        let mut state = head.beacon_state.clone();
         let block = &head.beacon_block;
 
         assert_eq!(state.slot(), Slot::new(0), "should start from genesis");
@@ -1210,7 +1210,7 @@ mod test {
         );
         assert_eq!(
             block.state_root(),
-            state.canonical_root(),
+            state.canonical_root().unwrap(),
             "block should have correct state root"
         );
         assert_eq!(

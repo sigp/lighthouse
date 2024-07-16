@@ -213,6 +213,13 @@ impl From<BeaconStateHash> for Hash256 {
 }
 
 /// The state of the `BeaconChain` at some slot.
+///
+/// Note: `BeaconState` does not implement `TreeHash` on the top-level type in order to
+/// encourage use of the `canonical_root`/`update_tree_hash_cache` methods which flush pending
+/// updates to the underlying persistent data structures. This is the safest option for now until
+/// we add internal mutability to `milhouse::{List, Vector}`. See:
+///
+/// https://github.com/sigp/milhouse/issues/43
 #[superstruct(
     variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
     variant_attributes(
@@ -323,13 +330,10 @@ impl From<BeaconStateHash> for Hash256 {
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     map_ref_mut_into(BeaconStateRef)
 )]
-#[derive(
-    Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash, arbitrary::Arbitrary,
-)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, arbitrary::Arbitrary)]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[arbitrary(bound = "E: EthSpec")]
-#[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 pub struct BeaconState<E>
 where
@@ -651,10 +655,8 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Returns the `tree_hash_root` of the state.
-    ///
-    /// Spec v0.12.1
-    pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from_slice(&self.tree_hash_root()[..])
+    pub fn canonical_root(&mut self) -> Result<Hash256, Error> {
+        self.update_tree_hash_cache()
     }
 
     pub fn historical_batch(&mut self) -> Result<HistoricalBatch<E>, Error> {
@@ -2015,9 +2017,13 @@ impl<E: EthSpec> BeaconState<E> {
     /// Compute the tree hash root of the state using the tree hash cache.
     ///
     /// Initialize the tree hash cache if it isn't already initialized.
-    pub fn update_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
+    pub fn update_tree_hash_cache<'a>(&'a mut self) -> Result<Hash256, Error> {
         self.apply_pending_mutations()?;
-        Ok(self.tree_hash_root())
+        map_beacon_state_ref!(&'a _, self.to_ref(), |inner, cons| {
+            let root = inner.tree_hash_root();
+            cons(inner);
+            Ok(root)
+        })
     }
 
     /// Compute the tree hash root of the validators using the tree hash cache.

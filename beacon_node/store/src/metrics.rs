@@ -55,14 +55,6 @@ lazy_static! {
         "store_beacon_state_hot_get_total",
         "Total number of hot beacon states requested from the store (cache or DB)"
     );
-    pub static ref BEACON_STATE_CACHE_HIT_COUNT: Result<IntCounter> = try_create_int_counter(
-        "store_beacon_state_cache_hit_total",
-        "Number of hits to the store's state cache"
-    );
-    pub static ref BEACON_STATE_CACHE_CLONE_TIME: Result<Histogram> = try_create_histogram(
-        "store_beacon_state_cache_clone_time",
-        "Time to load a beacon block from the block cache"
-    );
     pub static ref BEACON_STATE_READ_TIMES: Result<Histogram> = try_create_histogram(
         "store_beacon_state_read_seconds",
         "Total time required to read a BeaconState from the database"
@@ -106,6 +98,7 @@ lazy_static! {
         "store_beacon_blobs_cache_hit_total",
         "Number of hits to the store's blob cache"
     );
+    // FIXME(sproul): re-delete/re-add?
     pub static ref BEACON_BLOCK_READ_TIMES: Result<Histogram> = try_create_histogram(
         "store_beacon_block_read_overhead_seconds",
         "Overhead on reading a beacon block from the DB (e.g., decoding)"

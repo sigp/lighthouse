@@ -101,7 +101,7 @@ bincode = "1"
 bitvec = "1"
 byteorder = "1"
 bytes = "1"
-clap = { version = "4.5.4", features = ["cargo", "wrap_help"] }
+clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 # Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
 # feature ourselves when desired.
 c-kzg = { version = "1", default-features =  false }
@@ -126,6 +126,7 @@ fnv = "1"
 fs2 = "0.4"
 futures = "0.3"
 hex = "0.4"
+hashlink = "0.9.0"
 hyper = "1"
 itertools = "0.10"
 lazy_static = "1"
