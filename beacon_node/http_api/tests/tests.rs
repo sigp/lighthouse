@@ -5461,6 +5461,7 @@ impl ApiTester {
             EventTopic::Attestation,
             EventTopic::VoluntaryExit,
             EventTopic::Block,
+            EventTopic::BlockGossip,
             EventTopic::Head,
             EventTopic::FinalizedCheckpoint,
             EventTopic::AttesterSlashing,
@@ -5576,10 +5577,20 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let block_events = poll_events(&mut events_future, 3, Duration::from_millis(10000)).await;
+        let expected_gossip = EventKind::BlockGossip(Box::new(BlockGossip {
+            slot: next_slot,
+            block: block_root,
+        }));
+
+        let block_events = poll_events(&mut events_future, 4, Duration::from_millis(10000)).await;
         assert_eq!(
             block_events.as_slice(),
-            &[expected_block, expected_head, expected_finalized]
+            &[
+                expected_gossip,
+                expected_block,
+                expected_head,
+                expected_finalized
+            ]
         );
 
         // Test a reorg event

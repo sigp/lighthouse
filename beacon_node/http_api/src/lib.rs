@@ -4474,6 +4474,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::BlsToExecutionChange => {
                                     event_handler.subscribe_bls_to_execution_change()
                                 }
+                                api_types::EventTopic::BlockGossip => {
+                                    event_handler.subscribe_block_gossip()
+                                }
                             };
 
                             receivers.push(
