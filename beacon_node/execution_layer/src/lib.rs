@@ -1789,10 +1789,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE);
         self.engine()
             .request(|engine: &Engine| async move {
-                engine
-                    .api
-                    .get_payload_bodies_by_range(start, count)
-                    .await
+                engine.api.get_payload_bodies_by_range(start, count).await
             })
             .await
             .map_err(Box::new)

@@ -629,8 +629,8 @@ mod ssz_static {
 
     #[test]
     fn consolidation() {
-        SszStaticHandler::<Consolidation, MinimalEthSpec>::electra_and_later().run();
-        SszStaticHandler::<Consolidation, MainnetEthSpec>::electra_and_later().run();
+        SszStaticHandler::<ConsolidationRequest, MinimalEthSpec>::electra_and_later().run();
+        SszStaticHandler::<ConsolidationRequest, MainnetEthSpec>::electra_and_later().run();
     }
 
     #[test]
