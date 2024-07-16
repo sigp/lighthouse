@@ -1791,7 +1791,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .request(|engine: &Engine| async move {
                 engine
                     .api
-                    .get_payload_bodies_by_range_v1(start, count)
+                    .get_payload_bodies_by_range(start, count)
                     .await
             })
             .await
