@@ -4421,8 +4421,10 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "c-kzg",
+ "criterion",
  "derivative",
  "eip7594",
+ "eth2_network_config",
  "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
@@ -4430,6 +4432,7 @@ dependencies = [
  "hex",
  "mockall",
  "serde",
+ "serde_json",
  "tree_hash",
 ]
 
