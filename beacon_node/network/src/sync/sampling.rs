@@ -426,6 +426,8 @@ mod request {
     };
     use beacon_chain::BeaconChainTypes;
     use lighthouse_network::PeerId;
+    use rand::seq::SliceRandom;
+    use rand::thread_rng;
     use std::collections::HashSet;
     use types::{data_column_sidecar::ColumnIndex, EthSpec, Hash256, Slot};
 
@@ -433,7 +435,6 @@ mod request {
         column_index: ColumnIndex,
         status: Status,
         // TODO(das): Should downscore peers that claim to not have the sample?
-        #[allow(dead_code)]
         peers_dont_have: HashSet<PeerId>,
     }
 
@@ -490,9 +491,14 @@ mod request {
 
             // TODO: When is a fork and only a subset of your peers know about a block, sampling should only
             // be queried on the peers on that fork. Should this case be handled? How to handle it?
-            let epoch = block_slot.epoch(<T::EthSpec as EthSpec>::slots_per_epoch());
+            let mut peer_ids = cx.get_custodial_peers(
+                block_slot.epoch(<T::EthSpec as EthSpec>::slots_per_epoch()),
+                self.column_index,
+            );
 
-            if let Some(peer_id) = cx.get_random_custodial_peer(epoch, self.column_index) {
+            peer_ids.retain(|peer_id| !self.peers_dont_have.contains(peer_id));
+
+            if let Some(peer_id) = peer_ids.choose(&mut thread_rng()).cloned() {
                 cx.data_column_lookup_request(
                     DataColumnsByRootRequester::Sampling(SamplingId {
                         id: requester,
@@ -517,6 +523,7 @@ mod request {
         pub(crate) fn on_sampling_error(&mut self) -> Result<PeerId, SamplingError> {
             match self.status.clone() {
                 Status::Sampling(peer_id) => {
+                    self.peers_dont_have.insert(peer_id);
                     self.status = Status::NotStarted;
                     Ok(peer_id)
                 }
