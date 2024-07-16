@@ -564,15 +564,20 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             }};
         }
 
-        // First pass: try `func` on all synced and ready candidates.
-        //
-        // This ensures that we always choose a synced node if it is available.
+        // First pass: try `func` on all candidates. Candidate order has already been set in
+        // `update_all_candidates`. This ensures the most suitable node is always tried first.
         let candidates = self.candidates.read().await;
         for candidate in candidates.iter() {
             try_func!(candidate);
         }
 
-        // There were no candidates already ready and we were unable to make any of them ready.
+        // Second pass. No candidates returned successfully. Try again with the same order.
+        // This will duplicate errors.
+        for candidate in candidates.iter() {
+            try_func!(candidate);
+        }
+
+        // No candidates returned successfully.
         Err(Errors(errors))
     }
 
@@ -592,6 +597,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         R: Future<Output = Result<O, Err>>,
     {
         let mut results = vec![];
+        let mut to_retry = vec![];
 
         // Run `func` using a `candidate`, returning the value or capturing errors.
         //
@@ -610,18 +616,26 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                             $candidate.beacon_node.to_string(),
                             Error::RequestFailed(e),
                         )));
+                        to_retry.push($candidate);
                         inc_counter_vec(&ENDPOINT_ERRORS, &[$candidate.beacon_node.as_ref()]);
                     }
                 }
             }};
         }
 
-        // First pass: try `func` on all synced and ready candidates.
-        //
-        // This ensures that we always choose a synced node if it is available.
+        // First pass: try `func` on all candidates. Candidate order has already been set in
+        // `update_all_candidates`. This ensures the most suitable node is always tried first.
         let candidates = self.candidates.read().await;
         for candidate in candidates.iter() {
             try_func!(candidate);
+        }
+
+        if !to_retry.is_empty() {
+            // Second pass. Some candidates did not return successfully. Try them again.
+            // Errors will still be shown for a node if it required a retry.
+            for candidate in to_retry.clone().iter() {
+                try_func!(candidate);
+            }
         }
 
         let errors: Vec<_> = results.into_iter().filter_map(|res| res.err()).collect();
