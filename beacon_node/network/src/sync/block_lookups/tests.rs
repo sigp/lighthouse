@@ -651,6 +651,21 @@ impl TestRig {
         });
     }
 
+    fn sampling_requests_failed(
+        &mut self,
+        sampling_ids: DCByRootIds,
+        peer_id: PeerId,
+        error: RPCError,
+    ) {
+        for (request_id, _) in sampling_ids {
+            self.send_sync_message(SyncMessage::RpcError {
+                peer_id,
+                request_id,
+                error: error.clone(),
+            })
+        }
+    }
+
     fn complete_valid_block_request(
         &mut self,
         id: SingleLookupReqId,
@@ -1962,6 +1977,27 @@ fn sampling_with_retries() {
         r.expect_only_data_columns_by_root_requests(block_root, SAMPLING_REQUIRED_SUCCESSES);
     r.complete_valid_sampling_column_requests(sampling_ids, data_columns);
     r.expect_clean_finished_sampling();
+}
+
+#[test]
+fn sampling_avoid_retrying_same_peer() {
+    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+        return;
+    };
+    let peer_id_1 = r.new_connected_supernode_peer();
+    let peer_id_2 = r.new_connected_supernode_peer();
+    let block_root = Hash256::random();
+    r.trigger_sample_block(block_root, Slot::new(0));
+    // Retrieve all outgoing sample requests for random column indexes, and return empty responses
+    let sampling_ids =
+        r.expect_only_data_columns_by_root_requests(block_root, SAMPLING_REQUIRED_SUCCESSES);
+    r.sampling_requests_failed(sampling_ids, peer_id_1, RPCError::Disconnected);
+    // Should retry the other peer
+    let sampling_ids =
+        r.expect_only_data_columns_by_root_requests(block_root, SAMPLING_REQUIRED_SUCCESSES);
+    r.sampling_requests_failed(sampling_ids, peer_id_2, RPCError::Disconnected);
+    // Expect no more retries
+    r.expect_empty_network();
 }
 
 #[test]
