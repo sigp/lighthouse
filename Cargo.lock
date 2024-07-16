@@ -1558,7 +1558,7 @@ dependencies = [
 [[package]]
 name = "crate_crypto_internal_peerdas_bls12_381"
 version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=cbe41bf98379f038af3766032279d2185e7a1c5a#cbe41bf98379f038af3766032279d2185e7a1c5a"
+source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=55ae9e9011d792a2998d242c2a71d822ba909fa9#55ae9e9011d792a2998d242c2a71d822ba909fa9"
 dependencies = [
  "blst",
  "blstrs",
@@ -1571,7 +1571,7 @@ dependencies = [
 [[package]]
 name = "crate_crypto_internal_peerdas_erasure_codes"
 version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=cbe41bf98379f038af3766032279d2185e7a1c5a#cbe41bf98379f038af3766032279d2185e7a1c5a"
+source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=55ae9e9011d792a2998d242c2a71d822ba909fa9#55ae9e9011d792a2998d242c2a71d822ba909fa9"
 dependencies = [
  "crate_crypto_internal_peerdas_bls12_381",
  "crate_crypto_internal_peerdas_polynomial",
@@ -1580,7 +1580,7 @@ dependencies = [
 [[package]]
 name = "crate_crypto_internal_peerdas_polynomial"
 version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=cbe41bf98379f038af3766032279d2185e7a1c5a#cbe41bf98379f038af3766032279d2185e7a1c5a"
+source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=55ae9e9011d792a2998d242c2a71d822ba909fa9#55ae9e9011d792a2998d242c2a71d822ba909fa9"
 dependencies = [
  "crate_crypto_internal_peerdas_bls12_381",
 ]
@@ -1588,7 +1588,7 @@ dependencies = [
 [[package]]
 name = "crate_crypto_kzg_multi_open_fk20"
 version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=cbe41bf98379f038af3766032279d2185e7a1c5a#cbe41bf98379f038af3766032279d2185e7a1c5a"
+source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=55ae9e9011d792a2998d242c2a71d822ba909fa9#55ae9e9011d792a2998d242c2a71d822ba909fa9"
 dependencies = [
  "crate_crypto_internal_peerdas_bls12_381",
  "crate_crypto_internal_peerdas_polynomial",
@@ -2277,7 +2277,7 @@ dependencies = [
 [[package]]
 name = "eip7594"
 version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=cbe41bf98379f038af3766032279d2185e7a1c5a#cbe41bf98379f038af3766032279d2185e7a1c5a"
+source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=55ae9e9011d792a2998d242c2a71d822ba909fa9#55ae9e9011d792a2998d242c2a71d822ba909fa9"
 dependencies = [
  "crate_crypto_internal_peerdas_bls12_381",
  "crate_crypto_internal_peerdas_erasure_codes",
