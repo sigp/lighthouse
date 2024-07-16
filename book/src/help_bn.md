@@ -241,7 +241,7 @@ Options:
           [possible values: DEFAULT, JSON]
       --logfile-max-number <COUNT>
           The maximum number of log files that will be stored. If set to 0,
-          background file logging is disabled. [default: 5]
+          background file logging is disabled. [default: 10]
       --logfile-max-size <SIZE>
           The maximum size (in MB) each log file can grow to before rotating. If
           set to 0, background file logging is disabled. [default: 200]
@@ -505,6 +505,8 @@ Flags:
       --disable-quic
           Disables the quic transport. The node will rely solely on the TCP
           transport for libp2p connections.
+      --disable-self-limiter
+          Disables the outbound rate limiter (requests sent by this node).
       --disable-upnp
           Disables UPnP support. Setting this will prevent Lighthouse from
           attempting to automatically establish external port mappings.
@@ -575,12 +577,6 @@ Flags:
           When present, Lighthouse will forget the payload statuses of any
           already-imported blocks. This can assist in the recovery from a
           consensus failure caused by the execution layer.
-      --self-limiter
-          Enables the outbound rate limiter (requests made by this node). Use
-          the self-limiter-protocol flag to set per protocol configurations. If
-          the self rate limiter is enabled and a protocol is not present in the
-          configuration, the quotas used for the inbound rate limiter will be
-          used.
       --shutdown-after-sync
           Shutdown beacon node as soon as sync is completed. Backfill sync will
           not be performed before shutdown.

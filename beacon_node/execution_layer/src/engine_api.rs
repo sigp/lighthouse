@@ -65,7 +65,6 @@ pub enum Error {
     ExecutionHeadBlockNotFound,
     ParentHashEqualsBlockHash(ExecutionBlockHash),
     PayloadIdUnavailable,
-    TransitionConfigurationMismatch,
     SszError(ssz_types::Error),
     DeserializeWithdrawals(ssz_types::Error),
     DeserializeDepositRequests(ssz_types::Error),

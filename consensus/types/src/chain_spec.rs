@@ -191,6 +191,11 @@ pub struct ChainSpec {
     pub max_per_epoch_activation_exit_churn_limit: u64,
 
     /*
+     * DAS params
+     */
+    pub number_of_columns: usize,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -393,7 +398,7 @@ impl ChainSpec {
         state: &BeaconState<E>,
     ) -> u64 {
         let fork_name = state.fork_name_unchecked();
-        if fork_name >= ForkName::Electra {
+        if fork_name.electra_enabled() {
             self.whistleblower_reward_quotient_electra
         } else {
             self.whistleblower_reward_quotient
@@ -401,7 +406,7 @@ impl ChainSpec {
     }
 
     pub fn max_effective_balance_for_fork(&self, fork_name: ForkName) -> u64 {
-        if fork_name >= ForkName::Electra {
+        if fork_name.electra_enabled() {
             self.max_effective_balance_electra
         } else {
             self.max_effective_balance
@@ -772,6 +777,8 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
 
+            number_of_columns: 128,
+
             /*
              * Network specific
              */
@@ -1081,6 +1088,8 @@ impl ChainSpec {
                 u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
+
+            number_of_columns: 128,
 
             /*
              * Network specific
