@@ -108,7 +108,7 @@ clap = { version = "4.5.4", features = ["cargo", "wrap_help"] }
 c-kzg = { version = "1", default-features =  false }
 compare_fields_derive = { path = "common/compare_fields_derive" }
 criterion = "0.5"
-delay_map = "0.3"
+delay_map = "0.4"
 derivative = "2"
 dirs = "3"
 either = "1.9"
@@ -154,7 +154,7 @@ serde_json = "1"
 serde_repr = "0.1"
 serde_yaml = "0.9"
 sha2 = "0.9"
-slog = { version = "2", features = ["max_level_trace", "release_max_level_trace", "nested-values"] }
+slog = { version = "2", features = ["max_level_debug", "release_max_level_debug", "nested-values"] }
 slog-async = "2"
 slog-term = "2"
 sloggers = { version = "2", features = ["json"] }

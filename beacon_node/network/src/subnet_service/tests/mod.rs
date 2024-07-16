@@ -4,7 +4,6 @@ use beacon_chain::{
     eth1_chain::CachingEth1Backend,
     BeaconChain,
 };
-use futures::prelude::*;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lazy_static::lazy_static;
 use lighthouse_network::NetworkConfig;
@@ -114,29 +113,18 @@ lazy_static! {
     static ref CHAIN: TestBeaconChain = TestBeaconChain::new_with_system_clock();
 }
 
-fn get_attestation_service(
-    log_level: Option<slog::Level>,
-) -> AttestationService<TestBeaconChainType> {
+fn get_attestation_service(log_level: Option<slog::Level>) -> SubnetService<TestBeaconChainType> {
     let log = get_logger(log_level);
     let config = NetworkConfig::default();
 
     let beacon_chain = CHAIN.chain.clone();
 
-    AttestationService::new(
+    SubnetService::new(
         beacon_chain,
         lighthouse_network::discv5::enr::NodeId::random(),
         &config,
         &log,
     )
-}
-
-fn get_sync_committee_service() -> SyncCommitteeService<TestBeaconChainType> {
-    let log = get_logger(None);
-    let config = NetworkConfig::default();
-
-    let beacon_chain = CHAIN.chain.clone();
-
-    SyncCommitteeService::new(beacon_chain, &config, &log)
 }
 
 // gets a number of events from the subscription service, or returns none if it times out after a number
