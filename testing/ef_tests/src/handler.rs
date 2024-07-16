@@ -262,7 +262,7 @@ pub struct SszStaticWithSpecHandler<T, E>(PhantomData<(T, E)>);
 
 impl<T, E> Handler for SszStaticHandler<T, E>
 where
-    T: cases::SszStaticType + ssz::Decode + TypeName,
+    T: cases::SszStaticType + tree_hash::TreeHash + ssz::Decode + TypeName,
     E: TypeName,
 {
     type Case = cases::SszStatic<T>;
