@@ -10,8 +10,7 @@ pub use crate::{
     trusted_setup::TrustedSetup,
 };
 pub use c_kzg::{
-    Blob, Bytes32, Bytes48, KzgSettings, BYTES_PER_BLOB, BYTES_PER_COMMITMENT,
-    BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF, FIELD_ELEMENTS_PER_BLOB,
+    Blob, Bytes32, Bytes48, KzgSettings, BYTES_PER_BLOB, BYTES_PER_COMMITMENT, BYTES_PER_PROOF,
 };
 use mockall::automock;
 
@@ -47,7 +46,13 @@ impl From<c_kzg::Error> for Error {
 pub struct Kzg {
     trusted_setup: KzgSettings,
     context: PeerDASContext,
+    use_ckzg: bool,
 }
+
+// TODO: This is no longer available in c-kzg
+// TODO: it is being used for computing random_blobs.
+// TODO: so it is only needed for tests.
+pub const BYTES_PER_FIELD_ELEMENT: usize = 32;
 
 #[automock]
 impl Kzg {
@@ -67,14 +72,24 @@ impl Kzg {
 
         Ok(Self {
             trusted_setup: KzgSettings::load_trusted_setup(
-                &trusted_setup.g1_points(),
-                &trusted_setup.g2_points(),
+                &trusted_setup.g1_monomial_points(),
+                &trusted_setup.g1_lagrange_points(),
+                &trusted_setup.g2_monomial_points(),
                 // Enable precomputed table for 8 bits, with 96MB of memory overhead per process
                 // Ref: https://notes.ethereum.org/@jtraglia/windowed_multiplications
                 8,
             )?,
             context,
+            use_ckzg: true,
         })
+    }
+
+    // TODO: Quick way to allow the library to be configurable
+    pub fn use_ckzg(&mut self) {
+        self.use_ckzg = true;
+    }
+    pub fn use_peerdas_kzg(&mut self) {
+        self.use_ckzg = false;
     }
 
     /// Compute the kzg proof given a blob and its kzg commitment.
@@ -177,20 +192,30 @@ impl Kzg {
 
     /// Computes the cells and associated proofs for a given `blob` at index `index`.
     pub fn compute_cells_and_proofs(&self, blob: &Blob) -> Result<CellsAndKzgProofs, Error> {
-        let blob_bytes: &[u8; BYTES_PER_BLOB] = blob
-            .as_ref()
-            .try_into()
-            .expect("Expected blob to have size {BYTES_PER_BLOB}");
+        if self.use_ckzg {
+            let (cells, proofs) =
+                c_kzg::Cell::compute_cells_and_kzg_proofs(blob, &self.trusted_setup)?;
 
-        let (cells, proofs) = self
-            .context
-            .prover_ctx()
-            .compute_cells_and_kzg_proofs(blob_bytes)
-            .map_err(Error::ProverKZG)?;
+            let cells = cells.map(|c| Box::new(c.to_bytes()));
+            let proofs = proofs.map(|p| KzgProof::from(p.to_bytes().into_inner()));
 
-        // Convert the proof type to a c-kzg proof type
-        let c_kzg_proof = proofs.map(KzgProof);
-        Ok((cells, c_kzg_proof))
+            Ok((cells, proofs))
+        } else {
+            let blob_bytes: &[u8; BYTES_PER_BLOB] = blob
+                .as_ref()
+                .try_into()
+                .expect("Expected blob to have size {BYTES_PER_BLOB}");
+
+            let (cells, proofs) = self
+                .context
+                .prover_ctx()
+                .compute_cells_and_kzg_proofs(blob_bytes)
+                .map_err(Error::ProverKZG)?;
+
+            let c_kzg_proof = proofs.map(KzgProof);
+
+            Ok((cells, c_kzg_proof))
+        }
     }
 
     /// Verifies a batch of cell-proof-commitment triplets.
