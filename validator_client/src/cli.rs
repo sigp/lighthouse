@@ -170,18 +170,10 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("produce-block-v3")
                 .long("produce-block-v3")
-<<<<<<< HEAD
                 .help("This flag is deprecated and is no longer in use.")
-                .takes_value(false)
-=======
-                .help("Enable block production via the block v3 endpoint for this validator client. \
-                       This should only be enabled when paired with a beacon node \
-                       that has this endpoint implemented. This flag will be enabled by default in \
-                       future.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
->>>>>>> 8a32df756ddaa8831182c016311f25a3c26cf36f
         )
         .arg(
             Arg::new("distributed")
