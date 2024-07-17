@@ -1,4 +1,4 @@
-use bls::{Hash256, Hash256Extended, INFINITY_SIGNATURE, SECRET_KEY_BYTES_LEN};
+use bls::{Hash256, FixedBytesExtended, INFINITY_SIGNATURE, SECRET_KEY_BYTES_LEN};
 use ssz::{Decode, Encode};
 use std::borrow::Cow;
 use std::fmt::Debug;

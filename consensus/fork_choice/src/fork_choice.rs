@@ -15,7 +15,7 @@ use std::time::Duration;
 use types::{
     consts::bellatrix::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
     AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
-    Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, Hash256Extended,
+    Epoch, EthSpec, ExecPayload, ExecutionBlockHash, Hash256, FixedBytesExtended,
     IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 

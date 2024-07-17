@@ -15,7 +15,7 @@ use store::{Error, ItemStore, StoreItem, StoreOp};
 pub use store::{HotColdDB, MemoryStore};
 use types::{
     BeaconState, BeaconStateError, BeaconStateHash, Checkpoint, Epoch, EthSpec, Hash256,
-    Hash256Extended, SignedBeaconBlockHash, Slot,
+    FixedBytesExtended, SignedBeaconBlockHash, Slot,
 };
 
 /// Compact at least this frequently, finalization permitting (7 days).

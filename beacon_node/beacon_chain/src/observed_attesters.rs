@@ -619,7 +619,7 @@ impl SlotSubcommitteeIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::Hash256Extended;
+    use types::FixedBytesExtended;
 
     type E = types::MainnetEthSpec;
 

@@ -130,7 +130,7 @@ impl Display for NotSafe {
 
 #[cfg(test)]
 mod test {
-    use types::Hash256Extended;
+    use types::FixedBytesExtended;
 
     use super::*;
 

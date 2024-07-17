@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 use super::*;
-use crate::cases::common::SszStaticType;
+use crate::cases::common::{DecimalU128, DecimalU256, SszStaticType};
 use crate::cases::ssz_static::{check_serialization, check_tree_hash};
 use crate::decode::{log_file_access, snappy_decode_file, yaml_decode_file};
 use serde::{de::Error as SerdeError, Deserialize, Deserializer};
@@ -56,8 +56,8 @@ macro_rules! type_dispatch {
             "uint16" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* u16>, $($rest)*),
             "uint32" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* u32>, $($rest)*),
             "uint64" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* u64>, $($rest)*),
-            // "uint128" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* TestU128>, $($rest)*),
-            // "uint256" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* TestU256>, $($rest)*),
+            "uint128" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* DecimalU128>, $($rest)*),
+            "uint256" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* DecimalU256>, $($rest)*),
             _ => Err(Error::FailedToParseTest(format!("unsupported: {}", $value))),
         }
     };

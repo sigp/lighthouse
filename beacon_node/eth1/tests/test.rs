@@ -12,7 +12,7 @@ use std::ops::Range;
 use std::time::Duration;
 use tree_hash::TreeHash;
 use types::{
-    DepositData, EthSpec, Hash256, Hash256Extended, Keypair, MainnetEthSpec, MinimalEthSpec,
+    DepositData, EthSpec, Hash256, FixedBytesExtended, Keypair, MainnetEthSpec, MinimalEthSpec,
     Signature,
 };
 

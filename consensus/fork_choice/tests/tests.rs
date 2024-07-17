@@ -16,7 +16,7 @@ use std::time::Duration;
 use store::MemoryStore;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlockRef, BeaconState, ChainSpec, Checkpoint,
-    Epoch, EthSpec, ForkName, Hash256, IndexedAttestation, MainnetEthSpec, RelativeEpoch,
+    Epoch, EthSpec, ForkName, Hash256, FixedBytesExtended, IndexedAttestation, MainnetEthSpec, RelativeEpoch,
     SignedBeaconBlock, Slot, SubnetId,
 };
 

@@ -1,7 +1,7 @@
 use crate::OpPoolError;
 use bitvec::vec::BitVec;
 use types::{
-    BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, Hash256Extended, ParticipationFlags,
+    BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, FixedBytesExtended, ParticipationFlags,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone)]

@@ -582,7 +582,7 @@ mod tests {
     use tree_hash::TreeHash;
     use types::{
         test_utils::{generate_deterministic_keypair, test_random_instance},
-        Attestation, AttestationBase, AttestationElectra, Fork, Hash256, Hash256Extended,
+        Attestation, AttestationBase, AttestationElectra, Fork, Hash256, FixedBytesExtended,
         SyncCommitteeMessage,
     };
 

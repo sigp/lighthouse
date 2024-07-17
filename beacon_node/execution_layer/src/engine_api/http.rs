@@ -1330,7 +1330,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{Hash256Extended, MainnetEthSpec, Unsigned};
+    use types::{FixedBytesExtended, MainnetEthSpec, Unsigned};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,

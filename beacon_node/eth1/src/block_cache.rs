@@ -195,7 +195,7 @@ impl BlockCache {
 
 #[cfg(test)]
 mod tests {
-    use types::Hash256Extended;
+    use types::FixedBytesExtended;
 
     use super::*;
 

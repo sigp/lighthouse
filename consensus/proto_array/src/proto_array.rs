@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use superstruct::superstruct;
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    Hash256Extended, Slot,
+    FixedBytesExtended, Slot,
 };
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union

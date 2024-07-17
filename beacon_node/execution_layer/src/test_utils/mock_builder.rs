@@ -20,7 +20,7 @@ use types::builder_bid::{
 };
 use types::{
     Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, ForkName, ForkVersionedResponse, Hash256, Hash256Extended,
+    ExecutionPayloadHeaderRefMut, ForkName, ForkVersionedResponse, Hash256, FixedBytesExtended,
     PublicKeyBytes, Signature, SignedBlindedBeaconBlock, SignedRoot,
     SignedValidatorRegistrationData, Slot, Uint256,
 };

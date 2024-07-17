@@ -1,6 +1,7 @@
 use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use alloy_primitives::bytes::Buf;
 use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use slot_clock::SlotClock;
@@ -1394,9 +1395,7 @@ fn set_gauge_by_epoch(gauge: &Result<IntGauge>, value: Epoch) {
 }
 
 fn set_gauge_by_hash(gauge: &Result<IntGauge>, value: Hash256) {
-    // TODO(alloy) implement this
-    // set_gauge(gauge, value.to_low_u64_le() as i64);
-    todo!()
+    set_gauge(gauge,  value.as_slice().get_i64());
 }
 
 fn set_gauge_by_usize(gauge: &Result<IntGauge>, value: usize) {

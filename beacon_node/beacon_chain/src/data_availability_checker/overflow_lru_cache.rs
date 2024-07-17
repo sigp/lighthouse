@@ -847,7 +847,7 @@ mod pending_components_tests {
     use rand::SeedableRng;
     use state_processing::ConsensusContext;
     use types::test_utils::TestRandom;
-    use types::{BeaconState, ForkName, Hash256Extended, MainnetEthSpec, SignedBeaconBlock, Slot};
+    use types::{BeaconState, ForkName, FixedBytesExtended, MainnetEthSpec, SignedBeaconBlock, Slot};
 
     type E = MainnetEthSpec;
 

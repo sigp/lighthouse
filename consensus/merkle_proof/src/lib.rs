@@ -4,13 +4,13 @@ use safe_arith::ArithError;
 
 type H256 = alloy_primitives::B256;
 
-pub trait Hash256Extended {
+pub trait FixedBytesExtended {
     fn from_low_u64_be(value: u64) -> alloy_primitives::B256;
     fn from_low_u64_le(value: u64) -> alloy_primitives::B256;
     fn zero() -> alloy_primitives::B256;
 }
 
-impl Hash256Extended for alloy_primitives::B256 {
+impl FixedBytesExtended for alloy_primitives::B256 {
     fn from_low_u64_be(value: u64) -> alloy_primitives::B256 {
         alloy_primitives::B256::from_slice(&value.to_be_bytes())
     }

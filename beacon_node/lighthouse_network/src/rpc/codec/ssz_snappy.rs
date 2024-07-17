@@ -747,7 +747,7 @@ mod tests {
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
     use types::{
         blob_sidecar::BlobIdentifier, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
-        BeaconBlockBellatrix, EmptyBlock, Epoch, FullPayload, Hash256Extended, Signature, Slot,
+        BeaconBlockBellatrix, EmptyBlock, Epoch, FullPayload, FixedBytesExtended, Signature, Slot,
     };
 
     type Spec = types::MainnetEthSpec;

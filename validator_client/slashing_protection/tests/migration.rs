@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
-use types::{Hash256, Hash256Extended};
+use types::{Hash256, FixedBytesExtended};
 
 fn test_data_dir() -> PathBuf {
     Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("migration-tests")

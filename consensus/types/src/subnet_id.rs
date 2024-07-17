@@ -1,7 +1,6 @@
 //! Identifies each shard by an integer identifier.
 use crate::{AttestationRef, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
-
-use alloy_primitives::U256;
+use alloy_primitives::{bytes::Buf, U256};
 use lazy_static::lazy_static;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
@@ -91,19 +90,8 @@ impl SubnetId {
         let shuffling_prefix_bits = spec.attestation_subnet_shuffling_prefix_bits as u64;
 
         // calculate the prefixes used to compute the subnet and shuffling
-        // TODO(alloy) improve error messaging
-        let node_id_prefix = u64::from_le_bytes(
-            (node_id >> 256 - prefix_bits)
-                .as_le_slice()
-                .try_into()
-                .map_err(|_| "error")?,
-        );
-        let shuffling_prefix = u64::from_le_bytes(
-            (node_id >> (256 - (prefix_bits + shuffling_prefix_bits)))
-                .as_le_slice()
-                .try_into()
-                .map_err(|_| "error")?,
-        );
+        let node_id_prefix = node_id.as_le_slice().get_u64() >> (256 - prefix_bits);
+        let shuffling_prefix = node_id.as_le_slice().get_u64() >> (256 - prefix_bits + shuffling_prefix_bits);
 
         // number of groups the shuffling creates
         let shuffling_groups = 1 << shuffling_prefix_bits;
@@ -203,7 +191,7 @@ mod tests {
             "60930578857433095740782970114409273483106482059893286066493409689627770333527",
             "103822458477361691467064888613019442068586830412598673713899771287914656699997",
         ]
-        .map(|v| v.parse::<alloy_primitives::B256>().unwrap());
+        .map(|v| v.parse::<alloy_primitives::U256>().unwrap());
 
         let epochs = [
             54321u64, 1017090249, 1827566880, 846255942, 766597383, 1204990115, 1616209495,

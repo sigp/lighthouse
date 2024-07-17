@@ -6,7 +6,7 @@ use beacon_chain::{
 use eth2::StatusCode;
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use http_api::test_utils::InteractiveTester;
-use types::{EthSpec, ExecPayload, ForkName, MinimalEthSpec, Slot};
+use types::{EthSpec, ExecPayload, ForkName, MinimalEthSpec, Slot, Uint256};
 
 type E = MinimalEthSpec;
 
@@ -14,7 +14,7 @@ type E = MinimalEthSpec;
 async fn post_merge_tester(chain_depth: u64, validator_count: u64) -> InteractiveTester<E> {
     // Test using latest fork so that we simulate conditions as similar to mainnet as possible.
     let mut spec = ForkName::latest().make_genesis_spec(E::default_spec());
-    spec.terminal_total_difficulty = 1.into();
+    spec.terminal_total_difficulty = Uint256::from(1);
 
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count as usize).await;
     let harness = &tester.harness;

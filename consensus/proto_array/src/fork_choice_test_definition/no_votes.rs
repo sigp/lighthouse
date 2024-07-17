@@ -1,4 +1,4 @@
-use types::Hash256Extended;
+use types::FixedBytesExtended;
 
 use super::*;
 

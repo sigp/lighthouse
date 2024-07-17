@@ -13,7 +13,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
-use types::{Epoch, EthSpec, ForkName, Hash256, Hash256Extended, Slot};
+use types::{Epoch, EthSpec, ForkName, Hash256, FixedBytesExtended, Slot};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */

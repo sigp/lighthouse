@@ -2,7 +2,7 @@
 use crate::per_epoch_processing::process_epoch;
 use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_chain::types::{EthSpec, MinimalEthSpec};
-use bls::{Hash256, Hash256Extended};
+use bls::{Hash256, FixedBytesExtended};
 use env_logger::{Builder, Env};
 use types::Slot;
 

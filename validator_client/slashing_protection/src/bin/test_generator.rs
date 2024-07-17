@@ -7,7 +7,7 @@ use slashing_protection::SUPPORTED_INTERCHANGE_FORMAT_VERSION;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
-use types::{Epoch, Hash256, Hash256Extended, Slot};
+use types::{Epoch, Hash256, FixedBytesExtended, Slot};
 
 fn metadata(genesis_validators_root: Hash256) -> InterchangeMetadata {
     InterchangeMetadata {

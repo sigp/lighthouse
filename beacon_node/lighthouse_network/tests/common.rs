@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::sync::Weak;
 use tokio::runtime::Runtime;
 use types::{
-    ChainSpec, EnrForkId, Epoch, EthSpec, ForkContext, ForkName, Hash256, Hash256Extended,
+    ChainSpec, EnrForkId, Epoch, EthSpec, ForkContext, ForkName, Hash256, FixedBytesExtended,
     MinimalEthSpec, Slot,
 };
 

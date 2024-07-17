@@ -4,7 +4,7 @@ use types::{
     indexed_attestation::{IndexedAttestationBase, IndexedAttestationElectra},
     AggregateSignature, AttestationData, AttesterSlashing, AttesterSlashingBase,
     AttesterSlashingElectra, BeaconBlockHeader, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256,
-    Hash256Extended, IndexedAttestation, MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
+    FixedBytesExtended, IndexedAttestation, MainnetEthSpec, Signature, SignedBeaconBlockHeader, Slot,
 };
 
 pub type E = MainnetEthSpec;

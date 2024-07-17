@@ -18,7 +18,7 @@ use tokio::time::sleep;
 use types::payload::BlockProductionVersion;
 use types::{
     Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
-    ForkName, Hash256, Hash256Extended, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
+    ForkName, Hash256, FixedBytesExtended, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
 };
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(60);
 

@@ -832,6 +832,7 @@ checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 name = "beacon_chain"
 version = "0.2.0"
 dependencies = [
+ "alloy-primitives 0.7.7",
  "bitvec 1.0.1",
  "bls",
  "derivative",

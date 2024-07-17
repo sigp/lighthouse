@@ -23,7 +23,7 @@ use tree_hash_derive::TreeHash;
 use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra,
-    ExecutionPayloadHeader, ForkName, Hash256, Hash256Extended, Transaction, Transactions, Uint256,
+    ExecutionPayloadHeader, ForkName, Hash256, FixedBytesExtended, Transaction, Transactions, Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;

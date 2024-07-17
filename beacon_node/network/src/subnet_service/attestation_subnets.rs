@@ -16,7 +16,7 @@ use futures::prelude::*;
 use lighthouse_network::{discv5::enr::NodeId, NetworkConfig, Subnet, SubnetDiscovery};
 use slog::{debug, error, info, o, trace, warn};
 use slot_clock::SlotClock;
-use types::{Attestation, EthSpec, Slot, SubnetId, ValidatorSubscription};
+use types::{Attestation, EthSpec, Slot, SubnetId, Uint256, ValidatorSubscription};
 
 use crate::metrics;
 
@@ -315,7 +315,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         })?;
 
         let (subnets, next_subscription_epoch) = SubnetId::compute_subnets_for_epoch::<T::EthSpec>(
-            self.node_id.raw().into(),
+            Uint256::from_le_slice(self.node_id.raw().as_slice()),
             current_epoch,
             &self.beacon_chain.spec,
         )

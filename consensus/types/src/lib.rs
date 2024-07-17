@@ -272,22 +272,48 @@ pub use milhouse::{self, List, Vector};
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
 pub use superstruct::superstruct;
 
-pub trait Hash256Extended {
-    fn from_low_u64_be(value: u64) -> alloy_primitives::B256;
-    fn from_low_u64_le(value: u64) -> alloy_primitives::B256;
-    fn zero() -> alloy_primitives::B256;
+pub trait FixedBytesExtended {
+    /// The given u64 value is interpreted as big endian.
+    /// Ignores the most significant bits of the given value if the hash type has less than 8 bytes.
+    fn from_low_u64_be(value: u64) -> Self;
+    fn from_low_u64_le(value: u64) -> Self;
+    fn zero() -> Self;
 }
 
-impl Hash256Extended for alloy_primitives::B256 {
-    fn from_low_u64_be(value: u64) -> alloy_primitives::B256 {
-        alloy_primitives::B256::from_slice(&value.to_be_bytes())
+impl FixedBytesExtended for alloy_primitives::B256 {
+
+    fn from_low_u64_be(value: u64) -> Self {
+        // Convert the u64 value to a big-endian byte array
+        let value_bytes = value.to_be_bytes();
+        let mut large_array: [u8; 32] = [0; 32];
+        // Determine the length of bytes to copy (ignoring the most significant bits if necessary)
+        let bytes_to_copy = value_bytes.len().min(large_array.len());
+        // Copy the bytes to the target array
+        large_array[..bytes_to_copy].copy_from_slice(&value_bytes[..bytes_to_copy]);
+        println!("{:?}" large_array);
+        alloy_primitives::B256::new(large_array)
     }
 
-    fn from_low_u64_le(value: u64) -> alloy_primitives::B256 {
+    fn from_low_u64_le(value: u64) -> Self {
         alloy_primitives::B256::from_slice(&value.to_le_bytes())
     }
 
-    fn zero() -> alloy_primitives::B256 {
+    fn zero() -> Self {
         alloy_primitives::B256::ZERO
+    }
+}
+
+impl FixedBytesExtended for alloy_primitives::Address {
+    fn from_low_u64_be(value: u64) -> Self {
+        alloy_primitives::Address::from_slice(&value.to_le_bytes())
+    }
+
+    fn from_low_u64_le(value: u64) -> Self {
+        alloy_primitives::Address::from_slice(&value.to_be_bytes())
+
+    }
+
+    fn zero() -> Self {
+        alloy_primitives::Address::ZERO
     }
 }

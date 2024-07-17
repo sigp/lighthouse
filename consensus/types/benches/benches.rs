@@ -5,7 +5,7 @@ use ssz::Encode;
 use std::sync::Arc;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconState, Epoch, Eth1Data, EthSpec, Hash256,
-    Hash256Extended, MainnetEthSpec, Validator,
+    FixedBytesExtended, MainnetEthSpec, Validator,
 };
 
 fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {

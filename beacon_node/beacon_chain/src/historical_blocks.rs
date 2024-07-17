@@ -10,7 +10,7 @@ use std::borrow::Cow;
 use std::iter;
 use std::time::Duration;
 use store::{chunked_vector::BlockRoots, AnchorInfo, BlobInfo, ChunkWriter, KeyValueStore};
-use types::{Hash256, Hash256Extended, Slot};
+use types::{Hash256, FixedBytesExtended, Slot};
 
 /// Use a longer timeout on the pubkey cache.
 ///

@@ -9,6 +9,7 @@ use arc_swap::ArcSwapOption;
 use auth::{strip_prefix, Auth, JwtKey};
 pub use block_hash::calculate_execution_block_hash;
 use builder_client::BuilderHttpClient;
+use bytes::Buf;
 pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
 pub use engine_api::*;
@@ -2190,14 +2191,11 @@ fn verify_builder_bid<E: EthSpec>(
 
     // Avoid logging values that we can't represent with our Prometheus library.
     let payload_value_gwei = bid.data.message.value() / Uint256::from(1_000_000_000);
-    if payload_value_gwei <= Uint256::from(i64::MAX) {
-        metrics::set_gauge_vec(
-            &metrics::EXECUTION_LAYER_PAYLOAD_BIDS,
-            &[metrics::BUILDER],
-            // TODO(alloy) display as a u64
-            0, // payload_value_gwei.to_base_le(10) as i64,
-        );
-    }
+    metrics::set_gauge_vec(
+        &metrics::EXECUTION_LAYER_PAYLOAD_BIDS,
+        &[metrics::BUILDER],
+        payload_value_gwei.as_le_slice().get_i64(),
+    );
 
     let expected_withdrawals_root = payload_attributes
         .withdrawals()

@@ -3,7 +3,7 @@ use crate::common::base::SqrtTotalActiveBalance;
 use crate::common::{altair, base};
 use safe_arith::SafeArith;
 use types::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
-use types::{ActivationQueue, BeaconState, ChainSpec, EthSpec, ForkName, Hash256, Hash256Extended};
+use types::{ActivationQueue, BeaconState, ChainSpec, EthSpec, ForkName, Hash256, FixedBytesExtended};
 
 /// Precursor to an `EpochCache`.
 pub struct PreEpochCache {

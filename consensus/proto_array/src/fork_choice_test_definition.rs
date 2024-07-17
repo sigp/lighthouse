@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use types::{
     AttestationShufflingId, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    Hash256Extended, MainnetEthSpec, Slot,
+    FixedBytesExtended, MainnetEthSpec, Slot,
 };
 
 pub use execution_status::*;
