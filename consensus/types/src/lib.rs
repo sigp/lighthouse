@@ -109,6 +109,7 @@ pub mod light_client_header;
 pub mod non_zero_usize;
 pub mod runtime_var_list;
 
+use alloy_primitives::bytes::{BufMut, BytesMut};
 use alloy_primitives::{Address as H160, B256 as H256};
 
 pub use crate::activation_queue::ActivationQueue;
@@ -288,13 +289,27 @@ impl FixedBytesExtended for alloy_primitives::B256 {
         let mut large_array: [u8; 32] = [0; 32];
         // Determine the length of bytes to copy (ignoring the most significant bits if necessary)
         let bytes_to_copy = value_bytes.len().min(large_array.len());
+        let start_index = large_array.len() - bytes_to_copy;
         // Copy the bytes to the target array
-        large_array[..bytes_to_copy].copy_from_slice(&value_bytes[..bytes_to_copy]);
-        println!("{:?}" large_array);
-        alloy_primitives::B256::new(large_array)
+        large_array[start_index..].copy_from_slice(&value_bytes[..bytes_to_copy]);
+        println!("{:?}", large_array);
+        let x = alloy_primitives::B256::new(large_array);
+        let y = ethereum_types::H256::from_low_u64_be(value);
+        println!("x: {:?}", x);
+        println!("y: {:?}", y);
+
+        let mut bytes = BytesMut::with_capacity(32);
+        bytes.put_u64(value);
+        bytes.resize(32, 0);
+        bytes.to_vec();
+        let z = alloy_primitives::B256::from_slice(&bytes);
+
+        println!("z: {:?}", z);
+        x
     }
 
     fn from_low_u64_le(value: u64) -> Self {
+        println!("check?");
         alloy_primitives::B256::from_slice(&value.to_le_bytes())
     }
 

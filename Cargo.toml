@@ -182,6 +182,7 @@ uuid = { version = "0.8", features = ["serde", "v4"] }
 warp = { version = "0.3.7", default-features = false, features = ["tls"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 zip = "0.6"
+ethereum-types = "0.14"
 
 # Local crates.
 account_utils = { path = "common/account_utils" }

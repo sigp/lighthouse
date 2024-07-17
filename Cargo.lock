@@ -8923,6 +8923,7 @@ dependencies = [
  "criterion",
  "derivative",
  "eth2_interop_keypairs",
+ "ethereum-types 0.14.1",
  "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz 0.5.4 (git+https://github.com/sigp/ethereum_ssz?branch=alloy)",
