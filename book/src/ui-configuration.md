@@ -18,7 +18,7 @@ If you require accessibility from another machine within the network, configure 
 
 In a similar manner, the validator client requires activation of the `--http` flag, along with the optional consideration of configuring the `--http-address` flag. If `--http-address` flag is set on the Validator Client, then the `--unencrypted-http-transport` flag is required as well. These settings will ensure compatibility with Siren's connectivity requirements.
 
-If you run the Docker container, it will fail to startup if your BN/VC are not accessible, or if you provided a wrong API token. 
+If you run the Docker container, it will fail to startup if your BN/VC are not accessible, or if you provided a wrong API token.
 
 ## API Token
 
