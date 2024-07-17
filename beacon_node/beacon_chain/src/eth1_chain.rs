@@ -546,12 +546,20 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
             state.eth1_data().deposit_count
         };
 
-        match deposit_index.cmp(&deposit_count) {
+        // [New in Electra:EIP6110]
+        let deposit_index_limit =
+            if let Ok(deposit_requests_start_index) = state.deposit_requests_start_index() {
+                std::cmp::min(deposit_count, deposit_requests_start_index)
+            } else {
+                deposit_count
+            };
+
+        match deposit_index.cmp(&deposit_index_limit) {
             Ordering::Greater => Err(Error::DepositIndexTooHigh),
             Ordering::Equal => Ok(vec![]),
             Ordering::Less => {
                 let next = deposit_index;
-                let last = std::cmp::min(deposit_count, next + E::MaxDeposits::to_u64());
+                let last = std::cmp::min(deposit_index_limit, next + E::MaxDeposits::to_u64());
 
                 self.core
                     .deposits()

@@ -43,6 +43,7 @@ use super::block_storage::BlockStorage;
 use super::chain::{BatchId, ChainId, RemoveChain, SyncingChain};
 use super::chain_collection::ChainCollection;
 use super::sync_type::RangeSyncType;
+use crate::metrics;
 use crate::status::ToStatusMessage;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::BatchProcessResult;
@@ -345,6 +346,12 @@ where
                 self.failed_chains.insert(chain.target_head_root);
             }
         }
+
+        metrics::inc_counter_vec_by(
+            &metrics::SYNCING_CHAINS_DROPPED_BLOCKS,
+            &[sync_type.as_str()],
+            chain.pending_blocks() as u64,
+        );
 
         network.status_peers(self.beacon_chain.as_ref(), chain.peers());
 

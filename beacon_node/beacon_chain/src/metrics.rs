@@ -858,6 +858,11 @@ lazy_static! {
         "Duration between the start of the block's slot and the time the block was observed.",
     );
 
+    pub static ref BEACON_BLOCK_DELAY_CONSENSUS_VERIFICATION_TIME: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_consensus_verification_time",
+        "The time taken to verify the block within Lighthouse",
+    );
+
     pub static ref BEACON_BLOCK_DELAY_EXECUTION_TIME: Result<IntGauge> = try_create_int_gauge(
         "beacon_block_delay_execution_time",
         "The duration in verifying the block with the execution layer.",
