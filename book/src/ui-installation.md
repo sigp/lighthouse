@@ -12,7 +12,7 @@ The most convenient way to run Siren is to use the Docker images built and publi
 
  They can be found on [Docker hub](https://hub.docker.com/r/sigp/siren/tags), or pulled directly with `docker pull sigp/siren`
 
-Configuration is done through environment variables, the easiest way to get started is by copying `.env.example` to `.env` and editing the relevant sections (typically, this would at least include adding `BEACON_URL`, `VALIDATOR_URL` and `API_TOKEN`)
+Configuration is done through environment variables, the easiest way to get started is by copying `.env.example` to `.env` and editing the relevant sections (typically, this would at least include adding `BEACON_URL`, `VALIDATOR_URL`, `API_TOKEN` and `SESSION_PASSWORD`)
 
 Then to run the image:
 
