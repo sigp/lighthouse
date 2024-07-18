@@ -1338,6 +1338,7 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
+                .requires("suggested-fee-recipient")
         )
         .arg(
             Arg::new("fork-choice-before-proposal-timeout")
