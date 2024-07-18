@@ -71,7 +71,6 @@ pub struct ValidatorStore<T, E: EthSpec> {
     gas_limit: Option<u64>,
     builder_proposals: bool,
     enable_web3signer_slashing_protection: bool,
-    produce_block_v3: bool,
     prefer_builder_proposals: bool,
     builder_boost_factor: Option<u64>,
     task_executor: TaskExecutor,
@@ -106,7 +105,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             gas_limit: config.gas_limit,
             builder_proposals: config.builder_proposals,
             enable_web3signer_slashing_protection: config.enable_web3signer_slashing_protection,
-            produce_block_v3: config.produce_block_v3,
             prefer_builder_proposals: config.prefer_builder_proposals,
             builder_boost_factor: config.builder_boost_factor,
             task_executor,
@@ -319,10 +317,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     fn fork(&self, epoch: Epoch) -> Fork {
         self.spec.fork_at_epoch(epoch)
-    }
-
-    pub fn produce_block_v3(&self) -> bool {
-        self.produce_block_v3
     }
 
     /// Returns a `SigningMethod` for `validator_pubkey` *only if* that validator is considered safe
