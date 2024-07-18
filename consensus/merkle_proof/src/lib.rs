@@ -11,15 +11,33 @@ pub trait FixedBytesExtended {
 }
 
 impl FixedBytesExtended for alloy_primitives::B256 {
-    fn from_low_u64_be(value: u64) -> alloy_primitives::B256 {
-        alloy_primitives::B256::from_slice(&value.to_be_bytes())
+
+    fn from_low_u64_be(value: u64) -> Self {
+        // Convert the u64 value to a big-endian byte array
+        let value_bytes = value.to_be_bytes();
+        let mut large_array: [u8; 32] = [0; 32];
+        // Determine the length of bytes to copy (ignoring the most significant bits if necessary)
+        let bytes_to_copy = value_bytes.len().min(large_array.len());
+        let start_index = large_array.len() - bytes_to_copy;
+        // Copy the bytes to the target array
+        large_array[start_index..].copy_from_slice(&value_bytes[..bytes_to_copy]);
+
+        alloy_primitives::B256::new(large_array)
     }
 
-    fn from_low_u64_le(value: u64) -> alloy_primitives::B256 {
-        alloy_primitives::B256::from_slice(&value.to_le_bytes())
+    fn from_low_u64_le(value: u64) -> Self {
+        // Convert the u64 value to a big-endian byte array
+        let value_bytes = value.to_le_bytes();
+        let mut large_array: [u8; 32] = [0; 32];
+        // Determine the length of bytes to copy (ignoring the most significant bits if necessary)
+        let bytes_to_copy = value_bytes.len().min(large_array.len());
+        let start_index = large_array.len() - bytes_to_copy;
+        // Copy the bytes to the target array
+        large_array[start_index..].copy_from_slice(&value_bytes[..bytes_to_copy]);
+        alloy_primitives::B256::new(large_array)
     }
 
-    fn zero() -> alloy_primitives::B256 {
+    fn zero() -> Self {
         alloy_primitives::B256::ZERO
     }
 }

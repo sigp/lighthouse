@@ -343,11 +343,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
     /// Consumes the builder, returning an `Environment`.
     pub fn build(self) -> Result<Environment<E>, String> {
-        println!("2");
         let (signal, exit) = async_channel::bounded(1);
-        println!("3");
         let (signal_tx, signal_rx) = channel(1);
-        println!("4");
         Ok(Environment {
             runtime: self
                 .runtime

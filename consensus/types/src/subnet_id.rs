@@ -90,6 +90,7 @@ impl SubnetId {
         let shuffling_prefix_bits = spec.attestation_subnet_shuffling_prefix_bits as u64;
 
         // calculate the prefixes used to compute the subnet and shuffling
+         // TODO(alloy) I think node id is being miscalculated. we should compare to eth_types
         let node_id_prefix = node_id.as_le_slice().get_u64() >> (256 - prefix_bits);
         let shuffling_prefix = node_id.as_le_slice().get_u64() >> (256 - prefix_bits + shuffling_prefix_bits);
 
@@ -176,6 +177,7 @@ mod tests {
     use super::*;
 
     /// A set of tests compared to the python specification
+    /// TODO(Alloy) fix test
     #[test]
     fn compute_subnets_for_epoch_unit_test() {
         // Randomized variables used generated with the python specification

@@ -79,6 +79,7 @@ impl<'de> Deserialize<'de> for GraffitiString {
 
 impl From<GraffitiString> for Graffiti {
     fn from(from: GraffitiString) -> Graffiti {
+       
         let graffiti_bytes = from.0.as_bytes();
         let mut graffiti = [0; GRAFFITI_BYTES_LEN];
 
@@ -87,10 +88,11 @@ impl From<GraffitiString> for Graffiti {
         // Copy the provided bytes over.
         //
         // Panic-free because `graffiti_bytes.len()` <= `GRAFFITI_BYTES_LEN`.
+        // TODO(alloy) review why this was no longer panic free w/o my changes
         graffiti
             .get_mut(..graffiti_len)
             .expect("graffiti_len <= GRAFFITI_BYTES_LEN")
-            .copy_from_slice(graffiti_bytes);
+            .copy_from_slice(&graffiti_bytes[..graffiti_len]);
         graffiti.into()
     }
 }

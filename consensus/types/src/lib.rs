@@ -256,7 +256,7 @@ pub use crate::withdrawal_credentials::WithdrawalCredentials;
 pub type CommitteeIndex = u64;
 pub type Hash256 = alloy_primitives::B256;
 pub type Uint256 = alloy_primitives::U256;
-pub type Address = H160;
+pub type Address = alloy_primitives::Address;
 pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
 pub type Blob<E> = FixedVector<u8, <E as EthSpec>::BytesPerBlob>;
@@ -292,25 +292,30 @@ impl FixedBytesExtended for alloy_primitives::B256 {
         let start_index = large_array.len() - bytes_to_copy;
         // Copy the bytes to the target array
         large_array[start_index..].copy_from_slice(&value_bytes[..bytes_to_copy]);
-        println!("{:?}", large_array);
-        let x = alloy_primitives::B256::new(large_array);
-        let y = ethereum_types::H256::from_low_u64_be(value);
-        println!("x: {:?}", x);
-        println!("y: {:?}", y);
 
-        let mut bytes = BytesMut::with_capacity(32);
-        bytes.put_u64(value);
-        bytes.resize(32, 0);
-        bytes.to_vec();
-        let z = alloy_primitives::B256::from_slice(&bytes);
-
-        println!("z: {:?}", z);
-        x
+        alloy_primitives::B256::new(large_array)
+        // bytes.put_u64(value);
+        // bytes.resize(32, 0);
+        // bytes.to_vec();
+        // let z = alloy_primitives::B256::from_slice(&bytes);
     }
 
     fn from_low_u64_le(value: u64) -> Self {
-        println!("check?");
-        alloy_primitives::B256::from_slice(&value.to_le_bytes())
+        // Convert the u64 value to a big-endian byte array
+        let value_bytes = value.to_le_bytes();
+        let mut large_array: [u8; 32] = [0; 32];
+        // Determine the length of bytes to copy (ignoring the most significant bits if necessary)
+        let bytes_to_copy = value_bytes.len().min(large_array.len());
+        let start_index = large_array.len() - bytes_to_copy;
+        // Copy the bytes to the target array
+        large_array[start_index..].copy_from_slice(&value_bytes[..bytes_to_copy]);
+        let x = ethereum_types::H256::from_low_u64_le(value);
+        let y = alloy_primitives::B256::new(large_array);
+
+        println!("x: {:?}", x);
+        println!("y: {:?}", y);
+
+        y
     }
 
     fn zero() -> Self {
@@ -320,12 +325,34 @@ impl FixedBytesExtended for alloy_primitives::B256 {
 
 impl FixedBytesExtended for alloy_primitives::Address {
     fn from_low_u64_be(value: u64) -> Self {
-        alloy_primitives::Address::from_slice(&value.to_le_bytes())
+         // Convert the u64 value to a big-endian byte array
+         let value_bytes = value.to_be_bytes();
+         let mut large_array: [u8; 20] = [0; 20];
+         // Determine the length of bytes to copy (ignoring the most significant bits if necessary)
+         let bytes_to_copy = value_bytes.len().min(large_array.len());
+         let start_index = large_array.len() - bytes_to_copy;
+         // Copy the bytes to the target array
+         large_array[start_index..].copy_from_slice(&value_bytes[..bytes_to_copy]);
+ 
+         alloy_primitives::Address::new(large_array)
     }
 
     fn from_low_u64_le(value: u64) -> Self {
-        alloy_primitives::Address::from_slice(&value.to_be_bytes())
+        // Convert the u64 value to a big-endian byte array
+        let value_bytes = value.to_le_bytes();
+        let mut large_array: [u8; 20] = [0; 20];
+        // Determine the length of bytes to copy (ignoring the most significant bits if necessary)
+        let bytes_to_copy = value_bytes.len().min(large_array.len());
+        let start_index = large_array.len() - bytes_to_copy;
+        // Copy the bytes to the target array
+        large_array[start_index..].copy_from_slice(&value_bytes[..bytes_to_copy]);
+        let x = ethereum_types::Address::from_low_u64_le(value);
+        let y = alloy_primitives::Address::new(large_array);
 
+        println!("x address: {:?}", x);
+        println!("y address: {:?}", y);
+
+        y
     }
 
     fn zero() -> Self {

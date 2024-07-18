@@ -726,6 +726,7 @@ mod tests {
 
     /// Test all the Bellatrix types.
     async fn test_bellatrix_types(network: &str, listen_port: u16) {
+        println!("{}", network);
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
         let spec = &network_config.chain_spec::<E>().unwrap();
         let bellatrix_fork_slot = spec

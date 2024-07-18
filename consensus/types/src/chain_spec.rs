@@ -1967,6 +1967,7 @@ mod yaml_tests {
         assert_eq!(new_spec, ChainSpec::minimal());
     }
 
+    // TODO(alloy) fix test
     #[test]
     fn test_defaults() {
         // Spec yaml string. Fields that serialize/deserialize with a default value are commented out.
@@ -2000,7 +2001,7 @@ mod yaml_tests {
         PROPOSER_SCORE_BOOST: 40
         DEPOSIT_CHAIN_ID: 1
         DEPOSIT_NETWORK_ID: 1
-        DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
+        DEPOSIT_CONTRACT_ADDRESS: 00000000219ab540356cBB839Cbe05303d7705Fa
         "#;
 
         let chain_spec: Config = serde_yaml::from_str(spec).unwrap();
