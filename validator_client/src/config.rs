@@ -381,6 +381,14 @@ impl Config {
             config.prefer_builder_proposals = true;
         }
 
+        if cli_args.get_flag("produce-block-v3") {
+            warn!(
+                log,
+                "produce-block-v3 flag";
+                "note" => "deprecated flag has no effect and should be removed"
+            );
+        }
+
         config.gas_limit = cli_args
             .get_one::<String>("gas-limit")
             .map(|gas_limit| {
