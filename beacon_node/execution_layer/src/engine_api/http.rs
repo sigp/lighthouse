@@ -1111,7 +1111,7 @@ impl HttpJsonRpc {
         struct Quantity(#[serde(with = "serde_utils::u64_hex_be")] u64);
 
         let params = json!([Quantity(start), Quantity(count)]);
-        let response: Vec<Option<JsonExecutionPayloadBodyV1<E>>> = self
+        let response: Vec<Option<JsonExecutionPayloadBodyV2<E>>> = self
             .rpc_request(
                 ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2,
                 params,
@@ -1121,7 +1121,7 @@ impl HttpJsonRpc {
 
         Ok(response
             .into_iter()
-            .map(|opt_json| opt_json.map(|v2| JsonExecutionPayloadBody::V1(v2).into()))
+            .map(|opt_json| opt_json.map(|v2| JsonExecutionPayloadBody::V2(v2).into()))
             .collect())
     }
 
