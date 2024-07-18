@@ -15,27 +15,9 @@ pub fn cli_app() -> Command {
     Command::new(CMD)
         .about("Modify validator status in validator_definitions.yml.")
         .display_order(0)
-        .arg(
-            Arg::new("help")
-                .long("help")
-                .short('h')
-                .help("Prints help information")
-                .action(ArgAction::HelpLong)
-                .display_order(0)
-                .help_heading(FLAG_HEADER),
-        )
         .subcommand(
             Command::new(ENABLE)
                 .about("Enable validator(s) in validator_definitions.yml.")
-                .arg(
-                    Arg::new("help")
-                        .long("help")
-                        .short('h')
-                        .help("Prints help information")
-                        .action(ArgAction::HelpLong)
-                        .display_order(0)
-                        .help_heading(FLAG_HEADER),
-                )
                 .arg(
                     Arg::new(PUBKEY_FLAG)
                         .long(PUBKEY_FLAG)
@@ -57,15 +39,6 @@ pub fn cli_app() -> Command {
         .subcommand(
             Command::new(DISABLE)
                 .about("Disable validator(s) in validator_definitions.yml.")
-                .arg(
-                    Arg::new("help")
-                        .long("help")
-                        .short('h')
-                        .help("Prints help information")
-                        .action(ArgAction::HelpLong)
-                        .display_order(0)
-                        .help_heading(FLAG_HEADER),
-                )
                 .arg(
                     Arg::new(PUBKEY_FLAG)
                         .long(PUBKEY_FLAG)

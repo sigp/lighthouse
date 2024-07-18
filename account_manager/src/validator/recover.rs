@@ -23,15 +23,6 @@ pub fn cli_app() -> Command {
             If you did not specify a `--first-index` or count `--count`, by default this will \
             only recover the keys associated with the validator at index 0 for an HD wallet \
             in accordance with the EIP-2333 spec.")
-            .arg(
-                Arg::new("help")
-                    .long("help")
-                    .short('h')
-                    .help("Prints help information")
-                    .action(ArgAction::HelpLong)
-                    .display_order(0)
-                    .help_heading(FLAG_HEADER)
-            )
         .arg(
             Arg::new(FIRST_INDEX_FLAG)
                 .long(FIRST_INDEX_FLAG)

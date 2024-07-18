@@ -34,15 +34,6 @@ pub fn cli_app() -> Command {
             derivation scheme.",
         )
         .arg(
-            Arg::new("help")
-                .long("help")
-                .short('h')
-                .help("Prints help information")
-                .action(ArgAction::HelpLong)
-                .display_order(0)
-                .help_heading(FLAG_HEADER)
-        )
-        .arg(
             Arg::new(WALLET_NAME_FLAG)
                 .long(WALLET_NAME_FLAG)
                 .value_name("WALLET_NAME")

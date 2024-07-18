@@ -1,5 +1,4 @@
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::FLAG_HEADER;
 use environment::Environment;
 use slashing_protection::{
     interchange::Interchange, InterchangeError, InterchangeImportOutcome, SlashingDatabase,
@@ -23,27 +22,9 @@ pub fn cli_app() -> Command {
     Command::new(CMD)
         .about("Import or export slashing protection data to or from another client")
         .display_order(0)
-        .arg(
-            Arg::new("help")
-                .long("help")
-                .short('h')
-                .help("Prints help information")
-                .action(ArgAction::HelpLong)
-                .display_order(0)
-                .help_heading(FLAG_HEADER)
-        )
         .subcommand(
             Command::new(IMPORT_CMD)
                 .about("Import an interchange file")
-                .arg(
-                    Arg::new("help")
-                        .long("help")
-                        .short('h')
-                        .help("Prints help information")
-                        .action(ArgAction::HelpLong)
-                        .display_order(0)
-                        .help_heading(FLAG_HEADER)
-                )
                 .arg(
                     Arg::new(IMPORT_FILE_ARG)
                         .action(ArgAction::Set)
@@ -55,15 +36,6 @@ pub fn cli_app() -> Command {
         .subcommand(
             Command::new(EXPORT_CMD)
                 .about("Export an interchange file")
-                .arg(
-                    Arg::new("help")
-                        .long("help")
-                        .short('h')
-                        .help("Prints help information")
-                        .action(ArgAction::HelpLong)
-                        .display_order(0)
-                        .help_heading(FLAG_HEADER)
-                )
                 .arg(
                     Arg::new(EXPORT_FILE_ARG)
                         .action(ArgAction::Set)
