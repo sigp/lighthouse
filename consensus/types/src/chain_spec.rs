@@ -165,6 +165,11 @@ pub struct ChainSpec {
     pub max_per_epoch_activation_exit_churn_limit: u64,
 
     /*
+     * DAS params
+     */
+    pub number_of_columns: usize,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -709,6 +714,8 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
 
+            number_of_columns: 128,
+
             /*
              * Network specific
              */
@@ -800,6 +807,14 @@ impl ChainSpec {
             electra_fork_epoch: None,
             max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 0)
                 .expect("pow does not overflow"),
+            min_per_epoch_churn_limit_electra: option_wrapper(|| {
+                u64::checked_pow(2, 6)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            max_per_epoch_activation_exit_churn_limit: option_wrapper(|| {
+                u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -973,6 +988,8 @@ impl ChainSpec {
                 u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
+
+            number_of_columns: 128,
 
             /*
              * Network specific

@@ -123,7 +123,6 @@ pub enum Error {
         state: Slot,
     },
     TreeHashError(tree_hash::Error),
-    CachedTreeHashError(cached_tree_hash::Error),
     InvalidValidatorPubkey(ssz::DecodeError),
     ValidatorRegistryShrunk,
     TreeHashCacheInconsistent,
@@ -217,6 +216,13 @@ impl From<BeaconStateHash> for Hash256 {
 }
 
 /// The state of the `BeaconChain` at some slot.
+///
+/// Note: `BeaconState` does not implement `TreeHash` on the top-level type in order to
+/// encourage use of the `canonical_root`/`update_tree_hash_cache` methods which flush pending
+/// updates to the underlying persistent data structures. This is the safest option for now until
+/// we add internal mutability to `milhouse::{List, Vector}`. See:
+///
+/// https://github.com/sigp/milhouse/issues/43
 #[superstruct(
     variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
     variant_attributes(
@@ -327,13 +333,10 @@ impl From<BeaconStateHash> for Hash256 {
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     map_ref_mut_into(BeaconStateRef)
 )]
-#[derive(
-    Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash, arbitrary::Arbitrary,
-)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, arbitrary::Arbitrary)]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[arbitrary(bound = "E: EthSpec")]
-#[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 pub struct BeaconState<E>
 where
@@ -379,6 +382,7 @@ where
     pub eth1_deposit_index: u64,
 
     // Registry
+    #[compare_fields(as_iter)]
     #[test_random(default)]
     pub validators: List<Validator, E::ValidatorRegistryLimit>,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
@@ -404,8 +408,10 @@ where
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
+    #[compare_fields(as_iter)]
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     #[test_random(default)]
+    #[compare_fields(as_iter)]
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     #[test_random(default)]
@@ -482,7 +488,11 @@ where
     // Electra
     #[superstruct(only(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
-    #[serde(with = "serde_utils::quoted_u64")]
+    #[serde(
+        with = "serde_utils::quoted_u64",
+    //TODO(electra) remove alias when ef tests are updated
+        alias = "deposit_receipts_start_index"
+    )]
     pub deposit_requests_start_index: u64,
     #[superstruct(only(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
@@ -502,13 +512,16 @@ where
     #[superstruct(only(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     pub earliest_consolidation_epoch: Epoch,
+    #[compare_fields(as_iter)]
     #[test_random(default)]
     #[superstruct(only(Electra))]
     pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
+    #[compare_fields(as_iter)]
     #[test_random(default)]
     #[superstruct(only(Electra))]
     pub pending_partial_withdrawals:
         List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
+    #[compare_fields(as_iter)]
     #[test_random(default)]
     #[superstruct(only(Electra))]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
@@ -655,10 +668,8 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Returns the `tree_hash_root` of the state.
-    ///
-    /// Spec v0.12.1
-    pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from_slice(&self.tree_hash_root()[..])
+    pub fn canonical_root(&mut self) -> Result<Hash256, Error> {
+        self.update_tree_hash_cache()
     }
 
     pub fn historical_batch(&mut self) -> Result<HistoricalBatch<E>, Error> {
@@ -2019,9 +2030,13 @@ impl<E: EthSpec> BeaconState<E> {
     /// Compute the tree hash root of the state using the tree hash cache.
     ///
     /// Initialize the tree hash cache if it isn't already initialized.
-    pub fn update_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
+    pub fn update_tree_hash_cache<'a>(&'a mut self) -> Result<Hash256, Error> {
         self.apply_pending_mutations()?;
-        Ok(self.tree_hash_root())
+        map_beacon_state_ref!(&'a _, self.to_ref(), |inner, cons| {
+            let root = inner.tree_hash_root();
+            cons(inner);
+            Ok(root)
+        })
     }
 
     /// Compute the tree hash root of the validators using the tree hash cache.
@@ -2558,12 +2573,6 @@ impl From<ssz_types::Error> for Error {
 impl From<bls::Error> for Error {
     fn from(e: bls::Error) -> Error {
         Error::BlsError(e)
-    }
-}
-
-impl From<cached_tree_hash::Error> for Error {
-    fn from(e: cached_tree_hash::Error) -> Error {
-        Error::CachedTreeHashError(e)
     }
 }
 

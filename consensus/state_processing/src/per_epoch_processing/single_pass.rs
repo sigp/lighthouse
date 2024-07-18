@@ -360,6 +360,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             state,
             &mut next_epoch_cache,
             effective_balances_ctxt,
+            conf.effective_balance_updates,
             state_ctxt,
             spec,
         )?;
@@ -858,6 +859,7 @@ fn process_pending_consolidations<E: EthSpec>(
     state: &mut BeaconState<E>,
     next_epoch_cache: &mut PreEpochCache,
     effective_balances_ctxt: &EffectiveBalancesContext,
+    perform_effective_balance_updates: bool,
     state_ctxt: &StateContext,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -908,6 +910,11 @@ fn process_pending_consolidations<E: EthSpec>(
             .cloned(),
     )?;
     *state.pending_consolidations_mut()? = new_pending_consolidations;
+
+    // the spec tests require we don't perform effective balance updates when testing pending_consolidations
+    if !perform_effective_balance_updates {
+        return Ok(());
+    }
 
     // Re-process effective balance updates for validators affected by consolidations.
     let (validators, balances, _, current_epoch_participation, _, progressive_balances, _, _) =

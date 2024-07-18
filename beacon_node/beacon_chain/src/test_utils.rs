@@ -2249,7 +2249,7 @@ where
                 .unwrap();
             state = new_state;
             block_hash_from_slot.insert(*slot, block_hash);
-            state_hash_from_slot.insert(*slot, state.tree_hash_root().into());
+            state_hash_from_slot.insert(*slot, state.canonical_root().unwrap().into());
             latest_block_hash = Some(block_hash);
         }
         (
