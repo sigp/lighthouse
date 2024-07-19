@@ -1408,14 +1408,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("builder-profit-threshold")
-                .long("builder-profit-threshold")
-                .value_name("WEI_VALUE")
-                .help("This flag is deprecated and has no effect.")
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
             Arg::new("builder-user-agent")
                 .long("builder-user-agent")
                 .value_name("STRING")
