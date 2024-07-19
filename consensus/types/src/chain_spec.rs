@@ -1478,7 +1478,7 @@ const fn default_max_request_blob_sidecars() -> u64 {
 }
 
 const fn default_max_request_data_column_sidecars() -> u64 {
-    512
+    16384
 }
 
 const fn default_min_epochs_for_blob_sidecars_requests() -> u64 {
