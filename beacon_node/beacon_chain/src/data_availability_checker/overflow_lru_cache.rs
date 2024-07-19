@@ -153,21 +153,19 @@ impl<E: EthSpec> PendingComponents<E> {
     /// matches the number of expected blobs / custody columns.
     pub fn is_available(&self, block_import_requirement: &BlockImportRequirement) -> bool {
         match block_import_requirement {
-            BlockImportRequirement::AllBlobs => {
-                if let Some(num_expected_blobs) = self.num_expected_blobs() {
+            BlockImportRequirement::AllBlobs => self
+                .num_expected_blobs()
+                .map_or(false, |num_expected_blobs| {
                     num_expected_blobs == self.num_received_blobs()
-                } else {
-                    false
-                }
-            }
+                }),
             BlockImportRequirement::CustodyColumns(num_expected_columns) => {
                 let num_received_data_columns = self.num_received_data_columns();
-                if let Some(num_expected_blobs) = self.num_expected_blobs() {
-                    // No data columns when there are 0 blobs
-                    num_expected_blobs == 0 || *num_expected_columns == num_received_data_columns
-                } else {
-                    false
-                }
+                // No data columns when there are 0 blobs
+                self.num_expected_blobs()
+                    .map_or(false, |num_expected_blobs| {
+                        num_expected_blobs == 0
+                            || *num_expected_columns == num_received_data_columns
+                    })
             }
         }
     }
