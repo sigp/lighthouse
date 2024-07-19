@@ -1203,7 +1203,7 @@ async fn block_gossip_verification() {
                 .verify_block_for_gossip(block.clone())
                 .await
                 .expect_err("should error when processing known block"),
-            BlockError::DuplicateFullyImported(_)
+            BlockError::DuplicateImportStatusUnknown(_)
         ),
         "the second proposal by this validator should be rejected"
     );
