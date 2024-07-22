@@ -6,7 +6,7 @@ use crate::{
 };
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
-use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
@@ -656,81 +656,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 )
                 .await
             }
-            Err(err) => {
-                match err {
-                    GossipDataColumnError::ParentUnknown(column) => {
-                        debug!(
-                            self.log,
-                            "Unknown parent hash for column";
-                            "action" => "requesting parent",
-                            "block_root" => %column.block_root(),
-                            "parent_root" => %column.block_parent_root(),
-                        );
-                        self.send_sync_message(SyncMessage::UnknownParentDataColumn(
-                            peer_id, column,
-                        ));
-                    }
-                    GossipDataColumnError::KzgNotInitialized
-                    | GossipDataColumnError::PubkeyCacheTimeout
-                    | GossipDataColumnError::BeaconChainError(_) => {
-                        crit!(
-                            self.log,
-                            "Internal error when verifying column sidecar";
-                            "error" => ?err,
-                        )
-                    }
-                    GossipDataColumnError::ProposalSignatureInvalid
-                    | GossipDataColumnError::UnknownValidator(_)
-                    | GossipDataColumnError::ProposerIndexMismatch { .. }
-                    | GossipDataColumnError::IsNotLaterThanParent { .. }
-                    | GossipDataColumnError::InvalidSubnetId { .. }
-                    | GossipDataColumnError::InvalidInclusionProof { .. }
-                    | GossipDataColumnError::InvalidKzgProof { .. }
-                    | GossipDataColumnError::NotFinalizedDescendant { .. } => {
-                        debug!(
-                            self.log,
-                            "Could not verify column sidecar for gossip. Rejecting the column sidecar";
-                            "error" => ?err,
-                            "slot" => %slot,
-                            "block_root" => %block_root,
-                            "index" => %index,
-                        );
-                        // Prevent recurring behaviour by penalizing the peer slightly.
-                        self.gossip_penalize_peer(
-                            peer_id,
-                            PeerAction::LowToleranceError,
-                            "gossip_data_column_low",
-                        );
-                        self.propagate_validation_result(
-                            message_id,
-                            peer_id,
-                            MessageAcceptance::Reject,
-                        );
-                    }
-                    GossipDataColumnError::FutureSlot { .. }
-                    | GossipDataColumnError::PriorKnown { .. }
-                    | GossipDataColumnError::PastFinalizedSlot { .. } => {
-                        debug!(
-                            self.log,
-                            "Could not verify column sidecar for gossip. Ignoring the column sidecar";
-                            "error" => ?err,
-                            "slot" => %slot,
-                            "block_root" => %block_root,
-                            "index" => %index,
-                        );
-                        // Prevent recurring behaviour by penalizing the peer slightly.
-                        self.gossip_penalize_peer(
-                            peer_id,
-                            PeerAction::HighToleranceError,
-                            "gossip_data_column_high",
-                        );
-                        self.propagate_validation_result(
-                            message_id,
-                            peer_id,
-                            MessageAcceptance::Ignore,
-                        );
-                    }
-                }
+            Err(_) => {
+                // TODO(das) implement gossip error handling
             }
         }
     }
