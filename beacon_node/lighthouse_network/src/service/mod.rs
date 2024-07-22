@@ -327,6 +327,7 @@ impl<E: EthSpec> Network<E> {
                 &config,
                 network_globals.clone(),
                 &log,
+                ctx.chain_spec,
             )
             .await?;
             // start searching for peers
@@ -1218,7 +1219,7 @@ impl<E: EthSpec> Network<E> {
     /// Dial cached Enrs in discovery service that are in the given `subnet_id` and aren't
     /// in Connected, Dialing or Banned state.
     fn dial_cached_enrs_in_subnet(&mut self, subnet: Subnet) {
-        let predicate = subnet_predicate::<E>(vec![subnet], &self.log);
+        let predicate = subnet_predicate::<E>(vec![subnet], &self.log, &self.fork_context.spec);
         let peers_to_dial: Vec<Enr> = self
             .discovery()
             .cached_enrs()

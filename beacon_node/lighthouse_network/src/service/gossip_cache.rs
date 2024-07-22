@@ -194,6 +194,7 @@ impl GossipCache {
         let expire_timeout = match topic.kind() {
             GossipKind::BeaconBlock => self.beacon_block,
             GossipKind::BlobSidecar(_) => self.blob_sidecar,
+            GossipKind::DataColumnSidecar(_) => self.blob_sidecar,
             GossipKind::BeaconAggregateAndProof => self.aggregates,
             GossipKind::Attestation(_) => self.attestation,
             GossipKind::VoluntaryExit => self.voluntary_exit,

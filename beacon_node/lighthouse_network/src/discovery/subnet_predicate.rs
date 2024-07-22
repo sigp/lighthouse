@@ -1,15 +1,22 @@
 //! The subnet predicate used for searching for a particular subnet.
 use super::*;
 use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
+use itertools::Itertools;
 use slog::trace;
 use std::ops::Deref;
+use types::{ChainSpec, DataColumnSubnetId};
 
 /// Returns the predicate for a given subnet.
-pub fn subnet_predicate<E>(subnets: Vec<Subnet>, log: &slog::Logger) -> impl Fn(&Enr) -> bool + Send
+pub fn subnet_predicate<E>(
+    subnets: Vec<Subnet>,
+    log: &slog::Logger,
+    spec: &ChainSpec,
+) -> impl Fn(&Enr) -> bool + Send
 where
     E: EthSpec,
 {
     let log_clone = log.clone();
+    let spec_clone = spec.clone();
 
     move |enr: &Enr| {
         let attestation_bitfield: EnrAttestationBitfield<E> = match enr.attestation_bitfield::<E>()
@@ -19,9 +26,12 @@ where
         };
 
         // Pre-fork/fork-boundary enrs may not contain a syncnets field.
-        // Don't return early here
+        // Don't return early here.
         let sync_committee_bitfield: Result<EnrSyncCommitteeBitfield<E>, _> =
             enr.sync_committee_bitfield::<E>();
+
+        // TODO(das): compute from enr
+        let custody_subnet_count = spec_clone.custody_requirement;
 
         let predicate = subnets.iter().any(|subnet| match subnet {
             Subnet::Attestation(s) => attestation_bitfield
@@ -30,6 +40,14 @@ where
             Subnet::SyncCommittee(s) => sync_committee_bitfield
                 .as_ref()
                 .map_or(false, |b| b.get(*s.deref() as usize).unwrap_or(false)),
+            Subnet::DataColumn(s) => {
+                let mut subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
+                    enr.node_id().raw().into(),
+                    custody_subnet_count,
+                    &spec_clone,
+                );
+                subnets.contains(s)
+            }
         });
 
         if !predicate {

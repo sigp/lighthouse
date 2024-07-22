@@ -8,13 +8,13 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
     Attestation, AttestationBase, AttestationElectra, AttesterSlashing, AttesterSlashingBase,
-    AttesterSlashingElectra, BlobSidecar, EthSpec, ForkContext, ForkName,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
-    SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
-    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    AttesterSlashingElectra, BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec,
+    ForkContext, ForkName, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    ProposerSlashing, SignedAggregateAndProof, SignedAggregateAndProofBase,
+    SignedAggregateAndProofElectra, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -23,6 +23,8 @@ pub enum PubsubMessage<E: EthSpec> {
     BeaconBlock(Arc<SignedBeaconBlock<E>>),
     /// Gossipsub message providing notification of a [`BlobSidecar`] along with the subnet id where it was received.
     BlobSidecar(Box<(u64, Arc<BlobSidecar<E>>)>),
+    /// Gossipsub message providing notification of a [`DataColumnSidecar`] along with the subnet id where it was received.
+    DataColumnSidecar(Box<(DataColumnSubnetId, Arc<DataColumnSidecar<E>>)>),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
     AggregateAndProofAttestation(Box<SignedAggregateAndProof<E>>),
     /// Gossipsub message providing notification of a raw un-aggregated attestation with its shard id.
@@ -118,6 +120,9 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::BeaconBlock(_) => GossipKind::BeaconBlock,
             PubsubMessage::BlobSidecar(blob_sidecar_data) => {
                 GossipKind::BlobSidecar(blob_sidecar_data.0)
+            }
+            PubsubMessage::DataColumnSidecar(column_sidecar_data) => {
+                GossipKind::DataColumnSidecar(column_sidecar_data.0)
             }
             PubsubMessage::AggregateAndProofAttestation(_) => GossipKind::BeaconAggregateAndProof,
             PubsubMessage::Attestation(attestation_data) => {
@@ -270,6 +275,41 @@ impl<E: EthSpec> PubsubMessage<E> {
                             )),
                         }
                     }
+                    GossipKind::DataColumnSidecar(subnet_id) => {
+                        match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                            Some(ForkName::Deneb | ForkName::Electra) => {
+                                let col_sidecar = Arc::new(
+                                    DataColumnSidecar::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                );
+                                let peer_das_enabled =
+                                    fork_context.spec.is_peer_das_enabled_for_epoch(
+                                        col_sidecar.slot().epoch(E::slots_per_epoch()),
+                                    );
+                                if peer_das_enabled {
+                                    Ok(PubsubMessage::DataColumnSidecar(Box::new((
+                                        *subnet_id,
+                                        col_sidecar,
+                                    ))))
+                                } else {
+                                    Err(format!(
+                                        "data_column_sidecar topic invalid for given fork digest {:?}",
+                                        gossip_topic.fork_digest
+                                    ))
+                                }
+                            }
+                            Some(
+                                ForkName::Base
+                                | ForkName::Altair
+                                | ForkName::Bellatrix
+                                | ForkName::Capella,
+                            )
+                            | None => Err(format!(
+                                "data_column_sidecar topic invalid for given fork digest {:?}",
+                                gossip_topic.fork_digest
+                            )),
+                        }
+                    }
                     GossipKind::VoluntaryExit => {
                         let voluntary_exit = SignedVoluntaryExit::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
@@ -373,6 +413,7 @@ impl<E: EthSpec> PubsubMessage<E> {
         match &self {
             PubsubMessage::BeaconBlock(data) => data.as_ssz_bytes(),
             PubsubMessage::BlobSidecar(data) => data.1.as_ssz_bytes(),
+            PubsubMessage::DataColumnSidecar(data) => data.1.as_ssz_bytes(),
             PubsubMessage::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),
             PubsubMessage::VoluntaryExit(data) => data.as_ssz_bytes(),
             PubsubMessage::ProposerSlashing(data) => data.as_ssz_bytes(),
@@ -399,6 +440,12 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
             PubsubMessage::BlobSidecar(data) => write!(
                 f,
                 "BlobSidecar: slot: {}, blob index: {}",
+                data.1.slot(),
+                data.1.index,
+            ),
+            PubsubMessage::DataColumnSidecar(data) => write!(
+                f,
+                "DataColumnSidecar: slot: {}, column index: {}",
                 data.1.slot(),
                 data.1.index,
             ),

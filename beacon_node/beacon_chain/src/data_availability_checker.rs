@@ -20,6 +20,7 @@ mod error;
 mod overflow_lru_cache;
 mod state_lru_cache;
 
+use crate::data_column_verification::GossipVerifiedDataColumn;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::non_zero_usize::new_non_zero_usize;
 
@@ -173,6 +174,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         self.availability_cache
             .put_kzg_verified_blobs(gossip_blob.block_root(), vec![gossip_blob.into_inner()])
+    }
+
+    pub fn put_gossip_data_columns(
+        &self,
+        _gossip_data_columns: Vec<GossipVerifiedDataColumn<T>>,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        // TODO(das) to be implemented
+        unimplemented!("not implemented")
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information

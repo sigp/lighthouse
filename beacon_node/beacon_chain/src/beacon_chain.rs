@@ -23,6 +23,7 @@ use crate::chain_config::ChainConfig;
 use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, DataAvailabilityChecker,
 };
+use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
@@ -51,8 +52,8 @@ use crate::observed_aggregates::{
 use crate::observed_attesters::{
     ObservedAggregators, ObservedAttesters, ObservedSyncAggregators, ObservedSyncContributors,
 };
-use crate::observed_blob_sidecars::ObservedBlobSidecars;
 use crate::observed_block_producers::ObservedBlockProducers;
+use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
@@ -426,7 +427,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of which validators have proposed blocks for each slot.
     pub observed_block_producers: RwLock<ObservedBlockProducers<T::EthSpec>>,
     /// Maintains a record of blob sidecars seen over the gossip network.
-    pub observed_blob_sidecars: RwLock<ObservedBlobSidecars<T::EthSpec>>,
+    pub observed_blob_sidecars: RwLock<ObservedDataSidecars<BlobSidecar<T::EthSpec>>>,
+    /// Maintains a record of column sidecars seen over the gossip network.
+    pub observed_column_sidecars: RwLock<ObservedDataSidecars<DataColumnSidecar<T::EthSpec>>>,
     /// Maintains a record of slashable message seen over the gossip network or RPC.
     pub observed_slashable: RwLock<ObservedSlashable<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
@@ -2118,6 +2121,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    pub fn verify_data_column_sidecar_for_gossip(
+        self: &Arc<Self>,
+        data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
+        subnet_id: u64,
+    ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError<T::EthSpec>> {
+        metrics::inc_counter(&metrics::BLOBS_COLUMN_SIDECAR_PROCESSING_REQUESTS);
+        let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
+        GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, self).map(|v| {
+            metrics::inc_counter(&metrics::DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES);
+            v
+        })
+    }
+
     pub fn verify_blob_sidecar_for_gossip(
         self: &Arc<Self>,
         blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
@@ -2964,6 +2980,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.remove_notified(&block_root, r)
     }
 
+    /// Cache the data columns in the processing cache, process it, then evict it from the cache if it was
+    /// imported or errors.
+    pub async fn process_gossip_data_columns(
+        self: &Arc<Self>,
+        data_columns: Vec<GossipVerifiedDataColumn<T>>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        let Ok(block_root) = data_columns
+            .iter()
+            .map(|c| c.block_root())
+            .unique()
+            .exactly_one()
+        else {
+            return Err(BlockError::InternalError(
+                "Columns should be from the same block".to_string(),
+            ));
+        };
+
+        // If this block has already been imported to forkchoice it must have been available, so
+        // we don't need to process its samples again.
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            return Err(BlockError::BlockIsAlreadyKnown(block_root));
+        }
+
+        let r = self
+            .check_gossip_data_columns_availability_and_import(data_columns)
+            .await;
+        self.remove_notified_custody_columns(&block_root, r)
+    }
+
     /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
     pub async fn process_rpc_blobs(
@@ -3001,6 +3050,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Remove any block components from the *processing cache* if we no longer require them. If the
     /// block was imported full or erred, we no longer require them.
     fn remove_notified(
+        &self,
+        block_root: &Hash256,
+        r: Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        let has_missing_components =
+            matches!(r, Ok(AvailabilityProcessingStatus::MissingComponents(_, _)));
+        if !has_missing_components {
+            self.reqresp_pre_import_cache.write().remove(block_root);
+        }
+        r
+    }
+
+    /// Remove any block components from the *processing cache* if we no longer require them. If the
+    /// block was imported full or erred, we no longer require them.
+    fn remove_notified_custody_columns(
         &self,
         block_root: &Hash256,
         r: Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>>,
@@ -3253,6 +3317,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slasher.accept_block_header(blob.signed_block_header());
         }
         let availability = self.data_availability_checker.put_gossip_blob(blob)?;
+
+        self.process_availability(slot, availability).await
+    }
+
+    /// Checks if the provided data column can make any cached blocks available, and imports immediately
+    /// if so, otherwise caches the data column in the data availability checker.
+    async fn check_gossip_data_columns_availability_and_import(
+        self: &Arc<Self>,
+        data_columns: Vec<GossipVerifiedDataColumn<T>>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        if let Some(slasher) = self.slasher.as_ref() {
+            for data_colum in &data_columns {
+                slasher.accept_block_header(data_colum.signed_block_header());
+            }
+        }
+
+        let Ok(slot) = data_columns.iter().map(|c| c.slot()).unique().exactly_one() else {
+            return Err(BlockError::InternalError(
+                "Columns for the same block should have matching slot".to_string(),
+            ));
+        };
+
+        let availability = self
+            .data_availability_checker
+            .put_gossip_data_columns(data_columns)?;
 
         self.process_availability(slot, availability).await
     }

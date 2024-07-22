@@ -37,6 +37,7 @@ pub fn run<E: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         next_fork_version: genesis_fork_version,
         next_fork_epoch: Epoch::max_value(), // FAR_FUTURE_EPOCH
     };
+
     let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id)
         .map_err(|e| format!("Unable to create ENR: {:?}", e))?;
 
