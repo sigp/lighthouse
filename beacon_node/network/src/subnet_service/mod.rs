@@ -66,6 +66,7 @@ pub struct ExactSubnet {
 }
 
 /// The enum used to group all kinds of validator subscriptions
+#[derive(Debug, Clone, PartialEq)]
 pub enum Subscription {
     Attestation(ValidatorSubscription),
     SyncCommittee(SyncCommitteeSubscription),
@@ -198,31 +199,13 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 
     /// Return count of all currently subscribed subnets (long-lived **and** short-lived).
     #[cfg(test)]
-    pub fn subscription_count(&self) -> usize {
-        if self.subscribe_all_subnets {
-            self.beacon_chain.spec.attestation_subnet_count as usize
-        } else {
-            self.subscriptions
-                .iter()
-                .filter(|subnet| matches!(subnet, Subnet::Attestation(_)))
-                .collect::<HashSet<_>>()
-                .len()
-        }
+    pub fn subscriptions(&self) -> impl Iterator<Item = &Subnet> {
+        self.subscriptions.iter()
     }
 
-    /// Return count of all currently subscribed sync committee subnets.
     #[cfg(test)]
-    pub fn sync_committee_subscription_count(&self) -> usize {
-        use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
-        if self.subscribe_all_subnets {
-            SYNC_COMMITTEE_SUBNET_COUNT as usize
-        } else {
-            self.subscriptions
-                .iter()
-                .filter(|subnet| matches!(subnet, Subnet::SyncCommittee(_)))
-                .collect::<HashSet<_>>()
-                .len()
-        }
+    pub fn permanent_subscriptions(&self) -> impl Iterator<Item = &Subnet> {
+        self.permanent_attestation_subscriptions.iter()
     }
 
     /// Returns whether we are subscribed to a subnet for testing purposes.
@@ -326,23 +309,17 @@ impl<T: BeaconChainTypes> SubnetService<T> {
                             }
                         };
 
-                    let spec = &self.beacon_chain.spec;
-                    let sync_committee_duration_in_slots = spec
-                        .epochs_per_sync_committee_period
-                        .as_u64()
-                        .saturating_mul(T::EthSpec::slots_per_epoch());
-
                     for subnet_id in subnet_ids {
                         let subnet = Subnet::SyncCommittee(subnet_id);
-                        let slot_when_required = subscription
+                        let slot_required_until = subscription
                             .until_epoch
                             .start_slot(T::EthSpec::slots_per_epoch());
-                        subnets_to_discover.insert(subnet.clone(), slot_when_required);
+                        subnets_to_discover.insert(subnet, slot_required_until);
 
-                        let Some(duration_to_unsubscribe) =
-                            self.beacon_chain.slot_clock.duration_to_slot(
-                                slot_when_required + sync_committee_duration_in_slots,
-                            )
+                        let Some(duration_to_unsubscribe) = self
+                            .beacon_chain
+                            .slot_clock
+                            .duration_to_slot(slot_required_until)
                         else {
                             warn!(self.log, "Subscription to sync subnet error"; "error" => "Unable to determine duration to unsubscription slot", "validator_index" => subscription.validator_index);
                             continue;
@@ -359,12 +336,15 @@ impl<T: BeaconChainTypes> SubnetService<T> {
                                 "Sync committee subscription is past expiration";
                                 "subnet" => ?subnet,
                                 "current_slot" => ?current_slot,
-                                "unsubscribe_slot" => ?slot_when_required + sync_committee_duration_in_slots,
-
-                            );
+                                "unsubscribe_slot" => ?slot_required_until,                           );
+                            continue;
                         }
 
-                        self.subscribe_to_sync_subnet(subnet, duration_to_unsubscribe);
+                        self.subscribe_to_sync_subnet(
+                            subnet,
+                            duration_to_unsubscribe,
+                            slot_required_until,
+                        );
                     }
                 }
             }
@@ -516,7 +496,12 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     }
 
     /// Adds a subscription event and an associated unsubscription event if required.
-    fn subscribe_to_sync_subnet(&mut self, subnet: Subnet, duration_to_unsubscribe: Duration) {
+    fn subscribe_to_sync_subnet(
+        &mut self,
+        subnet: Subnet,
+        duration_to_unsubscribe: Duration,
+        slot_required_until: Slot,
+    ) {
         // Return if we have subscribed to all subnets
         if self.subscribe_all_subnets {
             return;
@@ -540,7 +525,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             self.subscriptions
                 .insert_at(subnet, duration_to_unsubscribe);
             // We are not currently subscribed and have no waiting subscription, create one
-            debug!(self.log, "Subscribing to subnet"; "subnet" => ?subnet, "until" => ?duration_to_unsubscribe);
+            debug!(self.log, "Subscribing to subnet"; "subnet" => ?subnet, "until" => ?slot_required_until);
             self.events
                 .push_back(SubnetServiceMessage::Subscribe(subnet));
 
