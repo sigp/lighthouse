@@ -807,12 +807,12 @@ mod test {
         let mut state_roots = Vec::new();
         // Get enough blocks to fill the cache to capacity, ensuring all blocks have blobs
         while pending_blocks.len() < capacity {
-            let (pending_block, _) = availability_pending_block(&harness).await;
+            let (mut pending_block, _) = availability_pending_block(&harness).await;
             if pending_block.num_blobs_expected() == 0 {
                 // we need blocks with blobs
                 continue;
             }
-            let state_root = pending_block.import_data.state.canonical_root();
+            let state_root = pending_block.import_data.state.canonical_root().unwrap();
             states.push(pending_block.import_data.state.clone());
             pending_blocks.push_back(pending_block);
             state_roots.push(state_root);

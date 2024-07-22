@@ -91,7 +91,7 @@ impl Environment {
     }
 
     pub fn filenames(&self, config: &Config) -> Vec<PathBuf> {
-        vec![config.database_path.join(BASE_DB)]
+        vec![config.database_path.join(REDB_DATA_FILENAME)]
     }
 
     pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
