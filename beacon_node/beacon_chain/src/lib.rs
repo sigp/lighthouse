@@ -19,6 +19,7 @@ pub mod canonical_head;
 pub mod capella_readiness;
 pub mod chain_config;
 pub mod data_availability_checker;
+mod data_column_verification;
 pub mod deneb_readiness;
 mod early_attester_cache;
 pub mod electra_readiness;
