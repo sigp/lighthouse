@@ -1,7 +1,7 @@
 use derivative::Derivative;
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
-use types::data_column_sidecar::DataColumnSidecar;
+use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar};
 use types::EthSpec;
 
 /// Data column that we must custody and has completed kzg verification
@@ -13,7 +13,7 @@ pub struct KzgVerifiedCustodyDataColumn<E: EthSpec> {
 }
 
 impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
-    pub fn as_data_column(&self) -> &DataColumnSidecar<E> {
-        &self.data
+    pub fn index(&self) -> ColumnIndex {
+        self.data.index
     }
 }
