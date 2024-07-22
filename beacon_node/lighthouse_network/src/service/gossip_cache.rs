@@ -22,6 +22,8 @@ pub struct GossipCache {
     beacon_block: Option<Duration>,
     /// Timeout for blobs.
     blob_sidecar: Option<Duration>,
+    /// Timeout for data columns.
+    data_column_sidecar: Option<Duration>,
     /// Timeout for aggregate attestations.
     aggregates: Option<Duration>,
     /// Timeout for attestations.
@@ -51,6 +53,8 @@ pub struct GossipCacheBuilder {
     beacon_block: Option<Duration>,
     /// Timeout for blob sidecars.
     blob_sidecar: Option<Duration>,
+    /// Timeout for data column sidecars.
+    data_column_sidecar: Option<Duration>,
     /// Timeout for aggregate attestations.
     aggregates: Option<Duration>,
     /// Timeout for attestations.
@@ -152,6 +156,7 @@ impl GossipCacheBuilder {
             default_timeout,
             beacon_block,
             blob_sidecar,
+            data_column_sidecar,
             aggregates,
             attestation,
             voluntary_exit,
@@ -168,6 +173,7 @@ impl GossipCacheBuilder {
             topic_msgs: HashMap::default(),
             beacon_block: beacon_block.or(default_timeout),
             blob_sidecar: blob_sidecar.or(default_timeout),
+            data_column_sidecar: data_column_sidecar.or(default_timeout),
             aggregates: aggregates.or(default_timeout),
             attestation: attestation.or(default_timeout),
             voluntary_exit: voluntary_exit.or(default_timeout),
@@ -194,7 +200,7 @@ impl GossipCache {
         let expire_timeout = match topic.kind() {
             GossipKind::BeaconBlock => self.beacon_block,
             GossipKind::BlobSidecar(_) => self.blob_sidecar,
-            GossipKind::DataColumnSidecar(_) => self.blob_sidecar,
+            GossipKind::DataColumnSidecar(_) => self.data_column_sidecar,
             GossipKind::BeaconAggregateAndProof => self.aggregates,
             GossipKind::Attestation(_) => self.attestation,
             GossipKind::VoluntaryExit => self.voluntary_exit,

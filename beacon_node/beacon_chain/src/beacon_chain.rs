@@ -2124,10 +2124,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         subnet_id: u64,
     ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError<T::EthSpec>> {
-        metrics::inc_counter(&metrics::BLOBS_COLUMN_SIDECAR_PROCESSING_REQUESTS);
+        metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
         GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, self).map(|v| {
-            metrics::inc_counter(&metrics::DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES);
+            metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
             v
         })
     }
