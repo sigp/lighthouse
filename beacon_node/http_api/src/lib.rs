@@ -2888,7 +2888,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 .map_err(warp_utils::reject::beacon_chain_error)?;
 
                             let syncing_data = api_types::SyncingData {
-                                is_syncing: network_globals.sync_state.read().is_syncing(),
+                                is_syncing: !network_globals.sync_state.read().is_synced(),
                                 is_optimistic: Some(is_optimistic),
                                 el_offline: Some(el_offline),
                                 head_slot,
