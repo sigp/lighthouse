@@ -9,7 +9,7 @@ name = "benches"
 harness = false
 
 [dependencies]
-alloy-primitives = "0.7.7"
+alloy-primitives = { workspace = true, features = ["rlp"] }
 merkle_proof = { workspace = true }
 bls = { workspace = true, features = ["arbitrary"] }
 kzg = { workspace = true }
