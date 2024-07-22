@@ -152,6 +152,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn put_rpc_blobs(
         &self,
         block_root: Hash256,
+        epoch: Epoch,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let Some(kzg) = self.kzg.as_ref() else {
@@ -168,7 +169,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 .map_err(AvailabilityCheckError::Kzg)?;
 
         self.availability_cache
-            .put_kzg_verified_blobs(block_root, verified_blobs)
+            .put_kzg_verified_blobs(block_root, epoch, verified_blobs)
     }
 
     /// Check if we've cached other blobs for this block. If it completes a set and we also
@@ -180,8 +181,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         gossip_blob: GossipVerifiedBlob<T>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        self.availability_cache
-            .put_kzg_verified_blobs(gossip_blob.block_root(), vec![gossip_blob.into_inner()])
+        self.availability_cache.put_kzg_verified_blobs(
+            gossip_blob.block_root(),
+            gossip_blob.epoch(),
+            vec![gossip_blob.into_inner()],
+        )
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
