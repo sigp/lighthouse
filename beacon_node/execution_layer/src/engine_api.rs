@@ -15,10 +15,8 @@ use ethers_core::utils::rlp;
 use ethers_core::utils::rlp::{Decodable, Rlp};
 use http::deposit_methods::RpcError;
 pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
-use jsonrpsee_core::client::error::Error as JsonRpseeError;
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
-use reth_ipc::client::IpcError;
 use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 use superstruct::superstruct;
@@ -36,7 +34,6 @@ use types::{Graffiti, GRAFFITI_BYTES_LEN};
 
 pub mod auth;
 pub mod http;
-pub mod ipc;
 pub mod json_structures;
 mod new_payload_request;
 
@@ -77,8 +74,6 @@ pub enum Error {
     UnsupportedForkVariant(String),
     InvalidClientVersion(String),
     RlpDecoderError(rlp::DecoderError),
-    JsonRpsee(JsonRpseeError),
-    Ipc(IpcError),
 }
 
 impl From<reqwest::Error> for Error {
@@ -121,18 +116,6 @@ impl From<rlp::DecoderError> for Error {
 impl From<ssz_types::Error> for Error {
     fn from(e: ssz_types::Error) -> Self {
         Error::SszError(e)
-    }
-}
-
-impl From<JsonRpseeError> for Error {
-    fn from(e: JsonRpseeError) -> Self {
-        Error::JsonRpsee(e)
-    }
-}
-
-impl From<IpcError> for Error {
-    fn from(e: IpcError) -> Self {
-        Error::Ipc(e)
     }
 }
 

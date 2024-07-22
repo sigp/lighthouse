@@ -51,7 +51,4 @@ eth2_network_config = { workspace = true }
 alloy-rlp = "0.3"
 alloy-consensus = { git = "https://github.com/alloy-rs/alloy.git", rev = "64feb9bc51c8021ea08535694c44de84222f474e" }
 reth-primitives = { git = "https://github.com/paradigmxyz/reth.git", rev = "5943c4707d3a3a7debd6bd0f4ab27d3f5cd657a5" }
-reth-ipc = { git = "https://github.com/paradigmxyz/reth.git", rev = "5943c4707d3a3a7debd6bd0f4ab27d3f5cd657a5" }
-jsonrpsee = "0.22"
-jsonrpsee-core = "0.22"
 lighthouse_version = { workspace = true }
