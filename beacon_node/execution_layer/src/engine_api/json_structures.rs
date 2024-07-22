@@ -74,7 +74,9 @@ pub struct JsonPayloadIdResponse {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(bound = "E: EthSpec", rename_all = "camelCase", untagged)]
 pub struct JsonExecutionPayload<E: EthSpec> {
+    
     pub parent_hash: ExecutionBlockHash,
+    #[serde(with = "serde_utils::address_hex")]
     pub fee_recipient: Address,
     pub state_root: Hash256,
     pub receipts_root: Hash256,
@@ -93,6 +95,7 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     pub extra_data: VariableList<u8, E::MaxExtraDataBytes>,
     #[serde(with = "serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
+    
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
@@ -437,6 +440,7 @@ pub struct JsonWithdrawal {
     pub index: u64,
     #[serde(with = "serde_utils::u64_hex_be")]
     pub validator_index: u64,
+    #[serde(with = "serde_utils::address_hex")]
     pub address: Address,
     #[serde(with = "serde_utils::u64_hex_be")]
     pub amount: u64,
@@ -479,6 +483,7 @@ pub struct JsonPayloadAttributes {
     #[serde(with = "serde_utils::u64_hex_be")]
     pub timestamp: u64,
     pub prev_randao: Hash256,
+    #[serde(with = "serde_utils::address_hex")]
     pub suggested_fee_recipient: Address,
     #[superstruct(only(V2, V3))]
     pub withdrawals: Vec<JsonWithdrawal>,
@@ -567,8 +572,11 @@ impl<E: EthSpec> From<JsonBlobsBundleV1<E>> for BlobsBundle<E> {
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkchoiceStateV1 {
+    
     pub head_block_hash: ExecutionBlockHash,
+    
     pub safe_block_hash: ExecutionBlockHash,
+    
     pub finalized_block_hash: ExecutionBlockHash,
 }
 
@@ -767,6 +775,7 @@ impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<
 pub struct TransitionConfigurationV1 {
     #[serde(with = "serde_utils::u256_hex_be")]
     pub terminal_total_difficulty: Uint256,
+    
     pub terminal_block_hash: ExecutionBlockHash,
     #[serde(with = "serde_utils::u64_hex_be")]
     pub terminal_block_number: u64,

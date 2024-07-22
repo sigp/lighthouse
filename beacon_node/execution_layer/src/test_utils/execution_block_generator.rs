@@ -107,7 +107,9 @@ impl<E: EthSpec> Block<E> {
 #[serde(rename_all = "camelCase")]
 pub struct PoWBlock {
     pub block_number: u64,
+    
     pub block_hash: ExecutionBlockHash,
+    
     pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
     pub timestamp: u64,

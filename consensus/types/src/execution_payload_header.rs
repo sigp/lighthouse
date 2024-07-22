@@ -45,8 +45,10 @@ use tree_hash_derive::TreeHash;
 #[ssz(enum_behaviour = "transparent")]
 pub struct ExecutionPayloadHeader<E: EthSpec> {
     #[superstruct(getter(copy))]
+    
     pub parent_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
+    #[serde(with = "serde_utils::address_hex")]
     pub fee_recipient: Address,
     #[superstruct(getter(copy))]
     pub state_root: Hash256,
@@ -74,6 +76,7 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     #[superstruct(getter(copy))]
     pub base_fee_per_gas: Uint256,
     #[superstruct(getter(copy))]
+    
     pub block_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
     pub transactions_root: Hash256,
