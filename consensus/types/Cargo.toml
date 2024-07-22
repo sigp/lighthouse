@@ -9,6 +9,7 @@ name = "benches"
 harness = false
 
 [dependencies]
+alloy-primitives = "0.7.7"
 merkle_proof = { workspace = true }
 bls = { workspace = true, features = ["arbitrary"] }
 kzg = { workspace = true }
