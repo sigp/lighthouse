@@ -2886,7 +2886,7 @@ name = "execution_layer"
 version = "0.1.0"
 dependencies = [
  "alloy-consensus",
- "alloy-primitives 0.6.4",
+ "alloy-primitives 0.7.7",
  "alloy-rlp",
  "arc-swap",
  "builder_client",
