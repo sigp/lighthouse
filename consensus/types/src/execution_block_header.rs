@@ -150,12 +150,11 @@ impl<'a> From<&'a ExecutionBlockHeader> for EncodableExecutionBlockHeader<'a> {
     }
 }
 
-
 // TODO(alloy) this shim can be removed once we fully migrate
 // from ethereum types to alloy primitives
 struct U256Shim(Uint256);
 
-impl From<U256Shim> for alloy_primitives::U256  {
+impl From<U256Shim> for alloy_primitives::U256 {
     fn from(value: U256Shim) -> Self {
         let mut buffer: [u8; 32] = [0; 32];
         value.0.to_little_endian(&mut buffer);
