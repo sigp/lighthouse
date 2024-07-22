@@ -33,7 +33,7 @@ pub mod contribution_and_proof;
 pub mod deposit;
 pub mod deposit_data;
 pub mod deposit_message;
-pub mod deposit_receipt;
+pub mod deposit_request;
 pub mod deposit_tree_snapshot;
 pub mod enr_fork_id;
 pub mod eth1_data;
@@ -84,7 +84,6 @@ pub mod config_and_preset;
 pub mod execution_block_header;
 pub mod fork_context;
 pub mod participation_flags;
-pub mod participation_list;
 pub mod payload;
 pub mod preset;
 pub mod slot_epoch;
@@ -105,6 +104,7 @@ pub mod slot_data;
 pub mod sqlite;
 
 pub mod blob_sidecar;
+pub mod data_column_sidecar;
 pub mod light_client_header;
 pub mod non_zero_usize;
 pub mod runtime_var_list;
@@ -112,11 +112,19 @@ pub mod runtime_var_list;
 use ethereum_types::{H160, H256};
 
 pub use crate::activation_queue::ActivationQueue;
-pub use crate::aggregate_and_proof::AggregateAndProof;
-pub use crate::attestation::{Attestation, Error as AttestationError};
+pub use crate::aggregate_and_proof::{
+    AggregateAndProof, AggregateAndProofBase, AggregateAndProofElectra, AggregateAndProofRef,
+};
+pub use crate::attestation::{
+    Attestation, AttestationBase, AttestationElectra, AttestationRef, AttestationRefMut,
+    Error as AttestationError,
+};
 pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
-pub use crate::attester_slashing::AttesterSlashing;
+pub use crate::attester_slashing::{
+    AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingOnDisk,
+    AttesterSlashingRef, AttesterSlashingRefOnDisk,
+};
 pub use crate::beacon_block::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockCapella,
     BeaconBlockDeneb, BeaconBlockElectra, BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock,
@@ -142,7 +150,7 @@ pub use crate::contribution_and_proof::ContributionAndProof;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;
 pub use crate::deposit_message::DepositMessage;
-pub use crate::deposit_receipt::DepositReceipt;
+pub use crate::deposit_request::DepositRequest;
 pub use crate::deposit_tree_snapshot::{DepositTreeSnapshot, FinalizedExecutionBlock};
 pub use crate::enr_fork_id::EnrForkId;
 pub use crate::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
@@ -167,28 +175,31 @@ pub use crate::fork_name::{ForkName, InconsistentFork};
 pub use crate::fork_versioned_response::{ForkVersionDeserialize, ForkVersionedResponse};
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
-pub use crate::indexed_attestation::IndexedAttestation;
+pub use crate::indexed_attestation::{
+    IndexedAttestation, IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationRef,
+};
 pub use crate::light_client_bootstrap::{
     LightClientBootstrap, LightClientBootstrapAltair, LightClientBootstrapCapella,
-    LightClientBootstrapDeneb,
+    LightClientBootstrapDeneb, LightClientBootstrapElectra,
 };
 pub use crate::light_client_finality_update::{
     LightClientFinalityUpdate, LightClientFinalityUpdateAltair, LightClientFinalityUpdateCapella,
-    LightClientFinalityUpdateDeneb,
+    LightClientFinalityUpdateDeneb, LightClientFinalityUpdateElectra,
 };
 pub use crate::light_client_header::{
     LightClientHeader, LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
+    LightClientHeaderElectra,
 };
 pub use crate::light_client_optimistic_update::{
     LightClientOptimisticUpdate, LightClientOptimisticUpdateAltair,
     LightClientOptimisticUpdateCapella, LightClientOptimisticUpdateDeneb,
+    LightClientOptimisticUpdateElectra,
 };
 pub use crate::light_client_update::{
     Error as LightClientError, LightClientUpdate, LightClientUpdateAltair,
-    LightClientUpdateCapella, LightClientUpdateDeneb,
+    LightClientUpdateCapella, LightClientUpdateDeneb, LightClientUpdateElectra,
 };
 pub use crate::participation_flags::ParticipationFlags;
-pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
     BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadRef, BlockType, ExecPayload,
@@ -208,7 +219,9 @@ pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
 pub use crate::runtime_var_list::RuntimeVariableList;
 pub use crate::selection_proof::SelectionProof;
 pub use crate::shuffling_id::AttestationShufflingId;
-pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
+pub use crate::signed_aggregate_and_proof::{
+    SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
+};
 pub use crate::signed_beacon_block::{
     ssz_tagged_signed_beacon_block, ssz_tagged_signed_beacon_block_arc, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,

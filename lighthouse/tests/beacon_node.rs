@@ -267,8 +267,18 @@ fn always_prepare_payload_default() {
 
 #[test]
 fn always_prepare_payload_override() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
         .flag("always-prepare-payload", None)
+        .flag(
+            "suggested-fee-recipient",
+            Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
+        )
+        .flag("execution-endpoint", Some("http://localhost:8551/"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
         .run_with_zero_port()
         .with_config(|config| assert!(config.chain.always_prepare_payload));
 }
@@ -2242,6 +2252,8 @@ fn slasher_broadcast_flag_false() {
             assert!(!slasher_config.broadcast);
         });
 }
+
+#[cfg(all(feature = "lmdb"))]
 #[test]
 fn slasher_backend_override_to_default() {
     // Hard to test this flag because all but one backend is disabled by default and the backend

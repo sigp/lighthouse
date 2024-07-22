@@ -1,4 +1,5 @@
 use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
+use crate::light_client_header::LightClientHeaderElectra;
 use crate::{
     beacon_state, test_utils::TestRandom, BeaconBlock, BeaconBlockHeader, BeaconState, ChainSpec,
     ForkName, ForkVersionDeserialize, LightClientHeaderAltair, LightClientHeaderCapella,
@@ -76,7 +77,7 @@ impl From<milhouse::Error> for Error {
 /// or to sync up to the last committee period, we need to have one ready for each ALTAIR period
 /// we go over, note: there is no need to keep all of the updates from [ALTAIR_PERIOD, CURRENT_PERIOD].
 #[superstruct(
-    variants(Altair, Capella, Deneb),
+    variants(Altair, Capella, Deneb, Electra),
     variant_attributes(
         derive(
             Debug,
@@ -111,6 +112,8 @@ pub struct LightClientUpdate<E: EthSpec> {
     pub attested_header: LightClientHeaderCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "attested_header_deneb"))]
     pub attested_header: LightClientHeaderDeneb<E>,
+    #[superstruct(only(Electra), partial_getter(rename = "attested_header_electra"))]
+    pub attested_header: LightClientHeaderElectra<E>,
     /// The `SyncCommittee` used in the next period.
     pub next_sync_committee: Arc<SyncCommittee<E>>,
     /// Merkle proof for next sync committee
@@ -122,6 +125,8 @@ pub struct LightClientUpdate<E: EthSpec> {
     pub finalized_header: LightClientHeaderCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "finalized_header_deneb"))]
     pub finalized_header: LightClientHeaderDeneb<E>,
+    #[superstruct(only(Electra), partial_getter(rename = "finalized_header_electra"))]
+    pub finalized_header: LightClientHeaderElectra<E>,
     /// Merkle proof attesting finalized header.
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
     /// current sync aggreggate
@@ -163,7 +168,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
         let signature_period = block.epoch().sync_committee_period(chain_spec)?;
         // Compute and validate attested header.
         let mut attested_header = attested_state.latest_block_header().clone();
-        attested_header.state_root = attested_state.tree_hash_root();
+        attested_header.state_root = attested_state.update_tree_hash_cache()?;
         let attested_period = attested_header
             .slot
             .epoch(E::slots_per_epoch())
@@ -221,7 +226,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
                     signature_slot: block.slot(),
                 })
             }
-            ForkName::Deneb | ForkName::Electra => {
+            ForkName::Deneb => {
                 let attested_header =
                     LightClientHeaderDeneb::block_to_light_client_header(attested_block)?;
                 let finalized_header =
@@ -236,6 +241,23 @@ impl<E: EthSpec> LightClientUpdate<E> {
                     signature_slot: block.slot(),
                 })
             }
+            ForkName::Electra => {
+                let attested_header =
+                    LightClientHeaderElectra::block_to_light_client_header(attested_block)?;
+                let finalized_header =
+                    LightClientHeaderElectra::block_to_light_client_header(finalized_block)?;
+                Self::Electra(LightClientUpdateElectra {
+                    attested_header,
+                    next_sync_committee: attested_state.next_sync_committee()?.clone(),
+                    next_sync_committee_branch: FixedVector::new(next_sync_committee_branch)?,
+                    finalized_header,
+                    finality_branch: FixedVector::new(finality_branch)?,
+                    sync_aggregate: sync_aggregate.clone(),
+                    signature_slot: block.slot(),
+                })
+            } // To add a new fork, just append the new fork variant on the latest fork. Forks that
+              // have a distinct execution header will need a new LightClientUdpate variant only
+              // if you need to test or support lightclient usages
         };
 
         Ok(light_client_update)
@@ -247,9 +269,8 @@ impl<E: EthSpec> LightClientUpdate<E> {
                 Self::Altair(LightClientUpdateAltair::from_ssz_bytes(bytes)?)
             }
             ForkName::Capella => Self::Capella(LightClientUpdateCapella::from_ssz_bytes(bytes)?),
-            ForkName::Deneb | ForkName::Electra => {
-                Self::Deneb(LightClientUpdateDeneb::from_ssz_bytes(bytes)?)
-            }
+            ForkName::Deneb => Self::Deneb(LightClientUpdateDeneb::from_ssz_bytes(bytes)?),
+            ForkName::Electra => Self::Electra(LightClientUpdateElectra::from_ssz_bytes(bytes)?),
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientUpdate decoding for {fork_name} not implemented"

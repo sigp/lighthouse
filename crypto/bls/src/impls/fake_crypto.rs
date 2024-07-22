@@ -1,7 +1,9 @@
 use crate::{
     generic_aggregate_public_key::TAggregatePublicKey,
     generic_aggregate_signature::TAggregateSignature,
-    generic_public_key::{GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN},
+    generic_public_key::{
+        GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN, PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN,
+    },
     generic_secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
     generic_signature::{TSignature, SIGNATURE_BYTES_LEN},
     Error, Hash256, ZeroizeHash, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE,
@@ -46,10 +48,18 @@ impl TPublicKey for PublicKey {
         self.0
     }
 
+    fn serialize_uncompressed(&self) -> [u8; PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN] {
+        panic!("fake_crypto does not support uncompressed keys")
+    }
+
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         let mut pubkey = Self::infinity();
         pubkey.0[..].copy_from_slice(&bytes[0..PUBLIC_KEY_BYTES_LEN]);
         Ok(pubkey)
+    }
+
+    fn deserialize_uncompressed(_: &[u8]) -> Result<Self, Error> {
+        panic!("fake_crypto does not support uncompressed keys")
     }
 }
 

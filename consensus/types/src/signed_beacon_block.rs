@@ -244,7 +244,13 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
     /// This method is more efficient than generating each part separately as it reuses hashing.
     pub fn signed_block_header_and_kzg_commitments_proof(
         &self,
-    ) -> Result<(SignedBeaconBlockHeader, Vec<Hash256>), Error> {
+    ) -> Result<
+        (
+            SignedBeaconBlockHeader,
+            FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
+        ),
+        Error,
+    > {
         let proof = self.message().body().kzg_commitments_merkle_proof()?;
         let body_root = *proof.last().unwrap();
 
@@ -523,6 +529,7 @@ impl<E: EthSpec> SignedBeaconBlockElectra<E, BlindedPayload<E>> {
                             execution_payload: BlindedPayloadElectra { .. },
                             bls_to_execution_changes,
                             blob_kzg_commitments,
+                            consolidations,
                         },
                 },
             signature,
@@ -546,6 +553,7 @@ impl<E: EthSpec> SignedBeaconBlockElectra<E, BlindedPayload<E>> {
                     execution_payload: FullPayloadElectra { execution_payload },
                     bls_to_execution_changes,
                     blob_kzg_commitments,
+                    consolidations,
                 },
             },
             signature,

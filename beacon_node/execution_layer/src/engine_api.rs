@@ -3,7 +3,8 @@ use crate::http::{
     ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_GET_BLOBS_V1, ENGINE_GET_CLIENT_VERSION_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
-    ENGINE_GET_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
+    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
+    ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
 };
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
@@ -21,6 +22,7 @@ use reth_ipc::client::IpcError;
 use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 use superstruct::superstruct;
+use types::execution_payload::{DepositRequests, WithdrawalRequests};
 pub use types::{
     Address, BeaconBlockRef, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
     ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions, Uint256, VariableList,
@@ -43,6 +45,8 @@ pub use new_payload_request::{
     NewPayloadRequestDeneb, NewPayloadRequestElectra,
 };
 
+use self::json_structures::{JsonDepositRequest, JsonWithdrawalRequest};
+
 pub const LATEST_TAG: &str = "latest";
 
 pub type PayloadId = [u8; 8];
@@ -63,9 +67,10 @@ pub enum Error {
     ExecutionHeadBlockNotFound,
     ParentHashEqualsBlockHash(ExecutionBlockHash),
     PayloadIdUnavailable,
-    TransitionConfigurationMismatch,
     SszError(ssz_types::Error),
     DeserializeWithdrawals(ssz_types::Error),
+    DeserializeDepositRequests(ssz_types::Error),
+    DeserializeWithdrawalRequests(ssz_types::Error),
     BuilderApi(builder_client::Error),
     IncorrectStateVariant,
     RequiredMethodUnsupported(&'static str),
@@ -214,6 +219,10 @@ pub struct ExecutionBlockWithTransactions<E: EthSpec> {
     #[superstruct(only(Deneb, Electra))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
+    #[superstruct(only(Electra))]
+    pub deposit_requests: Vec<JsonDepositRequest>,
+    #[superstruct(only(Electra))]
+    pub withdrawal_requests: Vec<JsonWithdrawalRequest>,
 }
 
 impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for ExecutionBlockWithTransactions<E> {
@@ -321,6 +330,16 @@ impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for ExecutionBlockWithTransactions
                         .collect(),
                     blob_gas_used: block.blob_gas_used,
                     excess_blob_gas: block.excess_blob_gas,
+                    deposit_requests: block
+                        .deposit_requests
+                        .into_iter()
+                        .map(|deposit| deposit.into())
+                        .collect(),
+                    withdrawal_requests: block
+                        .withdrawal_requests
+                        .into_iter()
+                        .map(|withdrawal| withdrawal.into())
+                        .collect(),
                 })
             }
         };
@@ -543,6 +562,8 @@ impl<E: EthSpec> GetPayloadResponse<E> {
 pub struct ExecutionPayloadBodyV1<E: EthSpec> {
     pub transactions: Transactions<E>,
     pub withdrawals: Option<Withdrawals<E>>,
+    pub deposit_requests: Option<DepositRequests<E>>,
+    pub withdrawal_requests: Option<WithdrawalRequests<E>>,
 }
 
 impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
@@ -630,7 +651,14 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                 }
             }
             ExecutionPayloadHeader::Electra(header) => {
-                if let Some(withdrawals) = self.withdrawals {
+                let withdrawals_exist = self.withdrawals.is_some();
+                let deposit_requests_exist = self.deposit_requests.is_some();
+                let withdrawal_requests_exist = self.withdrawal_requests.is_some();
+                if let (Some(withdrawals), Some(deposit_requests), Some(withdrawal_requests)) = (
+                    self.withdrawals,
+                    self.deposit_requests,
+                    self.withdrawal_requests,
+                ) {
                     Ok(ExecutionPayload::Electra(ExecutionPayloadElectra {
                         parent_hash: header.parent_hash,
                         fee_recipient: header.fee_recipient,
@@ -649,14 +677,14 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                         withdrawals,
                         blob_gas_used: header.blob_gas_used,
                         excess_blob_gas: header.excess_blob_gas,
-                        // TODO(electra)
-                        deposit_receipts: <_>::default(),
-                        withdrawal_requests: <_>::default(),
+                        deposit_requests,
+                        withdrawal_requests,
                     }))
                 } else {
                     Err(format!(
-                        "block {} is post-capella but payload body doesn't have withdrawals",
-                        header.block_hash
+                        "block {} is post-electra but payload body doesn't have withdrawals/deposit_requests/withdrawal_requests \
+                        withdrawals: {}, deposit_requests: {}, withdrawal_requests: {}",
+                        header.block_hash, withdrawals_exist, deposit_requests_exist, withdrawal_requests_exist
                     ))
                 }
             }
@@ -669,6 +697,7 @@ pub struct EngineCapabilities {
     pub new_payload_v1: bool,
     pub new_payload_v2: bool,
     pub new_payload_v3: bool,
+    pub new_payload_v4: bool,
     pub forkchoice_updated_v1: bool,
     pub forkchoice_updated_v2: bool,
     pub forkchoice_updated_v3: bool,
@@ -677,6 +706,7 @@ pub struct EngineCapabilities {
     pub get_payload_v1: bool,
     pub get_payload_v2: bool,
     pub get_payload_v3: bool,
+    pub get_payload_v4: bool,
     pub get_client_version_v1: bool,
     pub get_blobs_v1: bool,
 }
@@ -692,6 +722,9 @@ impl EngineCapabilities {
         }
         if self.new_payload_v3 {
             response.push(ENGINE_NEW_PAYLOAD_V3);
+        }
+        if self.new_payload_v4 {
+            response.push(ENGINE_NEW_PAYLOAD_V4);
         }
         if self.forkchoice_updated_v1 {
             response.push(ENGINE_FORKCHOICE_UPDATED_V1);
@@ -716,6 +749,9 @@ impl EngineCapabilities {
         }
         if self.get_payload_v3 {
             response.push(ENGINE_GET_PAYLOAD_V3);
+        }
+        if self.get_payload_v4 {
+            response.push(ENGINE_GET_PAYLOAD_V4);
         }
         if self.get_client_version_v1 {
             response.push(ENGINE_GET_CLIENT_VERSION_V1);

@@ -341,6 +341,11 @@ macro_rules! test_suite {
                 .assert_single_message_verify(true)
         }
 
+        #[test]
+        fn deserialize_infinity_public_key() {
+            PublicKey::deserialize(&bls::INFINITY_PUBLIC_KEY).unwrap_err();
+        }
+
         /// A helper struct to make it easer to deal with `SignatureSet` lifetimes.
         struct OwnedSignatureSet {
             signature: AggregateSignature,

@@ -14,16 +14,8 @@ BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
-# List of features to use when building natively. Can be overridden via the environment.
-# No jemalloc on Windows
-ifeq ($(OS),Windows_NT)
-    FEATURES?=
-else
-    FEATURES?=jemalloc
-endif
-
 # List of features to use when cross-compiling. Can be overridden via the environment.
-CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,jemalloc
+CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,jemalloc
 
 # Cargo profile for Cross builds. Default is for local builds, CI uses an override.
 CROSS_PROFILE ?= release
@@ -182,8 +174,9 @@ test-network-%:
 # Run the tests in the `slasher` crate for all supported database backends.
 test-slasher:
 	cargo nextest run --release -p slasher --features "lmdb,$(TEST_FEATURES)"
+	cargo nextest run --release -p slasher --no-default-features --features "redb,$(TEST_FEATURES)"
 	cargo nextest run --release -p slasher --no-default-features --features "mdbx,$(TEST_FEATURES)"
-	cargo nextest run --release -p slasher --features "lmdb,mdbx,$(TEST_FEATURES)" # both backends enabled
+	cargo nextest run --release -p slasher --features "lmdb,mdbx,redb,$(TEST_FEATURES)" # all backends enabled
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:
@@ -229,7 +222,6 @@ lint:
 		-D clippy::manual_let_else \
 		-D warnings \
 		-A clippy::derive_partial_eq_without_eq \
-		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
 		-A clippy::vec-init-then-push \
 		-A clippy::question-mark \

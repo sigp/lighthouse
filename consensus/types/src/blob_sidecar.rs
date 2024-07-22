@@ -6,10 +6,7 @@ use crate::{
 use crate::{KzgProofs, SignedBeaconBlock};
 use bls::Signature;
 use derivative::Derivative;
-use kzg::{
-    Blob as KzgBlob, Kzg, KzgCommitment, KzgProof, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT,
-    FIELD_ELEMENTS_PER_BLOB,
-};
+use kzg::{Blob as KzgBlob, Kzg, KzgCommitment, KzgProof, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT};
 use merkle_proof::{merkle_root_from_branch, verify_merkle_proof, MerkleTreeError};
 use rand::Rng;
 use safe_arith::ArithError;
@@ -171,7 +168,7 @@ impl<E: EthSpec> BlobSidecar<E> {
         let kzg_commitment_inclusion_proof = signed_block
             .message()
             .body()
-            .complete_kzg_commitment_merkle_proof(index, &kzg_commitments_inclusion_proof)?;
+            .complete_kzg_commitment_merkle_proof(index, kzg_commitments_inclusion_proof)?;
 
         Ok(Self {
             index: index as u64,
@@ -252,13 +249,7 @@ impl<E: EthSpec> BlobSidecar<E> {
         rng.fill_bytes(&mut blob_bytes);
         // Ensure that the blob is canonical by ensuring that
         // each field element contained in the blob is < BLS_MODULUS
-        for i in 0..FIELD_ELEMENTS_PER_BLOB {
-            let Some(byte) = blob_bytes.get_mut(
-                i.checked_mul(BYTES_PER_FIELD_ELEMENT)
-                    .ok_or("overflow".to_string())?,
-            ) else {
-                return Err(format!("blob byte index out of bounds: {:?}", i));
-            };
+        for byte in blob_bytes.iter_mut().step_by(BYTES_PER_FIELD_ELEMENT) {
             *byte = 0;
         }
 
