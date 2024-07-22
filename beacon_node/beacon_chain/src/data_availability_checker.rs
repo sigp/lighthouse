@@ -95,8 +95,17 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         log: &Logger,
         spec: ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
-        let overflow_cache =
-            DataAvailabilityCheckerInner::new(OVERFLOW_LRU_CAPACITY, store, spec.clone())?;
+        // TODO(das): support supernode or custom custody requirement
+        let custody_subnet_count = spec.custody_requirement as usize;
+        let custody_column_count =
+            custody_subnet_count.saturating_mul(spec.data_columns_per_subnet());
+
+        let overflow_cache = DataAvailabilityCheckerInner::new(
+            OVERFLOW_LRU_CAPACITY,
+            store,
+            custody_column_count,
+            spec.clone(),
+        )?;
         Ok(Self {
             availability_cache: Arc::new(overflow_cache),
             slot_clock,
@@ -144,6 +153,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn put_rpc_blobs(
         &self,
         block_root: Hash256,
+        epoch: Epoch,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let Some(kzg) = self.kzg.as_ref() else {
@@ -160,7 +170,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 .map_err(AvailabilityCheckError::Kzg)?;
 
         self.availability_cache
-            .put_kzg_verified_blobs(block_root, verified_blobs)
+            .put_kzg_verified_blobs(block_root, epoch, verified_blobs)
     }
 
     /// Check if we've cached other blobs for this block. If it completes a set and we also
@@ -172,8 +182,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         gossip_blob: GossipVerifiedBlob<T>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        self.availability_cache
-            .put_kzg_verified_blobs(gossip_blob.block_root(), vec![gossip_blob.into_inner()])
+        self.availability_cache.put_kzg_verified_blobs(
+            gossip_blob.block_root(),
+            gossip_blob.epoch(),
+            vec![gossip_blob.into_inner()],
+        )
     }
 
     pub fn put_gossip_data_columns(

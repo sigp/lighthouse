@@ -209,6 +209,20 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     }
 }
 
+/// Data column that we must custody and has completed kzg verification
+#[derive(Debug, Derivative, Clone, Encode, Decode)]
+#[derivative(PartialEq, Eq)]
+#[ssz(struct_behaviour = "transparent")]
+pub struct KzgVerifiedCustodyDataColumn<E: EthSpec> {
+    data: Arc<DataColumnSidecar<E>>,
+}
+
+impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
+    pub fn index(&self) -> ColumnIndex {
+        self.data.index
+    }
+}
+
 /// Complete kzg verification for a `DataColumnSidecar`.
 ///
 /// Returns an error if the kzg verification check fails.
