@@ -3,7 +3,6 @@
 use super::*;
 use crate::auth::Auth;
 use crate::json_structures::*;
-use crate::versioned_hashes::BlobTransactionId;
 use lazy_static::lazy_static;
 use lighthouse_version::{COMMIT_PREFIX, VERSION};
 use reqwest::header::CONTENT_TYPE;
@@ -710,9 +709,9 @@ impl HttpJsonRpc {
 
     pub async fn get_blobs<E: EthSpec>(
         &self,
-        blob_ids: Vec<BlobTransactionId>,
-    ) -> Result<GetBlobsResponse<E>, Error> {
-        let params = json!([blob_ids]);
+        versioned_hashes: Vec<Hash256>,
+    ) -> Result<Vec<Option<BlobAndProofV1<E>>>, Error> {
+        let params = json!([versioned_hashes]);
 
         self.rpc_request(
             ENGINE_GET_BLOBS_V1,

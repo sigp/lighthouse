@@ -4,9 +4,8 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::json_structures::GetBlobsResponse;
+use crate::json_structures::BlobAndProofV1;
 use crate::payload_cache::PayloadCache;
-use crate::versioned_hashes::BlobTransactionId;
 use arc_swap::ArcSwapOption;
 use auth::{strip_prefix, Auth, JwtKey};
 pub use block_hash::calculate_execution_block_hash;
@@ -1850,10 +1849,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
     pub async fn get_blobs(
         &self,
-        query: Vec<BlobTransactionId>,
-    ) -> Result<GetBlobsResponse<E>, Error> {
-        // FIXME(sproul): try IPC again?
-        // .ipc_request(|ipc| ipc.get_blobs(query))
+        query: Vec<Hash256>,
+    ) -> Result<Vec<Option<BlobAndProofV1<E>>>, Error> {
         self.engine()
             .request(|engine| async move { engine.api.get_blobs(query).await })
             .await

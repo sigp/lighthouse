@@ -68,7 +68,6 @@ use crate::{
 };
 use derivative::Derivative;
 use eth2::types::{BlockGossip, EventKind, PublishBlockRequest};
-use execution_layer::versioned_hashes::extract_blob_transaction_ids;
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
@@ -79,7 +78,9 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
-use state_processing::per_block_processing::{errors::IntoWithIndex, is_merge_transition_block};
+use state_processing::per_block_processing::{
+    deneb::kzg_commitment_to_versioned_hash, errors::IntoWithIndex, is_merge_transition_block,
+};
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
@@ -1323,7 +1324,18 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             let block = blob_block;
             let chain = blob_chain;
 
-            if !block.message().body().has_blobs() {
+            let versioned_hashes =
+                if let Ok(kzg_commitments) = block.message().body().blob_kzg_commitments() {
+                    kzg_commitments
+                        .iter()
+                        .map(kzg_commitment_to_versioned_hash)
+                        .collect()
+                } else {
+                    vec![]
+                };
+            let num_blobs = versioned_hashes.len();
+
+            if versioned_hashes.is_empty() {
                 debug!(chain.log, "Blobs from EL - none required");
                 return Ok(());
             }
@@ -1332,78 +1344,52 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 .execution_layer
                 .as_ref()
                 .ok_or(BeaconChainError::ExecutionLayerMissing)?;
-            let execution_payload = block.message().execution_payload()?;
-            let Some(transactions) = execution_payload.transactions() else {
-                debug!(chain.log, "Blobs from EL - blinded payload");
-                return Ok(());
-            };
-            debug!(chain.log, "Blobs from EL - decoding");
-            let blob_ids =
-                extract_blob_transaction_ids::<T::EthSpec>(transactions).map_err(|e| {
-                    BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(
-                        execution_layer::Error::VerifyingVersionedHashes(e),
-                    ))
-                })?;
-            let num_blob_tx = blob_ids.len();
 
             debug!(
                 chain.log,
                 "Blobs from EL - start request";
-                "num_blob_tx" => num_blob_tx,
+                "num_blobs" => num_blobs,
             );
-            let mut blob_index = 0;
-            let blob_start_indices = blob_ids
-                .iter()
-                .map(|blob_id| {
-                    let i = blob_index;
-                    blob_index += blob_id.versioned_hashes.len();
-                    i
-                })
-                .collect::<Vec<_>>();
-            let response = execution_layer.get_blobs(blob_ids).await.map_err(|e| {
-                BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(e))
-            })?;
-            let num_fetched_tx = response.blobs.iter().filter(|b| b.is_some()).count();
-            if num_fetched_tx == 0 {
+            let response = execution_layer
+                .get_blobs(versioned_hashes)
+                .await
+                .map_err(|e| {
+                    BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(e))
+                })?;
+            let num_fetched_blobs = response.iter().filter(|b| b.is_some()).count();
+            if num_fetched_blobs == 0 {
                 debug!(chain.log, "Blobs from EL - response with none");
                 return Ok(());
-            } else if num_fetched_tx < num_blob_tx {
+            } else if num_fetched_blobs < num_blobs {
                 debug!(
                     chain.log,
                     "Blobs from EL - response with some";
-                    "fetched" => num_fetched_tx,
-                    "total" => num_blob_tx,
+                    "fetched" => num_fetched_blobs,
+                    "total" => num_blobs,
                 );
             } else {
                 debug!(
                     chain.log,
                     "Blobs from EL - response with all";
-                    "num_blob_tx" => num_fetched_tx
+                    "num_blobs" => num_blobs
                 );
             }
             let (signed_block_header, kzg_commitments_proof) =
                 block.signed_block_header_and_kzg_commitments_proof()?;
 
             let mut fixed_blob_sidecar_list = FixedBlobSidecarList::default();
-            for (i, (blob, kzg_proof)) in blob_start_indices
+            for (i, blob_and_proof) in response
                 .into_iter()
-                .zip(response.blobs)
-                .filter_map(|(start_index, blobs)| blobs.map(|blobs| (start_index, blobs)))
-                .flat_map(|(start_index, blob)| {
-                    blob.blobs
-                        .into_iter()
-                        .zip(blob.proofs)
-                        .enumerate()
-                        .map(move |(i, v)| (start_index + i, v))
-                })
+                .enumerate()
+                .filter_map(|(i, opt_blob)| Some((i, opt_blob?)))
             {
                 match BlobSidecar::new_efficiently(
                     i,
-                    blob,
+                    blob_and_proof.blob,
                     &block,
                     signed_block_header.clone(),
                     &kzg_commitments_proof,
-                    kzg_proof,
+                    blob_and_proof.proof,
                 ) {
                     Ok(blob) => {
                         if let Some(blob_mut) = fixed_blob_sidecar_list.get_mut(i) {
@@ -1428,10 +1414,10 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             debug!(
                 chain.log,
                 "Blobs from EL - start processing";
-                "num_blobs" => fixed_blob_sidecar_list.iter().filter(|b| b.is_some()).count(),
+                "num_blobs" => num_blobs,
             );
             chain
-                .process_rpc_blobs(block.slot(), block_root, fixed_blob_sidecar_list)
+                .process_engine_blobs(block.slot(), block_root, fixed_blob_sidecar_list)
                 .await
                 .map(|_| {
                     debug!(chain.log, "Blobs from EL - processed");
@@ -1446,6 +1432,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             .spawn_handle(blob_fetcher_future, "execution_blob_fetcher")
             .ok_or(BeaconChainError::RuntimeShutdown)?;
         // FIXME(sproul): should we wait for this handle?
+        // FIXME(sproul): should do blob broadcast on P2P in here somewhere
         drop(blob_fetcher_handle);
 
         // Define a future that will verify the execution payload with an execution engine.

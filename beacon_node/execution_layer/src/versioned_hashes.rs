@@ -1,6 +1,5 @@
 use alloy_consensus::TxEnvelope;
 use alloy_rlp::Decodable;
-use serde::{Deserialize, Serialize};
 use types::{EthSpec, ExecutionPayloadRef, Hash256, Unsigned, VersionedHash};
 
 #[derive(Debug)]
@@ -56,37 +55,6 @@ pub fn extract_versioned_hashes_from_transactions<E: EthSpec>(
     }
 
     Ok(versioned_hashes)
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct BlobTransactionId {
-    pub tx_hash: Hash256,
-    pub versioned_hashes: Vec<VersionedHash>,
-}
-
-pub fn extract_blob_transaction_ids<E: EthSpec>(
-    transactions: &types::Transactions<E>,
-) -> Result<Vec<BlobTransactionId>, Error> {
-    let mut transaction_ids = vec![];
-
-    for tx in transactions {
-        if let TxEnvelope::Eip4844(signed_tx_eip4844) = beacon_tx_to_tx_envelope(tx)? {
-            let tx_hash = signed_tx_eip4844.hash();
-            let versioned_hashes = signed_tx_eip4844
-                .tx()
-                .tx()
-                .blob_versioned_hashes
-                .iter()
-                .map(|fb| Hash256::from(fb.0))
-                .collect();
-            transaction_ids.push(BlobTransactionId {
-                tx_hash: Hash256::from_slice(tx_hash.as_slice()),
-                versioned_hashes,
-            });
-        }
-    }
-
-    Ok(transaction_ids)
 }
 
 pub fn beacon_tx_to_tx_envelope<N: Unsigned>(
