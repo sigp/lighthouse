@@ -42,6 +42,7 @@ pub mod execution_block_hash;
 pub mod execution_layer_withdrawal_request;
 pub mod execution_payload;
 pub mod execution_payload_header;
+pub mod fixed_bytes;
 pub mod fork;
 pub mod fork_data;
 pub mod fork_name;
@@ -109,9 +110,6 @@ pub mod light_client_header;
 pub mod non_zero_usize;
 pub mod runtime_var_list;
 
-use alloy_primitives::bytes::{BufMut, BytesMut};
-use alloy_primitives::{Address as H160, B256 as H256};
-
 pub use crate::activation_queue::ActivationQueue;
 pub use crate::aggregate_and_proof::{
     AggregateAndProof, AggregateAndProofBase, AggregateAndProofElectra, AggregateAndProofRef,
@@ -169,6 +167,7 @@ pub use crate::execution_payload_header::{
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderRef,
     ExecutionPayloadHeaderRefMut,
 };
+pub use crate::fixed_bytes::FixedBytesExtended;
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
 pub use crate::fork_data::ForkData;
@@ -272,90 +271,3 @@ pub use kzg::{KzgCommitment, KzgProof, VERSIONED_HASH_VERSION_KZG};
 pub use milhouse::{self, List, Vector};
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
 pub use superstruct::superstruct;
-
-pub trait FixedBytesExtended {
-    /// The given u64 value is interpreted as big endian.
-    /// Ignores the most significant bits of the given value if the hash type has less than 8 bytes.
-    fn from_low_u64_be(value: u64) -> Self;
-    fn from_low_u64_le(value: u64) -> Self;
-    fn zero() -> Self;
-}
-
-impl FixedBytesExtended for alloy_primitives::B256 {
-
-    fn from_low_u64_be(value: u64) -> Self {
-        // Convert the u64 value to a big-endian byte array
-        let value_bytes = value.to_be_bytes();
-        let mut large_array: [u8; 32] = [0; 32];
-        // Determine the length of bytes to copy (ignoring the most significant bits if necessary)
-        let bytes_to_copy = value_bytes.len().min(large_array.len());
-        let start_index = large_array.len() - bytes_to_copy;
-        // Copy the bytes to the target array
-        large_array[start_index..].copy_from_slice(&value_bytes[..bytes_to_copy]);
-
-        alloy_primitives::B256::new(large_array)
-        // bytes.put_u64(value);
-        // bytes.resize(32, 0);
-        // bytes.to_vec();
-        // let z = alloy_primitives::B256::from_slice(&bytes);
-    }
-
-    fn from_low_u64_le(value: u64) -> Self {
-        // Convert the u64 value to a big-endian byte array
-        let value_bytes = value.to_le_bytes();
-        let mut large_array: [u8; 32] = [0; 32];
-        // Determine the length of bytes to copy (ignoring the most significant bits if necessary)
-        let bytes_to_copy = value_bytes.len().min(large_array.len());
-        let start_index = large_array.len() - bytes_to_copy;
-        // Copy the bytes to the target array
-        large_array[start_index..].copy_from_slice(&value_bytes[..bytes_to_copy]);
-        let x = ethereum_types::H256::from_low_u64_le(value);
-        let y = alloy_primitives::B256::new(large_array);
-
-        println!("x: {:?}", x);
-        println!("y: {:?}", y);
-
-        y
-    }
-
-    fn zero() -> Self {
-        alloy_primitives::B256::ZERO
-    }
-}
-
-impl FixedBytesExtended for alloy_primitives::Address {
-    fn from_low_u64_be(value: u64) -> Self {
-         // Convert the u64 value to a big-endian byte array
-         let value_bytes = value.to_be_bytes();
-         let mut large_array: [u8; 20] = [0; 20];
-         // Determine the length of bytes to copy (ignoring the most significant bits if necessary)
-         let bytes_to_copy = value_bytes.len().min(large_array.len());
-         let start_index = large_array.len() - bytes_to_copy;
-         // Copy the bytes to the target array
-         large_array[start_index..].copy_from_slice(&value_bytes[..bytes_to_copy]);
- 
-         alloy_primitives::Address::new(large_array)
-    }
-
-    fn from_low_u64_le(value: u64) -> Self {
-        // Convert the u64 value to a big-endian byte array
-        let value_bytes = value.to_le_bytes();
-        let mut large_array: [u8; 20] = [0; 20];
-        // Determine the length of bytes to copy (ignoring the most significant bits if necessary)
-        let bytes_to_copy = value_bytes.len().min(large_array.len());
-        let start_index = large_array.len() - bytes_to_copy;
-        // Copy the bytes to the target array
-        large_array[start_index..].copy_from_slice(&value_bytes[..bytes_to_copy]);
-        let x = ethereum_types::Address::from_low_u64_le(value);
-        let y = alloy_primitives::Address::new(large_array);
-
-        println!("x address: {:?}", x);
-        println!("y address: {:?}", y);
-
-        y
-    }
-
-    fn zero() -> Self {
-        alloy_primitives::Address::ZERO
-    }
-}

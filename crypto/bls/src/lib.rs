@@ -33,6 +33,7 @@ mod zeroize_hash;
 
 pub mod impls;
 
+use byteorder::ByteOrder;
 pub use generic_public_key::{
     INFINITY_PUBLIC_KEY, PUBLIC_KEY_BYTES_LEN, PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN,
 };
@@ -52,18 +53,30 @@ pub trait FixedBytesExtended {
 }
 
 impl FixedBytesExtended for alloy_primitives::B256 {
-    fn from_low_u64_be(value: u64) -> alloy_primitives::B256 {
-        alloy_primitives::B256::from_slice(&value.to_be_bytes())
+
+    fn from_low_u64_be(value: u64) -> Self {
+        let mut buf = [0x0; 8];
+        byteorder::BigEndian::write_u64(&mut buf, value);
+        let capped = std::cmp::min(Self::len_bytes(), 8);
+        let mut bytes = [0x0; std::mem::size_of::<Self>()];
+        bytes[(Self::len_bytes() - capped)..].copy_from_slice(&buf[..capped]);
+		Self::from_slice(&bytes)
     }
 
-    fn from_low_u64_le(value: u64) -> alloy_primitives::B256 {
-        alloy_primitives::B256::from_slice(&value.to_le_bytes())
+    fn from_low_u64_le(value: u64) -> Self {
+        let mut buf = [0x0; 8];
+        byteorder::LittleEndian::write_u64(&mut buf, value);
+        let capped = std::cmp::min(Self::len_bytes(), 8);
+        let mut bytes = [0x0; std::mem::size_of::<Self>()];
+        bytes[(Self::len_bytes() - capped)..].copy_from_slice(&buf[..capped]);
+		Self::from_slice(&bytes)
     }
 
-    fn zero() -> alloy_primitives::B256 {
+    fn zero() -> Self {
         alloy_primitives::B256::ZERO
     }
 }
+
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {

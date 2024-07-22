@@ -10,6 +10,7 @@ harness = false
 
 [dependencies]
 alloy-primitives = { workspace = true, features = ["ssz", "serde", "std"]}
+byteorder = { workspace = true }
 ethereum-types = {workspace = true }
 merkle_proof = { workspace = true }
 bls = { workspace = true, features = ["arbitrary"] }
