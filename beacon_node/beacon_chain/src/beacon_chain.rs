@@ -723,13 +723,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    pub fn persist_data_availability_checker(&self) -> Result<(), Error> {
-        let _timer = metrics::start_timer(&metrics::PERSIST_DATA_AVAILABILITY_CHECKER);
-        self.data_availability_checker.persist_all()?;
-
-        Ok(())
-    }
-
     /// Returns the slot _right now_ according to `self.slot_clock`. Returns `Err` if the slot is
     /// unavailable.
     ///
@@ -3095,14 +3088,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 notify_execution_layer,
             )?;
             publish_fn()?;
+
+            // Record the time it took to complete consensus verification.
+            if let Some(timestamp) = self.slot_clock.now_duration() {
+                self.block_times_cache
+                    .write()
+                    .set_time_consensus_verified(block_root, block_slot, timestamp)
+            }
+
             let executed_block = chain.into_executed_block(execution_pending).await?;
-            // Record the time it took to ask the execution layer.
-            if let Some(seen_timestamp) = self.slot_clock.now_duration() {
-                self.block_times_cache.write().set_execution_time(
-                    block_root,
-                    block_slot,
-                    seen_timestamp,
-                )
+
+            // Record the *additional* time it took to wait for execution layer verification.
+            if let Some(timestamp) = self.slot_clock.now_duration() {
+                self.block_times_cache
+                    .write()
+                    .set_time_executed(block_root, block_slot, timestamp)
             }
 
             match executed_block {
@@ -6753,7 +6753,6 @@ impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
         let drop = || -> Result<(), Error> {
             self.persist_head_and_fork_choice()?;
             self.persist_op_pool()?;
-            self.persist_data_availability_checker()?;
             self.persist_eth1_cache()
         };
 

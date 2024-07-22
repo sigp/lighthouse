@@ -142,6 +142,13 @@ pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
     result
 }
 
+pub fn get_col_from_key(key: &[u8]) -> Option<String> {
+    if key.len() < 3 {
+        return None;
+    }
+    String::from_utf8(key[0..3].to_vec()).ok()
+}
+
 pub fn get_data_column_key(block_root: &Hash256, column_index: &ColumnIndex) -> Vec<u8> {
     let mut result = block_root.as_bytes().to_vec();
     result.extend_from_slice(&column_index.to_le_bytes());
@@ -314,7 +321,7 @@ impl DBColumn {
     /// This function returns the number of bytes used by keys in a given column.
     pub fn key_size(self) -> usize {
         match self {
-            Self::OverflowLRUCache => 33, // See `OverflowKey` encode impl.
+            Self::OverflowLRUCache => 33, // DEPRECATED
             Self::BeaconMeta
             | Self::BeaconBlock
             | Self::BeaconState
@@ -437,5 +444,12 @@ mod tests {
         store.delete::<StorableThing>(&key).unwrap();
 
         assert!(!store.exists::<StorableThing>(&key).unwrap());
+    }
+
+    #[test]
+    fn test_get_col_from_key() {
+        let key = get_key_for_col(DBColumn::BeaconBlock.into(), &[1u8; 32]);
+        let col = get_col_from_key(&key).unwrap();
+        assert_eq!(col, "blk");
     }
 }
