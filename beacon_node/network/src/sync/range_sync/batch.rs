@@ -536,12 +536,14 @@ impl<E: EthSpec> BatchState<E> {
     /// easier recognition
     ///
     /// The current icons are:
-    /// - Empty/Uninitialized: 
+    /// - Empty/Uninitialized: ◻️
     /// - Downloading: ⏬
     /// - Awaiting Download: 📥
     /// - Awaiting Validation:⏳
     /// - Failed: ❌
     /// - AwaitingProcessing: 
+    /// - Processing(_) => "🔄",
+    /// - Poisoned => "💀",
     fn visualize(&self) -> &'static str {
         match self {
             BatchState::Downloading(_, _) => "⏬",

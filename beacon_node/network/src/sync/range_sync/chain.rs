@@ -1115,7 +1115,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // No batch exists, it is on our list to be downloaded
                 // Fill in the rest of the gaps
                 while batch_index < BATCH_BUFFER_SIZE {
-                    visualization_string.push('');
+                    visualization_string.push('◻️');
                     batch_index += 1;
                 }
                 break;
