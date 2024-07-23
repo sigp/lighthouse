@@ -33,7 +33,7 @@ mod zeroize_hash;
 
 pub mod impls;
 
-use byteorder::ByteOrder;
+use alloy_primitives::FixedBytes;
 pub use generic_public_key::{
     INFINITY_PUBLIC_KEY, PUBLIC_KEY_BYTES_LEN, PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN,
 };
@@ -47,36 +47,51 @@ use blst::BLST_ERROR as BlstError;
 
 pub type Hash256 = alloy_primitives::B256;
 pub trait FixedBytesExtended {
-    fn from_low_u64_be(value: u64) -> alloy_primitives::B256;
-    fn from_low_u64_le(value: u64) -> alloy_primitives::B256;
-    fn zero() -> alloy_primitives::B256;
+    fn from_low_u64_be(value: u64) -> Self;
+    fn from_low_u64_le(value: u64) -> Self;
+    fn zero() -> Self;
 }
 
-impl FixedBytesExtended for alloy_primitives::B256 {
-
+impl<const N: usize> FixedBytesExtended for FixedBytes<N> {
     fn from_low_u64_be(value: u64) -> Self {
-        let mut buf = [0x0; 8];
-        byteorder::BigEndian::write_u64(&mut buf, value);
-        let capped = std::cmp::min(Self::len_bytes(), 8);
-        let mut bytes = [0x0; std::mem::size_of::<Self>()];
-        bytes[(Self::len_bytes() - capped)..].copy_from_slice(&buf[..capped]);
-		Self::from_slice(&bytes)
+        let value_bytes = value.to_be_bytes();
+        let mut buffer = [0x0; N];
+        let bytes_to_copy = value_bytes.len().min(buffer.len());
+        let start_index = buffer.len() - bytes_to_copy;
+        // Panic-free because start_index <= buffer.len()
+        // and bytes_to_copy <= value_bytes.len()
+        buffer
+            .get_mut(start_index..)
+            .expect("start_index <= buffer.len()")
+            .copy_from_slice(
+                &value_bytes
+                    .get(..bytes_to_copy)
+                    .expect("bytes_to_copy <= value_byte.len()"),
+            );
+        Self::from(buffer)
     }
 
     fn from_low_u64_le(value: u64) -> Self {
-        let mut buf = [0x0; 8];
-        byteorder::LittleEndian::write_u64(&mut buf, value);
-        let capped = std::cmp::min(Self::len_bytes(), 8);
-        let mut bytes = [0x0; std::mem::size_of::<Self>()];
-        bytes[(Self::len_bytes() - capped)..].copy_from_slice(&buf[..capped]);
-		Self::from_slice(&bytes)
+        let value_bytes = value.to_le_bytes();
+        let mut buffer = [0x0; N];
+        let bytes_to_copy = value_bytes.len().min(buffer.len());
+        // Panic-free because bytes_to_copy <= buffer.len()
+        // and bytes_to_copy <= value_bytes.len()
+        buffer
+            .get_mut(..bytes_to_copy)
+            .expect("bytes_to_copy <= buffer.len()")
+            .copy_from_slice(
+                &value_bytes
+                    .get(..bytes_to_copy)
+                    .expect("bytes_to_copy <= value_byte.len()"),
+            );
+        Self::from(buffer)
     }
 
     fn zero() -> Self {
-        alloy_primitives::B256::ZERO
+        Self::ZERO
     }
 }
-
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {

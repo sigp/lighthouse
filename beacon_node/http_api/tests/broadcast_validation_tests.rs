@@ -7,7 +7,7 @@ use eth2::types::{BroadcastValidation, PublishBlockRequest};
 use http_api::test_utils::InteractiveTester;
 use http_api::{publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock};
 use std::sync::Arc;
-use types::{Epoch, EthSpec, ForkName, Hash256, FixedBytesExtended, MainnetEthSpec, Slot};
+use types::{Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, MainnetEthSpec, Slot};
 use warp::Rejection;
 use warp_utils::reject::CustomBadRequest;
 

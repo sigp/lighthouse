@@ -1,6 +1,6 @@
 use crate::{
-    test_utils::TestRandom, Address, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, ForkName,
-    Hash256, FixedBytesExtended, PublicKeyBytes,
+    test_utils::TestRandom, Address, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec,
+    FixedBytesExtended, ForkName, Hash256, PublicKeyBytes,
 };
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};

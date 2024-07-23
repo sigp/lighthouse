@@ -15,8 +15,8 @@ use std::{
     fmt,
 };
 use types::{
-    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    FixedBytesExtended, Slot,
+    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
+    FixedBytesExtended, Hash256, Slot,
 };
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;

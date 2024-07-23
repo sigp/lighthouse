@@ -79,7 +79,6 @@ impl<'de> Deserialize<'de> for GraffitiString {
 
 impl From<GraffitiString> for Graffiti {
     fn from(from: GraffitiString) -> Graffiti {
-       
         let graffiti_bytes = from.0.as_bytes();
         let mut graffiti = [0; GRAFFITI_BYTES_LEN];
 
@@ -92,7 +91,11 @@ impl From<GraffitiString> for Graffiti {
         graffiti
             .get_mut(..graffiti_len)
             .expect("graffiti_len <= GRAFFITI_BYTES_LEN")
-            .copy_from_slice(&graffiti_bytes[..graffiti_len]);
+            .copy_from_slice(
+                &graffiti_bytes
+                    .get(..graffiti_len)
+                    .expect("graffiti_len <= GRAFFITI_BYTES_LEN"),
+            );
         graffiti.into()
     }
 }

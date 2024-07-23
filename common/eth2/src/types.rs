@@ -1034,7 +1034,7 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
     pub parent_block_root: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
     pub parent_block_number: u64,
-    
+
     pub parent_block_hash: ExecutionBlockHash,
     pub payload_attributes: T,
 }

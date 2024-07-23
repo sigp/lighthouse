@@ -1,13 +1,13 @@
 use crate::{
-    json_structures::JsonWithdrawal,
+    json_structures::{EncodableJsonWithdrawal, JsonWithdrawal},
     keccak::{keccak256, KeccakHasher},
 };
 use alloy_rlp::Encodable;
 use keccak_hash::KECCAK_EMPTY_LIST_RLP;
 use triehash::ordered_trie_root;
 use types::{
-    map_execution_block_header_fields_base, Address, EthSpec, ExecutionBlockHash,
-    ExecutionBlockHeader, ExecutionPayloadRef, Hash256, Hash64, Uint256,
+    EncodableExecutionBlockHeader, EthSpec, ExecutionBlockHash, ExecutionBlockHeader,
+    ExecutionPayloadRef, Hash256,
 };
 
 /// Calculate the block hash of an execution block.
@@ -60,36 +60,16 @@ pub fn calculate_execution_block_hash<E: EthSpec>(
 
 /// RLP encode a withdrawal.
 pub fn rlp_encode_withdrawal(withdrawal: &JsonWithdrawal) -> Vec<u8> {
-    let mut rlp_buffer = Vec::<u8>::new();
-    withdrawal.index.encode(&mut rlp_buffer);
-    withdrawal.validator_index.encode(&mut rlp_buffer);
-    withdrawal.address.as_slice().encode(&mut rlp_buffer);
-    withdrawal.amount.encode(&mut rlp_buffer);
-
-    rlp_buffer
+    let mut out: Vec<u8> = vec![];
+    EncodableJsonWithdrawal::from(withdrawal).encode(&mut out);
+    out
 }
 
 /// RLP encode an execution block header.
 pub fn rlp_encode_block_header(header: &ExecutionBlockHeader) -> Vec<u8> {
-    let mut rlp_buffer = Vec::<u8>::new();
-
-    map_execution_block_header_fields_base!(&header, |_, field| {
-        field.encode(&mut rlp_buffer);
-    });
-    if let Some(withdrawals_root) = &header.withdrawals_root {
-        withdrawals_root.encode(&mut rlp_buffer);
-    }
-    if let Some(blob_gas_used) = &header.blob_gas_used {
-        blob_gas_used.encode(&mut rlp_buffer);
-    }
-    if let Some(excess_blob_gas) = &header.excess_blob_gas {
-        excess_blob_gas.encode(&mut rlp_buffer);
-    }
-    if let Some(parent_beacon_block_root) = &header.parent_beacon_block_root {
-        parent_beacon_block_root.encode(&mut rlp_buffer);
-    }
-
-    rlp_buffer
+    let mut out: Vec<u8> = vec![];
+    EncodableExecutionBlockHeader::from(header).encode(&mut out);
+    out
 }
 
 #[cfg(test)]
@@ -97,6 +77,7 @@ mod test {
     use super::*;
     use hex::FromHex;
     use std::str::FromStr;
+    use types::{Address, Hash256, Hash64, Uint256};
 
     fn test_rlp_encoding(
         header: &ExecutionBlockHeader,

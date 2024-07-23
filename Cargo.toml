@@ -94,8 +94,8 @@ resolver = "2"
 edition = "2021"
 
 [workspace.dependencies]
-alloy-core = "0.7.0"
-alloy-primitives = { version = "0.7.0", features =["arbitrary", "serde", "ssz", "getrandom", "std"] }
+alloy-core = "0.7.7"
+alloy-primitives = { version = "0.7.7", features =["arbitrary", "serde", "ssz", "getrandom", "std"] }
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 async-channel = "1.9.0"
@@ -226,7 +226,7 @@ pretty_reqwest_error = { path = "common/pretty_reqwest_error" }
 proto_array = { path = "consensus/proto_array" }
 safe_arith = { path = "consensus/safe_arith" }
 sensitive_url = { path = "common/sensitive_url" }
-slasher = { path = "slasher" }
+slasher = { path = "slasher", default-features = false }
 slashing_protection = { path = "validator_client/slashing_protection" }
 slot_clock = { path = "common/slot_clock" }
 state_processing = { path = "consensus/state_processing" }

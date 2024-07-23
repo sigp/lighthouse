@@ -1,3 +1,4 @@
+use alloy_primitives::FixedBytes;
 use ethereum_hashing::{hash, hash32_concat, ZERO_HASHES};
 use lazy_static::lazy_static;
 use safe_arith::ArithError;
@@ -5,40 +6,49 @@ use safe_arith::ArithError;
 type H256 = alloy_primitives::B256;
 
 pub trait FixedBytesExtended {
-    fn from_low_u64_be(value: u64) -> alloy_primitives::B256;
-    fn from_low_u64_le(value: u64) -> alloy_primitives::B256;
-    fn zero() -> alloy_primitives::B256;
+    fn from_low_u64_be(value: u64) -> Self;
+    fn from_low_u64_le(value: u64) -> Self;
+    fn zero() -> Self;
 }
 
-impl FixedBytesExtended for alloy_primitives::B256 {
-
+impl<const N: usize> FixedBytesExtended for FixedBytes<N> {
     fn from_low_u64_be(value: u64) -> Self {
-        // Convert the u64 value to a big-endian byte array
         let value_bytes = value.to_be_bytes();
-        let mut large_array: [u8; 32] = [0; 32];
-        // Determine the length of bytes to copy (ignoring the most significant bits if necessary)
-        let bytes_to_copy = value_bytes.len().min(large_array.len());
-        let start_index = large_array.len() - bytes_to_copy;
-        // Copy the bytes to the target array
-        large_array[start_index..].copy_from_slice(&value_bytes[..bytes_to_copy]);
-
-        alloy_primitives::B256::new(large_array)
+        let mut buffer = [0x0; N];
+        let bytes_to_copy = value_bytes.len().min(buffer.len());
+        let start_index = buffer.len() - bytes_to_copy;
+        // Panic-free because start_index <= buffer.len()
+        // and bytes_to_copy <= value_bytes.len()
+        buffer
+            .get_mut(start_index..)
+            .expect("start_index <= buffer.len()")
+            .copy_from_slice(
+                &value_bytes
+                    .get(..bytes_to_copy)
+                    .expect("bytes_to_copy <= value_byte.len()"),
+            );
+        Self::from(buffer)
     }
 
     fn from_low_u64_le(value: u64) -> Self {
-        // Convert the u64 value to a big-endian byte array
         let value_bytes = value.to_le_bytes();
-        let mut large_array: [u8; 32] = [0; 32];
-        // Determine the length of bytes to copy (ignoring the most significant bits if necessary)
-        let bytes_to_copy = value_bytes.len().min(large_array.len());
-        let start_index = large_array.len() - bytes_to_copy;
-        // Copy the bytes to the target array
-        large_array[start_index..].copy_from_slice(&value_bytes[..bytes_to_copy]);
-        alloy_primitives::B256::new(large_array)
+        let mut buffer = [0x0; N];
+        let bytes_to_copy = value_bytes.len().min(buffer.len());
+        // Panic-free because bytes_to_copy <= buffer.len()
+        // and bytes_to_copy <= value_bytes.len()
+        buffer
+            .get_mut(..bytes_to_copy)
+            .expect("bytes_to_copy <= buffer.len()")
+            .copy_from_slice(
+                &value_bytes
+                    .get(..bytes_to_copy)
+                    .expect("bytes_to_copy <= value_byte.len()"),
+            );
+        Self::from(buffer)
     }
 
     fn zero() -> Self {
-        alloy_primitives::B256::ZERO
+        Self::ZERO
     }
 }
 

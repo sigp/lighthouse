@@ -12,3 +12,6 @@ network_params:
   seconds_per_slot: 3
 global_log_level: debug
 snooper_enabled: false
+additional_services:
+  - dora
+  - prometheus_grafana

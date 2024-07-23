@@ -15,7 +15,7 @@ use tokio::runtime::Runtime;
 use tokio::time::sleep;
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BlobSidecar, ChainSpec,
-    EmptyBlock, Epoch, EthSpec, ForkContext, ForkName, Hash256, FixedBytesExtended, MinimalEthSpec,
+    EmptyBlock, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256, MinimalEthSpec,
     Signature, SignedBeaconBlock, Slot,
 };
 

@@ -3288,9 +3288,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
         }
+        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
         let availability = self
             .data_availability_checker
-            .put_rpc_blobs(block_root, blobs)?;
+            .put_rpc_blobs(block_root, epoch, blobs)?;
 
         self.process_availability(slot, availability).await
     }

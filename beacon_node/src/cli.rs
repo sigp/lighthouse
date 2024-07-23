@@ -1338,6 +1338,7 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
+                .requires("suggested-fee-recipient")
         )
         .arg(
             Arg::new("fork-choice-before-proposal-timeout")
@@ -1404,14 +1405,6 @@ pub fn cli_app() -> Command {
                         conditions.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("builder-profit-threshold")
-                .long("builder-profit-threshold")
-                .value_name("WEI_VALUE")
-                .help("This flag is deprecated and has no effect.")
-                .action(ArgAction::Set)
                 .display_order(0)
         )
         .arg(

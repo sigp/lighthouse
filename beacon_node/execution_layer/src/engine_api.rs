@@ -149,11 +149,10 @@ pub enum BlockByNumberQuery<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionBlock {
     #[serde(rename = "hash")]
-    
     pub block_hash: ExecutionBlockHash,
     #[serde(rename = "number", with = "serde_utils::u64_hex_be")]
     pub block_number: u64,
-    
+
     pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
     #[serde(with = "serde_utils::u64_hex_be")]
@@ -173,7 +172,6 @@ pub struct ExecutionBlock {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(bound = "E: EthSpec", rename_all = "camelCase", untagged)]
 pub struct ExecutionBlockWithTransactions<E: EthSpec> {
-    
     pub parent_hash: ExecutionBlockHash,
     #[serde(alias = "miner")]
     #[serde(with = "serde_utils::address_hex")]
@@ -196,7 +194,6 @@ pub struct ExecutionBlockWithTransactions<E: EthSpec> {
     pub extra_data: VariableList<u8, E::MaxExtraDataBytes>,
     pub base_fee_per_gas: Uint256,
     #[serde(rename = "hash")]
-    
     pub block_hash: ExecutionBlockHash,
     pub transactions: Vec<Transaction>,
     #[superstruct(only(Capella, Deneb, Electra))]

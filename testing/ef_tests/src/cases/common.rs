@@ -4,7 +4,6 @@ use ssz_derive::{Decode, Encode};
 use std::fmt::Debug;
 use types::ForkName;
 
-
 /// Macro to wrap U128 and U256 so they deserialize correctly.
 macro_rules! uint_wrapper {
     ($wrapper_name:ident, $wrapped_type:ty) => {
@@ -16,7 +15,6 @@ macro_rules! uint_wrapper {
 
         impl TryFrom<String> for $wrapper_name {
             type Error = String;
-
 
             fn try_from(s: String) -> Result<Self, Self::Error> {
                 <$wrapped_type>::from_str_radix(&s, 10)

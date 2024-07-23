@@ -1,4 +1,5 @@
 use super::*;
+use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
 use superstruct::superstruct;
@@ -74,7 +75,6 @@ pub struct JsonPayloadIdResponse {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(bound = "E: EthSpec", rename_all = "camelCase", untagged)]
 pub struct JsonExecutionPayload<E: EthSpec> {
-    
     pub parent_hash: ExecutionBlockHash,
     #[serde(with = "serde_utils::address_hex")]
     pub fee_recipient: Address,
@@ -95,7 +95,7 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     pub extra_data: VariableList<u8, E::MaxExtraDataBytes>,
     #[serde(with = "serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
-    
+
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
@@ -467,6 +467,24 @@ impl From<JsonWithdrawal> for Withdrawal {
         }
     }
 }
+#[derive(Debug, PartialEq, Clone, RlpEncodable)]
+pub struct EncodableJsonWithdrawal<'a> {
+    pub index: u64,
+    pub validator_index: u64,
+    pub address: &'a [u8],
+    pub amount: u64,
+}
+
+impl<'a> From<&'a JsonWithdrawal> for EncodableJsonWithdrawal<'a> {
+    fn from(json_withdrawal: &'a JsonWithdrawal) -> Self {
+        Self {
+            index: json_withdrawal.index,
+            validator_index: json_withdrawal.validator_index,
+            address: json_withdrawal.address.as_slice(),
+            amount: json_withdrawal.amount,
+        }
+    }
+}
 
 #[superstruct(
     variants(V1, V2, V3),
@@ -572,11 +590,10 @@ impl<E: EthSpec> From<JsonBlobsBundleV1<E>> for BlobsBundle<E> {
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkchoiceStateV1 {
-    
     pub head_block_hash: ExecutionBlockHash,
-    
+
     pub safe_block_hash: ExecutionBlockHash,
-    
+
     pub finalized_block_hash: ExecutionBlockHash,
 }
 
@@ -775,7 +792,7 @@ impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<
 pub struct TransitionConfigurationV1 {
     #[serde(with = "serde_utils::u256_hex_be")]
     pub terminal_total_difficulty: Uint256,
-    
+
     pub terminal_block_hash: ExecutionBlockHash,
     #[serde(with = "serde_utils::u64_hex_be")]
     pub terminal_block_number: u64,

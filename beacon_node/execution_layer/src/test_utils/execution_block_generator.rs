@@ -23,7 +23,8 @@ use tree_hash_derive::TreeHash;
 use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra,
-    ExecutionPayloadHeader, ForkName, Hash256, FixedBytesExtended, Transaction, Transactions, Uint256,
+    ExecutionPayloadHeader, FixedBytesExtended, ForkName, Hash256, Transaction, Transactions,
+    Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
@@ -107,9 +108,9 @@ impl<E: EthSpec> Block<E> {
 #[serde(rename_all = "camelCase")]
 pub struct PoWBlock {
     pub block_number: u64,
-    
+
     pub block_hash: ExecutionBlockHash,
-    
+
     pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
     pub timestamp: u64,

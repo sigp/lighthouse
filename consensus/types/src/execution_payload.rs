@@ -53,7 +53,6 @@ pub type WithdrawalRequests<E> =
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct ExecutionPayload<E: EthSpec> {
     #[superstruct(getter(copy))]
-    
     pub parent_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
     #[serde(with = "serde_utils::address_hex")]
@@ -84,7 +83,6 @@ pub struct ExecutionPayload<E: EthSpec> {
     #[superstruct(getter(copy))]
     pub base_fee_per_gas: Uint256,
     #[superstruct(getter(copy))]
-    
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,

@@ -18,8 +18,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, MainnetEthSpec,
-    MinimalEthSpec, ProposerPreparationData, Slot, Hash256, Uint256, FixedBytesExtended
+    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, FixedBytesExtended, ForkName,
+    Hash256, MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot, Uint256,
 };
 
 type E = MainnetEthSpec;
@@ -646,10 +646,11 @@ pub async fn proposer_boost_re_org_test(
     }
 
     // Applying block C should cause it to become head regardless (re-org or continuation).
-    let block_root_c = Hash256::from(harness
-        .process_block_result((block_c.clone(), block_c_blobs))
-        .await
-        .unwrap()
+    let block_root_c = Hash256::from(
+        harness
+            .process_block_result((block_c.clone(), block_c_blobs))
+            .await
+            .unwrap(),
     );
 
     assert_eq!(harness.head_block_root(), block_root_c);

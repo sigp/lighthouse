@@ -6,7 +6,7 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use types::{
-    BlobSidecarList, EthSpec, Hash256, FixedBytesExtended, SignedBeaconBlock,
+    BlobSidecarList, EthSpec, FixedBytesExtended, Hash256, SignedBeaconBlock,
     SignedBlindedBeaconBlock, Slot,
 };
 

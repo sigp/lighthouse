@@ -32,9 +32,8 @@ use types::{
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
 #[serde(deny_unknown_fields)]
 pub struct PowBlock {
-    
     pub block_hash: ExecutionBlockHash,
-    
+
     pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
 }

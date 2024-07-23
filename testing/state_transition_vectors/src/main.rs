@@ -13,7 +13,7 @@ use std::process::exit;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, EthSpec, Keypair, SignedBeaconBlock,
 };
-use types::{Hash256, FixedBytesExtended, MainnetEthSpec, Slot};
+use types::{FixedBytesExtended, Hash256, MainnetEthSpec, Slot};
 
 type E = MainnetEthSpec;
 

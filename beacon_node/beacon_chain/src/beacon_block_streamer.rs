@@ -716,7 +716,7 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::mpsc;
     use types::{
-        ChainSpec, Epoch, EthSpec, Hash256, FixedBytesExtended, Keypair, MinimalEthSpec, Slot,
+        ChainSpec, Epoch, EthSpec, FixedBytesExtended, Hash256, Keypair, MinimalEthSpec, Slot,
     };
 
     const VALIDATOR_COUNT: usize = 48;
