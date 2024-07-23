@@ -462,7 +462,7 @@ mod tests {
     use super::*;
     use ssz::Encode;
     use tempfile::Builder as TempBuilder;
-    use types::{Eth1Data, GnosisEthSpec, MainnetEthSpec};
+    use types::{Eth1Data, GnosisEthSpec, MainnetEthSpec, WvmEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -511,6 +511,12 @@ mod tests {
             // Ensure we can parse the YAML config to a chain spec.
             if config.config.preset_base == types::GNOSIS {
                 config.chain_spec::<GnosisEthSpec>().unwrap();
+            } else {
+                config.chain_spec::<MainnetEthSpec>().unwrap();
+            }
+
+            if config.config.preset_base == types::WVM {
+                config.chain_spec::<WvmEthSpec>().unwrap();
             } else {
                 config.chain_spec::<MainnetEthSpec>().unwrap();
             }

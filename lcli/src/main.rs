@@ -562,6 +562,7 @@ fn main() {
             EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches),
             EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches),
             EthSpecId::Gnosis => run(EnvironmentBuilder::gnosis(), &matches),
+            EthSpecId::WVM => run(EnvironmentBuilder::wvm(), &matches),
         });
 
     match result {

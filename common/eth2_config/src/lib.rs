@@ -77,6 +77,13 @@ impl Eth2Config {
             spec: ChainSpec::gnosis(),
         }
     }
+
+    pub fn wvm() -> Self {
+        Self {
+            eth_spec_id: EthSpecId::WVM,
+            spec: ChainSpec::wvm(),
+        }
+    }
 }
 
 /// Describes how a genesis state may be obtained.

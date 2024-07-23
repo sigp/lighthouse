@@ -802,7 +802,18 @@ impl ChainSpec {
         }
     }
 
-    /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
+    /// Returns a WVM `ChainSpec` compatible with the Ethereum Foundation specification
+    /// And custom params for WVM testnet
+    pub fn wvm() -> Self {
+        let mut wvm_spec = Self::mainnet();
+        wvm_spec.max_effective_balance = option_wrapper(|| {
+            5000u64.checked_mul(u64::checked_pow(10, 9)?) // 5k for validator in testnet
+        }).expect("calculation does not overflow");
+
+        wvm_spec
+    }
+
+        /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
     pub fn minimal() -> Self {
         // Note: bootnodes to be updated when static nodes exist.
         let boot_nodes = vec![];

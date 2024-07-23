@@ -281,7 +281,7 @@ impl ElectraPreset {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+    use crate::{GnosisEthSpec, MainnetEthSpec, MinimalEthSpec, WvmEthSpec};
     use serde::de::DeserializeOwned;
     use std::env;
     use std::fs::File;
@@ -337,5 +337,10 @@ mod test {
     #[test]
     fn minimal_presets_consistent() {
         preset_test::<MinimalEthSpec>();
+    }
+
+    #[test]
+    fn wvm_presets_consistent() {
+        preset_test::<WvmEthSpec>();
     }
 }

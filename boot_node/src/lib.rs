@@ -61,6 +61,9 @@ pub fn run(
         EthSpecId::Gnosis => {
             main::<types::GnosisEthSpec>(lh_matches, bn_matches, eth2_network_config, log)
         }
+        EthSpecId::WVM => {
+            main::<types::WvmEthSpec>(lh_matches, bn_matches, eth2_network_config, log)
+        }
     } {
         slog::crit!(slog_scope::logger(), "{}", e);
     }

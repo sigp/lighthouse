@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
-use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec, WvmEthSpec};
 
 #[cfg(target_family = "unix")]
 use {
@@ -169,6 +169,21 @@ impl EnvironmentBuilder<GnosisEthSpec> {
         }
     }
 }
+
+impl EnvironmentBuilder<WvmEthSpec> {
+    /// Creates a new builder using the `gnosis` eth2 specification.
+    pub fn wvm() -> Self {
+        Self {
+            runtime: None,
+            log: None,
+            sse_logging_components: None,
+            eth_spec_instance: WvmEthSpec,
+            eth2_config: Eth2Config::wvm(),
+            eth2_network_config: None,
+        }
+    }
+}
+
 
 impl<E: EthSpec> EnvironmentBuilder<E> {
     /// Specifies that a multi-threaded tokio runtime should be used. Ideal for production uses.
