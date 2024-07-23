@@ -46,8 +46,6 @@ Options:
       --builder-header-timeout <MILLISECONDS>
           Defines a timeout value (in milliseconds) to use when fetching a block
           header from the builder API. [default: 1000]
-      --builder-profit-threshold <WEI_VALUE>
-          This flag is deprecated and has no effect.
       --builder-user-agent <STRING>
           The HTTP user agent to send alongside requests to the builder URL. The
           default is Lighthouse's version string.

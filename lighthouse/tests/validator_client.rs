@@ -4,6 +4,7 @@ use validator_client::{
 
 use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
+use sensitive_url::SensitiveUrl;
 use std::fs::File;
 use std::io::Write;
 use std::net::IpAddr;
@@ -697,6 +698,29 @@ fn validator_web3_signer_keep_alive_override() {
             assert_eq!(
                 config.web3_signer_keep_alive_timeout,
                 Some(Duration::from_secs(1))
+            );
+        });
+}
+
+#[test]
+fn validator_proposer_nodes_default_empty() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(config.proposer_nodes, vec![]);
+    });
+}
+
+#[test]
+fn validator_proposer_nodes() {
+    CommandLineTest::new()
+        .flag("proposer-nodes", Some("http://bn-1:5052,http://bn-2:5052"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.proposer_nodes,
+                vec![
+                    SensitiveUrl::parse("http://bn-1:5052").unwrap(),
+                    SensitiveUrl::parse("http://bn-2:5052").unwrap()
+                ]
             );
         });
 }

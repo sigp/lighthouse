@@ -143,6 +143,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
                 LocalNetworkParams {
                     validator_count: total_validator_count,
                     node_count,
+                    extra_nodes: 0,
                     proposer_nodes: 0,
                     genesis_delay,
                 },

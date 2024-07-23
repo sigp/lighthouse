@@ -193,7 +193,7 @@ impl Config {
                 .collect::<Result<_, _>>()
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         }
-        if let Some(proposer_nodes) = parse_optional::<String>(cli_args, "proposer_nodes")? {
+        if let Some(proposer_nodes) = parse_optional::<String>(cli_args, "proposer-nodes")? {
             config.proposer_nodes = proposer_nodes
                 .split(',')
                 .map(SensitiveUrl::parse)
