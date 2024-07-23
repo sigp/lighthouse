@@ -185,14 +185,6 @@ pub fn cli_app() -> Command {
                 .display_order(0),
         )
         .arg(
-            Arg::new(STDIN_INPUTS_FLAG)
-                .action(ArgAction::SetTrue)
-                .hide(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty.")
-                .display_order(0),
-        )
-        .arg(
             Arg::new(BUILDER_BOOST_FACTOR_FLAG)
                 .long(BUILDER_BOOST_FACTOR_FLAG)
                 .action(ArgAction::Set)

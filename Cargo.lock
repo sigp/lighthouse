@@ -838,6 +838,7 @@ dependencies = [
 name = "beacon_node"
 version = "5.2.1"
 dependencies = [
+ "account_utils",
  "beacon_chain",
  "clap",
  "clap_utils",

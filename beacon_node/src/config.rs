@@ -1,3 +1,4 @@
+use account_utils::{read_input_from_user, STDIN_INPUTS_FLAG};
 use beacon_chain::chain_config::{
     DisallowedReOrgOffsets, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
     DEFAULT_RE_ORG_HEAD_THRESHOLD, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
@@ -30,6 +31,8 @@ use std::time::Duration;
 use types::graffiti::GraffitiString;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes};
 
+const PURGE_DB_CONFIRMATION: &str = "confirm";
+
 /// Gets the fully-initialized global client.
 ///
 /// The top-level `clap` arguments should be provided as `cli_args`.
@@ -50,26 +53,34 @@ pub fn get_config<E: EthSpec>(
     client_config.set_data_dir(get_data_dir(cli_args));
 
     // If necessary, remove any existing database and configuration
-    if client_config.data_dir().exists() && cli_args.get_flag("purge-db") {
-        // Remove the chain_db.
-        let chain_db = client_config.get_db_path();
-        if chain_db.exists() {
-            fs::remove_dir_all(chain_db)
-                .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
-        }
+    if client_config.data_dir().exists() {
+        if cli_args.get_flag("purge-db-auto") {
+            let chain_db = client_config.get_db_path();
+            let freezer_db = client_config.get_freezer_db_path();
+            let blobs_db = client_config.get_blobs_db_path();
+            purge_db(chain_db, freezer_db, blobs_db)?;
+        } else if cli_args.get_flag("purge-db") {
+            let stdin_inputs = cfg!(windows) || cli_args.get_flag(STDIN_INPUTS_FLAG);
+            eprintln!(
+                "You are about to delete the chain database. This is irreversable \
+                and you will need to resync the chain."
+            );
+            eprintln!(
+                "Type 'confirm' to delete the database. Any other input will leave \
+                the database intact and Lighthouse will exit."
+            );
+            let confirmation = read_input_from_user(stdin_inputs)?;
 
-        // Remove the freezer db.
-        let freezer_db = client_config.get_freezer_db_path();
-        if freezer_db.exists() {
-            fs::remove_dir_all(freezer_db)
-                .map_err(|err| format!("Failed to remove freezer_db: {}", err))?;
-        }
-
-        // Remove the blobs db.
-        let blobs_db = client_config.get_blobs_db_path();
-        if blobs_db.exists() {
-            fs::remove_dir_all(blobs_db)
-                .map_err(|err| format!("Failed to remove blobs_db: {}", err))?;
+            if confirmation == PURGE_DB_CONFIRMATION {
+                eprintln!("Database was deleted.");
+                let chain_db = client_config.get_db_path();
+                let freezer_db = client_config.get_freezer_db_path();
+                let blobs_db = client_config.get_blobs_db_path();
+                purge_db(chain_db, freezer_db, blobs_db)?;
+            } else {
+                eprintln!("Database was not deleted. Lighthouse will now close.");
+                std::process::exit(1);
+            }
         }
     }
 
@@ -1521,4 +1532,27 @@ where
         .into_iter()
         .next()
         .ok_or(format!("Must provide at least one value to {}", flag_name))
+}
+
+/// Remove chain, freezer and blobs db.
+fn purge_db(chain_db: PathBuf, freezer_db: PathBuf, blobs_db: PathBuf) -> Result<(), String> {
+    // Remove the chain_db.
+    if chain_db.exists() {
+        fs::remove_dir_all(chain_db)
+            .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+    }
+
+    // Remove the freezer db.
+    if freezer_db.exists() {
+        fs::remove_dir_all(freezer_db)
+            .map_err(|err| format!("Failed to remove freezer_db: {}", err))?;
+    }
+
+    // Remove the blobs db.
+    if blobs_db.exists() {
+        fs::remove_dir_all(blobs_db)
+            .map_err(|err| format!("Failed to remove blobs_db: {}", err))?;
+    }
+
+    Ok(())
 }
