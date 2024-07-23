@@ -129,14 +129,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
                 endpoint,
                 other_established,
                 ..
-            }) => {
-                // NOTE: We still need to handle the [`ConnectionEstablished`] because the
-                // [`NetworkBehaviour::handle_established_inbound_connection`] and
-                // [`NetworkBehaviour::handle_established_outbound_connection`] are fallible. This
-                // means another behaviour can kill the connection early, and we can't assume a
-                // peer as connected until this event is received.
-                self.on_connection_established(peer_id, endpoint, other_established)
-            }
+            }) => self.on_connection_established(peer_id, endpoint, other_established),
             FromSwarm::ConnectionClosed(ConnectionClosed {
                 peer_id,
                 endpoint,
@@ -251,19 +244,6 @@ impl<E: EthSpec> PeerManager<E> {
 
         // Count dialing peers in the limit if the peer dialed us.
         let count_dialing = endpoint.is_listener();
-        // Check the connection limits
-        if self.peer_limit_reached(count_dialing)
-            && self
-                .network_globals
-                .peers
-                .read()
-                .peer_info(&peer_id)
-                .map_or(true, |peer| !peer.has_future_duty())
-        {
-            // Gracefully disconnect the peer.
-            self.disconnect_peer(peer_id, GoodbyeReason::TooManyPeers);
-            return;
-        }
 
         // NOTE: We don't register peers that we are disconnecting immediately. The network service
         // does not need to know about these peers.

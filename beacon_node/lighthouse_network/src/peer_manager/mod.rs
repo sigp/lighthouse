@@ -438,18 +438,6 @@ impl<E: EthSpec> PeerManager<E> {
         self.network_globals.peers.read().is_connected(peer_id)
     }
 
-    /// Reports whether the peer limit is reached in which case we stop allowing new incoming
-    /// connections.
-    pub fn peer_limit_reached(&self, count_dialing: bool) -> bool {
-        if count_dialing {
-            // This is an incoming connection so limit by the standard max peers
-            self.network_globals.connected_or_dialing_peers() >= self.max_peers()
-        } else {
-            // We dialed this peer, allow up to max_outbound_dialing_peers
-            self.network_globals.connected_peers() >= self.max_outbound_dialing_peers()
-        }
-    }
-
     /// Updates `PeerInfo` with `identify` information.
     pub fn identify(&mut self, peer_id: &PeerId, info: &IdentifyInfo) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
