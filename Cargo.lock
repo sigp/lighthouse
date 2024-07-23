@@ -4431,6 +4431,7 @@ dependencies = [
  "ethereum_ssz_derive",
  "hex",
  "mockall",
+ "rayon",
  "serde",
  "serde_json",
  "tree_hash",

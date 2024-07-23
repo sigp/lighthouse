@@ -24,6 +24,7 @@ mockall = { workspace = true }
 criterion = { workspace = true }
 serde_json = { workspace = true }
 eth2_network_config = { workspace = true }
+rayon = { workspace = true }
 
 [[bench]]
 name = "benchmark"
