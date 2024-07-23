@@ -178,69 +178,28 @@ checksum = "5c6cb57a04249c6480766f7f7cef5467412af1490f8d1e243141daddada3264f"
 
 [[package]]
 name = "alloy-consensus"
-version = "0.1.0"
-source = "git+https://github.com/alloy-rs/alloy.git?rev=974d488bab5e21e9f17452a39a4bfa56677367b2#974d488bab5e21e9f17452a39a4bfa56677367b2"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f58047cc851e58c26224521d1ecda466e3d746ebca0274cd5427aa660a88c353"
 dependencies = [
  "alloy-eips",
- "alloy-network",
- "alloy-primitives 0.6.4",
+ "alloy-primitives",
  "alloy-rlp",
+ "c-kzg",
 ]
 
 [[package]]
 name = "alloy-eips"
-version = "0.1.0"
-source = "git+https://github.com/alloy-rs/alloy.git?rev=974d488bab5e21e9f17452a39a4bfa56677367b2#974d488bab5e21e9f17452a39a4bfa56677367b2"
-dependencies = [
- "alloy-primitives 0.6.4",
- "alloy-rlp",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "alloy-json-rpc"
-version = "0.1.0"
-source = "git+https://github.com/alloy-rs/alloy.git?rev=974d488bab5e21e9f17452a39a4bfa56677367b2#974d488bab5e21e9f17452a39a4bfa56677367b2"
-dependencies = [
- "alloy-primitives 0.6.4",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "alloy-network"
-version = "0.1.0"
-source = "git+https://github.com/alloy-rs/alloy.git?rev=974d488bab5e21e9f17452a39a4bfa56677367b2#974d488bab5e21e9f17452a39a4bfa56677367b2"
-dependencies = [
- "alloy-eips",
- "alloy-json-rpc",
- "alloy-primitives 0.6.4",
- "alloy-rlp",
- "serde",
-]
-
-[[package]]
-name = "alloy-primitives"
-version = "0.6.4"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "600d34d8de81e23b6d909c094e23b3d357e01ca36b78a8c5424c501eedbe86f0"
+checksum = "d32a3e14fa0d152d00bd8daf605eb74ad397efb0f54bd7155585823dddb4401e"
 dependencies = [
+ "alloy-primitives",
  "alloy-rlp",
- "bytes",
- "cfg-if",
- "const-hex",
- "derive_more",
- "hex-literal",
- "itoa",
- "k256 0.13.3",
- "keccak-asm",
- "proptest",
- "rand",
- "ruint",
+ "c-kzg",
+ "once_cell",
  "serde",
- "tiny-keccak",
+ "sha2 0.10.8",
 ]
 
 [[package]]
@@ -1189,6 +1148,7 @@ dependencies = [
  "glob",
  "hex",
  "libc",
+ "serde",
 ]
 
 [[package]]
@@ -2886,7 +2846,7 @@ name = "execution_layer"
 version = "0.1.0"
 dependencies = [
  "alloy-consensus",
- "alloy-primitives 0.7.7",
+ "alloy-primitives",
  "alloy-rlp",
  "arc-swap",
  "builder_client",
@@ -3575,9 +3535,6 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "hex-literal"
@@ -8805,7 +8762,7 @@ checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
 name = "types"
 version = "0.2.1"
 dependencies = [
- "alloy-primitives 0.7.7",
+ "alloy-primitives",
  "alloy-rlp",
  "arbitrary",
  "beacon_chain",

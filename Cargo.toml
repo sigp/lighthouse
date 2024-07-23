@@ -94,7 +94,9 @@ resolver = "2"
 edition = "2021"
 
 [workspace.dependencies]
-alloy-primitives = { version = "0.7.7" }
+alloy-primitives = "0.7.7"
+alloy-rlp = "0.3.4"
+alloy-consensus = "0.2.0"
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 async-channel = "1.9.0"
