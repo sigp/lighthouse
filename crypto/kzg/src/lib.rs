@@ -264,3 +264,34 @@ impl TryFrom<TrustedSetup> for Kzg {
         Kzg::new_from_trusted_setup(trusted_setup)
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use std::vec;
+
+    use crate::{Error, Kzg, TrustedSetup};
+    use c_kzg::BYTES_PER_BLOB;
+    use eth2_network_config::TRUSTED_SETUP_BYTES;
+
+    #[test]
+    fn compute_cells_and_proofs_stackoverflow() {
+        use rayon::prelude::*;
+
+        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+            .expect("should have trusted setup");
+
+        let kzg = Kzg::new_from_trusted_setup(trusted_setup).unwrap();
+        let blobs = vec![vec![0u8; BYTES_PER_BLOB]; 100];
+
+        let blob_cells_and_proofs_vec = blobs
+            .into_par_iter()
+            .map(|blob| {
+                let blob = c_kzg::Blob::from_bytes(&blob).map_err(c_kzg::Error::from)?;
+                kzg.compute_cells_and_proofs(&blob)
+            })
+            .collect::<Result<Vec<_>, Error>>()
+            .unwrap();
+    }
+}
