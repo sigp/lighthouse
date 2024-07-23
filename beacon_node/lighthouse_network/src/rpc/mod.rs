@@ -418,7 +418,7 @@ where
                             debug!(self.log, "Request too large to process"; "request" => %req, "protocol" => %protocol);
                         } else {
                             // Other protocols shouldn't be sending large messages, we should flag the peer kind
-                            crit!(self.log, "Request size too large to ever be processed"; "protocol" => %protocol);
+                            crit!(self.log, "Request size too large to even be processed"; "protocol" => %protocol);
                         }
                         // Send an error code to the peer.
                         // The handler upon receiving the error code will send it back to the behaviour
