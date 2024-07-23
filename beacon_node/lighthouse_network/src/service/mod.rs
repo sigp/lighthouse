@@ -41,7 +41,7 @@ use types::ForkName;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
-use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
+use utils::{build_transport, strip_peer_id, Context as ServiceContext};
 
 pub mod api_types;
 mod gossip_cache;
@@ -409,7 +409,7 @@ impl<E: EthSpec> Network<E> {
                     (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS))
                         .ceil() as u32,
                 ))
-                .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
+                .with_max_established_per_peer(Some(1));
 
             libp2p::connection_limits::Behaviour::new(limits)
         };
