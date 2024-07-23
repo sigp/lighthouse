@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time::Instant;
 
-/// Restricts more than two requests from running simultaneously on the same protocol per peer.
+/// Restricts more than two inbound requests from running simultaneously on the same protocol per peer.
 pub(super) struct ActiveRequestsLimiter {
     resp_timeout: Duration,
     requests: HashMap<PeerId, Vec<(Protocol, ConnectionId, SubstreamId, Instant)>>,
