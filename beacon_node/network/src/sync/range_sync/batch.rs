@@ -534,7 +534,6 @@ impl<E: EthSpec> std::fmt::Debug for BatchState<E> {
 impl<E: EthSpec> BatchState<E> {
     /// Creates a unicode visualisation for the batch state to display in logs for quicker and
     /// easier recognition
-    /// NOTE: May require nerd-fonts
     ///
     /// The current icons are:
     /// - Empty/Uninitialized: 
