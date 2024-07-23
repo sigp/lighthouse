@@ -1268,7 +1268,7 @@ impl<E: EthSpec> Network<E> {
             self.discovery_mut().remove_cached_enr(&enr.peer_id());
             let peer_id = enr.peer_id();
             if self.peer_manager_mut().dial_peer(enr) {
-                debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
+                debug!(self.log, "Added cached ENR peer to dial queue"; "peer_id" => %peer_id);
             }
         }
     }

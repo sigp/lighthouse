@@ -320,7 +320,6 @@ impl<E: EthSpec> PeerManager<E> {
     /// returned here.
     ///
     /// This function decides whether or not to dial these peers.
-    #[allow(clippy::mutable_key_type)]
     pub fn peers_discovered(&mut self, results: HashMap<Enr, Option<Instant>>) {
         let mut to_dial_peers = 0;
         let connected_or_dialing = self.network_globals.connected_or_dialing_peers();
@@ -340,15 +339,15 @@ impl<E: EthSpec> PeerManager<E> {
             {
                 // This should be updated with the peer dialing. In fact created once the peer is
                 // dialed
+                let peer_id = enr.peer_id();
                 if let Some(min_ttl) = min_ttl {
                     self.network_globals
                         .peers
                         .write()
-                        .update_min_ttl(&enr.peer_id(), min_ttl);
+                        .update_min_ttl(&peer_id, min_ttl);
                 }
-                let peer_id = enr.peer_id();
                 if self.dial_peer(enr) {
-                    debug!(self.log, "Dialing discovered peer"; "peer_id" => %peer_id);
+                    debug!(self.log, "Added discovered ENR peer to dial queue"; "peer_id" => %peer_id);
                     to_dial_peers += 1;
                 }
             }
