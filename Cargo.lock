@@ -1071,6 +1071,7 @@ dependencies = [
  "ethereum_ssz 0.5.4 (git+https://github.com/sigp/ethereum_ssz?branch=alloy)",
  "hex",
  "rand",
+ "safe_arith",
  "serde",
  "tree_hash",
  "zeroize",

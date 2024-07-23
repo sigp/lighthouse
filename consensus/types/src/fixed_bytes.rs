@@ -1,9 +1,6 @@
 use alloy_primitives::{Address, FixedBytes};
-use byteorder::ByteOrder;
+use safe_arith::SafeArith;
 
-use crate::{Hash256, Uint256};
-
-// TODO(alloy) review panic issues
 pub trait FixedBytesExtended {
     fn from_low_u64_be(value: u64) -> Self;
     fn from_low_u64_le(value: u64) -> Self;
@@ -15,14 +12,15 @@ impl<const N: usize> FixedBytesExtended for FixedBytes<N> {
         let value_bytes = value.to_be_bytes();
         let mut buffer = [0x0; N];
         let bytes_to_copy = value_bytes.len().min(buffer.len());
-        let start_index = buffer.len() - bytes_to_copy;
+        // Panic-free because bytes_to_copy <= buffer.len()
+        let start_index = buffer.len().safe_sub(bytes_to_copy).expect("byte_to_copy <= buffer.len()");
         // Panic-free because start_index <= buffer.len()
         // and bytes_to_copy <= value_bytes.len()
         buffer
             .get_mut(start_index..)
             .expect("start_index <= buffer.len()")
             .copy_from_slice(
-                &value_bytes
+                value_bytes
                     .get(..bytes_to_copy)
                     .expect("bytes_to_copy <= value_byte.len()"),
             );
@@ -39,7 +37,7 @@ impl<const N: usize> FixedBytesExtended for FixedBytes<N> {
             .get_mut(..bytes_to_copy)
             .expect("bytes_to_copy <= buffer.len()")
             .copy_from_slice(
-                &value_bytes
+                value_bytes
                     .get(..bytes_to_copy)
                     .expect("bytes_to_copy <= value_byte.len()"),
             );

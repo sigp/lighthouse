@@ -40,6 +40,7 @@ pub use generic_public_key::{
 pub use generic_secret_key::SECRET_KEY_BYTES_LEN;
 pub use generic_signature::{INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN};
 pub use get_withdrawal_credentials::get_withdrawal_credentials;
+use safe_arith::SafeArith;
 pub use zeroize_hash::ZeroizeHash;
 
 #[cfg(feature = "supranational")]
@@ -57,14 +58,15 @@ impl<const N: usize> FixedBytesExtended for FixedBytes<N> {
         let value_bytes = value.to_be_bytes();
         let mut buffer = [0x0; N];
         let bytes_to_copy = value_bytes.len().min(buffer.len());
-        let start_index = buffer.len() - bytes_to_copy;
+        // Panic-free because bytes_to_copy <= buffer.len()
+        let start_index = buffer.len().safe_sub(bytes_to_copy).expect("bytes_to_copy <= buffer.len()");
         // Panic-free because start_index <= buffer.len()
         // and bytes_to_copy <= value_bytes.len()
         buffer
             .get_mut(start_index..)
             .expect("start_index <= buffer.len()")
             .copy_from_slice(
-                &value_bytes
+                value_bytes
                     .get(..bytes_to_copy)
                     .expect("bytes_to_copy <= value_byte.len()"),
             );
@@ -75,13 +77,13 @@ impl<const N: usize> FixedBytesExtended for FixedBytes<N> {
         let value_bytes = value.to_le_bytes();
         let mut buffer = [0x0; N];
         let bytes_to_copy = value_bytes.len().min(buffer.len());
-        // Panic-free because bytes_to_copy <= buffer.len()
+        // Panic-free because bytes_to_copy <= buffer.len(),
         // and bytes_to_copy <= value_bytes.len()
         buffer
             .get_mut(..bytes_to_copy)
             .expect("bytes_to_copy <= buffer.len()")
             .copy_from_slice(
-                &value_bytes
+                value_bytes
                     .get(..bytes_to_copy)
                     .expect("bytes_to_copy <= value_byte.len()"),
             );

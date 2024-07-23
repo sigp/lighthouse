@@ -92,7 +92,7 @@ impl From<GraffitiString> for Graffiti {
             .get_mut(..graffiti_len)
             .expect("graffiti_len <= GRAFFITI_BYTES_LEN")
             .copy_from_slice(
-                &graffiti_bytes
+                graffiti_bytes
                     .get(..graffiti_len)
                     .expect("graffiti_len <= GRAFFITI_BYTES_LEN"),
             );

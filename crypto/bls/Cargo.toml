@@ -17,6 +17,7 @@ ethereum_hashing = { workspace = true }
 arbitrary = { workspace = true }
 zeroize = { workspace = true }
 blst = { version = "0.3.3", optional = true }
+safe_arith = { workspace = true }
 
 [features]
 arbitrary = []

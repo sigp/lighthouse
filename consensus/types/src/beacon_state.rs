@@ -1,5 +1,6 @@
 use self::committee_cache::get_active_validator_indices;
 use crate::historical_summary::HistoricalSummary;
+use crate::fixed_bytes::FixedBytesExtended;
 use crate::test_utils::TestRandom;
 use crate::*;
 use compare_fields::CompareFields;
@@ -2219,7 +2220,8 @@ impl<E: EthSpec> BeaconState<E> {
             .get_mut(validator_index)
             .ok_or(Error::UnknownValidator(validator_index))?;
         if validator.has_eth1_withdrawal_credential(spec) {
-            validator.withdrawal_credentials.as_mut_slice().to_owned()[0] =
+            *validator.withdrawal_credentials.as_mut_slice().to_owned().get_mut(0)
+                .ok_or(Error::UnknownValidator(validator_index))? =
                 spec.compounding_withdrawal_prefix_byte;
             self.queue_excess_active_balance(validator_index, spec)?;
         }

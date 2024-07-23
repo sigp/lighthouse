@@ -1,7 +1,7 @@
 use alloy_primitives::FixedBytes;
 use ethereum_hashing::{hash, hash32_concat, ZERO_HASHES};
 use lazy_static::lazy_static;
-use safe_arith::ArithError;
+use safe_arith::{ArithError, SafeArith};
 
 type H256 = alloy_primitives::B256;
 
@@ -16,14 +16,15 @@ impl<const N: usize> FixedBytesExtended for FixedBytes<N> {
         let value_bytes = value.to_be_bytes();
         let mut buffer = [0x0; N];
         let bytes_to_copy = value_bytes.len().min(buffer.len());
-        let start_index = buffer.len() - bytes_to_copy;
+        // Panic-free because bytes_to_copy <= buffer.len()
+        let start_index = buffer.len().safe_sub(bytes_to_copy).expect("bytes_to_copy <= buffer.len()");
         // Panic-free because start_index <= buffer.len()
         // and bytes_to_copy <= value_bytes.len()
         buffer
             .get_mut(start_index..)
             .expect("start_index <= buffer.len()")
             .copy_from_slice(
-                &value_bytes
+                value_bytes
                     .get(..bytes_to_copy)
                     .expect("bytes_to_copy <= value_byte.len()"),
             );
@@ -40,7 +41,7 @@ impl<const N: usize> FixedBytesExtended for FixedBytes<N> {
             .get_mut(..bytes_to_copy)
             .expect("bytes_to_copy <= buffer.len()")
             .copy_from_slice(
-                &value_bytes
+                value_bytes
                     .get(..bytes_to_copy)
                     .expect("bytes_to_copy <= value_byte.len()"),
             );
