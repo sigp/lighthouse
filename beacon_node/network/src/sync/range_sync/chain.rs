@@ -1092,11 +1092,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Creates a string visualization of the current state of the chain, to make it easier for debugging and understanding
     /// where sync is up to from glancing at the logs.
     ///
-    /// This produces a string of the form: [⏳⏬⏬⏬⏬]
+    /// This produces a string of the form: [D,E,E,E,E]
     /// to indicate the current buffer state of the chain. The symbols are defined on each of the
     /// batch states. See [BatchState::visualize] for symbol definitions.
     fn visualize_batch_state(&self) -> String {
-        let mut visualization_string = String::with_capacity((BATCH_BUFFER_SIZE * 5) as usize);
+        let mut visualization_string = String::with_capacity((BATCH_BUFFER_SIZE * 3) as usize);
 
         // Start of the block
         visualization_string.push('[');
@@ -1106,16 +1106,20 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .batches
                 .get(&(self.processing_target + batch_index as u64 * EPOCHS_PER_BATCH))
             {
-                visualization_string.push_str(batch.visualize());
+                visualization_string.push(batch.visualize());
                 if batch_index != BATCH_BUFFER_SIZE {
-                    // Add a space in between elements
-                    visualization_string.push(' ');
+                    // Add a comma in between elements
+                    visualization_string.push(',');
                 }
             } else {
                 // No batch exists, it is on our list to be downloaded
                 // Fill in the rest of the gaps
                 while batch_index < BATCH_BUFFER_SIZE {
-                    visualization_string.push_str("◻️");
+                    visualization_string.push('E');
+                    // Add a comma between the empty batches
+                    if batch_index < BATCH_BUFFER_SIZE.saturating_sub(1) {
+                        visualization_string.push(',')
+                    }
                     batch_index += 1;
                 }
                 break;

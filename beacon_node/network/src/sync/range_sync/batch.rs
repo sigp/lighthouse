@@ -451,7 +451,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     }
 
     // Visualizes the state of this batch using state::visualize()
-    pub fn visualize(&self) -> &'static str {
+    pub fn visualize(&self) -> char {
         self.state.visualize()
     }
 }
@@ -536,23 +536,23 @@ impl<E: EthSpec> BatchState<E> {
     /// easier recognition
     ///
     /// The current icons are:
-    /// - Empty/Uninitialized: ◻️
-    /// - Downloading: ⏬
-    /// - Awaiting Download: 📥
-    /// - Awaiting Validation:⏳
-    /// - Failed: ❌
-    /// - AwaitingProcessing: 
-    /// - Processing(_) => "🔄",
-    /// - Poisoned => "💀",
-    fn visualize(&self) -> &'static str {
+    /// - Empty/Uninitialized: E
+    /// - Downloading: D
+    /// - Awaiting Download: d
+    /// - Awaiting Validation: V
+    /// - Failed: F
+    /// - AwaitingProcessing: p
+    /// - Processing(_) => "P",
+    /// - Poisoned => "X",
+    fn visualize(&self) -> char {
         match self {
-            BatchState::Downloading(_, _) => "⏬",
-            BatchState::Processing(_) => "🔄",
-            BatchState::AwaitingValidation(_) => "⏳",
-            BatchState::AwaitingDownload => "📥",
-            BatchState::Failed => "❌",
-            BatchState::AwaitingProcessing(_, _) => "🕓",
-            BatchState::Poisoned => "💀",
+            BatchState::Downloading(_, _) => 'D',
+            BatchState::Processing(_) => 'P',
+            BatchState::AwaitingValidation(_) => 'V',
+            BatchState::AwaitingDownload => 'd',
+            BatchState::Failed => 'F',
+            BatchState::AwaitingProcessing(_, _) => 'p',
+            BatchState::Poisoned => 'X',
         }
     }
 }
