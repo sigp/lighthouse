@@ -8,6 +8,7 @@ use serde_utils::quoted_u64::MaybeQuoted;
 use ssz::Encode;
 use std::fs::File;
 use std::path::Path;
+use std::str::FromStr;
 use std::time::Duration;
 use tree_hash::TreeHash;
 
@@ -806,14 +807,51 @@ impl ChainSpec {
     /// And custom params for WVM testnet
     pub fn wvm() -> Self {
         let mut wvm_spec = Self::mainnet();
+        wvm_spec.config_name = Some("wvm".to_string());
+        wvm_spec.min_genesis_active_validator_count = 1;
+        wvm_spec.min_genesis_time = 1720614340;
+        wvm_spec.genesis_fork_version = [153, 0, 0, 0];
+        wvm_spec.genesis_delay = 1200;
+        wvm_spec.eth1_follow_distance = 128;
+        wvm_spec.seconds_per_slot = 2;
+        wvm_spec.seconds_per_eth1_block = 2;
+        wvm_spec.deposit_chain_id = 9496;
+        wvm_spec.deposit_network_id = 9496;
+
+        wvm_spec.altair_fork_version = [153, 0, 0, 1];
+        wvm_spec.altair_fork_epoch = Some(Epoch::new(0));
+        wvm_spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        wvm_spec.bellatrix_fork_version = [153, 0, 0, 2];
+
+        wvm_spec.terminal_total_difficulty = Uint256::from(0);
+        wvm_spec.terminal_block_hash = ExecutionBlockHash::from_str(
+            "0x77658b7e54e6f06537f53248266cbdb5ee143c91dd3dd062b5aa340cc5cefc49",
+        )
+        .expect("hash in a proper format");
+        wvm_spec.terminal_block_hash_activation_epoch = Epoch::new(0);
+
         wvm_spec.max_effective_balance = option_wrapper(|| {
             5000u64.checked_mul(u64::checked_pow(10, 9)?) // 5k for validator in testnet
-        }).expect("calculation does not overflow");
+        })
+        .expect("calculation does not overflow");
+        wvm_spec.seconds_per_slot = 2; // 2s per slot
+        wvm_spec.deposit_contract_address = "0x4242424242424242424242424242424242424242"
+            .parse()
+            .expect("minimal chain spec deposit address");
+
+        wvm_spec.capella_fork_version = [153, 0, 0, 3];
+        wvm_spec.capella_fork_epoch = Some(Epoch::new(1));
+
+        wvm_spec.deneb_fork_version = [153, 0, 0, 4];
+        wvm_spec.deneb_fork_epoch = Some(Epoch::new(2));
+
+        wvm_spec.electra_fork_version = [153, 0, 0, 5];
+        wvm_spec.electra_fork_epoch = None;
 
         wvm_spec
     }
 
-        /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
+    /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
     pub fn minimal() -> Self {
         // Note: bootnodes to be updated when static nodes exist.
         let boot_nodes = vec![];

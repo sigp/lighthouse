@@ -184,7 +184,6 @@ impl EnvironmentBuilder<WvmEthSpec> {
     }
 }
 
-
 impl<E: EthSpec> EnvironmentBuilder<E> {
     /// Specifies that a multi-threaded tokio runtime should be used. Ideal for production uses.
     ///

@@ -493,6 +493,13 @@ mod tests {
         assert_eq!(spec, config.chain_spec::<GnosisEthSpec>().unwrap());
     }
 
+    #[test]
+    fn wvm_config_eq_chain_spec() {
+        let config = Eth2NetworkConfig::from_hardcoded_net(&WVM).unwrap();
+        let spec = ChainSpec::wvm();
+        assert_eq!(spec, config.chain_spec::<WvmEthSpec>().unwrap());
+    }
+
     #[tokio::test]
     async fn mainnet_genesis_state() {
         let config = Eth2NetworkConfig::from_hardcoded_net(&MAINNET).unwrap();
@@ -511,11 +518,7 @@ mod tests {
             // Ensure we can parse the YAML config to a chain spec.
             if config.config.preset_base == types::GNOSIS {
                 config.chain_spec::<GnosisEthSpec>().unwrap();
-            } else {
-                config.chain_spec::<MainnetEthSpec>().unwrap();
-            }
-
-            if config.config.preset_base == types::WVM {
+            } else if config.config.preset_base == types::WVM {
                 config.chain_spec::<WvmEthSpec>().unwrap();
             } else {
                 config.chain_spec::<MainnetEthSpec>().unwrap();

@@ -18,7 +18,6 @@ const MINIMAL: &str = "minimal";
 pub const GNOSIS: &str = "gnosis";
 pub const WVM: &str = "wvm";
 
-
 /// Used to identify one of the `EthSpec` instances defined here.
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -539,13 +538,11 @@ impl EthSpec for GnosisEthSpec {
     }
 }
 
-
-
 /// WVM Beacon Chain specifications.
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
 pub struct WvmEthSpec;
 
-impl EthSpec for crate::WvmEthSpec {
+impl EthSpec for WvmEthSpec {
     type JustificationBitsLength = U4;
     type SubnetBitfieldLength = U64;
     type MaxValidatorsPerCommittee = U2048;

@@ -28,8 +28,7 @@ SAFE_SLOTS_TO_UPDATE_JUSTIFIED: 8
 # ---------------------------------------------------------------
 # 2**0 * 10**9 (= 1,000,000,000) Gwei
 MIN_DEPOSIT_AMOUNT: 1000000000
-# 2**5 * 10**9 (= 32,000,000,000) Gwei - ETH
-# 5k for WVM testnet
+# 2**5 * 10**9 (= 32,000,000,000) Gwei
 MAX_EFFECTIVE_BALANCE: 5000000000000
 # 2**0 * 10**9 (= 1,000,000,000) Gwei
 EFFECTIVE_BALANCE_INCREMENT: 1000000000
