@@ -564,7 +564,7 @@ impl<E: EthSpec> From<JsonBlobsBundleV1<E>> for BlobsBundle<E> {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(bound = "E: EthSpec", rename_all = "camelCase")]
 pub struct BlobAndProofV1<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]

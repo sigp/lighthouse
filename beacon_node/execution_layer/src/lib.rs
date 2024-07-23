@@ -1851,11 +1851,17 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         query: Vec<Hash256>,
     ) -> Result<Vec<Option<BlobAndProofV1<E>>>, Error> {
-        self.engine()
-            .request(|engine| async move { engine.api.get_blobs(query).await })
-            .await
-            .map_err(Box::new)
-            .map_err(Error::EngineError)
+        let capabilities = self.get_engine_capabilities(None).await?;
+
+        if capabilities.get_blobs_v1 {
+            self.engine()
+                .request(|engine| async move { engine.api.get_blobs(query).await })
+                .await
+                .map_err(Box::new)
+                .map_err(Error::EngineError)
+        } else {
+            Ok(vec![None; query.len()])
+        }
     }
 
     pub async fn get_block_by_number(
