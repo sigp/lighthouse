@@ -1096,7 +1096,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// to indicate the current buffer state of the chain. The symbols are defined on each of the
     /// batch states. See [BatchState::visualize] for symbol definitions.
     fn visualize_batch_state(&self) -> String {
-        let mut visualization_string = String::with_capacity((BATCH_BUFFER_SIZE * 3) as usize);
+        let mut visualization_string = String::with_capacity((BATCH_BUFFER_SIZE * 5) as usize);
 
         // Start of the block
         visualization_string.push('[');
@@ -1115,7 +1115,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // No batch exists, it is on our list to be downloaded
                 // Fill in the rest of the gaps
                 while batch_index < BATCH_BUFFER_SIZE {
-                    visualization_string.push('◻️');
+                    visualization_string.push_str("◻️");
                     batch_index += 1;
                 }
                 break;
