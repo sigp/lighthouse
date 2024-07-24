@@ -201,6 +201,7 @@ impl<E: EthSpec> EpochTransition<E> for PendingBalanceDeposits {
     }
 }
 
+// TODO(alloy) test fails here
 impl<E: EthSpec> EpochTransition<E> for PendingConsolidations {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         initialize_epoch_cache(state, spec)?;
