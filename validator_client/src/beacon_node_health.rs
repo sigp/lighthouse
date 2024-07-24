@@ -30,7 +30,7 @@ pub enum SyncDistanceTier {
 }
 
 /// Contains the different sync distance tiers which are determined at runtime by the
-/// `sync_tolerance` CLI flag and the `sync_distance_modifier` flags.
+/// `beacon-nodes-sync-tolerances` flag.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct BeaconNodeSyncDistanceTiers {
     pub synced: SyncDistance,
