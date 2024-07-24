@@ -950,3 +950,51 @@ fn handle_block_post_error(err: eth2::Error, slot: Slot, log: &Logger) -> Result
         "Error from beacon node when publishing block: {err:?}",
     )))
 }
+
+#[cfg(test)]
+mod test {
+    use std::time::Duration;
+
+    use rand::thread_rng;
+
+    use bls::SignatureBytes;
+    use logging::test_logger;
+    use slot_clock::SystemTimeSlotClock;
+    use types::test_utils::TestRandom;
+    use types::{
+        BeaconBlock, BeaconBlockDeneb, EmptyBlock, EthSpec, ForkName, MainnetEthSpec, Slot,
+    };
+
+    use crate::beacon_node_test_rig::BeaconNodeTestRig;
+    use crate::block_service::{BlockService, UnsignedBlock};
+
+    #[tokio::test]
+    async fn test_get_block_v3() {
+        type E = MainnetEthSpec;
+        let fork = ForkName::Deneb;
+        let spec = fork.make_genesis_spec(E::default_spec());
+
+        let mut block = BeaconBlock::Deneb(BeaconBlockDeneb::empty(&spec));
+        let proposer_index = 123;
+        *block.proposer_index_mut() = proposer_index;
+
+        let mut rig = BeaconNodeTestRig::<E>::new().await;
+        rig.mock_get_validator_blocks_v3(fork, block, Some(Duration::from_secs(2)))
+            .await;
+
+        let block: UnsignedBlock<E> =
+            BlockService::<SystemTimeSlotClock, E>::get_validator_block_v3(
+                &rig.beacon_api_client,
+                Slot::new(1000),
+                &SignatureBytes::random_for_test(&mut thread_rng()),
+                None,
+                Some(proposer_index),
+                None,
+                &test_logger(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(block.proposer_index(), proposer_index);
+    }
+}

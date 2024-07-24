@@ -11,6 +11,9 @@ path = "src/lib.rs"
 [dev-dependencies]
 tokio = { workspace = true }
 itertools = { workspace = true }
+mockito = "1.4.0"
+regex = { workspace = true }
+env_logger = { workspace = true }
 
 [dependencies]
 tree_hash = { workspace = true }
