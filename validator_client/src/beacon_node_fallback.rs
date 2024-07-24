@@ -94,8 +94,6 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
 
 #[derive(Debug)]
 pub enum Error<T> {
-    /// The node was unavailable and we didn't attempt to contact it.
-    Unavailable(CandidateError),
     /// We attempted to contact the node but it failed.
     RequestFailed(T),
 }
@@ -104,7 +102,6 @@ impl<T> Error<T> {
     pub fn request_failure(&self) -> Option<&T> {
         match self {
             Error::RequestFailed(e) => Some(e),
-            _ => None,
         }
     }
 }
