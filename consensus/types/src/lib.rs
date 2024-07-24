@@ -157,7 +157,7 @@ pub use crate::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
-pub use crate::execution_block_header::ExecutionBlockHeader;
+pub use crate::execution_block_header::{EncodableExecutionBlockHeader, ExecutionBlockHeader};
 pub use crate::execution_layer_withdrawal_request::ExecutionLayerWithdrawalRequest;
 pub use crate::execution_payload::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
