@@ -6,7 +6,6 @@ edition = { workspace = true }
 
 [dependencies]
 alloy-primitives = { workspace = true }
-byteorder = { workspace = true }
 ethereum_ssz = { workspace = true }
 tree_hash = { workspace = true }
 rand = { workspace = true }

@@ -178,13 +178,14 @@ checksum = "5c6cb57a04249c6480766f7f7cef5467412af1490f8d1e243141daddada3264f"
 
 [[package]]
 name = "alloy-consensus"
-version = "0.1.0"
-source = "git+https://github.com/alloy-rs/alloy.git?rev=974d488bab5e21e9f17452a39a4bfa56677367b2#974d488bab5e21e9f17452a39a4bfa56677367b2"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f58047cc851e58c26224521d1ecda466e3d746ebca0274cd5427aa660a88c353"
 dependencies = [
  "alloy-eips",
- "alloy-network",
- "alloy-primitives 0.6.4",
+ "alloy-primitives",
  "alloy-rlp",
+ "c-kzg",
 ]
 
 [[package]]
@@ -193,63 +194,21 @@ version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "529fc6310dc1126c8de51c376cbc59c79c7f662bd742be7dc67055d5421a81b4"
 dependencies = [
- "alloy-primitives 0.7.7",
+ "alloy-primitives",
 ]
 
 [[package]]
 name = "alloy-eips"
-version = "0.1.0"
-source = "git+https://github.com/alloy-rs/alloy.git?rev=974d488bab5e21e9f17452a39a4bfa56677367b2#974d488bab5e21e9f17452a39a4bfa56677367b2"
-dependencies = [
- "alloy-primitives 0.6.4",
- "alloy-rlp",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "alloy-json-rpc"
-version = "0.1.0"
-source = "git+https://github.com/alloy-rs/alloy.git?rev=974d488bab5e21e9f17452a39a4bfa56677367b2#974d488bab5e21e9f17452a39a4bfa56677367b2"
-dependencies = [
- "alloy-primitives 0.6.4",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "alloy-network"
-version = "0.1.0"
-source = "git+https://github.com/alloy-rs/alloy.git?rev=974d488bab5e21e9f17452a39a4bfa56677367b2#974d488bab5e21e9f17452a39a4bfa56677367b2"
-dependencies = [
- "alloy-eips",
- "alloy-json-rpc",
- "alloy-primitives 0.6.4",
- "alloy-rlp",
- "serde",
-]
-
-[[package]]
-name = "alloy-primitives"
-version = "0.6.4"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "600d34d8de81e23b6d909c094e23b3d357e01ca36b78a8c5424c501eedbe86f0"
+checksum = "d32a3e14fa0d152d00bd8daf605eb74ad397efb0f54bd7155585823dddb4401e"
 dependencies = [
+ "alloy-primitives",
  "alloy-rlp",
- "bytes",
- "cfg-if",
- "const-hex",
- "derive_more",
- "hex-literal",
- "itoa",
- "k256 0.13.3",
- "keccak-asm",
- "proptest",
- "rand",
- "ruint",
+ "c-kzg",
+ "once_cell",
  "serde",
- "tiny-keccak",
+ "sha2 0.10.8",
 ]
 
 [[package]]
@@ -832,7 +791,7 @@ checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 name = "beacon_chain"
 version = "0.2.0"
 dependencies = [
- "alloy-primitives 0.7.7",
+ "alloy-primitives",
  "bitvec 1.0.1",
  "bls",
  "derivative",
@@ -1062,10 +1021,9 @@ checksum = "8d696c370c750c948ada61c69a0ee2cbbb9c50b1019ddb86d9317157a99c2cae"
 name = "bls"
 version = "0.2.0"
 dependencies = [
- "alloy-primitives 0.7.7",
+ "alloy-primitives",
  "arbitrary",
  "blst",
- "byteorder",
  "ethereum_hashing",
  "ethereum_serde_utils 0.5.2 (git+https://github.com/eserilev/ethereum_serde_utils?branch=alloy)",
  "ethereum_ssz 0.5.4",
@@ -1206,6 +1164,7 @@ dependencies = [
  "glob",
  "hex",
  "libc",
+ "serde",
 ]
 
 [[package]]
@@ -1417,7 +1376,7 @@ checksum = "98cc8fbded0c607b7ba9dd60cd98df59af97e84d24e49c8557331cfc26d301ce"
 name = "clap_utils"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives 0.7.7",
+ "alloy-primitives",
  "clap",
  "dirs",
  "eth2_network_config",
@@ -2218,7 +2177,7 @@ dependencies = [
 name = "ef_tests"
 version = "0.2.0"
 dependencies = [
- "alloy-primitives 0.7.7",
+ "alloy-primitives",
  "beacon_chain",
  "bls",
  "compare_fields",
@@ -2694,7 +2653,7 @@ name = "ethereum_serde_utils"
 version = "0.5.2"
 source = "git+https://github.com/eserilev/ethereum_serde_utils?branch=alloy#d62af01f0c240706bec464113094137e0e12e294"
 dependencies = [
- "alloy-primitives 0.7.7",
+ "alloy-primitives",
  "hex",
  "serde",
  "serde_derive",
@@ -2706,7 +2665,7 @@ name = "ethereum_serde_utils"
 version = "0.5.2"
 source = "git+https://github.com/sigp/ethereum_serde_utils?branch=alloy#a70603017e81e6016c8a07ca8c939dddc390d9be"
 dependencies = [
- "alloy-primitives 0.7.7",
+ "alloy-primitives",
  "hex",
  "serde",
  "serde_derive",
@@ -2729,7 +2688,7 @@ name = "ethereum_ssz"
 version = "0.5.4"
 source = "git+https://github.com/sigp/ethereum_ssz?branch=alloy#6baa1217c531ee4bc4e8ae00fa99a427806b5320"
 dependencies = [
- "alloy-primitives 0.7.7",
+ "alloy-primitives",
  "itertools",
  "smallvec",
 ]
@@ -2924,7 +2883,7 @@ name = "execution_layer"
 version = "0.1.0"
 dependencies = [
  "alloy-consensus",
- "alloy-primitives 0.7.7",
+ "alloy-primitives",
  "alloy-rlp",
  "arc-swap",
  "builder_client",
@@ -5285,7 +5244,7 @@ dependencies = [
 name = "merkle_proof"
 version = "0.2.0"
 dependencies = [
- "alloy-primitives 0.7.7",
+ "alloy-primitives",
  "ethereum_hashing",
  "lazy_static",
  "quickcheck",
@@ -5342,7 +5301,7 @@ name = "milhouse"
 version = "0.1.0"
 source = "git+https://github.com/eserilev/milhouse?branch=alloy#bf532ed1108664ec5059bfcbbe4b85115613422d"
 dependencies = [
- "alloy-primitives 0.7.7",
+ "alloy-primitives",
  "arbitrary",
  "derivative",
  "ethereum_hashing",
@@ -8143,7 +8102,7 @@ dependencies = [
 name = "swap_or_not_shuffle"
 version = "0.2.0"
 dependencies = [
- "alloy-primitives 0.7.7",
+ "alloy-primitives",
  "criterion",
  "ethereum_hashing",
 ]
@@ -8801,7 +8760,7 @@ name = "tree_hash"
 version = "0.6.0"
 source = "git+https://github.com/eserilev/tree_hash?branch=alloy-deps#48ec4bf464168d202902de992df4a95c4c336fd2"
 dependencies = [
- "alloy-primitives 0.7.7",
+ "alloy-primitives",
  "ethereum_hashing",
  "smallvec",
 ]
@@ -8852,18 +8811,16 @@ checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
 name = "types"
 version = "0.2.1"
 dependencies = [
- "alloy-primitives 0.7.7",
+ "alloy-primitives",
  "alloy-rlp",
  "arbitrary",
  "beacon_chain",
  "bls",
- "byteorder",
  "compare_fields",
  "compare_fields_derive",
  "criterion",
  "derivative",
  "eth2_interop_keypairs",
- "ethereum-types 0.14.1",
  "ethereum_hashing",
  "ethereum_serde_utils 0.5.2 (git+https://github.com/eserilev/ethereum_serde_utils?branch=alloy)",
  "ethereum_ssz 0.5.4",
