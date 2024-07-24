@@ -1,36 +1,23 @@
-use crate::sync::manager::{DataColumnsByRootRequester, SingleLookupReqId};
-use crate::sync::network_context::{
-    DataColumnsByRootRequestId, DataColumnsByRootSingleBlockRequest,
-};
+use crate::sync::network_context::DataColumnsByRootSingleBlockRequest;
 
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
+use lighthouse_network::service::api_types::{
+    CustodyId, DataColumnsByRootRequestId, DataColumnsByRootRequester,
+};
 use lighthouse_network::PeerId;
 use lru_cache::LRUTimeCache;
 use rand::Rng;
 use slog::{debug, warn};
 use std::time::Duration;
-use std::{collections::HashMap, marker::PhantomData, sync::Arc};
-use types::EthSpec;
-use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Epoch, Hash256};
+use std::{collections::HashMap, marker::PhantomData};
+use types::{data_column_sidecar::ColumnIndex, Epoch, Hash256};
+use types::{DataColumnSidecarList, EthSpec};
 
-use super::{LookupRequestResult, PeerGroup, ReqId, RpcResponseResult, SyncNetworkContext};
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct CustodyId {
-    pub requester: CustodyRequester,
-    pub req_id: ReqId,
-}
+use super::{LookupRequestResult, PeerGroup, RpcResponseResult, SyncNetworkContext};
 
 const FAILED_PEERS_CACHE_EXPIRY_SECONDS: u64 = 5;
-
-/// Downstream components that perform custody by root requests.
-/// Currently, it's only single block lookups, so not using an enum
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct CustodyRequester(pub SingleLookupReqId);
-
-type DataColumnSidecarVec<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
 pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     block_root: Hash256,
@@ -107,7 +94,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         &mut self,
         peer_id: PeerId,
         req_id: DataColumnsByRootRequestId,
-        resp: RpcResponseResult<DataColumnSidecarVec<T::EthSpec>>,
+        resp: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> CustodyRequestResult<T::EthSpec> {
         // TODO(das): Should downscore peers for verify errors here

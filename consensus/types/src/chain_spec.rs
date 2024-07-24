@@ -907,6 +907,14 @@ impl ChainSpec {
             electra_fork_epoch: None,
             max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 0)
                 .expect("pow does not overflow"),
+            min_per_epoch_churn_limit_electra: option_wrapper(|| {
+                u64::checked_pow(2, 6)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            max_per_epoch_activation_exit_churn_limit: option_wrapper(|| {
+                u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
             // PeerDAS
             eip7594_fork_epoch: None,
             // Other
@@ -1470,7 +1478,7 @@ const fn default_max_request_blob_sidecars() -> u64 {
 }
 
 const fn default_max_request_data_column_sidecars() -> u64 {
-    512
+    16384
 }
 
 const fn default_min_epochs_for_blob_sidecars_requests() -> u64 {

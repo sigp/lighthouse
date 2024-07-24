@@ -70,7 +70,7 @@ use crate::{
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
-use eth2::types::{EventKind, PublishBlockRequest};
+use eth2::types::{BlockGossip, EventKind, PublishBlockRequest};
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
@@ -96,7 +96,6 @@ use std::io::Write;
 use std::sync::Arc;
 use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
-use tree_hash::TreeHash;
 use types::data_column_sidecar::DataColumnSidecarError;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecar,
@@ -1070,6 +1069,16 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Validate the block's execution_payload (if any).
         validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
+        // Beacon API block_gossip events
+        if let Some(event_handler) = chain.event_handler.as_ref() {
+            if event_handler.has_block_gossip_subscribers() {
+                event_handler.register(EventKind::BlockGossip(Box::new(BlockGossip {
+                    slot: block.slot(),
+                    block: block_root,
+                })));
+            }
+        }
+
         // Having checked the proposer index and the block root we can cache them.
         let consensus_context = ConsensusContext::new(block.slot())
             .set_current_block_root(block_root)
@@ -1434,6 +1443,13 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             // The specification declares that this should be run *inside* `per_block_processing`,
             // however we run it here to keep `per_block_processing` pure (i.e., no calls to external
             // servers).
+            if let Some(started_execution) = chain.slot_clock.now_duration() {
+                chain.block_times_cache.write().set_time_started_execution(
+                    block_root,
+                    block.slot(),
+                    started_execution,
+                );
+            }
             let payload_verification_status = payload_notifier.notify_new_payload().await?;
 
             // If the payload did not validate or invalidate the block, check to see if this block is
@@ -2223,7 +2239,14 @@ pub fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
 
 fn write_state<E: EthSpec>(prefix: &str, state: &BeaconState<E>, log: &Logger) {
     if WRITE_BLOCK_PROCESSING_SSZ {
-        let root = state.tree_hash_root();
+        let mut state = state.clone();
+        let Ok(root) = state.canonical_root() else {
+            error!(
+                log,
+                "Unable to hash state for writing";
+            );
+            return;
+        };
         let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot(), root);
         let mut path = std::env::temp_dir().join("lighthouse");
         let _ = fs::create_dir_all(path.clone());

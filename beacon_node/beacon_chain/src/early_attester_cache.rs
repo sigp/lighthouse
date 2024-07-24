@@ -22,7 +22,7 @@ pub struct CacheItem<E: EthSpec> {
      */
     block: Arc<SignedBeaconBlock<E>>,
     blobs: Option<BlobSidecarList<E>>,
-    data_columns: Option<DataColumnSidecarVec<E>>,
+    data_columns: Option<DataColumnSidecarList<E>>,
     proto_block: ProtoBlock,
 }
 
@@ -167,7 +167,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
     }
 
     /// Returns the data columns, if `block_root` matches the cached item.
-    pub fn get_data_columns(&self, block_root: Hash256) -> Option<DataColumnSidecarVec<E>> {
+    pub fn get_data_columns(&self, block_root: Hash256) -> Option<DataColumnSidecarList<E>> {
         self.item
             .read()
             .as_ref()

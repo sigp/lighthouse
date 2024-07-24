@@ -1,5 +1,4 @@
 use crate::sync::manager::BlockProcessType;
-use crate::sync::SamplingId;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_column_verification::CustodyDataColumn;
@@ -13,6 +12,7 @@ use beacon_processor::{
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
 };
+use lighthouse_network::service::api_types::SamplingId;
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,

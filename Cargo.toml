@@ -46,7 +46,7 @@ members = [
     "common/warp_utils",
     "common/monitoring_api",
     "database_manager",
-    "consensus/cached_tree_hash",
+
     "consensus/int_to_bytes",
     "consensus/fork_choice",
     "consensus/proto_array",
@@ -82,6 +82,9 @@ resolver = "2"
 edition = "2021"
 
 [workspace.dependencies]
+alloy-primitives = "0.7.7"
+alloy-rlp = "0.3.4"
+alloy-consensus = "0.2.0"
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 async-channel = "1.9.0"
@@ -89,7 +92,7 @@ bincode = "1"
 bitvec = "1"
 byteorder = "1"
 bytes = "1"
-clap = { version = "4.5.4", features = ["cargo", "wrap_help"] }
+clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 # Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
 # feature ourselves when desired.
 c-kzg = { version = "1", default-features =  false }
@@ -115,6 +118,7 @@ fnv = "1"
 fs2 = "0.4"
 futures = "0.3"
 hex = "0.4"
+hashlink = "0.9.0"
 hyper = "1"
 itertools = "0.10"
 lazy_static = "1"
@@ -144,7 +148,7 @@ serde_json = "1"
 serde_repr = "0.1"
 serde_yaml = "0.9"
 sha2 = "0.9"
-slog = { version = "2", features = ["max_level_trace", "release_max_level_trace", "nested-values"] }
+slog = { version = "2", features = ["max_level_debug", "release_max_level_debug", "nested-values"] }
 slog-async = "2"
 slog-term = "2"
 sloggers = { version = "2", features = ["json"] }
@@ -178,7 +182,6 @@ beacon_chain = { path = "beacon_node/beacon_chain" }
 beacon_node = { path = "beacon_node" }
 beacon_processor = { path = "beacon_node/beacon_processor" }
 bls = { path = "crypto/bls" }
-cached_tree_hash = { path = "consensus/cached_tree_hash" }
 clap_utils = { path = "common/clap_utils" }
 compare_fields = { path = "common/compare_fields" }
 deposit_contract = { path = "common/deposit_contract" }
@@ -215,7 +218,7 @@ pretty_reqwest_error = { path = "common/pretty_reqwest_error" }
 proto_array = { path = "consensus/proto_array" }
 safe_arith = { path = "consensus/safe_arith" }
 sensitive_url = { path = "common/sensitive_url" }
-slasher = { path = "slasher" }
+slasher = { path = "slasher", default-features = false }
 slashing_protection = { path = "validator_client/slashing_protection" }
 slot_clock = { path = "common/slot_clock" }
 state_processing = { path = "consensus/state_processing" }

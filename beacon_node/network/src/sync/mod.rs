@@ -12,4 +12,3 @@ mod sampling;
 
 pub use manager::{BatchProcessResult, SyncMessage};
 pub use range_sync::{BatchOperationOutcome, ChainId};
-pub use sampling::SamplingId;

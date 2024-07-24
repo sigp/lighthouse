@@ -675,7 +675,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn data_columns_as_kv_store_ops(
         &self,
         block_root: &Hash256,
-        data_columns: DataColumnSidecarVec<E>,
+        data_columns: DataColumnSidecarList<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
         for data_column in data_columns {

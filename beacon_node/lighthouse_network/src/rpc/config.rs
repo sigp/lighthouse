@@ -105,8 +105,13 @@ impl RateLimiterConfig {
     pub const DEFAULT_GOODBYE_QUOTA: Quota = Quota::one_every(10);
     pub const DEFAULT_BLOCKS_BY_RANGE_QUOTA: Quota = Quota::n_every(1024, 10);
     pub const DEFAULT_BLOCKS_BY_ROOT_QUOTA: Quota = Quota::n_every(128, 10);
-    pub const DEFAULT_BLOBS_BY_RANGE_QUOTA: Quota = Quota::n_every(768, 10);
-    pub const DEFAULT_BLOBS_BY_ROOT_QUOTA: Quota = Quota::n_every(128, 10);
+    // `BlocksByRange` and `BlobsByRange` are sent together during range sync.
+    // It makes sense for blocks and blobs quotas to be equivalent in terms of the number of blocks:
+    // 1024 blocks * 6 max blobs per block.
+    // This doesn't necessarily mean that we are sending this many blobs, because the quotas are
+    // measured against the maximum request size.
+    pub const DEFAULT_BLOBS_BY_RANGE_QUOTA: Quota = Quota::n_every(6144, 10);
+    pub const DEFAULT_BLOBS_BY_ROOT_QUOTA: Quota = Quota::n_every(768, 10);
     // 320 blocks worth of columns for regular node, or 40 blocks for supernode.
     // Range sync load balances when requesting blocks, and each batch is 32 blocks.
     pub const DEFAULT_DATA_COLUMNS_BY_RANGE_QUOTA: Quota = Quota::n_every(5120, 10);

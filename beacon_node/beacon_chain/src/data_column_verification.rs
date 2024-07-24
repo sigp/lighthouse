@@ -333,7 +333,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     pub fn clone_arc(&self) -> Arc<DataColumnSidecar<E>> {
         self.data.clone()
     }
-    pub fn index(&self) -> u64 {
+    pub fn index(&self) -> ColumnIndex {
         self.data.index
     }
 }

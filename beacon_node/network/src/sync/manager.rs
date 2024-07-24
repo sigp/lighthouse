@@ -35,13 +35,10 @@
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
 use super::block_lookups::BlockLookups;
-use super::network_context::{
-    BlockOrBlob, CustodyId, DataColumnsByRootRequestId, RangeRequestId, RpcEvent,
-    SyncNetworkContext,
-};
+use super::network_context::{BlockOrBlob, RangeRequestId, RpcEvent, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
-use super::sampling::{Sampling, SamplingConfig, SamplingId, SamplingRequester, SamplingResult};
+use super::sampling::{Sampling, SamplingConfig, SamplingResult};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
@@ -58,6 +55,10 @@ use beacon_chain::{
 };
 use futures::StreamExt;
 use lighthouse_network::rpc::RPCError;
+use lighthouse_network::service::api_types::{
+    DataColumnsByRootRequestId, DataColumnsByRootRequester, Id, SamplingId, SamplingRequester,
+    SingleLookupReqId, SyncRequestId,
+};
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
@@ -83,33 +84,6 @@ pub const SLOT_IMPORT_TOLERANCE: usize = 32;
 /// arbitrary number that covers a full slot, but allows recovery if sync get stuck for a few slots.
 const NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS: u64 = 30;
 
-pub type Id = u32;
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct SingleLookupReqId {
-    pub lookup_id: Id,
-    pub req_id: Id,
-}
-
-/// Id of rpc requests sent by sync to the network.
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum RequestId {
-    /// Request searching for a block given a hash.
-    SingleBlock { id: SingleLookupReqId },
-    /// Request searching for a set of blobs given a hash.
-    SingleBlob { id: SingleLookupReqId },
-    /// Request searching for a set of data columns given a hash and list of column indices.
-    DataColumnsByRoot(DataColumnsByRootRequestId, DataColumnsByRootRequester),
-    /// Range request that is composed by both a block range request and a blob range request.
-    RangeBlockComponents(Id),
-}
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum DataColumnsByRootRequester {
-    Sampling(SamplingId),
-    Custody(CustodyId),
-}
-
 #[derive(Debug)]
 /// A message that can be sent to the sync manager thread.
 pub enum SyncMessage<E: EthSpec> {
@@ -118,7 +92,7 @@ pub enum SyncMessage<E: EthSpec> {
 
     /// A block has been received from the RPC.
     RpcBlock {
-        request_id: RequestId,
+        request_id: SyncRequestId,
         peer_id: PeerId,
         beacon_block: Option<Arc<SignedBeaconBlock<E>>>,
         seen_timestamp: Duration,
@@ -126,7 +100,7 @@ pub enum SyncMessage<E: EthSpec> {
 
     /// A blob has been received from the RPC.
     RpcBlob {
-        request_id: RequestId,
+        request_id: SyncRequestId,
         peer_id: PeerId,
         blob_sidecar: Option<Arc<BlobSidecar<E>>>,
         seen_timestamp: Duration,
@@ -134,7 +108,7 @@ pub enum SyncMessage<E: EthSpec> {
 
     /// A data columns has been received from the RPC
     RpcDataColumn {
-        request_id: RequestId,
+        request_id: SyncRequestId,
         peer_id: PeerId,
         data_column: Option<Arc<DataColumnSidecar<E>>>,
         seen_timestamp: Duration,
@@ -163,7 +137,7 @@ pub enum SyncMessage<E: EthSpec> {
     /// An RPC Error has occurred on a request.
     RpcError {
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: SyncRequestId,
         error: RPCError,
     },
 
@@ -219,11 +193,12 @@ pub enum BlockProcessingResult<E: EthSpec> {
 pub enum BatchProcessResult {
     /// The batch was completed successfully. It carries whether the sent batch contained blocks.
     Success {
-        was_non_empty: bool,
+        sent_blocks: usize,
+        imported_blocks: usize,
     },
     /// The batch processing failed. It carries whether the processing imported any block.
     FaultyFailure {
-        imported_blocks: bool,
+        imported_blocks: usize,
         penalty: PeerAction,
     },
     NonFaultyFailure,
@@ -397,22 +372,23 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     /// Handles RPC errors related to requests that were emitted from the sync manager.
-    fn inject_error(&mut self, peer_id: PeerId, request_id: RequestId, error: RPCError) {
+    fn inject_error(&mut self, peer_id: PeerId, request_id: SyncRequestId, error: RPCError) {
         trace!(self.log, "Sync manager received a failed RPC");
         match request_id {
-            RequestId::SingleBlock { id } => {
+            SyncRequestId::SingleBlock { id } => {
                 self.on_single_block_response(id, peer_id, RpcEvent::RPCError(error))
             }
-            RequestId::SingleBlob { id } => {
+            SyncRequestId::SingleBlob { id } => {
                 self.on_single_blob_response(id, peer_id, RpcEvent::RPCError(error))
             }
-            RequestId::DataColumnsByRoot(req_id, requester) => self.on_single_data_column_response(
-                req_id,
-                requester,
-                peer_id,
-                RpcEvent::RPCError(error),
-            ),
-            RequestId::RangeBlockComponents(id) => {
+            SyncRequestId::DataColumnsByRoot(req_id, requester) => self
+                .on_single_data_column_response(
+                    req_id,
+                    requester,
+                    peer_id,
+                    RpcEvent::RPCError(error),
+                ),
+            SyncRequestId::RangeBlockComponents(id) => {
                 if let Some(sender_id) = self.network.range_request_failed(id) {
                     match sender_id {
                         RangeRequestId::RangeSync { chain_id, batch_id } => {
@@ -649,6 +625,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // unless there is a bug.
         let mut prune_lookups_interval = tokio::time::interval(Duration::from_secs(15));
 
+        let mut register_metrics_interval = tokio::time::interval(Duration::from_secs(5));
+
         // process any inbound messages
         loop {
             tokio::select! {
@@ -660,6 +638,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 _ = prune_lookups_interval.tick() => {
                     self.block_lookups.prune_lookups();
+                }
+                _ = register_metrics_interval.tick() => {
+                    self.network.register_metrics();
                 }
             }
         }
@@ -937,13 +918,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn rpc_block_received(
         &mut self,
-        request_id: RequestId,
+        request_id: SyncRequestId,
         peer_id: PeerId,
         block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         seen_timestamp: Duration,
     ) {
         match request_id {
-            RequestId::SingleBlock { id } => self.on_single_block_response(
+            SyncRequestId::SingleBlock { id } => self.on_single_block_response(
                 id,
                 peer_id,
                 match block {
@@ -951,7 +932,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     None => RpcEvent::StreamTermination,
                 },
             ),
-            RequestId::RangeBlockComponents(id) => {
+            SyncRequestId::RangeBlockComponents(id) => {
                 self.range_block_and_blobs_response(id, peer_id, block.into())
             }
             other => {
@@ -980,13 +961,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn rpc_blob_received(
         &mut self,
-        request_id: RequestId,
+        request_id: SyncRequestId,
         peer_id: PeerId,
         blob: Option<Arc<BlobSidecar<T::EthSpec>>>,
         seen_timestamp: Duration,
     ) {
         match request_id {
-            RequestId::SingleBlob { id } => self.on_single_blob_response(
+            SyncRequestId::SingleBlob { id } => self.on_single_blob_response(
                 id,
                 peer_id,
                 match blob {
@@ -994,7 +975,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     None => RpcEvent::StreamTermination,
                 },
             ),
-            RequestId::RangeBlockComponents(id) => {
+            SyncRequestId::RangeBlockComponents(id) => {
                 self.range_block_and_blobs_response(id, peer_id, blob.into())
             }
             other => {
@@ -1005,16 +986,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn rpc_data_column_received(
         &mut self,
-        request_id: RequestId,
+        request_id: SyncRequestId,
         peer_id: PeerId,
         data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
         seen_timestamp: Duration,
     ) {
         match request_id {
-            RequestId::SingleBlock { .. } | RequestId::SingleBlob { .. } => {
+            SyncRequestId::SingleBlock { .. } | SyncRequestId::SingleBlob { .. } => {
                 crit!(self.log, "bad request id for data_column"; "peer_id" => %peer_id  );
             }
-            RequestId::DataColumnsByRoot(req_id, requester) => {
+            SyncRequestId::DataColumnsByRoot(req_id, requester) => {
                 self.on_single_data_column_response(
                     req_id,
                     requester,
@@ -1025,7 +1006,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     },
                 );
             }
-            RequestId::RangeBlockComponents(id) => {
+            SyncRequestId::RangeBlockComponents(id) => {
                 self.range_block_and_blobs_response(
                     id,
                     peer_id,
@@ -1192,7 +1173,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         "sender_id" => ?resp.sender_id,
                         "error" => e.clone()
                     );
-                    let id = RequestId::RangeBlockComponents(id);
+                    let id = SyncRequestId::RangeBlockComponents(id);
                     self.network.report_peer(
                         peer_id,
                         PeerAction::MidToleranceError,

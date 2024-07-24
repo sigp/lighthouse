@@ -41,7 +41,7 @@ pub struct DataColumnIdentifier {
     pub index: ColumnIndex,
 }
 
-pub type DataColumnSidecarVec<E> = Vec<Arc<DataColumnSidecar<E>>>;
+pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
 #[derive(
     Debug,
@@ -106,7 +106,7 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         block: &SignedBeaconBlock<E>,
         kzg: &Kzg,
         spec: &ChainSpec,
-    ) -> Result<DataColumnSidecarVec<E>, DataColumnSidecarError> {
+    ) -> Result<DataColumnSidecarList<E>, DataColumnSidecarError> {
         let number_of_columns = spec.number_of_columns;
         if blobs.is_empty() {
             return Ok(vec![]);

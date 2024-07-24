@@ -20,7 +20,7 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, BlockImportSource, DataColumnSidecarVec,
+    AbstractExecPayload, BeaconBlockRef, BlobSidecarList, BlockImportSource, DataColumnSidecarList,
     DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
     FullPayloadBellatrix, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, VariableList,
 };
@@ -77,7 +77,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     /* actually publish a block */
     let publish_block = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
                               blobs_opt: Option<BlobSidecarList<T::EthSpec>>,
-                              data_cols_opt: Option<DataColumnSidecarVec<T::EthSpec>>,
+                              data_cols_opt: Option<DataColumnSidecarList<T::EthSpec>>,
                               sender,
                               log,
                               seen_timestamp| {
