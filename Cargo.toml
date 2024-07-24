@@ -95,7 +95,6 @@ edition = "2021"
 
 [workspace.dependencies]
 alloy-primitives = "0.7.7"
-alloy-core = "0.7.7"
 alloy-rlp = "0.3.4"
 alloy-consensus = "0.2.0"
 anyhow = "1"
