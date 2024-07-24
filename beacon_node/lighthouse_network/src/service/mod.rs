@@ -1841,13 +1841,17 @@ impl<E: EthSpec> Network<E> {
                     }
                 }
                 SwarmEvent::ListenerError { error, .. } => {
-                    // this is non fatal, but we still check
-                    warn!(self.log, "Listener error"; "error" => ?error);
-                    if Swarm::listeners(&self.swarm).count() == 0 {
-                        Some(NetworkEvent::ZeroListeners)
+                    // Ignore quic accept and close errors.
+                    if let Some(error) = error
+                        .get_ref()
+                        .and_then(|err| err.downcast_ref::<libp2p::quic::Error>())
+                        .filter(|err| matches!(err, libp2p::quic::Error::Connection(_)))
+                    {
+                        debug!(self.log, "Listener closed quic connection"; "reason" => ?error);
                     } else {
-                        None
+                        warn!(self.log, "Listener error"; "error" => ?error);
                     }
+                    None
                 }
                 _ => {
                     // NOTE: SwarmEvent is a non exhaustive enum so updates should be based on
