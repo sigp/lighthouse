@@ -651,7 +651,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             SyncMessage::UnknownParentDataColumn(_peer_id, _data_column) => {
                 // TODO(das): data column parent lookup to be implemented
-                unimplemented!("data column parent lookup to be implemented")
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
                 if !self.notified_unknown_roots.contains(&(peer_id, block_root)) {

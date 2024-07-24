@@ -194,7 +194,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         _gossip_data_columns: Vec<GossipVerifiedDataColumn<T>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         // TODO(das) to be implemented
-        unimplemented!("not implemented")
+        Err(AvailabilityCheckError::Unexpected)
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
