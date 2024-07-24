@@ -87,7 +87,6 @@ impl From<GraffitiString> for Graffiti {
         // Copy the provided bytes over.
         //
         // Panic-free because `graffiti_bytes.len()` <= `GRAFFITI_BYTES_LEN`.
-        // TODO(alloy) review why this was no longer panic free w/o my changes
         graffiti
             .get_mut(..graffiti_len)
             .expect("graffiti_len <= GRAFFITI_BYTES_LEN")
@@ -185,6 +184,6 @@ impl TreeHash for Graffiti {
 
 impl TestRandom for Graffiti {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
-        Self::from(GraffitiString(Hash256::random_for_test(rng).to_string()))
+        Self::from(Hash256::random_for_test(rng).0)
     }
 }

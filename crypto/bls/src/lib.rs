@@ -59,7 +59,10 @@ impl<const N: usize> FixedBytesExtended for FixedBytes<N> {
         let mut buffer = [0x0; N];
         let bytes_to_copy = value_bytes.len().min(buffer.len());
         // Panic-free because bytes_to_copy <= buffer.len()
-        let start_index = buffer.len().safe_sub(bytes_to_copy).expect("bytes_to_copy <= buffer.len()");
+        let start_index = buffer
+            .len()
+            .safe_sub(bytes_to_copy)
+            .expect("bytes_to_copy <= buffer.len()");
         // Panic-free because start_index <= buffer.len()
         // and bytes_to_copy <= value_bytes.len()
         buffer

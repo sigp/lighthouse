@@ -2621,6 +2621,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
 
     let mut block = SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(rng));
+    
     let mut blob_sidecars = vec![];
 
     let bundle = match block {

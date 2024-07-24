@@ -382,16 +382,12 @@ pub fn load_pkcs12_identity<P: AsRef<Path>>(
     password: &str,
 ) -> Result<Identity, Error> {
     let mut buf = Vec::new();
-    println!("password {}", password);
     File::open(&pkcs12_path)
         .map_err(Error::InvalidWeb3SignerClientIdentityCertificateFile)?
         .read_to_end(&mut buf)
         .map_err(Error::InvalidWeb3SignerClientIdentityCertificateFile)?;
-    println!("1");
-    let x = Identity::from_pkcs12_der(&buf, password)
-        .map_err(Error::InvalidWeb3SignerClientIdentityCertificate);
-    println!("2");
-    x
+    Identity::from_pkcs12_der(&buf, password)
+        .map_err(Error::InvalidWeb3SignerClientIdentityCertificate)
 }
 
 fn build_web3_signer_url(base_url: &str, voting_public_key: &PublicKey) -> Result<Url, ParseError> {
