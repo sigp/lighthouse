@@ -791,7 +791,7 @@ dependencies = [
  "eth2",
  "eth2_network_config",
  "ethereum_hashing",
- "ethereum_serde_utils 0.5.2 (git+https://github.com/eserilev/ethereum_serde_utils?branch=alloy)",
+ "ethereum_serde_utils",
  "ethereum_ssz 0.5.4",
  "ethereum_ssz_derive",
  "execution_layer",
@@ -1016,7 +1016,7 @@ dependencies = [
  "arbitrary",
  "blst",
  "ethereum_hashing",
- "ethereum_serde_utils 0.5.2 (git+https://github.com/eserilev/ethereum_serde_utils?branch=alloy)",
+ "ethereum_serde_utils",
  "ethereum_ssz 0.5.4",
  "hex",
  "rand",
@@ -2410,7 +2410,7 @@ dependencies = [
  "account_utils",
  "bytes",
  "eth2_keystore",
- "ethereum_serde_utils 0.5.2 (git+https://github.com/eserilev/ethereum_serde_utils?branch=alloy)",
+ "ethereum_serde_utils",
  "ethereum_ssz 0.5.4",
  "ethereum_ssz_derive",
  "futures",
@@ -2637,18 +2637,6 @@ dependencies = [
  "lazy_static",
  "ring 0.17.8",
  "sha2 0.10.8",
-]
-
-[[package]]
-name = "ethereum_serde_utils"
-version = "0.5.2"
-source = "git+https://github.com/eserilev/ethereum_serde_utils?branch=alloy#d62af01f0c240706bec464113094137e0e12e294"
-dependencies = [
- "alloy-primitives",
- "hex",
- "serde",
- "serde_derive",
- "serde_json",
 ]
 
 [[package]]
@@ -2881,7 +2869,7 @@ dependencies = [
  "environment",
  "eth2",
  "eth2_network_config",
- "ethereum_serde_utils 0.5.2 (git+https://github.com/eserilev/ethereum_serde_utils?branch=alloy)",
+ "ethereum_serde_utils",
  "ethereum_ssz 0.5.4",
  "ethers-core",
  "fork_choice",
@@ -3752,7 +3740,7 @@ dependencies = [
  "environment",
  "eth1",
  "eth2",
- "ethereum_serde_utils 0.5.2 (git+https://github.com/eserilev/ethereum_serde_utils?branch=alloy)",
+ "ethereum_serde_utils",
  "ethereum_ssz 0.5.4",
  "execution_layer",
  "futures",
@@ -4317,7 +4305,7 @@ dependencies = [
  "c-kzg",
  "derivative",
  "ethereum_hashing",
- "ethereum_serde_utils 0.5.2 (git+https://github.com/eserilev/ethereum_serde_utils?branch=alloy)",
+ "ethereum_serde_utils",
  "ethereum_ssz 0.5.4",
  "ethereum_ssz_derive",
  "hex",
@@ -7720,7 +7708,7 @@ name = "slashing_protection"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "ethereum_serde_utils 0.5.2 (git+https://github.com/eserilev/ethereum_serde_utils?branch=alloy)",
+ "ethereum_serde_utils",
  "filesystem",
  "lazy_static",
  "r2d2",
@@ -7936,7 +7924,7 @@ source = "git+https://github.com/eserilev/ssz_types?branch=alloy-tweaks#2adab87c
 dependencies = [
  "arbitrary",
  "derivative",
- "ethereum_serde_utils 0.5.2 (git+https://github.com/sigp/ethereum_serde_utils?branch=alloy)",
+ "ethereum_serde_utils",
  "ethereum_ssz 0.5.4",
  "itertools",
  "serde",
@@ -8812,7 +8800,7 @@ dependencies = [
  "derivative",
  "eth2_interop_keypairs",
  "ethereum_hashing",
- "ethereum_serde_utils 0.5.2 (git+https://github.com/eserilev/ethereum_serde_utils?branch=alloy)",
+ "ethereum_serde_utils",
  "ethereum_ssz 0.5.4",
  "ethereum_ssz_derive",
  "hex",
@@ -9032,7 +9020,7 @@ dependencies = [
  "environment",
  "eth2",
  "eth2_keystore",
- "ethereum_serde_utils 0.5.2 (git+https://github.com/eserilev/ethereum_serde_utils?branch=alloy)",
+ "ethereum_serde_utils",
  "fdlimit",
  "filesystem",
  "futures",
@@ -9102,7 +9090,7 @@ dependencies = [
  "eth2",
  "eth2_network_config",
  "eth2_wallet",
- "ethereum_serde_utils 0.5.2 (git+https://github.com/eserilev/ethereum_serde_utils?branch=alloy)",
+ "ethereum_serde_utils",
  "hex",
  "regex",
  "serde",
