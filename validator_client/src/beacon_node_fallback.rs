@@ -45,8 +45,6 @@ const FUTURE_SLOT_TOLERANCE: Slot = Slot::new(1);
 // Configuration for the Beacon Node fallback.
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Config {
-    /// Disables publishing http api requests to all beacon nodes for select api calls.
-    pub disable_run_on_all: bool,
     pub sync_tolerances: BeaconNodeSyncDistanceTiers,
 }
 

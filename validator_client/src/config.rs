@@ -270,9 +270,6 @@ impl Config {
         /*
          * Beacon node fallback
          */
-
-        config.beacon_node_fallback.disable_run_on_all = cli_args.get_flag("disable-run-on-all");
-
         if let Some(sync_tolerance) = cli_args.get_one::<String>("beacon-nodes-sync-tolerances") {
             config.beacon_node_fallback.sync_tolerances =
                 BeaconNodeSyncDistanceTiers::from_str(sync_tolerance)?;
