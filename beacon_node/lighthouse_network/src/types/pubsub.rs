@@ -278,7 +278,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                     GossipKind::DataColumnSidecar(subnet_id) => {
                         match fork_context.from_context_bytes(gossip_topic.fork_digest) {
                             // TODO(das): Remove Deneb fork
-                            Some(ForkName::Deneb | ForkName::Electra) => {
+                            Some(fork) if fork.deneb_enabled() => {
                                 let col_sidecar = Arc::new(
                                     DataColumnSidecar::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
@@ -299,13 +299,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                                     ))
                                 }
                             }
-                            Some(
-                                ForkName::Base
-                                | ForkName::Altair
-                                | ForkName::Bellatrix
-                                | ForkName::Capella,
-                            )
-                            | None => Err(format!(
+                            Some(_) | None => Err(format!(
                                 "data_column_sidecar topic invalid for given fork digest {:?}",
                                 gossip_topic.fork_digest
                             )),

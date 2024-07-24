@@ -531,10 +531,10 @@ impl<E: EthSpec> BlockSlashInfo<GossipBlobError<E>> {
     }
 }
 
-impl<E: EthSpec> BlockSlashInfo<GossipDataColumnError<E>> {
+impl BlockSlashInfo<GossipDataColumnError> {
     pub fn from_early_error_data_column(
         header: SignedBeaconBlockHeader,
-        e: GossipDataColumnError<E>,
+        e: GossipDataColumnError,
     ) -> Self {
         match e {
             GossipDataColumnError::ProposalSignatureInvalid => BlockSlashInfo::SignatureInvalid(e),
@@ -2029,7 +2029,7 @@ impl<E: EthSpec> BlockBlobError for GossipBlobError<E> {
     }
 }
 
-impl<E: EthSpec> BlockBlobError for GossipDataColumnError<E> {
+impl BlockBlobError for GossipDataColumnError {
     fn not_later_than_parent_error(data_column_slot: Slot, parent_slot: Slot) -> Self {
         GossipDataColumnError::IsNotLaterThanParent {
             data_column_slot,

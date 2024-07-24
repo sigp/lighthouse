@@ -12,7 +12,7 @@ use types::{
 
 /// An error occurred while validating a gossip data column.
 #[derive(Debug)]
-pub enum GossipDataColumnError<E: EthSpec> {
+pub enum GossipDataColumnError {
     /// There was an error whilst processing the data column. It is not known if it is
     /// valid or invalid.
     ///
@@ -54,84 +54,15 @@ pub enum GossipDataColumnError<E: EthSpec> {
     ///
     /// The data column sidecar is invalid and the peer is faulty.
     InvalidKzgProof(kzg::Error),
-    /// The column was gossiped over an incorrect subnet.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The column is invalid or the peer is faulty.
-    InvalidSubnetId { received: u64, expected: u64 },
-    /// The column sidecar is from a slot that is later than the current slot (with respect to the
-    /// gossip clock disparity).
-    ///
-    /// ## Peer scoring
-    ///
-    /// Assuming the local clock is correct, the peer has sent an invalid message.
-    FutureSlot {
-        message_slot: Slot,
-        latest_permissible_slot: Slot,
-    },
-    /// The sidecar corresponds to a slot older than the finalized head slot.
-    ///
-    /// ## Peer scoring
-    ///
-    /// It's unclear if this column is valid, but this column is for a finalized slot and is
-    /// therefore useless to us.
-    PastFinalizedSlot {
-        column_slot: Slot,
-        finalized_slot: Slot,
-    },
-    /// The pubkey cache timed out.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The column sidecar may be valid, this is an internal error.
-    PubkeyCacheTimeout,
-    /// The proposer index specified in the sidecar does not match the locally computed
-    /// proposer index.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The column is invalid and the peer is faulty.
-    ProposerIndexMismatch { sidecar: usize, local: usize },
-    /// The provided columns's parent block is unknown.
-    ///
-    /// ## Peer scoring
-    ///
-    /// We cannot process the columns without validating its parent, the peer isn't necessarily faulty.
-    ParentUnknown(Arc<DataColumnSidecar<E>>),
-    /// The column conflicts with finalization, no need to propagate.
-    ///
-    /// ## Peer scoring
-    ///
-    /// It's unclear if this column is valid, but it conflicts with finality and shouldn't be
-    /// imported.
-    NotFinalizedDescendant { block_parent_root: Hash256 },
-    /// Invalid kzg commitment inclusion proof
-    ///
-    /// ## Peer scoring
-    ///
-    /// The column sidecar is invalid and the peer is faulty
-    InvalidInclusionProof,
-    /// A column has already been seen for the given `(sidecar.block_root, sidecar.index)` tuple
-    /// over gossip or no gossip sources.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The peer isn't faulty, but we do not forward it over gossip.
-    PriorKnown {
-        proposer: u64,
-        slot: Slot,
-        index: ColumnIndex,
-    },
 }
 
-impl<E: EthSpec> From<BeaconChainError> for GossipDataColumnError<E> {
+impl From<BeaconChainError> for GossipDataColumnError {
     fn from(e: BeaconChainError) -> Self {
         GossipDataColumnError::BeaconChainError(e)
     }
 }
 
-impl<E: EthSpec> From<BeaconStateError> for GossipDataColumnError<E> {
+impl From<BeaconStateError> for GossipDataColumnError {
     fn from(e: BeaconStateError) -> Self {
         GossipDataColumnError::BeaconChainError(BeaconChainError::BeaconStateError(e))
     }
@@ -152,12 +83,12 @@ impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T> {
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         subnet_id: u64,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, GossipDataColumnError<T::EthSpec>> {
+    ) -> Result<Self, GossipDataColumnError> {
         let header = column_sidecar.signed_block_header.clone();
         // We only process slashing info if the gossip verification failed
         // since we do not process the data column any further in that case.
         validate_data_column_sidecar_for_gossip(column_sidecar, subnet_id, chain).map_err(|e| {
-            process_block_slash_info::<_, GossipDataColumnError<T::EthSpec>>(
+            process_block_slash_info::<_, GossipDataColumnError>(
                 chain,
                 BlockSlashInfo::from_early_error_data_column(header, e),
             )
@@ -254,7 +185,7 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
     data_column: Arc<DataColumnSidecar<T::EthSpec>>,
     _subnet: u64,
     chain: &BeaconChain<T>,
-) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError<T::EthSpec>> {
+) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError> {
     // TODO(das): implement gossip verification
     let kzg = chain
         .kzg
