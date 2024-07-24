@@ -147,7 +147,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
 
         println!(
             "{}/{}\tIndex: {}\t0x{}",
-            index - first_index,
+            index - first_index + 1,
             count,
             index,
             voting_pubkey
