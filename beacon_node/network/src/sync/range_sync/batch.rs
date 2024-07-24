@@ -539,19 +539,19 @@ impl<E: EthSpec> BatchState<E> {
     /// - Empty/Uninitialized: E
     /// - Downloading: D
     /// - Awaiting Download: d
-    /// - Awaiting Validation: V
+    /// - Awaiting Validation: v
     /// - Failed: F
     /// - AwaitingProcessing: p
     /// - Processing(_) => "P",
     /// - Poisoned => "X",
     fn visualize(&self) -> char {
         match self {
-            BatchState::Downloading(_, _) => 'D',
+            BatchState::Downloading(..) => 'D',
             BatchState::Processing(_) => 'P',
-            BatchState::AwaitingValidation(_) => 'V',
+            BatchState::AwaitingValidation(_) => 'v',
             BatchState::AwaitingDownload => 'd',
             BatchState::Failed => 'F',
-            BatchState::AwaitingProcessing(_, _) => 'p',
+            BatchState::AwaitingProcessing(..) => 'p',
             BatchState::Poisoned => 'X',
         }
     }
