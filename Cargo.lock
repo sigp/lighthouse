@@ -5012,7 +5012,7 @@ dependencies = [
  "futures",
  "gossipsub",
  "hex",
- "itertools",
+ "itertools 0.10.5",
  "lazy_static",
  "libp2p",
  "libp2p-mplex",
