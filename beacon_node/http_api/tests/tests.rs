@@ -2159,9 +2159,9 @@ impl ApiTester {
 
         let expected = SyncingData {
             is_syncing: false,
-            is_optimistic: Some(false),
+            is_optimistic: false,
             // these tests run without the Bellatrix fork enabled
-            el_offline: Some(true),
+            el_offline: true,
             head_slot,
             sync_distance,
         };
