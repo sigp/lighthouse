@@ -1435,15 +1435,12 @@ pub fn set_network_config(
     }
 
     // Proposer-only mode overrides a number of previous configuration parameters.
-    // Specifically, we avoid subscribing to long-lived subnets and wish to maintain a minimal set
-    // of peers.
+    // Specifically, we avoid subscribing to long-lived subnets.
+    // Note: Previously, we set a minimal number of peers for this mode. However, starting from
+    // PeerDAS onwards, we need to maintain a sufficient number of peers across all data column
+    // subnets to ensure that blobs can be published successfully.
     if parse_flag(cli_args, "proposer-only") {
         config.subscribe_all_subnets = false;
-
-        if cli_args.get_one::<String>("target-peers").is_none() {
-            // If a custom value is not set, change the default to 15
-            config.target_peers = 15;
-        }
         config.proposer_only = true;
         warn!(log, "Proposer-only mode enabled"; "info"=> "Do not connect a validator client to this node unless via the --proposer-nodes flag");
     }
