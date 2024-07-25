@@ -546,18 +546,8 @@ impl<E: EthSpec> std::fmt::Debug for BatchState<E> {
 }
 
 impl<E: EthSpec> BatchState<E> {
-    /// Creates a unicode visualisation for the batch state to display in logs for quicker and
+    /// Creates a character representation/visualization for the batch state to display in logs for quicker and
     /// easier recognition
-    ///
-    /// The current icons are:
-    /// - Empty/Uninitialized: E
-    /// - Downloading: D
-    /// - Awaiting Download: d
-    /// - Awaiting Validation: v
-    /// - Failed: F
-    /// - AwaitingProcessing: p
-    /// - Processing(_) => "P",
-    /// - Poisoned => "X",
     fn visualize(&self) -> char {
         match self {
             BatchState::Downloading(..) => 'D',
