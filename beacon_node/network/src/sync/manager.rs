@@ -448,12 +448,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ///
     /// The logic for which sync should be running is as follows:
     /// - If there is a range-sync running (or required) pause any backfill and let range-sync
-    /// complete.
+    ///   complete.
     /// - If there is no current range sync, check for any requirement to backfill and either
-    /// start/resume a backfill sync if required. The global state will be BackFillSync if a
-    /// backfill sync is running.
+    ///   start/resume a backfill sync if required. The global state will be BackFillSync if a
+    ///   backfill sync is running.
     /// - If there is no range sync and no required backfill and we have synced up to the currently
-    /// known peers, we consider ourselves synced.
+    ///   known peers, we consider ourselves synced.
     fn update_sync_state(&mut self) {
         let new_state: SyncState = match self.range_sync.state() {
             Err(e) => {
