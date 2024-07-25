@@ -385,7 +385,7 @@ impl<E: EthSpec> Network<E> {
         let upnp = Toggle::from(
             config
                 .upnp_enabled
-                .then_some(libp2p::upnp::tokio::Behaviour::default()),
+                .then(libp2p::upnp::tokio::Behaviour::default),
         );
         let behaviour = {
             Behaviour {
