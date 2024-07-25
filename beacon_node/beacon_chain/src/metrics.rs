@@ -857,6 +857,11 @@ lazy_static! {
         "Duration between the start of the block's slot and the time the block was observed.",
     );
 
+    pub static ref BEACON_BLOCK_DELAY_CONSENSUS_VERIFICATION_TIME: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_delay_consensus_verification_time",
+        "The time taken to verify the block within Lighthouse",
+    );
+
     pub static ref BEACON_BLOCK_DELAY_EXECUTION_TIME: Result<IntGauge> = try_create_int_gauge(
         "beacon_block_delay_execution_time",
         "The duration in verifying the block with the execution layer.",
@@ -1042,6 +1047,18 @@ lazy_static! {
     pub static ref BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION: Result<Histogram> = try_create_histogram(
         "blob_sidecar_inclusion_proof_computation_seconds",
         "Time taken to compute blob sidecar inclusion proof"
+    );
+    pub static ref DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
+        "beacon_data_column_sidecar_processing_requests_total",
+        "Count of all data column sidecars submitted for processing"
+    );
+    pub static ref DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
+        "beacon_data_column_sidecar_processing_successes_total",
+        "Number of data column sidecars verified for gossip"
+    );
+    pub static ref DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_data_column_sidecar_gossip_verification_seconds",
+        "Full runtime of data column sidecars gossip verification"
     );
 }
 
