@@ -14,7 +14,6 @@ use slog::{debug, error, trace};
 use types::EthSpec;
 
 use crate::discovery::enr_ext::EnrExt;
-use crate::rpc::GoodbyeReason;
 use crate::types::SyncState;
 use crate::{metrics, ClearDialError};
 
@@ -192,6 +191,21 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
                 "Connection to peer rejected: peer has a bad score",
             ));
         }
+
+        // Check the connection limits
+        if self.network_globals.connected_or_dialing_peers() >= self.max_peers()
+            && self
+                .network_globals
+                .peers
+                .read()
+                .peer_info(&peer_id)
+                .map_or(true, |peer| !peer.has_future_duty())
+        {
+            return Err(ConnectionDenied::new(
+                "Connection to peer rejected: too many connections",
+            ));
+        }
+
         Ok(ConnectionHandler)
     }
 
@@ -203,13 +217,26 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
         _role_override: libp2p::core::Endpoint,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         trace!(self.log, "Outbound connection"; "peer_id" => %peer_id, "multiaddr" => %addr);
-        match self.ban_status(&peer_id) {
-            Some(cause) => {
-                error!(self.log, "Connected a banned peer. Rejecting connection"; "peer_id" => %peer_id);
-                Err(ConnectionDenied::new(cause))
-            }
-            None => Ok(ConnectionHandler),
+        if let Some(cause) = self.ban_status(&peer_id) {
+            error!(self.log, "Connected a banned peer. Rejecting connection"; "peer_id" => %peer_id);
+            return Err(ConnectionDenied::new(cause));
         }
+
+        // Check the connection limits
+        if self.network_globals.connected_peers() >= self.max_outbound_dialing_peers()
+            && self
+                .network_globals
+                .peers
+                .read()
+                .peer_info(&peer_id)
+                .map_or(true, |peer| !peer.has_future_duty())
+        {
+            return Err(ConnectionDenied::new(
+                "Connection to peer rejected: too many connections",
+            ));
+        }
+
+        Ok(ConnectionHandler)
     }
 }
 
@@ -235,9 +262,6 @@ impl<E: EthSpec> PeerManager<E> {
 
             self.update_peer_count_metrics();
         }
-
-        // Count dialing peers in the limit if the peer dialed us.
-        let count_dialing = endpoint.is_listener();
 
         // NOTE: We don't register peers that we are disconnecting immediately. The network service
         // does not need to know about these peers.
