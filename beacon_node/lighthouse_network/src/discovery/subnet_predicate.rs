@@ -10,13 +10,12 @@ use types::{ChainSpec, DataColumnSubnetId};
 pub fn subnet_predicate<E>(
     subnets: Vec<Subnet>,
     log: &slog::Logger,
-    spec: &ChainSpec,
+    spec: Arc<ChainSpec>,
 ) -> impl Fn(&Enr) -> bool + Send
 where
     E: EthSpec,
 {
     let log_clone = log.clone();
-    let spec_clone = spec.clone();
 
     move |enr: &Enr| {
         let attestation_bitfield: EnrAttestationBitfield<E> = match enr.attestation_bitfield::<E>()
@@ -31,7 +30,7 @@ where
             enr.sync_committee_bitfield::<E>();
 
         // TODO(das): compute from enr
-        let custody_subnet_count = spec_clone.custody_requirement;
+        let custody_subnet_count = spec.custody_requirement;
 
         let predicate = subnets.iter().any(|subnet| match subnet {
             Subnet::Attestation(s) => attestation_bitfield
@@ -44,7 +43,7 @@ where
                 let mut subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
                     enr.node_id().raw().into(),
                     custody_subnet_count,
-                    &spec_clone,
+                    &spec,
                 );
                 subnets.contains(s)
             }
