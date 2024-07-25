@@ -9,7 +9,7 @@ use bls::Signature;
 use derivative::Derivative;
 #[cfg_attr(test, double)]
 use kzg::Kzg;
-use kzg::{Blob as KzgBlob, CellRef as KzgCellRef, Error as KzgError};
+use kzg::{CellRef as KzgCellRef, Error as KzgError};
 use kzg::{KzgCommitment, KzgProof};
 use merkle_proof::verify_merkle_proof;
 #[cfg(test)]
@@ -128,8 +128,11 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         let blob_cells_and_proofs_vec = blobs
             .into_par_iter()
             .map(|blob| {
-                let blob = KzgBlob::from_bytes(blob).map_err(KzgError::from)?;
-                kzg.compute_cells_and_proofs(&blob)
+                let blob = blob
+                    .as_ref()
+                    .try_into()
+                    .expect("blob should have a guaranteed size due to FixedVector");
+                kzg.compute_cells_and_proofs(blob)
             })
             .collect::<Result<Vec<_>, KzgError>>()?;
 

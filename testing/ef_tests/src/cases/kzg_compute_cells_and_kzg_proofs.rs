@@ -1,6 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
-use kzg::{Blob as KzgBlob, CellsAndKzgProofs};
+use kzg::CellsAndKzgProofs;
 use serde::Deserialize;
 use std::marker::PhantomData;
 
@@ -32,10 +32,10 @@ impl<E: EthSpec> Case for KZGComputeCellsAndKZGProofs<E> {
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let cells_and_proofs = parse_blob::<E>(&self.input.blob).and_then(|blob| {
-            let blob = KzgBlob::from_bytes(&blob).map_err(|e| {
+            let blob = blob.as_ref().try_into().map_err(|e| {
                 Error::InternalError(format!("Failed to convert blob to kzg blob: {e:?}"))
             })?;
-            KZG.compute_cells_and_proofs(&blob).map_err(|e| {
+            KZG.compute_cells_and_proofs(blob).map_err(|e| {
                 Error::InternalError(format!("Failed to compute cells and kzg proofs: {e:?}"))
             })
         });

@@ -1,12 +1,13 @@
-use kzg::{Blob as KzgBlob, Bytes48, CellRef as KzgCellRef, Error as KzgError, Kzg};
+use kzg::{Bytes48, CellRef as KzgCellRef, Error as KzgError, Kzg, KzgBlobRef};
 use std::sync::Arc;
 use types::data_column_sidecar::Cell;
 use types::{Blob, DataColumnSidecar, EthSpec, Hash256, KzgCommitment, KzgProof};
 
 /// Converts a blob ssz List object to an array to be used with the kzg
 /// crypto library.
-fn ssz_blob_to_crypto_blob<E: EthSpec>(blob: &Blob<E>) -> Result<KzgBlob, KzgError> {
-    KzgBlob::from_bytes(blob.as_ref()).map_err(Into::into)
+fn ssz_blob_to_crypto_blob<E: EthSpec>(blob: &Blob<E>) -> Result<KzgBlobRef, KzgError> {
+    let blob_bytes: &[u8] = blob.as_ref();
+    Ok(blob_bytes.try_into().expect("expected cell to have size {BYTES_PER_BLOB}. This should be guaranteed by the `FixedVector type"))
 }
 
 /// Converts a cell ssz List object to an array to be used with the kzg
