@@ -885,6 +885,11 @@ impl<E: EthSpec> PeerManager<E> {
                 self.max_peers().saturating_sub(dialing_peers) - peer_count
             } else if outbound_only_peer_count < self.min_outbound_only_peers()
                 && peer_count < self.max_outbound_dialing_peers()
+                && self.target_peers > 10
+            // This condition is to attempt to exclude testnets without
+            // an explicit CLI flag. For networks with low peer counts, we don't want to do
+            // repetitive searches for outbound peers, when we may be already connected to every
+            // peer on the testnet
             {
                 self.max_outbound_dialing_peers()
                     .saturating_sub(dialing_peers)
