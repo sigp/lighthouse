@@ -8,7 +8,6 @@
 - [My beacon node is stuck at downloading historical block using checkpoint sync. What should I do?](#bn-download-historical)
 - [I proposed a block but the beacon node shows `could not publish message` with error `duplicate` as below, should I be worried?](#bn-duplicate)
 - [I see beacon node logs `Head is optimistic` and I am missing attestations. What should I do?](#bn-optimistic)
-- [My beacon node logs `CRIT Beacon block processing error error: ValidatorPubkeyCacheLockTimeout`, what should I do?](#bn-timeout)
 - [My beacon node logs `WARN BlockProcessingFailure outcome: MissingBeaconBlock`, what should I do?](#bn-missing-beacon)
 - [After checkpoint sync, the progress of `downloading historical blocks` is slow. Why?](#bn-download-slow)
 - [My beacon node logs `WARN Error processing HTTP API request`, what should I do?](#bn-http)

@@ -479,6 +479,8 @@ Flags:
           boot.
       --disable-inbound-rate-limiter
           Disables the inbound rate limiter (requests received by this node).
+      --disable-lock-timeouts
+          This flag is deprecated and has no effect.
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning
