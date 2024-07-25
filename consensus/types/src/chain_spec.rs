@@ -1,5 +1,6 @@
 use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::blob_sidecar::BlobIdentifier;
+use crate::data_column_sidecar::DataColumnIdentifier;
 use crate::*;
 use int_to_bytes::int_to_bytes4;
 use safe_arith::{ArithError, SafeArith};
@@ -191,6 +192,14 @@ pub struct ChainSpec {
     pub max_per_epoch_activation_exit_churn_limit: u64,
 
     /*
+     * DAS params
+     */
+    pub eip7594_fork_epoch: Option<Epoch>,
+    pub custody_requirement: u64,
+    pub data_column_sidecar_subnet_count: u64,
+    pub number_of_columns: usize,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -218,6 +227,7 @@ pub struct ChainSpec {
      */
     pub max_request_blocks_deneb: u64,
     pub max_request_blob_sidecars: u64,
+    pub max_request_data_column_sidecars: u64,
     pub min_epochs_for_blob_sidecars_requests: u64,
     pub blob_sidecar_subnet_count: u64,
 
@@ -229,6 +239,7 @@ pub struct ChainSpec {
     pub max_blocks_by_root_request: usize,
     pub max_blocks_by_root_request_deneb: usize,
     pub max_blobs_by_root_request: usize,
+    pub max_data_columns_by_root_request: usize,
 
     /*
      * Application params
@@ -408,6 +419,13 @@ impl ChainSpec {
         }
     }
 
+    /// Returns true if the given epoch is greater than or equal to the `EIP7594_FORK_EPOCH`.
+    pub fn is_peer_das_enabled_for_epoch(&self, block_epoch: Epoch) -> bool {
+        self.eip7594_fork_epoch.map_or(false, |eip7594_fork_epoch| {
+            block_epoch >= eip7594_fork_epoch
+        })
+    }
+
     /// Returns a full `Fork` struct for a given epoch.
     pub fn fork_at_epoch(&self, epoch: Epoch) -> Fork {
         let current_fork_name = self.fork_name_at_epoch(epoch);
@@ -580,6 +598,12 @@ impl ChainSpec {
         } else {
             self.max_request_blocks as usize
         }
+    }
+
+    pub fn data_columns_per_subnet(&self) -> usize {
+        self.number_of_columns
+            .safe_div(self.data_column_sidecar_subnet_count as usize)
+            .expect("Subnet count must be greater than 0")
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
@@ -773,6 +797,14 @@ impl ChainSpec {
             .expect("calculation does not overflow"),
 
             /*
+             * DAS params
+             */
+            eip7594_fork_epoch: None,
+            custody_requirement: 1,
+            data_column_sidecar_subnet_count: 32,
+            number_of_columns: 128,
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
@@ -801,6 +833,7 @@ impl ChainSpec {
              */
             max_request_blocks_deneb: default_max_request_blocks_deneb(),
             max_request_blob_sidecars: default_max_request_blob_sidecars(),
+            max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
             min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
 
@@ -810,6 +843,7 @@ impl ChainSpec {
             max_blocks_by_root_request: default_max_blocks_by_root_request(),
             max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
             max_blobs_by_root_request: default_max_blobs_by_root_request(),
+            max_data_columns_by_root_request: default_data_columns_by_root_request(),
 
             /*
              * Application specific
@@ -873,6 +907,16 @@ impl ChainSpec {
             electra_fork_epoch: None,
             max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 0)
                 .expect("pow does not overflow"),
+            min_per_epoch_churn_limit_electra: option_wrapper(|| {
+                u64::checked_pow(2, 6)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            max_per_epoch_activation_exit_churn_limit: option_wrapper(|| {
+                u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            // PeerDAS
+            eip7594_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -1075,6 +1119,13 @@ impl ChainSpec {
             .expect("calculation does not overflow"),
 
             /*
+             * DAS params
+             */
+            eip7594_fork_epoch: None,
+            custody_requirement: 1,
+            data_column_sidecar_subnet_count: 32,
+            number_of_columns: 128,
+            /*
              * Network specific
              */
             boot_nodes: vec![],
@@ -1103,6 +1154,7 @@ impl ChainSpec {
              */
             max_request_blocks_deneb: default_max_request_blocks_deneb(),
             max_request_blob_sidecars: default_max_request_blob_sidecars(),
+            max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
             min_epochs_for_blob_sidecars_requests: 16384,
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
 
@@ -1112,6 +1164,7 @@ impl ChainSpec {
             max_blocks_by_root_request: default_max_blocks_by_root_request(),
             max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
             max_blobs_by_root_request: default_max_blobs_by_root_request(),
+            max_data_columns_by_root_request: default_data_columns_by_root_request(),
 
             /*
              * Application specific
@@ -1205,6 +1258,11 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub electra_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub eip7594_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1290,6 +1348,9 @@ pub struct Config {
     #[serde(default = "default_max_request_blob_sidecars")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blob_sidecars: u64,
+    #[serde(default = "default_max_request_data_column_sidecars")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_request_data_column_sidecars: u64,
     #[serde(default = "default_min_epochs_for_blob_sidecars_requests")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_epochs_for_blob_sidecars_requests: u64,
@@ -1303,6 +1364,13 @@ pub struct Config {
     #[serde(default = "default_max_per_epoch_activation_exit_churn_limit")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_per_epoch_activation_exit_churn_limit: u64,
+
+    #[serde(with = "serde_utils::quoted_u64")]
+    custody_requirement: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    data_column_sidecar_subnet_count: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    number_of_columns: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1409,6 +1477,10 @@ const fn default_max_request_blob_sidecars() -> u64 {
     768
 }
 
+const fn default_max_request_data_column_sidecars() -> u64 {
+    16384
+}
+
 const fn default_min_epochs_for_blob_sidecars_requests() -> u64 {
     4096
 }
@@ -1462,6 +1534,20 @@ fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
     .len()
 }
 
+fn max_data_columns_by_root_request_common(max_request_data_column_sidecars: u64) -> usize {
+    let max_request_data_column_sidecars = max_request_data_column_sidecars as usize;
+    let empty_data_column_id = DataColumnIdentifier {
+        block_root: Hash256::zero(),
+        index: 0,
+    };
+    RuntimeVariableList::from_vec(
+        vec![empty_data_column_id; max_request_data_column_sidecars],
+        max_request_data_column_sidecars,
+    )
+    .as_ssz_bytes()
+    .len()
+}
+
 fn default_max_blocks_by_root_request() -> usize {
     max_blocks_by_root_request_common(default_max_request_blocks())
 }
@@ -1472,6 +1558,10 @@ fn default_max_blocks_by_root_request_deneb() -> usize {
 
 fn default_max_blobs_by_root_request() -> usize {
     max_blobs_by_root_request_common(default_max_request_blob_sidecars())
+}
+
+fn default_data_columns_by_root_request() -> usize {
+    max_data_columns_by_root_request_common(default_max_request_data_column_sidecars())
 }
 
 impl Default for Config {
@@ -1563,6 +1653,10 @@ impl Config {
                 .electra_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
+            eip7594_fork_epoch: spec
+                .eip7594_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
+
             seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
@@ -1599,12 +1693,17 @@ impl Config {
             attestation_subnet_shuffling_prefix_bits: spec.attestation_subnet_shuffling_prefix_bits,
             max_request_blocks_deneb: spec.max_request_blocks_deneb,
             max_request_blob_sidecars: spec.max_request_blob_sidecars,
+            max_request_data_column_sidecars: spec.max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests: spec.min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count: spec.blob_sidecar_subnet_count,
 
             min_per_epoch_churn_limit_electra: spec.min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit: spec
                 .max_per_epoch_activation_exit_churn_limit,
+
+            custody_requirement: spec.custody_requirement,
+            data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
+            number_of_columns: spec.number_of_columns as u64,
         }
     }
 
@@ -1638,6 +1737,7 @@ impl Config {
             deneb_fork_version,
             electra_fork_epoch,
             electra_fork_version,
+            eip7594_fork_epoch,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1670,10 +1770,15 @@ impl Config {
             maximum_gossip_clock_disparity_millis,
             max_request_blocks_deneb,
             max_request_blob_sidecars,
+            max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count,
+
             min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit,
+            custody_requirement,
+            data_column_sidecar_subnet_count,
+            number_of_columns,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -1696,6 +1801,7 @@ impl Config {
             deneb_fork_version,
             electra_fork_epoch: electra_fork_epoch.map(|q| q.value),
             electra_fork_version,
+            eip7594_fork_epoch: eip7594_fork_epoch.map(|q| q.value),
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1732,8 +1838,10 @@ impl Config {
             maximum_gossip_clock_disparity_millis,
             max_request_blocks_deneb,
             max_request_blob_sidecars,
+            max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count,
+
             min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit,
 
@@ -1743,6 +1851,13 @@ impl Config {
                 max_request_blocks_deneb,
             ),
             max_blobs_by_root_request: max_blobs_by_root_request_common(max_request_blob_sidecars),
+            max_data_columns_by_root_request: max_data_columns_by_root_request_common(
+                max_request_data_column_sidecars,
+            ),
+
+            custody_requirement,
+            data_column_sidecar_subnet_count,
+            number_of_columns: number_of_columns as usize,
 
             ..chain_spec.clone()
         })
@@ -1984,6 +2099,9 @@ mod yaml_tests {
         DEPOSIT_CHAIN_ID: 1
         DEPOSIT_NETWORK_ID: 1
         DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
+        CUSTODY_REQUIREMENT: 1
+        DATA_COLUMN_SIDECAR_SUBNET_COUNT: 32
+        NUMBER_OF_COLUMNS: 128
         "#;
 
         let chain_spec: Config = serde_yaml::from_str(spec).unwrap();
