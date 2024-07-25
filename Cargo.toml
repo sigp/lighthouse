@@ -119,8 +119,8 @@ env_logger = "0.9"
 error-chain = "0.12"
 ethereum_hashing = "0.6.0"
 ethereum_serde_utils = "0.5.2"
-ethereum_ssz = { git = "https://github.com/sigp/ethereum_ssz", branch = "alloy" }
-ethereum_ssz_derive = { git = "https://github.com/sigp/ethereum_ssz", branch = "alloy" }
+ethereum_ssz = "0.5"
+ethereum_ssz_derive = "0.5" 
 ethers-core = "1"
 ethers-providers = { version = "1", default-features = false }
 exit-future = "0.2"
@@ -162,7 +162,7 @@ slog-term = "2"
 sloggers = { version = "2", features = ["json"] }
 smallvec = { version = "1.11.2", features = ["arbitrary"] }
 snap = "1"
-ssz_types = { git = "https://github.com/eserilev/ssz_types", branch = "alloy-tweaks" }
+ssz_types = "0.6"
 strum = { version = "0.24", features = ["derive"] }
 superstruct = "0.8"
 syn = "1"
@@ -176,8 +176,8 @@ tracing-appender = "0.2"
 tracing-core = "0.1"
 tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tree_hash = { git = "https://github.com/eserilev/tree_hash", branch = "alloy-deps"}
-tree_hash_derive = { git = "https://github.com/eserilev/tree_hash", branch = "alloy-deps"}
+tree_hash = "0.6"
+tree_hash_derive = "0.6"
 url = "2"
 uuid = { version = "0.8", features = ["serde", "v4"] }
 warp = { version = "0.3.7", default-features = false, features = ["tls"] }
@@ -247,4 +247,9 @@ codegen-units = 1
 incremental = false
 
 [patch.crates-io]
-ethereum_serde_utils = { git = "https://github.com/sigp/ethereum_serde_utils", branch = "alloy"}
+ethereum_ssz = { git = "https://github.com/eserilev/ethereum_ssz", branch = "alloy" }
+ethereum_ssz_derive = { git = "https://github.com/eserilev/ethereum_ssz", branch = "alloy" }
+ethereum_serde_utils = { git = "https://github.com/eserilev/ethereum_serde_utils", branch = "alloy"}
+ssz_types = { git = "https://github.com/eserilev/ssz_types", branch = "alloy-tweaks" }
+tree_hash = { git = "https://github.com/eserilev/tree_hash", branch = "alloy-deps"}
+tree_hash_derive = { git = "https://github.com/eserilev/tree_hash", branch = "alloy-deps"}

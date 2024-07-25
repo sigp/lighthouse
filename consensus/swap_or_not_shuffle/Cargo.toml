@@ -12,7 +12,7 @@ harness = false
 criterion = { workspace = true }
 
 [dependencies]
-alloy-primitives = { workspace = true, features = ["getrandom"]}
+alloy-primitives = { workspace = true }
 ethereum_hashing = { workspace = true }
 
 [features]

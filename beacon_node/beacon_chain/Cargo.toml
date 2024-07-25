@@ -19,7 +19,7 @@ environment = { workspace = true }
 serde_json = { workspace = true }
 
 [dependencies]
-alloy-primitives = { workspace = true, features = ["std"] }
+alloy-primitives = { workspace = true }
 bitvec = { workspace = true }
 bls = { workspace = true }
 derivative = { workspace = true }
