@@ -84,7 +84,7 @@ The `WARN Execution engine called failed` log is shown when the beacon node cann
 
 `error: HttpClient(url: http://127.0.0.1:8551/, kind: timeout, detail: operation timed out), service: exec`
 
-which says `TimedOut` at the end of the message. This means that the execution engine has not responded in time to the beacon node. One option is to add the flags `--execution-timeout-multiplier 3` and `--disable-lock-timeouts` to the beacon node. However, if the error persists, it is worth digging further to find out the cause. There are a few reasons why this can occur:
+which says `TimedOut` at the end of the message. This means that the execution engine has not responded in time to the beacon node. One option is to add the flag `--execution-timeout-multiplier 3` to the beacon node. However, if the error persists, it is worth digging further to find out the cause. There are a few reasons why this can occur:
 
 1. The execution engine is not synced. Check the log of the execution engine to make sure that it is synced. If it is syncing, wait until it is synced and the error will disappear. You will see the beacon node logs `INFO Execution engine online` when it is synced.
 1. The computer is overloaded. Check the CPU and RAM usage to see if it has overloaded. You can use `htop` to check for CPU and RAM usage.
@@ -139,17 +139,6 @@ WARN Head is optimistic       execution_block_hash: 0x47e7555f1d4215d1ad409b1ac1
 ```
 
 It means the beacon node will follow the chain, but it will not be able to attest or produce blocks. This is because the execution client is not synced, so the beacon chain cannot verify the authenticity of the chain head, hence the word `optimistic`. What you need to do is to make sure that the execution client is up and syncing. Once the execution client is synced, the error will disappear.
-
-### <a name="bn-timeout"></a> My beacon node logs `CRIT Beacon block processing error error: ValidatorPubkeyCacheLockTimeout, service: beacon`, what should I do?
-
-An example of the log is shown below:
-
-```text
-CRIT Beacon block processing error           error: ValidatorPubkeyCacheLockTimeout, service: beacon
-WARN BlockProcessingFailure                  outcome: ValidatorPubkeyCacheLockTimeout, msg: unexpected condition in processing block.
-```
-
-A `Timeout` error suggests that the computer may be overloaded at the moment, for example, the execution client is still syncing. You may use the flag `--disable-lock-timeouts` to silence this error, although it will not fix the underlying slowness. Nevertheless, this is a relatively harmless log, and the error should go away once the resources used are back to normal.
 
 ### <a name="bn-missing-beacon"></a> My beacon node logs `WARN BlockProcessingFailure outcome: MissingBeaconBlock`, what should I do?
 

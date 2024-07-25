@@ -479,10 +479,6 @@ Flags:
           boot.
       --disable-inbound-rate-limiter
           Disables the inbound rate limiter (requests received by this node).
-      --disable-lock-timeouts
-          Disable the timeouts applied to some internal locks by default. This
-          can lead to less spurious failures on slow hardware but is considered
-          experimental as it may obscure performance issues.
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning
