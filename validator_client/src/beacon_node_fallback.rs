@@ -519,10 +519,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
     /// Run `func` against each candidate in `self`, returning immediately if a result is found.
     /// Otherwise, return all the errors encountered along the way.
-    ///
-    /// First this function will try all nodes with a suitable status. If no candidates are suitable
-    /// or all the requests fail, it will try updating the status of all unsuitable nodes and
-    /// re-running `func` again.
     pub async fn first_success<F, O, Err, R>(&self, func: F) -> Result<O, Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R,
@@ -578,9 +574,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
     /// Run `func` against all candidates in `self`, collecting the result of `func` against each
     /// candidate.
-    ///
-    /// First this function will try all nodes with a suitable status. If no candidates are suitable
-    /// it will try updating the status of all unsuitable nodes and re-running `func` again.
     ///
     /// Note: This function returns `Ok(())` if `func` returned successfully on all beacon nodes.
     /// It returns a list of errors along with the beacon node id that failed for `func`.
