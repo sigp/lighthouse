@@ -39,10 +39,10 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use types::ForkName;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
+use types::{ChainSpec, ForkName};
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
 
 pub mod api_types;
@@ -327,6 +327,7 @@ impl<E: EthSpec> Network<E> {
                 &config,
                 network_globals.clone(),
                 &log,
+                ctx.chain_spec,
             )
             .await?;
             // start searching for peers
@@ -1018,6 +1019,7 @@ impl<E: EthSpec> Network<E> {
             return;
         }
 
+        let spec = Arc::new(self.fork_context.spec.clone());
         let filtered: Vec<SubnetDiscovery> = subnets_to_discover
             .into_iter()
             .filter(|s| {
@@ -1053,7 +1055,7 @@ impl<E: EthSpec> Network<E> {
                 // If we connect to the cached peers before the discovery query starts, then we potentially
                 // save a costly discovery query.
                 } else {
-                    self.dial_cached_enrs_in_subnet(s.subnet);
+                    self.dial_cached_enrs_in_subnet(s.subnet, spec.clone());
                     true
                 }
             })
@@ -1217,8 +1219,8 @@ impl<E: EthSpec> Network<E> {
 
     /// Dial cached Enrs in discovery service that are in the given `subnet_id` and aren't
     /// in Connected, Dialing or Banned state.
-    fn dial_cached_enrs_in_subnet(&mut self, subnet: Subnet) {
-        let predicate = subnet_predicate::<E>(vec![subnet], &self.log);
+    fn dial_cached_enrs_in_subnet(&mut self, subnet: Subnet, spec: Arc<ChainSpec>) {
+        let predicate = subnet_predicate::<E>(vec![subnet], &self.log, spec);
         let peers_to_dial: Vec<Enr> = self
             .discovery()
             .cached_enrs()
