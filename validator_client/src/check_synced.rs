@@ -21,9 +21,7 @@ pub async fn check_node_health(
 
     Ok((
         resp.data.head_slot,
-        // Note that optimistic and EL status will both default to their healthy variants which may
-        // be undesirable.
-        resp.data.is_optimistic.unwrap_or(false),
-        resp.data.el_offline.unwrap_or(false),
+        resp.data.is_optimistic,
+        resp.data.el_offline,
     ))
 }
