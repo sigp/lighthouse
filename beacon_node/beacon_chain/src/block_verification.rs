@@ -300,7 +300,9 @@ pub enum BlockError<E: EthSpec> {
     /// 1. The block proposer is faulty
     /// 2. We received the blob over rpc and it is invalid (inconsistent w.r.t the block).
     /// 3. It is an internal error
+    ///
     /// For all these cases, we cannot penalize the peer that gave us the block.
+    ///
     /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
     /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
