@@ -22,6 +22,8 @@ pub use peerdas_kzg::{
 use peerdas_kzg::{prover::ProverError, verifier::VerifierError, PeerDASContext};
 pub type CellsAndKzgProofs = ([Cell; CELLS_PER_EXT_BLOB], [KzgProof; CELLS_PER_EXT_BLOB]);
 
+pub type KzgBlobRef<'a> = &'a [u8; BYTES_PER_BLOB];
+
 #[derive(Debug)]
 pub enum Error {
     /// An error from the underlying kzg library.
@@ -75,25 +77,27 @@ impl Kzg {
     }
 
     /// Compute the kzg proof given a blob and its kzg commitment.
-    pub fn compute_blob_kzg_proof(
+    pub fn compute_blob_kzg_proof<'a>(
         &self,
-        blob: &Blob,
+        blob: KzgBlobRef<'a>,
         kzg_commitment: KzgCommitment,
     ) -> Result<KzgProof, Error> {
-        c_kzg::KzgProof::compute_blob_kzg_proof(blob, &kzg_commitment.into(), &self.trusted_setup)
+        let blob = Blob::from_bytes(blob)?;
+        c_kzg::KzgProof::compute_blob_kzg_proof(&blob, &kzg_commitment.into(), &self.trusted_setup)
             .map(|proof| KzgProof(proof.to_bytes().into_inner()))
             .map_err(Into::into)
     }
 
     /// Verify a kzg proof given the blob, kzg commitment and kzg proof.
-    pub fn verify_blob_kzg_proof(
+    pub fn verify_blob_kzg_proof<'a>(
         &self,
-        blob: &Blob,
+        blob: KzgBlobRef<'a>,
         kzg_commitment: KzgCommitment,
         kzg_proof: KzgProof,
     ) -> Result<(), Error> {
+        let blob = Blob::from_bytes(blob)?;
         if !c_kzg::KzgProof::verify_blob_kzg_proof(
-            blob,
+            &blob,
             &kzg_commitment.into(),
             &kzg_proof.into(),
             &self.trusted_setup,
@@ -108,9 +112,9 @@ impl Kzg {
     ///
     /// Note: This method is slightly faster than calling `Self::verify_blob_kzg_proof` in a loop sequentially.
     /// TODO(pawan): test performance against a parallelized rayon impl.
-    pub fn verify_blob_kzg_proof_batch(
+    pub fn verify_blob_kzg_proof_batch<'a>(
         &self,
-        blobs: &[Blob],
+        blobs: &[KzgBlobRef<'a>],
         kzg_commitments: &[KzgCommitment],
         kzg_proofs: &[KzgProof],
     ) -> Result<(), Error> {
@@ -124,8 +128,12 @@ impl Kzg {
             .map(|proof| Bytes48::from(*proof))
             .collect::<Vec<_>>();
 
+        let blobs = blobs
+            .iter()
+            .map(|blob| Blob::from_bytes(*blob))
+            .collect::<Result<Vec<_>, _>>()?;
         if !c_kzg::KzgProof::verify_blob_kzg_proof_batch(
-            blobs,
+            &blobs,
             &commitments_bytes,
             &proofs_bytes,
             &self.trusted_setup,
@@ -137,19 +145,21 @@ impl Kzg {
     }
 
     /// Converts a blob to a kzg commitment.
-    pub fn blob_to_kzg_commitment(&self, blob: &Blob) -> Result<KzgCommitment, Error> {
-        c_kzg::KzgCommitment::blob_to_kzg_commitment(blob, &self.trusted_setup)
+    pub fn blob_to_kzg_commitment<'a>(&self, blob: KzgBlobRef<'a>) -> Result<KzgCommitment, Error> {
+        let blob = Blob::from_bytes(blob)?;
+        c_kzg::KzgCommitment::blob_to_kzg_commitment(&blob, &self.trusted_setup)
             .map(|commitment| KzgCommitment(commitment.to_bytes().into_inner()))
             .map_err(Into::into)
     }
 
     /// Computes the kzg proof for a given `blob` and an evaluation point `z`
-    pub fn compute_kzg_proof(
+    pub fn compute_kzg_proof<'a>(
         &self,
-        blob: &Blob,
+        blob: KzgBlobRef<'a>,
         z: &Bytes32,
     ) -> Result<(KzgProof, Bytes32), Error> {
-        c_kzg::KzgProof::compute_kzg_proof(blob, z, &self.trusted_setup)
+        let blob = Blob::from_bytes(blob)?;
+        c_kzg::KzgProof::compute_kzg_proof(&blob, z, &self.trusted_setup)
             .map(|(proof, y)| (KzgProof(proof.to_bytes().into_inner()), y))
             .map_err(Into::into)
     }
@@ -173,7 +183,10 @@ impl Kzg {
     }
 
     /// Computes the cells and associated proofs for a given `blob` at index `index`.
-    pub fn compute_cells_and_proofs(&self, blob: &Blob) -> Result<CellsAndKzgProofs, Error> {
+    pub fn compute_cells_and_proofs<'a>(
+        &self,
+        blob: KzgBlobRef<'a>,
+    ) -> Result<CellsAndKzgProofs, Error> {
         let blob_bytes: &[u8; BYTES_PER_BLOB] = blob
             .as_ref()
             .try_into()
@@ -245,11 +258,11 @@ impl Kzg {
 }
 
 pub mod mock {
-    use crate::{Blob, Cell, CellsAndKzgProofs, BYTES_PER_CELL, CELLS_PER_EXT_BLOB};
+    use crate::{Cell, CellsAndKzgProofs, KzgBlobRef, BYTES_PER_CELL, CELLS_PER_EXT_BLOB};
     use crate::{Error, KzgProof};
 
     #[allow(clippy::type_complexity)]
-    pub fn compute_cells_and_proofs(_blob: &Blob) -> Result<CellsAndKzgProofs, Error> {
+    pub fn compute_cells_and_proofs(_blob: KzgBlobRef) -> Result<CellsAndKzgProofs, Error> {
         let empty_cells = vec![Cell::new([0; BYTES_PER_CELL]); CELLS_PER_EXT_BLOB]
             .try_into()
             .expect("expected {CELLS_PER_EXT_BLOB} number of items");
