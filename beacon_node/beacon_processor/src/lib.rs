@@ -112,6 +112,7 @@ pub struct BeaconProcessorQueueLengths {
     backfill_chain_segment: usize,
     gossip_block_queue: usize,
     gossip_blob_queue: usize,
+    gossip_data_column_queue: usize,
     delayed_block_queue: usize,
     status_queue: usize,
     bbrange_queue: usize,
@@ -164,6 +165,7 @@ impl BeaconProcessorQueueLengths {
             backfill_chain_segment: 64,
             gossip_block_queue: 1024,
             gossip_blob_queue: 1024,
+            gossip_data_column_queue: 1024,
             delayed_block_queue: 1024,
             status_queue: 1024,
             bbrange_queue: 1024,
@@ -209,6 +211,7 @@ pub const GOSSIP_AGGREGATE: &str = "gossip_aggregate";
 pub const GOSSIP_AGGREGATE_BATCH: &str = "gossip_aggregate_batch";
 pub const GOSSIP_BLOCK: &str = "gossip_block";
 pub const GOSSIP_BLOBS_SIDECAR: &str = "gossip_blobs_sidecar";
+pub const GOSSIP_BLOBS_COLUMN_SIDECAR: &str = "gossip_blobs_column_sidecar";
 pub const DELAYED_IMPORT_BLOCK: &str = "delayed_import_block";
 pub const GOSSIP_VOLUNTARY_EXIT: &str = "gossip_voluntary_exit";
 pub const GOSSIP_PROPOSER_SLASHING: &str = "gossip_proposer_slashing";
@@ -577,6 +580,7 @@ pub enum Work<E: EthSpec> {
     },
     GossipBlock(AsyncFn),
     GossipBlobSidecar(AsyncFn),
+    GossipDataColumnSidecar(AsyncFn),
     DelayedImportBlock {
         beacon_block_slot: Slot,
         beacon_block_root: Hash256,
@@ -629,6 +633,7 @@ impl<E: EthSpec> Work<E> {
             Work::GossipAggregateBatch { .. } => GOSSIP_AGGREGATE_BATCH,
             Work::GossipBlock(_) => GOSSIP_BLOCK,
             Work::GossipBlobSidecar(_) => GOSSIP_BLOBS_SIDECAR,
+            Work::GossipDataColumnSidecar(_) => GOSSIP_BLOBS_COLUMN_SIDECAR,
             Work::DelayedImportBlock { .. } => DELAYED_IMPORT_BLOCK,
             Work::GossipVoluntaryExit(_) => GOSSIP_VOLUNTARY_EXIT,
             Work::GossipProposerSlashing(_) => GOSSIP_PROPOSER_SLASHING,
@@ -803,6 +808,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut backfill_chain_segment = FifoQueue::new(queue_lengths.backfill_chain_segment);
         let mut gossip_block_queue = FifoQueue::new(queue_lengths.gossip_block_queue);
         let mut gossip_blob_queue = FifoQueue::new(queue_lengths.gossip_blob_queue);
+        let mut gossip_data_column_queue = FifoQueue::new(queue_lengths.gossip_data_column_queue);
         let mut delayed_block_queue = FifoQueue::new(queue_lengths.delayed_block_queue);
 
         let mut status_queue = FifoQueue::new(queue_lengths.status_queue);
@@ -960,6 +966,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = gossip_block_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = gossip_blob_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = gossip_data_column_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         // Check the priority 0 API requests after blocks and blobs, but before attestations.
                         } else if let Some(item) = api_request_p0_queue.pop() {
@@ -1208,6 +1216,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipBlobSidecar { .. } => {
                                 gossip_blob_queue.push(work, work_id, &self.log)
                             }
+                            Work::GossipDataColumnSidecar { .. } => {
+                                gossip_data_column_queue.push(work, work_id, &self.log)
+                            }
                             Work::DelayedImportBlock { .. } => {
                                 delayed_block_queue.push(work, work_id, &self.log)
                             }
@@ -1311,6 +1322,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_GOSSIP_BLOB_QUEUE_TOTAL,
                     gossip_blob_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_GOSSIP_DATA_COLUMN_QUEUE_TOTAL,
+                    gossip_data_column_queue.len() as i64,
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL,
@@ -1463,11 +1478,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 task_spawner.spawn_async(process_fn)
             }
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
-            Work::GossipBlock(work) | Work::GossipBlobSidecar(work) => {
-                task_spawner.spawn_async(async move {
-                    work.await;
-                })
-            }
+            Work::GossipBlock(work)
+            | Work::GossipBlobSidecar(work)
+            | Work::GossipDataColumnSidecar(work) => task_spawner.spawn_async(async move {
+                work.await;
+            }),
             Work::BlobsByRangeRequest(process_fn) | Work::BlobsByRootsRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }

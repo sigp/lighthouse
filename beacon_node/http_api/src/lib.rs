@@ -2889,8 +2889,8 @@ pub fn serve<T: BeaconChainTypes>(
 
                             let syncing_data = api_types::SyncingData {
                                 is_syncing: !network_globals.sync_state.read().is_synced(),
-                                is_optimistic: Some(is_optimistic),
-                                el_offline: Some(el_offline),
+                                is_optimistic,
+                                el_offline,
                                 head_slot,
                                 sync_distance,
                             };

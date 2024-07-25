@@ -75,14 +75,11 @@ else
     echo "Not rebuilding Lighthouse Docker image."
 fi
 
-IMAGE_DOWNLOAD_FLAG=""
-
 if [ "$KEEP_ENCLAVE" = false ]; then
   # Stop local testnet
   kurtosis enclave rm -f $ENCLAVE_NAME 2>/dev/null || true
-  IMAGE_DOWNLOAD_FLAG="--image-download always"
 fi
 
-kurtosis run --enclave $ENCLAVE_NAME github.com/ethpandaops/ethereum-package $IMAGE_DOWNLOAD_FLAG --args-file $NETWORK_PARAMS_FILE
+kurtosis run --enclave $ENCLAVE_NAME github.com/ethpandaops/ethereum-package --args-file $NETWORK_PARAMS_FILE
 
 echo "Started!"

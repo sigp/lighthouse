@@ -502,7 +502,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// Translate the per validator `builder_proposals`, `builder_boost_factor` and
     /// `prefer_builder_proposals` to a boost factor, if available.
     /// - If `prefer_builder_proposals` is true, set boost factor to `u64::MAX` to indicate a
-    /// preference for builder payloads.
+    ///   preference for builder payloads.
     /// - If `builder_boost_factor` is a value other than None, return its value as the boost factor.
     /// - If `builder_proposals` is set to false, set boost factor to 0 to indicate a preference for
     ///   local payloads.
