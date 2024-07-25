@@ -77,11 +77,11 @@ impl BeaconNodeSyncDistanceTiers {
     /// Takes a given sync distance and determines its tier based on the `sync_tolerance` defined by
     /// the CLI.
     pub fn compute_distance_tier(&self, distance: SyncDistance) -> SyncDistanceTier {
-        if distance.as_u64() <= self.synced.as_u64() {
+        if distance <= self.synced {
             SyncDistanceTier::Synced
-        } else if distance <= self.small.as_u64() {
+        } else if distance <= self.small {
             SyncDistanceTier::Small
-        } else if distance <= self.medium.as_u64() {
+        } else if distance <= self.medium {
             SyncDistanceTier::Medium
         } else {
             SyncDistanceTier::Large
