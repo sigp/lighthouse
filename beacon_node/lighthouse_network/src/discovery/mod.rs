@@ -1166,8 +1166,19 @@ impl<E: EthSpec> Discovery<E> {
     fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: &DialError) {
         if let Some(peer_id) = peer_id {
             match error {
+                DialError::Denied { .. } => {
+                    if self.network_globals.peers.read().is_connected(&peer_id) {
+                        // There's an active connection, so we don’t disconnect the peer.
+                        // Lighthouse dials to a peer twice using TCP and QUIC (if QUIC is not
+                        // disabled). Usually, one establishes a connection, and the other fails
+                        // because the peer allows only one connection per peer.
+                        return;
+                    }
+                    // set peer as disconnected in discovery DHT
+                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id, "error" => %ClearDialError(error));
+                    self.disconnect_peer(&peer_id);
+                }
                 DialError::LocalPeerId { .. }
-                | DialError::Denied { .. }
                 | DialError::NoAddresses
                 | DialError::Transport(_)
                 | DialError::WrongPeerId { .. } => {
