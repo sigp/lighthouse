@@ -119,8 +119,8 @@ env_logger = "0.9"
 error-chain = "0.12"
 ethereum_hashing = "0.6.0"
 ethereum_serde_utils = "0.5.2"
-ethereum_ssz = "0.5"
-ethereum_ssz_derive = "0.5" 
+ethereum_ssz = { git = "https://github.com/eserilev/ethereum_ssz", branch = "alloy" }
+ethereum_ssz_derive = { git = "https://github.com/eserilev/ethereum_ssz", branch = "alloy" }
 ethers-core = "1"
 ethers-providers = { version = "1", default-features = false }
 exit-future = "0.2"
@@ -247,8 +247,8 @@ codegen-units = 1
 incremental = false
 
 [patch.crates-io]
-ethereum_ssz = { git = "https://github.com/eserilev/ethereum_ssz", branch = "alloy" }
-ethereum_ssz_derive = { git = "https://github.com/eserilev/ethereum_ssz", branch = "alloy" }
+# ethereum_ssz = { git = "https://github.com/eserilev/ethereum_ssz", branch = "alloy" }
+# ethereum_ssz_derive = { git = "https://github.com/eserilev/ethereum_ssz", branch = "alloy" }
 ethereum_serde_utils = { git = "https://github.com/eserilev/ethereum_serde_utils", branch = "alloy"}
 ssz_types = { git = "https://github.com/eserilev/ssz_types", branch = "alloy-tweaks" }
 tree_hash = { git = "https://github.com/eserilev/tree_hash", branch = "alloy-deps"}
