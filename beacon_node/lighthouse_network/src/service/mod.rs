@@ -33,6 +33,7 @@ use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{Swarm, SwarmEvent};
 use libp2p::{identify, PeerId, SwarmBuilder};
 use slog::{crit, debug, info, o, trace, warn};
+use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::{
@@ -415,6 +416,11 @@ impl<E: EthSpec> Network<E> {
         // sets up the libp2p swarm.
 
         let swarm = {
+            let config = libp2p::swarm::Config::with_executor(Executor(executor))
+                .with_notify_handler_buffer_size(NonZeroUsize::new(7).expect("Not zero"))
+                .with_per_connection_event_buffer_size(4)
+                .with_dial_concurrency_factor(NonZeroU8::new(1).unwrap());
+
             let builder = SwarmBuilder::with_existing_identity(local_keypair)
                 .with_tokio()
                 .with_other_transport(|_key| transport)
@@ -426,25 +432,13 @@ impl<E: EthSpec> Network<E> {
                     .with_bandwidth_metrics(libp2p_registry)
                     .with_behaviour(|_| behaviour)
                     .expect("infalible")
-                    .with_swarm_config(|_| {
-                        libp2p::swarm::Config::with_executor(Executor(executor))
-                            .with_notify_handler_buffer_size(
-                                std::num::NonZeroUsize::new(7).expect("Not zero"),
-                            )
-                            .with_per_connection_event_buffer_size(4)
-                    })
+                    .with_swarm_config(|_| config)
                     .build()
             } else {
                 builder
                     .with_behaviour(|_| behaviour)
                     .expect("infalible")
-                    .with_swarm_config(|_| {
-                        libp2p::swarm::Config::with_executor(Executor(executor))
-                            .with_notify_handler_buffer_size(
-                                std::num::NonZeroUsize::new(7).expect("Not zero"),
-                            )
-                            .with_per_connection_event_buffer_size(4)
-                    })
+                    .with_swarm_config(|_| config)
                     .build()
             }
         };
