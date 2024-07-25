@@ -9,6 +9,7 @@ name = "benches"
 harness = false
 
 [dependencies]
+alloy-primitives = { workspace = true, features = ["rlp"] }
 merkle_proof = { workspace = true }
 bls = { workspace = true, features = ["arbitrary"] }
 kzg = { workspace = true }
@@ -50,6 +51,7 @@ metastruct = "0.1.0"
 serde_json = { workspace = true }
 smallvec = { workspace = true }
 maplit = { workspace = true }
+alloy-rlp = { version = "0.3.4", features = ["derive"] }
 milhouse = { workspace = true }
 rpds = { workspace = true }
 
