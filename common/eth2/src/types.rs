@@ -599,8 +599,8 @@ pub struct VersionData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SyncingData {
     pub is_syncing: bool,
-    pub is_optimistic: Option<bool>,
-    pub el_offline: Option<bool>,
+    pub is_optimistic: bool,
+    pub el_offline: bool,
     pub head_slot: Slot,
     pub sync_distance: Slot,
 }

@@ -319,6 +319,20 @@ impl<T: BeaconChainTypes> Router<T> {
                     ),
                 )
             }
+            PubsubMessage::DataColumnSidecar(data) => {
+                let (subnet_id, column_sidecar) = *data;
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_data_column_sidecar(
+                            message_id,
+                            peer_id,
+                            self.network_globals.client(&peer_id),
+                            subnet_id,
+                            column_sidecar,
+                            timestamp_now(),
+                        ),
+                )
+            }
             PubsubMessage::VoluntaryExit(exit) => {
                 debug!(self.log, "Received a voluntary exit"; "peer_id" => %peer_id);
                 self.handle_beacon_processor_send_result(

@@ -56,8 +56,8 @@ async fn el_syncing_then_synced() {
     mock_el.el.upcheck().await;
 
     let api_response = tester.client.get_node_syncing().await.unwrap().data;
-    assert_eq!(api_response.el_offline, Some(false));
-    assert_eq!(api_response.is_optimistic, Some(false));
+    assert_eq!(api_response.el_offline, false);
+    assert_eq!(api_response.is_optimistic, false);
     assert_eq!(api_response.is_syncing, false);
 
     // EL synced
@@ -65,8 +65,8 @@ async fn el_syncing_then_synced() {
     mock_el.el.upcheck().await;
 
     let api_response = tester.client.get_node_syncing().await.unwrap().data;
-    assert_eq!(api_response.el_offline, Some(false));
-    assert_eq!(api_response.is_optimistic, Some(false));
+    assert_eq!(api_response.el_offline, false);
+    assert_eq!(api_response.is_optimistic, false);
     assert_eq!(api_response.is_syncing, false);
 }
 
@@ -84,8 +84,8 @@ async fn el_offline() {
     mock_el.el.upcheck().await;
 
     let api_response = tester.client.get_node_syncing().await.unwrap().data;
-    assert_eq!(api_response.el_offline, Some(true));
-    assert_eq!(api_response.is_optimistic, Some(false));
+    assert_eq!(api_response.el_offline, true);
+    assert_eq!(api_response.is_optimistic, false);
     assert_eq!(api_response.is_syncing, false);
 }
 
@@ -127,8 +127,8 @@ async fn el_error_on_new_payload() {
 
     // The EL should now be *offline* according to the API.
     let api_response = tester.client.get_node_syncing().await.unwrap().data;
-    assert_eq!(api_response.el_offline, Some(true));
-    assert_eq!(api_response.is_optimistic, Some(false));
+    assert_eq!(api_response.el_offline, true);
+    assert_eq!(api_response.is_optimistic, false);
     assert_eq!(api_response.is_syncing, false);
 
     // Processing a block successfully should remove the status.
@@ -143,8 +143,8 @@ async fn el_error_on_new_payload() {
     harness.process_block_result((block, blobs)).await.unwrap();
 
     let api_response = tester.client.get_node_syncing().await.unwrap().data;
-    assert_eq!(api_response.el_offline, Some(false));
-    assert_eq!(api_response.is_optimistic, Some(false));
+    assert_eq!(api_response.el_offline, false);
+    assert_eq!(api_response.is_optimistic, false);
     assert_eq!(api_response.is_syncing, false);
 }
 
