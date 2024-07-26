@@ -1,7 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::{
     beacon_block_body::BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, BeaconStateError, Blob,
-    EthSpec, FixedVector, Hash256, SignedBeaconBlockHeader, Slot, VariableList,
+    Epoch, EthSpec, FixedVector, Hash256, SignedBeaconBlockHeader, Slot, VariableList,
 };
 use crate::{KzgProofs, SignedBeaconBlock};
 use bls::Signature;
@@ -158,6 +158,13 @@ impl<E: EthSpec> BlobSidecar<E> {
 
     pub fn slot(&self) -> Slot {
         self.signed_block_header.message.slot
+    }
+
+    pub fn epoch(&self) -> Epoch {
+        self.signed_block_header
+            .message
+            .slot
+            .epoch(E::slots_per_epoch())
     }
 
     pub fn block_root(&self) -> Hash256 {

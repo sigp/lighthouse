@@ -372,16 +372,21 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("self-limiter")
             .long("self-limiter")
-            .help(
-                "Enables the outbound rate limiter (requests made by this node). \
-                Use the self-limiter-protocol flag to set per protocol configurations. \
-                If the self rate limiter is enabled and a protocol is not \
-                present in the configuration, the quotas used for the inbound rate limiter will be \
-                used."
-            )
+            .help("This flag is deprecated and has no effect.")
+            .hide(true)
             .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
             .display_order(0)
+        )
+        .arg(
+            Arg::new("disable-self-limiter")
+                .long("disable-self-limiter")
+                .help(
+                    "Disables the outbound rate limiter (requests sent by this node)."
+                )
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("self-limiter-protocols")
@@ -397,7 +402,7 @@ pub fn cli_app() -> Command {
             )
             .action(ArgAction::Append)
             .value_delimiter(';')
-            .requires("self-limiter")
+            .conflicts_with("disable-self-limiter")
             .display_order(0)
         )
         .arg(
@@ -1241,9 +1246,7 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("disable-lock-timeouts")
                 .long("disable-lock-timeouts")
-                .help("Disable the timeouts applied to some internal locks by default. This can \
-                       lead to less spurious failures on slow hardware but is considered \
-                       experimental as it may obscure performance issues.")
+                .help("This flag is deprecated and has no effect.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
@@ -1333,6 +1336,7 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
+                .requires("suggested-fee-recipient")
         )
         .arg(
             Arg::new("fork-choice-before-proposal-timeout")
@@ -1399,14 +1403,6 @@ pub fn cli_app() -> Command {
                         conditions.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("builder-profit-threshold")
-                .long("builder-profit-threshold")
-                .value_name("WEI_VALUE")
-                .help("This flag is deprecated and has no effect.")
-                .action(ArgAction::Set)
                 .display_order(0)
         )
         .arg(
