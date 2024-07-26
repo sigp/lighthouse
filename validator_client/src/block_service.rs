@@ -511,7 +511,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         &metrics::BLOCK_SERVICE_TIMES,
                         &[metrics::BEACON_BLOCK_HTTP_GET],
                     );
-                    let block_response = Self::get_validator_block(
+                    Self::get_validator_block(
                         beacon_node,
                         slot,
                         randao_reveal_ref,
@@ -526,12 +526,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             "Error from beacon node when producing block: {:?}",
                             e
                         ))
-                    });
-
-                    Ok::<_, BlockError>(block_response)
+                    })
                 },
             )
-            .await??;
+            .await?;
 
         self_ref
             .sign_and_publish_block(
