@@ -31,7 +31,6 @@
 //! the head block root. This is unacceptable for fast-responding functions like the networking
 //! stack.
 
-use crate::beacon_chain::ATTESTATION_CACHE_LOCK_TIMEOUT;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::BlockShufflingIds;
 use crate::{
@@ -817,21 +816,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             new_snapshot.beacon_block_root,
             &new_snapshot.beacon_state,
         ) {
-            Ok(head_shuffling_ids) => {
-                self.shuffling_cache
-                    .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                    .map(|mut shuffling_cache| {
-                        shuffling_cache.update_head_shuffling_ids(head_shuffling_ids)
-                    })
-                    .unwrap_or_else(|| {
-                        error!(
-                            self.log,
-                            "Failed to obtain cache write lock";
-                            "lock" => "shuffling_cache",
-                            "task" => "update head shuffling decision root"
-                        );
-                    });
-            }
+            Ok(head_shuffling_ids) => self
+                .shuffling_cache
+                .write()
+                .update_head_shuffling_ids(head_shuffling_ids),
             Err(e) => {
                 error!(
                     self.log,

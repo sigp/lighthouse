@@ -28,8 +28,6 @@ pub struct ChainConfig {
     pub weak_subjectivity_checkpoint: Option<Checkpoint>,
     /// Determine whether to reconstruct historic states, usually after a checkpoint sync.
     pub reconstruct_historic_states: bool,
-    /// Whether timeouts on `TimeoutRwLock`s are enabled or not.
-    pub enable_lock_timeouts: bool,
     /// The max size of a message that can be sent over the network.
     pub max_network_size: usize,
     /// Maximum percentage of the head committee weight at which to attempt re-orging the canonical head.
@@ -94,7 +92,6 @@ impl Default for ChainConfig {
             import_max_skip_slots: None,
             weak_subjectivity_checkpoint: None,
             reconstruct_historic_states: false,
-            enable_lock_timeouts: true,
             max_network_size: 10 * 1_048_576, // 10M
             re_org_head_threshold: Some(DEFAULT_RE_ORG_HEAD_THRESHOLD),
             re_org_parent_threshold: Some(DEFAULT_RE_ORG_PARENT_THRESHOLD),

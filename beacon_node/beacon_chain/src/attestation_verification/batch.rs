@@ -13,10 +13,7 @@ use super::{
     CheckAttestationSignature, Error, IndexedAggregatedAttestation, IndexedUnaggregatedAttestation,
     VerifiedAggregatedAttestation, VerifiedUnaggregatedAttestation,
 };
-use crate::{
-    beacon_chain::VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT, metrics, BeaconChain, BeaconChainError,
-    BeaconChainTypes,
-};
+use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
 use bls::verify_signature_sets;
 use state_processing::signature_sets::{
     indexed_attestation_signature_set_from_pubkeys, signed_aggregate_selection_proof_signature_set,
@@ -60,10 +57,7 @@ where
         let signature_setup_timer =
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_BATCH_AGG_SIGNATURE_SETUP_TIMES);
 
-        let pubkey_cache = chain
-            .validator_pubkey_cache
-            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
+        let pubkey_cache = chain.validator_pubkey_cache.read();
 
         let mut signature_sets = Vec::with_capacity(num_indexed * 3);
         // Iterate, flattening to get only the `Ok` values.
@@ -169,10 +163,7 @@ where
             &metrics::ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_SETUP_TIMES,
         );
 
-        let pubkey_cache = chain
-            .validator_pubkey_cache
-            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
+        let pubkey_cache = chain.validator_pubkey_cache.read();
 
         let mut signature_sets = Vec::with_capacity(num_partially_verified);
 
