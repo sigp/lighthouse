@@ -130,6 +130,10 @@ pub static BLOCK_PROCESSING_FORK_CHOICE: LazyLock<Result<Histogram>> = LazyLock:
         exponential_buckets(1e-3, 2.0, 8),
     )
 });
+pub static BLOCK_PROCESSING_PUBKEY_CACHE_LOCK: LazyLock<Result<Histogram>> = LazyLock::new(|| try_create_histogram(
+"beacon_block_processing_pubkey_cache_lock_seconds",
+"Time spent waiting or holding the pubkey cache write lock",
+));
 pub static BLOCK_SYNC_AGGREGATE_SET_BITS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "block_sync_aggregate_set_bits",

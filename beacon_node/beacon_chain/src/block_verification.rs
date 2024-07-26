@@ -64,7 +64,7 @@ use crate::observed_block_producers::SeenBlock;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
-    beacon_chain::{BeaconForkChoice, ForkChoiceError, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT},
+    beacon_chain::{BeaconForkChoice, ForkChoiceError},
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
@@ -2096,10 +2096,7 @@ pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobEr
 pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<RwLockReadGuard<ValidatorPubkeyCache<T>>, BeaconChainError> {
-    chain
-        .validator_pubkey_cache
-        .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-        .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)
+    Ok(chain.validator_pubkey_cache.read())
 }
 
 /// Produces an _empty_ `BlockSignatureVerifier`.
