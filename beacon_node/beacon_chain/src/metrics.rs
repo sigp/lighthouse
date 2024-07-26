@@ -93,6 +93,10 @@ lazy_static! {
         "Time spent running fork choice's `get_head` during block import",
         exponential_buckets(1e-3, 2.0, 8)
     );
+    pub static ref BLOCK_PROCESSING_PUBKEY_CACHE_LOCK: Result<Histogram> = try_create_histogram(
+        "beacon_block_processing_pubkey_cache_lock_seconds",
+        "Time spent waiting or holding the pubkey cache write lock",
+    );
     pub static ref BLOCK_SYNC_AGGREGATE_SET_BITS: Result<IntGauge> = try_create_int_gauge(
         "block_sync_aggregate_set_bits",
         "The number of true bits in the last sync aggregate in a block"
@@ -1047,6 +1051,18 @@ lazy_static! {
     pub static ref BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION: Result<Histogram> = try_create_histogram(
         "blob_sidecar_inclusion_proof_computation_seconds",
         "Time taken to compute blob sidecar inclusion proof"
+    );
+    pub static ref DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
+        "beacon_data_column_sidecar_processing_requests_total",
+        "Count of all data column sidecars submitted for processing"
+    );
+    pub static ref DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
+        "beacon_data_column_sidecar_processing_successes_total",
+        "Number of data column sidecars verified for gossip"
+    );
+    pub static ref DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_data_column_sidecar_gossip_verification_seconds",
+        "Full runtime of data column sidecars gossip verification"
     );
 }
 

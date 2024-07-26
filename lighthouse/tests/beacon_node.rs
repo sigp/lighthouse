@@ -160,18 +160,10 @@ fn max_skip_slots_flag() {
 }
 
 #[test]
-fn enable_lock_timeouts_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.enable_lock_timeouts));
-}
-
-#[test]
 fn disable_lock_timeouts_flag() {
     CommandLineTest::new()
         .flag("disable-lock-timeouts", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(!config.chain.enable_lock_timeouts));
+        .run_with_zero_port();
 }
 
 #[test]
@@ -2253,7 +2245,7 @@ fn slasher_broadcast_flag_false() {
         });
 }
 
-#[cfg(all(feature = "lmdb"))]
+#[cfg(all(feature = "slasher-lmdb"))]
 #[test]
 fn slasher_backend_override_to_default() {
     // Hard to test this flag because all but one backend is disabled by default and the backend

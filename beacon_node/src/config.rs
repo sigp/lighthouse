@@ -753,7 +753,11 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.get_flag("disable-lock-timeouts") {
-        client_config.chain.enable_lock_timeouts = false;
+        warn!(
+            log,
+            "Ignoring --disable-lock-timeouts";
+            "info" => "this flag is deprecated and will be removed"
+        );
     }
 
     if cli_args.get_flag("disable-proposer-reorgs") {

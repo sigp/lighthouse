@@ -72,6 +72,10 @@ lazy_static! {
         "beacon_processor_gossip_blob_verified_total",
         "Total number of gossip blob verified for propagation."
     );
+    pub static ref BEACON_PROCESSOR_GOSSIP_DATA_COLUMN_SIDECAR_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_gossip_data_column_verified_total",
+        "Total number of gossip data column sidecar verified for propagation."
+    );
     // Gossip Exits.
     pub static ref BEACON_PROCESSOR_EXIT_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_exit_verified_total",
@@ -356,6 +360,22 @@ lazy_static! {
         "beacon_blob_gossip_arrived_late_total",
         "Count of times when a gossip blob arrived from the network later than the attestation deadline.",
     );
+
+    pub static ref BEACON_DATA_COLUMN_DELAY_GOSSIP: Result<IntGauge> = try_create_int_gauge(
+        "beacon_data_column_delay_gossip_last_delay",
+        "The first time we see this data column as a delay from the start of the slot"
+    );
+
+    pub static ref BEACON_DATA_COLUMN_DELAY_GOSSIP_VERIFICATION: Result<IntGauge> = try_create_int_gauge(
+        "beacon_data_column_delay_gossip_verification",
+        "Keeps track of the time delay from the start of the slot to the point we propagate the data column"
+    );
+
+    pub static ref BEACON_DATA_COLUMN_DELAY_FULL_VERIFICATION: Result<IntGauge> = try_create_int_gauge(
+        "beacon_data_column_last_full_verification_delay",
+        "The time it takes to verify a beacon data column"
+    );
+
 
     /*
      * Light client update reprocessing queue metrics.
