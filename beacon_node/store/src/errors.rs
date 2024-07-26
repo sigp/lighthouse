@@ -45,6 +45,7 @@ pub enum Error {
     },
     MissingStateRoot(Slot),
     MissingState(Hash256),
+    MissingGenesisState,
     MissingSnapshot(Slot),
     NoBaseStateFound(Hash256),
     BlockReplayError(BlockReplayError),
@@ -79,6 +80,8 @@ pub enum Error {
     ForwardsIterGap(DBColumn, Slot, Slot),
     StateShouldNotBeRequired(Slot),
     MissingBlock(Hash256),
+    DestructiveFreezerUpgrade,
+    NoAnchorInfo,
 }
 
 pub trait HandleUnavailable<T> {

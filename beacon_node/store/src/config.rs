@@ -41,8 +41,6 @@ pub struct StoreConfig {
     pub compact_on_prune: bool,
     /// Whether to prune payloads on initialization and finalization.
     pub prune_payloads: bool,
-    /// Whether to store finalized states compressed and linearised in the freezer database.
-    pub linear_restore_points: bool,
     /// State diff hierarchy.
     pub hierarchy_config: HierarchyConfig,
     /// Whether to prune blobs older than the blob data availability boundary.
@@ -52,6 +50,10 @@ pub struct StoreConfig {
     /// The margin for blob pruning in epochs. The oldest blobs are pruned up until
     /// data_availability_boundary - blob_prune_margin_epochs. Default: 0.
     pub blob_prune_margin_epochs: u64,
+    /// Whether to allow a destructive freezer DB migration for hierarchical state diffs.
+    ///
+    /// i.e. "on-disk tree-states"
+    pub allow_tree_states_migration: bool,
 }
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
@@ -93,11 +95,11 @@ impl Default for StoreConfig {
             compact_on_init: false,
             compact_on_prune: true,
             prune_payloads: true,
-            linear_restore_points: true,
             hierarchy_config: HierarchyConfig::default(),
             prune_blobs: true,
             epochs_per_blob_prune: DEFAULT_EPOCHS_PER_BLOB_PRUNE,
             blob_prune_margin_epochs: DEFAULT_BLOB_PUNE_MARGIN_EPOCHS,
+            allow_tree_states_migration: false,
         }
     }
 }

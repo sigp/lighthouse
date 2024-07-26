@@ -2379,9 +2379,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // migrating to the tree-states schema (delete everything in the freezer then start afresh).
         let mut cold_ops = vec![];
 
+        // This function works for both pre-tree-states and post-tree-states pruning. It deletes
+        // everything related to historic states from either DB!
         let columns = [
             DBColumn::BeaconState,
             DBColumn::BeaconStateSummary,
+            DBColumn::BeaconStateSnapshot,
             DBColumn::BeaconStateDiff,
             DBColumn::BeaconRestorePoint,
             DBColumn::BeaconStateRoots,
@@ -2399,20 +2402,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 )));
             }
         }
-
-        // XXX: We need to commit the mass deletion here *before* re-storing the genesis state, as
-        // the current schema performs reads as part of `store_cold_state`. This can be deleted
-        // once the target schema is tree-states. If the process is killed before the genesis state
-        // is written this can be fixed by re-running.
-        info!(
-            self.log,
-            "Deleting historic states";
-            "num_kv" => cold_ops.len(),
-        );
-        self.cold_db.do_atomically(std::mem::take(&mut cold_ops))?;
+        let delete_ops = cold_ops.len();
 
         // If we just deleted the the genesis state, re-store it using the *current* schema, which
         // may be different from the schema of the genesis state we just deleted.
+        //
+        // During the tree-states migration this will re-store the genesis state as compressed
+        // beacon state SSZ, which is different from the previous `PartialBeaconState` format.
         if self.get_split_slot() > 0 {
             info!(
                 self.log,
@@ -2420,8 +2416,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 "state_root" => ?genesis_state_root,
             );
             self.store_cold_state(&genesis_state_root, genesis_state, &mut cold_ops)?;
-            self.cold_db.do_atomically(cold_ops)?;
         }
+
+        info!(
+            self.log,
+            "Deleting historic states";
+            "delete_ops" => delete_ops,
+        );
+        self.cold_db.do_atomically(cold_ops)?;
 
         // In order to reclaim space, we need to compact the freezer DB as well.
         self.cold_db.compact()?;

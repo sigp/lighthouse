@@ -1,6 +1,7 @@
 //! Utilities for managing database schema changes.
 mod migration_schema_v20;
 mod migration_schema_v21;
+mod migration_schema_v22;
 
 use crate::beacon_chain::BeaconChainTypes;
 use crate::types::ChainSpec;
@@ -69,6 +70,11 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             let ops = migration_schema_v21::downgrade_from_v21::<T>(db.clone(), log)?;
             db.store_schema_version_atomically(to, ops)
         }
+        (SchemaVersion(21), SchemaVersion(22)) => {
+            let ops = migration_schema_v22::upgrade_to_v22::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        // FIXME(sproul): consider downgrade
         // Anything else is an error.
         (_, _) => Err(HotColdDBError::UnsupportedSchemaVersion {
             target_version: to,
