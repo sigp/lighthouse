@@ -7,7 +7,6 @@ edition = { workspace = true }
 [dependencies]
 ethereum-types = { workspace = true }
 ethereum_hashing = { workspace = true }
-lazy_static = { workspace = true }
 safe_arith = { workspace = true }
 
 [dev-dependencies]

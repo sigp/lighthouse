@@ -918,9 +918,9 @@ impl<E: EthSpec> PeerManager<E> {
     ///     number should be set low as an absolute lower bound to maintain peers on the sync
     ///     committees.
     /// - Do not prune trusted peers. NOTE: This means if a user has more trusted peers than the
-    /// excess peer limit, all of the following logic is subverted as we will not prune any peers.
-    /// Also, the more trusted peers a user has, the less room Lighthouse has to efficiently manage
-    /// its peers across the subnets.
+    ///   excess peer limit, all of the following logic is subverted as we will not prune any peers.
+    ///   Also, the more trusted peers a user has, the less room Lighthouse has to efficiently manage
+    ///   its peers across the subnets.
     ///
     /// Prune peers in the following order:
     /// 1. Remove worst scoring peers
