@@ -318,9 +318,11 @@ fn verify_is_first_sidecar<T: BeaconChainTypes>(
 }
 
 fn verify_column_inclusion_proof<E: EthSpec>(
-    _data_column: &DataColumnSidecar<E>,
+    data_column: &DataColumnSidecar<E>,
 ) -> Result<(), GossipDataColumnError> {
-    // TODO(das): to be implemented
+    if !data_column.verify_inclusion_proof() {
+        return Err(GossipDataColumnError::InvalidInclusionProof);
+    }
     Ok(())
 }
 

@@ -10,7 +10,7 @@ use types::{BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    /// The slot of the provided `ObservableSidecar` is prior to finalization and should not have been provided
+    /// The slot of the provided `ObservableDataSidecar` is prior to finalization and should not have been provided
     /// to this function. This is an internal error.
     FinalizedDataSidecar { slot: Slot, finalized_slot: Slot },
     /// The data sidecar contains an invalid index, the data sidecar is invalid.
@@ -62,7 +62,7 @@ impl<E: EthSpec> ObservableDataSidecar for DataColumnSidecar<E> {
     }
 }
 
-/// Maintains a cache of seen `ObservableSidecar`s that are received over gossip
+/// Maintains a cache of seen `ObservableDataSidecar`s that are received over gossip
 /// and have been gossip verified.
 ///
 /// The cache supports pruning based upon the finalized epoch. It does not automatically prune, you
