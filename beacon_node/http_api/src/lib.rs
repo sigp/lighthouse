@@ -97,7 +97,7 @@ use warp::hyper::Body;
 use warp::sse::Event;
 use warp::Reply;
 use warp::{http::Response, Filter, Rejection};
-use warp_utils::{query::multi_key_query, uor::UnifyingOrFilter};
+use warp_utils::{query::multi_key_query, reject::convert_rejection, uor::UnifyingOrFilter};
 
 const API_PREFIX: &str = "eth";
 
@@ -1802,7 +1802,7 @@ pub fn serve<T: BeaconChainTypes>(
                 )
                 .await
                 .map(|()| warp::reply::json(&()));
-                task_spawner::convert_rejection(result).await
+                convert_rejection(result).await
             },
         );
 
@@ -2888,9 +2888,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 .map_err(warp_utils::reject::beacon_chain_error)?;
 
                             let syncing_data = api_types::SyncingData {
-                                is_syncing: network_globals.sync_state.read().is_syncing(),
-                                is_optimistic: Some(is_optimistic),
-                                el_offline: Some(el_offline),
+                                is_syncing: !network_globals.sync_state.read().is_synced(),
+                                is_optimistic,
+                                el_offline,
                                 head_slot,
                                 sync_distance,
                             };
@@ -3817,12 +3817,12 @@ pub fn serve<T: BeaconChainTypes>(
                     .await;
 
                 if initial_result.is_err() {
-                    return task_spawner::convert_rejection(initial_result).await;
+                    return convert_rejection(initial_result).await;
                 }
 
                 // Await a response from the builder without blocking a
                 // `BeaconProcessor` worker.
-                task_spawner::convert_rejection(rx.await.unwrap_or_else(|_| {
+                convert_rejection(rx.await.unwrap_or_else(|_| {
                     Ok(warp::reply::with_status(
                         warp::reply::json(&"No response from channel"),
                         eth2::StatusCode::INTERNAL_SERVER_ERROR,

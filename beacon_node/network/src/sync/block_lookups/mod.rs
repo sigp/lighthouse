@@ -214,6 +214,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Check if this new lookup extends a bad chain:
     /// - Extending `child_block_root_trigger` would exceed the max depth
     /// - `block_root_to_search` is a failed chain
+    ///
     /// Returns true if the lookup is created or already exists
     pub fn search_parent_of_child(
         &mut self,
