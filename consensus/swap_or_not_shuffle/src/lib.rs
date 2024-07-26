@@ -7,9 +7,9 @@
 //! There are two functions exported by this crate:
 //!
 //! - `compute_shuffled_index`: given a single index, computes the index resulting from a shuffle.
-//! Runs in less time than it takes to run `shuffle_list`.
+//!   Runs in less time than it takes to run `shuffle_list`.
 //! - `shuffle_list`: shuffles an entire list in-place. Runs in less time than it takes to run
-//! `compute_shuffled_index` on each index.
+//!   `compute_shuffled_index` on each index.
 //!
 //! In general, use `compute_shuffled_index` to calculate the shuffling of a small subset of a much
 //! larger list (~250x larger is a good guide, but solid figures yet to be calculated).

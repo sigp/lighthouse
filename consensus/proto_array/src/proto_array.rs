@@ -149,7 +149,7 @@ impl ProtoArray {
     /// - Update the node's weight with the corresponding delta.
     /// - Back-propagate each node's delta to its parents delta.
     /// - Compare the current node with the parents best-child, updating it if the current node
-    /// should become the best child.
+    ///   should become the best child.
     /// - If required, update the parents best-descendant with the current node or its best-descendant.
     #[allow(clippy::too_many_arguments)]
     pub fn apply_score_changes<E: EthSpec>(

@@ -22,7 +22,7 @@
 //!  - Only one finalized chain can sync at a time
 //!  - The finalized chain with the largest peer pool takes priority.
 //!  - As one finalized chain completes, others are checked to see if we they can be continued,
-//!  otherwise they are removed.
+//!    otherwise they are removed.
 //!
 //!  ## Head Chain Sync
 //!

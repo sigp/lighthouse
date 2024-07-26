@@ -43,6 +43,7 @@ unused_port = { workspace = true }
 delay_map = { workspace = true }
 bytes = { workspace = true }
 either = { workspace = true }
+itertools = { workspace = true }
 
 # Local dependencies
 void = "1.0.2"

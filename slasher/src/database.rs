@@ -409,7 +409,7 @@ impl<E: EthSpec> SlasherDB<E> {
             for target_epoch in (start_epoch..max_target.as_u64()).map(Epoch::new) {
                 txn.put(
                     &self.databases.attesters_db,
-                    &AttesterKey::new(validator_index, target_epoch, &self.config),
+                    AttesterKey::new(validator_index, target_epoch, &self.config),
                     CompactAttesterRecord::null().as_bytes(),
                 )?;
             }
@@ -417,8 +417,8 @@ impl<E: EthSpec> SlasherDB<E> {
 
         txn.put(
             &self.databases.attesters_max_targets_db,
-            &CurrentEpochKey::new(validator_index),
-            &max_target.as_ssz_bytes(),
+            CurrentEpochKey::new(validator_index),
+            max_target.as_ssz_bytes(),
         )?;
         Ok(())
     }
@@ -444,8 +444,8 @@ impl<E: EthSpec> SlasherDB<E> {
     ) -> Result<(), Error> {
         txn.put(
             &self.databases.current_epochs_db,
-            &CurrentEpochKey::new(validator_index),
-            &current_epoch.as_ssz_bytes(),
+            CurrentEpochKey::new(validator_index),
+            current_epoch.as_ssz_bytes(),
         )?;
         Ok(())
     }
@@ -621,7 +621,7 @@ impl<E: EthSpec> SlasherDB<E> {
 
             txn.put(
                 &self.databases.attesters_db,
-                &AttesterKey::new(validator_index, target_epoch, &self.config),
+                AttesterKey::new(validator_index, target_epoch, &self.config),
                 indexed_attestation_id,
             )?;
 
@@ -699,8 +699,8 @@ impl<E: EthSpec> SlasherDB<E> {
         } else {
             txn.put(
                 &self.databases.proposers_db,
-                &ProposerKey::new(proposer_index, slot),
-                &block_header.as_ssz_bytes(),
+                ProposerKey::new(proposer_index, slot),
+                block_header.as_ssz_bytes(),
             )?;
             Ok(ProposerSlashingStatus::NotSlashable)
         }

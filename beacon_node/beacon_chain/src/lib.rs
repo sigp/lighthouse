@@ -19,7 +19,7 @@ pub mod canonical_head;
 pub mod capella_readiness;
 pub mod chain_config;
 pub mod data_availability_checker;
-mod data_column_verification;
+pub mod data_column_verification;
 pub mod deneb_readiness;
 mod early_attester_cache;
 pub mod electra_readiness;
@@ -57,7 +57,6 @@ pub mod state_advance_timer;
 pub mod sync_committee_rewards;
 pub mod sync_committee_verification;
 pub mod test_utils;
-mod timeout_rw_lock;
 pub mod validator_monitor;
 pub mod validator_pubkey_cache;
 
@@ -98,5 +97,4 @@ pub use state_processing::per_block_processing::errors::{
     ExitValidationError, ProposerSlashingValidationError,
 };
 pub use store;
-pub use timeout_rw_lock::TimeoutRwLock;
 pub use types;

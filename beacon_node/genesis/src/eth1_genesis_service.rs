@@ -352,7 +352,7 @@ impl Eth1GenesisService {
     ///
     /// - `Ok(genesis_state)`: if all went well.
     /// - `Err(e)`: if the given `eth1_block` was not a viable block to trigger genesis or there was
-    /// an internal error.
+    ///   an internal error.
     fn genesis_from_eth1_block<E: EthSpec>(
         &self,
         eth1_block: Eth1Block,
