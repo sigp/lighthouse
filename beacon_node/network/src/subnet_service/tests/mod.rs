@@ -109,8 +109,7 @@ fn get_logger(log_level: Option<slog::Level>) -> Logger {
     }
 }
 
-static CHAIN: LazyLock<TestBeaconChain> =
-    LazyLock::new(|| TestBeaconChain::new_with_system_clock());
+static CHAIN: LazyLock<TestBeaconChain> = LazyLock::new(TestBeaconChain::new_with_system_clock);
 
 fn get_attestation_service(
     log_level: Option<slog::Level>,

@@ -12,6 +12,7 @@ use crate::{
 };
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use ssz_types::Bitfield;
+use std::sync::LazyLock;
 use test_utils::generate_deterministic_keypairs;
 use types::*;
 

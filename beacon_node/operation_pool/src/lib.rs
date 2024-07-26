@@ -801,6 +801,7 @@ mod release_tests {
     use state_processing::epoch_cache::initialize_epoch_cache;
     use state_processing::{common::get_attesting_indices_from_state, VerifyOperation};
     use std::collections::BTreeSet;
+    use std::sync::LazyLock;
     use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
     use types::*;
 

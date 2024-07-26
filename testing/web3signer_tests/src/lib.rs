@@ -32,7 +32,7 @@ mod tests {
     use std::future::Future;
     use std::path::PathBuf;
     use std::process::{Child, Command, Stdio};
-    use std::sync::{Arc, OnceLock};
+    use std::sync::{Arc, LazyLock};
     use std::time::{Duration, Instant};
     use task_executor::TaskExecutor;
     use tempfile::{tempdir, TempDir};
@@ -62,7 +62,7 @@ mod tests {
         ))
     });
 
-    static GET_WEB3SIGNER_BIN: OnceLock<()> = OnceLock::new();
+    static GET_WEB3SIGNER_BIN: OnceCell<()> = OnceCell::const_new();
 
     type E = MainnetEthSpec;
 
