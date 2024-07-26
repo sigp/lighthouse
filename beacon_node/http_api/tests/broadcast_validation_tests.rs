@@ -1678,11 +1678,14 @@ pub async fn blobs_seen_on_gossip_without_block_and_no_http_blobs() {
         .chain
         .block_is_known_to_fork_choice(&block.canonical_root()));
 
-    // Post just the block to the HTTP API.
+    // Post just the block to the HTTP API (blob lists are empty).
     let response: Result<(), eth2::Error> = tester
         .client
         .post_beacon_blocks_v2(
-            &PublishBlockRequest::new(block.clone(), None),
+            &PublishBlockRequest::new(
+                block.clone(),
+                Some((Default::default(), Default::default())),
+            ),
             validation_level,
         )
         .await;

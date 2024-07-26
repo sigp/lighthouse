@@ -2989,6 +2989,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_gossip_data_columns(
         self: &Arc<Self>,
         data_columns: Vec<GossipVerifiedDataColumn<T>>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         let Ok(block_root) = data_columns
             .iter()
@@ -3008,11 +3009,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .contains_block(&block_root)
         {
-            return Err(BlockError::BlockIsAlreadyKnown(block_root));
+            return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
         let r = self
-            .check_gossip_data_columns_availability_and_import(data_columns)
+            .check_gossip_data_columns_availability_and_import(data_columns, publish_fn)
             .await;
         self.remove_notified_custody_columns(&block_root, r)
     }
@@ -3333,6 +3334,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn check_gossip_data_columns_availability_and_import(
         self: &Arc<Self>,
         data_columns: Vec<GossipVerifiedDataColumn<T>>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         if let Some(slasher) = self.slasher.as_ref() {
             for data_colum in &data_columns {
@@ -3350,7 +3352,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .data_availability_checker
             .put_gossip_data_columns(data_columns)?;
 
-        self.process_availability(slot, availability).await
+        self.process_availability(slot, availability, publish_fn)
+            .await
     }
 
     /// Checks if the provided blobs can make any cached blocks available, and imports immediately

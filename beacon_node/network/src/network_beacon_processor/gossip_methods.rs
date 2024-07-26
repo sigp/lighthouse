@@ -917,7 +917,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match self
             .chain
-            .process_gossip_data_columns(vec![verified_data_column])
+            .process_gossip_data_columns(vec![verified_data_column], || Ok(()))
             .await
         {
             Ok(availability) => {
@@ -952,7 +952,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 }
             }
-            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!(
                     self.log,
                     "Ignoring gossip column already imported";
