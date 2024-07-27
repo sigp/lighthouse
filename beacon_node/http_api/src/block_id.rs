@@ -5,7 +5,6 @@ use eth2::types::BlockId as CoreBlockId;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
-use tree_hash::TreeHash;
 use types::{BlobSidecarList, EthSpec, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
@@ -124,6 +123,15 @@ impl BlockId {
         }
     }
 
+    pub fn blinded_block_by_root<T: BeaconChainTypes>(
+        root: &Hash256,
+        chain: &BeaconChain<T>,
+    ) -> Result<Option<SignedBlindedBeaconBlock<T::EthSpec>>, warp::Rejection> {
+        chain
+            .get_blinded_block(root)
+            .map_err(warp_utils::reject::beacon_chain_error)
+    }
+
     /// Return the `SignedBeaconBlock` identified by `self`.
     pub fn blinded_block<T: BeaconChainTypes>(
         &self,
@@ -150,38 +158,32 @@ impl BlockId {
             }
             CoreBlockId::Slot(slot) => {
                 let (root, execution_optimistic, finalized) = self.root(chain)?;
-                chain
-                    .get_blinded_block(&root)
-                    .map_err(warp_utils::reject::beacon_chain_error)
-                    .and_then(|block_opt| match block_opt {
-                        Some(block) => {
-                            if block.slot() != *slot {
-                                return Err(warp_utils::reject::custom_not_found(format!(
-                                    "slot {} was skipped",
-                                    slot
-                                )));
-                            }
-                            Ok((block, execution_optimistic, finalized))
+                BlockId::blinded_block_by_root(&root, chain).and_then(|block_opt| match block_opt {
+                    Some(block) => {
+                        if block.slot() != *slot {
+                            return Err(warp_utils::reject::custom_not_found(format!(
+                                "slot {} was skipped",
+                                slot
+                            )));
                         }
-                        None => Err(warp_utils::reject::custom_not_found(format!(
-                            "beacon block with root {}",
-                            root
-                        ))),
-                    })
+                        Ok((block, execution_optimistic, finalized))
+                    }
+                    None => Err(warp_utils::reject::custom_not_found(format!(
+                        "beacon block with root {}",
+                        root
+                    ))),
+                })
             }
             _ => {
                 let (root, execution_optimistic, finalized) = self.root(chain)?;
-                let block = chain
-                    .get_blinded_block(&root)
-                    .map_err(warp_utils::reject::beacon_chain_error)
-                    .and_then(|root_opt| {
-                        root_opt.ok_or_else(|| {
-                            warp_utils::reject::custom_not_found(format!(
-                                "beacon block with root {}",
-                                root
-                            ))
-                        })
-                    })?;
+                let block = BlockId::blinded_block_by_root(&root, chain).and_then(|root_opt| {
+                    root_opt.ok_or_else(|| {
+                        warp_utils::reject::custom_not_found(format!(
+                            "beacon block with root {}",
+                            root
+                        ))
+                    })
+                })?;
                 Ok((block, execution_optimistic, finalized))
             }
         }
@@ -267,11 +269,25 @@ impl BlockId {
         ),
         warp::Rejection,
     > {
-        let (block, execution_optimistic, finalized) = self.blinded_block(chain)?;
+        let (root, execution_optimistic, finalized) = self.root(chain)?;
+        let block = match &self.0 {
+            CoreBlockId::Head => {
+                let (cached_head, _) = chain
+                    .canonical_head
+                    .head_and_execution_status()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                cached_head.snapshot.beacon_block.clone_as_blinded()
+            },
+            _ => {
+                BlockId::blinded_block_by_root(&root, chain)?.ok_or_else(|| {
+                    warp_utils::reject::custom_not_found(format!("beacon block with root {}", root))
+                })?
+            }
+        };
 
         // Return the `BlobSidecarList` identified by `self`.
         let blob_sidecar_list = chain
-            .get_blobs(&block.message().tree_hash_root())
+            .get_blobs(&root)
             .map_err(warp_utils::reject::beacon_chain_error)?;
 
         let blob_sidecar_list_filtered = match indices.indices {
