@@ -277,12 +277,10 @@ impl BlockId {
                     .head_and_execution_status()
                     .map_err(warp_utils::reject::beacon_chain_error)?;
                 cached_head.snapshot.beacon_block.clone_as_blinded()
-            },
-            _ => {
-                BlockId::blinded_block_by_root(&root, chain)?.ok_or_else(|| {
-                    warp_utils::reject::custom_not_found(format!("beacon block with root {}", root))
-                })?
             }
+            _ => BlockId::blinded_block_by_root(&root, chain)?.ok_or_else(|| {
+                warp_utils::reject::custom_not_found(format!("beacon block with root {}", root))
+            })?,
         };
 
         // Return the `BlobSidecarList` identified by `self`.
