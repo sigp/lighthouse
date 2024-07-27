@@ -2246,7 +2246,7 @@ where
                 .unwrap();
             state = new_state;
             block_hash_from_slot.insert(*slot, block_hash);
-            state_hash_from_slot.insert(*slot, state.tree_hash_root().into());
+            state_hash_from_slot.insert(*slot, state.canonical_root().unwrap().into());
             latest_block_hash = Some(block_hash);
         }
         (
@@ -2511,9 +2511,9 @@ where
     /// Creates two forks:
     ///
     ///  - The "honest" fork: created by the `honest_validators` who have built `honest_fork_blocks`
-    /// on the head
+    ///    on the head
     ///  - The "faulty" fork: created by the `faulty_validators` who skipped a slot and
-    /// then built `faulty_fork_blocks`.
+    ///    then built `faulty_fork_blocks`.
     ///
     /// Returns `(honest_head, faulty_head)`, the roots of the blocks at the top of each chain.
     pub async fn generate_two_forks_by_skipping_a_block(
