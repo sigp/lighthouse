@@ -5,6 +5,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
 [dependencies]
+alloy-primitives = { workspace = true}
 discv5 = { workspace = true }
 gossipsub = { workspace = true }
 unsigned-varint = { version = "0.8", features = ["codec"] }

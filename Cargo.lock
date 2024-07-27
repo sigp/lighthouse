@@ -274,9 +274,9 @@ checksum = "4b46cbb362ab8752921c97e041f5e366ee6297bd428a31275b9fcf1e380f7299"
 
 [[package]]
 name = "anstream"
-version = "0.6.14"
+version = "0.6.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "418c75fa768af9c03be99d17643f93f79bbba589895012a80e3452a19ddda15b"
+checksum = "64e15c1ab1f89faffbf04a634d5e1962e9074f2741eef6d97f3c4e322426d526"
 dependencies = [
  "anstyle",
  "anstyle-parse",
@@ -289,33 +289,33 @@ dependencies = [
 
 [[package]]
 name = "anstyle"
-version = "1.0.7"
+version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "038dfcf04a5feb68e9c60b21c9625a54c2c0616e79b72b0fd87075a056ae1d1b"
+checksum = "1bec1de6f59aedf83baf9ff929c98f2ad654b97c9510f4e70cf6f661d49fd5b1"
 
 [[package]]
 name = "anstyle-parse"
-version = "0.2.4"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c03a11a9034d92058ceb6ee011ce58af4a9bf61491aa7e1e59ecd24bd40d22d4"
+checksum = "eb47de1e80c2b463c735db5b217a0ddc39d612e7ac9e2e96a5aed1f57616c1cb"
 dependencies = [
  "utf8parse",
 ]
 
 [[package]]
 name = "anstyle-query"
-version = "1.1.0"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad186efb764318d35165f1758e7dcef3b10628e26d41a44bc5550652e6804391"
+checksum = "6d36fc52c7f6c869915e99412912f22093507da8d9e942ceaf66fe4b7c14422a"
 dependencies = [
  "windows-sys 0.52.0",
 ]
 
 [[package]]
 name = "anstyle-wincon"
-version = "3.0.3"
+version = "3.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61a38449feb7068f52bb06c12759005cf459ee52bb4adc1d5a7c4322d716fb19"
+checksum = "5bf74e1b6e971609db8ca7a9ce79fd5768ab6ae46441c572e46cf596f59e57f8"
 dependencies = [
  "anstyle",
  "windows-sys 0.52.0",
@@ -793,7 +793,7 @@ dependencies = [
  "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
- "ethereum_ssz_derive 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
+ "ethereum_ssz_derive",
  "execution_layer",
  "fork_choice",
  "futures",
@@ -835,7 +835,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
  "tree_hash_derive",
  "types",
 ]
@@ -1022,7 +1022,7 @@ dependencies = [
  "rand",
  "safe_arith",
  "serde",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
  "zeroize",
 ]
 
@@ -1323,9 +1323,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.5.10"
+version = "4.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f6b81fb3c84f5563d509c59b5a48d935f689e993afa90fe39047f05adef9142"
+checksum = "35723e6a11662c2afb578bcf0b88bf6ea8e21282a953428f240574fcc3a2b5b3"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1333,9 +1333,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.10"
+version = "4.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ca6706fd5224857d9ac5eb9355f6683563cc0541c7cd9d014043b57cbec78ac"
+checksum = "49eb96cbfa7cfa35017b7cd548c75b14c3118c98b423041d70562665e07fb0fa"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1346,9 +1346,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.5.8"
+version = "4.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bac35c6dafb060fd4d275d9a4ffae97917c13a6327903a8be2153cd964f7085"
+checksum = "5d029b67f89d30bbb547c89fd5161293c0aec155fc691d7924b64550662db93e"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -1358,9 +1358,9 @@ dependencies = [
 
 [[package]]
 name = "clap_lex"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b82cf0babdbd58558212896d1a4272303a57bdb245c2bf1147185fb45640e70"
+checksum = "1462739cb27611015575c0c11df5df7601141071f07518d56fcc1be504cbec97"
 
 [[package]]
 name = "clap_utils"
@@ -1430,9 +1430,9 @@ dependencies = [
 
 [[package]]
 name = "colorchoice"
-version = "1.0.1"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b6a852b24ab71dffc585bcb46eaf7959d175cb865a7152e35b348d1b2960422"
+checksum = "d3fd119d74b830634cea2a0f58bbd0d54540518a14397557951e79340abc28c0"
 
 [[package]]
 name = "compare_fields"
@@ -1893,7 +1893,7 @@ dependencies = [
  "reqwest",
  "serde_json",
  "sha2 0.9.9",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
  "types",
 ]
 
@@ -2225,7 +2225,7 @@ dependencies = [
  "derivative",
  "eth2_network_config",
  "ethereum_ssz 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
- "ethereum_ssz_derive 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
+ "ethereum_ssz_derive",
  "execution_layer",
  "fork_choice",
  "fs2",
@@ -2240,7 +2240,7 @@ dependencies = [
  "snap",
  "state_processing",
  "swap_or_not_shuffle",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
  "tree_hash_derive",
  "types",
 ]
@@ -2417,7 +2417,7 @@ dependencies = [
  "eth1_test_rig",
  "eth2",
  "ethereum_ssz 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
- "ethereum_ssz_derive 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
+ "ethereum_ssz_derive",
  "execution_layer",
  "futures",
  "lazy_static",
@@ -2433,7 +2433,7 @@ dependencies = [
  "superstruct",
  "task_executor",
  "tokio",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
  "types",
 ]
 
@@ -2461,7 +2461,7 @@ dependencies = [
  "eth2_keystore",
  "ethereum_serde_utils",
  "ethereum_ssz 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
- "ethereum_ssz_derive 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
+ "ethereum_ssz_derive",
  "futures",
  "futures-util",
  "libsecp256k1",
@@ -2691,7 +2691,7 @@ dependencies = [
 [[package]]
 name = "ethereum_serde_utils"
 version = "0.5.2"
-source = "git+https://github.com/eserilev/ethereum_serde_utils?branch=alloy#d62af01f0c240706bec464113094137e0e12e294"
+source = "git+https://github.com/eserilev/ethereum_serde_utils?branch=alloy#acc7839e7e26eb29c2bffafc5d372928e27e823c"
 dependencies = [
  "alloy-primitives",
  "hex",
@@ -2714,17 +2714,7 @@ dependencies = [
 [[package]]
 name = "ethereum_ssz"
 version = "0.5.4"
-source = "git+https://github.com/eserilev/ethereum_ssz?branch=alloy#1022d0e892bfd253cd631188964b009d18e6d72e"
-dependencies = [
- "alloy-primitives",
- "itertools 0.10.5",
- "smallvec",
-]
-
-[[package]]
-name = "ethereum_ssz"
-version = "0.5.4"
-source = "git+https://github.com/sigp/ethereum_ssz?branch=alloy#0c88b6c43b5e2997d246e17165c8d3f190b2a61f"
+source = "git+https://github.com/eserilev/ethereum_ssz?branch=alloy#078f5b8b204b6190eabff6876eb4b1467ad835f4"
 dependencies = [
  "alloy-primitives",
  "itertools 0.10.5",
@@ -2734,18 +2724,7 @@ dependencies = [
 [[package]]
 name = "ethereum_ssz_derive"
 version = "0.5.4"
-source = "git+https://github.com/eserilev/ethereum_ssz?branch=alloy#1022d0e892bfd253cd631188964b009d18e6d72e"
-dependencies = [
- "darling 0.13.4",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "ethereum_ssz_derive"
-version = "0.5.4"
-source = "git+https://github.com/sigp/ethereum_ssz?branch=alloy#0c88b6c43b5e2997d246e17165c8d3f190b2a61f"
+source = "git+https://github.com/eserilev/ethereum_ssz?branch=alloy#078f5b8b204b6190eabff6876eb4b1467ad835f4"
 dependencies = [
  "darling 0.13.4",
  "proc-macro2",
@@ -2970,7 +2949,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
  "tree_hash_derive",
  "triehash",
  "types",
@@ -3140,7 +3119,7 @@ version = "0.1.0"
 dependencies = [
  "beacon_chain",
  "ethereum_ssz 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
- "ethereum_ssz_derive 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
+ "ethereum_ssz_derive",
  "proto_array",
  "slog",
  "state_processing",
@@ -3355,7 +3334,7 @@ dependencies = [
  "slog",
  "state_processing",
  "tokio",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
  "types",
 ]
 
@@ -3845,7 +3824,7 @@ dependencies = [
  "task_executor",
  "tokio",
  "tokio-stream",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
  "types",
  "warp",
  "warp_utils",
@@ -4235,9 +4214,9 @@ dependencies = [
 
 [[package]]
 name = "is_terminal_polyfill"
-version = "1.70.0"
+version = "1.70.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8478577c03552c21db0e2724ffb8986a5ce7af88107e6be5d2ee6e158c12800"
+checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
 name = "itertools"
@@ -4392,10 +4371,10 @@ dependencies = [
  "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
- "ethereum_ssz_derive 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
+ "ethereum_ssz_derive",
  "hex",
  "serde",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
 ]
 
 [[package]]
@@ -4443,7 +4422,7 @@ dependencies = [
  "snap",
  "state_processing",
  "store",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
  "types",
  "validator_dir",
 ]
@@ -5037,6 +5016,7 @@ dependencies = [
 name = "lighthouse_network"
 version = "0.2.0"
 dependencies = [
+ "alloy-primitives",
  "async-channel",
  "bytes",
  "delay_map",
@@ -5046,7 +5026,7 @@ dependencies = [
  "either",
  "error-chain",
  "ethereum_ssz 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
- "ethereum_ssz_derive 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
+ "ethereum_ssz_derive",
  "fnv",
  "futures",
  "gossipsub",
@@ -5346,7 +5326,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd01039851e82f8799046eabbb354056283fb265c8ec0996af940f4e85a380ff"
 dependencies = [
  "serde",
- "toml 0.8.15",
+ "toml 0.8.16",
 ]
 
 [[package]]
@@ -5363,20 +5343,20 @@ dependencies = [
 [[package]]
 name = "milhouse"
 version = "0.1.0"
-source = "git+https://github.com/eserilev/milhouse?branch=alloy#bf532ed1108664ec5059bfcbbe4b85115613422d"
+source = "git+https://github.com/eserilev/milhouse?branch=alloy#fa68baa2996746493a0921181dd81f92688faef0"
 dependencies = [
  "alloy-primitives",
  "arbitrary",
  "derivative",
  "ethereum_hashing",
- "ethereum_ssz 0.5.4 (git+https://github.com/sigp/ethereum_ssz?branch=alloy)",
- "ethereum_ssz_derive 0.5.4 (git+https://github.com/sigp/ethereum_ssz?branch=alloy)",
+ "ethereum_ssz 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
+ "ethereum_ssz_derive",
  "itertools 0.10.5",
  "parking_lot 0.12.3",
  "rayon",
  "serde",
  "smallvec",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
  "triomphe",
  "typenum",
  "vec_map",
@@ -5917,7 +5897,7 @@ dependencies = [
  "bitvec 1.0.1",
  "derivative",
  "ethereum_ssz 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
- "ethereum_ssz_derive 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
+ "ethereum_ssz_derive",
  "itertools 0.10.5",
  "lazy_static",
  "lighthouse_metrics",
@@ -6520,7 +6500,7 @@ name = "proto_array"
 version = "0.2.0"
 dependencies = [
  "ethereum_ssz 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
- "ethereum_ssz_derive 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
+ "ethereum_ssz_derive",
  "safe_arith",
  "serde",
  "serde_yaml",
@@ -7046,7 +7026,6 @@ dependencies = [
  "ark-ff 0.3.0",
  "ark-ff 0.4.2",
  "bytes",
- "ethereum_ssz 0.5.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "fastrlp",
  "num-bigint",
  "num-traits",
@@ -7528,9 +7507,9 @@ dependencies = [
 
 [[package]]
 name = "serde_spanned"
-version = "0.6.6"
+version = "0.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79e674e01f999af37c49f70a6ede167a8a60b2503e56c5599532a65baa5969a0"
+checksum = "eb5b1b31579f3811bf615c144393417496f152e12ac8b7663bf664f4a815306d"
 dependencies = [
  "serde",
 ]
@@ -7746,7 +7725,7 @@ dependencies = [
  "byteorder",
  "derivative",
  "ethereum_ssz 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
- "ethereum_ssz_derive 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
+ "ethereum_ssz_derive",
  "filesystem",
  "flate2",
  "lazy_static",
@@ -7767,7 +7746,7 @@ dependencies = [
  "ssz_types",
  "strum",
  "tempfile",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
  "tree_hash_derive",
  "types",
 ]
@@ -8006,17 +7985,17 @@ dependencies = [
 [[package]]
 name = "ssz_types"
 version = "0.6.0"
-source = "git+https://github.com/eserilev/ssz_types?branch=alloy-tweaks#39e9fe8ab5fa22edafbc853fc3e165d0f01c7180"
+source = "git+https://github.com/eserilev/ssz_types?branch=alloy-tweaks#fc42634d4638e77ea5c281786d0f59b035293088"
 dependencies = [
  "arbitrary",
  "derivative",
  "ethereum_serde_utils",
- "ethereum_ssz 0.5.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ethereum_ssz 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
  "itertools 0.10.5",
  "serde",
  "serde_derive",
  "smallvec",
- "tree_hash 0.6.0 (git+https://github.com/sigp/tree_hash?branch=alloy)",
+ "tree_hash",
  "typenum",
 ]
 
@@ -8037,7 +8016,7 @@ dependencies = [
  "env_logger 0.9.3",
  "ethereum_hashing",
  "ethereum_ssz 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
- "ethereum_ssz_derive 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
+ "ethereum_ssz_derive",
  "int_to_bytes",
  "integer-sqrt",
  "itertools 0.10.5",
@@ -8051,7 +8030,7 @@ dependencies = [
  "ssz_types",
  "test_random_derive",
  "tokio",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
  "types",
 ]
 
@@ -8081,7 +8060,7 @@ dependencies = [
  "db-key",
  "directory",
  "ethereum_ssz 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
- "ethereum_ssz_derive 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
+ "ethereum_ssz_derive",
  "itertools 0.10.5",
  "lazy_static",
  "leveldb",
@@ -8644,21 +8623,21 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.8.15"
+version = "0.8.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac2caab0bf757388c6c0ae23b3293fdb463fee59434529014f85e3263b995c28"
+checksum = "81967dd0dd2c1ab0bc3468bd7caecc32b8a4aa47d0c8c695d8c2b2108168d62c"
 dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime",
- "toml_edit 0.22.16",
+ "toml_edit 0.22.17",
 ]
 
 [[package]]
 name = "toml_datetime"
-version = "0.6.6"
+version = "0.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4badfd56924ae69bcc9039335b2e017639ce3f9b001c393c1b2d1ef846ce2cbf"
+checksum = "f8fb9f64314842840f1d940ac544da178732128f1c78c21772e876579e0da1db"
 dependencies = [
  "serde",
 ]
@@ -8687,15 +8666,15 @@ dependencies = [
 
 [[package]]
 name = "toml_edit"
-version = "0.22.16"
+version = "0.22.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "278f3d518e152219c994ce877758516bca5e118eaed6996192a774fb9fbf0788"
+checksum = "8d9f8729f5aea9562aac1cc0441f5d6de3cff1ee0c5d67293eeca5eb36ee7c16"
 dependencies = [
  "indexmap 2.2.6",
  "serde",
  "serde_spanned",
  "toml_datetime",
- "winnow 0.6.15",
+ "winnow 0.6.16",
 ]
 
 [[package]]
@@ -8832,17 +8811,7 @@ dependencies = [
 [[package]]
 name = "tree_hash"
 version = "0.6.0"
-source = "git+https://github.com/sigp/tree_hash?branch=alloy#0df21e420154c4c8e300a8e7afddcf6aac54bd93"
-dependencies = [
- "alloy-primitives",
- "ethereum_hashing",
- "smallvec",
-]
-
-[[package]]
-name = "tree_hash"
-version = "0.6.0"
-source = "git+https://github.com/eserilev/tree_hash?branch=alloy-deps#48ec4bf464168d202902de992df4a95c4c336fd2"
+source = "git+https://github.com/eserilev/tree_hash?branch=alloy-deps#bff906186482f2570ecb2a4359e42e713a3ce6d8"
 dependencies = [
  "alloy-primitives",
  "ethereum_hashing",
@@ -8852,11 +8821,12 @@ dependencies = [
 [[package]]
 name = "tree_hash_derive"
 version = "0.6.0"
-source = "git+https://github.com/eserilev/tree_hash?branch=alloy-deps#a96b9f7e1910e15bd3a39db011f560f2063b3c34"
+source = "git+https://github.com/eserilev/tree_hash?branch=alloy-deps#bff906186482f2570ecb2a4359e42e713a3ce6d8"
 dependencies = [
- "darling 0.13.4",
+ "darling 0.20.10",
+ "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.72",
 ]
 
 [[package]]
@@ -8908,7 +8878,7 @@ dependencies = [
  "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
- "ethereum_ssz_derive 0.5.4 (git+https://github.com/eserilev/ethereum_ssz?branch=alloy)",
+ "ethereum_ssz_derive",
  "hex",
  "int_to_bytes",
  "itertools 0.10.5",
@@ -8940,7 +8910,7 @@ dependencies = [
  "tempfile",
  "test_random_derive",
  "tokio",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
  "tree_hash_derive",
 ]
 
@@ -9159,7 +9129,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
  "types",
  "url",
  "validator_dir",
@@ -9181,7 +9151,7 @@ dependencies = [
  "lockfile",
  "rand",
  "tempfile",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
  "types",
 ]
 
@@ -9203,7 +9173,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "tree_hash 0.6.0 (git+https://github.com/eserilev/tree_hash?branch=alloy-deps)",
+ "tree_hash",
  "types",
  "validator_client",
 ]
@@ -9228,9 +9198,9 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 
 [[package]]
 name = "version_check"
-version = "0.9.4"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
+checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "void"
@@ -9817,9 +9787,9 @@ dependencies = [
 
 [[package]]
 name = "winnow"
-version = "0.6.15"
+version = "0.6.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "557404e450152cd6795bb558bca69e43c585055f4606e3bcae5894fc6dac9ba0"
+checksum = "b480ae9340fc261e6be3e95a1ba86d54ae3f9171132a73ce8d4bbaf68339507c"
 dependencies = [
  "memchr",
 ]

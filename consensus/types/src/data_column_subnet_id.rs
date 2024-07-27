@@ -1,7 +1,7 @@
 //! Identifies each data column subnet by an integer identifier.
 use crate::data_column_sidecar::ColumnIndex;
 use crate::{ChainSpec, EthSpec};
-use ethereum_types::U256;
+use alloy_primitives::U256;
 use itertools::Itertools;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
@@ -49,7 +49,7 @@ impl DataColumnSubnetId {
         let mut current_id = node_id;
         while (subnets.len() as u64) < custody_subnet_count {
             let mut node_id_bytes = [0u8; 32];
-            current_id.to_little_endian(&mut node_id_bytes);
+            node_id_bytes.copy_from_slice(current_id.as_le_slice());
             let hash = ethereum_hashing::hash_fixed(&node_id_bytes);
             let hash_prefix: [u8; 8] = hash[0..8]
                 .try_into()
@@ -62,9 +62,9 @@ impl DataColumnSubnetId {
             }
 
             if current_id == U256::MAX {
-                current_id = U256::zero()
+                current_id = U256::ZERO
             }
-            current_id += U256::one()
+            current_id += U256::from(1u64)
         }
         subnets.into_iter().map(DataColumnSubnetId::new)
     }
@@ -131,6 +131,8 @@ impl From<ArithError> for Error {
 
 #[cfg(test)]
 mod test {
+    use alloy_primitives::U256;
+
     use crate::data_column_subnet_id::DataColumnSubnetId;
     use crate::EthSpec;
     use crate::MainnetEthSpec;
@@ -153,7 +155,7 @@ mod test {
             "103822458477361691467064888613019442068586830412598673713899771287914656699997",
         ]
         .into_iter()
-        .map(|v| ethereum_types::U256::from_dec_str(v).unwrap())
+        .map(|v| U256::from_str_radix(v, 10).unwrap())
         .collect::<Vec<_>>();
 
         let custody_requirement = 4;
