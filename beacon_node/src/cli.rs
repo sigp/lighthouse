@@ -911,8 +911,8 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("purge-db-auto")
-                .long("purge-db-auto")
+            Arg::new("purge-db-force")
+                .long("purge-db-force")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .help("If present, the chain database will be deleted without confirmation. Use with caution.")

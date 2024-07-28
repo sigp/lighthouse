@@ -22,6 +22,7 @@ use slog::{info, warn, Logger};
 use std::cmp::max;
 use std::fmt::Debug;
 use std::fs;
+use std::io::IsTerminal;
 use std::net::Ipv6Addr;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::num::NonZeroU16;
@@ -54,32 +55,42 @@ pub fn get_config<E: EthSpec>(
 
     // If necessary, remove any existing database and configuration
     if client_config.data_dir().exists() {
-        if cli_args.get_flag("purge-db-auto") {
+        if cli_args.get_flag("purge-db-force") {
             let chain_db = client_config.get_db_path();
             let freezer_db = client_config.get_freezer_db_path();
             let blobs_db = client_config.get_blobs_db_path();
             purge_db(chain_db, freezer_db, blobs_db)?;
         } else if cli_args.get_flag("purge-db") {
-            let stdin_inputs = cfg!(windows) || cli_args.get_flag(STDIN_INPUTS_FLAG);
-            eprintln!(
-                "You are about to delete the chain database. This is irreversable \
-                and you will need to resync the chain."
-            );
-            eprintln!(
-                "Type 'confirm' to delete the database. Any other input will leave \
-                the database intact and Lighthouse will exit."
-            );
-            let confirmation = read_input_from_user(stdin_inputs)?;
+            if std::io::stdin().is_terminal() {
+                let stdin_inputs = cfg!(windows) || cli_args.get_flag(STDIN_INPUTS_FLAG);
+                eprintln!(
+                    "You are about to delete the chain database. This is irreversable \
+                    and you will need to resync the chain."
+                );
+                eprintln!(
+                    "Type 'confirm' to delete the database. Any other input will leave \
+                    the database intact and Lighthouse will exit."
+                );
+                let confirmation = read_input_from_user(stdin_inputs)?;
 
-            if confirmation == PURGE_DB_CONFIRMATION {
-                eprintln!("Database was deleted.");
-                let chain_db = client_config.get_db_path();
-                let freezer_db = client_config.get_freezer_db_path();
-                let blobs_db = client_config.get_blobs_db_path();
-                purge_db(chain_db, freezer_db, blobs_db)?;
+                if confirmation == PURGE_DB_CONFIRMATION {
+                    eprintln!("Database was deleted.");
+                    let chain_db = client_config.get_db_path();
+                    let freezer_db = client_config.get_freezer_db_path();
+                    let blobs_db = client_config.get_blobs_db_path();
+                    purge_db(chain_db, freezer_db, blobs_db)?;
+                } else {
+                    eprintln!("Database was not deleted. Lighthouse will now close.");
+                    std::process::exit(1);
+                }
             } else {
-                eprintln!("Database was not deleted. Lighthouse will now close.");
-                std::process::exit(1);
+                warn!(
+                    log,
+                    "The `--purge-db` flag was passed, but Lighthouse is not running \
+                    interactively. The database was not purged. Use `--purge-db-force` \
+                    or `lighthouse db purge` to purge the database without requiring \
+                    confirmation."
+                );
             }
         }
     }

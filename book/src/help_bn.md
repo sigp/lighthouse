@@ -567,7 +567,7 @@ Flags:
       --purge-db
           If present, the chain database will be deleted. Requires manual
           confirmation.
-      --purge-db-auto
+      --purge-db-force
           If present, the chain database will be deleted without confirmation.
           Use with caution.
       --reconstruct-historic-states
