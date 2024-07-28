@@ -20,6 +20,7 @@ pub use peerdas_kzg::{
     Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
 };
 use peerdas_kzg::{prover::ProverError, verifier::VerifierError, PeerDASContext};
+
 pub type CellsAndKzgProofs = ([Cell; CELLS_PER_EXT_BLOB], [KzgProof; CELLS_PER_EXT_BLOB]);
 
 pub type KzgBlobRef<'a> = &'a [u8; BYTES_PER_BLOB];
@@ -77,6 +78,7 @@ impl Kzg {
     }
 
     /// Compute the kzg proof given a blob and its kzg commitment.
+    #[allow(clippy::needless_lifetimes)]
     pub fn compute_blob_kzg_proof<'a>(
         &self,
         blob: KzgBlobRef<'a>,
@@ -89,6 +91,7 @@ impl Kzg {
     }
 
     /// Verify a kzg proof given the blob, kzg commitment and kzg proof.
+    #[allow(clippy::needless_lifetimes)]
     pub fn verify_blob_kzg_proof<'a>(
         &self,
         blob: KzgBlobRef<'a>,
@@ -112,6 +115,7 @@ impl Kzg {
     ///
     /// Note: This method is slightly faster than calling `Self::verify_blob_kzg_proof` in a loop sequentially.
     /// TODO(pawan): test performance against a parallelized rayon impl.
+    #[allow(clippy::needless_lifetimes)]
     pub fn verify_blob_kzg_proof_batch<'a>(
         &self,
         blobs: &[KzgBlobRef<'a>],
@@ -130,7 +134,7 @@ impl Kzg {
 
         let blobs = blobs
             .iter()
-            .map(|blob| Blob::from_bytes(*blob))
+            .map(|blob| Blob::from_bytes(blob.as_slice()))
             .collect::<Result<Vec<_>, _>>()?;
         if !c_kzg::KzgProof::verify_blob_kzg_proof_batch(
             &blobs,
@@ -145,6 +149,7 @@ impl Kzg {
     }
 
     /// Converts a blob to a kzg commitment.
+    #[allow(clippy::needless_lifetimes)]
     pub fn blob_to_kzg_commitment<'a>(&self, blob: KzgBlobRef<'a>) -> Result<KzgCommitment, Error> {
         let blob = Blob::from_bytes(blob)?;
         c_kzg::KzgCommitment::blob_to_kzg_commitment(&blob, &self.trusted_setup)
@@ -153,6 +158,7 @@ impl Kzg {
     }
 
     /// Computes the kzg proof for a given `blob` and an evaluation point `z`
+    #[allow(clippy::needless_lifetimes)]
     pub fn compute_kzg_proof<'a>(
         &self,
         blob: KzgBlobRef<'a>,
@@ -183,6 +189,7 @@ impl Kzg {
     }
 
     /// Computes the cells and associated proofs for a given `blob` at index `index`.
+    #[allow(clippy::needless_lifetimes)]
     pub fn compute_cells_and_proofs<'a>(
         &self,
         blob: KzgBlobRef<'a>,
