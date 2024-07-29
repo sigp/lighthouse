@@ -95,14 +95,23 @@ pub fn verify_signature_sets<'a>(
         let signing_keys = set
             .signing_keys
             .iter()
-            .map(|pk| pk.point())
+            .map(|pk| pk.point().to_owned())
             .collect::<Vec<_>>();
 
         // Aggregate all the public keys.
         // Public keys have already been checked for subgroup and infinity
-        let Ok(agg_pk) = blst_core::AggregatePublicKey::aggregate(&signing_keys, false) else {
+        use blst::MultiPoint;
+        let scalars: Vec<u8> = (0..signing_keys.len())
+            .flat_map(|_| 1u8.to_le_bytes())
+            .collect();
+
+        // It is really 1 bit since the scalars are all 1, but the blst library panics
+        // if the number of bits is less than 8
+        const NUM_BITS_SCALAR: usize = 8;
+        if signing_keys.is_empty() {
             return false;
-        };
+        }
+        let agg_pk = signing_keys.as_slice().mult(&scalars, NUM_BITS_SCALAR);
         pks.push(agg_pk.to_public_key());
     }
 
