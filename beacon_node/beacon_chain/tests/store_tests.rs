@@ -2544,10 +2544,10 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     // signatures correctly. Regression test for https://github.com/sigp/lighthouse/pull/5120.
     let mut batch_with_invalid_first_block = available_blocks.clone();
     batch_with_invalid_first_block[0] = {
-        let (block_root, block, blobs) = available_blocks[0].clone().deconstruct();
+        let (block_root, block, blobs, data_columns) = available_blocks[0].clone().deconstruct();
         let mut corrupt_block = (*block).clone();
         *corrupt_block.signature_mut() = Signature::empty();
-        AvailableBlock::__new_for_testing(block_root, Arc::new(corrupt_block), blobs)
+        AvailableBlock::__new_for_testing(block_root, Arc::new(corrupt_block), blobs, data_columns)
     };
 
     // Importing the invalid batch should error.
