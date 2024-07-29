@@ -372,7 +372,16 @@ impl<Key: Hash + Eq + Clone> Limiter<Key> {
         if quota.max_tokens == 0 {
             return Err("Max number of tokens should be positive");
         }
-        let (tau, t) = tau_and_t(&quota)?;
+        let tau = quota.replenish_all_every.as_nanos();
+        if tau == 0 {
+            return Err("Replenish time must be positive");
+        }
+        let t = (tau / quota.max_tokens as u128)
+            .try_into()
+            .map_err(|_| "total replenish time is too long")?;
+        let tau = tau
+            .try_into()
+            .map_err(|_| "total replenish time is too long")?;
         Ok(Limiter {
             tau,
             t,
@@ -423,20 +432,6 @@ impl<Key: Hash + Eq + Clone> Limiter<Key> {
         // remove those for which tat < lim
         self.tat_per_key.retain(|_k, tat| tat >= lim)
     }
-}
-
-fn tau_and_t(quota: &Quota) -> Result<(Nanosecs, Nanosecs), &'static str> {
-    let tau = quota.replenish_all_every.as_nanos();
-    if tau == 0 {
-        return Err("Replenish time must be positive");
-    }
-    let t = (tau / quota.max_tokens as u128)
-        .try_into()
-        .map_err(|_| "total replenish time is too long")?;
-    let tau = tau
-        .try_into()
-        .map_err(|_| "total replenish time is too long")?;
-    Ok((tau, t))
 }
 
 #[cfg(test)]
