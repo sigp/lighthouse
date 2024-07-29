@@ -221,7 +221,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     // Used to fetch the most recently persisted "best" light client update.
     // Should not be used outside the light client server, as it also caches the fetched
     // light client update.
-    fn get_light_client_update(
+    pub fn get_light_client_update(
         &self,
         store: &BeaconStore<T>,
         sync_committee_period: u64,
