@@ -61,8 +61,8 @@ pub fn get_config<E: EthSpec>(
             let blobs_db = client_config.get_blobs_db_path();
             purge_db(chain_db, freezer_db, blobs_db)?;
         } else if cli_args.get_flag("purge-db") {
-            if std::io::stdin().is_terminal() {
-                let stdin_inputs = cfg!(windows) || cli_args.get_flag(STDIN_INPUTS_FLAG);
+            let stdin_inputs = cfg!(windows) || cli_args.get_flag(STDIN_INPUTS_FLAG);
+            if std::io::stdin().is_terminal() || stdin_inputs {
                 eprintln!(
                     "You are about to delete the chain database. This is irreversable \
                     and you will need to resync the chain."
