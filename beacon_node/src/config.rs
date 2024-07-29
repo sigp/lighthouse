@@ -335,13 +335,6 @@ pub fn get_config<E: EthSpec>(
                     .map(Duration::from_millis);
         }
 
-        if parse_flag(cli_args, "builder-profit-threshold") {
-            warn!(
-                log,
-                "Ignoring --builder-profit-threshold";
-                "info" => "this flag is deprecated and will be removed"
-            );
-        }
         if cli_args.get_flag("always-prefer-builder-payload") {
             warn!(
                 log,
@@ -757,7 +750,11 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.get_flag("disable-lock-timeouts") {
-        client_config.chain.enable_lock_timeouts = false;
+        warn!(
+            log,
+            "Ignoring --disable-lock-timeouts";
+            "info" => "this flag is deprecated and will be removed"
+        );
     }
 
     if cli_args.get_flag("disable-proposer-reorgs") {

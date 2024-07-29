@@ -1,23 +1,21 @@
 //! Identifies each shard by an integer identifier.
 use crate::{AttestationRef, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
-use lazy_static::lazy_static;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
+use std::sync::LazyLock;
 use swap_or_not_shuffle::compute_shuffled_index;
 
 const MAX_SUBNET_ID: usize = 64;
 
-lazy_static! {
-    static ref SUBNET_ID_TO_STRING: Vec<String> = {
-        let mut v = Vec::with_capacity(MAX_SUBNET_ID);
+static SUBNET_ID_TO_STRING: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let mut v = Vec::with_capacity(MAX_SUBNET_ID);
 
-        for i in 0..MAX_SUBNET_ID {
-            v.push(i.to_string());
-        }
-        v
-    };
-}
+    for i in 0..MAX_SUBNET_ID {
+        v.push(i.to_string());
+    }
+    v
+});
 
 #[derive(arbitrary::Arbitrary, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
