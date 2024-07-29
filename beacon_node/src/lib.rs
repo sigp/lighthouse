@@ -5,7 +5,6 @@ pub use beacon_chain;
 use beacon_chain::store::LevelDB;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
-    TimeoutRwLock,
 };
 use clap::ArgMatches;
 pub use cli::cli_app;
@@ -71,11 +70,6 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 "msg" => "this occurs when using relative paths for a datadir location",
                 "location" => ?legacy_dir,
             )
-        }
-
-        if !client_config.chain.enable_lock_timeouts {
-            info!(log, "Disabling lock timeouts globally");
-            TimeoutRwLock::disable_timeouts()
         }
 
         if let Err(misaligned_forks) = validator_fork_epochs(&spec) {

@@ -140,6 +140,13 @@ pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
     result
 }
 
+pub fn get_col_from_key(key: &[u8]) -> Option<String> {
+    if key.len() < 3 {
+        return None;
+    }
+    String::from_utf8(key[0..3].to_vec()).ok()
+}
+
 #[must_use]
 #[derive(Clone)]
 pub enum KeyValueStoreOp {
@@ -428,5 +435,12 @@ mod tests {
         store.delete::<StorableThing>(&key).unwrap();
 
         assert!(!store.exists::<StorableThing>(&key).unwrap());
+    }
+
+    #[test]
+    fn test_get_col_from_key() {
+        let key = get_key_for_col(DBColumn::BeaconBlock.into(), &[1u8; 32]);
+        let col = get_col_from_key(&key).unwrap();
+        assert_eq!(col, "blk");
     }
 }

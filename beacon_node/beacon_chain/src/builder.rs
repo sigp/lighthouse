@@ -11,9 +11,9 @@ use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
 use crate::head_tracker::HeadTracker;
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
+use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
-use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
@@ -922,7 +922,8 @@ where
             observed_sync_aggregators: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
-            observed_blob_sidecars: <_>::default(),
+            observed_column_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
+            observed_blob_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
             observed_slashable: <_>::default(),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
@@ -939,16 +940,16 @@ where
             fork_choice_signal_rx,
             event_handler: self.event_handler,
             head_tracker,
-            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
+            shuffling_cache: RwLock::new(ShufflingCache::new(
                 shuffling_cache_size,
                 head_shuffling_ids,
                 log.clone(),
             )),
-            eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
+            eth1_finalization_cache: RwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache,
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
-            validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
+            validator_pubkey_cache: RwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
             reqresp_pre_import_cache: <_>::default(),

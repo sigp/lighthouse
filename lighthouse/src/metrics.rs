@@ -1,23 +1,23 @@
-use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use lighthouse_version::VERSION;
 use slog::{error, Logger};
+use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-lazy_static! {
-    pub static ref PROCESS_START_TIME_SECONDS: Result<IntGauge> = try_create_int_gauge(
+pub static PROCESS_START_TIME_SECONDS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
         "process_start_time_seconds",
-        "The unix timestamp at which the process was started"
-    );
-}
+        "The unix timestamp at which the process was started",
+    )
+});
 
-lazy_static! {
-    pub static ref LIGHTHOUSE_VERSION: Result<IntGaugeVec> = try_create_int_gauge_vec(
+pub static LIGHTHOUSE_VERSION: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
         "lighthouse_info",
         "The build of Lighthouse running on the server",
         &["version"],
-    );
-}
+    )
+});
 
 pub fn expose_process_start_time(log: &Logger) {
     match SystemTime::now().duration_since(UNIX_EPOCH) {

@@ -121,7 +121,7 @@ where
     /// are valid.
     ///
     /// * : _Does not verify any signatures in `block.body.deposits`. A block is still valid if it
-    /// contains invalid signatures on deposits._
+    ///   contains invalid signatures on deposits._
     ///
     /// See `Self::verify` for more detail.
     pub fn verify_entire_block<Payload: AbstractExecPayload<E>>(

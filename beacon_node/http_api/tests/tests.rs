@@ -23,7 +23,7 @@ use http_api::{
     test_utils::{create_api_server, ApiServer},
     BlockId, StateId,
 };
-use lighthouse_network::{Enr, EnrExt, PeerId};
+use lighthouse_network::{types::SyncState, Enr, EnrExt, PeerId};
 use network::NetworkReceivers;
 use proto_array::ExecutionStatus;
 use sensitive_url::SensitiveUrl;
@@ -62,6 +62,7 @@ const SKIPPED_SLOTS: &[u64] = &[
 ];
 
 struct ApiTester {
+    ctx: Arc<http_api::Context<EphemeralHarnessType<E>>>,
     harness: Arc<BeaconChainHarness<EphemeralHarnessType<E>>>,
     chain: Arc<BeaconChain<EphemeralHarnessType<E>>>,
     client: BeaconNodeHttpClient,
@@ -253,7 +254,7 @@ impl ApiTester {
         let log = null_logger().unwrap();
 
         let ApiServer {
-            ctx: _,
+            ctx,
             server,
             listening_socket,
             network_rx,
@@ -284,6 +285,7 @@ impl ApiTester {
         );
 
         Self {
+            ctx,
             harness: Arc::new(harness),
             chain,
             client,
@@ -350,7 +352,7 @@ impl ApiTester {
         let log = null_logger().unwrap();
 
         let ApiServer {
-            ctx: _,
+            ctx,
             server,
             listening_socket,
             network_rx,
@@ -371,6 +373,7 @@ impl ApiTester {
         );
 
         Self {
+            ctx,
             harness,
             chain,
             client,
@@ -2156,14 +2159,45 @@ impl ApiTester {
 
         let expected = SyncingData {
             is_syncing: false,
-            is_optimistic: Some(false),
+            is_optimistic: false,
             // these tests run without the Bellatrix fork enabled
-            el_offline: Some(true),
+            el_offline: true,
             head_slot,
             sync_distance,
         };
 
         assert_eq!(result, expected);
+
+        self
+    }
+
+    pub async fn test_get_node_syncing_stalled(self) -> Self {
+        // Set sync status to stalled.
+        *self
+            .ctx
+            .network_globals
+            .as_ref()
+            .unwrap()
+            .sync_state
+            .write() = SyncState::Stalled;
+
+        let is_syncing = self
+            .client
+            .get_node_syncing()
+            .await
+            .unwrap()
+            .data
+            .is_syncing;
+        assert_eq!(is_syncing, true);
+
+        // Reset sync state.
+        *self
+            .ctx
+            .network_globals
+            .as_ref()
+            .unwrap()
+            .sync_state
+            .write() = SyncState::Synced;
 
         self
     }
@@ -5461,6 +5495,7 @@ impl ApiTester {
             EventTopic::Attestation,
             EventTopic::VoluntaryExit,
             EventTopic::Block,
+            EventTopic::BlockGossip,
             EventTopic::Head,
             EventTopic::FinalizedCheckpoint,
             EventTopic::AttesterSlashing,
@@ -5576,10 +5611,20 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let block_events = poll_events(&mut events_future, 3, Duration::from_millis(10000)).await;
+        let expected_gossip = EventKind::BlockGossip(Box::new(BlockGossip {
+            slot: next_slot,
+            block: block_root,
+        }));
+
+        let block_events = poll_events(&mut events_future, 4, Duration::from_millis(10000)).await;
         assert_eq!(
             block_events.as_slice(),
-            &[expected_block, expected_head, expected_finalized]
+            &[
+                expected_gossip,
+                expected_block,
+                expected_head,
+                expected_finalized
+            ]
         );
 
         // Test a reorg event
@@ -6111,6 +6156,8 @@ async fn node_get() {
         .test_get_node_version()
         .await
         .test_get_node_syncing()
+        .await
+        .test_get_node_syncing_stalled()
         .await
         .test_get_node_identity()
         .await

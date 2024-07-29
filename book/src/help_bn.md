@@ -46,8 +46,6 @@ Options:
       --builder-header-timeout <MILLISECONDS>
           Defines a timeout value (in milliseconds) to use when fetching a block
           header from the builder API. [default: 1000]
-      --builder-profit-threshold <WEI_VALUE>
-          This flag is deprecated and has no effect.
       --builder-user-agent <STRING>
           The HTTP user agent to send alongside requests to the builder URL. The
           default is Lighthouse's version string.
@@ -482,9 +480,7 @@ Flags:
       --disable-inbound-rate-limiter
           Disables the inbound rate limiter (requests received by this node).
       --disable-lock-timeouts
-          Disable the timeouts applied to some internal locks by default. This
-          can lead to less spurious failures on slow hardware but is considered
-          experimental as it may obscure performance issues.
+          This flag is deprecated and has no effect.
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning
