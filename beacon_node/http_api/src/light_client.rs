@@ -1,4 +1,4 @@
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::{
     self as api_types, ChainSpec, ForkVersionedResponse, LightClientUpdate,
     LightClientUpdateResponseChunk, LightClientUpdateSszResponse, LightClientUpdatesQuery,
@@ -72,8 +72,13 @@ pub fn get_light_client_bootstrap<T: BeaconChainTypes>(
 ) -> Result<Response<Body>, Rejection> {
     let (light_client_bootstrap, fork_name) = chain
         .get_light_client_bootstrap(block_root)
-        .map_err(|_| {
-            warp_utils::reject::custom_not_found("No LightClientBootstrap found".to_string())
+        .map_err(|err| {
+            let error_message = if let BeaconChainError::LightClientBootstrapError(err) = err {
+                err
+            } else {
+                "No LightClientBootstrap found".to_string()
+            };
+            warp_utils::reject::custom_not_found(error_message)
         })?
         .ok_or(warp_utils::reject::custom_not_found(
             "No LightClientBootstrap found".to_string(),

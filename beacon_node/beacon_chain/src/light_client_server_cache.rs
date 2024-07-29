@@ -31,7 +31,6 @@ const PREV_BLOCK_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(32);
 /// This cache computes light client messages ahead of time, required to satisfy p2p and API
 /// requests. These messages include proofs on historical states, so on-demand computation is
 /// expensive.
-///
 pub struct LightClientServerCache<T: BeaconChainTypes> {
     /// Tracks a single global latest finality update out of all imported blocks.
     ///
@@ -449,9 +448,11 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         chain_spec: &ChainSpec,
     ) -> Result<Option<(LightClientBootstrap<T::EthSpec>, ForkName)>, BeaconChainError> {
         let Some(block) = store.get_full_block(block_root)? else {
-            return Ok(None);
+            return Err(BeaconChainError::LightClientBootstrapError(
+                "Block not found".to_string(),
+            ));
         };
-        
+
         let (_, slot) = (block.state_root(), block.slot());
 
         let fork_name = chain_spec.fork_name_at_slot::<T::EthSpec>(slot);
