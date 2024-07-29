@@ -63,24 +63,26 @@ pub fn get_config<E: EthSpec>(
         } else if cli_args.get_flag("purge-db") {
             let stdin_inputs = cfg!(windows) || cli_args.get_flag(STDIN_INPUTS_FLAG);
             if std::io::stdin().is_terminal() || stdin_inputs {
-                eprintln!(
+                info!(
+                    log,
                     "You are about to delete the chain database. This is irreversable \
                     and you will need to resync the chain."
                 );
-                eprintln!(
+                info!(
+                    log,
                     "Type 'confirm' to delete the database. Any other input will leave \
                     the database intact and Lighthouse will exit."
                 );
                 let confirmation = read_input_from_user(stdin_inputs)?;
 
                 if confirmation == PURGE_DB_CONFIRMATION {
-                    eprintln!("Database was deleted.");
+                    info!(log, "Database was deleted.");
                     let chain_db = client_config.get_db_path();
                     let freezer_db = client_config.get_freezer_db_path();
                     let blobs_db = client_config.get_blobs_db_path();
                     purge_db(chain_db, freezer_db, blobs_db)?;
                 } else {
-                    eprintln!("Database was not deleted. Lighthouse will now close.");
+                    info!(log, "Database was not deleted. Lighthouse will now close.");
                     std::process::exit(1);
                 }
             } else {
