@@ -1464,7 +1464,7 @@ pub async fn block_seen_on_gossip_without_blobs() {
 }
 
 /// This test checks that an HTTP POST request with the block & blobs succeeds with a 200 response
-/// even if the block has already been seen on gossip without any blobs.
+/// even if the block has already been seen on gossip without all blobs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn block_seen_on_gossip_with_some_blobs() {
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
