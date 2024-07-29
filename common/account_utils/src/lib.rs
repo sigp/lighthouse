@@ -9,7 +9,7 @@ use eth2_wallet::{
 use filesystem::{create_with_600_perms, Error as FsError};
 use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
+use std::{fs::{self, File}, str::FromStr};
 use std::io;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
@@ -212,6 +212,14 @@ pub fn mnemonic_from_phrase(phrase: &str) -> Result<Mnemonic, String> {
 #[zeroize(drop)]
 #[serde(transparent)]
 pub struct ZeroizeString(String);
+
+impl FromStr for ZeroizeString {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(s.to_owned()))
+    }
+}
 
 impl From<String> for ZeroizeString {
     fn from(s: String) -> Self {
