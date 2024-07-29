@@ -226,6 +226,19 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         Ok(proof.into())
     }
 
+    /// Produces the proof of inclusion for `self.blob_kzg_commitments`.
+    pub fn kzg_commitments_merkle_proof(
+        &self,
+    ) -> Result<FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>, Error> {
+        let body_leaves = self.body_merkle_leaves();
+        let beacon_block_body_depth = body_leaves.len().next_power_of_two().ilog2() as usize;
+        let tree = MerkleTree::create(&body_leaves, beacon_block_body_depth);
+        let (_, proof) = tree
+            .generate_proof(BLOB_KZG_COMMITMENTS_INDEX, beacon_block_body_depth)
+            .map_err(Error::MerkleTreeError)?;
+        Ok(proof.into())
+    }
+
     /// Return `true` if this block body has a non-zero number of blobs.
     pub fn has_blobs(self) -> bool {
         self.blob_kzg_commitments()

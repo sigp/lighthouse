@@ -1,10 +1,14 @@
+mod cli;
 mod metrics;
 
 use beacon_node::ProductionBeaconNode;
+use clap::FromArgMatches;
+use clap::Subcommand;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::{
     flags::DISABLE_MALLOC_TUNING_FLAG, get_color_style, get_eth2_network_config, FLAG_HEADER,
 };
+use cli::LighthouseSubcommands;
 use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
@@ -26,12 +30,14 @@ lazy_static! {
     pub static ref LONG_VERSION: String = format!(
         "{}\n\
          BLS library: {}\n\
+         BLS hardware acceleration: {}\n\
          SHA256 hardware acceleration: {}\n\
          Allocator: {}\n\
          Profile: {}\n\
          Specs: mainnet (true), minimal ({}), gnosis ({})",
         SHORT_VERSION.as_str(),
         bls_library_name(),
+        bls_hardware_acceleration(),
         have_sha_extensions(),
         allocator_name(),
         build_profile_name(),
@@ -50,11 +56,20 @@ fn bls_library_name() -> &'static str {
     }
 }
 
+#[inline(always)]
+fn bls_hardware_acceleration() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    return std::is_x86_feature_detected!("adx");
+
+    #[cfg(target_arch = "aarch64")]
+    return std::arch::is_aarch64_feature_detected!("neon");
+}
+
 fn allocator_name() -> &'static str {
-    if cfg!(feature = "jemalloc") {
-        "jemalloc"
-    } else {
+    if cfg!(target_os = "windows") {
         "system"
+    } else {
+        "jemalloc"
     }
 }
 
@@ -76,7 +91,7 @@ fn main() {
     }
 
     // Parse the CLI parameters.
-    let matches = Command::new("Lighthouse")
+    let cli = Command::new("Lighthouse")
         .version(SHORT_VERSION.as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .styles(get_color_style())
@@ -154,7 +169,7 @@ fn main() {
                     "The maximum number of log files that will be stored. If set to 0, \
                     background file logging is disabled.")
                 .action(ArgAction::Set)
-                .default_value("5")
+                .default_value("10")
                 .global(true)
                 .display_order(0)
         )
@@ -398,9 +413,11 @@ fn main() {
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
-        .subcommand(database_manager::cli_app())
-        .subcommand(validator_manager::cli_app())
-        .get_matches();
+        .subcommand(validator_manager::cli_app());
+
+    let cli = LighthouseSubcommands::augment_subcommands(cli);
+
+    let matches = cli.get_matches();
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
     // anything important.
@@ -665,14 +682,13 @@ fn run<E: EthSpec>(
         return Ok(());
     }
 
-    if let Some(sub_matches) = matches.subcommand_matches(database_manager::CMD) {
+    if let Ok(LighthouseSubcommands::DatabaseManager(db_manager_config)) =
+        LighthouseSubcommands::from_arg_matches(matches)
+    {
         info!(log, "Running database manager for {} network", network_name);
-        // Pass the entire `environment` to the database manager so it can run blocking operations.
-        database_manager::run(sub_matches, environment)?;
-
-        // Exit as soon as database manager returns control.
+        database_manager::run(matches, &db_manager_config, environment)?;
         return Ok(());
-    }
+    };
 
     info!(log, "Lighthouse started"; "version" => VERSION);
     info!(

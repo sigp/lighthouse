@@ -1,3 +1,25 @@
+//! Implements block lookup sync.
+//!
+//! Block lookup sync is triggered when a peer claims to have imported a block we don't know about.
+//! For example, a peer attesting to a head block root that is not in our fork-choice. Lookup sync
+//! is recursive in nature, as we may discover that this attested head block root has a parent that
+//! is also unknown to us.
+//!
+//! Block lookup is implemented as an event-driven state machine. It sends events to the network and
+//! beacon processor, and expects some set of events back. A discrepancy in the expected event API
+//! will result in lookups getting "stuck". A lookup becomes stuck when there is no future event
+//! that will trigger the lookup to make progress. There's a fallback mechanism that drops lookups
+//! that live for too long, logging the line "Notify the devs a sync lookup is stuck".
+//!
+//! The expected event API is documented in the code paths that are making assumptions  with the
+//! comment prefix "Lookup sync event safety:"
+//!
+//! Block lookup sync attempts to not re-download or re-process data that we already have. Block
+//! components are cached temporarily in multiple places before they are imported into fork-choice.
+//! Therefore, block lookup sync must peek these caches correctly to decide when to skip a download
+//! or consider a lookup complete. These caches are read from the `SyncNetworkContext` and its state
+//! returned to this module as `LookupRequestResult` variants.
+
 use self::parent_chain::{compute_parent_chains, NodeChain};
 pub use self::single_block_lookup::DownloadResult;
 use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
@@ -6,12 +28,12 @@ use super::network_context::{RpcResponseResult, SyncNetworkContext};
 use crate::metrics;
 use crate::sync::block_lookups::common::ResponseType;
 use crate::sync::block_lookups::parent_chain::find_oldest_fork_ancestor;
-use crate::sync::manager::{Id, SingleLookupReqId};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_availability_checker::AvailabilityCheckErrorCategory;
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 pub use common::RequestState;
 use fnv::FnvHashMap;
+use lighthouse_network::service::api_types::SingleLookupReqId;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
 pub use single_block_lookup::{BlobRequestState, BlockRequestState};
@@ -44,6 +66,12 @@ const LOOKUP_MAX_DURATION_STUCK_SECS: u64 = 15 * PARENT_DEPTH_TOLERANCE as u64;
 /// attestation deadline when the node is lagging behind. Once peers start attesting for the child
 /// lookup at most after 4 seconds, the lookup should gain peers.
 const LOOKUP_MAX_DURATION_NO_PEERS_SECS: u64 = 10;
+
+/// Lookups contain untrusted data, including blocks that have not yet been validated. In case of
+/// bugs or malicious activity we want to bound how much memory these lookups can consume. Aprox the
+/// max size of a lookup is ~ 10 MB (current max size of gossip and RPC blocks). 200 lookups can
+/// take at most 2 GB. 200 lookups allow 3 parallel chains of depth 64 (current maximum).
+const MAX_LOOKUPS: usize = 200;
 
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
@@ -84,6 +112,9 @@ pub struct BlockLookups<T: BeaconChainTypes> {
     /// The logger for the import manager.
     log: Logger,
 }
+
+#[cfg(test)]
+use lighthouse_network::service::api_types::Id;
 
 #[cfg(test)]
 /// Tuple of `SingleLookupId`, requested block root, awaiting parent block root (if any),
@@ -183,6 +214,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Check if this new lookup extends a bad chain:
     /// - Extending `child_block_root_trigger` would exceed the max depth
     /// - `block_root_to_search` is a failed chain
+    ///
     /// Returns true if the lookup is created or already exists
     pub fn search_parent_of_child(
         &mut self,
@@ -194,7 +226,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let parent_chains = self.active_parent_lookups();
 
         for (chain_idx, parent_chain) in parent_chains.iter().enumerate() {
-            if parent_chain.ancestor() == child_block_root_trigger
+            // `block_root_to_search` will trigger a new lookup, and it will extend a parent_chain
+            // beyond its max length
+            let block_would_extend_chain = parent_chain.ancestor() == child_block_root_trigger;
+            // `block_root_to_search` already has a lookup, and with the block trigger it extends
+            // the parent_chain beyond its length. This can happen because when creating a lookup
+            // for a new root we don't do any parent chain length checks
+            let trigger_is_chain_tip = parent_chain.tip == child_block_root_trigger;
+
+            if (block_would_extend_chain || trigger_is_chain_tip)
                 && parent_chain.len() >= PARENT_DEPTH_TOLERANCE
             {
                 debug!(self.log, "Parent lookup chain too long"; "block_root" => ?block_root_to_search);
@@ -269,7 +309,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 }
             }
 
-            if let Err(e) = self.add_peers_to_lookup_and_ancestors(lookup_id, peers) {
+            if let Err(e) = self.add_peers_to_lookup_and_ancestors(lookup_id, peers, cx) {
                 warn!(self.log, "Error adding peers to ancestor lookup"; "error" => ?e);
             }
 
@@ -288,23 +328,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
         }
 
+        // Lookups contain untrusted data, bound the total count of lookups hold in memory to reduce
+        // the risk of OOM in case of bugs of malicious activity.
+        if self.single_block_lookups.len() > MAX_LOOKUPS {
+            warn!(self.log, "Dropping lookup reached max"; "block_root" => ?block_root);
+            return false;
+        }
+
         // If we know that this lookup has unknown parent (is awaiting a parent lookup to resolve),
         // signal here to hold processing downloaded data.
         let mut lookup = SingleBlockLookup::new(block_root, peers, cx.next_id(), awaiting_parent);
-
-        let msg = if block_component.is_some() {
-            "Searching for components of a block with unknown parent"
-        } else {
-            "Searching for block components"
-        };
-        debug!(
-            self.log,
-            "{}", msg;
-            "peer_ids" => ?peers,
-            "block_root" => ?block_root,
-            "id" => lookup.id,
-        );
-        metrics::inc_counter(&metrics::SYNC_LOOKUP_CREATED);
 
         // Add block components to the new request
         if let Some(block_component) = block_component {
@@ -320,6 +353,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 return false;
             }
         };
+
+        debug!(
+            self.log,
+            "Created block lookup";
+            "peer_ids" => ?peers,
+            "block_root" => ?block_root,
+            "awaiting_parent" => awaiting_parent.map(|root| root.to_string()).unwrap_or("none".to_owned()),
+            "id" => lookup.id,
+        );
+        metrics::inc_counter(&metrics::SYNC_LOOKUP_CREATED);
 
         let result = lookup.continue_requests(cx);
         if self.on_lookup_result(id, result, "new_current_lookup", cx) {
@@ -375,6 +418,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     "response_type" => ?response_type,
                 );
 
+                // Here we could check if response extends a parent chain beyond its max length.
+                // However we defer that check to the handling of a processing error ParentUnknown.
+                //
+                // Here we could check if there's already a lookup for parent_root of `response`. In
+                // that case we know that sending the response for processing will likely result in
+                // a `ParentUnknown` error. However, for simplicity we choose to not implement this
+                // optimization.
+
                 // Register the download peer here. Once we have received some data over the wire we
                 // attribute it to this peer for scoring latter regardless of how the request was
                 // done.
@@ -410,21 +461,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /* Error responses */
 
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) {
-        self.single_block_lookups.retain(|_, lookup| {
+        for (_, lookup) in self.single_block_lookups.iter_mut() {
             lookup.remove_peer(peer_id);
-
-            // Note: this condition should be removed in the future. It's not strictly necessary to drop a
-            // lookup if there are no peers left. Lookup should only be dropped if it can not make progress
-            if lookup.has_no_peers() {
-                debug!(self.log,
-                    "Dropping single lookup after peer disconnection";
-                    "block_root" => ?lookup.block_root()
-                );
-                false
-            } else {
-                true
-            }
-        });
+        }
     }
 
     /* Processing responses */
@@ -787,12 +826,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             };
 
             if stuck_lookup.id == ancestor_stuck_lookup.id {
-                warn!(self.log, "Notify the devs, a sync lookup is stuck";
+                warn!(self.log, "Notify the devs a sync lookup is stuck";
                     "block_root" => ?stuck_lookup.block_root(),
                     "lookup" => ?stuck_lookup,
                 );
             } else {
-                warn!(self.log, "Notify the devs, a sync lookup is stuck";
+                warn!(self.log, "Notify the devs a sync lookup is stuck";
                     "block_root" => ?stuck_lookup.block_root(),
                     "lookup" => ?stuck_lookup,
                     "ancestor_block_root" => ?ancestor_stuck_lookup.block_root(),
@@ -834,14 +873,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         lookup_id: SingleLookupId,
         peers: &[PeerId],
+        cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), String> {
         let lookup = self
             .single_block_lookups
             .get_mut(&lookup_id)
             .ok_or(format!("Unknown lookup for id {lookup_id}"))?;
 
+        let mut added_some_peer = false;
         for peer in peers {
             if lookup.add_peer(*peer) {
+                added_some_peer = true;
                 debug!(self.log, "Adding peer to existing single block lookup";
                     "block_root" => ?lookup.block_root(),
                     "peer" => ?peer
@@ -849,22 +891,25 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
         }
 
-        // We may choose to attempt to continue a lookup here. It is possible that a lookup had zero
-        // peers and after adding this set of peers it can make progress again. Note that this
-        // recursive function iterates from child to parent, so continuing the child first is weird.
-        // However, we choose to not attempt to continue the lookup for simplicity. It's not
-        // strictly required and just and optimization for a rare corner case.
-
         if let Some(parent_root) = lookup.awaiting_parent() {
             if let Some((&child_id, _)) = self
                 .single_block_lookups
                 .iter()
                 .find(|(_, l)| l.block_root() == parent_root)
             {
-                self.add_peers_to_lookup_and_ancestors(child_id, peers)
+                self.add_peers_to_lookup_and_ancestors(child_id, peers, cx)
             } else {
                 Err(format!("Lookup references unknown parent {parent_root:?}"))
             }
+        } else if added_some_peer {
+            // If this lookup is not awaiting a parent and we added at least one peer, attempt to
+            // make progress. It is possible that a lookup is created with zero peers, attempted to
+            // make progress, and then receives peers. After that time the lookup will never be
+            // pruned with `drop_lookups_without_peers` because it has peers. This is rare corner
+            // case, but it can result in stuck lookups.
+            let result = lookup.continue_requests(cx);
+            self.on_lookup_result(lookup_id, result, "add_peers", cx);
+            Ok(())
         } else {
             Ok(())
         }

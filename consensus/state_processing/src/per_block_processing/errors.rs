@@ -89,6 +89,46 @@ pub enum BlockProcessingError {
         found: Hash256,
     },
     WithdrawalCredentialsInvalid,
+    TooManyPendingConsolidations {
+        consolidations: usize,
+        limit: usize,
+    },
+    ConsolidationChurnLimitTooLow {
+        churn_limit: u64,
+        minimum: u64,
+    },
+    MatchingSourceTargetConsolidation {
+        index: u64,
+    },
+    InactiveConsolidationSource {
+        index: u64,
+        current_epoch: Epoch,
+    },
+    InactiveConsolidationTarget {
+        index: u64,
+        current_epoch: Epoch,
+    },
+    SourceValidatorExiting {
+        index: u64,
+    },
+    TargetValidatorExiting {
+        index: u64,
+    },
+    FutureConsolidationEpoch {
+        current_epoch: Epoch,
+        consolidation_epoch: Epoch,
+    },
+    NoSourceExecutionWithdrawalCredential {
+        index: u64,
+    },
+    NoTargetExecutionWithdrawalCredential {
+        index: u64,
+    },
+    MismatchedWithdrawalCredentials {
+        source_address: Address,
+        target_address: Address,
+    },
+    InavlidConsolidationSignature,
     PendingAttestationInElectra,
 }
 
@@ -412,7 +452,10 @@ pub enum ExitInvalid {
     /// The specified validator has already initiated exit.
     AlreadyInitiatedExit(u64),
     /// The exit is for a future epoch.
-    FutureEpoch { state: Epoch, exit: Epoch },
+    FutureEpoch {
+        state: Epoch,
+        exit: Epoch,
+    },
     /// The validator has not been active for long enough.
     TooYoungToExit {
         current_epoch: Epoch,
@@ -423,6 +466,7 @@ pub enum ExitInvalid {
     /// There was an error whilst attempting to get a set of signatures. The signatures may have
     /// been invalid or an internal error occurred.
     SignatureSetError(SignatureSetError),
+    PendingWithdrawalInQueue(u64),
 }
 
 #[derive(Debug, PartialEq, Clone)]

@@ -335,13 +335,6 @@ pub fn get_config<E: EthSpec>(
                     .map(Duration::from_millis);
         }
 
-        if parse_flag(cli_args, "builder-profit-threshold") {
-            warn!(
-                log,
-                "Ignoring --builder-profit-threshold";
-                "info" => "this flag is deprecated and will be removed"
-            );
-        }
         if cli_args.get_flag("always-prefer-builder-payload") {
             warn!(
                 log,
@@ -402,7 +395,10 @@ pub fn get_config<E: EthSpec>(
         client_config.blobs_db_path = Some(PathBuf::from(blobs_db_dir));
     }
 
-    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
+    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(clap_utils::parse_optional(
+        cli_args,
+        "slots-per-restore-point",
+    )?)?;
     client_config.store.slots_per_restore_point = sprp;
     client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
 
@@ -757,7 +753,11 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.get_flag("disable-lock-timeouts") {
-        client_config.chain.enable_lock_timeouts = false;
+        warn!(
+            log,
+            "Ignoring --disable-lock-timeouts";
+            "info" => "this flag is deprecated and will be removed"
+        );
     }
 
     if cli_args.get_flag("disable-proposer-reorgs") {
@@ -1413,16 +1413,15 @@ pub fn set_network_config(
     // Light client server config.
     config.enable_light_client_server = parse_flag(cli_args, "light-client-server");
 
-    // The self limiter is disabled by default. If the `self-limiter` flag is provided
-    // without the `self-limiter-protocols` flag, the default params will be used.
-    if parse_flag(cli_args, "self-limiter") {
-        config.outbound_rate_limiter_config =
-            if let Some(protocols) = cli_args.get_one::<String>("self-limiter-protocols") {
-                Some(protocols.parse()?)
-            } else {
-                Some(Default::default())
-            };
-    }
+    // The self limiter is enabled by default. If the `self-limiter-protocols` flag is not provided,
+    // the default params will be used.
+    config.outbound_rate_limiter_config = if parse_flag(cli_args, "disable-self-limiter") {
+        None
+    } else if let Some(protocols) = cli_args.get_one::<String>("self-limiter-protocols") {
+        Some(protocols.parse()?)
+    } else {
+        Some(Default::default())
+    };
 
     // Proposer-only mode overrides a number of previous configuration parameters.
     // Specifically, we avoid subscribing to long-lived subnets and wish to maintain a minimal set
@@ -1476,11 +1475,9 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
 ///
 /// Return `(sprp, set_explicitly)` where `set_explicitly` is `true` if the user provided the value.
 pub fn get_slots_per_restore_point<E: EthSpec>(
-    cli_args: &ArgMatches,
+    slots_per_restore_point: Option<u64>,
 ) -> Result<(u64, bool), String> {
-    if let Some(slots_per_restore_point) =
-        clap_utils::parse_optional(cli_args, "slots-per-restore-point")?
-    {
+    if let Some(slots_per_restore_point) = slots_per_restore_point {
         Ok((slots_per_restore_point, true))
     } else {
         let default = std::cmp::min(

@@ -2,7 +2,6 @@ use serde::Deserialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::fmt::Debug;
-use tree_hash::TreeHash;
 use types::ForkName;
 
 /// Macro to wrap U128 and U256 so they deserialize correctly.
@@ -49,12 +48,12 @@ uint_wrapper!(TestU256, ethereum_types::U256);
 
 /// Trait for types that can be used in SSZ static tests.
 pub trait SszStaticType:
-    serde::de::DeserializeOwned + Encode + TreeHash + Clone + PartialEq + Debug + Sync
+    serde::de::DeserializeOwned + Encode + Clone + PartialEq + Debug + Sync
 {
 }
 
 impl<T> SszStaticType for T where
-    T: serde::de::DeserializeOwned + Encode + TreeHash + Clone + PartialEq + Debug + Sync
+    T: serde::de::DeserializeOwned + Encode + Clone + PartialEq + Debug + Sync
 {
 }
 

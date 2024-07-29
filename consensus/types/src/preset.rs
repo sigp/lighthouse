@@ -248,7 +248,7 @@ pub struct ElectraPreset {
     #[serde(with = "serde_utils::quoted_u64")]
     pub max_consolidations: u64,
     #[serde(with = "serde_utils::quoted_u64")]
-    pub max_deposit_receipts_per_payload: u64,
+    pub max_deposit_requests_per_payload: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub max_attester_slashings_electra: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -270,10 +270,32 @@ impl ElectraPreset {
             pending_partial_withdrawals_limit: E::pending_partial_withdrawals_limit() as u64,
             pending_consolidations_limit: E::pending_consolidations_limit() as u64,
             max_consolidations: E::max_consolidations() as u64,
-            max_deposit_receipts_per_payload: E::max_deposit_receipts_per_payload() as u64,
+            max_deposit_requests_per_payload: E::max_deposit_requests_per_payload() as u64,
             max_attester_slashings_electra: E::max_attester_slashings_electra() as u64,
             max_attestations_electra: E::max_attestations_electra() as u64,
             max_withdrawal_requests_per_payload: E::max_withdrawal_requests_per_payload() as u64,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct Eip7594Preset {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub field_elements_per_cell: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub field_elements_per_ext_blob: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub kzg_commitments_inclusion_proof_depth: u64,
+}
+
+impl Eip7594Preset {
+    pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
+        Self {
+            field_elements_per_cell: E::field_elements_per_cell() as u64,
+            field_elements_per_ext_blob: E::field_elements_per_ext_blob() as u64,
+            kzg_commitments_inclusion_proof_depth: E::kzg_commitments_inclusion_proof_depth()
+                as u64,
         }
     }
 }
@@ -322,6 +344,9 @@ mod test {
 
         let electra: ElectraPreset = preset_from_file(&preset_name, "electra.yaml");
         assert_eq!(electra, ElectraPreset::from_chain_spec::<E>(&spec));
+
+        let eip7594: Eip7594Preset = preset_from_file(&preset_name, "eip7594.yaml");
+        assert_eq!(eip7594, Eip7594Preset::from_chain_spec::<E>(&spec));
     }
 
     #[test]
