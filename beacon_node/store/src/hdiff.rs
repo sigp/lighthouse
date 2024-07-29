@@ -37,6 +37,7 @@ pub struct HierarchyConfig {
     /// - Layer 0: 3000003 - (3000003 mod 2^21) = 2097152
     /// - Layer 1: 3000003 - (3000003 mod 2^13) = 2998272
     /// - Layer 2: 3000003 - (3000003 mod 2^5)  = 3000000
+    ///
     /// Layer 0 is full state snaphost, apply layer 1 diff, then apply layer 2 diff and then replay
     /// blocks 3,000,001 to 3,000,003.
     pub exponents: Vec<u8>,
