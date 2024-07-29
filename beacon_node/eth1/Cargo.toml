@@ -25,7 +25,6 @@ superstruct = { workspace = true }
 tokio = { workspace = true }
 state_processing = { workspace = true }
 lighthouse_metrics = { workspace = true }
-lazy_static = { workspace = true }
 task_executor = { workspace = true }
 eth2 = { workspace = true }
 sensitive_url = { workspace = true }
