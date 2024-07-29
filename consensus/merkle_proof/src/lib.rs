@@ -1,7 +1,7 @@
 use alloy_primitives::FixedBytes;
 use ethereum_hashing::{hash, hash32_concat, ZERO_HASHES};
-use std::sync::LazyLock;
 use safe_arith::{ArithError, SafeArith};
+use std::sync::LazyLock;
 
 type H256 = alloy_primitives::B256;
 
@@ -55,7 +55,6 @@ impl<const N: usize> FixedBytesExtended for FixedBytes<N> {
         Self::ZERO
     }
 }
-
 
 const MAX_TREE_DEPTH: usize = 32;
 const EMPTY_SLICE: &[H256] = &[];
