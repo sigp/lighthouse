@@ -1,6 +1,6 @@
 use alloy_primitives::FixedBytes;
 use ethereum_hashing::{hash, hash32_concat, ZERO_HASHES};
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 use safe_arith::{ArithError, SafeArith};
 
 type H256 = alloy_primitives::B256;
@@ -56,15 +56,13 @@ impl<const N: usize> FixedBytesExtended for FixedBytes<N> {
     }
 }
 
+
 const MAX_TREE_DEPTH: usize = 32;
 const EMPTY_SLICE: &[H256] = &[];
 
-lazy_static! {
-    /// Zero nodes to act as "synthetic" left and right subtrees of other zero nodes.
-    static ref ZERO_NODES: Vec<MerkleTree> = {
-        (0..=MAX_TREE_DEPTH).map(MerkleTree::Zero).collect()
-    };
-}
+/// Zero nodes to act as "synthetic" left and right subtrees of other zero nodes.
+static ZERO_NODES: LazyLock<Vec<MerkleTree>> =
+    LazyLock::new(|| (0..=MAX_TREE_DEPTH).map(MerkleTree::Zero).collect());
 
 /// Right-sparse Merkle tree.
 ///

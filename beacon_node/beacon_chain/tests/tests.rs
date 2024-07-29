@@ -8,9 +8,9 @@ use beacon_chain::{
     },
     BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
 };
-use lazy_static::lazy_static;
 use operation_pool::PersistedOperationPool;
 use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
+use std::sync::LazyLock;
 use types::{
     BeaconState, BeaconStateError, BlockImportSource, EthSpec, Hash256, Keypair, MinimalEthSpec,
     RelativeEpoch, Slot,
@@ -19,10 +19,9 @@ use types::{
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 48;
 
-lazy_static! {
-    /// A cached set of keys.
-    static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
-}
+/// A cached set of keys.
+static KEYPAIRS: LazyLock<Vec<Keypair>> =
+    LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
     let harness = BeaconChainHarness::builder(MinimalEthSpec)

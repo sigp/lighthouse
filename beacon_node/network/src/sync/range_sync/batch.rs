@@ -463,6 +463,11 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
             }
         }
     }
+
+    // Visualizes the state of this batch using state::visualize()
+    pub fn visualize(&self) -> char {
+        self.state.visualize()
+    }
 }
 
 /// Represents a peer's attempt and providing the result for this batch.
@@ -536,6 +541,22 @@ impl<E: EthSpec> std::fmt::Debug for BatchState<E> {
                 write!(f, "Downloading({}, {})", peer, request_id)
             }
             BatchState::Poisoned => f.write_str("Poisoned"),
+        }
+    }
+}
+
+impl<E: EthSpec> BatchState<E> {
+    /// Creates a character representation/visualization for the batch state to display in logs for quicker and
+    /// easier recognition
+    fn visualize(&self) -> char {
+        match self {
+            BatchState::Downloading(..) => 'D',
+            BatchState::Processing(_) => 'P',
+            BatchState::AwaitingValidation(_) => 'v',
+            BatchState::AwaitingDownload => 'd',
+            BatchState::Failed => 'F',
+            BatchState::AwaitingProcessing(..) => 'p',
+            BatchState::Poisoned => 'X',
         }
     }
 }

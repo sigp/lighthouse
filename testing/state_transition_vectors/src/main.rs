@@ -3,13 +3,13 @@ mod macros;
 mod exit;
 
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-use lazy_static::lazy_static;
 use ssz::Encode;
 use std::env;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::exit;
+use std::sync::LazyLock;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, EthSpec, Keypair, SignedBeaconBlock,
 };
@@ -45,10 +45,9 @@ pub struct TestVector {
     pub error: Option<String>,
 }
 
-lazy_static! {
-    /// A cached set of keys.
-    static ref KEYPAIRS: Vec<Keypair> = generate_deterministic_keypairs(VALIDATOR_COUNT);
-}
+/// A cached set of keys.
+static KEYPAIRS: LazyLock<Vec<Keypair>> =
+    LazyLock::new(|| generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 async fn get_harness<E: EthSpec>(
     slot: Slot,

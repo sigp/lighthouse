@@ -42,7 +42,6 @@ rusqlite = { workspace = true }
 arbitrary = { workspace = true, features = ["derive"] }
 ethereum_serde_utils = { workspace = true }
 regex = { workspace = true }
-lazy_static = { workspace = true }
 parking_lot = { workspace = true }
 itertools = { workspace = true }
 superstruct = { workspace = true }

@@ -4,7 +4,7 @@ version = "5.2.1"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
-rust-version = "1.78.0"
+rust-version = "1.80.0"
 
 [features]
 default = ["slasher-lmdb"]
@@ -50,7 +50,6 @@ eth2_network_config = { workspace = true }
 lighthouse_version = { workspace = true }
 account_utils = { workspace = true }
 lighthouse_metrics = { workspace = true }
-lazy_static = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }

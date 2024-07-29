@@ -3,13 +3,13 @@
 use super::*;
 use crate::auth::Auth;
 use crate::json_structures::*;
-use lazy_static::lazy_static;
 use lighthouse_version::{COMMIT_PREFIX, VERSION};
 use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::collections::HashSet;
+use std::sync::LazyLock;
 use tokio::sync::Mutex;
 
 use std::time::{Duration, Instant};
@@ -81,18 +81,17 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_GET_CLIENT_VERSION_V1,
 ];
 
-lazy_static! {
-    /// We opt to initialize the JsonClientVersionV1 rather than the ClientVersionV1
-    /// for two reasons:
-    /// 1. This saves the overhead of converting into Json for every engine call
-    /// 2. The Json version lacks error checking so we can avoid calling `unwrap()`
-    pub static ref LIGHTHOUSE_JSON_CLIENT_VERSION: JsonClientVersionV1 = JsonClientVersionV1 {
+/// We opt to initialize the JsonClientVersionV1 rather than the ClientVersionV1
+/// for two reasons:
+/// 1. This saves the overhead of converting into Json for every engine call
+/// 2. The Json version lacks error checking so we can avoid calling `unwrap()`
+pub static LIGHTHOUSE_JSON_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
+    LazyLock::new(|| JsonClientVersionV1 {
         code: ClientCode::Lighthouse.to_string(),
         name: "Lighthouse".to_string(),
         version: VERSION.replace("Lighthouse/", ""),
         commit: COMMIT_PREFIX.to_string(),
-    };
-}
+    });
 
 /// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
 pub mod deposit_log {
