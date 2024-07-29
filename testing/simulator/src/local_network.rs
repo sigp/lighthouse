@@ -27,6 +27,7 @@ pub struct LocalNetworkParams {
     pub validator_count: usize,
     pub node_count: usize,
     pub proposer_nodes: usize,
+    pub extra_nodes: usize,
     pub genesis_delay: u64,
 }
 
@@ -38,7 +39,7 @@ fn default_client_config(network_params: LocalNetworkParams, genesis_time: u64) 
         genesis_time,
     };
     beacon_config.network.target_peers =
-        network_params.node_count + network_params.proposer_nodes - 1;
+        network_params.node_count + network_params.proposer_nodes + network_params.extra_nodes - 1;
     beacon_config.network.enr_address = (Some(Ipv4Addr::LOCALHOST), None);
     beacon_config.network.enable_light_client_server = true;
     beacon_config.network.discv5_config.enable_packet_filter = false;

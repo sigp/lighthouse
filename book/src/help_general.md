@@ -23,7 +23,7 @@ Commands:
           is the recommended way to provide a network boot-node since it has a
           reduced attack surface compared to a full beacon node.
   database_manager
-          Manage a beacon node database [aliases: db]
+          Manage a beacon node database. [aliases: db]
   validator_client
           When connected to a beacon node, performs the duties of a staked
           validator (e.g., proposing blocks and attestations). [aliases: v, vc,
@@ -70,7 +70,7 @@ Options:
           [possible values: DEFAULT, JSON]
       --logfile-max-number <COUNT>
           The maximum number of log files that will be stored. If set to 0,
-          background file logging is disabled. [default: 5]
+          background file logging is disabled. [default: 10]
       --logfile-max-size <SIZE>
           The maximum size (in MB) each log file can grow to before rotating. If
           set to 0, background file logging is disabled. [default: 200]

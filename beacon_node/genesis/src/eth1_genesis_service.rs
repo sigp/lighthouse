@@ -352,7 +352,7 @@ impl Eth1GenesisService {
     ///
     /// - `Ok(genesis_state)`: if all went well.
     /// - `Err(e)`: if the given `eth1_block` was not a viable block to trigger genesis or there was
-    /// an internal error.
+    ///   an internal error.
     fn genesis_from_eth1_block<E: EthSpec>(
         &self,
         eth1_block: Eth1Block,
@@ -432,8 +432,14 @@ impl Eth1GenesisService {
                 // Such an optimization would only be useful in a scenario where `MIN_GENESIS_TIME`
                 // is reached _prior_ to `MIN_ACTIVE_VALIDATOR_COUNT`. I suspect this won't be the
                 // case for mainnet, so we defer this optimization.
+                let Deposit { proof, data } = deposit;
+                let proof = if PROOF_VERIFICATION {
+                    Some(proof)
+                } else {
+                    None
+                };
 
-                apply_deposit(&mut state, &deposit, spec, PROOF_VERIFICATION)
+                apply_deposit(&mut state, data, proof, true, spec)
                     .map_err(|e| format!("Error whilst processing deposit: {:?}", e))
             })?;
 

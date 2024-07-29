@@ -11,8 +11,8 @@ use types::{
     BeaconStateError, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256,
     InconsistentFork, IndexedAttestation, IndexedAttestationRef, ProposerSlashing, PublicKey,
     PublicKeyBytes, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit,
-    SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
+    SignedBlsToExecutionChange, SignedConsolidation, SignedContributionAndProof, SignedRoot,
+    SignedVoluntaryExit, SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -663,4 +663,38 @@ where
         participant_pubkeys,
         message,
     )))
+}
+
+/// Returns two signature sets, one for the source and one for the target validator
+/// in the `SignedConsolidation`.
+pub fn consolidation_signature_set<'a, E, F>(
+    state: &'a BeaconState<E>,
+    get_pubkey: F,
+    consolidation: &'a SignedConsolidation,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    E: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
+    let source_index = consolidation.message.source_index as usize;
+    let target_index = consolidation.message.target_index as usize;
+
+    let domain = spec.compute_domain(
+        Domain::Consolidation,
+        spec.genesis_fork_version,
+        state.genesis_validators_root(),
+    );
+
+    let message = consolidation.message.signing_root(domain);
+    let source_pubkey =
+        get_pubkey(source_index).ok_or(Error::ValidatorUnknown(source_index as u64))?;
+    let target_pubkey =
+        get_pubkey(target_index).ok_or(Error::ValidatorUnknown(target_index as u64))?;
+
+    Ok(SignatureSet::multiple_pubkeys(
+        &consolidation.signature,
+        vec![source_pubkey, target_pubkey],
+        message,
+    ))
 }

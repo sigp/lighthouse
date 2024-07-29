@@ -45,8 +45,14 @@ excluded_paths = [
     "bls12-381-tests/hash_to_G2",
     "tests/.*/eip6110",
     "tests/.*/whisk",
-    # TODO(electra): re-enable in https://github.com/sigp/lighthouse/pull/5758
-    "tests/.*/.*/ssz_static/IndexedAttestation"
+    "tests/.*/eip7594",
+    # TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
+    "tests/.*/electra/ssz_static/LightClientUpdate",
+    "tests/.*/electra/ssz_static/LightClientFinalityUpdate",
+    "tests/.*/electra/ssz_static/LightClientBootstrap",
+    # TODO(electra) re-enable as DepositRequest when EF tests are updated
+    "tests/.*/electra/operations/deposit_receipt",
+    "tests/.*/electra/ssz_static/DepositReceipt"
 ]
 
 

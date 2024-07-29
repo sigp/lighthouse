@@ -86,7 +86,7 @@ Options:
           [possible values: DEFAULT, JSON]
       --logfile-max-number <COUNT>
           The maximum number of log files that will be stored. If set to 0,
-          background file logging is disabled. [default: 5]
+          background file logging is disabled. [default: 10]
       --logfile-max-size <SIZE>
           The maximum size (in MB) each log file can grow to before rotating. If
           set to 0, background file logging is disabled. [default: 200]
@@ -265,10 +265,7 @@ Flags:
           If this flag is set, Lighthouse will always prefer blocks constructed
           by builders, regardless of payload value.
       --produce-block-v3
-          Enable block production via the block v3 endpoint for this validator
-          client. This should only be enabled when paired with a beacon node
-          that has this endpoint implemented. This flag will be enabled by
-          default in future.
+          This flag is deprecated and is no longer in use.
       --unencrypted-http-transport
           This is a safety flag to ensure that the user is aware that the http
           transport is unencrypted and using a custom HTTP address is unsafe.
