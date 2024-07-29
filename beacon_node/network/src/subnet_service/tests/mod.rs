@@ -6,12 +6,11 @@ use beacon_chain::{
 };
 use futures::prelude::*;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
-use lazy_static::lazy_static;
 use lighthouse_network::NetworkConfig;
 use slog::{o, Drain, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
 use store::config::StoreConfig;
 use store::{HotColdDB, MemoryStore};
@@ -110,9 +109,7 @@ fn get_logger(log_level: Option<slog::Level>) -> Logger {
     }
 }
 
-lazy_static! {
-    static ref CHAIN: TestBeaconChain = TestBeaconChain::new_with_system_clock();
-}
+static CHAIN: LazyLock<TestBeaconChain> = LazyLock::new(TestBeaconChain::new_with_system_clock);
 
 fn get_attestation_service(
     log_level: Option<slog::Level>,
