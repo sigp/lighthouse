@@ -982,6 +982,15 @@ pub fn cli_app() -> Command {
                 .default_value("0")
                 .display_order(0)
         )
+        .arg(
+            Arg::new("allow-tree-states-migration")
+                .long("allow-tree-states-migration")
+                .value_name("BOOLEAN")
+                .help("Whether to allow a destructive freezer DB migration for hierarchical state diffs")
+                .action(ArgAction::Set)
+                .default_value("false")
+                .display_order(0)
+        )
 
         /*
          * Misc.

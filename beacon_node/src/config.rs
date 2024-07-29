@@ -451,6 +451,12 @@ pub fn get_config<E: EthSpec>(
         client_config.store.blob_prune_margin_epochs = blob_prune_margin_epochs;
     }
 
+    if let Some(allow_tree_states_migration) =
+        clap_utils::parse_optional(cli_args, "allow-tree-states-migration")?
+    {
+        client_config.store.allow_tree_states_migration = allow_tree_states_migration;
+    }
+
     /*
      * Zero-ports
      *
