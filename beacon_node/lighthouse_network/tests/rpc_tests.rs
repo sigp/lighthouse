@@ -15,7 +15,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
-use types::blob_sidecar::BlobIdentifier;
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BlobSidecar, ChainSpec,
     EmptyBlock, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Signature,
@@ -1242,14 +1241,6 @@ fn test_request_too_large() {
     let spec = E::default_spec();
 
     rt.block_on(async {
-        // Configure quotas for requests.
-        let quotas = [
-            "beacon_blocks_by_range:1/1024",
-            "beacon_blocks_by_root:1/128",
-            "blob_sidecars_by_range:1/768",
-            "blob_sidecars_by_root:1/128",
-        ];
-
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
             &log,
@@ -1260,31 +1251,22 @@ fn test_request_too_large() {
             // avoid banning a peer and to ensure we can test that the receiver sends RPC errors to
             // the sender.
             true,
-            Some(quotas.join(";").parse().unwrap()),
+            None,
         )
         .await;
 
-        // RPC requests that triggers RPC error (request too large) on the receiver side.
+        // RPC requests that triggers RPC error on the receiver side.
+        let max_request_blocks_count = spec.max_request_blocks(ForkName::Base) as u64;
+        let max_request_blobs_count = spec.max_request_blob_sidecars / E::max_blobs_per_block() as u64;
         let mut rpc_requests = vec![
-            Request::BlocksByRange(BlocksByRangeRequest::new(0, 2)),
-            Request::BlocksByRoot(BlocksByRootRequest::new(
-                vec![
-                    Hash256::from_low_u64_be(0),
-                    Hash256::from_low_u64_be(0),
-                ],
-                &spec,
+            Request::BlocksByRange(BlocksByRangeRequest::new(
+                0,
+                max_request_blocks_count + 1, // exceeds the max request defined in the spec.
             )),
             Request::BlobsByRange(BlobsByRangeRequest {
                 start_slot: 0,
-                count: 32,
+                count: max_request_blobs_count + 1, // exceeds the max request defined in the spec.
             }),
-            Request::BlobsByRoot(BlobsByRootRequest::new(
-                vec![
-                    BlobIdentifier { block_root: Hash256::zero(), index: 0  },
-                    BlobIdentifier { block_root: Hash256::zero(), index: 1  },
-                ],
-                &spec,
-            )),
         ];
         let requests_to_be_failed = rpc_requests.len();
         let mut failed_request_ids = vec![];
@@ -1309,7 +1291,8 @@ fn test_request_too_large() {
                     }
                     NetworkEvent::RPCFailed { id, peer_id, error } => {
                         debug!(log, "RPC Failed"; "error" => ?error, "request_id" => ?id);
-                        assert!(matches!(error, RPCError::ErrorResponse(RPCResponseErrorCode::RateLimited, .. )));
+                        // Expect `InvalidRequest` since the request requires responses greater than the number defined in the spec.
+                        assert!(matches!(error, RPCError::ErrorResponse(RPCResponseErrorCode::InvalidRequest, .. )));
 
                         failed_request_ids.push(id);
                         if let Some(request) = rpc_requests.pop() {
