@@ -386,6 +386,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
                 .genesis_state_ephemeral_store(genesis_state)
         })),
         None,
+        Default::default(),
     )
     .await;
     let harness = &tester.harness;

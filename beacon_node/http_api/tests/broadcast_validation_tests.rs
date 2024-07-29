@@ -6,7 +6,7 @@ use beacon_chain::{
 use eth2::reqwest::StatusCode;
 use eth2::types::{BroadcastValidation, PublishBlockRequest};
 use http_api::test_utils::InteractiveTester;
-use http_api::{publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock};
+use http_api::{publish_blinded_block, publish_block, reconstruct_block, Config, ProvenancedBlock};
 use std::sync::Arc;
 use types::{BlobSidecar, Epoch, EthSpec, ForkName, Hash256, MainnetEthSpec, Slot};
 use warp::Rejection;
@@ -1765,4 +1765,70 @@ pub async fn slashable_blobs_seen_on_gossip_cause_failure() {
         .harness
         .chain
         .block_is_known_to_fork_choice(&block_a.canonical_root()));
+}
+
+/// This test checks that an HTTP POST request with a duplicate block & blobs results in the
+/// `duplicate_status_code` being returned.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn duplicate_block_status_code() {
+    let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
+
+    // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
+    // `validator_count // 32`.
+    let validator_count = 64;
+    let num_initial: u64 = 31;
+    let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+    let duplicate_block_status_code = StatusCode::IM_A_TEAPOT;
+    let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
+        Some(spec),
+        validator_count,
+        None,
+        None,
+        Config {
+            duplicate_block_status_code,
+            ..Config::default()
+        },
+    )
+    .await;
+
+    // Create some chain depth.
+    tester.harness.advance_slot();
+    tester
+        .harness
+        .extend_chain(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    tester.harness.advance_slot();
+
+    let slot_a = Slot::new(num_initial);
+    let slot_b = slot_a + 1;
+
+    let state_a = tester.harness.get_current_state();
+    let ((block, blobs), _) = tester.harness.make_block(state_a, slot_b).await;
+    let (kzg_proofs, blobs) = blobs.expect("should have some blobs");
+
+    // Post the block blobs to the HTTP API once.
+    let block_request = PublishBlockRequest::new(block.clone(), Some((kzg_proofs, blobs)));
+    let response: Result<(), eth2::Error> = tester
+        .client
+        .post_beacon_blocks_v2(&block_request, validation_level)
+        .await;
+
+    // This should result in the block being fully imported.
+    response.unwrap();
+    assert!(tester
+        .harness
+        .chain
+        .block_is_known_to_fork_choice(&block.canonical_root()));
+
+    // Post again.
+    let duplicate_response: Result<(), eth2::Error> = tester
+        .client
+        .post_beacon_blocks_v2(&block_request, validation_level)
+        .await;
+    let err = duplicate_response.unwrap_err();
+    assert_eq!(err.status().unwrap(), duplicate_block_status_code);
 }
