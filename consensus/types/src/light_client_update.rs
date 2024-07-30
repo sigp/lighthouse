@@ -2,7 +2,8 @@ use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
 use crate::light_client_header::LightClientHeaderElectra;
 use crate::{
     beacon_state, test_utils::TestRandom, ChainSpec, Epoch, ForkName, ForkVersionDeserialize,
-    LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb, SignedBlindedBeaconBlock,
+    LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
+    SignedBlindedBeaconBlock,
 };
 use derivative::Derivative;
 use safe_arith::ArithError;

@@ -112,7 +112,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         let attested_slot = attested_block.slot();
 
-        let maybe_finalized_block =  store.get_blinded_block(&cached_parts.finalized_block_root)?;
+        let maybe_finalized_block = store.get_blinded_block(&cached_parts.finalized_block_root)?;
 
         let new_light_client_update = LightClientUpdate::new(
             sync_aggregate,
@@ -138,14 +138,22 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         let should_persist_light_client_update =
             if let Some(prev_light_client_update) = prev_light_client_update {
-                prev_light_client_update
-                    .is_better_light_client_update(&new_light_client_update, chain_spec)?
+                let prev_sync_period = prev_light_client_update
+                    .signature_slot()
+                    .epoch(T::EthSpec::slots_per_epoch())
+                    .sync_committee_period(chain_spec)?;
+
+                let should_persist = if sync_period != prev_sync_period {
+                    true
+                } else {
+                    prev_light_client_update
+                        .is_better_light_client_update(&new_light_client_update, chain_spec)?
+                };
+
+                should_persist
             } else {
                 true
             };
-
-        println!("{}", sync_period);
-        println!("{}", should_persist_light_client_update);
 
         if should_persist_light_client_update {
             self.store_light_client_update(&store, sync_period, &new_light_client_update)?;
@@ -207,8 +215,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         sync_committee_period: u64,
         light_client_update: &LightClientUpdate<T::EthSpec>,
     ) -> Result<(), BeaconChainError> {
-
-        println!("STORE LC UPDATE FOR SYNC COMMITTEE PERIOD {}", sync_committee_period);
         let column = DBColumn::LightClientUpdate;
 
         store.hot_db.put_bytes(
