@@ -143,14 +143,12 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                     .epoch(T::EthSpec::slots_per_epoch())
                     .sync_committee_period(chain_spec)?;
 
-                let should_persist = if sync_period != prev_sync_period {
+                if sync_period != prev_sync_period {
                     true
                 } else {
                     prev_light_client_update
                         .is_better_light_client_update(&new_light_client_update, chain_spec)?
-                };
-
-                should_persist
+                }
             } else {
                 true
             };
