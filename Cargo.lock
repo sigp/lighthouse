@@ -3099,6 +3099,7 @@ dependencies = [
  "beacon_chain",
  "ethereum_ssz",
  "ethereum_ssz_derive",
+ "lighthouse_metrics",
  "proto_array",
  "slog",
  "state_processing",
