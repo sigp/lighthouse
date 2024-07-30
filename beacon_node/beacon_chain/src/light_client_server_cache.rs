@@ -2,7 +2,7 @@ use crate::errors::BeaconChainError;
 use crate::{metrics, BeaconChainTypes, BeaconStore};
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
-use slog::{debug, Logger};
+use slog::{debug, info, Logger};
 use ssz::Decode;
 use ssz::Encode;
 use ssz_types::FixedVector;
@@ -165,6 +165,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             }
             None => true,
         };
+        info!(log, "is_latest_optimistic: {}", is_latest_optimistic);
+        info!(log, "signature slot: {}", signature_slot);
         if is_latest_optimistic {
             // can create an optimistic update, that is more recent
             *self.latest_optimistic_update.write() = Some(LightClientOptimisticUpdate::new(
