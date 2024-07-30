@@ -294,7 +294,7 @@ async fn light_client_updates_test() {
 
     harness
         .extend_chain(
-            num_final_blocks as usize,
+            (num_final_blocks + 1) as usize,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
