@@ -3,7 +3,7 @@ use crate::ChainSpec;
 use crate::{
     light_client_update::*, test_utils::TestRandom, ForkName, ForkVersionDeserialize,
     LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
-    LightClientHeaderElectra, SignedBeaconBlock,
+    LightClientHeaderElectra, SignedBlindedBeaconBlock,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -73,8 +73,8 @@ pub struct LightClientFinalityUpdate<E: EthSpec> {
 
 impl<E: EthSpec> LightClientFinalityUpdate<E> {
     pub fn new(
-        attested_block: &SignedBeaconBlock<E>,
-        finalized_block: &SignedBeaconBlock<E>,
+        attested_block: &SignedBlindedBeaconBlock<E>,
+        finalized_block: &SignedBlindedBeaconBlock<E>,
         finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
         sync_aggregate: SyncAggregate<E>,
         signature_slot: Slot,

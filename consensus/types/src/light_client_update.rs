@@ -2,7 +2,7 @@ use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
 use crate::light_client_header::LightClientHeaderElectra;
 use crate::{
     beacon_state, test_utils::TestRandom, ChainSpec, Epoch, ForkName, ForkVersionDeserialize,
-    LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb, SignedBeaconBlock,
+    LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb, SignedBlindedBeaconBlock,
 };
 use derivative::Derivative;
 use safe_arith::ArithError;
@@ -161,8 +161,8 @@ impl<E: EthSpec> LightClientUpdate<E> {
         next_sync_committee: Arc<SyncCommittee<E>>,
         next_sync_committee_branch: FixedVector<Hash256, NextSyncCommitteeProofLen>,
         finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
-        attested_block: &SignedBeaconBlock<E>,
-        finalized_block: Option<&SignedBeaconBlock<E>>,
+        attested_block: &SignedBlindedBeaconBlock<E>,
+        finalized_block: Option<&SignedBlindedBeaconBlock<E>>,
         chain_spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let light_client_update = match attested_block

@@ -36,7 +36,6 @@ tempfile = { workspace = true }
 rand = { workspace = true }
 zeroize = { workspace = true }
 lighthouse_metrics = { workspace = true }
-lazy_static = { workspace = true }
 ethers-core = { workspace = true }
 builder_client = { path = "../builder_client" }
 fork_choice = { workspace = true }

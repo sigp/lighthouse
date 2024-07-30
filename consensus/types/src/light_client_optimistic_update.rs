@@ -2,7 +2,7 @@ use super::{EthSpec, ForkName, ForkVersionDeserialize, LightClientHeader, Slot, 
 use crate::test_utils::TestRandom;
 use crate::{
     light_client_update::*, ChainSpec, LightClientHeaderAltair, LightClientHeaderCapella,
-    LightClientHeaderDeneb, LightClientHeaderElectra, SignedBeaconBlock,
+    LightClientHeaderDeneb, LightClientHeaderElectra, SignedBlindedBeaconBlock,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -63,7 +63,7 @@ pub struct LightClientOptimisticUpdate<E: EthSpec> {
 
 impl<E: EthSpec> LightClientOptimisticUpdate<E> {
     pub fn new(
-        attested_block: &SignedBeaconBlock<E>,
+        attested_block: &SignedBlindedBeaconBlock<E>,
         sync_aggregate: SyncAggregate<E>,
         signature_slot: Slot,
         chain_spec: &ChainSpec,

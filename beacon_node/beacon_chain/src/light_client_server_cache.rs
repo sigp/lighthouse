@@ -96,13 +96,12 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         let signature_slot = block_slot;
         let attested_block_root = block_parent_root;
 
-        let attested_block =
-            store
-                .get_full_block(attested_block_root)?
-                .ok_or(BeaconChainError::DBInconsistent(format!(
-                    "Block not available {:?}",
-                    attested_block_root
-                )))?;
+        let attested_block = store.get_blinded_block(attested_block_root)?.ok_or(
+            BeaconChainError::DBInconsistent(format!(
+                "Block not available {:?}",
+                attested_block_root
+            )),
+        )?;
 
         let cached_parts = self.get_or_compute_prev_block_cache(
             store.clone(),
@@ -113,7 +112,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         let attested_slot = attested_block.slot();
 
-        let maybe_finalized_block = store.get_full_block(&cached_parts.finalized_block_root)?;
+        let maybe_finalized_block =  store.get_blinded_block(&cached_parts.finalized_block_root)?;
 
         let new_light_client_update = LightClientUpdate::new(
             sync_aggregate,
@@ -144,6 +143,9 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             } else {
                 true
             };
+
+        println!("{}", sync_period);
+        println!("{}", should_persist_light_client_update);
 
         if should_persist_light_client_update {
             self.store_light_client_update(&store, sync_period, &new_light_client_update)?;
@@ -205,6 +207,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         sync_committee_period: u64,
         light_client_update: &LightClientUpdate<T::EthSpec>,
     ) -> Result<(), BeaconChainError> {
+
+        println!("STORE LC UPDATE FOR SYNC COMMITTEE PERIOD {}", sync_committee_period);
         let column = DBColumn::LightClientUpdate;
 
         store.hot_db.put_bytes(

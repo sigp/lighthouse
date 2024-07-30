@@ -796,7 +796,6 @@ dependencies = [
  "int_to_bytes",
  "itertools 0.10.5",
  "kzg",
- "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
  "logging",
@@ -872,7 +871,6 @@ dependencies = [
  "fnv",
  "futures",
  "itertools 0.10.5",
- "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",
  "logging",
@@ -1021,9 +1019,9 @@ dependencies = [
 
 [[package]]
 name = "blst"
-version = "0.3.12"
+version = "0.3.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62dc83a094a71d43eeadd254b1ec2d24cb6a0bb6cadce00df51f0db594711a32"
+checksum = "4378725facc195f1a538864863f6de233b500a8862747e7f165078a419d5e874"
 dependencies = [
  "cc",
  "glob",
@@ -1390,7 +1388,6 @@ dependencies = [
  "genesis",
  "http_api",
  "http_metrics",
- "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",
  "monitoring_api",
@@ -2413,7 +2410,6 @@ dependencies = [
  "ethereum_ssz_derive",
  "execution_layer",
  "futures",
- "lazy_static",
  "lighthouse_metrics",
  "merkle_proof",
  "parking_lot 0.12.3",
@@ -2492,7 +2488,6 @@ dependencies = [
  "bls",
  "ethereum_hashing",
  "hex",
- "lazy_static",
  "num-bigint",
  "serde",
  "serde_yaml",
@@ -2913,7 +2908,6 @@ dependencies = [
  "jsonwebtoken",
  "keccak-hash",
  "kzg",
- "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
  "lru",
@@ -3783,7 +3777,6 @@ dependencies = [
  "futures",
  "genesis",
  "hex",
- "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",
  "lighthouse_version",
@@ -4965,7 +4958,6 @@ dependencies = [
  "eth2_network_config",
  "ethereum_hashing",
  "futures",
- "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",
  "lighthouse_version",
@@ -5013,7 +5005,6 @@ dependencies = [
  "gossipsub",
  "hex",
  "itertools 0.10.5",
- "lazy_static",
  "libp2p",
  "libp2p-mplex",
  "lighthouse_metrics",
@@ -5126,7 +5117,6 @@ name = "logging"
 version = "0.2.0"
 dependencies = [
  "chrono",
- "lazy_static",
  "lighthouse_metrics",
  "parking_lot 0.12.3",
  "serde",
@@ -5184,7 +5174,6 @@ version = "0.1.0"
 dependencies = [
  "jemalloc-ctl",
  "jemallocator",
- "lazy_static",
  "libc",
  "lighthouse_metrics",
  "parking_lot 0.12.3",
@@ -5271,7 +5260,6 @@ version = "0.2.0"
 dependencies = [
  "ethereum-types 0.14.1",
  "ethereum_hashing",
- "lazy_static",
  "quickcheck",
  "quickcheck_macros",
  "safe_arith",
@@ -5398,7 +5386,6 @@ name = "monitoring_api"
 version = "0.1.0"
 dependencies = [
  "eth2",
- "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
  "regex",
@@ -5576,7 +5563,6 @@ dependencies = [
  "hex",
  "igd-next",
  "itertools 0.10.5",
- "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",
  "logging",
@@ -5751,9 +5737,9 @@ dependencies = [
 
 [[package]]
 name = "object"
-version = "0.36.1"
+version = "0.36.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "081b846d1d56ddfc18fdf1a922e4f6e07a11768ea1b92dec44e42b72712ccfce"
+checksum = "3f203fa8daa7bb185f760ae12bd8e097f63d17041dcdcaf675ac54cdf863170e"
 dependencies = [
  "memchr",
 ]
@@ -5881,7 +5867,6 @@ dependencies = [
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "itertools 0.10.5",
- "lazy_static",
  "lighthouse_metrics",
  "maplit",
  "parking_lot 0.12.3",
@@ -7698,7 +7683,6 @@ dependencies = [
  "ethereum_ssz_derive",
  "filesystem",
  "flate2",
- "lazy_static",
  "libmdbx",
  "lighthouse_metrics",
  "lmdb-rkv",
@@ -7745,7 +7729,6 @@ dependencies = [
  "arbitrary",
  "ethereum_serde_utils",
  "filesystem",
- "lazy_static",
  "r2d2",
  "r2d2_sqlite",
  "rayon",
@@ -7862,7 +7845,6 @@ dependencies = [
 name = "slot_clock"
 version = "0.2.0"
 dependencies = [
- "lazy_static",
  "lighthouse_metrics",
  "parking_lot 0.12.3",
  "types",
@@ -7991,7 +7973,6 @@ dependencies = [
  "int_to_bytes",
  "integer-sqrt",
  "itertools 0.10.5",
- "lazy_static",
  "lighthouse_metrics",
  "merkle_proof",
  "rand",
@@ -8011,7 +7992,6 @@ version = "0.1.0"
 dependencies = [
  "beacon_chain",
  "ethereum_ssz",
- "lazy_static",
  "state_processing",
  "tokio",
  "types",
@@ -8033,7 +8013,6 @@ dependencies = [
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "itertools 0.10.5",
- "lazy_static",
  "leveldb",
  "lighthouse_metrics",
  "lru",
@@ -8244,7 +8223,6 @@ version = "0.1.0"
 dependencies = [
  "async-channel",
  "futures",
- "lazy_static",
  "lighthouse_metrics",
  "logging",
  "slog",
@@ -8856,7 +8834,6 @@ dependencies = [
  "int_to_bytes",
  "itertools 0.10.5",
  "kzg",
- "lazy_static",
  "log",
  "maplit",
  "merkle_proof",
@@ -9022,7 +8999,6 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 name = "unused_port"
 version = "0.1.0"
 dependencies = [
- "lazy_static",
  "lru_cache",
  "parking_lot 0.12.3",
 ]
@@ -9076,7 +9052,6 @@ dependencies = [
  "hex",
  "hyper 1.4.1",
  "itertools 0.10.5",
- "lazy_static",
  "libsecp256k1",
  "lighthouse_metrics",
  "lighthouse_version",
@@ -9246,7 +9221,6 @@ dependencies = [
  "bytes",
  "eth2",
  "headers",
- "lazy_static",
  "lighthouse_metrics",
  "safe_arith",
  "serde",
@@ -9428,7 +9402,6 @@ dependencies = [
  "eth2_keystore",
  "eth2_network_config",
  "futures",
- "lazy_static",
  "parking_lot 0.12.3",
  "reqwest",
  "serde",
