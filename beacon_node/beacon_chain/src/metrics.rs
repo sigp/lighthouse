@@ -582,6 +582,20 @@ pub static FORK_CHOICE_PROCESS_ATTESTATION_TIMES: LazyLock<Result<Histogram>> =
             "Time taken to add an attestation to fork choice",
         )
     });
+pub static FORK_CHOICE_READ_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_read_lock_aquire_seconds",
+        "Time taken to aquire the fork-choice read lock",
+        exponential_buckets(1e-3, 2.0, 10),
+    )
+});
+pub static FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_write_lock_aquire_seconds",
+        "Time taken to aquire the fork-choice write lock",
+        exponential_buckets(1e-3, 2.0, 10),
+    )
+});
 pub static FORK_CHOICE_SET_HEAD_LAG_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_fork_choice_set_head_lag_times",
