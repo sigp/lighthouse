@@ -434,6 +434,9 @@ pub enum RPCCodedResponse<E: EthSpec> {
 
     /// Received a stream termination indicating which response is being terminated.
     StreamTermination(ResponseTermination),
+
+    /// This is used to notify the handler by the outbound codec that the first byte has been received.
+    FirstByte,
 }
 
 /// Request a light_client_bootstrap for light_clients peers.
@@ -462,6 +465,7 @@ impl<E: EthSpec> RPCCodedResponse<E> {
             RPCCodedResponse::Success(_) => Some(0),
             RPCCodedResponse::Error(code, _) => Some(code.as_u8()),
             RPCCodedResponse::StreamTermination(_) => None,
+            RPCCodedResponse::FirstByte => None,
         }
     }
 
@@ -486,6 +490,7 @@ impl<E: EthSpec> RPCCodedResponse<E> {
     /// Returns true if this response always terminates the stream.
     pub fn close_after(&self) -> bool {
         !matches!(self, RPCCodedResponse::Success(_))
+            && !matches!(self, RPCCodedResponse::FirstByte)
     }
 }
 
@@ -585,6 +590,7 @@ impl<E: EthSpec> std::fmt::Display for RPCCodedResponse<E> {
             RPCCodedResponse::Success(res) => write!(f, "{}", res),
             RPCCodedResponse::Error(code, err) => write!(f, "{}: {}", code, err),
             RPCCodedResponse::StreamTermination(_) => write!(f, "Stream Termination"),
+            RPCCodedResponse::FirstByte => write!(f, "First Byte"),
         }
     }
 }

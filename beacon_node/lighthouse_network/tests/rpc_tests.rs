@@ -1085,3 +1085,97 @@ fn quic_test_goodbye_rpc() {
     let enable_logging = false;
     goodbye_test(log_level, enable_logging, Protocol::Quic);
 }
+
+// Tests TTFB timeout
+#[test]
+fn test_ttfb_timeout() {
+    let rt = Arc::new(Runtime::new().unwrap());
+    let log = logging::test_logger();
+    let spec = E::default_spec();
+
+    rt.block_on(async {
+        // get sender/receiver
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Base,
+            &spec,
+            Protocol::Tcp,
+        )
+        .await;
+
+        // Dummy STATUS RPC message
+        let rpc_request = Request::Status(StatusMessage {
+            fork_digest: [0; 4],
+            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_epoch: Epoch::new(1),
+            head_root: Hash256::from_low_u64_be(0),
+            head_slot: Slot::new(1),
+        });
+
+        // Dummy STATUS RPC message
+        let rpc_response = Response::Status(StatusMessage {
+            fork_digest: [0; 4],
+            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_epoch: Epoch::new(1),
+            head_root: Hash256::from_low_u64_be(0),
+            head_slot: Slot::new(1),
+        });
+
+        let sender_peer_id = sender.local_peer_id;
+        let receiver_peer_id = receiver.local_peer_id;
+
+        // build the sender future
+        let sender_future = async {
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        // Send a STATUS message
+                        debug!(log, "Sending RPC");
+                        sender.send_request(peer_id, 10, rpc_request.clone());
+                    }
+                    NetworkEvent::RPCFailed { peer_id, error, .. } => {
+                        debug!(log, "The RPC failed as expected"; "error" => ?error);
+                        assert_eq!(peer_id, receiver_peer_id);
+                        assert!(matches!(error, RPCError::StreamTimeout));
+                        // The test has been successfully completed; exiting the loop.
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        };
+
+        // build the receiver future
+        let receiver_future = async {
+            loop {
+                match receiver.next_event().await {
+                    NetworkEvent::RequestReceived {
+                        peer_id,
+                        id,
+                        request,
+                    } => {
+                        assert_eq!(peer_id, sender_peer_id);
+                        assert_eq!(request, rpc_request);
+
+                        debug!(log, "Receiver received");
+                        debug!(log, "Waiting until the ttfb_timeout is reached"; "ttfb_timeout" => spec.ttfb_timeout);
+                        tokio::time::sleep(Duration::from_secs(spec.ttfb_timeout + 1)).await;
+
+                        receiver.send_response(peer_id, id, rpc_response.clone());
+                        debug!(log, "A dummy response was sent, which should not be received by the sender due to the timeout");
+                    }
+                    _ => {}
+                }
+            }
+        };
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                panic!("Future timed out");
+            }
+        }
+    });
+}

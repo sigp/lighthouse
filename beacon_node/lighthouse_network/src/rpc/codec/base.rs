@@ -54,6 +54,8 @@ where
     inner: TOutboundCodec,
     /// Keeps track of the current response code for a chunk.
     current_response_code: Option<u8>,
+    /// Whether the first byte has been received or not.
+    received_first_byte: bool,
     phantom: PhantomData<E>,
 }
 
@@ -66,6 +68,7 @@ where
         BaseOutboundCodec {
             inner: codec,
             current_response_code: None,
+            received_first_byte: false,
             phantom: PhantomData,
         }
     }
@@ -88,7 +91,7 @@ where
         dst.reserve(1);
         dst.put_u8(
             item.as_u8()
-                .expect("Should never encode a stream termination"),
+                .expect("Should never encode a stream termination or first byte"),
         );
         self.inner.encode(item, dst)
     }
@@ -134,10 +137,21 @@ where
     type Error = <TCodec as Decoder>::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        // if we have only received the response code, wait for more bytes
-        if src.len() <= 1 {
+        if src.len() == 0 {
             return Ok(None);
         }
+
+        if !self.received_first_byte {
+            // Notify the handler that the first byte has been received.
+            self.received_first_byte = true;
+            return Ok(Some(RPCCodedResponse::<E>::FirstByte));
+        }
+
+        // if we have only received the response code, wait for more bytes
+        if src.len() == 1 {
+            return Ok(None);
+        }
+
         // using the response code determine which kind of payload needs to be decoded.
         let response_code = self.current_response_code.unwrap_or_else(|| {
             let resp_code = src.split_to(1)[0];

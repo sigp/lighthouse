@@ -246,6 +246,7 @@ where
             self.fork_context.clone(),
             &log,
             self.network_params.resp_timeout,
+            self.network_params.ttfb_timeout,
         );
 
         Ok(handler)
@@ -278,6 +279,7 @@ where
             self.fork_context.clone(),
             &log,
             self.network_params.resp_timeout,
+            self.network_params.ttfb_timeout,
         );
 
         Ok(handler)
