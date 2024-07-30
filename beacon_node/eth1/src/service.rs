@@ -1129,7 +1129,7 @@ impl Service {
 
         Ok(BlockCacheUpdateOutcome {
             blocks_imported,
-            head_block_number: self.inner.block_cache.read().highest_block_number(),
+            head_block_number: block_cache.highest_block_number(),
         })
     }
 }
