@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{App, Arg, ArgAction, ArgMatches, Command};
+use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2::{
     lighthouse_vc::types::{DeleteKeystoreStatus, DeleteKeystoresRequest},
     SensitiveUrl,

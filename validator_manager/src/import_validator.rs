@@ -1,7 +1,7 @@
 use super::common::*;
 use crate::DumpConfig;
 use account_utils::ZeroizeString;
-use clap::{App, Arg, ArgAction, ArgMatches, Command};
+use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2::lighthouse_vc::types::KeystoreJsonStr;
 use eth2::{lighthouse_vc::std_types::ImportKeystoreStatus, SensitiveUrl};
 use eth2_keystore::json_keystore::JsonKeystore;

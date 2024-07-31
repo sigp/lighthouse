@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{App, Arg, ArgAction, ArgMatches};
+use clap::{Arg, ArgAction, ArgMatches};
 use eth2::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 
