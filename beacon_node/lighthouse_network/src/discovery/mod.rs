@@ -192,7 +192,7 @@ pub struct Discovery<E: EthSpec> {
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> Discovery<E> {
@@ -327,7 +327,7 @@ impl<E: EthSpec> Discovery<E> {
             update_ports,
             log,
             enr_dir,
-            spec: spec.clone(),
+            spec: Arc::new(spec.clone()),
         })
     }
 
@@ -551,7 +551,7 @@ impl<E: EthSpec> Discovery<E> {
                     )
                     .map_err(|e| format!("{:?}", e))?;
             }
-            // TODO(das) discovery to be implemented at a later phase. Initially we just use a large peer count.
+            // Data column subnets are computed from node ID. No subnet bitfield in the ENR.
             Subnet::DataColumn(_) => return Ok(()),
         }
 
@@ -1162,8 +1162,19 @@ impl<E: EthSpec> Discovery<E> {
     fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: &DialError) {
         if let Some(peer_id) = peer_id {
             match error {
+                DialError::Denied { .. } => {
+                    if self.network_globals.peers.read().is_connected(&peer_id) {
+                        // There's an active connection, so we don’t disconnect the peer.
+                        // Lighthouse dials to a peer twice using TCP and QUIC (if QUIC is not
+                        // disabled). Usually, one establishes a connection, and the other fails
+                        // because the peer allows only one connection per peer.
+                        return;
+                    }
+                    // set peer as disconnected in discovery DHT
+                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id, "error" => %ClearDialError(error));
+                    self.disconnect_peer(&peer_id);
+                }
                 DialError::LocalPeerId { .. }
-                | DialError::Denied { .. }
                 | DialError::NoAddresses
                 | DialError::Transport(_)
                 | DialError::WrongPeerId { .. } => {

@@ -687,16 +687,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(err) => {
                 match err {
-                    GossipDataColumnError::ParentUnknown(column) => {
+                    GossipDataColumnError::ParentUnknown { parent_root } => {
                         debug!(
                             self.log,
                             "Unknown parent hash for column";
                             "action" => "requesting parent",
-                            "block_root" => %column.block_root(),
-                            "parent_root" => %column.block_parent_root(),
+                            "block_root" => %block_root,
+                            "parent_root" => %parent_root,
                         );
                         self.send_sync_message(SyncMessage::UnknownParentDataColumn(
-                            peer_id, column,
+                            peer_id,
+                            column_sidecar,
                         ));
                     }
                     GossipDataColumnError::KzgNotInitialized
@@ -716,8 +717,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | GossipDataColumnError::InvalidInclusionProof { .. }
                     | GossipDataColumnError::InvalidKzgProof { .. }
                     | GossipDataColumnError::NotFinalizedDescendant { .. } => {
-                        // TODO(das): downgrade log to debug after interop
-                        warn!(
+                        debug!(
                             self.log,
                             "Could not verify column sidecar for gossip. Rejecting the column sidecar";
                             "error" => ?err,
@@ -740,8 +740,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     GossipDataColumnError::FutureSlot { .. }
                     | GossipDataColumnError::PriorKnown { .. }
                     | GossipDataColumnError::PastFinalizedSlot { .. } => {
-                        // TODO(das): downgrade log to debug after interop
-                        warn!(
+                        debug!(
                             self.log,
                             "Could not verify column sidecar for gossip. Ignoring the column sidecar";
                             "error" => ?err,
@@ -1011,6 +1010,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
+        let processing_start_time = Instant::now();
         let block_root = verified_data_column.block_root();
         let data_column_slot = verified_data_column.slot();
         let data_column_index = verified_data_column.id().index;
@@ -1020,9 +1020,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .process_gossip_data_columns(vec![verified_data_column])
             .await
         {
-            Ok((availability, data_columns_to_publish)) => {
-                self.handle_data_columns_to_publish(data_columns_to_publish);
-
+            Ok(availability) => {
                 match availability {
                     AvailabilityProcessingStatus::Imported(block_root) => {
                         // Note: Reusing block imported metric here
@@ -1035,6 +1033,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "block_root" => %block_root
                         );
                         self.chain.recompute_head_at_current_slot().await;
+
+                        metrics::set_gauge(
+                            &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
+                            processing_start_time.elapsed().as_millis() as i64,
+                        );
                     }
                     AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
                         trace!(

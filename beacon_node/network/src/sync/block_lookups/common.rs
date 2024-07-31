@@ -7,6 +7,7 @@ use crate::sync::network_context::{LookupRequestResult, SyncNetworkContext};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::BeaconChainTypes;
+use lighthouse_network::service::api_types::Id;
 use std::sync::Arc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::SignedBeaconBlock;

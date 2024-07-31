@@ -5,6 +5,7 @@ use crate::types::{
 };
 use crate::{GossipTopic, NetworkConfig};
 use futures::future::Either;
+use gossipsub;
 use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed};
 use libp2p::identity::{secp256k1, Keypair};
 use libp2p::{core, noise, yamux, PeerId, Transport};

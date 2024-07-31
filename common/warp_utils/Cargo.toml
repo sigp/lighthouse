@@ -18,6 +18,5 @@ serde_json = { workspace = true }
 tokio = { workspace = true }
 headers = "0.3.2"
 lighthouse_metrics = { workspace = true }
-lazy_static = { workspace = true }
 serde_array_query = "0.1.0"
 bytes = { workspace = true }

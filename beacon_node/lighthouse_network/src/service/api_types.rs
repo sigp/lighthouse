@@ -21,10 +21,44 @@ use crate::rpc::{
 /// Identifier of requests sent by a peer.
 pub type PeerRequestId = (ConnectionId, SubstreamId);
 
-/// Identifier of a request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RequestId<AppReqId> {
-    Application(AppReqId),
+pub type Id = u32;
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct SingleLookupReqId {
+    pub lookup_id: Id,
+    pub req_id: Id,
+}
+
+/// Id of rpc requests sent by sync to the network.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum SyncRequestId {
+    /// Request searching for a block given a hash.
+    SingleBlock { id: SingleLookupReqId },
+    /// Request searching for a set of blobs given a hash.
+    SingleBlob { id: SingleLookupReqId },
+    /// Request searching for a set of data columns given a hash and list of column indices.
+    DataColumnsByRoot(DataColumnsByRootRequestId, DataColumnsByRootRequester),
+    /// Range request that is composed by both a block range request and a blob range request.
+    RangeBlockAndBlobs { id: Id },
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum DataColumnsByRootRequester {
+    Sampling(SamplingId),
+    Custody(CustodyId),
+}
+
+/// Application level requests sent to the network.
+#[derive(Debug, Clone, Copy)]
+pub enum AppRequestId {
+    Sync(SyncRequestId),
+    Router,
+}
+
+/// Global identifier of a request.
+#[derive(Debug, Clone, Copy)]
+pub enum RequestId {
+    Application(AppRequestId),
     Internal,
 }
 
@@ -164,7 +198,7 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RPCCodedResponse<E> {
     }
 }
 
-impl<AppReqId: std::fmt::Debug> slog::Value for RequestId<AppReqId> {
+impl slog::Value for RequestId {
     fn serialize(
         &self,
         record: &slog::Record,

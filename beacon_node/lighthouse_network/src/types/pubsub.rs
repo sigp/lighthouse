@@ -277,23 +277,29 @@ impl<E: EthSpec> PubsubMessage<E> {
                     }
                     GossipKind::DataColumnSidecar(subnet_id) => {
                         match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                            Some(ForkName::Deneb | ForkName::Electra) => {
+                            // TODO(das): Remove Deneb fork
+                            Some(fork) if fork.deneb_enabled() => {
                                 let col_sidecar = Arc::new(
                                     DataColumnSidecar::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 );
-                                Ok(PubsubMessage::DataColumnSidecar(Box::new((
-                                    *subnet_id,
-                                    col_sidecar,
-                                ))))
+                                let peer_das_enabled =
+                                    fork_context.spec.is_peer_das_enabled_for_epoch(
+                                        col_sidecar.slot().epoch(E::slots_per_epoch()),
+                                    );
+                                if peer_das_enabled {
+                                    Ok(PubsubMessage::DataColumnSidecar(Box::new((
+                                        *subnet_id,
+                                        col_sidecar,
+                                    ))))
+                                } else {
+                                    Err(format!(
+                                        "data_column_sidecar topic invalid for given fork digest {:?}",
+                                        gossip_topic.fork_digest
+                                    ))
+                                }
                             }
-                            Some(
-                                ForkName::Base
-                                | ForkName::Altair
-                                | ForkName::Bellatrix
-                                | ForkName::Capella,
-                            )
-                            | None => Err(format!(
+                            Some(_) | None => Err(format!(
                                 "data_column_sidecar topic invalid for given fork digest {:?}",
                                 gossip_topic.fork_digest
                             )),

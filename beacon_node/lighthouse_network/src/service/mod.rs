@@ -21,7 +21,7 @@ use crate::types::{
 use crate::EnrExt;
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
-use api_types::{PeerRequestId, Request, RequestId, Response};
+use api_types::{AppRequestId, PeerRequestId, Request, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub::{
     IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
@@ -33,6 +33,7 @@ use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{Swarm, SwarmEvent};
 use libp2p::{identify, PeerId, SwarmBuilder};
 use slog::{crit, debug, info, o, trace, warn};
+use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::{
@@ -57,7 +58,7 @@ const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
 /// The types of events than can be obtained from polling the behaviour.
 #[derive(Debug)]
-pub enum NetworkEvent<AppReqId: ReqId, E: EthSpec> {
+pub enum NetworkEvent<E: EthSpec> {
     /// We have successfully dialed and connected to a peer.
     PeerConnectedOutgoing(PeerId),
     /// A peer has successfully dialed and connected to us.
@@ -67,7 +68,7 @@ pub enum NetworkEvent<AppReqId: ReqId, E: EthSpec> {
     /// An RPC Request that was sent failed.
     RPCFailed {
         /// The id of the failed request.
-        id: AppReqId,
+        id: AppRequestId,
         /// The peer to which this request was sent.
         peer_id: PeerId,
         /// The error of the failed request.
@@ -85,7 +86,7 @@ pub enum NetworkEvent<AppReqId: ReqId, E: EthSpec> {
         /// Peer that sent the response.
         peer_id: PeerId,
         /// Id of the request to which the peer is responding.
-        id: AppReqId,
+        id: AppRequestId,
         /// Response the peer sent.
         response: Response<E>,
     },
@@ -108,8 +109,8 @@ pub enum NetworkEvent<AppReqId: ReqId, E: EthSpec> {
 /// Builds the network behaviour that manages the core protocols of eth2.
 /// This core behaviour is managed by `Behaviour` which adds peer management to all core
 /// behaviours.
-pub struct Network<AppReqId: ReqId, E: EthSpec> {
-    swarm: libp2p::swarm::Swarm<Behaviour<AppReqId, E>>,
+pub struct Network<E: EthSpec> {
+    swarm: libp2p::swarm::Swarm<Behaviour<E>>,
     /* Auxiliary Fields */
     /// A collections of variables accessible outside the network service.
     network_globals: Arc<NetworkGlobals<E>>,
@@ -133,7 +134,7 @@ pub struct Network<AppReqId: ReqId, E: EthSpec> {
 }
 
 /// Implements the combined behaviour for the libp2p service.
-impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
+impl<E: EthSpec> Network<E> {
     pub async fn new(
         executor: task_executor::TaskExecutor,
         mut ctx: ServiceContext<'_>,
@@ -390,7 +391,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
         let upnp = Toggle::from(
             config
                 .upnp_enabled
-                .then_some(libp2p::upnp::tokio::Behaviour::default()),
+                .then(libp2p::upnp::tokio::Behaviour::default),
         );
         let behaviour = {
             Behaviour {
@@ -419,6 +420,11 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
         // sets up the libp2p swarm.
 
         let swarm = {
+            let config = libp2p::swarm::Config::with_executor(Executor(executor))
+                .with_notify_handler_buffer_size(NonZeroUsize::new(7).expect("Not zero"))
+                .with_per_connection_event_buffer_size(4)
+                .with_dial_concurrency_factor(NonZeroU8::new(1).unwrap());
+
             let builder = SwarmBuilder::with_existing_identity(local_keypair)
                 .with_tokio()
                 .with_other_transport(|_key| transport)
@@ -430,25 +436,13 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
                     .with_bandwidth_metrics(libp2p_registry)
                     .with_behaviour(|_| behaviour)
                     .expect("infalible")
-                    .with_swarm_config(|_| {
-                        libp2p::swarm::Config::with_executor(Executor(executor))
-                            .with_notify_handler_buffer_size(
-                                std::num::NonZeroUsize::new(7).expect("Not zero"),
-                            )
-                            .with_per_connection_event_buffer_size(4)
-                    })
+                    .with_swarm_config(|_| config)
                     .build()
             } else {
                 builder
                     .with_behaviour(|_| behaviour)
                     .expect("infalible")
-                    .with_swarm_config(|_| {
-                        libp2p::swarm::Config::with_executor(Executor(executor))
-                            .with_notify_handler_buffer_size(
-                                std::num::NonZeroUsize::new(7).expect("Not zero"),
-                            )
-                            .with_per_connection_event_buffer_size(4)
-                    })
+                    .with_swarm_config(|_| config)
                     .build()
             }
         };
@@ -598,7 +592,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
         &mut self.swarm.behaviour_mut().gossipsub
     }
     /// The Eth2 RPC specified in the wire-0 protocol.
-    pub fn eth2_rpc_mut(&mut self) -> &mut RPC<RequestId<AppReqId>, E> {
+    pub fn eth2_rpc_mut(&mut self) -> &mut RPC<RequestId, E> {
         &mut self.swarm.behaviour_mut().eth2_rpc
     }
     /// Discv5 Discovery protocol.
@@ -619,7 +613,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
         &self.swarm.behaviour().gossipsub
     }
     /// The Eth2 RPC specified in the wire-0 protocol.
-    pub fn eth2_rpc(&self) -> &RPC<RequestId<AppReqId>, E> {
+    pub fn eth2_rpc(&self) -> &RPC<RequestId, E> {
         &self.swarm.behaviour().eth2_rpc
     }
     /// Discv5 Discovery protocol.
@@ -926,9 +920,9 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     pub fn send_request(
         &mut self,
         peer_id: PeerId,
-        request_id: AppReqId,
+        request_id: AppRequestId,
         request: Request,
-    ) -> Result<(), (AppReqId, RPCError)> {
+    ) -> Result<(), (AppRequestId, RPCError)> {
         // Check if the peer is connected before sending an RPC request
         if !self.swarm.is_connected(&peer_id) {
             return Err((request_id, RPCError::Disconnected));
@@ -1024,6 +1018,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
             return;
         }
 
+        let spec = Arc::new(self.fork_context.spec.clone());
         let filtered: Vec<SubnetDiscovery> = subnets_to_discover
             .into_iter()
             .filter(|s| {
@@ -1059,7 +1054,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
                 // If we connect to the cached peers before the discovery query starts, then we potentially
                 // save a costly discovery query.
                 } else {
-                    self.dial_cached_enrs_in_subnet(s.subnet);
+                    self.dial_cached_enrs_in_subnet(s.subnet, spec.clone());
                     true
                 }
             })
@@ -1163,10 +1158,10 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     #[must_use = "return the response"]
     fn build_response(
         &mut self,
-        id: RequestId<AppReqId>,
+        id: RequestId,
         peer_id: PeerId,
         response: Response<E>,
-    ) -> Option<NetworkEvent<AppReqId, E>> {
+    ) -> Option<NetworkEvent<E>> {
         match id {
             RequestId::Application(id) => Some(NetworkEvent::ResponseReceived {
                 peer_id,
@@ -1184,7 +1179,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
         id: PeerRequestId,
         peer_id: PeerId,
         request: Request,
-    ) -> NetworkEvent<AppReqId, E> {
+    ) -> NetworkEvent<E> {
         // Increment metrics
         match &request {
             Request::Status(_) => {
@@ -1229,8 +1224,8 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
 
     /// Dial cached Enrs in discovery service that are in the given `subnet_id` and aren't
     /// in Connected, Dialing or Banned state.
-    fn dial_cached_enrs_in_subnet(&mut self, subnet: Subnet) {
-        let predicate = subnet_predicate::<E>(vec![subnet], &self.log, &self.spec);
+    fn dial_cached_enrs_in_subnet(&mut self, subnet: Subnet, spec: Arc<ChainSpec>) {
+        let predicate = subnet_predicate::<E>(vec![subnet], &self.log, spec);
         let peers_to_dial: Vec<Enr> = self
             .discovery()
             .cached_enrs()
@@ -1256,7 +1251,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     /* Sub-behaviour event handling functions */
 
     /// Handle a gossipsub event.
-    fn inject_gs_event(&mut self, event: gossipsub::Event) -> Option<NetworkEvent<AppReqId, E>> {
+    fn inject_gs_event(&mut self, event: gossipsub::Event) -> Option<NetworkEvent<E>> {
         match event {
             gossipsub::Event::Message {
                 propagation_source,
@@ -1395,10 +1390,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     }
 
     /// Handle an RPC event.
-    fn inject_rpc_event(
-        &mut self,
-        event: RPCMessage<RequestId<AppReqId>, E>,
-    ) -> Option<NetworkEvent<AppReqId, E>> {
+    fn inject_rpc_event(&mut self, event: RPCMessage<RequestId, E>) -> Option<NetworkEvent<E>> {
         let peer_id = event.peer_id;
 
         // Do not permit Inbound events from peers that are being disconnected, or RPC requests.
@@ -1655,10 +1647,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     }
 
     /// Handle an identify event.
-    fn inject_identify_event(
-        &mut self,
-        event: identify::Event,
-    ) -> Option<NetworkEvent<AppReqId, E>> {
+    fn inject_identify_event(&mut self, event: identify::Event) -> Option<NetworkEvent<E>> {
         match event {
             identify::Event::Received { peer_id, mut info } => {
                 if info.listen_addrs.len() > MAX_IDENTIFY_ADDRESSES {
@@ -1679,7 +1668,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     }
 
     /// Handle a peer manager event.
-    fn inject_pm_event(&mut self, event: PeerManagerEvent) -> Option<NetworkEvent<AppReqId, E>> {
+    fn inject_pm_event(&mut self, event: PeerManagerEvent) -> Option<NetworkEvent<E>> {
         match event {
             PeerManagerEvent::PeerConnectedIncoming(peer_id) => {
                 Some(NetworkEvent::PeerConnectedIncoming(peer_id))
@@ -1783,7 +1772,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
     /// Poll the p2p networking stack.
     ///
     /// This will poll the swarm and do maintenance routines.
-    pub fn poll_network(&mut self, cx: &mut Context) -> Poll<NetworkEvent<AppReqId, E>> {
+    pub fn poll_network(&mut self, cx: &mut Context) -> Poll<NetworkEvent<E>> {
         while let Poll::Ready(Some(swarm_event)) = self.swarm.poll_next_unpin(cx) {
             let maybe_event = match swarm_event {
                 SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
@@ -1882,13 +1871,17 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
                     }
                 }
                 SwarmEvent::ListenerError { error, .. } => {
-                    // this is non fatal, but we still check
-                    warn!(self.log, "Listener error"; "error" => ?error);
-                    if Swarm::listeners(&self.swarm).count() == 0 {
-                        Some(NetworkEvent::ZeroListeners)
+                    // Ignore quic accept and close errors.
+                    if let Some(error) = error
+                        .get_ref()
+                        .and_then(|err| err.downcast_ref::<libp2p::quic::Error>())
+                        .filter(|err| matches!(err, libp2p::quic::Error::Connection(_)))
+                    {
+                        debug!(self.log, "Listener closed quic connection"; "reason" => ?error);
                     } else {
-                        None
+                        warn!(self.log, "Listener error"; "error" => ?error);
                     }
+                    None
                 }
                 _ => {
                     // NOTE: SwarmEvent is a non exhaustive enum so updates should be based on
@@ -1925,7 +1918,7 @@ impl<AppReqId: ReqId, E: EthSpec> Network<AppReqId, E> {
         Poll::Pending
     }
 
-    pub async fn next_event(&mut self) -> NetworkEvent<AppReqId, E> {
+    pub async fn next_event(&mut self) -> NetworkEvent<E> {
         futures::future::poll_fn(|cx| self.poll_network(cx)).await
     }
 }

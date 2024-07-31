@@ -43,7 +43,7 @@ where
                 let mut subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
                     enr.node_id().raw().into(),
                     custody_subnet_count,
-                    &spec_clone,
+                    &spec,
                 );
                 subnets.contains(s)
             }

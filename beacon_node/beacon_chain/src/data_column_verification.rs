@@ -22,7 +22,7 @@ use types::{
 
 /// An error occurred while validating a gossip data column.
 #[derive(Debug)]
-pub enum GossipDataColumnError<E: EthSpec> {
+pub enum GossipDataColumnError {
     /// There was an error whilst processing the data column. It is not known if it is
     /// valid or invalid.
     ///
@@ -108,7 +108,7 @@ pub enum GossipDataColumnError<E: EthSpec> {
     /// ## Peer scoring
     ///
     /// We cannot process the columns without validating its parent, the peer isn't necessarily faulty.
-    ParentUnknown(Arc<DataColumnSidecar<E>>),
+    ParentUnknown { parent_root: Hash256 },
     /// The column conflicts with finalization, no need to propagate.
     ///
     /// ## Peer scoring
@@ -135,13 +135,13 @@ pub enum GossipDataColumnError<E: EthSpec> {
     },
 }
 
-impl<E: EthSpec> From<BeaconChainError> for GossipDataColumnError<E> {
+impl From<BeaconChainError> for GossipDataColumnError {
     fn from(e: BeaconChainError) -> Self {
         GossipDataColumnError::BeaconChainError(e)
     }
 }
 
-impl<E: EthSpec> From<BeaconStateError> for GossipDataColumnError<E> {
+impl From<BeaconStateError> for GossipDataColumnError {
     fn from(e: BeaconStateError) -> Self {
         GossipDataColumnError::BeaconChainError(BeaconChainError::BeaconStateError(e))
     }
@@ -162,12 +162,12 @@ impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T> {
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         subnet_id: u64,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, GossipDataColumnError<T::EthSpec>> {
+    ) -> Result<Self, GossipDataColumnError> {
         let header = column_sidecar.signed_block_header.clone();
         // We only process slashing info if the gossip verification failed
         // since we do not process the data column any further in that case.
         validate_data_column_sidecar_for_gossip(column_sidecar, subnet_id, chain).map_err(|e| {
-            process_block_slash_info::<_, GossipDataColumnError<T::EthSpec>>(
+            process_block_slash_info::<_, GossipDataColumnError>(
                 chain,
                 BlockSlashInfo::from_early_error_data_column(header, e),
             )
@@ -333,7 +333,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     pub fn clone_arc(&self) -> Arc<DataColumnSidecar<E>> {
         self.data.clone()
     }
-    pub fn index(&self) -> u64 {
+    pub fn index(&self) -> ColumnIndex {
         self.data.index
     }
 }
@@ -411,7 +411,7 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
 fn verify_is_first_sidecar<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     data_column: &DataColumnSidecar<T::EthSpec>,
-) -> Result<(), GossipDataColumnError<T::EthSpec>> {
+) -> Result<(), GossipDataColumnError> {
     if chain
         .observed_column_sidecars
         .read()
@@ -454,14 +454,16 @@ fn verify_slot_higher_than_parent<E: EthSpec>(
 fn verify_parent_block_and_finalized_descendant<T: BeaconChainTypes>(
     data_column: Arc<DataColumnSidecar<T::EthSpec>>,
     chain: &BeaconChain<T>,
-) -> Result<ProtoBlock, GossipDataColumnError<T::EthSpec>> {
+) -> Result<ProtoBlock, GossipDataColumnError> {
     let fork_choice = chain.canonical_head.fork_choice_read_lock();
 
     // We have already verified that the column is past finalization, so we can
     // just check fork choice for the block's parent.
     let block_parent_root = data_column.block_parent_root();
     let Some(parent_block) = fork_choice.get_block(&block_parent_root) else {
-        return Err(GossipDataColumnError::ParentUnknown(data_column.clone()));
+        return Err(GossipDataColumnError::ParentUnknown {
+            parent_root: block_parent_root,
+        });
     };
 
     // Do not process a column that does not descend from the finalized root.
@@ -477,7 +479,7 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
     data_column: &DataColumnSidecar<T::EthSpec>,
     parent_block: &ProtoBlock,
     chain: &BeaconChain<T>,
-) -> Result<(), GossipDataColumnError<T::EthSpec>> {
+) -> Result<(), GossipDataColumnError> {
     let column_slot = data_column.slot();
     let column_epoch = column_slot.epoch(E::slots_per_epoch());
     let column_index = data_column.index;
@@ -517,7 +519,7 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
                 ))
             })?;
 
-        let state = cheap_state_advance_to_obtain_committees::<_, GossipDataColumnError<T::EthSpec>>(
+        let state = cheap_state_advance_to_obtain_committees::<_, GossipDataColumnError>(
             &mut parent_state,
             Some(parent_state_root),
             column_slot,
@@ -575,7 +577,7 @@ fn verify_index_matches_subnet<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
     subnet: u64,
     spec: &ChainSpec,
-) -> Result<(), GossipDataColumnError<E>> {
+) -> Result<(), GossipDataColumnError> {
     let expected_subnet: u64 =
         DataColumnSubnetId::from_column_index::<E>(data_column.index as usize, spec).into();
     if expected_subnet != subnet {
@@ -590,7 +592,7 @@ fn verify_index_matches_subnet<E: EthSpec>(
 fn verify_slot_greater_than_latest_finalized_slot<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     column_slot: Slot,
-) -> Result<(), GossipDataColumnError<T::EthSpec>> {
+) -> Result<(), GossipDataColumnError> {
     let latest_finalized_slot = chain
         .head()
         .finalized_checkpoint()
@@ -608,7 +610,7 @@ fn verify_slot_greater_than_latest_finalized_slot<T: BeaconChainTypes>(
 fn verify_sidecar_not_from_future_slot<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     column_slot: Slot,
-) -> Result<(), GossipDataColumnError<T::EthSpec>> {
+) -> Result<(), GossipDataColumnError> {
     let latest_permissible_slot = chain
         .slot_clock
         .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
