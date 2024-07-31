@@ -89,17 +89,17 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), 
                     Some((move_validators::CMD, matches)) => {
                         move_validators::cli_run(matches, dump_config).await
                     }
-                    (list_validators::CMD, Some(matches)) => {
+                    Some((list_validators::CMD, matches)) => {
                         list_validators::cli_run(matches, dump_config).await
                     }
-                    (remove_validator::CMD, Some(matches)) => {
+                    Some((remove_validator::CMD, matches)) => {
                         remove_validator::cli_run(matches, dump_config).await
                     }
-                    (import_validator::CMD, Some(matches)) => {
+                    Some((import_validator::CMD, matches)) => {
                         import_validator::cli_run(matches, dump_config).await
                     }
-                    ("", _) => Err("No command supplied. See --help.".to_string()),
-                    (unknown, _) => Err(format!(
+                    Some(("", _)) => Err("No command supplied. See --help.".to_string()),
+                    Some((unknown, _)) => Err(format!(
                         "{} is not a valid {} command. See --help.",
                         unknown, CMD
                     )),
