@@ -1,7 +1,7 @@
 use super::common::*;
 use crate::DumpConfig;
 use account_utils::ZeroizeString;
-use clap::{App, Arg, ArgMatches};
+use clap::{App, Arg, ArgAction, ArgMatches, Command};
 use eth2::lighthouse_vc::types::KeystoreJsonStr;
 use eth2::{lighthouse_vc::std_types::ImportKeystoreStatus, SensitiveUrl};
 use eth2_keystore::json_keystore::JsonKeystore;
@@ -71,7 +71,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     imported to the validator client.",
                 )
                 .required(true)
-                .takes_value(true),
+                .action(ArgAction::Set),
         )
         .arg(
             Arg::new(VC_URL_FLAG)
@@ -84,18 +84,18 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .default_value("http://localhost:5062")
                 .requires(VC_TOKEN_FLAG)
-                .takes_value(true),
+                .action(ArgAction::Set),
         )
         .arg(
             Arg::new(VC_TOKEN_FLAG)
                 .long(VC_TOKEN_FLAG)
                 .value_name("PATH")
                 .help("The file containing a token required by the validator client.")
-                .takes_value(true),
+                .action(ArgAction::Set),
         )
         .arg(
             Arg::new(IGNORE_DUPLICATES_FLAG)
-                .takes_value(false)
+            .action(ArgAction::Set)
                 .long(IGNORE_DUPLICATES_FLAG)
                 .help(
                     "If present, ignore any validators which already exist on the VC. \
@@ -111,47 +111,49 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(PASSWORD)
                 .value_name("STRING")
                 .help("Password of keystore file.")
-                .takes_value(true),
+                .action(ArgAction::Set),
         )
         .arg(
             Arg::new(FEE_RECIPIENT)
                 .long(FEE_RECIPIENT)
                 .value_name("STRING")
                 .help("Address of fee recipient.")
-                .takes_value(true),
+                .action(ArgAction::Set),
         )
         .arg(
             Arg::new(GAS_LIMIT)
                 .long(GAS_LIMIT)
                 .value_name("U64")
                 .help("Gas limit.")
-                .takes_value(true),
+                .action(ArgAction::Set),
         )
         .arg(
             Arg::new(BUILDER_PROPOSALS)
                 .long(BUILDER_PROPOSALS)
                 .value_name("BOOL")
                 .help("Builder proposals.")
+                .action(ArgAction::SetTrue)
         )
         .arg(
             Arg::new(BUILDER_BOOST_FACTOR)
                 .long(BUILDER_BOOST_FACTOR)
                 .value_name("U64")
                 .help("Builder boost factor.")
-                .takes_value(true),
+                .action(ArgAction::Set),
         )
         .arg(
             Arg::new(PREFER_BUILDER_PROPOSALS)
                 .long(PREFER_BUILDER_PROPOSALS)
                 .value_name("BOOL")
                 .help("Prefer builder proposals.")
+                .action(ArgAction::SetTrue)
         )
         .arg(
             Arg::new(ENABLED)
                 .long(ENABLED)
                 .value_name("BOOL")
                 .help("Enabled.")
-                .takes_value(true),
+                .action(ArgAction::Set),
         )
 }
 

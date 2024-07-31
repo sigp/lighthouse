@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{App, Arg, ArgMatches};
+use clap::{App, Arg, ArgAction, ArgMatches, Command};
 use eth2::{
     lighthouse_vc::types::{DeleteKeystoreStatus, DeleteKeystoresRequest},
     SensitiveUrl,
@@ -35,21 +35,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .default_value("http://localhost:5062")
                 .requires(VC_TOKEN_FLAG)
-                .takes_value(true),
+                .action(ArgAction::Set),
         )
         .arg(
             Arg::new(VC_TOKEN_FLAG)
                 .long(VC_TOKEN_FLAG)
                 .value_name("PATH")
                 .help("The file containing a token required by the validator client.")
-                .takes_value(true),
+                .action(ArgAction::Set),
         )
         .arg(
             Arg::new(VALIDATOR_FLAG)
                 .long(VALIDATOR_FLAG)
                 .value_name("STRING")
                 .help("Validator that will be removed (pubkey).")
-                .takes_value(true),
+                .action(ArgAction::Set),
         )
 }
 
