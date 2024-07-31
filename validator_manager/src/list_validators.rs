@@ -12,27 +12,27 @@ pub const VC_TOKEN_FLAG: &str = "vc-token";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
-    .about("Lists all the validators in VC")
-    .arg(
-        Arg::with_name(VC_URL_FLAG)
-        .long(VC_URL_FLAG)
-        .value_name("HTTP_ADDRESS")
-        .help(
-            "A HTTP(S) address of a validator client using the keymanager-API. \
+        .about("Lists all the validators in VC")
+        .arg(
+            Arg::new(VC_URL_FLAG)
+                .long(VC_URL_FLAG)
+                .value_name("HTTP_ADDRESS")
+                .help(
+                    "A HTTP(S) address of a validator client using the keymanager-API. \
             If this value is not supplied then a 'dry run' will be conducted where \
             no changes are made to the validator client.",
+                )
+                .default_value("http://localhost:5062")
+                .requires(VC_TOKEN_FLAG)
+                .takes_value(true),
         )
-        .default_value("http://localhost:5062")
-        .requires(VC_TOKEN_FLAG)
-        .takes_value(true)
-    )
-    .arg(
-        Arg::with_name(VC_TOKEN_FLAG)
-            .long(VC_TOKEN_FLAG)
-            .value_name("PATH")
-            .help("The file containing a token required by the validator client.")
-            .takes_value(true),
-    )
+        .arg(
+            Arg::new(VC_TOKEN_FLAG)
+                .long(VC_TOKEN_FLAG)
+                .value_name("PATH")
+                .help("The file containing a token required by the validator client.")
+                .takes_value(true),
+        )
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -52,7 +52,7 @@ impl ListConfig {
 
 pub async fn cli_run<'a>(
     matches: &'a ArgMatches<'a>,
-    dump_config: DumpConfig
+    dump_config: DumpConfig,
 ) -> Result<(), String> {
     let config = ListConfig::from_cli(matches)?;
     if dump_config.should_exit_early(&config)? {
@@ -63,10 +63,7 @@ pub async fn cli_run<'a>(
     }
 }
 
-pub async fn run<'a>(
-    config: ListConfig
-) -> Result<String, String> {
-
+pub async fn run<'a>(config: ListConfig) -> Result<String, String> {
     let ListConfig {
         vc_url,
         vc_token_path,
@@ -91,12 +88,16 @@ pub async fn run<'a>(
 #[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod test {
-    use std::{fs::{self, File}, io::Write};
+    use std::{
+        fs::{self, File},
+        io::Write,
+    };
 
     use super::*;
-    use crate::{common::ValidatorSpecification, import_validators::tests::TestBuilder as ImportTestBuilder};
+    use crate::{
+        common::ValidatorSpecification, import_validators::tests::TestBuilder as ImportTestBuilder,
+    };
     use validator_client::http_api::{test_utils::ApiTester, Config as HttpConfig};
-
 
     struct TestBuilder {
         list_config: Option<ListConfig>,
@@ -127,7 +128,8 @@ mod test {
                 vc_token_path: builder.get_import_config().vc_token_path,
             });
 
-            self.vc_token = Some(fs::read_to_string(builder.get_import_config().vc_token_path).unwrap());
+            self.vc_token =
+                Some(fs::read_to_string(builder.get_import_config().vc_token_path).unwrap());
 
             let local_validators: Vec<ValidatorSpecification> = {
                 let contents =
@@ -139,7 +141,6 @@ mod test {
             self.src_import_builder = Some(builder);
             self
         }
-
 
         pub async fn run_test(self) -> TestResult {
             let import_test_result = self.src_import_builder.unwrap().run_test().await;
@@ -168,12 +169,13 @@ mod test {
                 for local_validator in &self.validators {
                     let local_keystore = &local_validator.voting_keystore.0;
                     let local_pubkey = local_keystore.public_key().unwrap().as_hex_string();
-                    assert!(result_ref.contains(&local_pubkey), "local validator pubkey not found in result");
+                    assert!(
+                        result_ref.contains(&local_pubkey),
+                        "local validator pubkey not found in result"
+                    );
                 }
 
-                return TestResult {
-                    result: Ok(()),
-                };
+                return TestResult { result: Ok(()) };
             }
 
             TestResult {
@@ -203,4 +205,3 @@ mod test {
             .assert_ok();
     }
 }
-

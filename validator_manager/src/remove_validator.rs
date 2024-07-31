@@ -1,9 +1,12 @@
 use std::path::PathBuf;
 
-use types::PublicKeyBytes;
 use clap::{App, Arg, ArgMatches};
-use eth2::{lighthouse_vc::types::{DeleteKeystoreStatus, DeleteKeystoresRequest}, SensitiveUrl};
+use eth2::{
+    lighthouse_vc::types::{DeleteKeystoreStatus, DeleteKeystoresRequest},
+    SensitiveUrl,
+};
 use serde::{Deserialize, Serialize};
+use types::PublicKeyBytes;
 
 use crate::{common::vc_http_client, DumpConfig};
 
@@ -15,39 +18,39 @@ pub const VALIDATOR_FLAG: &str = "validator";
 #[derive(Debug)]
 pub enum RemoveError {
     InvalidPublicKey,
-    RemoveFailed(eth2::Error)
+    RemoveFailed(eth2::Error),
 }
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
-    .about("Removes validator from VC")
-    .arg(
-        Arg::with_name(VC_URL_FLAG)
-        .long(VC_URL_FLAG)
-        .value_name("HTTP_ADDRESS")
-        .help(
-            "A HTTP(S) address of a validator client using the keymanager-API. \
+        .about("Removes validator from VC")
+        .arg(
+            Arg::new(VC_URL_FLAG)
+                .long(VC_URL_FLAG)
+                .value_name("HTTP_ADDRESS")
+                .help(
+                    "A HTTP(S) address of a validator client using the keymanager-API. \
             If this value is not supplied then a 'dry run' will be conducted where \
             no changes are made to the validator client.",
+                )
+                .default_value("http://localhost:5062")
+                .requires(VC_TOKEN_FLAG)
+                .takes_value(true),
         )
-        .default_value("http://localhost:5062")
-        .requires(VC_TOKEN_FLAG)
-        .takes_value(true)
-    )
-    .arg(
-        Arg::with_name(VC_TOKEN_FLAG)
-            .long(VC_TOKEN_FLAG)
-            .value_name("PATH")
-            .help("The file containing a token required by the validator client.")
-            .takes_value(true),
-    )
-    .arg(
-        Arg::with_name(VALIDATOR_FLAG)
-            .long(VALIDATOR_FLAG)
-            .value_name("STRING")
-            .help("Validator that will be removed (pubkey).")
-            .takes_value(true),
-    )
+        .arg(
+            Arg::new(VC_TOKEN_FLAG)
+                .long(VC_TOKEN_FLAG)
+                .value_name("PATH")
+                .help("The file containing a token required by the validator client.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::new(VALIDATOR_FLAG)
+                .long(VALIDATOR_FLAG)
+                .value_name("STRING")
+                .help("Validator that will be removed (pubkey).")
+                .takes_value(true),
+        )
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -69,7 +72,7 @@ impl RemoveConfig {
 
 pub async fn cli_run<'a>(
     matches: &'a ArgMatches<'a>,
-    dump_config: DumpConfig
+    dump_config: DumpConfig,
 ) -> Result<(), String> {
     let config = RemoveConfig::from_cli(matches)?;
     if dump_config.should_exit_early(&config)? {
@@ -79,10 +82,7 @@ pub async fn cli_run<'a>(
     }
 }
 
-pub async fn run<'a>(
-    config: RemoveConfig
-) -> Result<(), String> {
-
+pub async fn run<'a>(config: RemoveConfig) -> Result<(), String> {
     let RemoveConfig {
         vc_url,
         vc_token_path,
@@ -93,39 +93,53 @@ pub async fn run<'a>(
 
     let validators = http_client.get_keystores().await.unwrap().data;
 
-    if !validators.iter().any(|validator| validator.validating_pubkey == validator_to_remove) {
+    if !validators
+        .iter()
+        .any(|validator| validator.validating_pubkey == validator_to_remove)
+    {
         eprintln!("Validator {} doesn't exists", validator_to_remove);
         return Err(format!("Validator {} doesn't exists", validator_to_remove));
     }
 
     let delete_request = DeleteKeystoresRequest {
-        pubkeys: vec![validator_to_remove]
+        pubkeys: vec![validator_to_remove],
     };
 
-    let response = http_client.delete_keystores(&delete_request)
+    let response = http_client
+        .delete_keystores(&delete_request)
         .await
-        .map_err(|e|  format!("Error deleting keystore {}", e))?
+        .map_err(|e| format!("Error deleting keystore {}", e))?
         .data;
 
-    if response[0].status == DeleteKeystoreStatus::Error || response[0].status == DeleteKeystoreStatus::NotFound || response[0].status == DeleteKeystoreStatus::NotActive {
+    if response[0].status == DeleteKeystoreStatus::Error
+        || response[0].status == DeleteKeystoreStatus::NotFound
+        || response[0].status == DeleteKeystoreStatus::NotActive
+    {
         eprintln!("Problem with removing validator {}", validator_to_remove);
-        return Err(format!("Problem with removing validator {}", validator_to_remove));
+        return Err(format!(
+            "Problem with removing validator {}",
+            validator_to_remove
+        ));
     }
 
     eprintln!("Validator deleted");
     Ok(())
 }
 
-
 #[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod test {
-    use std::{fs::{self, File}, io::Write, str::FromStr};
+    use std::{
+        fs::{self, File},
+        io::Write,
+        str::FromStr,
+    };
 
     use super::*;
-    use crate::{common::ValidatorSpecification, import_validators::tests::TestBuilder as ImportTestBuilder};
+    use crate::{
+        common::ValidatorSpecification, import_validators::tests::TestBuilder as ImportTestBuilder,
+    };
     use validator_client::http_api::{test_utils::ApiTester, Config as HttpConfig};
-
 
     struct TestBuilder {
         remove_config: Option<RemoveConfig>,
@@ -146,13 +160,19 @@ mod test {
             }
         }
 
-        async fn with_validators(mut self, count: u32, first_index: u32, index_of_validator_to_remove: usize) -> Self {
+        async fn with_validators(
+            mut self,
+            count: u32,
+            first_index: u32,
+            index_of_validator_to_remove: usize,
+        ) -> Self {
             let builder = ImportTestBuilder::new_with_http_config(self.http_config.clone())
                 .await
                 .create_validators(count, first_index)
                 .await;
 
-            self.vc_token = Some(fs::read_to_string(builder.get_import_config().vc_token_path).unwrap());
+            self.vc_token =
+                Some(fs::read_to_string(builder.get_import_config().vc_token_path).unwrap());
 
             let local_validators: Vec<ValidatorSpecification> = {
                 let contents =
@@ -160,19 +180,27 @@ mod test {
                 serde_json::from_str(&contents).unwrap()
             };
 
-            let import_config= builder.get_import_config();
+            let import_config = builder.get_import_config();
 
             self.remove_config = Some(RemoveConfig {
                 vc_url: import_config.vc_url,
                 vc_token_path: import_config.vc_token_path,
-                validator_to_remove: PublicKeyBytes::from_str(format!("0x{}", local_validators[index_of_validator_to_remove].voting_keystore.pubkey()).as_str()).unwrap(),
+                validator_to_remove: PublicKeyBytes::from_str(
+                    format!(
+                        "0x{}",
+                        local_validators[index_of_validator_to_remove]
+                            .voting_keystore
+                            .pubkey()
+                    )
+                    .as_str(),
+                )
+                .unwrap(),
             });
 
             self.validators = local_validators.clone();
             self.src_import_builder = Some(builder);
             self
         }
-
 
         pub async fn run_test(self) -> TestResult {
             let import_builder = self.src_import_builder.unwrap();
@@ -198,16 +226,16 @@ mod test {
             let result = run(self.remove_config.clone().unwrap()).await;
 
             if result.is_ok() {
-
                 let (http_client, _keystores) = vc_http_client(url, path.clone()).await.unwrap();
                 let list_keystores_response = http_client.get_keystores().await.unwrap().data;
 
                 assert_eq!(list_keystores_response.len(), self.validators.len() - 1);
-                assert!(list_keystores_response.iter().all(|keystore| keystore.validating_pubkey != self.remove_config.clone().unwrap().validator_to_remove));
+                assert!(list_keystores_response
+                    .iter()
+                    .all(|keystore| keystore.validating_pubkey
+                        != self.remove_config.clone().unwrap().validator_to_remove));
 
-                return TestResult {
-                    result: Ok(()),
-                };
+                return TestResult { result: Ok(()) };
             }
 
             TestResult {
@@ -237,4 +265,3 @@ mod test {
             .assert_ok();
     }
 }
-

@@ -7,9 +7,9 @@ use eth2::{lighthouse_vc::std_types::ImportKeystoreStatus, SensitiveUrl};
 use eth2_keystore::json_keystore::JsonKeystore;
 use eth2_keystore::Keystore;
 use serde::{Deserialize, Serialize};
-use types::Address;
 use std::fs;
 use std::path::PathBuf;
+use types::Address;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct KeystoreStandard {
@@ -55,7 +55,6 @@ pub const BUILDER_BOOST_FACTOR: &str = "builder-boost-factor";
 pub const PREFER_BUILDER_PROPOSALS: &str = "prefer-builder-proposals";
 pub const ENABLED: &str = "enabled";
 
-
 pub const DETECTED_DUPLICATE_MESSAGE: &str = "Duplicate validator detected!";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
@@ -64,7 +63,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             "Uploads standard keystore JSON format validator to a validator client using the HTTP API.",
         )
         .arg(
-            Arg::with_name(VALIDATOR_FILE_FLAG)
+            Arg::new(VALIDATOR_FILE_FLAG)
                 .long(VALIDATOR_FILE_FLAG)
                 .value_name("PATH_TO_JSON_FILE")
                 .help(
@@ -75,7 +74,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(VC_URL_FLAG)
+            Arg::new(VC_URL_FLAG)
                 .long(VC_URL_FLAG)
                 .value_name("HTTP_ADDRESS")
                 .help(
@@ -88,14 +87,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(VC_TOKEN_FLAG)
+            Arg::new(VC_TOKEN_FLAG)
                 .long(VC_TOKEN_FLAG)
                 .value_name("PATH")
                 .help("The file containing a token required by the validator client.")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(IGNORE_DUPLICATES_FLAG)
+            Arg::new(IGNORE_DUPLICATES_FLAG)
                 .takes_value(false)
                 .long(IGNORE_DUPLICATES_FLAG)
                 .help(
@@ -108,47 +107,47 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 ),
         )
         .arg(
-            Arg::with_name(PASSWORD)
+            Arg::new(PASSWORD)
                 .long(PASSWORD)
                 .value_name("STRING")
                 .help("Password of keystore file.")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(FEE_RECIPIENT)
+            Arg::new(FEE_RECIPIENT)
                 .long(FEE_RECIPIENT)
                 .value_name("STRING")
                 .help("Address of fee recipient.")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(GAS_LIMIT)
+            Arg::new(GAS_LIMIT)
                 .long(GAS_LIMIT)
                 .value_name("U64")
                 .help("Gas limit.")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(BUILDER_PROPOSALS)
+            Arg::new(BUILDER_PROPOSALS)
                 .long(BUILDER_PROPOSALS)
                 .value_name("BOOL")
                 .help("Builder proposals.")
         )
         .arg(
-            Arg::with_name(BUILDER_BOOST_FACTOR)
+            Arg::new(BUILDER_BOOST_FACTOR)
                 .long(BUILDER_BOOST_FACTOR)
                 .value_name("U64")
                 .help("Builder boost factor.")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(PREFER_BUILDER_PROPOSALS)
+            Arg::new(PREFER_BUILDER_PROPOSALS)
                 .long(PREFER_BUILDER_PROPOSALS)
                 .value_name("BOOL")
                 .help("Prefer builder proposals.")
         )
         .arg(
-            Arg::with_name(ENABLED)
+            Arg::new(ENABLED)
                 .long(ENABLED)
                 .value_name("BOOL")
                 .help("Enabled.")
@@ -183,7 +182,10 @@ impl ImportConfig {
             gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT)?,
             builder_proposals: clap_utils::parse_optional(matches, BUILDER_PROPOSALS)?,
             builder_boost_factor: clap_utils::parse_optional(matches, BUILDER_BOOST_FACTOR)?,
-            prefer_builder_proposals: clap_utils::parse_optional(matches, PREFER_BUILDER_PROPOSALS)?,
+            prefer_builder_proposals: clap_utils::parse_optional(
+                matches,
+                PREFER_BUILDER_PROPOSALS,
+            )?,
             enabled: clap_utils::parse_optional(matches, ENABLED)?,
         })
     }
@@ -225,13 +227,12 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
     let validators_file = fs::read_to_string(validator_file_path_clone)
         .map_err(|e| format!("Unable to open {:?}: {:?}", validator_file_path, e))?;
 
-    let json_keystore: JsonKeystore = serde_json::from_str(&validators_file).expect("JSON was not well formatted");
+    let json_keystore: JsonKeystore =
+        serde_json::from_str(&validators_file).expect("JSON was not well formatted");
 
     let (http_client, _keystores) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
 
-    eprintln!(
-        "Starting to submit validator it may take several seconds"
-    );
+    eprintln!("Starting to submit validator it may take several seconds");
 
     let validator_specification = ValidatorSpecification {
         voting_keystore: KeystoreJsonStr(Keystore::from_json_keystore(json_keystore).unwrap()),
@@ -245,36 +246,37 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
         enabled,
     };
 
-    match validator_specification.upload(&http_client, ignore_duplicates).await {
-        Ok(status) => {
-            match status.status {
-                ImportKeystoreStatus::Imported => {
-                    eprintln!("Keystore uploaded");
-                }
-                ImportKeystoreStatus::Duplicate => {
-                    if ignore_duplicates {
-                        eprintln!("Keystore re-uploaded")
-                    } else {
-                        eprintln!(
-                            "Keystore uploaded to the VC, but it was a duplicate. \
-                            Exiting now, use --{} to allow duplicates.", IGNORE_DUPLICATES_FLAG
-                        );
-                        return Err(DETECTED_DUPLICATE_MESSAGE.to_string());
-                    }
-                }
-                ImportKeystoreStatus::Error => {
+    match validator_specification
+        .upload(&http_client, ignore_duplicates)
+        .await
+    {
+        Ok(status) => match status.status {
+            ImportKeystoreStatus::Imported => {
+                eprintln!("Keystore uploaded");
+            }
+            ImportKeystoreStatus::Duplicate => {
+                if ignore_duplicates {
+                    eprintln!("Keystore re-uploaded")
+                } else {
                     eprintln!(
-                        "Upload of keystore failed with message: {:?}. \
+                        "Keystore uploaded to the VC, but it was a duplicate. \
+                            Exiting now, use --{} to allow duplicates.",
+                        IGNORE_DUPLICATES_FLAG
+                    );
+                    return Err(DETECTED_DUPLICATE_MESSAGE.to_string());
+                }
+            }
+            ImportKeystoreStatus::Error => {
+                eprintln!(
+                    "Upload of keystore failed with message: {:?}. \
                             A potential solution is run this command again \
                             using the --{} flag, however care should be taken to ensure \
                             that there are no duplicate deposits submitted.",
-                        status.message,
-                        IGNORE_DUPLICATES_FLAG
-                    );
-                    return Err(format!("Upload failed with {:?}", status.message));
-                }
+                    status.message, IGNORE_DUPLICATES_FLAG
+                );
+                return Err(format!("Upload failed with {:?}", status.message));
             }
-        }
+        },
         e @ Err(UploadError::InvalidPublicKey) => {
             eprintln!("Validator has an invalid public key");
             return Err(format!("{:?}", e));
@@ -346,7 +348,10 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
 pub mod tests {
     use super::*;
     use crate::create_validators::tests::TestBuilder as CreateTestBuilder;
-    use std::{fs::{self, File}, str::FromStr};
+    use std::{
+        fs::{self, File},
+        str::FromStr,
+    };
     use tempfile::{tempdir, TempDir};
     use validator_client::http_api::{test_utils::ApiTester, Config as HttpConfig};
 
@@ -414,10 +419,11 @@ pub mod tests {
             let validators_file_path = create_result.validators_file_path();
 
             let validators_file = fs::OpenOptions::new()
-            .read(true)
-            .create(false)
-            .open(&validators_file_path)
-            .map_err(|e| format!("Unable to open {:?}: {:?}", validators_file_path, e)).unwrap();
+                .read(true)
+                .create(false)
+                .open(&validators_file_path)
+                .map_err(|e| format!("Unable to open {:?}: {:?}", validators_file_path, e))
+                .unwrap();
 
             let validators: Vec<ValidatorSpecification> = serde_json::from_reader(&validators_file)
                 .map_err(|e| {
@@ -425,9 +431,10 @@ pub mod tests {
                         "Unable to parse JSON in {:?}: {:?}",
                         validators_file_path, e
                     )
-                }).unwrap();
+                })
+                .unwrap();
 
-            let validator =  &validators[0];
+            let validator = &validators[0];
             let validator_json = validator.voting_keystore.0.clone();
 
             let keystore_file = File::create(&validators_file_path).unwrap();
@@ -453,9 +460,18 @@ pub mod tests {
                 self.vc.ensure_key_cache_consistency().await;
 
                 let validators_file = fs::read_to_string(&self.import_config.validator_file_path)
-                .map_err(|e| format!("Unable to open {:?}: {:?}", &self.import_config.validator_file_path, e)).unwrap();
+                    .map_err(|e| {
+                        format!(
+                            "Unable to open {:?}: {:?}",
+                            &self.import_config.validator_file_path, e
+                        )
+                    })
+                    .unwrap();
 
-                let local_keystore: Keystore = Keystore::from_json_keystore(serde_json::from_str(&validators_file).expect("JSON was not well formatted")).unwrap();
+                let local_keystore: Keystore = Keystore::from_json_keystore(
+                    serde_json::from_str(&validators_file).expect("JSON was not well formatted"),
+                )
+                .unwrap();
 
                 let list_keystores_response = self.vc.client.get_keystores().await.unwrap().data;
 
