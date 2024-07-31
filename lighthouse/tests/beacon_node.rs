@@ -830,6 +830,19 @@ fn network_subscribe_all_data_column_subnets_flag() {
         .with_config(|config| assert!(config.network.subscribe_all_data_column_subnets));
 }
 #[test]
+fn network_enable_sampling_flag() {
+    CommandLineTest::new()
+        .flag("enable-sampling", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.enable_sampling));
+}
+#[test]
+fn network_enable_sampling_flag_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.enable_sampling));
+}
+#[test]
 fn network_subscribe_all_subnets_flag() {
     CommandLineTest::new()
         .flag("subscribe-all-subnets", None)

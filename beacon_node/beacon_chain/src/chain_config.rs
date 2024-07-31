@@ -88,6 +88,8 @@ pub struct ChainConfig {
     pub enable_light_client_server: bool,
     /// Enable malicious PeerDAS mode where node withholds data columns when publishing a block
     pub malicious_withhold_count: usize,
+    /// Enable peer sampling on blocks.
+    pub enable_sampling: bool,
 }
 
 impl Default for ChainConfig {
@@ -121,6 +123,7 @@ impl Default for ChainConfig {
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
             enable_light_client_server: false,
             malicious_withhold_count: 0,
+            enable_sampling: false,
         }
     }
 }
