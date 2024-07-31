@@ -264,6 +264,11 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
         let slot = Slot::new(slot);
         let previous_slot = slot - 1;
 
+        let sync_committee_period = slot
+            .epoch(E::slots_per_epoch())
+            .sync_committee_period(&E::default_spec())
+            .unwrap();
+
         let previous_slot_block = client
             .get_beacon_blocks::<E>(BlockId::Slot(previous_slot))
             .await
@@ -329,6 +334,29 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
                 "Existing finality update too old: signature slot {signature_slot}, current slot {slot:?}"
             ));
         }
+
+        // Verify light client update. `signature_slot_distance` should be 1 in the ideal scenario.
+        let light_client_updates = client
+            .get_beacon_light_client_updates::<E>(sync_committee_period, 1)
+            .await
+            .map_err(|e| format!("Error while getting light client update: {:?}", e))?
+            .ok_or(format!("Light client update not found {slot:?}"))?;
+
+        if light_client_updates.len() != 1 {
+            return Err(format!(
+                "{} light client update(s) was returned when only one was expected.",
+                light_client_updates.len()
+            ));
+        }
+
+        if let Some(light_client_update) = light_client_updates.first() {
+            let signature_slot_distance = slot - *light_client_update.data.signature_slot();
+            if signature_slot_distance > light_client_update_slot_tolerance {
+                return Err(format!(
+                 "Existing light client update too old: signature slot {signature_slot}, current slot {slot:?}"
+             ));
+            }
+        };
     }
 
     Ok(())

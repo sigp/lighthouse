@@ -114,48 +114,9 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         let maybe_finalized_block = store.get_blinded_block(&cached_parts.finalized_block_root)?;
 
-        let new_light_client_update = LightClientUpdate::new(
-            sync_aggregate,
-            block_slot,
-            cached_parts.next_sync_committee,
-            cached_parts.next_sync_committee_branch,
-            cached_parts.finality_branch.clone(),
-            &attested_block,
-            maybe_finalized_block.as_ref(),
-            chain_spec,
-        )?;
-
         let sync_period = block_slot
             .epoch(T::EthSpec::slots_per_epoch())
             .sync_committee_period(chain_spec)?;
-
-        // Spec: Full nodes SHOULD provide the best derivable LightClientUpdate (according to is_better_update)
-        // for each sync committee period
-        let prev_light_client_update = match &self.latest_light_client_update.read().clone() {
-            Some(prev_light_client_update) => Some(prev_light_client_update.clone()),
-            None => self.get_light_client_update(&store, sync_period, chain_spec)?,
-        };
-
-        let should_persist_light_client_update =
-            if let Some(prev_light_client_update) = prev_light_client_update {
-                let prev_sync_period = prev_light_client_update
-                    .signature_slot()
-                    .epoch(T::EthSpec::slots_per_epoch())
-                    .sync_committee_period(chain_spec)?;
-
-                if sync_period != prev_sync_period {
-                    true
-                } else {
-                    prev_light_client_update
-                        .is_better_light_client_update(&new_light_client_update, chain_spec)?
-                }
-            } else {
-                true
-            };
-
-        if should_persist_light_client_update {
-            self.store_light_client_update(&store, sync_period, &new_light_client_update)?;
-        }
 
         // Spec: Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
@@ -188,11 +149,11 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         if is_latest_finality & !cached_parts.finalized_block_root.is_zero() {
             // Immediately after checkpoint sync the finalized block may not be available yet.
-            if let Some(finalized_block) = maybe_finalized_block {
+            if let Some(finalized_block) = maybe_finalized_block.as_ref() {
                 *self.latest_finality_update.write() = Some(LightClientFinalityUpdate::new(
                     &attested_block,
-                    &finalized_block,
-                    cached_parts.finality_branch,
+                    finalized_block,
+                    cached_parts.finality_branch.clone(),
                     sync_aggregate.clone(),
                     signature_slot,
                     chain_spec,
@@ -204,6 +165,45 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                     "finalized_block_root" => format!("{}", cached_parts.finalized_block_root),
                 );
             }
+        }
+
+        let new_light_client_update = LightClientUpdate::new(
+            sync_aggregate,
+            block_slot,
+            cached_parts.next_sync_committee,
+            cached_parts.next_sync_committee_branch,
+            cached_parts.finality_branch,
+            &attested_block,
+            maybe_finalized_block.as_ref(),
+            chain_spec,
+        )?;
+
+        // Spec: Full nodes SHOULD provide the best derivable LightClientUpdate (according to is_better_update)
+        // for each sync committee period
+        let prev_light_client_update = match &self.latest_light_client_update.read().clone() {
+            Some(prev_light_client_update) => Some(prev_light_client_update.clone()),
+            None => self.get_light_client_update(&store, sync_period, chain_spec)?,
+        };
+
+        let should_persist_light_client_update =
+            if let Some(prev_light_client_update) = prev_light_client_update {
+                let prev_sync_period = prev_light_client_update
+                    .signature_slot()
+                    .epoch(T::EthSpec::slots_per_epoch())
+                    .sync_committee_period(chain_spec)?;
+
+                if sync_period != prev_sync_period {
+                    true
+                } else {
+                    prev_light_client_update
+                        .is_better_light_client_update(&new_light_client_update, chain_spec)?
+                }
+            } else {
+                true
+            };
+
+        if should_persist_light_client_update {
+            self.store_light_client_update(&store, sync_period, &new_light_client_update)?;
         }
 
         Ok(())
