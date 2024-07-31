@@ -5,23 +5,21 @@ use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableBlock, AvailableExecutedBlock,
 };
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
-use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn};
+use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::metrics;
-use crate::store::{DBColumn, KeyValueStore};
 use crate::BeaconChainTypes;
 use kzg::Kzg;
 use lru::LruCache;
-use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
-use slog::{debug, trace, Logger};
-use ssz::{Decode, Encode};
+use parking_lot::RwLock;
 use ssz_types::{FixedVector, VariableList};
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use types::blob_sidecar::BlobIdentifier;
 use types::data_column_sidecar::DataColumnIdentifier;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, Epoch, EthSpec, Hash256,
-    RuntimeVariableList, SignedBeaconBlock,
+    SignedBeaconBlock,
 };
 
 pub type DataColumnsToPublish<E> = Option<Vec<Arc<DataColumnSidecar<E>>>>;
@@ -39,11 +37,6 @@ pub struct PendingComponents<E: EthSpec> {
     pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
     pub reconstruction_started: bool,
-}
-
-pub enum BlockImportRequirement {
-    AllBlobs,
-    CustodyColumns(usize),
 }
 
 pub enum BlockImportRequirement {
@@ -99,15 +92,6 @@ impl<E: EthSpec> PendingComponents<E> {
             .unwrap_or(false)
     }
 
-    /// Checks if a data column of a given index exists in the cache.
-    ///
-    /// Returns:
-    /// - `true` if a data column for the given index exists.
-    /// - `false` otherwise.
-    fn data_column_exists(&self, data_column_index: u64) -> bool {
-        self.get_cached_data_column(data_column_index).is_some()
-    }
-
     /// Returns the number of blobs that are expected to be present. Returns `None` if we don't have a
     /// block.
     ///
@@ -123,9 +107,18 @@ impl<E: EthSpec> PendingComponents<E> {
         self.get_cached_blobs().iter().flatten().count()
     }
 
+    /// Checks if a data column of a given index exists in the cache.
+    ///
+    /// Returns:
+    /// - `true` if a data column for the given index exists.
+    /// - `false` otherwise.
+    fn data_column_exists(&self, data_column_index: u64) -> bool {
+        self.get_cached_data_column(data_column_index).is_some()
+    }
+
     /// Returns the number of data columns that have been received and are stored in the cache.
     pub fn num_received_data_columns(&self) -> usize {
-        self.verified_data_columns.iter().count()
+        self.verified_data_columns.len()
     }
 
     /// Returns the indices of cached custody columns
@@ -134,14 +127,6 @@ impl<E: EthSpec> PendingComponents<E> {
             .iter()
             .map(|d| d.index())
             .collect()
-
-    /// Checks if a data column of a given index exists in the cache.
-    ///
-    /// Returns:
-    /// - `true` if a data column for the given index exists.
-    /// - `false` otherwise.
-    fn data_column_exists(&self, data_column_index: u64) -> bool {
-        self.get_cached_data_column(data_column_index).is_some()
     }
 
     /// Inserts a block into the cache.
@@ -199,7 +184,7 @@ impl<E: EthSpec> PendingComponents<E> {
         for data_column in kzg_verified_data_columns {
             // TODO(das): Add equivalent checks for data columns if necessary
             if !self.data_column_exists(data_column.index()) {
-                self.verified_data_columns.push(data_column)?;
+                self.verified_data_columns.push(data_column);
             }
         }
         Ok(())
@@ -239,7 +224,7 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Returns an empty `PendingComponents` object with the given block root.
-    pub fn empty(block_root: Hash256, spec: &ChainSpec) -> Self {
+    pub fn empty(block_root: Hash256) -> Self {
         Self {
             block_root,
             verified_blobs: FixedVector::default(),
@@ -370,7 +355,7 @@ pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     state_cache: StateLRUCache<T>,
     /// The number of data columns the node is custodying.
     custody_column_count: usize,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
 }
 
 impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
@@ -378,7 +363,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         capacity: NonZeroUsize,
         beacon_store: BeaconStore<T>,
         custody_column_count: usize,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
             critical: RwLock::new(LruCache::new(capacity)),
@@ -448,125 +433,14 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         &self,
         data_column_id: &DataColumnIdentifier,
     ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, AvailabilityCheckError> {
-        let read_lock = self.critical.read();
-        if let Some(data_column) = read_lock.peek_data_column(data_column_id)? {
-            Ok(Some(data_column))
-        } else if read_lock.store_keys.contains(&data_column_id.block_root) {
-            drop(read_lock);
-            self.overflow_store.load_data_column(data_column_id)
+        if let Some(pending_components) = self.critical.read().peek(&data_column_id.block_root) {
+            Ok(pending_components
+                .verified_data_columns
+                .iter()
+                .find(|data_column| data_column.as_data_column().index == data_column_id.index)
+                .map(|data_column| data_column.clone_arc()))
         } else {
             Ok(None)
-        }
-    }
-
-    fn block_import_requirement(
-        &self,
-        pending_components: &PendingComponents<T::EthSpec>,
-    ) -> Result<BlockImportRequirement, AvailabilityCheckError> {
-        let epoch = pending_components
-            .epoch()
-            .ok_or(AvailabilityCheckError::UnableToDetermineImportRequirement)?;
-
-        let peer_das_enabled = self.spec.is_peer_das_enabled_for_epoch(epoch);
-        if peer_das_enabled {
-            Ok(BlockImportRequirement::CustodyColumns(
-                self.custody_column_count,
-            ))
-        } else {
-            Ok(BlockImportRequirement::AllBlobs)
-        }
-    }
-
-    #[allow(clippy::type_complexity)]
-    pub fn put_kzg_verified_data_columns<
-        I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,
-    >(
-        &self,
-        kzg: &Kzg,
-        block_root: Hash256,
-        kzg_verified_data_columns: I,
-    ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
-    {
-        let mut write_lock = self.critical.write();
-
-        // Grab existing entry or create a new entry.
-        let mut pending_components = write_lock
-            .pop_pending_components(block_root, &self.overflow_store)?
-            .unwrap_or_else(|| PendingComponents::empty(block_root, &self.spec));
-
-        // Merge in the data columns.
-        pending_components.merge_data_columns(kzg_verified_data_columns)?;
-
-        let block_import_requirement = self.block_import_requirement(&pending_components)?;
-
-        // Potentially trigger reconstruction if:
-        // - Our custody requirement is all columns
-        // - We >= 50% of columns
-        let data_columns_to_publish =
-            if self.should_reconstruct(&block_import_requirement, &pending_components) {
-                pending_components.reconstruction_started();
-
-                let timer = metrics::start_timer(&metrics::DATA_AVAILABILITY_RECONSTRUCTION_TIME);
-
-                let existing_column_indices = pending_components
-                    .verified_data_columns
-                    .iter()
-                    .map(|d| d.index())
-                    .collect::<HashSet<_>>();
-
-                // Will only return an error if:
-                // - < 50% of columns
-                // - There are duplicates
-                let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
-                    kzg,
-                    pending_components.verified_data_columns.as_slice(),
-                    &self.spec,
-                )?;
-
-                let data_columns_to_publish = all_data_columns
-                    .iter()
-                    .filter(|d| !existing_column_indices.contains(&d.index()))
-                    .map(|d| d.clone_arc())
-                    .collect::<Vec<_>>();
-
-                pending_components.verified_data_columns =
-                    RuntimeVariableList::from_vec(all_data_columns, self.spec.number_of_columns);
-
-                metrics::stop_timer(timer);
-                metrics::inc_counter_by(
-                    &metrics::DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS,
-                    data_columns_to_publish.len() as u64,
-                );
-                debug!(self.log, "Reconstructed columns"; "count" => data_columns_to_publish.len());
-
-                Some(data_columns_to_publish)
-            } else {
-                None
-            };
-
-        if pending_components.is_available(&block_import_requirement, &self.log) {
-            write_lock.put_pending_components(
-                block_root,
-                pending_components.clone(),
-                &self.overflow_store,
-            )?;
-            // No need to hold the write lock anymore
-            drop(write_lock);
-            pending_components
-                .make_available(&self.spec, |diet_block| {
-                    self.state_cache.recover_pending_executed_block(diet_block)
-                })
-                .map(|availability| (availability, data_columns_to_publish))
-        } else {
-            write_lock.put_pending_components(
-                block_root,
-                pending_components,
-                &self.overflow_store,
-            )?;
-            Ok((
-                Availability::MissingComponents(block_root),
-                data_columns_to_publish,
-            ))
         }
     }
 
@@ -633,14 +507,16 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
     // TODO(das): gossip and rpc code paths to be implemented.
     #[allow(dead_code)]
+    #[allow(clippy::type_complexity)]
     pub fn put_kzg_verified_data_columns<
         I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,
     >(
         &self,
+        kzg: &Kzg,
         block_root: Hash256,
-        epoch: Epoch,
         kzg_verified_data_columns: I,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+    ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
+    {
         let mut write_lock = self.critical.write();
 
         // Grab existing entry or create a new entry.
@@ -650,19 +526,71 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             .unwrap_or_else(|| PendingComponents::empty(block_root));
 
         // Merge in the data columns.
-        pending_components.merge_data_columns(kzg_verified_data_columns);
+        pending_components.merge_data_columns(kzg_verified_data_columns)?;
 
+        let epoch = pending_components
+            .epoch()
+            .ok_or(AvailabilityCheckError::UnableToDetermineImportRequirement)?;
         let block_import_requirement = self.block_import_requirement(epoch)?;
+
+        // Potentially trigger reconstruction if:
+        // - Our custody requirement is all columns
+        // - We >= 50% of columns
+        let data_columns_to_publish =
+            if self.should_reconstruct(&block_import_requirement, &pending_components) {
+                pending_components.reconstruction_started();
+
+                let timer = metrics::start_timer(&metrics::DATA_AVAILABILITY_RECONSTRUCTION_TIME);
+
+                let existing_column_indices = pending_components
+                    .verified_data_columns
+                    .iter()
+                    .map(|d| d.index())
+                    .collect::<HashSet<_>>();
+
+                // Will only return an error if:
+                // - < 50% of columns
+                // - There are duplicates
+                let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
+                    kzg,
+                    pending_components.verified_data_columns.as_slice(),
+                    &self.spec,
+                )?;
+
+                let data_columns_to_publish = all_data_columns
+                    .iter()
+                    .filter(|d| !existing_column_indices.contains(&d.index()))
+                    .map(|d| d.clone_arc())
+                    .collect::<Vec<_>>();
+
+                pending_components.verified_data_columns = all_data_columns;
+
+                metrics::stop_timer(timer);
+                metrics::inc_counter_by(
+                    &metrics::DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS,
+                    data_columns_to_publish.len() as u64,
+                );
+
+                Some(data_columns_to_publish)
+            } else {
+                None
+            };
+
         if pending_components.is_available(&block_import_requirement) {
             write_lock.put(block_root, pending_components.clone());
             // No need to hold the write lock anymore
             drop(write_lock);
-            pending_components.make_available(|diet_block| {
-                self.state_cache.recover_pending_executed_block(diet_block)
-            })
+            pending_components
+                .make_available(&self.spec, |diet_block| {
+                    self.state_cache.recover_pending_executed_block(diet_block)
+                })
+                .map(|availability| (availability, data_columns_to_publish))
         } else {
             write_lock.put(block_root, pending_components);
-            Ok(Availability::MissingComponents(block_root))
+            Ok((
+                Availability::MissingComponents(block_root),
+                data_columns_to_publish,
+            ))
         }
     }
 
@@ -1342,8 +1270,7 @@ mod pending_components_tests {
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
         let block_root = Hash256::zero();
-        let spec = E::default_spec();
-        let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
+        let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_block(block_commitments);
         cache.merge_blobs(random_blobs);
         cache.merge_blobs(blobs);
@@ -1357,8 +1284,7 @@ mod pending_components_tests {
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
         let block_root = Hash256::zero();
-        let spec = E::default_spec();
-        let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
+        let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_blobs(random_blobs);
         cache.merge_block(block_commitments);
         cache.merge_blobs(blobs);
@@ -1373,8 +1299,7 @@ mod pending_components_tests {
             setup_pending_components(block_commitments, blobs, random_blobs);
 
         let block_root = Hash256::zero();
-        let spec = E::default_spec();
-        let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
+        let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_blobs(random_blobs);
         cache.merge_blobs(blobs);
         cache.merge_block(block_commitments);
@@ -1389,8 +1314,7 @@ mod pending_components_tests {
             setup_pending_components(block_commitments, blobs, random_blobs);
 
         let block_root = Hash256::zero();
-        let spec = E::default_spec();
-        let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
+        let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_block(block_commitments);
         cache.merge_blobs(blobs);
         cache.merge_blobs(random_blobs);
@@ -1405,8 +1329,7 @@ mod pending_components_tests {
             setup_pending_components(block_commitments, blobs, random_blobs);
 
         let block_root = Hash256::zero();
-        let spec = E::default_spec();
-        let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
+        let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_blobs(blobs);
         cache.merge_block(block_commitments);
         cache.merge_blobs(random_blobs);
@@ -1421,8 +1344,7 @@ mod pending_components_tests {
             setup_pending_components(block_commitments, blobs, random_blobs);
 
         let block_root = Hash256::zero();
-        let spec = E::default_spec();
-        let mut cache = <PendingComponents<E>>::empty(block_root, &spec);
+        let mut cache = <PendingComponents<E>>::empty(block_root);
         cache.merge_blobs(blobs);
         cache.merge_blobs(random_blobs);
         cache.merge_block(block_commitments);

@@ -758,7 +758,8 @@ impl<E: EthSpec> Discovery<E> {
         // Only start a discovery query if we have a subnet to look for.
         if !filtered_subnet_queries.is_empty() {
             // build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
-            let subnet_predicate = subnet_predicate::<E>(filtered_subnets, &self.log, &self.spec);
+            let subnet_predicate =
+                subnet_predicate::<E>(filtered_subnets, &self.log, self.spec.clone());
 
             debug!(
                 self.log,
@@ -885,8 +886,11 @@ impl<E: EthSpec> Discovery<E> {
                             self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
 
                             // Check the specific subnet against the enr
-                            let subnet_predicate =
-                                subnet_predicate::<E>(vec![query.subnet], &self.log, &self.spec);
+                            let subnet_predicate = subnet_predicate::<E>(
+                                vec![query.subnet],
+                                &self.log,
+                                self.spec.clone(),
+                            );
 
                             r.clone()
                                 .into_iter()

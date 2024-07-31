@@ -10,7 +10,7 @@ use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_aggregates::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
-use crate::observed_data_sidecars::Error as ObservedBlobSidecarsError;
+use crate::observed_data_sidecars::Error as ObservedDataSidecarsError;
 use execution_layer::PayloadStatus;
 use fork_choice::ExecutionStatus;
 use futures::channel::mpsc::TrySendError;

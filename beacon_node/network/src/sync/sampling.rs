@@ -3,6 +3,7 @@ use super::network_context::{RpcResponseError, SyncNetworkContext};
 use crate::metrics;
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
+use lighthouse_network::service::api_types::{SamplingId, SamplingRequester};
 use lighthouse_network::{PeerAction, PeerId};
 use rand::{seq::SliceRandom, thread_rng};
 use slog::{debug, error, warn};
@@ -13,17 +14,6 @@ use std::{
 use types::{data_column_sidecar::ColumnIndex, ChainSpec, DataColumnSidecar, Hash256, Slot};
 
 pub type SamplingResult = Result<(), SamplingError>;
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct SamplingId {
-    pub id: SamplingRequester,
-    pub column_index: ColumnIndex,
-}
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum SamplingRequester {
-    ImportedBlock(Hash256),
-}
 
 type DataColumnSidecarVec<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
@@ -420,12 +410,9 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
 
 mod request {
     use super::{SamplingError, SamplingId, SamplingRequester};
-    use crate::sync::{
-        manager::DataColumnsByRootRequester,
-        network_context::{DataColumnsByRootSingleBlockRequest, SyncNetworkContext},
-    };
+    use crate::sync::network_context::{DataColumnsByRootSingleBlockRequest, SyncNetworkContext};
     use beacon_chain::BeaconChainTypes;
-    use lighthouse_network::PeerId;
+    use lighthouse_network::{service::api_types::DataColumnsByRootRequester, PeerId};
     use rand::seq::SliceRandom;
     use rand::thread_rng;
     use std::collections::HashSet;

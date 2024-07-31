@@ -35,13 +35,10 @@
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
 use super::block_lookups::BlockLookups;
-use super::network_context::{
-    BlockOrBlob, CustodyId, DataColumnsByRootRequestId, RangeRequestId, RpcEvent,
-    SyncNetworkContext,
-};
+use super::network_context::{BlockOrBlob, RangeRequestId, RpcEvent, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
-use super::sampling::{Sampling, SamplingConfig, SamplingId, SamplingRequester, SamplingResult};
+use super::sampling::{Sampling, SamplingConfig, SamplingResult};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
@@ -58,7 +55,10 @@ use beacon_chain::{
 };
 use futures::StreamExt;
 use lighthouse_network::rpc::RPCError;
-use lighthouse_network::service::api_types::{Id, SingleLookupReqId, SyncRequestId};
+use lighthouse_network::service::api_types::{
+    DataColumnsByRootRequestId, DataColumnsByRootRequester, Id, SamplingId, SamplingRequester,
+    SingleLookupReqId, SyncRequestId,
+};
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
@@ -108,7 +108,7 @@ pub enum SyncMessage<E: EthSpec> {
 
     /// A data columns has been received from the RPC
     RpcDataColumn {
-        request_id: RequestId,
+        request_id: SyncRequestId,
         peer_id: PeerId,
         data_column: Option<Arc<DataColumnSidecar<E>>>,
         seen_timestamp: Duration,
@@ -388,7 +388,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     peer_id,
                     RpcEvent::RPCError(error),
                 ),
-            SyncRequestId::RangeBlockComponents(id) => {
+            SyncRequestId::RangeBlockAndBlobs { id } => {
                 if let Some(sender_id) = self.network.range_request_failed(id) {
                     match sender_id {
                         RangeRequestId::RangeSync { chain_id, batch_id } => {
@@ -724,9 +724,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }),
                 );
             }
-            SyncMessage::UnknownParentDataColumn(_peer_id, _data_column) => {
-                // TODO(das): data column parent lookup to be implemented
-            }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
                 if !self.notified_unknown_roots.contains(&(peer_id, block_root)) {
                     self.notified_unknown_roots.insert((peer_id, block_root));
@@ -935,7 +932,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     None => RpcEvent::StreamTermination,
                 },
             ),
-            RequestId::RangeBlockComponents(id) => {
+            SyncRequestId::RangeBlockAndBlobs { id } => {
                 self.range_block_and_blobs_response(id, peer_id, block.into())
             }
             other => {
@@ -970,7 +967,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         seen_timestamp: Duration,
     ) {
         match request_id {
-            RequestId::SingleBlob { id } => self.on_single_blob_response(
+            SyncRequestId::SingleBlob { id } => self.on_single_blob_response(
                 id,
                 peer_id,
                 match blob {
@@ -978,7 +975,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     None => RpcEvent::StreamTermination,
                 },
             ),
-            RequestId::RangeBlockComponents(id) => {
+            SyncRequestId::RangeBlockAndBlobs { id } => {
                 self.range_block_and_blobs_response(id, peer_id, blob.into())
             }
             other => {
@@ -989,16 +986,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn rpc_data_column_received(
         &mut self,
-        request_id: RequestId,
+        request_id: SyncRequestId,
         peer_id: PeerId,
         data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
         seen_timestamp: Duration,
     ) {
         match request_id {
-            RequestId::SingleBlock { .. } | RequestId::SingleBlob { .. } => {
+            SyncRequestId::SingleBlock { .. } | SyncRequestId::SingleBlob { .. } => {
                 crit!(self.log, "bad request id for data_column"; "peer_id" => %peer_id  );
             }
-            RequestId::DataColumnsByRoot(req_id, requester) => {
+            SyncRequestId::DataColumnsByRoot(req_id, requester) => {
                 self.on_single_data_column_response(
                     req_id,
                     requester,
@@ -1009,7 +1006,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     },
                 );
             }
-            RequestId::RangeBlockComponents(id) => {
+            SyncRequestId::RangeBlockAndBlobs { id } => {
                 self.range_block_and_blobs_response(
                     id,
                     peer_id,
@@ -1176,7 +1173,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         "sender_id" => ?resp.sender_id,
                         "error" => e.clone()
                     );
-                    let id = RequestId::RangeBlockComponents(id);
+                    let id = SyncRequestId::RangeBlockAndBlobs { id };
                     self.network.report_peer(
                         peer_id,
                         PeerAction::MidToleranceError,

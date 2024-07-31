@@ -5,7 +5,7 @@ use crate::block_verification_types::{
 use crate::data_availability_checker::overflow_lru_cache::DataAvailabilityCheckerInner;
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
-use slog::{debug, error, o, Logger};
+use slog::{debug, error};
 use slot_clock::SlotClock;
 use std::fmt;
 use std::fmt::Debug;
@@ -101,7 +101,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         kzg: Option<Arc<Kzg>>,
         store: BeaconStore<T>,
         import_all_data_columns: bool,
-        log: &Logger,
         spec: ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
         let spec = Arc::new(spec);
@@ -111,7 +110,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             spec.custody_requirement as usize
         };
 
-        let custody_subnet_count = spec.custody_requirement as usize;
         let custody_column_count =
             custody_subnet_count.saturating_mul(spec.data_columns_per_subnet());
 
@@ -245,14 +243,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             gossip_blob.epoch(),
             vec![gossip_blob.into_inner()],
         )
-    }
-
-    pub fn put_gossip_data_columns(
-        &self,
-        _gossip_data_columns: Vec<GossipVerifiedDataColumn<T>>,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        // TODO(das) to be implemented
-        Err(AvailabilityCheckError::Unexpected)
     }
 
     /// Check if we've cached other data columns for this block. If it satisfies the custody requirement and we also

@@ -3,20 +3,15 @@ use crate::case_result::compare_result;
 use beacon_chain::kzg_utils::validate_blob;
 use eth2_network_config::TRUSTED_SETUP_BYTES;
 use kzg::{Cell, Error as KzgError, Kzg, KzgCommitment, KzgProof, TrustedSetup};
-use lazy_static::lazy_static;
 use serde::Deserialize;
 use std::marker::PhantomData;
-use std::sync::Arc;
 use types::Blob;
 
-lazy_static! {
-    pub static ref KZG: Arc<Kzg> = {
-        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
-            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-            .expect("should have trusted setup");
-        let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
-        Arc::new(kzg)
-    };
+pub fn get_kzg() -> Result<Kzg, Error> {
+    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+        .map_err(|e| Error::InternalError(format!("Failed to initialize kzg: {:?}", e)))?;
+    Kzg::new_from_trusted_setup(trusted_setup)
+        .map_err(|e| Error::InternalError(format!("Failed to initialize kzg: {:?}", e)))
 }
 
 pub fn parse_cells_and_proofs(
@@ -124,8 +119,9 @@ impl<E: EthSpec> Case for KZGVerifyBlobKZGProof<E> {
             Ok((blob, commitment, proof))
         };
 
+        let kzg = get_kzg()?;
         let result = parse_input(&self.input).and_then(|(blob, commitment, proof)| {
-            match validate_blob::<E>(&KZG, &blob, commitment, proof) {
+            match validate_blob::<E>(&kzg, &blob, commitment, proof) {
                 Ok(_) => Ok(true),
                 Err(KzgError::KzgVerificationFailed) => Ok(false),
                 Err(e) => Err(Error::InternalError(format!(

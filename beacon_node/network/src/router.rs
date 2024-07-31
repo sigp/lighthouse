@@ -520,8 +520,8 @@ impl<T: BeaconChainTypes> Router<T> {
         beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         let request_id = match request_id {
-            RequestId::Sync(sync_id) => match sync_id {
-                id @ SyncId::RangeBlockComponents { .. } => id,
+            AppRequestId::Sync(sync_id) => match sync_id {
+                id @ SyncRequestId::RangeBlockAndBlobs { .. } => id,
                 other => {
                     crit!(self.log, "BlocksByRange response on incorrect request"; "request" => ?other);
                     return;
@@ -582,8 +582,8 @@ impl<T: BeaconChainTypes> Router<T> {
         beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         let request_id = match request_id {
-            RequestId::Sync(sync_id) => match sync_id {
-                id @ SyncId::SingleBlock { .. } => id,
+            AppRequestId::Sync(sync_id) => match sync_id {
+                id @ SyncRequestId::SingleBlock { .. } => id,
                 other => {
                     crit!(self.log, "BlocksByRoot response on incorrect request"; "request" => ?other);
                     return;
@@ -616,8 +616,8 @@ impl<T: BeaconChainTypes> Router<T> {
         blob_sidecar: Option<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
         let request_id = match request_id {
-            RequestId::Sync(sync_id) => match sync_id {
-                id @ SyncId::SingleBlob { .. } => id,
+            AppRequestId::Sync(sync_id) => match sync_id {
+                id @ SyncRequestId::SingleBlob { .. } => id,
                 other => {
                     crit!(self.log, "BlobsByRoot response on incorrect request"; "request" => ?other);
                     return;
@@ -646,18 +646,18 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_data_columns_by_root_response(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: AppRequestId,
         data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
         let request_id = match request_id {
-            RequestId::Sync(sync_id) => match sync_id {
-                id @ SyncId::DataColumnsByRoot { .. } => id,
+            AppRequestId::Sync(sync_id) => match sync_id {
+                id @ SyncRequestId::DataColumnsByRoot { .. } => id,
                 other => {
                     crit!(self.log, "DataColumnsByRoot response on incorrect request"; "request" => ?other);
                     return;
                 }
             },
-            RequestId::Router => {
+            AppRequestId::Router => {
                 crit!(self.log, "All DataColumnsByRoot requests belong to sync"; "peer_id" => %peer_id);
                 return;
             }
@@ -679,7 +679,7 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_data_columns_by_range_response(
         &mut self,
         peer_id: PeerId,
-        request_id: RequestId,
+        request_id: AppRequestId,
         data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
         trace!(
@@ -688,7 +688,7 @@ impl<T: BeaconChainTypes> Router<T> {
             "peer" => %peer_id,
         );
 
-        if let RequestId::Sync(id) = request_id {
+        if let AppRequestId::Sync(id) = request_id {
             self.send_to_sync(SyncMessage::RpcDataColumn {
                 peer_id,
                 request_id: id,

@@ -130,7 +130,6 @@ pub struct Network<E: EthSpec> {
     pub local_peer_id: PeerId,
     /// Logger for behaviour actions.
     log: slog::Logger,
-    spec: ChainSpec,
 }
 
 /// Implements the combined behaviour for the libp2p service.
@@ -458,7 +457,6 @@ impl<E: EthSpec> Network<E> {
             gossip_cache,
             local_peer_id,
             log,
-            spec: ctx.chain_spec.clone(),
         };
 
         network.start(&config).await?;

@@ -340,13 +340,14 @@ pub static PEERS_PER_SYNC_TYPE: LazyLock<Result<IntGaugeVec>> = LazyLock::new(||
     try_create_int_gauge_vec(
         "sync_peers_per_status",
         "Number of connected peers per sync status type",
-        &["sync_status"]
+        &["sync_status"],
     )
 });
-    pub static ref PEERS_PER_COLUMN_SUBNET: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| { try_create_int_gauge_vec(
+pub static PEERS_PER_COLUMN_SUBNET: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
         "peers_per_column_subnet",
         "Number of connected peers per column subnet",
-        &["subnet_id"]
+        &["subnet_id"],
     )
 });
 pub static SYNCING_CHAINS_COUNT: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
@@ -490,22 +491,19 @@ pub static BEACON_BLOB_DELAY_GOSSIP: LazyLock<Result<IntGauge>> = LazyLock::new(
     )
 });
 
-    pub static ref BEACON_DATA_COLUMN_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
+pub static BEACON_DATA_COLUMN_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: LazyLock<
+    Result<Histogram>,
+> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
         "beacon_data_column_gossip_propagation_verification_delay_time",
         "Duration between when the data column sidecar is received over gossip and when it is verified for propagation.",
         // [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
         decimal_buckets(-3,-1)
-    );
-    pub static ref BEACON_BLOB_GOSSIP_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
-        "beacon_blob_gossip_slot_start_delay_time",
-        "Duration between when the blob is received over gossip and the start of the slot it belongs to.",
-        // Create a custom bucket list for greater granularity in block delay
-        Ok(vec![0.1, 0.2, 0.3,0.4,0.5,0.75,1.0,1.25,1.5,1.75,2.0,2.5,3.0,3.5,4.0,5.0,6.0,7.0,8.0,9.0,10.0,15.0,20.0])
-        // NOTE: Previous values, which we may want to switch back to.
-        // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
-        //decimal_buckets(-1,2)
-    );
-    pub static ref BEACON_DATA_COLUMN_GOSSIP_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
+    )
+});
+pub static BEACON_DATA_COLUMN_GOSSIP_SLOT_START_DELAY_TIME: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
         "beacon_data_column_gossip_slot_start_delay_time",
         "Duration between when the data column sidecar is received over gossip and the start of the slot it belongs to.",
         // Create a custom bucket list for greater granularity in block delay
@@ -513,7 +511,8 @@ pub static BEACON_BLOB_DELAY_GOSSIP: LazyLock<Result<IntGauge>> = LazyLock::new(
         // NOTE: Previous values, which we may want to switch back to.
         // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
         //decimal_buckets(-1,2)
-    );
+    )
+    });
 
 pub static BEACON_BLOB_DELAY_GOSSIP_VERIFICATION: LazyLock<Result<IntGauge>> = LazyLock::new(
     || {
@@ -554,22 +553,6 @@ pub static BEACON_BLOB_GOSSIP_ARRIVED_LATE_TOTAL: LazyLock<Result<IntCounter>> =
     },
 );
 
-pub static BEACON_DATA_COLUMN_DELAY_GOSSIP: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "beacon_data_column_delay_gossip_last_delay",
-        "The first time we see this data column as a delay from the start of the slot",
-    )
-});
-
-pub static BEACON_DATA_COLUMN_DELAY_GOSSIP_VERIFICATION: LazyLock<Result<IntGauge>> = LazyLock::new(
-    || {
-        try_create_int_gauge(
-        "beacon_data_column_delay_gossip_verification",
-        "Keeps track of the time delay from the start of the slot to the point we propagate the data column"
-    )
-    },
-);
-
 /*
  * Light client update reprocessing queue metrics.
  */
@@ -585,21 +568,27 @@ pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_SENT_OPTIMISTIC_UPDATES: LazyLock
 /*
  * Sampling
  */
-    pub static ref SAMPLE_DOWNLOAD_RESULT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| { try_create_int_counter_vec(
+pub static SAMPLE_DOWNLOAD_RESULT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
         "beacon_sampling_sample_verify_result_total",
         "Total count of individual sample download results",
-        &["result"]
-    ) });
-    pub static ref SAMPLE_VERIFY_RESULT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| { try_create_int_counter_vec(
+        &["result"],
+    )
+});
+pub static SAMPLE_VERIFY_RESULT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
         "beacon_sampling_sample_verify_result_total",
         "Total count of individual sample verify results",
-        &["result"]
-    )});
-    pub static ref SAMPLING_REQUEST_RESULT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| { try_create_int_counter_vec(
+        &["result"],
+    )
+});
+pub static SAMPLING_REQUEST_RESULT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
         "beacon_sampling_request_result_total",
         "Total count of sample request results",
-        &["result"]
-    ) });
+        &["result"],
+    )
+});
 
 pub fn register_finality_update_error(error: &LightClientFinalityUpdateError) {
     inc_counter_vec(&GOSSIP_FINALITY_UPDATE_ERRORS_PER_TYPE, &[error.as_ref()]);

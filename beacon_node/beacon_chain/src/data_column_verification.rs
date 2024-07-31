@@ -371,7 +371,7 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
     data_column: Arc<DataColumnSidecar<T::EthSpec>>,
     subnet: u64,
     chain: &BeaconChain<T>,
-) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError<T::EthSpec>> {
+) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError> {
     let column_slot = data_column.slot();
 
     verify_index_matches_subnet(&data_column, subnet, &chain.spec)?;
@@ -429,7 +429,7 @@ fn verify_is_first_sidecar<T: BeaconChainTypes>(
 
 fn verify_column_inclusion_proof<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
-) -> Result<(), GossipDataColumnError<E>> {
+) -> Result<(), GossipDataColumnError> {
     let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_INCLUSION_PROOF_VERIFICATION);
     if !data_column.verify_inclusion_proof() {
         return Err(GossipDataColumnError::InvalidInclusionProof);
@@ -438,10 +438,10 @@ fn verify_column_inclusion_proof<E: EthSpec>(
     Ok(())
 }
 
-fn verify_slot_higher_than_parent<E: EthSpec>(
+fn verify_slot_higher_than_parent(
     parent_block: &Block,
     data_column_slot: Slot,
-) -> Result<(), GossipDataColumnError<E>> {
+) -> Result<(), GossipDataColumnError> {
     if parent_block.slot >= data_column_slot {
         return Err(GossipDataColumnError::IsNotLaterThanParent {
             data_column_slot,

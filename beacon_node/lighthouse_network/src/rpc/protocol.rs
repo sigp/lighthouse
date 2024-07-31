@@ -17,10 +17,10 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockCapella,
-    BeaconBlockElectra, BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec,
-    ForkContext, ForkName, LightClientBootstrap, LightClientBootstrapAltair,
-    LightClientFinalityUpdate, LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockElectra,
+    BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, ForkContext, ForkName,
+    LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
+    LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
     LightClientOptimisticUpdateAltair, MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 

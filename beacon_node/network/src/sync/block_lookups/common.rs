@@ -2,7 +2,7 @@ use crate::sync::block_lookups::single_block_lookup::{
     LookupRequestError, SingleBlockLookup, SingleLookupRequestState,
 };
 use crate::sync::block_lookups::{BlobRequestState, BlockRequestState, PeerId};
-use crate::sync::manager::{BlockProcessType, Id};
+use crate::sync::manager::BlockProcessType;
 use crate::sync::network_context::{LookupRequestResult, SyncNetworkContext};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_column_verification::CustodyDataColumn;

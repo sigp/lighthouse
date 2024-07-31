@@ -1,11 +1,6 @@
 use crate::network_beacon_processor::NetworkBeaconProcessor;
-use crate::service::RequestId;
 use crate::sync::manager::{BlockProcessType, SyncManager};
-use crate::sync::manager::{
-    DataColumnsByRootRequester, RequestId as SyncRequestId, SingleLookupReqId, SyncManager,
-};
-use crate::sync::sampling::{SamplingConfig, SamplingRequester};
-use crate::sync::SyncMessage;
+use crate::sync::sampling::SamplingConfig;
 use crate::sync::{SamplingId, SyncMessage};
 use crate::NetworkMessage;
 use std::sync::Arc;
@@ -28,7 +23,10 @@ use beacon_chain::{
 };
 use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::{RPCError, RPCResponseErrorCode};
-use lighthouse_network::service::api_types::{AppRequestId, Id, SingleLookupReqId, SyncRequestId};
+use lighthouse_network::service::api_types::{
+    AppRequestId, DataColumnsByRootRequester, Id, SamplingRequester, SingleLookupReqId,
+    SyncRequestId,
+};
 use lighthouse_network::types::SyncState;
 use lighthouse_network::{NetworkGlobals, Request};
 use slog::info;
@@ -988,7 +986,7 @@ impl TestRig {
                     NetworkMessage::SendRequest {
                         peer_id: _,
                         request: Request::DataColumnsByRoot(request),
-                        request_id: RequestId::Sync(id @ SyncRequestId::DataColumnsByRoot { .. }),
+                        request_id: AppRequestId::Sync(id @ SyncRequestId::DataColumnsByRoot { .. }),
                     } if request
                         .data_column_ids
                         .to_vec()

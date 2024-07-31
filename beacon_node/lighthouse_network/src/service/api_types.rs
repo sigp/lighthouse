@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use libp2p::swarm::ConnectionId;
 use types::{
-    BlobSidecar, DataColumnSidecar, EthSpec, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, SignedBeaconBlock,
+    BlobSidecar, ColumnIndex, DataColumnSidecar, EthSpec, Hash256, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, SignedBeaconBlock,
 };
 
 use crate::rpc::methods::{
@@ -42,11 +42,44 @@ pub enum SyncRequestId {
     RangeBlockAndBlobs { id: Id },
 }
 
+/// Request ID for data_columns_by_root requests. Block lookup do not issue this requests directly.
+/// Wrapping this particular req_id, ensures not mixing this requests with a custody req_id.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct DataColumnsByRootRequestId(pub Id);
+
+impl std::fmt::Display for DataColumnsByRootRequestId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum DataColumnsByRootRequester {
     Sampling(SamplingId),
     Custody(CustodyId),
 }
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct SamplingId {
+    pub id: SamplingRequester,
+    pub column_index: ColumnIndex,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum SamplingRequester {
+    ImportedBlock(Hash256),
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct CustodyId {
+    pub requester: CustodyRequester,
+    pub req_id: Id,
+}
+
+/// Downstream components that perform custody by root requests.
+/// Currently, it's only single block lookups, so not using an enum
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct CustodyRequester(pub SingleLookupReqId);
 
 /// Application level requests sent to the network.
 #[derive(Debug, Clone, Copy)]

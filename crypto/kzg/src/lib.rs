@@ -42,28 +42,6 @@ impl From<c_kzg::Error> for Error {
     }
 }
 
-pub const CELLS_PER_EXT_BLOB: usize = 128;
-
-// TODO(das): use proper crypto once ckzg merges das branch
-#[allow(dead_code)]
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct Cell {
-    bytes: [u8; 2048usize],
-}
-
-impl Cell {
-    pub fn from_bytes(b: &[u8]) -> Result<Self, Error> {
-        Ok(Self {
-            bytes: b
-                .try_into()
-                .map_err(|_| Error::Kzg(c_kzg::Error::MismatchLength("".to_owned())))?,
-        })
-    }
-    pub fn into_inner(self) -> [u8; 2048usize] {
-        self.bytes
-    }
-}
-
 /// A wrapper over a kzg library that holds the trusted setup parameters.
 #[derive(Debug)]
 pub struct Kzg {

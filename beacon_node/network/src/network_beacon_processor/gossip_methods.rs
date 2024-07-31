@@ -644,13 +644,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             &metrics::BEACON_DATA_COLUMN_GOSSIP_SLOT_START_DELAY_TIME,
             delay,
         );
-        metrics::set_gauge(
-            &metrics::BEACON_DATA_COLUMN_LAST_DELAY,
-            delay.as_millis() as i64,
-        );
         match self
             .chain
-            .verify_data_column_sidecar_for_gossip(column_sidecar, *subnet_id)
+            .verify_data_column_sidecar_for_gossip(column_sidecar.clone(), *subnet_id)
         {
             Ok(gossip_verified_data_column) => {
                 metrics::inc_counter(
@@ -1020,7 +1016,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .process_gossip_data_columns(vec![verified_data_column])
             .await
         {
-            Ok(availability) => {
+            Ok((availability, data_columns_to_publish)) => {
+                self.handle_data_columns_to_publish(data_columns_to_publish);
+
                 match availability {
                     AvailabilityProcessingStatus::Imported(block_root) => {
                         // Note: Reusing block imported metric here

@@ -988,7 +988,6 @@ where
                     self.kzg.clone(),
                     store,
                     self.import_all_data_columns,
-                    &log,
                     self.spec,
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,

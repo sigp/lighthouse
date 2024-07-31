@@ -27,7 +27,6 @@ use crate::data_availability_checker::{
 use crate::data_column_verification::{
     CustodyDataColumn, GossipDataColumnError, GossipVerifiedDataColumn,
 };
-use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
@@ -2173,11 +2172,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         subnet_id: u64,
-    ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError<T::EthSpec>> {
-        metrics::inc_counter(&metrics::BLOBS_COLUMN_SIDECAR_PROCESSING_REQUESTS);
+    ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError> {
+        metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
         GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, self).map(|v| {
-            metrics::inc_counter(&metrics::DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES);
+            metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
             v
         })
     }
@@ -3050,7 +3049,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_gossip_data_columns(
         self: &Arc<Self>,
         data_columns: Vec<GossipVerifiedDataColumn<T>>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+    ) -> Result<
+        (
+            AvailabilityProcessingStatus,
+            DataColumnsToPublish<T::EthSpec>,
+        ),
+        BlockError<T::EthSpec>,
+    > {
         let Ok(block_root) = data_columns
             .iter()
             .map(|c| c.block_root())
@@ -3166,13 +3171,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Remove any block components from the *processing cache* if we no longer require them. If the
     /// block was imported full or erred, we no longer require them.
-    fn remove_notified_custody_columns(
+    fn remove_notified_custody_columns<P>(
         &self,
         block_root: &Hash256,
-        r: Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        let has_missing_components =
-            matches!(r, Ok(AvailabilityProcessingStatus::MissingComponents(_, _)));
+        r: Result<(AvailabilityProcessingStatus, P), BlockError<T::EthSpec>>,
+    ) -> Result<(AvailabilityProcessingStatus, P), BlockError<T::EthSpec>> {
+        let has_missing_components = matches!(
+            r,
+            Ok((AvailabilityProcessingStatus::MissingComponents(_, _), _))
+        );
         if !has_missing_components {
             self.reqresp_pre_import_cache.write().remove(block_root);
         }
@@ -3428,7 +3435,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn check_gossip_data_columns_availability_and_import(
         self: &Arc<Self>,
         data_columns: Vec<GossipVerifiedDataColumn<T>>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+    ) -> Result<
+        (
+            AvailabilityProcessingStatus,
+            DataColumnsToPublish<T::EthSpec>,
+        ),
+        BlockError<T::EthSpec>,
+    > {
         if let Some(slasher) = self.slasher.as_ref() {
             for data_colum in &data_columns {
                 slasher.accept_block_header(data_colum.signed_block_header());
@@ -3441,11 +3454,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ));
         };
 
-        let availability = self
+        let (availability, data_columns_to_publish) = self
             .data_availability_checker
             .put_gossip_data_columns(data_columns)?;
 
-        self.process_availability(slot, availability).await
+        self.process_availability(slot, availability)
+            .await
+            .map(|result| (result, data_columns_to_publish))
     }
 
     /// Checks if the provided blobs can make any cached blocks available, and imports immediately

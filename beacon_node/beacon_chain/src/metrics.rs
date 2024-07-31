@@ -1618,6 +1618,13 @@ pub static BLOBS_SIDECAR_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> = Laz
         "Count of all blob sidecars submitted for processing",
     )
 });
+pub static BLOBS_COLUMN_SIDECAR_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_blobs_column_sidecar_processing_requests_total",
+            "Count of all data column sidecars submitted for processing",
+        )
+    });
 pub static BLOBS_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_blobs_sidecar_processing_successes_total",
@@ -1645,6 +1652,19 @@ pub static BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION: LazyLock<Result<Histogram>>
             "Time taken to compute blob sidecar inclusion proof",
         )
     });
+pub static DATA_COLUMN_SIDECAR_COMPUTATION: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "data_column_sidecar_computation_seconds",
+        "Time taken to compute data column sidecar, including cells, proofs and inclusion proof",
+    )
+});
+pub static DATA_COLUMN_SIDECAR_INCLUSION_PROOF_VERIFICATION: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "data_column_sidecar_inclusion_proof_verification_seconds",
+            "Time taken to verify data_column sidecar inclusion proof",
+        )
+    });
 pub static DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
@@ -1664,6 +1684,13 @@ pub static DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histog
         try_create_histogram(
             "beacon_data_column_sidecar_gossip_verification_seconds",
             "Full runtime of data column sidecars gossip verification",
+        )
+    });
+pub static DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_blobs_column_sidecar_processing_successes_total",
+            "Number of data column sidecars verified for gossip",
         )
     });
 
@@ -1785,10 +1812,20 @@ pub static KZG_VERIFICATION_BATCH_TIMES: LazyLock<Result<Histogram>> = LazyLock:
         "Runtime of batched kzg verification",
     )
 });
-    pub static ref KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-        try_create_histogram("kzg_verification_data_column_single_seconds", "Runtime of single data column kzg verification") });
-    pub static ref KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-        try_create_histogram("kzg_verification_data_column_batch_seconds", "Runtime of batched data column kzg verification") });
+pub static KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "kzg_verification_data_column_single_seconds",
+            "Runtime of single data column kzg verification",
+        )
+    });
+pub static KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "kzg_verification_data_column_batch_seconds",
+            "Runtime of batched data column kzg verification",
+        )
+    });
 
 pub static BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(
     || {
@@ -1829,19 +1866,23 @@ pub static DATA_AVAILABILITY_OVERFLOW_STORE_CACHE_SIZE: LazyLock<Result<IntGauge
     LazyLock::new(|| {
         try_create_int_gauge(
             "data_availability_overflow_store_cache_size",
-            "Number of entries in the data availability overflow store cache."
-        );
-});
-    pub static DATA_AVAILABILITY_RECONSTRUCTION_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| { try_create_histogram(
-        "data_availability_reconstruction_time_seconds",
-        "Time taken to reconstruct columns"
-    );
-});
-    pub static DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS: Result<IntCounter> = LazyLock::new(|| { try_create_int_counter(
-        "data_availability_reconstructed_columns_total",
-        "Total count of reconstructed columns"
-    );
-});
+            "Number of entries in the data availability overflow store cache.",
+        )
+    });
+pub static DATA_AVAILABILITY_RECONSTRUCTION_TIME: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "data_availability_reconstruction_time_seconds",
+            "Time taken to reconstruct columns",
+        )
+    });
+pub static DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "data_availability_reconstructed_columns_total",
+            "Total count of reconstructed columns",
+        )
+    });
 
 /*
  * light_client server metrics
