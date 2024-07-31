@@ -6960,8 +6960,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns true if we should issue a sampling request for this block
     /// TODO(das): check if the block is still within the da_window
     pub fn should_sample_slot(&self, slot: Slot) -> bool {
-        self.spec
-            .is_peer_das_enabled_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()))
+        self.config.enable_sampling
+            && self
+                .spec
+                .is_peer_das_enabled_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()))
     }
 
     pub fn logger(&self) -> &Logger {
