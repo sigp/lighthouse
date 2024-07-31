@@ -4,8 +4,6 @@ use account_utils::ZeroizeString;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2::lighthouse_vc::types::KeystoreJsonStr;
 use eth2::{lighthouse_vc::std_types::ImportKeystoreStatus, SensitiveUrl};
-use eth2_keystore::json_keystore::JsonKeystore;
-use eth2_keystore::Keystore;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -57,8 +55,8 @@ pub const ENABLED: &str = "enabled";
 
 pub const DETECTED_DUPLICATE_MESSAGE: &str = "Duplicate validator detected!";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
+pub fn cli_app() -> Command {
+    Command::new(CMD)
         .about(
             "Uploads standard keystore JSON format validator to a validator client using the HTTP API.",
         )

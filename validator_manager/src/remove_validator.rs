@@ -21,8 +21,8 @@ pub enum RemoveError {
     RemoveFailed(eth2::Error),
 }
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
+pub fn cli_app() -> Command {
+    Command::new(CMD)
         .about("Removes validator from VC")
         .arg(
             Arg::new(VC_URL_FLAG)

@@ -10,8 +10,8 @@ pub const CMD: &str = "list";
 pub const VC_URL_FLAG: &str = "vc-url";
 pub const VC_TOKEN_FLAG: &str = "vc-token";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
+pub fn cli_app() -> Command {
+    Command::new(CMD)
         .about("Lists all the validators in VC")
         .arg(
             Arg::new(VC_URL_FLAG)
