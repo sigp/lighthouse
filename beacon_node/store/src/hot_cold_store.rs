@@ -1916,7 +1916,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Initialize the `DataColumnInfo` when starting from genesis or a checkpoint.
     pub fn init_data_column_info(&self, anchor_slot: Slot) -> Result<KeyValueStoreOp, Error> {
-        let oldest_data_column_slot = self.spec.deneb_fork_epoch.map(|fork_epoch| {
+        let oldest_data_column_slot = self.spec.eip7594_fork_epoch.map(|fork_epoch| {
             std::cmp::max(anchor_slot, fork_epoch.start_slot(E::slots_per_epoch()))
         });
         let data_column_info = DataColumnInfo {

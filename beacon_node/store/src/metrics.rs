@@ -151,12 +151,13 @@ pub static BEACON_BLOBS_CACHE_HIT_COUNT: LazyLock<Result<IntCounter>> = LazyLock
         "Number of hits to the store's blob cache",
     )
 });
-pub static BEACON_DATA_COLUMNS_CACHE_HIT_COUNT: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
-    try_create_int_counter(
-    "store_beacon_data_columns_cache_hit_total",
-    "Number of hits to the store's data column cache"
-    )
-});
+pub static BEACON_DATA_COLUMNS_CACHE_HIT_COUNT: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "store_beacon_data_columns_cache_hit_total",
+            "Number of hits to the store's data column cache",
+        )
+    });
 
 /// Updates the global metrics registry with store-related information.
 pub fn scrape_for_metrics(db_path: &Path, freezer_db_path: &Path) {

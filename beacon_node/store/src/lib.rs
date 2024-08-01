@@ -42,7 +42,6 @@ pub use metrics::scrape_for_metrics;
 use parking_lot::MutexGuard;
 use std::sync::Arc;
 use strum::{EnumString, IntoStaticStr};
-use types::data_column_sidecar::{ColumnIndex, DataColumnSidecarList};
 pub use types::*;
 
 const DATA_COLUMN_DB_KEY_SIZE: usize = 32 + 8;
@@ -158,7 +157,7 @@ pub fn get_data_column_key(block_root: &Hash256, column_index: &ColumnIndex) -> 
 }
 
 pub fn parse_data_column_key(data: Vec<u8>) -> Result<(Hash256, ColumnIndex), Error> {
-    if data.len() != DATA_COLUMN_DB_KEY_SIZE {
+    if data.len() != DBColumn::BeaconDataColumn.key_size() {
         return Err(Error::InvalidKey);
     }
     // split_at panics if 32 < 40 which will never happen after the length check above
