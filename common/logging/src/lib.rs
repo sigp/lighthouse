@@ -1,4 +1,3 @@
-use lazy_static::lazy_static;
 use lighthouse_metrics::{
     inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult,
 };
@@ -6,12 +5,12 @@ use slog::Logger;
 use slog_term::Decorator;
 use std::io::{Result, Write};
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_logging_layer::LoggingLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
 pub const MAX_MESSAGE_WIDTH: usize = 40;
 
 pub mod async_record;
@@ -25,16 +24,14 @@ pub use tracing_metrics_layer::MetricsLayer;
 /// The minimum interval between log messages indicating that a queue is full.
 const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
 
-lazy_static! {
-    pub static ref INFOS_TOTAL: MetricsResult<IntCounter> =
-        try_create_int_counter("info_total", "Count of infos logged");
-    pub static ref WARNS_TOTAL: MetricsResult<IntCounter> =
-        try_create_int_counter("warn_total", "Count of warns logged");
-    pub static ref ERRORS_TOTAL: MetricsResult<IntCounter> =
-        try_create_int_counter("error_total", "Count of errors logged");
-    pub static ref CRITS_TOTAL: MetricsResult<IntCounter> =
-        try_create_int_counter("crit_total", "Count of crits logged");
-}
+pub static INFOS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
+    LazyLock::new(|| try_create_int_counter("info_total", "Count of infos logged"));
+pub static WARNS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
+    LazyLock::new(|| try_create_int_counter("warn_total", "Count of warns logged"));
+pub static ERRORS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
+    LazyLock::new(|| try_create_int_counter("error_total", "Count of errors logged"));
+pub static CRITS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
+    LazyLock::new(|| try_create_int_counter("crit_total", "Count of crits logged"));
 
 pub struct AlignedTermDecorator<D: Decorator> {
     wrapped: D,
@@ -276,6 +273,262 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
     }
 }
 
+#[macro_export]
+macro_rules! crit {
+    // Name / target / parent.
+    (name: $name:expr, target: $target:expr, parent: $parent:expr, { $($field:tt)* }, $($arg:tt)* ) => (
+        tracing::event!(name: $name, target: $target, parent: $parent, tracing::Level::ERROR, { error_type = "crit", $($field)* }, $($arg)*)
+    );
+    (name: $name:expr, target: $target:expr, parent: $parent:expr, $($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(name: $name, target: $target, parent: $parent, tracing::Level::ERROR, { error_type = "crit", $($k).+ $($field)* })
+    );
+    (name: $name:expr, target: $target:expr, parent: $parent:expr, ?$($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(name: $name, target: $target, parent: $parent, tracing::Level::ERROR, { error_type = "crit", ?$($k).+ $($field)* })
+    );
+    (name: $name:expr, target: $target:expr, parent: $parent:expr, %$($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(name: $name, target: $target, parent: $parent, tracing::Level::ERROR, { error_type = "crit", %$($k).+ $($field)* })
+    );
+    (name: $name:expr, target: $target:expr, parent: $parent:expr, $($arg:tt)+ ) => (
+        tracing::event!(name: $name, target: $target, parent: $parent, tracing::Level::ERROR, { error_type = "crit" }, $($arg)+)
+    );
+
+    // Name / target.
+    (name: $name:expr, target: $target:expr, { $($field:tt)* }, $($arg:tt)* ) => (
+        tracing::event!(name: $name, target: $target, tracing::Level::ERROR, { error_type = "crit", $($field)* }, $($arg)*)
+    );
+    (name: $name:expr, target: $target:expr, $($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(name: $name, target: $target, tracing::Level::ERROR, { error_type = "crit", $($k).+ $($field)* })
+    );
+    (name: $name:expr, target: $target:expr, ?$($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(name: $name, target: $target, tracing::Level::ERROR, { error_type = "crit", ?$($k).+ $($field)* })
+    );
+    (name: $name:expr, target: $target:expr, %$($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(name: $name, target: $target, tracing::Level::ERROR, { error_type = "crit", %$($k).+ $($field)* })
+    );
+    (name: $name:expr, target: $target:expr, $($arg:tt)+ ) => (
+        tracing::event!(name: $name, target: $target, tracing::Level::ERROR, { error_type = "crit" }, $($arg)+)
+    );
+
+    // Target / parent.
+    (target: $target:expr, parent: $parent:expr, { $($field:tt)* }, $($arg:tt)* ) => (
+        tracing::event!(target: $target, parent: $parent, tracing::Level::ERROR, { error_type = "crit", $($field)* }, $($arg)*)
+    );
+    (target: $target:expr, parent: $parent:expr, $($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(target: $target, parent: $parent, tracing::Level::ERROR, { error_type = "crit", $($k).+ $($field)* })
+    );
+    (target: $target:expr, parent: $parent:expr, ?$($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(target: $target, parent: $parent, tracing::Level::ERROR, { error_type = "crit", ?$($k).+ $($field)* })
+    );
+    (target: $target:expr, parent: $parent:expr, %$($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(target: $target, parent: $parent, tracing::Level::ERROR, { error_type = "crit", %$($k).+ $($field)* })
+    );
+    (target: $target:expr, parent: $parent:expr, $($arg:tt)+ ) => (
+        tracing::event!(target: $target, parent: $parent, tracing::Level::ERROR, { error_type = "crit" }, $($arg)+)
+    );
+
+    // Name / parent.
+    (name: $name:expr, parent: $parent:expr, { $($field:tt)* }, $($arg:tt)* ) => (
+        tracing::event!(name: $name, parent: $parent, tracing::Level::ERROR, { error_type = "crit", $($field)* }, $($arg)*)
+    );
+    (name: $name:expr, parent: $parent:expr, $($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(name: $name, parent: $parent, tracing::Level::ERROR, { error_type = "crit", $($k).+ $($field)* })
+    );
+    (name: $name:expr, parent: $parent:expr, ?$($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(name: $name, parent: $parent, tracing::Level::ERROR, { error_type = "crit", ?$($k).+ $($field)* })
+    );
+    (name: $name:expr, parent: $parent:expr, %$($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(name: $name, parent: $parent, tracing::Level::ERROR, { error_type = "crit", %$($k).+ $($field)* })
+    );
+    (name: $name:expr, parent: $parent:expr, $($arg:tt)+ ) => (
+        tracing::event!(name: $name, parent: $parent, tracing::Level::ERROR, { error_type = "crit" }, $($arg)+)
+    );
+
+    // Name.
+    (name: $name:expr, { $($field:tt)* }, $($arg:tt)* ) => (
+        tracing::event!(name: $name, tracing::Level::ERROR, { error_type = "crit",$($field)* }, $($arg)*)
+    );
+    (name: $name:expr, $($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(name: $name, tracing::Level::ERROR, {error_type = "crit", $($k).+ $($field)* })
+    );
+    (name: $name:expr, ?$($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(name: $name, tracing::Level::ERROR, { error_type = "crit",?$($k).+ $($field)* })
+    );
+    (name: $name:expr, %$($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(name: $name, tracing::Level::ERROR, { error_type = "crit",%$($k).+ $($field)* })
+    );
+    (name: $name:expr, $($arg:tt)+ ) => (
+        tracing::event!(name: $name, tracing::Level::ERROR, {error_type = "crit"}, $($arg)+)
+    );
+
+    // Target.
+    (target: $target:expr, { $($field:tt)* }, $($arg:tt)* ) => (
+        tracing::event!(target: $target, tracing::Level::ERROR, { error_type = "crit",$($field)* }, $($arg)*)
+    );
+    (target: $target:expr, $($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(target: $target, tracing::Level::ERROR, { error_type = "crit",$($k).+ $($field)* })
+    );
+    (target: $target:expr, ?$($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(target: $target, tracing::Level::ERROR, {error_type = "crit", ?$($k).+ $($field)* })
+    );
+    (target: $target:expr, %$($k:ident).+ $($field:tt)* ) => (
+        tracing::event!(target: $target, tracing::Level::ERROR, {error_type = "crit", %$($k).+ $($field)* })
+    );
+    (target: $target:expr, $($arg:tt)+ ) => (
+        tracing::event!(target: $target, tracing::Level::ERROR, {error_type = "crit"}, $($arg)+)
+    );
+
+    // Parent.
+    (parent: $parent:expr, { $($field:tt)+ }, $($arg:tt)+ ) => (
+        tracing::event!(
+            target: module_path!(),
+            parent: $parent,
+            tracing::Level::ERROR,
+            { error_type = "crit", $($field)+ },
+            $($arg)+
+        )
+    );
+    (parent: $parent:expr, $($k:ident).+ = $($field:tt)*) => (
+        tracing::event!(
+            target: module_path!(),
+            parent: $parent,
+            tracing::Level::ERROR,
+            { error_type = "crit", $($k).+ = $($field)* }
+        )
+    );
+    (parent: $parent:expr, ?$($k:ident).+ = $($field:tt)*) => (
+        tracing::event!(
+            target: module_path!(),
+            parent: $parent,
+            tracing::Level::ERROR,
+            { error_type = "crit", ?$($k).+ = $($field)* }
+        )
+    );
+    (parent: $parent:expr, %$($k:ident).+ = $($field:tt)*) => (
+        tracing::event!(
+            target: module_path!(),
+            parent: $parent,
+            tracing::Level::ERROR,
+            { error_type = "crit", %$($k).+ = $($field)* }
+        )
+    );
+    (parent: $parent:expr, $($k:ident).+, $($field:tt)*) => (
+        tracing::event!(
+            target: module_path!(),
+            parent: $parent,
+            tracing::Level::ERROR,
+            { error_type = "crit", $($k).+, $($field)* }
+        )
+    );
+    (parent: $parent:expr, ?$($k:ident).+, $($field:tt)*) => (
+        tracing::event!(
+            target: module_path!(),
+            parent: $parent,
+            tracing::Level::ERROR,
+            { error_type = "crit", ?$($k).+, $($field)* }
+        )
+    );
+    (parent: $parent:expr, %$($k:ident).+, $($field:tt)*) => (
+        tracing::event!(
+            target: module_path!(),
+            parent: $parent,
+            tracing::Level::ERROR,
+            { error_type = "crit", %$($k).+, $($field)* }
+        )
+    );
+    (parent: $parent:expr, $($arg:tt)+) => (
+        tracing::event!(
+            target: module_path!(),
+            parent: $parent,
+            tracing::Level::ERROR,
+            { error_type = "crit" },
+            $($arg)+
+        )
+    );
+    
+
+    ({ $($field:tt)+ }, $($arg:tt)+ ) => (
+        tracing::event!(
+            target: module_path!(),
+            tracing::Level::ERROR,
+            { error_type = "crit", $($field)+ },
+            $($arg)+
+        )
+    );
+    ($($k:ident).+ = $($field:tt)*) => (
+        tracing::event!(
+            target: module_path!(),
+            tracing::Level::ERROR,
+            { error_type = "crit", $($k).+ = $($field)* }
+        )
+    );
+    (?$($k:ident).+ = $($field:tt)*) => (
+        tracing::event!(
+            target: module_path!(),
+            tracing::Level::ERROR,
+            { error_type = "crit", ?$($k).+ = $($field)* }
+        )
+    );
+    (%$($k:ident).+ = $($field:tt)*) => (
+        tracing::event!(
+            target: module_path!(),
+            tracing::Level::ERROR,
+            { error_type = "crit", %$($k).+ = $($field)* }
+        )
+    );
+    ($($k:ident).+, $($field:tt)*) => (
+        tracing::event!(
+            target: module_path!(),
+            tracing::Level::ERROR,
+            { error_type = "crit", $($k).+, $($field)* }
+        )
+    );
+    (?$($k:ident).+, $($field:tt)*) => (
+        tracing::event!(
+            target: module_path!(),
+            tracing::Level::ERROR,
+            { error_type = "crit", ?$($k).+, $($field)* }
+        )
+    );
+    (%$($k:ident).+, $($field:tt)*) => (
+        tracing::event!(
+            target: module_path!(),
+            tracing::Level::ERROR,
+            { error_type = "crit", %$($k).+, $($field)* }
+        )
+    );
+    (?$($k:ident).+) => (
+        tracing::event!(
+            target: module_path!(),
+            tracing::Level::ERROR,
+            { error_type = "crit", ?$($k).+ }
+        )
+    );
+    (%$($k:ident).+) => (
+        tracing::event!(
+            target: module_path!(),
+            tracing::Level::ERROR,
+            { error_type = "crit", %$($k).+ }
+        )
+    );
+    ($($k:ident).+) => (
+        tracing::event!(
+            target: module_path!(),
+            tracing::Level::ERROR,
+            { error_type = "crit", $($k).+ }
+        )
+    );
+    
+    ($($arg:tt)+) => (
+        tracing::event!(
+            target: module_path!(),
+            tracing::Level::ERROR,
+            { error_type = "crit" },
+            $($arg)+
+        )
+    );
+    
+}
+
 /// Return a logger suitable for test usage.
 ///
 /// By default no logs will be printed, but they can be enabled via
@@ -298,3 +551,5 @@ pub fn test_logger() -> Logger {
             .expect("Should build null_logger")
     }
 }
+
+
