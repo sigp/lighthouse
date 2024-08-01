@@ -114,6 +114,7 @@ delay_map = "0.3"
 derivative = "2"
 dirs = "3"
 either = "1.9"
+peerdas-kzg = { git = "https://github.com/crate-crypto/peerdas-kzg", rev = "55ae9e9011d792a2998d242c2a71d822ba909fa9", package = "eip7594" }
 discv5 = { version = "0.4.1", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"

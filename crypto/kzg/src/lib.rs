@@ -2,6 +2,7 @@ mod kzg_commitment;
 mod kzg_proof;
 mod trusted_setup;
 
+use peerdas_kzg::{prover::ProverError, verifier::VerifierError, PeerDASContext};
 use std::fmt::Debug;
 
 pub use crate::{
@@ -9,14 +10,29 @@ pub use crate::{
     kzg_proof::KzgProof,
     trusted_setup::TrustedSetup,
 };
+
 pub use c_kzg::{
     Blob, Bytes32, Bytes48, KzgSettings, BYTES_PER_BLOB, BYTES_PER_COMMITMENT,
     BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF, FIELD_ELEMENTS_PER_BLOB,
 };
+
+pub use peerdas_kzg::{
+    constants::{BYTES_PER_CELL, CELLS_PER_EXT_BLOB},
+    Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
+};
+
+pub type CellsAndKzgProofs = ([Cell; CELLS_PER_EXT_BLOB], [KzgProof; CELLS_PER_EXT_BLOB]);
+
+pub type KzgBlobRef<'a> = &'a [u8; BYTES_PER_BLOB];
+
 #[derive(Debug)]
 pub enum Error {
     /// An error from the underlying kzg library.
     Kzg(c_kzg::Error),
+    /// A prover error from the PeerdasKZG library
+    ProverKZG(ProverError),
+    /// A verifier error from the PeerdasKZG library
+    VerifierKZG(VerifierError),
     /// The kzg verification failed
     KzgVerificationFailed,
     /// Misc indexing error
@@ -29,42 +45,34 @@ impl From<c_kzg::Error> for Error {
     }
 }
 
-pub const CELLS_PER_EXT_BLOB: usize = 128;
-
-// TODO(das): use proper crypto once ckzg merges das branch
-#[allow(dead_code)]
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct Cell {
-    bytes: [u8; 2048usize],
-}
-
-impl Cell {
-    pub fn from_bytes(b: &[u8]) -> Result<Self, Error> {
-        Ok(Self {
-            bytes: b
-                .try_into()
-                .map_err(|_| Error::Kzg(c_kzg::Error::MismatchLength("".to_owned())))?,
-        })
-    }
-    pub fn into_inner(self) -> [u8; 2048usize] {
-        self.bytes
-    }
-}
-
 /// A wrapper over a kzg library that holds the trusted setup parameters.
 #[derive(Debug)]
 pub struct Kzg {
     trusted_setup: KzgSettings,
+    context: PeerDASContext,
 }
 
 impl Kzg {
     /// Load the kzg trusted setup parameters from a vec of G1 and G2 points.
     pub fn new_from_trusted_setup(trusted_setup: TrustedSetup) -> Result<Self, Error> {
+        // Initialize the trusted setup using default parameters
+        //
+        // Note: One can also use `from_json` to initialize it from the consensus-specs
+        // json string.
+        let peerdas_trusted_setup = PeerDASTrustedSetup::default();
+        // Set the number of threads to be used
+        //
+        // we set it to 1 to match the c-kzg performance
+        const NUM_THREADS: usize = 1;
+
+        let context = PeerDASContext::with_threads(&peerdas_trusted_setup, NUM_THREADS);
+
         Ok(Self {
             trusted_setup: KzgSettings::load_trusted_setup(
                 &trusted_setup.g1_points(),
                 &trusted_setup.g2_points(),
             )?,
+            context,
         })
     }
 
@@ -167,21 +175,19 @@ impl Kzg {
     }
 
     /// Computes the cells and associated proofs for a given `blob` at index `index`.
-    #[allow(clippy::type_complexity)]
-    pub fn compute_cells_and_proofs(
+    #[allow(clippy::needless_lifetimes)]
+    pub fn compute_cells_and_proofs<'a>(
         &self,
-        _blob: &Blob,
-    ) -> Result<
-        (
-            Box<[Cell; CELLS_PER_EXT_BLOB]>,
-            Box<[KzgProof; CELLS_PER_EXT_BLOB]>,
-        ),
-        Error,
-    > {
-        // TODO(das): use proper crypto once ckzg merges das branch
-        let cells = Box::new(core::array::from_fn(|_| Cell { bytes: [0u8; 2048] }));
-        let proofs = Box::new([KzgProof([0u8; BYTES_PER_PROOF]); CELLS_PER_EXT_BLOB]);
-        Ok((cells, proofs))
+        blob: KzgBlobRef<'a>,
+    ) -> Result<CellsAndKzgProofs, Error> {
+        let (cells, proofs) = self
+            .context
+            .compute_cells_and_kzg_proofs(blob)
+            .map_err(Error::ProverKZG)?;
+
+        // Convert the proof type to a c-kzg proof type
+        let c_kzg_proof = proofs.map(KzgProof);
+        Ok((cells, c_kzg_proof))
     }
 
     /// Verifies a batch of cell-proof-commitment triplets.
@@ -189,30 +195,53 @@ impl Kzg {
     /// Here, `coordinates` correspond to the (row, col) coordinate of the cell in the extended
     /// blob "matrix". In the 1D extension, row corresponds to the blob index, and col corresponds
     /// to the data column index.
-    pub fn verify_cell_proof_batch(
+    #[allow(clippy::needless_lifetimes)]
+    pub fn verify_cell_proof_batch<'a>(
         &self,
-        _cells: &[Cell],
-        _kzg_proofs: &[Bytes48],
-        _coordinates: &[(u64, u64)],
-        _kzg_commitments: &[Bytes48],
+        cells: &[CellRef<'a>],
+        kzg_proofs: &[Bytes48],
+        coordinates: &[(u64, u64)],
+        kzg_commitments: &[Bytes48],
     ) -> Result<(), Error> {
-        // TODO(das): use proper crypto once ckzg merges das branch
-        Ok(())
+        let (rows, columns): (Vec<u64>, Vec<u64>) = coordinates.iter().cloned().unzip();
+        // The result of this is either an Ok indicating the proof passed, or an Err indicating
+        // the proof failed or something else went wrong.
+
+        let proofs: Vec<_> = kzg_proofs.iter().map(|proof| proof.as_ref()).collect();
+        let commitments: Vec<_> = kzg_commitments
+            .iter()
+            .map(|commitment| commitment.as_ref())
+            .collect();
+        let verification_result = self.context.verify_cell_kzg_proof_batch(
+            commitments.to_vec(),
+            rows,
+            columns,
+            cells.to_vec(),
+            proofs.to_vec(),
+        );
+
+        // Modify the result so it matches roughly what the previous method was doing.
+        match verification_result {
+            Ok(_) => Ok(()),
+            Err(VerifierError::InvalidProof) => Err(Error::KzgVerificationFailed),
+            Err(e) => Err(Error::VerifierKZG(e)),
+        }
     }
 
-    pub fn cells_to_blob(&self, _cells: &[Cell; CELLS_PER_EXT_BLOB]) -> Result<Blob, Error> {
-        // TODO(das): use proper crypto once ckzg merges das branch
-        Ok(Blob::new([0u8; 131072usize]))
-    }
-
-    pub fn recover_all_cells(
+    #[allow(clippy::needless_lifetimes)]
+    pub fn recover_cells_and_compute_kzg_proofs<'a>(
         &self,
-        _cell_ids: &[u64],
-        _cells: &[Cell],
-    ) -> Result<Box<[Cell; CELLS_PER_EXT_BLOB]>, Error> {
-        // TODO(das): use proper crypto once ckzg merges das branch
-        let cells = Box::new(core::array::from_fn(|_| Cell { bytes: [0u8; 2048] }));
-        Ok(cells)
+        cell_ids: &[u64],
+        cells: &[CellRef<'a>],
+    ) -> Result<CellsAndKzgProofs, Error> {
+        let (cells, proofs) = self
+            .context
+            .recover_cells_and_proofs(cell_ids.to_vec(), cells.to_vec())
+            .map_err(Error::ProverKZG)?;
+
+        // Convert the proof type to a c-kzg proof type
+        let c_kzg_proof = proofs.map(KzgProof);
+        Ok((cells, c_kzg_proof))
     }
 }
 

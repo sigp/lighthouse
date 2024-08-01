@@ -1645,6 +1645,12 @@ pub static BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION: LazyLock<Result<Histogram>>
             "Time taken to compute blob sidecar inclusion proof",
         )
     });
+pub static DATA_COLUMN_SIDECAR_COMPUTATION: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "data_column_sidecar_computation_seconds",
+        "Time taken to compute data column sidecar, including cells, proofs and inclusion proof",
+    )
+});
 pub static DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
@@ -1785,6 +1791,20 @@ pub static KZG_VERIFICATION_BATCH_TIMES: LazyLock<Result<Histogram>> = LazyLock:
         "Runtime of batched kzg verification",
     )
 });
+pub static KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "kzg_verification_data_column_single_seconds",
+            "Runtime of single data column kzg verification",
+        )
+    });
+pub static KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "kzg_verification_data_column_batch_seconds",
+            "Runtime of batched data column kzg verification",
+        )
+    });
 
 pub static BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(
     || {
