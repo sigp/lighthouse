@@ -1,6 +1,6 @@
 use super::common::*;
 use crate::DumpConfig;
-use account_utils::ZeroizeString;
+use account_utils::{eth2_keystore::Keystore, ZeroizeString};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2::lighthouse_vc::types::KeystoreJsonStr;
 use eth2::{lighthouse_vc::std_types::ImportKeystoreStatus, SensitiveUrl};
@@ -176,7 +176,7 @@ impl ImportConfig {
             validator_file_path: clap_utils::parse_required(matches, VALIDATOR_FILE_FLAG)?,
             vc_url: clap_utils::parse_required(matches, VC_URL_FLAG)?,
             vc_token_path: clap_utils::parse_required(matches, VC_TOKEN_FLAG)?,
-            ignore_duplicates: matches.is_present(IGNORE_DUPLICATES_FLAG),
+            ignore_duplicates: matches.get_flag(IGNORE_DUPLICATES_FLAG),
             password: clap_utils::parse_required(matches, PASSWORD)?,
             fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT)?,
             gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT)?,
