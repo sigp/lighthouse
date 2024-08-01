@@ -1246,9 +1246,7 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("disable-lock-timeouts")
                 .long("disable-lock-timeouts")
-                .help("Disable the timeouts applied to some internal locks by default. This can \
-                       lead to less spurious failures on slow hardware but is considered \
-                       experimental as it may obscure performance issues.")
+                .help("This flag is deprecated and has no effect.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)

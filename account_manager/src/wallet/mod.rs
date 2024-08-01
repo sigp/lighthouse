@@ -22,6 +22,7 @@ pub fn cli_app() -> Command {
             .action(ArgAction::HelpLong)
             .display_order(0)
             .help_heading(FLAG_HEADER)
+            .global(true)
         )
         .arg(
             Arg::new(WALLETS_DIR_FLAG)

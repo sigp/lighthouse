@@ -20,7 +20,6 @@ futures = { workspace = true }
 error-chain = { workspace = true }
 dirs = { workspace = true }
 fnv = { workspace = true }
-lazy_static = { workspace = true }
 lighthouse_metrics = { workspace = true }
 smallvec = { workspace = true }
 tokio-io-timeout = "1"
@@ -43,6 +42,7 @@ unused_port = { workspace = true }
 delay_map = { workspace = true }
 bytes = { workspace = true }
 either = { workspace = true }
+itertools = { workspace = true }
 
 # Local dependencies
 void = "1.0.2"
