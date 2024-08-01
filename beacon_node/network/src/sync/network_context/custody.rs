@@ -1,4 +1,3 @@
-use crate::sync::manager::{DataColumnsByRootRequester, SingleLookupReqId};
 use crate::sync::network_context::{
     DataColumnsByRootRequestId, DataColumnsByRootSingleBlockRequest,
 };
@@ -6,6 +5,7 @@ use crate::sync::network_context::{
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
+use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
 use lighthouse_network::PeerId;
 use lru_cache::LRUTimeCache;
 use rand::Rng;
@@ -15,20 +15,9 @@ use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use types::EthSpec;
 use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Epoch, Hash256};
 
-use super::{LookupRequestResult, PeerGroup, ReqId, RpcResponseResult, SyncNetworkContext};
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct CustodyId {
-    pub requester: CustodyRequester,
-    pub req_id: ReqId,
-}
+use super::{LookupRequestResult, PeerGroup, RpcResponseResult, SyncNetworkContext};
 
 const FAILED_PEERS_CACHE_EXPIRY_SECONDS: u64 = 5;
-
-/// Downstream components that perform custody by root requests.
-/// Currently, it's only single block lookups, so not using an enum
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct CustodyRequester(pub SingleLookupReqId);
 
 type DataColumnSidecarVec<E> = Vec<Arc<DataColumnSidecar<E>>>;
 

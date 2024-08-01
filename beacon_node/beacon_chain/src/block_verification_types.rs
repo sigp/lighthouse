@@ -401,7 +401,7 @@ pub enum BlockContentsError<E: EthSpec> {
     BlockError(BlockError<E>),
     BlobError(GossipBlobError<E>),
     BlobSidecarError(blob_sidecar::BlobSidecarError),
-    DataColumnError(GossipDataColumnError<E>),
+    DataColumnError(GossipDataColumnError),
     DataColumnSidecarError(data_column_sidecar::DataColumnSidecarError),
 }
 
@@ -417,8 +417,8 @@ impl<E: EthSpec> From<GossipBlobError<E>> for BlockContentsError<E> {
     }
 }
 
-impl<E: EthSpec> From<GossipDataColumnError<E>> for BlockContentsError<E> {
-    fn from(value: GossipDataColumnError<E>) -> Self {
+impl<E: EthSpec> From<GossipDataColumnError> for BlockContentsError<E> {
+    fn from(value: GossipDataColumnError) -> Self {
         Self::DataColumnError(value)
     }
 }

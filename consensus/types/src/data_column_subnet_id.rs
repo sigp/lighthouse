@@ -36,7 +36,6 @@ impl DataColumnSubnetId {
     }
 
     /// Compute required subnets to subscribe to given the node id.
-    /// TODO(das): Add epoch param
     #[allow(clippy::arithmetic_side_effects)]
     pub fn compute_custody_subnets<E: EthSpec>(
         node_id: U256,

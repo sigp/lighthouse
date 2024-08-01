@@ -10,7 +10,7 @@ use types::{ChainSpec, DataColumnSubnetId};
 pub fn subnet_predicate<E>(
     subnets: Vec<Subnet>,
     log: &slog::Logger,
-    spec: &ChainSpec,
+    spec: Arc<ChainSpec>,
 ) -> impl Fn(&Enr) -> bool + Send
 where
     E: EthSpec,
@@ -43,7 +43,7 @@ where
                 let mut subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
                     enr.node_id().raw().into(),
                     custody_subnet_count,
-                    &spec_clone,
+                    &spec,
                 );
                 subnets.contains(s)
             }

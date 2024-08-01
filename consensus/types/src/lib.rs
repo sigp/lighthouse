@@ -33,7 +33,7 @@ pub mod contribution_and_proof;
 pub mod deposit;
 pub mod deposit_data;
 pub mod deposit_message;
-pub mod deposit_receipt;
+pub mod deposit_request;
 pub mod deposit_tree_snapshot;
 pub mod enr_fork_id;
 pub mod eth1_data;
@@ -84,7 +84,6 @@ pub mod config_and_preset;
 pub mod execution_block_header;
 pub mod fork_context;
 pub mod participation_flags;
-pub mod participation_list;
 pub mod payload;
 pub mod preset;
 pub mod slot_epoch;
@@ -156,14 +155,14 @@ pub use crate::data_column_subnet_id::DataColumnSubnetId;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;
 pub use crate::deposit_message::DepositMessage;
-pub use crate::deposit_receipt::DepositRequest;
+pub use crate::deposit_request::DepositRequest;
 pub use crate::deposit_tree_snapshot::{DepositTreeSnapshot, FinalizedExecutionBlock};
 pub use crate::enr_fork_id::EnrForkId;
 pub use crate::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
-pub use crate::execution_block_header::ExecutionBlockHeader;
+pub use crate::execution_block_header::{EncodableExecutionBlockHeader, ExecutionBlockHeader};
 pub use crate::execution_layer_withdrawal_request::ExecutionLayerWithdrawalRequest;
 pub use crate::execution_payload::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
@@ -206,7 +205,6 @@ pub use crate::light_client_update::{
     LightClientUpdateCapella, LightClientUpdateDeneb, LightClientUpdateElectra,
 };
 pub use crate::participation_flags::ParticipationFlags;
-pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
     BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadRef, BlockType, ExecPayload,

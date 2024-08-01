@@ -1,22 +1,19 @@
 //! Provides network functionality for the Syncing thread. This fundamentally wraps a network
 //! channel and stores a global RPC ID to perform requests.
 
-pub use self::custody::CustodyId;
-use self::custody::{ActiveCustodyRequest, CustodyRequester, Error as CustodyRequestError};
+use self::custody::{ActiveCustodyRequest, Error as CustodyRequestError};
 use self::requests::ActiveDataColumnsByRootRequest;
 pub use self::requests::BlocksByRootSingleRequest;
 pub use self::requests::DataColumnsByRootSingleBlockRequest;
 use self::requests::{ActiveBlobsByRootRequest, ActiveBlocksByRootRequest};
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
-use super::manager::{
-    BlockProcessType, DataColumnsByRootRequester, Id, RequestId as SyncRequestId,
-};
+use super::manager::BlockProcessType;
 use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
+use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
-use crate::service::{NetworkMessage, RequestId};
+use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::SingleLookupId;
-use crate::sync::manager::SingleLookupReqId;
 use crate::sync::network_context::requests::BlobsByRootSingleBlockRequest;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_column_verification::CustodyDataColumn;
@@ -25,6 +22,10 @@ use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineStat
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::methods::{BlobsByRangeRequest, DataColumnsByRangeRequest};
 use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError};
+use lighthouse_network::service::api_types::{
+    AppRequestId, CustodyId, CustodyRequester, DataColumnsByRootRequestId,
+    DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
+};
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -61,11 +62,6 @@ pub enum RangeRequestId {
         batch_id: BatchId,
     },
 }
-
-/// Request ID for data_columns_by_root requests. Block lookup do not issue this requests directly.
-/// Wrapping this particular req_id, ensures not mixing this requests with a custody req_id.
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct DataColumnsByRootRequestId(Id);
 
 #[derive(Debug)]
 pub enum RpcEvent<T> {
@@ -244,7 +240,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 .iter()
                 .filter_map(|(id, request)| {
                     if request.1.peer_ids.contains(peer_id) {
-                        Some(SyncRequestId::RangeBlockComponents(*id))
+                        Some(SyncRequestId::RangeBlockAndBlobs { id: *id })
                     } else {
                         None
                     }
@@ -322,7 +318,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             );
 
             let request = Request::Status(status_message.clone());
-            let request_id = RequestId::Router;
+            let request_id = AppRequestId::Router;
             let _ = self.send_network_msg(NetworkMessage::SendRequest {
                 peer_id,
                 request,
@@ -354,7 +350,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .send(NetworkMessage::SendRequest {
                 peer_id,
                 request: Request::BlocksByRange(request.clone()),
-                request_id: RequestId::Sync(SyncRequestId::RangeBlockComponents(id)),
+                request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
             })
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
 
@@ -376,7 +372,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         start_slot: *request.start_slot(),
                         count: *request.count(),
                     }),
-                    request_id: RequestId::Sync(SyncRequestId::RangeBlockComponents(id)),
+                    request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
                 })
                 .map_err(|_| RpcRequestSendError::NetworkSendError)?;
             true
@@ -408,7 +404,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 self.send_network_msg(NetworkMessage::SendRequest {
                     peer_id,
                     request: Request::DataColumnsByRange(columns_by_range_request),
-                    request_id: RequestId::Sync(SyncRequestId::RangeBlockComponents(id)),
+                    request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
                 })
                 .map_err(|_| RpcRequestSendError::NetworkSendError)?;
             }
@@ -489,29 +485,30 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request_id: Id,
         block_or_blob: BlockOrBlob<T::EthSpec>,
     ) -> Option<BlocksAndBlobsByRangeResponse<T::EthSpec>> {
-        match self.range_block_components_requests.entry(request_id) {
-            Entry::Occupied(mut entry) => {
-                let (_, info) = entry.get_mut();
-                match block_or_blob {
-                    BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
-                    BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
-                    BlockOrBlob::CustodyColumns(column) => info.add_data_column(column),
-                }
-                if info.is_finished() {
-                    // If the request is finished, dequeue everything
-                    let (sender_id, info) = entry.remove();
-                    let (expects_blobs, expects_custody_columns) = info.get_requirements();
-                    Some(BlocksAndBlobsByRangeResponse {
-                        sender_id,
-                        responses: info.into_responses(&self.chain.spec),
-                        expects_blobs,
-                        expects_custody_columns,
-                    })
-                } else {
-                    None
-                }
-            }
-            Entry::Vacant(_) => None,
+        let Entry::Occupied(mut entry) = self.range_block_components_requests.entry(request_id)
+        else {
+            metrics::inc_counter_vec(&metrics::SYNC_UNKNOWN_NETWORK_REQUESTS, &["range_blocks"]);
+            return None;
+        };
+
+        let (_, info) = entry.get_mut();
+        match block_or_blob {
+            BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
+            BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
+            BlockOrBlob::CustodyColumns(column) => info.add_data_column(column),
+        }
+        if info.is_finished() {
+            // If the request is finished, dequeue everything
+            let (sender_id, info) = entry.remove();
+            let (expects_blobs, expects_custody_columns) = info.get_requirements();
+            Some(BlocksAndBlobsByRangeResponse {
+                sender_id,
+                responses: info.into_responses(&self.chain.spec),
+                expects_blobs,
+                expects_custody_columns,
+            })
+        } else {
+            None
         }
     }
 
@@ -567,7 +564,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .send(NetworkMessage::SendRequest {
                 peer_id,
                 request: Request::BlocksByRoot(request.into_request(&self.chain.spec)),
-                request_id: RequestId::Sync(SyncRequestId::SingleBlock { id }),
+                request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             })
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
 
@@ -668,7 +665,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .send(NetworkMessage::SendRequest {
                 peer_id,
                 request: Request::BlobsByRoot(request.clone().into_request(&self.chain.spec)),
-                request_id: RequestId::Sync(SyncRequestId::SingleBlob { id }),
+                request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             })
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
 
@@ -699,7 +696,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
             request: Request::DataColumnsByRoot(request.clone().into_request(&self.chain.spec)),
-            request_id: RequestId::Sync(SyncRequestId::DataColumnsByRoot(req_id, requester)),
+            request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(req_id, requester)),
         })?;
 
         self.data_columns_by_root_requests
@@ -950,6 +947,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> Option<RpcResponseResult<Arc<SignedBeaconBlock<T::EthSpec>>>> {
         let Entry::Occupied(mut request) = self.blocks_by_root_requests.entry(request_id) else {
+            metrics::inc_counter_vec(&metrics::SYNC_UNKNOWN_NETWORK_REQUESTS, &["blocks_by_root"]);
             return None;
         };
 
@@ -987,6 +985,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
     ) -> Option<RpcResponseResult<FixedBlobSidecarList<T::EthSpec>>> {
         let Entry::Occupied(mut request) = self.blobs_by_root_requests.entry(request_id) else {
+            metrics::inc_counter_vec(&metrics::SYNC_UNKNOWN_NETWORK_REQUESTS, &["blobs_by_root"]);
             return None;
         };
 
@@ -1215,6 +1214,24 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             RpcResponseError::CustodyRequestError(_) => {}
         }
     }
+
+    pub(crate) fn register_metrics(&self) {
+        metrics::set_gauge_vec(
+            &metrics::SYNC_ACTIVE_NETWORK_REQUESTS,
+            &["blocks_by_root"],
+            self.blocks_by_root_requests.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::SYNC_ACTIVE_NETWORK_REQUESTS,
+            &["blobs_by_root"],
+            self.blobs_by_root_requests.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::SYNC_ACTIVE_NETWORK_REQUESTS,
+            &["range_blocks"],
+            self.range_block_components_requests.len() as i64,
+        );
+    }
 }
 
 fn to_fixed_blob_sidecar_list<E: EthSpec>(
@@ -1228,10 +1245,4 @@ fn to_fixed_blob_sidecar_list<E: EthSpec>(
             .ok_or(LookupVerifyError::UnrequestedBlobIndex(index as u64))? = Some(blob)
     }
     Ok(fixed_list)
-}
-
-impl std::fmt::Display for DataColumnsByRootRequestId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
 }

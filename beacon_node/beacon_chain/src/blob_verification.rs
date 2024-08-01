@@ -226,7 +226,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
         self.blob.blob.slot()
     }
     pub fn epoch(&self) -> Epoch {
-        self.slot().epoch(T::EthSpec::slots_per_epoch())
+        self.blob.blob.epoch()
     }
     pub fn index(&self) -> u64 {
         self.blob.blob.index
