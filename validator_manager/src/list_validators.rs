@@ -55,7 +55,7 @@ pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<()
     if dump_config.should_exit_early(&config)? {
         Ok(())
     } else {
-        println!("{}", run(config).await.unwrap());
+        println!("{}", run(config).await?);
         Ok(())
     }
 }
