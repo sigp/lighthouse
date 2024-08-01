@@ -2,7 +2,7 @@ use crate::errors::BeaconChainError;
 use crate::{metrics, BeaconChainTypes, BeaconStore};
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
-use slog::{debug, info, Logger};
+use slog::{debug, Logger};
 use ssz::Decode;
 use ssz::Encode;
 use ssz_types::FixedVector;
@@ -57,7 +57,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
     /// Compute and cache state proofs for latter production of light-client messages. Does not
     /// trigger block replay.
-    pub fn cache_state_data(
+    pub(crate) fn cache_state_data(
         &self,
         spec: &ChainSpec,
         block: BeaconBlockRef<T::EthSpec>,
@@ -122,12 +122,10 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
         let is_latest_optimistic = match &self.latest_optimistic_update.read().clone() {
             Some(latest_optimistic_update) => {
-                latest_optimistic_update.is_latest_optimistic_update(attested_slot, signature_slot)
+                latest_optimistic_update.is_latest(attested_slot, signature_slot)
             }
             None => true,
         };
-        info!(log, "is_latest_optimistic: {}", is_latest_optimistic);
-        info!(log, "signature slot: {}", signature_slot);
         if is_latest_optimistic {
             // can create an optimistic update, that is more recent
             *self.latest_optimistic_update.write() = Some(LightClientOptimisticUpdate::new(
@@ -142,7 +140,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
         let is_latest_finality = match &self.latest_finality_update.read().clone() {
             Some(latest_finality_update) => {
-                latest_finality_update.is_latest_finality_update(attested_slot, signature_slot)
+                latest_finality_update.is_latest(attested_slot, signature_slot)
             }
             None => true,
         };
@@ -209,7 +207,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         Ok(())
     }
 
-    pub fn store_light_client_update(
+    fn store_light_client_update(
         &self,
         store: &BeaconStore<T>,
         sync_committee_period: u64,
@@ -231,7 +229,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     // Used to fetch the most recently persisted "best" light client update.
     // Should not be used outside the light client server, as it also caches the fetched
     // light client update.
-    pub fn get_light_client_update(
+    fn get_light_client_update(
         &self,
         store: &BeaconStore<T>,
         sync_committee_period: u64,

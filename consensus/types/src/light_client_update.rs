@@ -350,7 +350,6 @@ impl<E: EthSpec> LightClientUpdate<E> {
         // Compare presence of relevant sync committee
         let new_has_relevant_sync_committee = new.is_sync_committee_update(chain_spec)?;
         let prev_has_relevant_sync_committee = self.is_sync_committee_update(chain_spec)?;
-
         if new_has_relevant_sync_committee != prev_has_relevant_sync_committee {
             return Ok(new_has_relevant_sync_committee);
         }
@@ -365,9 +364,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
         // Compare sync committee finality
         if new_has_finality {
             let new_has_sync_committee_finality = new.has_sync_committee_finality(chain_spec)?;
-
             let prev_has_sync_committee_finality = self.has_sync_committee_finality(chain_spec)?;
-
             if new_has_sync_committee_finality != prev_has_sync_committee_finality {
                 return Ok(new_has_sync_committee_finality);
             }
