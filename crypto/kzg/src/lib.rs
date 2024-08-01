@@ -78,29 +78,25 @@ impl Kzg {
     }
 
     /// Compute the kzg proof given a blob and its kzg commitment.
-    #[allow(clippy::needless_lifetimes)]
-    pub fn compute_blob_kzg_proof<'a>(
+    pub fn compute_blob_kzg_proof(
         &self,
-        blob: KzgBlobRef<'a>,
+        blob: &Blob,
         kzg_commitment: KzgCommitment,
     ) -> Result<KzgProof, Error> {
-        let blob = Blob::from_bytes(blob)?;
-        c_kzg::KzgProof::compute_blob_kzg_proof(&blob, &kzg_commitment.into(), &self.trusted_setup)
+        c_kzg::KzgProof::compute_blob_kzg_proof(blob, &kzg_commitment.into(), &self.trusted_setup)
             .map(|proof| KzgProof(proof.to_bytes().into_inner()))
             .map_err(Into::into)
     }
 
     /// Verify a kzg proof given the blob, kzg commitment and kzg proof.
-    #[allow(clippy::needless_lifetimes)]
-    pub fn verify_blob_kzg_proof<'a>(
+    pub fn verify_blob_kzg_proof(
         &self,
-        blob: KzgBlobRef<'a>,
+        blob: &Blob,
         kzg_commitment: KzgCommitment,
         kzg_proof: KzgProof,
     ) -> Result<(), Error> {
-        let blob = Blob::from_bytes(blob)?;
         if !c_kzg::KzgProof::verify_blob_kzg_proof(
-            &blob,
+            blob,
             &kzg_commitment.into(),
             &kzg_proof.into(),
             &self.trusted_setup,
@@ -115,10 +111,9 @@ impl Kzg {
     ///
     /// Note: This method is slightly faster than calling `Self::verify_blob_kzg_proof` in a loop sequentially.
     /// TODO(pawan): test performance against a parallelized rayon impl.
-    #[allow(clippy::needless_lifetimes)]
-    pub fn verify_blob_kzg_proof_batch<'a>(
+    pub fn verify_blob_kzg_proof_batch(
         &self,
-        blobs: &[KzgBlobRef<'a>],
+        blobs: &[Blob],
         kzg_commitments: &[KzgCommitment],
         kzg_proofs: &[KzgProof],
     ) -> Result<(), Error> {
@@ -132,12 +127,8 @@ impl Kzg {
             .map(|proof| Bytes48::from(*proof))
             .collect::<Vec<_>>();
 
-        let blobs = blobs
-            .iter()
-            .map(|blob| Blob::from_bytes(blob.as_slice()))
-            .collect::<Result<Vec<_>, _>>()?;
         if !c_kzg::KzgProof::verify_blob_kzg_proof_batch(
-            &blobs,
+            blobs,
             &commitments_bytes,
             &proofs_bytes,
             &self.trusted_setup,
@@ -149,23 +140,19 @@ impl Kzg {
     }
 
     /// Converts a blob to a kzg commitment.
-    #[allow(clippy::needless_lifetimes)]
-    pub fn blob_to_kzg_commitment<'a>(&self, blob: KzgBlobRef<'a>) -> Result<KzgCommitment, Error> {
-        let blob = Blob::from_bytes(blob)?;
-        c_kzg::KzgCommitment::blob_to_kzg_commitment(&blob, &self.trusted_setup)
+    pub fn blob_to_kzg_commitment(&self, blob: &Blob) -> Result<KzgCommitment, Error> {
+        c_kzg::KzgCommitment::blob_to_kzg_commitment(blob, &self.trusted_setup)
             .map(|commitment| KzgCommitment(commitment.to_bytes().into_inner()))
             .map_err(Into::into)
     }
 
     /// Computes the kzg proof for a given `blob` and an evaluation point `z`
-    #[allow(clippy::needless_lifetimes)]
-    pub fn compute_kzg_proof<'a>(
+    pub fn compute_kzg_proof(
         &self,
-        blob: KzgBlobRef<'a>,
+        blob: &Blob,
         z: &Bytes32,
     ) -> Result<(KzgProof, Bytes32), Error> {
-        let blob = Blob::from_bytes(blob)?;
-        c_kzg::KzgProof::compute_kzg_proof(&blob, z, &self.trusted_setup)
+        c_kzg::KzgProof::compute_kzg_proof(blob, z, &self.trusted_setup)
             .map(|(proof, y)| (KzgProof(proof.to_bytes().into_inner()), y))
             .map_err(Into::into)
     }
@@ -194,14 +181,9 @@ impl Kzg {
         &self,
         blob: KzgBlobRef<'a>,
     ) -> Result<CellsAndKzgProofs, Error> {
-        let blob_bytes: &[u8; BYTES_PER_BLOB] = blob
-            .as_ref()
-            .try_into()
-            .expect("Expected blob to have size {BYTES_PER_BLOB}");
-
         let (cells, proofs) = self
             .context
-            .compute_cells_and_kzg_proofs(blob_bytes)
+            .compute_cells_and_kzg_proofs(blob)
             .map_err(Error::ProverKZG)?;
 
         // Convert the proof type to a c-kzg proof type
