@@ -20,7 +20,10 @@ pub use peerdas_kzg::{
     Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
 };
 use peerdas_kzg::{prover::ProverError, verifier::VerifierError, PeerDASContext};
+
 pub type CellsAndKzgProofs = ([Cell; CELLS_PER_EXT_BLOB], [KzgProof; CELLS_PER_EXT_BLOB]);
+
+pub type KzgBlobRef<'a> = &'a [u8; BYTES_PER_BLOB];
 
 #[derive(Debug)]
 pub enum Error {
@@ -173,15 +176,14 @@ impl Kzg {
     }
 
     /// Computes the cells and associated proofs for a given `blob` at index `index`.
-    pub fn compute_cells_and_proofs(&self, blob: &Blob) -> Result<CellsAndKzgProofs, Error> {
-        let blob_bytes: &[u8; BYTES_PER_BLOB] = blob
-            .as_ref()
-            .try_into()
-            .expect("Expected blob to have size {BYTES_PER_BLOB}");
-
+    #[allow(clippy::needless_lifetimes)]
+    pub fn compute_cells_and_proofs<'a>(
+        &self,
+        blob: KzgBlobRef<'a>,
+    ) -> Result<CellsAndKzgProofs, Error> {
         let (cells, proofs) = self
             .context
-            .compute_cells_and_kzg_proofs(blob_bytes)
+            .compute_cells_and_kzg_proofs(blob)
             .map_err(Error::ProverKZG)?;
 
         // Convert the proof type to a c-kzg proof type
@@ -245,11 +247,11 @@ impl Kzg {
 }
 
 pub mod mock {
-    use crate::{Blob, Cell, CellsAndKzgProofs, BYTES_PER_CELL, CELLS_PER_EXT_BLOB};
+    use crate::{Cell, CellsAndKzgProofs, KzgBlobRef, BYTES_PER_CELL, CELLS_PER_EXT_BLOB};
     use crate::{Error, KzgProof};
 
     #[allow(clippy::type_complexity)]
-    pub fn compute_cells_and_proofs(_blob: &Blob) -> Result<CellsAndKzgProofs, Error> {
+    pub fn compute_cells_and_proofs(_blob: KzgBlobRef) -> Result<CellsAndKzgProofs, Error> {
         let empty_cells = vec![Cell::new([0; BYTES_PER_CELL]); CELLS_PER_EXT_BLOB]
             .try_into()
             .expect("expected {CELLS_PER_EXT_BLOB} number of items");
