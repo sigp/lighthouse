@@ -5,7 +5,6 @@ use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2::lighthouse_vc::types::KeystoreJsonStr;
 use eth2::{lighthouse_vc::std_types::ImportKeystoreStatus, SensitiveUrl};
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::PathBuf;
 use types::Address;
 
@@ -191,7 +190,7 @@ impl ImportConfig {
     }
 }
 
-pub async fn cli_run<'a>(matches: &'a ArgMatches, dump_config: DumpConfig) -> Result<(), String> {
+pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<(), String> {
     let config = ImportConfig::from_cli(matches)?;
     if dump_config.should_exit_early(&config)? {
         Ok(())
@@ -219,20 +218,12 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
         return Err(format!("Unable to find file at {:?}", validator_file_path));
     }
 
-    let validator_file_path_clone = validator_file_path.clone();
-
-    let validators_file = fs::read_to_string(validator_file_path_clone)
-        .map_err(|e| format!("Unable to open {:?}: {:?}", validator_file_path, e))?;
-
-    let json_keystore: JsonKeystore =
-        serde_json::from_str(&validators_file).expect("JSON was not well formatted");
-
     let (http_client, _keystores) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
 
     eprintln!("Starting to submit validator it may take several seconds");
 
     let validator_specification = ValidatorSpecification {
-        voting_keystore: KeystoreJsonStr(Keystore::from_json_keystore(json_keystore).unwrap()),
+        voting_keystore: KeystoreJsonStr(Keystore::from_json_file(&validator_file_path).unwrap()),
         voting_keystore_password: password,
         slashing_protection: None,
         fee_recipient,

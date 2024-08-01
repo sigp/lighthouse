@@ -70,7 +70,7 @@ impl RemoveConfig {
     }
 }
 
-pub async fn cli_run<'a>(matches: &'a ArgMatches, dump_config: DumpConfig) -> Result<(), String> {
+pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<(), String> {
     let config = RemoveConfig::from_cli(matches)?;
     if dump_config.should_exit_early(&config)? {
         Ok(())
