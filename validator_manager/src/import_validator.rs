@@ -102,7 +102,7 @@ pub fn cli_app() -> Command {
                     Users should also be careful to avoid submitting duplicate deposits for \
                     validators that already exist on the VC.",
                 )
-                .action(ArgAction:SetTrue),
+                .action(ArgAction::SetTrue),
 
         )
         .arg(
