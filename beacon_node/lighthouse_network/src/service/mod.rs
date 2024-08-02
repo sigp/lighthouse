@@ -162,6 +162,7 @@ impl<E: EthSpec> Network<E> {
                 &config,
                 &ctx.enr_fork_id,
                 &log,
+                ctx.chain_spec,
             )?;
             // Construct the metadata
             let meta_data = utils::load_or_build_metadata(&config.network_dir, &log);
