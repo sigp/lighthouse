@@ -101,7 +101,9 @@ pub fn cli_app() -> Command {
                     slashable conditions, it might be an indicator that something is amiss. \
                     Users should also be careful to avoid submitting duplicate deposits for \
                     validators that already exist on the VC.",
-                ),
+                )
+                .action(ArgAction:SetTrue),
+
         )
         .arg(
             Arg::new(PASSWORD)
