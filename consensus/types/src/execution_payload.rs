@@ -94,6 +94,8 @@ pub struct ExecutionPayload<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
     #[superstruct(only(Electra))]
+    //TODO(electra) remove alias once EF tests are updates with correct name
+    #[serde(alias = "deposit_receipts")]
     pub deposit_requests: VariableList<DepositRequest, E::MaxDepositRequestsPerPayload>,
     #[superstruct(only(Electra))]
     pub withdrawal_requests:

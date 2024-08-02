@@ -2,7 +2,7 @@ use eth2::types::{ErrorMessage, Failure, IndexedErrorMessage};
 use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
-use warp::{http::StatusCode, reject::Reject};
+use warp::{http::StatusCode, reject::Reject, reply::Response, Reply};
 
 #[derive(Debug)]
 pub struct ServerSentEventError(pub String);
@@ -254,4 +254,22 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     });
 
     Ok(warp::reply::with_status(json, code))
+}
+
+/// Convert a warp `Rejection` into a `Response`.
+///
+/// This function should *always* be used to convert rejections into responses. This prevents warp
+/// from trying to backtrack in strange ways. See: https://github.com/sigp/lighthouse/issues/3404
+pub async fn convert_rejection<T: Reply>(res: Result<T, warp::Rejection>) -> Response {
+    match res {
+        Ok(response) => response.into_response(),
+        Err(e) => match handle_rejection(e).await {
+            Ok(reply) => reply.into_response(),
+            Err(_) => warp::reply::with_status(
+                warp::reply::json(&"unhandled error"),
+                eth2::StatusCode::INTERNAL_SERVER_ERROR,
+            )
+            .into_response(),
+        },
+    }
 }

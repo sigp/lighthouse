@@ -23,7 +23,6 @@ use types::{EthSpec, SyncSubnetId};
 pub use libp2p::core::Multiaddr;
 pub use libp2p::identity::Keypair;
 
-#[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 pub mod peerdb;
 
 use crate::peer_manager::peerdb::client::ClientKind;
@@ -320,7 +319,6 @@ impl<E: EthSpec> PeerManager<E> {
     /// returned here.
     ///
     /// This function decides whether or not to dial these peers.
-    #[allow(clippy::mutable_key_type)]
     pub fn peers_discovered(&mut self, results: HashMap<Enr, Option<Instant>>) {
         let mut to_dial_peers = 0;
         let connected_or_dialing = self.network_globals.connected_or_dialing_peers();
@@ -918,9 +916,9 @@ impl<E: EthSpec> PeerManager<E> {
     ///     number should be set low as an absolute lower bound to maintain peers on the sync
     ///     committees.
     /// - Do not prune trusted peers. NOTE: This means if a user has more trusted peers than the
-    /// excess peer limit, all of the following logic is subverted as we will not prune any peers.
-    /// Also, the more trusted peers a user has, the less room Lighthouse has to efficiently manage
-    /// its peers across the subnets.
+    ///     excess peer limit, all of the following logic is subverted as we will not prune any peers.
+    ///     Also, the more trusted peers a user has, the less room Lighthouse has to efficiently manage
+    ///     its peers across the subnets.
     ///
     /// Prune peers in the following order:
     /// 1. Remove worst scoring peers
@@ -1027,6 +1025,10 @@ impl<E: EthSpec> PeerManager<E> {
                                 .or_default()
                                 .insert(id);
                         }
+                        // TODO(das) to be implemented. We're not pruning data column peers yet
+                        // because data column topics are subscribed as core topics until we
+                        // implement recomputing data column subnets.
+                        Subnet::DataColumn(_) => {}
                     }
                 }
             }

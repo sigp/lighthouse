@@ -6,15 +6,13 @@
 //!
 //! The scoring algorithms are currently experimental.
 use crate::service::gossipsub_scoring_parameters::GREYLIST_THRESHOLD as GOSSIPSUB_GREYLIST_THRESHOLD;
-use lazy_static::lazy_static;
 use serde::Serialize;
+use std::sync::LazyLock;
 use std::time::Instant;
 use strum::AsRefStr;
 use tokio::time::Duration;
 
-lazy_static! {
-    static ref HALFLIFE_DECAY: f64 = -(2.0f64.ln()) / SCORE_HALFLIFE;
-}
+static HALFLIFE_DECAY: LazyLock<f64> = LazyLock::new(|| -(2.0f64.ln()) / SCORE_HALFLIFE);
 
 /// The default score for new peers.
 pub(crate) const DEFAULT_SCORE: f64 = 0.0;

@@ -334,12 +334,6 @@ pub fn get_config<E: EthSpec>(
                     .map(Duration::from_millis);
         }
 
-        if parse_flag(cli_args, "builder-profit-threshold") {
-            warn!(
-                info = "this flag is deprecated and will be removed",
-                "Ignoring --builder-profit-threshold"
-            );
-        }
         if cli_args.get_flag("always-prefer-builder-payload") {
             warn!(
                 info = "this flag is deprecated and will be removed",
@@ -756,7 +750,10 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.get_flag("disable-lock-timeouts") {
-        client_config.chain.enable_lock_timeouts = false;
+        warn!(
+            info = "this flag is deprecated and will be removed",
+            "Ignoring --disable-lock-timeouts"
+        );
     }
 
     if cli_args.get_flag("disable-proposer-reorgs") {
@@ -1411,16 +1408,15 @@ pub fn set_network_config(
     // Light client server config.
     config.enable_light_client_server = parse_flag(cli_args, "light-client-server");
 
-    // The self limiter is disabled by default. If the `self-limiter` flag is provided
-    // without the `self-limiter-protocols` flag, the default params will be used.
-    if parse_flag(cli_args, "self-limiter") {
-        config.outbound_rate_limiter_config =
-            if let Some(protocols) = cli_args.get_one::<String>("self-limiter-protocols") {
-                Some(protocols.parse()?)
-            } else {
-                Some(Default::default())
-            };
-    }
+    // The self limiter is enabled by default. If the `self-limiter-protocols` flag is not provided,
+    // the default params will be used.
+    config.outbound_rate_limiter_config = if parse_flag(cli_args, "disable-self-limiter") {
+        None
+    } else if let Some(protocols) = cli_args.get_one::<String>("self-limiter-protocols") {
+        Some(protocols.parse()?)
+    } else {
+        Some(Default::default())
+    };
 
     // Proposer-only mode overrides a number of previous configuration parameters.
     // Specifically, we avoid subscribing to long-lived subnets and wish to maintain a minimal set
