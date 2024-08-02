@@ -749,6 +749,33 @@ pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
         Option<VariableList<JsonWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>>,
 }
 
+impl<E: EthSpec> From<ExecutionPayloadBodyV1<E>> for JsonExecutionPayloadBodyV1<E> {
+    fn from(value: ExecutionPayloadBodyV1<E>) -> Self {
+        Self {
+            transactions: value.transactions,
+            withdrawals: value.withdrawals.map(|json_withdrawals| {
+                VariableList::from(
+                    json_withdrawals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
+            deposit_requests: value.deposit_requests.map(|receipts| {
+                VariableList::from(receipts.into_iter().map(Into::into).collect::<Vec<_>>())
+            }),
+            withdrawal_requests: value.withdrawal_requests.map(|withdrawal_requests| {
+                VariableList::from(
+                    withdrawal_requests
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
+        }
+    }
+}
+
 impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
     fn from(value: JsonExecutionPayloadBodyV1<E>) -> Self {
         Self {
