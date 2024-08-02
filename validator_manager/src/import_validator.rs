@@ -129,7 +129,6 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new(BUILDER_PROPOSALS)
                 .long(BUILDER_PROPOSALS)
-                .value_name("BOOL")
                 .help("Builder proposals.")
                 .action(ArgAction::SetTrue)
         )
@@ -165,7 +164,7 @@ pub struct ImportConfig {
     pub password: ZeroizeString,
     pub fee_recipient: Option<Address>,
     pub gas_limit: Option<u64>,
-    pub builder_proposals: Option<bool>,
+    pub builder_proposals: bool,
     pub builder_boost_factor: Option<u64>,
     pub prefer_builder_proposals: Option<bool>,
     pub enabled: Option<bool>,
@@ -181,7 +180,7 @@ impl ImportConfig {
             password: clap_utils::parse_required(matches, PASSWORD)?,
             fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT)?,
             gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT)?,
-            builder_proposals: clap_utils::parse_optional(matches, BUILDER_PROPOSALS)?,
+            builder_proposals: matches.get_flag(BUILDER_PROPOSALS),
             builder_boost_factor: clap_utils::parse_optional(matches, BUILDER_BOOST_FACTOR)?,
             prefer_builder_proposals: clap_utils::parse_optional(
                 matches,
@@ -230,7 +229,7 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
         slashing_protection: None,
         fee_recipient,
         gas_limit,
-        builder_proposals,
+        builder_proposals: Some(builder_proposals),
         builder_boost_factor,
         prefer_builder_proposals,
         enabled,
