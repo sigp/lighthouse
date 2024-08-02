@@ -3,8 +3,8 @@ use rayon::prelude::*;
 use std::sync::Arc;
 use types::data_column_sidecar::{Cell, DataColumn, DataColumnSidecarError};
 use types::{
-    Blob, BlobsList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256,
-    KzgCommitment, KzgProof, KzgProofs, SignedBeaconBlock,
+    Blob, BlobsList, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
+    Hash256, KzgCommitment, KzgProof, KzgProofs, SignedBeaconBlock,
 };
 
 /// Converts a blob ssz List object to an array to be used with the kzg
@@ -57,13 +57,13 @@ where
         })
         .collect::<Vec<_>>();
 
-    let coordinates = data_column_iter
+    let column_indices = data_column_iter
         .clone()
         .flat_map(|data_column| {
             let col_index = data_column.index;
-            (0..data_column.column.len()).map(move |row| (row as u64, col_index))
+            (0..data_column.column.len()).map(move |_| col_index)
         })
-        .collect::<Vec<(u64, u64)>>();
+        .collect::<Vec<ColumnIndex>>();
 
     let commitments = data_column_iter
         .clone()
@@ -75,7 +75,7 @@ where
         })
         .collect::<Vec<_>>();
 
-    kzg.verify_cell_proof_batch(&cells, &proofs, &coordinates, &commitments)
+    kzg.verify_cell_proof_batch(&cells, &proofs, column_indices, &commitments)
 }
 
 /// Validate a batch of blob-commitment-proof triplets from multiple `BlobSidecars`.

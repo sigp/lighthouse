@@ -1531,9 +1531,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "crate_crypto_internal_peerdas_bls12_381"
-version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=55ae9e9011d792a2998d242c2a71d822ba909fa9#55ae9e9011d792a2998d242c2a71d822ba909fa9"
+name = "crate_crypto_internal_eth_kzg_bls12_381"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56bfd17086d959b4a54151a453be7cbe2b25002c29e1808fec4feb9d61dd766a"
 dependencies = [
  "blst",
  "blstrs",
@@ -1544,29 +1545,32 @@ dependencies = [
 ]
 
 [[package]]
-name = "crate_crypto_internal_peerdas_erasure_codes"
-version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=55ae9e9011d792a2998d242c2a71d822ba909fa9#55ae9e9011d792a2998d242c2a71d822ba909fa9"
+name = "crate_crypto_internal_eth_kzg_erasure_codes"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47d10bd21c929288745124ba171a6a7a9b9a02775f5b258e67e3bc9fa5a83c53"
 dependencies = [
- "crate_crypto_internal_peerdas_bls12_381",
- "crate_crypto_internal_peerdas_polynomial",
+ "crate_crypto_internal_eth_kzg_bls12_381",
+ "crate_crypto_internal_eth_kzg_polynomial",
 ]
 
 [[package]]
-name = "crate_crypto_internal_peerdas_polynomial"
-version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=55ae9e9011d792a2998d242c2a71d822ba909fa9#55ae9e9011d792a2998d242c2a71d822ba909fa9"
+name = "crate_crypto_internal_eth_kzg_polynomial"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff3e4a2aae6a74a33f443cedf93474243e6ff288d14b71ceb7ad3f64112ae76b"
 dependencies = [
- "crate_crypto_internal_peerdas_bls12_381",
+ "crate_crypto_internal_eth_kzg_bls12_381",
 ]
 
 [[package]]
 name = "crate_crypto_kzg_multi_open_fk20"
-version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=55ae9e9011d792a2998d242c2a71d822ba909fa9#55ae9e9011d792a2998d242c2a71d822ba909fa9"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90e186422e6af37e2c58aad943024f740309b05a8d80fd42d9c6a066fe246481"
 dependencies = [
- "crate_crypto_internal_peerdas_bls12_381",
- "crate_crypto_internal_peerdas_polynomial",
+ "crate_crypto_internal_eth_kzg_bls12_381",
+ "crate_crypto_internal_eth_kzg_polynomial",
  "hex",
  "rayon",
  "sha2 0.10.8",
@@ -2291,21 +2295,6 @@ dependencies = [
  "tree_hash",
  "tree_hash_derive",
  "types",
-]
-
-[[package]]
-name = "eip7594"
-version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=55ae9e9011d792a2998d242c2a71d822ba909fa9#55ae9e9011d792a2998d242c2a71d822ba909fa9"
-dependencies = [
- "crate_crypto_internal_peerdas_bls12_381",
- "crate_crypto_internal_peerdas_erasure_codes",
- "crate_crypto_kzg_multi_open_fk20",
- "hex",
- "rayon",
- "rust-embed",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -4159,29 +4148,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "include-flate"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df49c16750695486c1f34de05da5b7438096156466e7f76c38fcdf285cf0113e"
-dependencies = [
- "include-flate-codegen",
- "lazy_static",
- "libflate",
-]
-
-[[package]]
-name = "include-flate-codegen"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c5b246c6261be723b85c61ecf87804e8ea4a35cb68be0ff282ed84b95ffe7d7"
-dependencies = [
- "libflate",
- "proc-macro2",
- "quote",
- "syn 2.0.72",
-]
-
-[[package]]
 name = "indenter"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4443,13 +4409,13 @@ dependencies = [
  "c-kzg",
  "criterion",
  "derivative",
- "eip7594",
  "eth2_network_config",
  "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "hex",
+ "rust_eth_kzg",
  "serde",
  "serde_json",
  "tree_hash",
@@ -7128,38 +7094,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust-embed"
-version = "8.5.0"
+name = "rust_eth_kzg"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa66af4a4fdd5e7ebc276f115e895611a34739a9c1c01028383d612d550953c0"
+checksum = "32a65028eb4212d9d88161d3aa8059be8c6bd71f2e92d61c633be86e4d25d364"
 dependencies = [
- "include-flate",
- "rust-embed-impl",
- "rust-embed-utils",
- "walkdir",
-]
-
-[[package]]
-name = "rust-embed-impl"
-version = "8.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6125dbc8867951125eec87294137f4e9c2c96566e61bf72c45095a7c77761478"
-dependencies = [
- "proc-macro2",
- "quote",
- "rust-embed-utils",
- "syn 2.0.72",
- "walkdir",
-]
-
-[[package]]
-name = "rust-embed-utils"
-version = "8.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e5347777e9aacb56039b0e1f28785929a8a3b709e87482e7442c72e7c12529d"
-dependencies = [
- "sha2 0.10.8",
- "walkdir",
+ "crate_crypto_internal_eth_kzg_bls12_381",
+ "crate_crypto_internal_eth_kzg_erasure_codes",
+ "crate_crypto_kzg_multi_open_fk20",
+ "hex",
+ "rayon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
