@@ -325,7 +325,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
         let new_data_column_info = match &data_column_info {
             Some(data_column_info) => {
-                // Set the oldest data column slot to the Deneb fork slot if it is not yet set.
+                // Set the oldest data column slot to the fork slot if it is not yet set.
                 let oldest_data_column_slot = data_column_info
                     .oldest_data_column_slot
                     .or(eip7594_fork_slot);
@@ -335,7 +335,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             }
             // First start.
             None => DataColumnInfo {
-                // Set the oldest data column slot to the Deneb fork slot if it is not yet set.
+                // Set the oldest data column slot to the fork slot if it is not yet set.
                 oldest_data_column_slot: eip7594_fork_slot,
             },
         };
