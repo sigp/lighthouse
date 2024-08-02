@@ -57,7 +57,7 @@ impl Kzg {
         //
         // Note: One can also use `from_json` to initialize it from the consensus-specs
         // json string.
-        let peerdas_trusted_setup = PeerDASTrustedSetup::default();
+        let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
         // Set the number of threads to be used
         //
         // we set it to 1 to match the c-kzg performance
