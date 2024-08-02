@@ -1,6 +1,7 @@
 use crate::discovery::enr::PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY;
 use crate::discovery::CombinedKey;
-use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, Gossipsub, PeerId};
+use crate::rpc::{MetaData, MetaDataV2};
+use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Gossipsub, PeerId};
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use rand::seq::SliceRandom;
 use score::{PeerAction, ReportSource, Score, ScoreState};
@@ -13,7 +14,7 @@ use std::{
     fmt::Formatter,
 };
 use sync_status::SyncStatus;
-use types::{ChainSpec, EthSpec};
+use types::{ChainSpec, DataColumnSubnetId, EthSpec};
 
 pub mod client;
 pub mod peer_info;
@@ -676,12 +677,13 @@ impl<E: EthSpec> PeerDB<E> {
     /// Updates the connection state. MUST ONLY BE USED IN TESTS.
     pub fn __add_connected_peer_testing_only(
         &mut self,
-        peer_id: &PeerId,
         supernode: bool,
         spec: &ChainSpec,
-    ) -> Option<BanOperation> {
+    ) -> PeerId {
         let enr_key = CombinedKey::generate_secp256k1();
         let mut enr = Enr::builder().build(&enr_key).unwrap();
+        let peer_id = enr.peer_id();
+        let node_id = enr.node_id();
 
         if supernode {
             enr.insert(
@@ -693,13 +695,40 @@ impl<E: EthSpec> PeerDB<E> {
         }
 
         self.update_connection_state(
-            peer_id,
+            &peer_id,
             NewConnectionState::Connected {
                 enr: Some(enr),
                 seen_address: Multiaddr::empty(),
                 direction: ConnectionDirection::Outgoing,
             },
-        )
+        );
+
+        let custody_subnet_count = if supernode {
+            spec.data_column_sidecar_subnet_count
+        } else {
+            spec.custody_requirement
+        };
+
+        // add subnet subscription
+        for subnet in DataColumnSubnetId::compute_custody_subnets::<E>(
+            node_id.raw().into(),
+            custody_subnet_count,
+            spec,
+        ) {
+            self.add_subscription(&peer_id, Subnet::DataColumn(subnet));
+        }
+
+        // add metadata
+        let metadata = MetaDataV2 {
+            seq_number: 0,
+            attnets: Default::default(),
+            syncnets: Default::default(),
+        };
+        self.peer_info_mut(&peer_id)
+            .unwrap()
+            .set_meta_data(MetaData::V2(metadata));
+
+        peer_id
     }
 
     /// The connection state of the peer has been changed. Modify the peer in the db to ensure all

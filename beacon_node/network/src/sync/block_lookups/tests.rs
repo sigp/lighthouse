@@ -385,21 +385,17 @@ impl TestRig {
     }
 
     fn new_connected_peer(&mut self) -> PeerId {
-        let peer_id = PeerId::random();
         self.network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(&peer_id, false, &self.harness.spec);
-        peer_id
+            .__add_connected_peer_testing_only(false, &self.harness.spec)
     }
 
     fn new_connected_supernode_peer(&mut self) -> PeerId {
-        let peer_id = PeerId::random();
         self.network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(&peer_id, true, &self.harness.spec);
-        peer_id
+            .__add_connected_peer_testing_only(true, &self.harness.spec)
     }
 
     fn new_connected_peers_for_peerdas(&mut self) {
@@ -972,8 +968,8 @@ impl TestRig {
         .unwrap_or_else(|e| panic!("Expected blob parent request for {for_block:?}: {e}"))
     }
 
-    /// Retrieves an unknown number of requests for data columns of `block_root`. Because peer enrs
-    /// are random, and peer selection is random the total number of batches requests in unknown.
+    /// Retrieves an unknown number of requests for data columns of `block_root`. Because peer ENRs
+    /// are random, and peer selection is random, the total number of batched requests is unknown.
     fn expect_data_columns_by_root_requests(
         &mut self,
         block_root: Hash256,
