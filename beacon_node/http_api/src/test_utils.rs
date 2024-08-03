@@ -151,6 +151,7 @@ pub async fn create_api_server<T: BeaconChainTypes>(
         vec![],
         false,
         &log,
+        chain.spec.clone(),
     ));
 
     // Only a peer manager can add peers, so we create a dummy manager.

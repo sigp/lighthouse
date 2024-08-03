@@ -276,7 +276,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     // TODO(das): epoch argument left here in case custody rotation is implemented
     pub fn get_custodial_peers(&self, _epoch: Epoch, column_index: ColumnIndex) -> Vec<PeerId> {
         self.network_globals()
-            .custody_peers_for_column(column_index, &self.chain.spec)
+            .custody_peers_for_column(column_index)
     }
 
     pub fn get_random_custodial_peer(
@@ -382,9 +382,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let expects_custody_columns = if matches!(batch_type, ByRangeRequestType::BlocksAndColumns)
         {
-            let custody_indexes = self
-                .network_globals()
-                .custody_columns(epoch, &self.chain.spec);
+            let custody_indexes = self.network_globals().custody_columns(epoch);
 
             for (peer_id, columns_by_range_request) in
                 self.make_columns_by_range_requests(epoch, request, &custody_indexes)?
@@ -755,9 +753,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         // TODO(das): figure out how to pass block.slot if we end up doing rotation
         let block_epoch = Epoch::new(0);
-        let custody_indexes_duty = self
-            .network_globals()
-            .custody_columns(block_epoch, &self.chain.spec);
+        let custody_indexes_duty = self.network_globals().custody_columns(block_epoch);
 
         // Include only the blob indexes not yet imported (received through gossip)
         let custody_indexes_to_fetch = custody_indexes_duty

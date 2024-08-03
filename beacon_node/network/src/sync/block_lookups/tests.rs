@@ -132,7 +132,11 @@ impl TestRig {
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         // TODO(das): make the generation of the ENR use the deterministic rng to have consistent
         // column assignments
-        let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
+        let globals = Arc::new(NetworkGlobals::new_test_globals(
+            Vec::new(),
+            &log,
+            chain.spec.clone(),
+        ));
         let (beacon_processor, beacon_processor_rx) = NetworkBeaconProcessor::null_for_testing(
             globals,
             chain.clone(),
