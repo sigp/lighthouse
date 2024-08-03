@@ -217,7 +217,11 @@ impl<E: EthSpec> PendingComponents<E> {
     ///
     /// WARNING: This function can potentially take a lot of time if the state needs to be
     /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
-    pub fn make_available<R>(self, recover: R) -> Result<Availability<E>, AvailabilityCheckError>
+    pub fn make_available<R>(
+        self,
+        block_import_requirement: BlockImportRequirement,
+        recover: R,
+    ) -> Result<Availability<E>, AvailabilityCheckError>
     where
         R: FnOnce(
             DietAvailabilityPendingExecutedBlock<E>,
@@ -226,7 +230,7 @@ impl<E: EthSpec> PendingComponents<E> {
         let Self {
             block_root,
             verified_blobs,
-            verified_data_columns: _,
+            verified_data_columns,
             executed_block,
         } = self;
 
@@ -239,16 +243,29 @@ impl<E: EthSpec> PendingComponents<E> {
         let Some(diet_executed_block) = executed_block else {
             return Err(AvailabilityCheckError::Unexpected);
         };
-        let num_blobs_expected = diet_executed_block.num_blobs_expected();
-        let Some(verified_blobs) = verified_blobs
-            .iter()
-            .map(|b| b.clone().map(|b| b.to_blob()))
-            .take(num_blobs_expected)
-            .collect::<Option<Vec<_>>>()
-        else {
-            return Err(AvailabilityCheckError::Unexpected);
+
+        let (blobs, data_columns) = match block_import_requirement {
+            BlockImportRequirement::AllBlobs => {
+                let num_blobs_expected = diet_executed_block.num_blobs_expected();
+                let Some(verified_blobs) = verified_blobs
+                    .into_iter()
+                    .cloned()
+                    .map(|b| b.map(|b| b.to_blob()))
+                    .take(num_blobs_expected)
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return Err(AvailabilityCheckError::Unexpected);
+                };
+                (Some(VariableList::new(verified_blobs)?), None)
+            }
+            BlockImportRequirement::CustodyColumns(_) => {
+                let verified_data_columns = verified_data_columns
+                    .into_iter()
+                    .map(|d| d.into_inner())
+                    .collect();
+                (None, Some(verified_data_columns))
+            }
         };
-        let verified_blobs = VariableList::new(verified_blobs)?;
 
         let executed_block = recover(diet_executed_block)?;
 
@@ -261,7 +278,8 @@ impl<E: EthSpec> PendingComponents<E> {
         let available_block = AvailableBlock {
             block_root,
             block,
-            blobs: Some(verified_blobs),
+            blobs,
+            data_columns,
             blobs_available_timestamp,
         };
         Ok(Availability::Available(Box::new(
@@ -403,7 +421,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             write_lock.put(block_root, pending_components.clone());
             // No need to hold the write lock anymore
             drop(write_lock);
-            pending_components.make_available(|diet_block| {
+            pending_components.make_available(block_import_requirement, |diet_block| {
                 self.state_cache.recover_pending_executed_block(diet_block)
             })
         } else {
@@ -412,7 +430,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
     }
 
-    // TODO(das): gossip and rpc code paths to be implemented.
+    // TODO(das): rpc code paths to be implemented.
     #[allow(dead_code)]
     pub fn put_kzg_verified_data_columns<
         I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,
@@ -438,7 +456,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             write_lock.put(block_root, pending_components.clone());
             // No need to hold the write lock anymore
             drop(write_lock);
-            pending_components.make_available(|diet_block| {
+            pending_components.make_available(block_import_requirement, |diet_block| {
                 self.state_cache.recover_pending_executed_block(diet_block)
             })
         } else {
@@ -477,7 +495,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             write_lock.put(block_root, pending_components.clone());
             // No need to hold the write lock anymore
             drop(write_lock);
-            pending_components.make_available(|diet_block| {
+            pending_components.make_available(block_import_requirement, |diet_block| {
                 self.state_cache.recover_pending_executed_block(diet_block)
             })
         } else {

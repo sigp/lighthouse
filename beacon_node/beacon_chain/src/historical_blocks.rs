@@ -107,7 +107,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
 
         for available_block in blocks_to_import.into_iter().rev() {
-            let (block_root, block, maybe_blobs) = available_block.deconstruct();
+            let (block_root, block, maybe_blobs, maybe_data_columns) =
+                available_block.deconstruct();
 
             if block_root != expected_block_root {
                 return Err(HistoricalBlockError::MismatchedBlockRoot {
@@ -126,6 +127,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 new_oldest_blob_slot = Some(block.slot());
                 self.store
                     .blobs_as_kv_store_ops(&block_root, blobs, &mut blob_batch);
+            }
+            // Store the data columns too
+            if let Some(_data_columns) = maybe_data_columns {
+                // TODO(das): depends on https://github.com/sigp/lighthouse/pull/6073
+                // new_oldest_data_column_slot = Some(block.slot());
+                // self.store
+                //     .data_columns_as_kv_store_ops(&block_root, data_columns, &mut blob_batch);
             }
 
             // Store block roots, including at all skip slots in the freezer DB.
