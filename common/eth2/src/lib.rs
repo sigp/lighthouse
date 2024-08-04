@@ -1264,7 +1264,7 @@ impl BeaconNodeHttpClient {
     /// `POST v1/beacon/pool/attestations`
     pub async fn post_beacon_pool_attestations_v1<E: EthSpec>(
         &self,
-        attestations: &[Attestation<E>],
+        attestations: &[&Attestation<E>],
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -1283,7 +1283,7 @@ impl BeaconNodeHttpClient {
     /// `POST v2/beacon/pool/attestations`
     pub async fn post_beacon_pool_attestations_v2<E: EthSpec>(
         &self,
-        attestations: &[Attestation<E>],
+        attestations: &[&Attestation<E>],
         fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V2)?;

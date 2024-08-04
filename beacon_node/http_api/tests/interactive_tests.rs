@@ -896,7 +896,7 @@ async fn queue_attestations_from_http() {
     let fork_name = tester.harness.spec.fork_name_at_slot::<E>(attestation_slot);
     let attestation_future = tokio::spawn(async move {
         client
-            .post_beacon_pool_attestations_v2(&attestations, fork_name)
+            .post_beacon_pool_attestations_v2(&attestations.iter().collect::<Vec<_>>(), fork_name)
             .await
             .expect("attestations should be processed successfully")
     });

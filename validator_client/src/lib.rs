@@ -1,3 +1,4 @@
+mod attestation_data_service;
 mod attestation_service;
 mod beacon_node_fallback;
 mod block_service;

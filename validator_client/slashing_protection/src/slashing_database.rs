@@ -641,6 +641,42 @@ impl SlashingDatabase {
         Ok(safe)
     }
 
+    pub fn check_attestation_signing_root(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        attestation: &AttestationData,
+        domain: Hash256,
+    ) -> Result<Safe, NotSafe> {
+        let attestation_signing_root = attestation.signing_root(domain).into();
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction_with_behavior(TransactionBehavior::Deferred)?;
+        self.check_attestation(
+            &txn,
+            validator_pubkey,
+            attestation.source.epoch,
+            attestation.target.epoch,
+            attestation_signing_root,
+        )
+    }
+
+    pub fn insert_attestation_signing_root(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        attestation: &AttestationData,
+        domain: Hash256,
+    ) -> Result<(), NotSafe> {
+        let attestation_signing_root = attestation.signing_root(domain).into();
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+        self.insert_attestation(
+            &txn,
+            validator_pubkey,
+            attestation.source.epoch,
+            attestation.target.epoch,
+            attestation_signing_root,
+        )
+    }
+
     /// Transactional variant of `check_and_insert_attestation_signing_root`.
     fn check_and_insert_attestation_signing_root_txn(
         &self,

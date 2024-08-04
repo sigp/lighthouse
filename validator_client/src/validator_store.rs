@@ -1,5 +1,6 @@
 use crate::{
     doppelganger_service::DoppelgangerService,
+    duties_service::DutyAndProof,
     http_metrics::metrics,
     initialized_validators::InitializedValidators,
     signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod},
@@ -633,6 +634,46 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
     }
 
+    pub async fn sign_attestation_v2(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        validator_committee_position: usize,
+        attestation: &mut Attestation<E>,
+        current_epoch: Epoch,
+    ) -> Result<(), Error> {
+        // Make sure the target epoch is not higher than the current epoch to avoid potential attacks.
+        if attestation.data().target.epoch > current_epoch {
+            return Err(Error::GreaterThanCurrentEpoch {
+                epoch: attestation.data().target.epoch,
+                current_epoch,
+            });
+        }
+
+        // Get the signing method and check doppelganger protection.
+        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+
+        // Checking for slashing conditions.
+        let signing_epoch = attestation.data().target.epoch;
+        let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
+
+        let signature = signing_method
+            .get_signature::<E, BlindedPayload<E>>(
+                SignableMessage::AttestationData(attestation.data()),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await?;
+
+        attestation
+            .add_signature(&signature, validator_committee_position)
+            .map_err(Error::UnableToSignAttestation)?;
+
+        metrics::inc_counter_vec(&metrics::SIGNED_ATTESTATIONS_TOTAL, &[metrics::SUCCESS]);
+
+        Ok(())
+    }
+
     pub async fn sign_attestation(
         &self,
         validator_pubkey: PublicKeyBytes,
@@ -724,6 +765,50 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 Err(Error::Slashable(e))
             }
         }
+    }
+
+    pub fn check_and_insert_attestations(
+        &self,
+        attestations: Vec<(Attestation<E>, DutyAndProof)>,
+    ) -> Result<Vec<(Attestation<E>, DutyAndProof)>, Error> {
+        let mut attestations_to_check = vec![];
+        let mut safe_attestations = vec![];
+
+        for (attestation, validator_duty) in attestations.iter() {
+            let validator_pubkey = validator_duty.duty.pubkey;
+            let signing_method =
+                self.doppelganger_checked_signing_method(validator_pubkey.clone())?;
+
+            // Checking for slashing conditions.
+            let signing_epoch = attestation.data().target.epoch;
+            let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
+            let domain_hash = signing_context.domain_hash(&self.spec);
+            if signing_method
+                .requires_local_slashing_protection(self.enable_web3signer_slashing_protection)
+            {
+                attestations_to_check.push((attestation, validator_duty, domain_hash));
+            } else {
+                safe_attestations.push((attestation.clone(), validator_duty.clone()));
+            }
+        }
+
+        for (attestation, validator_duty, domain_hash) in attestations_to_check {
+            let validator_pubkey = &validator_duty.duty.pubkey;
+            if let Ok(Safe::Valid) = self.slashing_protection.check_attestation_signing_root(
+                &validator_pubkey,
+                attestation.data(),
+                domain_hash,
+            ) {
+                if let Ok(()) = self.slashing_protection.insert_attestation_signing_root(
+                    &validator_pubkey,
+                    attestation.data(),
+                    domain_hash,
+                ) {
+                    safe_attestations.push((attestation.clone(), validator_duty.clone()));
+                }
+            }
+        }
+        Ok(safe_attestations)
     }
 
     pub async fn sign_voluntary_exit(
