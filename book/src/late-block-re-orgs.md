@@ -53,7 +53,7 @@ A pair of messages at `INFO` level will be logged if a re-org opportunity is det
 This should be followed shortly after by a `WARN` log indicating that a re-org occurred. This is
 expected and normal:
 
-> WARN Beacon chain re-org                     reorg_distance: 1, new_slot: 1105320, new_head: 0x72791549e4ca792f91053bc7cf1e55c6fbe745f78ce7a16fc3acb6f09161becd, previous_slot: 1105319, previous_head: 0xf64f8e5ed617dc18c1e759dab5d008369767c3678416dac2fe1d389562842b49
+> INFO Beacon chain re-org                     reorg_distance: 1, new_slot: 1105320, new_head: 0x72791549e4ca792f91053bc7cf1e55c6fbe745f78ce7a16fc3acb6f09161becd, previous_slot: 1105319, previous_head: 0xf64f8e5ed617dc18c1e759dab5d008369767c3678416dac2fe1d389562842b49
 
 In case a re-org is not viable (which should be most of the time), Lighthouse will just propose a
 block as normal and log the reason the re-org was not attempted at debug level:
