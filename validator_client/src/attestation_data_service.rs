@@ -27,8 +27,8 @@ impl<T: SlotClock, E: EthSpec> AttestationDataService<T, E> {
     /// we don't care about the committee index
     pub fn get_data_by_committee_index(
         &self,
-        committee_index: CommitteeIndex,
-        fork_name: ForkName,
+        committee_index: &CommitteeIndex,
+        fork_name: &ForkName,
     ) -> Option<AttestationData> {
         if fork_name.electra_enabled() {
             let data = self.attestation_data_by_committee.iter().next();
@@ -38,7 +38,7 @@ impl<T: SlotClock, E: EthSpec> AttestationDataService<T, E> {
             None
         } else {
             self.attestation_data_by_committee
-                .get(&committee_index)
+                .get(committee_index)
                 .cloned()
         }
     }
@@ -46,9 +46,9 @@ impl<T: SlotClock, E: EthSpec> AttestationDataService<T, E> {
     /// Download attestation data for this slot/committee index from the beacon node.
     pub async fn download_data(
         &mut self,
-        committee_index: CommitteeIndex,
-        slot: Slot,
-        fork_name: ForkName,
+        committee_index: &CommitteeIndex,
+        slot: &Slot,
+        fork_name: &ForkName,
     ) -> Result<(), String> {
         // If we've already downloaded data for this committee index OR electra is enabled and
         // we've already downloaded data for this slot, there's no need to re-download the data.
@@ -67,7 +67,7 @@ impl<T: SlotClock, E: EthSpec> AttestationDataService<T, E> {
                         &[metrics::ATTESTATIONS_HTTP_GET],
                     );
                     beacon_node
-                        .get_validator_attestation_data(slot, committee_index)
+                        .get_validator_attestation_data(slot.clone(), *committee_index)
                         .await
                         .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
                         .map(|result| result.data)
@@ -77,7 +77,7 @@ impl<T: SlotClock, E: EthSpec> AttestationDataService<T, E> {
             .map_err(|e| e.to_string())?;
 
         self.attestation_data_by_committee
-            .insert(committee_index, attestation_data);
+            .insert(*committee_index, attestation_data);
 
         Ok(())
     }

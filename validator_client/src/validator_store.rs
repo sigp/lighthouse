@@ -794,19 +794,49 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         for (attestation, validator_duty, domain_hash) in attestations_to_check {
             let validator_pubkey = &validator_duty.duty.pubkey;
-            if let Ok(Safe::Valid) = self.slashing_protection.check_attestation_signing_root(
+
+            let slashing_status = self.slashing_protection.check_and_insert_attestation(
                 &validator_pubkey,
                 attestation.data(),
                 domain_hash,
-            ) {
-                if let Ok(()) = self.slashing_protection.insert_attestation_signing_root(
-                    &validator_pubkey,
-                    attestation.data(),
-                    domain_hash,
-                ) {
+            );
+
+            match slashing_status {
+                Ok(Safe::Valid) => {
                     safe_attestations.push((attestation.clone(), validator_duty.clone()));
-                }
-            }
+                    metrics::inc_counter_vec(&metrics::SIGNED_ATTESTATIONS_TOTAL, &[metrics::SUCCESS]);
+                },
+                Ok(Safe::SameData) => {
+                    warn!(
+                        self.log,
+                        "Skipping previously signed attestation"
+                    );
+                },
+                Err(NotSafe::UnregisteredValidator(pk)) => {
+                    warn!(
+                        self.log,
+                        "Not signing attestation for unregistered validator";
+                        "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
+                        "public_key" => format!("{:?}", pk)
+                    );
+                    metrics::inc_counter_vec(
+                        &metrics::SIGNED_ATTESTATIONS_TOTAL,
+                        &[metrics::UNREGISTERED],
+                    );
+                },
+                Err(e) => {
+                    crit!(
+                        self.log,
+                        "Not signing slashable attestation";
+                        "attestation" => format!("{:?}", attestation.data()),
+                        "error" => format!("{:?}", e)
+                    );
+                    metrics::inc_counter_vec(
+                        &metrics::SIGNED_ATTESTATIONS_TOTAL,
+                        &[metrics::SLASHABLE],
+                    );
+                },
+            };
         }
         Ok(safe_attestations)
     }
