@@ -1097,7 +1097,7 @@ async fn generic_migration_test(
             let current_epoch = attestation.data().target.epoch;
             tester1
                 .validator_store
-                .sign_attestation(public_key, 0, &mut attestation, current_epoch)
+                .sign_attestation_v2(public_key, 0, &mut attestation, current_epoch)
                 .await
                 .unwrap();
         }
@@ -1173,7 +1173,7 @@ async fn generic_migration_test(
             let current_epoch = attestation.data().target.epoch;
             match tester2
                 .validator_store
-                .sign_attestation(public_key, 0, &mut attestation, current_epoch)
+                .sign_attestation_v2(public_key, 0, &mut attestation, current_epoch)
                 .await
             {
                 Ok(()) => assert!(should_succeed),
@@ -1306,7 +1306,7 @@ async fn delete_concurrent_with_signing() {
                 let mut att = make_attestation(j, j + 1);
                 for (_validator_id, public_key) in thread_pubkeys.iter().enumerate() {
                     let _ = validator_store
-                        .sign_attestation(*public_key, 0, &mut att, Epoch::new(j + 1))
+                        .sign_attestation_v2(*public_key, 0, &mut att, Epoch::new(j + 1))
                         .await;
                 }
             }

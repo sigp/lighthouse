@@ -199,21 +199,43 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 map
             });
 
-        let this = self.clone();
+        // Signs unaggregated attestations and broadcasts them to the network.
+        // Downloads aggregated attestations, signs them, and broadcasts to the network.
+        self.spawn_attestation_sign_and_broadcast_task(duties_by_committee_index, slot, fork_name);
+
+        // Schedule pruning of the slashing protection database once all unaggregated
+        // attestations have (hopefully) been signed, i.e. at the same time as aggregate
+        // production.
+        self.spawn_slashing_protection_pruning_task(slot, aggregate_production_instant);
+
+        Ok(())
+    }
+
+    /// Spawn a blocking task to run the attestation signing and broadcasting process
+    /// for both unaggregated and aggregated attestations.
+    fn spawn_attestation_sign_and_broadcast_task(
+        &self,
+        duties_by_committee_index: HashMap<u64, Vec<DutyAndProof>>,
+        slot: Slot,
+        fork_name: ForkName,
+    ) {
+        let inner_self = self.clone();
 
         self.inner.context.executor.spawn(
             async move {
-                let log = this.context.log().clone();
+                let log = inner_self.context.log().clone();
 
                 let mut attestation_data_service =
-                    AttestationDataService::new(this.beacon_nodes.clone());
+                    AttestationDataService::new(inner_self.beacon_nodes.clone());
 
-                this.produce_attestation_data(
-                    &mut attestation_data_service, 
-                    &duties_by_committee_index, 
-                    &slot, 
-                    &fork_name
-                ).await;
+                inner_self
+                    .produce_attestation_data(
+                        &mut attestation_data_service,
+                        &duties_by_committee_index,
+                        &slot,
+                        &fork_name,
+                    )
+                    .await;
 
                 let mut handles = vec![];
 
@@ -225,17 +247,18 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             if let Some(attestation_data) = attestation_data_service
                                 .get_data_by_committee_index(&committee_index, &fork_name)
                             {
-                                let that = this.clone();
+                                let this = inner_self.clone();
                                 // Have the validator sign the attestation.
-                                let handle = this.inner.context.executor.spawn_blocking_handle(
-                                    move || {
-                                        that.sign_attestation(
-                                            attestation_data,
-                                            validator_duty.clone(),
-                                        )
-                                    },
-                                    "Sign attestation",
-                                );
+                                let handle =
+                                    inner_self.inner.context.executor.spawn_blocking_handle(
+                                        move || {
+                                            this.sign_attestation(
+                                                attestation_data,
+                                                validator_duty.clone(),
+                                            )
+                                        },
+                                        "Sign attestation",
+                                    );
 
                                 if let Some(handle) = handle {
                                     handles.push(handle);
@@ -259,17 +282,21 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 }
 
                 // Check that the signed attestations are not slash-able (if slash-ability checks are enabled).
-                let Ok(safe_attestations) = this
+                let Ok(safe_attestations) = inner_self
                     .validator_store
                     .check_and_insert_attestations(signed_attestations)
                 else {
+                    // TODO(attn-slash) add logging
                     return ();
                 };
 
-                match this.publish_attestations(
-                    &safe_attestations.iter().map(|(a, _)| a).collect(),
-                    fork_name,
-                ).await {
+                match inner_self
+                    .publish_attestations(
+                        &safe_attestations.iter().map(|(a, _)| a).collect(),
+                        fork_name,
+                    )
+                    .await
+                {
                     Ok(_) => (),
                     Err(_) => (), // TODO(attn-slash) add logging
                 };
@@ -280,14 +307,16 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     if let Some(attestation_data) = attestation_data_service
                         .get_data_by_committee_index(committee_index, &fork_name)
                     {
-                        match this.produce_and_publish_aggregates(
-                            &attestation_data,
-                            *committee_index,
-                            &validator_duties,
-                        )
-                        .await {
+                        match inner_self
+                            .produce_and_publish_aggregates(
+                                &attestation_data,
+                                *committee_index,
+                                &validator_duties,
+                            )
+                            .await
+                        {
                             Ok(_) => (),
-                            Err(_) => () // TODO(attn-slash) log a crit
+                            Err(_) => (), // TODO(attn-slash) log a crit
                         };
                     } else {
                         // TODO(attn-slash) log a crit?
@@ -296,32 +325,26 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             },
             "Download and sign attestations",
         );
-
-        // Schedule pruning of the slashing protection database once all unaggregated
-        // attestations have (hopefully) been signed, i.e. at the same time as aggregate
-        // production.
-        self.spawn_slashing_protection_pruning_task(slot, aggregate_production_instant);
-
-        Ok(())
     }
 
     /// Performs the first step of the attesting process: downloading `AttestationData` objects.
-    /// Pre Electra: Only one `AttestationData` is downloaded from the BN for each committee index. 
+    /// Pre Electra: Only one `AttestationData` is downloaded from the BN for each committee index.
     /// Post Electra: Only one `AttestationData` is downloaded from the BN for each slot.
     pub async fn produce_attestation_data(
         &self,
         attestation_data_service: &mut AttestationDataService<T, E>,
         duties_by_committee_index: &HashMap<u64, Vec<DutyAndProof>>,
         slot: &Slot,
-        fork_name: &ForkName
+        fork_name: &ForkName,
     ) {
         for (committee_index, _) in duties_by_committee_index.iter() {
             match attestation_data_service
                 .download_data(committee_index, slot, fork_name)
-                .await {
-                    Ok(_) => (),
-                    Err(_) => (), // TODO(attn-slash) add logging
-                };
+                .await
+            {
+                Ok(_) => (),
+                Err(_) => (), // TODO(attn-slash) add logging
+            };
         }
     }
 

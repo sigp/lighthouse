@@ -9060,6 +9060,7 @@ dependencies = [
  "malloc_utils",
  "monitoring_api",
  "parking_lot 0.12.3",
+ "r2d2_sqlite",
  "rand",
  "reqwest",
  "ring 0.16.20",

@@ -156,7 +156,10 @@ async fn attestations_across_fork_with_skip_slots() {
         .await
         .unwrap();
     client
-        .post_beacon_pool_attestations_v2(&unaggregated_attestations.iter().collect::<Vec<_>>(), fork_name)
+        .post_beacon_pool_attestations_v2(
+            &unaggregated_attestations.iter().collect::<Vec<_>>(),
+            fork_name,
+        )
         .await
         .unwrap();
 

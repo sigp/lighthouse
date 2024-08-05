@@ -1,4 +1,5 @@
 use crate::*;
+use rusqlite::TransactionBehavior;
 use tempfile::{tempdir, TempDir};
 use types::{test_utils::generate_deterministic_keypair, AttestationData, BeaconBlockHeader};
 
@@ -82,15 +83,32 @@ impl StreamTest<AttestationData> {
 
         check_registration_invariants(&slashing_db, &self.registered_validators);
 
+        println!("1");
+        let mut conn = slashing_db.get_db_connection().unwrap();
+        println!("2");
+
+        let txn = conn
+            .transaction_with_behavior(TransactionBehavior::Exclusive)
+            .unwrap();
+
         for (i, test) in self.cases.iter().enumerate() {
             assert_eq!(
-                slashing_db.check_and_insert_attestation(&test.pubkey, &test.data, test.domain),
+                slashing_db.check_and_insert_attestation(
+                    &test.pubkey,
+                    &test.data,
+                    test.domain,
+                    &txn
+                ),
                 test.expected,
                 "attestation {} not processed as expected",
                 i
             );
         }
 
+        println!("3");
+        slashing_db.commit(txn).unwrap();
+        println!("4");
+        drop(conn);
         roundtrip_database(&dir, &slashing_db, self.registered_validators.is_empty());
     }
 }
@@ -123,18 +141,22 @@ impl StreamTest<BeaconBlockHeader> {
 // This function roundtrips the database, but applies minification in order to be compatible with
 // the implicit minification done on import.
 fn roundtrip_database(dir: &TempDir, db: &SlashingDatabase, is_empty: bool) {
+    println!("a");
     let exported = db
         .export_all_interchange_info(DEFAULT_GENESIS_VALIDATORS_ROOT)
         .unwrap();
+    println!("b");
     let new_db =
         SlashingDatabase::create(&dir.path().join("roundtrip_slashing_protection.sqlite")).unwrap();
+    println!("c");
     new_db
         .import_interchange_info(exported.clone(), DEFAULT_GENESIS_VALIDATORS_ROOT)
         .unwrap();
+    println!("d");
     let reexported = new_db
         .export_all_interchange_info(DEFAULT_GENESIS_VALIDATORS_ROOT)
         .unwrap();
-
+    println!("e");
     assert!(exported
         .minify()
         .unwrap()

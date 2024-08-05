@@ -1723,7 +1723,10 @@ impl ApiTester {
             .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
             .unwrap();
         self.client
-            .post_beacon_pool_attestations_v2(&self.attestations.iter().collect::<Vec<_>>(), fork_name)
+            .post_beacon_pool_attestations_v2(
+                &self.attestations.iter().collect::<Vec<_>>(),
+                fork_name,
+            )
             .await
             .unwrap();
         assert!(

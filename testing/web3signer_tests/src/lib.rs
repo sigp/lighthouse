@@ -602,7 +602,7 @@ mod tests {
         .assert_signatures_match("attestation", |pubkey, validator_store| async move {
             let mut attestation = get_attestation();
             validator_store
-                .sign_attestation(pubkey, 0, &mut attestation, Epoch::new(0))
+                .sign_attestation_v2(pubkey, 0, &mut attestation, Epoch::new(0))
                 .await
                 .unwrap();
             attestation
@@ -827,7 +827,7 @@ mod tests {
         .assert_signatures_match("first_attestation", |pubkey, validator_store| async move {
             let mut attestation = first_attestation();
             validator_store
-                .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
+                .sign_attestation_v2(pubkey, 0, &mut attestation, current_epoch)
                 .await
                 .unwrap();
             attestation
@@ -838,7 +838,7 @@ mod tests {
             move |pubkey, validator_store| async move {
                 let mut attestation = double_vote_attestation();
                 validator_store
-                    .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
+                    .sign_attestation_v2(pubkey, 0, &mut attestation, current_epoch)
                     .await
             },
             slashable_message_should_sign,
@@ -849,7 +849,7 @@ mod tests {
             move |pubkey, validator_store| async move {
                 let mut attestation = surrounding_attestation();
                 validator_store
-                    .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
+                    .sign_attestation_v2(pubkey, 0, &mut attestation, current_epoch)
                     .await
             },
             slashable_message_should_sign,
@@ -860,7 +860,7 @@ mod tests {
             move |pubkey, validator_store| async move {
                 let mut attestation = surrounded_attestation();
                 validator_store
-                    .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
+                    .sign_attestation_v2(pubkey, 0, &mut attestation, current_epoch)
                     .await
             },
             slashable_message_should_sign,

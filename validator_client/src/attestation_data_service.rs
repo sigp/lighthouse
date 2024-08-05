@@ -8,8 +8,8 @@ use crate::{
     http_metrics::metrics,
 };
 
-/// The AttestationDataService is responsible for downloading and caching attestation data at a given slot
-/// for a range of committee indexes. It also helps prevent us from re-downloading identical attestation data.
+/// The AttestationDataService is responsible for downloading and caching attestation data at a given slot.
+/// It also helps prevent us from re-downloading identical attestation data.
 pub struct AttestationDataService<T: SlotClock, E: EthSpec> {
     attestation_data: Option<AttestationData>,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
@@ -24,7 +24,8 @@ impl<T: SlotClock, E: EthSpec> AttestationDataService<T, E> {
     }
 
     /// Get previously downloaded attestation data. If the Electra fork is enabled
-    /// we don't care about the committee index. If we're pre-Electra, 
+    /// we don't care about the committee index. If we're pre-Electra, we insert
+    /// the correct committee index.
     pub fn get_data_by_committee_index(
         &self,
         committee_index: &CommitteeIndex,
@@ -37,7 +38,7 @@ impl<T: SlotClock, E: EthSpec> AttestationDataService<T, E> {
                 return None;
             };
             attestation_data.index = *committee_index;
-            return Some(attestation_data)
+            return Some(attestation_data);
         }
     }
 
