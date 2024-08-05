@@ -599,6 +599,8 @@ impl SlashingDatabase {
         Ok(safe)
     }
 
+    // TODO(attn-slash) we could do a bulk check and insert using a single write txn
+    // instead of doing this process individually and opening and closing a bunch of db txns
     // pub fn batch_check_and_insert_attestations(
     //     &self,
     //     attestations_to_check: Vec<(Attestation<E>, DutyAndProof)>,

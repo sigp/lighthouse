@@ -11,35 +11,33 @@ use crate::{
 /// The AttestationDataService is responsible for downloading and caching attestation data at a given slot
 /// for a range of committee indexes. It also helps prevent us from re-downloading identical attestation data.
 pub struct AttestationDataService<T: SlotClock, E: EthSpec> {
-    attestation_data_by_committee: HashMap<CommitteeIndex, AttestationData>,
+    attestation_data: Option<AttestationData>,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
 }
 
 impl<T: SlotClock, E: EthSpec> AttestationDataService<T, E> {
     pub fn new(beacon_nodes: Arc<BeaconNodeFallback<T, E>>) -> Self {
         Self {
-            attestation_data_by_committee: HashMap::new(),
+            attestation_data: None,
             beacon_nodes,
         }
     }
 
-    /// Get previously downloaded attestation data by a given committee index. If the Electra fork is enabled
-    /// we don't care about the committee index
+    /// Get previously downloaded attestation data. If the Electra fork is enabled
+    /// we don't care about the committee index. If we're pre-Electra, 
     pub fn get_data_by_committee_index(
         &self,
         committee_index: &CommitteeIndex,
         fork_name: &ForkName,
     ) -> Option<AttestationData> {
         if fork_name.electra_enabled() {
-            let data = self.attestation_data_by_committee.iter().next();
-            if let Some((_, data)) = data {
-                return Some(data.clone());
-            }
-            None
+            self.attestation_data.clone()
         } else {
-            self.attestation_data_by_committee
-                .get(committee_index)
-                .cloned()
+            let Some(mut attestation_data) = self.attestation_data.clone() else {
+                return None;
+            };
+            attestation_data.index = *committee_index;
+            return Some(attestation_data)
         }
     }
 
@@ -50,8 +48,7 @@ impl<T: SlotClock, E: EthSpec> AttestationDataService<T, E> {
         slot: &Slot,
         fork_name: &ForkName,
     ) -> Result<(), String> {
-        // If we've already downloaded data for this committee index OR electra is enabled and
-        // we've already downloaded data for this slot, there's no need to re-download the data.
+        // If we've already downloaded attestation data for this slot, there's no need to re-download the data.
         if let Some(_) = self.get_data_by_committee_index(committee_index, fork_name) {
             return Ok(());
         }
@@ -76,8 +73,7 @@ impl<T: SlotClock, E: EthSpec> AttestationDataService<T, E> {
             .await
             .map_err(|e| e.to_string())?;
 
-        self.attestation_data_by_committee
-            .insert(*committee_index, attestation_data);
+        self.attestation_data = Some(attestation_data);
 
         Ok(())
     }
