@@ -133,7 +133,6 @@ pub enum HotColdDBError {
         proposed_split_slot: Slot,
     },
     MissingStateToFreeze(Hash256),
-    MissingRestorePointHash(u64),
     MissingRestorePointState(Slot),
     MissingRestorePoint(Hash256),
     MissingColdStateSummary(Hash256),
@@ -2741,26 +2740,6 @@ pub(crate) struct ColdStateSummary {
 impl StoreItem for ColdStateSummary {
     fn db_column() -> DBColumn {
         DBColumn::BeaconStateSummary
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
-    }
-
-    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        Ok(Self::from_ssz_bytes(bytes)?)
-    }
-}
-
-/// Struct for storing the state root of a restore point in the database.
-#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
-struct RestorePointHash {
-    state_root: Hash256,
-}
-
-impl StoreItem for RestorePointHash {
-    fn db_column() -> DBColumn {
-        DBColumn::BeaconRestorePoint
     }
 
     fn as_store_bytes(&self) -> Vec<u8> {
