@@ -221,7 +221,7 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
     eprintln!("Starting to submit validator it may take several seconds");
 
     let validator_specification = ValidatorSpecification {
-        voting_keystore: KeystoreJsonStr(Keystore::from_json_file(&validator_file_path).unwrap()),
+        voting_keystore: KeystoreJsonStr(Keystore::from_json_file(&validator_file_path)),
         voting_keystore_password: password,
         slashing_protection: None,
         fee_recipient,
