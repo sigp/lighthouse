@@ -401,7 +401,7 @@ impl<E: EthSpec> Network<E> {
             }
         };
 
-        // Set up the transport - tcp/quic with noise and mplex
+        // Set up the transport - tcp/quic with noise and yamux
         let transport = build_transport(local_keypair.clone(), !config.disable_quic_support)
             .map_err(|e| format!("Failed to build transport: {:?}", e))?;
 

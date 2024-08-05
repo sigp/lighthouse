@@ -46,7 +46,6 @@ itertools = { workspace = true }
 
 # Local dependencies
 void = "1.0.2"
-libp2p-mplex = "0.41"
 
 [dependencies.libp2p]
 version = "0.53"

@@ -38,26 +38,18 @@ pub struct Context<'a> {
 type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
 
 /// The implementation supports TCP/IP, QUIC (experimental) over UDP, noise as the encryption layer, and
-/// mplex/yamux as the multiplexing layer (when using TCP).
+/// yamux as the multiplexing layer (when using TCP).
 pub fn build_transport(
     local_private_key: Keypair,
     quic_support: bool,
 ) -> std::io::Result<BoxedTransport> {
-    // mplex config
-    let mut mplex_config = libp2p_mplex::MplexConfig::new();
-    mplex_config.set_max_buffer_size(256);
-    mplex_config.set_max_buffer_behaviour(libp2p_mplex::MaxBufferBehaviour::Block);
-
     // yamux config
     let yamux_config = yamux::Config::default();
     // Creates the TCP transport layer
     let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
         .upgrade(core::upgrade::Version::V1)
         .authenticate(generate_noise_config(&local_private_key))
-        .multiplex(core::upgrade::SelectUpgrade::new(
-            yamux_config,
-            mplex_config,
-        ))
+        .multiplex(yamux_config)
         .timeout(Duration::from_secs(10));
     let transport = if quic_support {
         // Enables Quic
