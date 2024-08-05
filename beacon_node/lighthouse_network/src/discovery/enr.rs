@@ -245,6 +245,7 @@ pub fn build_enr<E: EthSpec>(
         spec.custody_requirement
     };
 
+
     builder.add_value(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY, &custody_subnet_count);
 
     builder
@@ -307,6 +308,18 @@ pub fn save_enr_to_disk(dir: &Path, enr: &Enr, log: &slog::Logger) {
             );
         }
     }
+}
+
+/// Total count of columns in custody
+pub fn get_columns_in_custody_count() -> usize {
+    let custody_subnet_count = if config.subscribe_all_data_column_subnets {
+        spec.data_column_sidecar_subnet_count
+    } else {
+        spec.custody_requirement
+    };
+
+    let columns_in_custody_count = custody_subnet_count * spec.number_of_columns;
+    columns_in_custody_count
 }
 
 #[cfg(test)]

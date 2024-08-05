@@ -2,6 +2,7 @@ use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 pub use lighthouse_metrics::*;
+pub use enr::get_columns_in_custody_count;
 use slot_clock::SlotClock;
 use std::sync::LazyLock;
 use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
@@ -1694,6 +1695,13 @@ pub static DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter
         )
     });
 
+pub static COLUMNS_IN_CUSTODY: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "beacon_columns_in_custody_total",
+        "Total count of columns in custody",
+    )
+});
+
 /*
  * Light server message verification
  */
@@ -1977,6 +1985,11 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     set_gauge_by_usize(
         &OP_POOL_NUM_SYNC_CONTRIBUTIONS,
         beacon_chain.op_pool.num_sync_contributions(),
+    );
+
+    set_gauge_by_usize(
+        &COLUMNS_IN_CUSTODY,
+        enr.get_columns_in_custody_count(),
     );
 
     beacon_chain
