@@ -731,13 +731,14 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
 
 #[superstruct(
     variants(V1, V2),
-    variant_attributes(derive(Clone, Debug, Serialize, Deserialize),),
+    variant_attributes(
+        derive(Clone, Debug, Serialize, Deserialize),
+        serde(bound = "E: EthSpec", rename_all = "camelCase"),
+    ),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Clone, Debug, Serialize)]
-#[serde(bound = "E: EthSpec")]
-#[serde(rename_all = "camelCase")]
-#[serde(untagged)]
+#[serde(bound = "E: EthSpec", rename_all = "camelCase", untagged)]
 pub struct JsonExecutionPayloadBody<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
