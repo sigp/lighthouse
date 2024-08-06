@@ -192,6 +192,10 @@ impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T> {
     pub fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         self.data_column.data.signed_block_header.clone()
     }
+
+    pub fn into_inner(self) -> KzgVerifiedDataColumn<T::EthSpec> {
+        self.data_column
+    }
 }
 
 /// Wrapper over a `DataColumnSidecar` for which we have completed kzg verification.
@@ -205,6 +209,9 @@ pub struct KzgVerifiedDataColumn<E: EthSpec> {
 impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     pub fn new(data_column: Arc<DataColumnSidecar<E>>, kzg: &Kzg) -> Result<Self, KzgError> {
         verify_kzg_for_data_column(data_column, kzg)
+    }
+    pub fn to_data_column(self) -> Arc<DataColumnSidecar<E>> {
+        self.data
     }
     pub fn as_data_column(&self) -> &DataColumnSidecar<E> {
         &self.data
@@ -228,8 +235,20 @@ pub struct KzgVerifiedCustodyDataColumn<E: EthSpec> {
 }
 
 impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
+    /// Mark a column as custody column. Caller must ensure that our current custody requirements
+    /// include this column
+    pub fn from_asserted_custody(kzg_verified: KzgVerifiedDataColumn<E>) -> Self {
+        Self {
+            data: kzg_verified.to_data_column(),
+        }
+    }
+
     pub fn index(&self) -> ColumnIndex {
         self.data.index
+    }
+
+    pub fn into_inner(self) -> Arc<DataColumnSidecar<E>> {
+        self.data
     }
 }
 
