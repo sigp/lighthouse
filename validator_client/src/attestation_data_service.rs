@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use slot_clock::SlotClock;
 use types::{AttestationData, CommitteeIndex, EthSpec, ForkName, Slot};
@@ -38,7 +38,7 @@ impl<T: SlotClock, E: EthSpec> AttestationDataService<T, E> {
                 return None;
             };
             attestation_data.index = *committee_index;
-            return Some(attestation_data);
+            Some(attestation_data)
         }
     }
 
@@ -50,7 +50,10 @@ impl<T: SlotClock, E: EthSpec> AttestationDataService<T, E> {
         fork_name: &ForkName,
     ) -> Result<(), String> {
         // If we've already downloaded attestation data for this slot, there's no need to re-download the data.
-        if let Some(_) = self.get_data_by_committee_index(committee_index, fork_name) {
+        if self
+            .get_data_by_committee_index(committee_index, fork_name)
+            .is_some()
+        {
             return Ok(());
         }
 
@@ -65,7 +68,7 @@ impl<T: SlotClock, E: EthSpec> AttestationDataService<T, E> {
                         &[metrics::ATTESTATIONS_HTTP_GET],
                     );
                     beacon_node
-                        .get_validator_attestation_data(slot.clone(), *committee_index)
+                        .get_validator_attestation_data(*slot, *committee_index)
                         .await
                         .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
                         .map(|result| result.data)

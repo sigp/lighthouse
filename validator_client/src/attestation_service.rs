@@ -221,6 +221,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     ) {
         let inner_self = self.clone();
 
+        // TODO(attn-slash) more granular metric names
+        let attestations_timer = metrics::start_timer_vec(
+            &metrics::ATTESTATION_SERVICE_TIMES,
+            &[metrics::ATTESTATIONS],
+        );
+
         self.inner.context.executor.spawn(
             async move {
                 let log = inner_self.context.log().clone();
@@ -264,7 +270,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                     handles.push(handle);
                                 }
                             } else {
-                                // TODO(attn-slash) log a crit?
+                                crit!(
+                                    log,
+                                    "Failed to fetch attestation data";
+                                    "committee_index" => format!("{:?}",&committee_index),
+                                    "slot" => format!("{}", &slot),
+                                )
                             }
                         })
                     },
@@ -272,33 +283,46 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
                 let mut signed_attestations = vec![];
 
-                for handle in handles {
-                    if let Ok(result) = handle.await {
-                        let Ok(result) = result.await else { return () };
-                        if let Some(result) = result {
-                            signed_attestations.push(result);
-                        }
+                let results = join_all(handles).await;
+
+                for result in results.into_iter().flatten() {
+                    if let Ok(Some(result)) = result.await {
+                        signed_attestations.push(result);
                     }
                 }
 
                 // Check that the signed attestations are not slash-able (if slash-ability checks are enabled).
-                let Ok(safe_attestations) = inner_self
+                let safe_attestations = match inner_self
                     .validator_store
                     .check_and_insert_attestations(signed_attestations)
-                else {
-                    // TODO(attn-slash) add logging
-                    return ();
+                {
+                    Ok(attestations) => attestations,
+                    Err(e) => {
+                        crit!(
+                            log,
+                            "An error occurred when checking for slashable attestations";
+                            "error" => format!("{:?}", e)
+                        );
+                        return;
+                    }
                 };
 
                 match inner_self
                     .publish_attestations(
-                        &safe_attestations.iter().map(|(a, _)| a).collect(),
+                        &safe_attestations.iter().map(|(a, _)| a).collect::<Vec<_>>(),
                         fork_name,
                     )
                     .await
                 {
                     Ok(_) => (),
-                    Err(_) => (), // TODO(attn-slash) add logging
+                    Err(e) => {
+                        crit!(
+                            log,
+                            "Failed to broadcast signed attestations";
+                            "slot" => format!("{}", slot),
+                            "error" => format!("{:?}", e),
+                        );
+                    }
                 };
 
                 // Create and publish `SignedAggregateAndProof` for all aggregating validators.
@@ -311,20 +335,34 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             .produce_and_publish_aggregates(
                                 &attestation_data,
                                 *committee_index,
-                                &validator_duties,
+                                validator_duties,
                             )
                             .await
                         {
                             Ok(_) => (),
-                            Err(_) => (), // TODO(attn-slash) log a crit
+                            Err(e) => {
+                                crit!(
+                                    log,
+                                    "Failed to produce and publish attestation aggregates";
+                                    "slot" => format!("{}", slot),
+                                    "error" => format!("{:?}", e),
+                                );
+                            }
                         };
                     } else {
-                        // TODO(attn-slash) log a crit?
+                        crit!(
+                            log,
+                            "Failed to fetch attestation data";
+                            "committee_index" => format!("{:?}",&committee_index),
+                            "slot" => format!("{}", &slot),
+                        )
                     }
                 }
             },
             "Download and sign attestations",
         );
+
+        drop(attestations_timer);
     }
 
     /// Performs the first step of the attesting process: downloading `AttestationData` objects.
@@ -337,13 +375,22 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         slot: &Slot,
         fork_name: &ForkName,
     ) {
+        let log = self.context.log().clone();
         for (committee_index, _) in duties_by_committee_index.iter() {
             match attestation_data_service
                 .download_data(committee_index, slot, fork_name)
                 .await
             {
                 Ok(_) => (),
-                Err(_) => (), // TODO(attn-slash) add logging
+                Err(e) => {
+                    crit!(
+                        log,
+                        "Failed to download attestation data";
+                        "slot" => format!("{}", slot),
+                        "committee_index" => format!("{}", committee_index),
+                        "error" => format!("{:?}", e)
+                    );
+                }
             };
         }
     }
@@ -363,12 +410,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         validator_duty: DutyAndProof,
     ) -> Result<Option<(Attestation<E>, DutyAndProof)>, String> {
         let log = self.context.log();
-
-        // TODO(attn-slash) more granular metric names
-        let attestations_timer = metrics::start_timer_vec(
-            &metrics::ATTESTATION_SERVICE_TIMES,
-            &[metrics::ATTESTATIONS],
-        );
 
         let current_epoch = self
             .slot_clock
@@ -415,7 +456,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
         let signed_attestation = match self
             .validator_store
-            .sign_attestation_v2(
+            .sign_attestation(
                 validator_duty.duty.pubkey,
                 validator_duty.duty.validator_committee_index as usize,
                 &mut attestation,
@@ -439,14 +480,13 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 None
             }
             Err(e) => {
-                // crit!(
-                //     log,
-                //     "Failed to sign attestation";
-                //     "error" => ?e,
-                //     "validator" => ?validator_duty.duty.pubkey,
-                //     "committee_index" => validator_duty.duty.committee_index,,
-                //     "slot" => validator_duty.duty.slot.as_u64(),
-                // );
+                crit!(
+                    log,
+                    "Failed to sign attestation";
+                    "error" => ?e,
+                    "validator" => ?validator_duty.duty.pubkey,
+                    "slot" => validator_duty.duty.slot.as_u64(),
+                );
                 None
             }
         };
@@ -463,7 +503,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// attestations that were deemed "safe".
     pub async fn publish_attestations(
         &self,
-        attestations: &Vec<&Attestation<E>>,
+        attestations: &[&Attestation<E>],
         fork_name: ForkName,
     ) -> Result<(), String> {
         self.beacon_nodes

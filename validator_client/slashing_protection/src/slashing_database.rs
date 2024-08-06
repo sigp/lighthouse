@@ -652,45 +652,6 @@ impl SlashingDatabase {
         Ok(safe)
     }
 
-    // TODO(attn-slash) previously I had separated checking the signing root
-    // add inserting. But this doesn't seem necessary and seems to add a bit of unneeded complexity
-    // will review this before deleting.
-    // pub fn check_attestation_signing_root(
-    //     &self,
-    //     validator_pubkey: &PublicKeyBytes,
-    //     attestation: &AttestationData,
-    //     domain: Hash256,
-    // ) -> Result<Safe, NotSafe> {
-    //     let attestation_signing_root = attestation.signing_root(domain).into();
-    //     let mut conn = self.conn_pool.get()?;
-    //     let txn = conn.transaction_with_behavior(TransactionBehavior::Deferred)?;
-    //     self.check_attestation(
-    //         &txn,
-    //         validator_pubkey,
-    //         attestation.source.epoch,
-    //         attestation.target.epoch,
-    //         attestation_signing_root,
-    //     )
-    // }
-
-    // pub fn insert_attestation_signing_root(
-    //     &self,
-    //     validator_pubkey: &PublicKeyBytes,
-    //     attestation: &AttestationData,
-    //     domain: Hash256,
-    // ) -> Result<(), NotSafe> {
-    //     let attestation_signing_root = attestation.signing_root(domain).into();
-    //     let mut conn = self.conn_pool.get()?;
-    //     let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
-    //     self.insert_attestation(
-    //         &txn,
-    //         validator_pubkey,
-    //         attestation.source.epoch,
-    //         attestation.target.epoch,
-    //         attestation_signing_root,
-    //     )
-    // }
-
     /// Transactional variant of `check_and_insert_attestation_signing_root`.
     fn check_and_insert_attestation_signing_root_txn(
         &self,
