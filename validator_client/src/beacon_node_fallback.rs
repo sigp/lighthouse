@@ -190,11 +190,6 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<(), CandidateError> {
-        debug!(
-            log,
-            "Refresh started";
-            "endpoint" => %self.beacon_node,
-        );
         let previous_status = self.status(RequireSynced::Yes).await;
         let was_offline = matches!(previous_status, Err(CandidateError::Offline));
 
@@ -213,12 +208,6 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         // status. I deem this edge-case acceptable in return for the concurrency benefits of not
         // holding a write-lock whilst we check the online status of the node.
         *self.status.write().await = new_status;
-
-        debug!(
-            log,
-            "Refresh complete";
-            "endpoint" => %self.beacon_node,
-        );
 
         new_status
     }
@@ -645,7 +634,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         // First pass: try `func` on all synced and ready candidates.
         //
         // This ensures that we always choose a synced node if it is available.
-        debug!(self.log, "Starting first batch of subscription requests");
         let mut first_batch_futures = vec![];
         for candidate in &self.candidates {
             match candidate.status(RequireSynced::Yes).await {
@@ -669,7 +657,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         //
         // Due to async race-conditions, it is possible that we will send a request to a candidate
         // that has been set to an offline/unready status. This is acceptable.
-        debug!(self.log, "Starting second batch of subscription requests");
         let second_batch_results = if require_synced == false {
             futures::future::join_all(retry_unsynced.into_iter().map(run_on_candidate)).await
         } else {
@@ -677,7 +664,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         };
 
         // Third pass: try again, attempting to make non-ready clients become ready.
-        debug!(self.log, "Starting third batch of subscription requests");
         let mut third_batch_futures = vec![];
         let mut third_batch_results = vec![];
         for candidate in to_retry {
@@ -704,7 +690,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             }
         }
         third_batch_results.extend(futures::future::join_all(third_batch_futures).await);
-        debug!(self.log, "Completed all subscription requests");
 
         let mut results = first_batch_results;
         results.extend(second_batch_results);
