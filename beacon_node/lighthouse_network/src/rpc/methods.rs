@@ -6,6 +6,7 @@ use serde::Serialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::U256, VariableList};
+use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -425,6 +426,17 @@ impl DataColumnsByRootRequest {
 
     pub fn new_single(block_root: Hash256, index: ColumnIndex, spec: &ChainSpec) -> Self {
         Self::new(vec![DataColumnIdentifier { block_root, index }], spec)
+    }
+
+    pub fn group_by_ordered_block_root(&self) -> Vec<(Hash256, Vec<ColumnIndex>)> {
+        let mut column_indexes_by_block = BTreeMap::<Hash256, Vec<ColumnIndex>>::new();
+        for request_id in self.data_column_ids.as_slice() {
+            column_indexes_by_block
+                .entry(request_id.block_root)
+                .or_default()
+                .push(request_id.index);
+        }
+        column_indexes_by_block.into_iter().collect()
     }
 }
 
