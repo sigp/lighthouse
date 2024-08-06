@@ -2,7 +2,6 @@ use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 pub use lighthouse_metrics::*;
-pub use enr::get_columns_in_custody_count;
 use slot_clock::SlotClock;
 use std::sync::LazyLock;
 use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
@@ -1989,7 +1988,7 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
 
     set_gauge_by_usize(
         &COLUMNS_IN_CUSTODY,
-        enr.get_columns_in_custody_count(),
+        da_checker_metrics.custody_column_count,
     );
 
     beacon_chain

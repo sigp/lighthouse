@@ -508,11 +508,23 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         })
     }
 
+    /// Total count of columns in custody
+    pub fn get_custody_column_count(&self) -> usize {
+        let custody_subnet_count = if import_all_data_columns {
+            spec.data_column_sidecar_subnet_count as usize
+        } else {
+            spec.custody_requirement as usize
+        };
+
+        custody_subnet_count.saturating_mul(spec.data_columns_per_subnet())
+    }
+
     /// Collects metrics from the data availability checker.
     pub fn metrics(&self) -> DataAvailabilityCheckerMetrics {
         DataAvailabilityCheckerMetrics {
             state_cache_size: self.availability_cache.state_cache_size(),
             block_cache_size: self.availability_cache.block_cache_size(),
+            custody_column_count: self.get_custody_column_count(),
         }
     }
 }
@@ -521,6 +533,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 pub struct DataAvailabilityCheckerMetrics {
     pub state_cache_size: usize,
     pub block_cache_size: usize,
+    pub custody_column_count: usize,
 }
 
 pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
