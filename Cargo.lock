@@ -1532,9 +1532,9 @@ dependencies = [
 
 [[package]]
 name = "crate_crypto_internal_eth_kzg_bls12_381"
-version = "0.3.2"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56bfd17086d959b4a54151a453be7cbe2b25002c29e1808fec4feb9d61dd766a"
+checksum = "8761b04feb6031ffaf93933c955a0c91a2f3ce15dcac6b9586d2487fe55abf0b"
 dependencies = [
  "blst",
  "blstrs",
@@ -1546,9 +1546,9 @@ dependencies = [
 
 [[package]]
 name = "crate_crypto_internal_eth_kzg_erasure_codes"
-version = "0.3.2"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47d10bd21c929288745124ba171a6a7a9b9a02775f5b258e67e3bc9fa5a83c53"
+checksum = "eca410dff79524a2babe8a0d9ab5fdce21b16808f8189eb8b6da6159681f8de2"
 dependencies = [
  "crate_crypto_internal_eth_kzg_bls12_381",
  "crate_crypto_internal_eth_kzg_polynomial",
@@ -1556,18 +1556,18 @@ dependencies = [
 
 [[package]]
 name = "crate_crypto_internal_eth_kzg_polynomial"
-version = "0.3.2"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff3e4a2aae6a74a33f443cedf93474243e6ff288d14b71ceb7ad3f64112ae76b"
+checksum = "68be1a5f16bc1c09254dec5209e22278d7d395284443576886a5890e7131234f"
 dependencies = [
  "crate_crypto_internal_eth_kzg_bls12_381",
 ]
 
 [[package]]
 name = "crate_crypto_kzg_multi_open_fk20"
-version = "0.3.2"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90e186422e6af37e2c58aad943024f740309b05a8d80fd42d9c6a066fe246481"
+checksum = "702fe5b687fe8c5a46851b8bc624ad49603a339dc93c920d4f7e61592c201ee8"
 dependencies = [
  "crate_crypto_internal_eth_kzg_bls12_381",
  "crate_crypto_internal_eth_kzg_polynomial",
@@ -7095,9 +7095,9 @@ dependencies = [
 
 [[package]]
 name = "rust_eth_kzg"
-version = "0.3.2"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32a65028eb4212d9d88161d3aa8059be8c6bd71f2e92d61c633be86e4d25d364"
+checksum = "013a850c7e131a8f9651ffbb151dc33240234f21dd357b692bd5ff4cdc84bf9a"
 dependencies = [
  "crate_crypto_internal_eth_kzg_bls12_381",
  "crate_crypto_internal_eth_kzg_erasure_codes",
