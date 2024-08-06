@@ -8,6 +8,7 @@ use crate::sync::{
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::MaybeAvailableBlock;
+use beacon_chain::data_column_verification::DataColumnsSameBlock;
 use beacon_chain::{
     validator_monitor::get_slot_delay_ms, AvailabilityProcessingStatus, BeaconChainError,
     BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError, NotifyExecutionLayer,
@@ -301,6 +302,60 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         // Sync handles these results
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
+            process_type,
+            result: result.into(),
+        });
+    }
+
+    pub async fn process_rpc_custody_columns(
+        self: Arc<NetworkBeaconProcessor<T>>,
+        custody_columns: DataColumnsSameBlock<T::EthSpec>,
+        _seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) {
+        let block_root = custody_columns.block_root();
+        let result = self
+            .chain
+            .process_rpc_custody_columns(custody_columns)
+            .await;
+
+        match &result {
+            Ok(availability) => match availability {
+                AvailabilityProcessingStatus::Imported(hash) => {
+                    debug!(
+                        self.log,
+                        "Block components retrieved";
+                        "result" => "imported block and custody columns",
+                        "block_hash" => %hash,
+                    );
+                    self.chain.recompute_head_at_current_slot().await;
+                }
+                AvailabilityProcessingStatus::MissingComponents(_, _) => {
+                    debug!(
+                        self.log,
+                        "Missing components over rpc";
+                        "block_hash" => %block_root,
+                    );
+                }
+            },
+            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+                debug!(
+                    self.log,
+                    "Custody columns have already been imported";
+                    "block_hash" => %block_root,
+                );
+            }
+            Err(e) => {
+                warn!(
+                    self.log,
+                    "Error when importing rpc custody columns";
+                    "error" => ?e,
+                    "block_hash" => %block_root,
+                );
+            }
+        }
+
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
             result: result.into(),

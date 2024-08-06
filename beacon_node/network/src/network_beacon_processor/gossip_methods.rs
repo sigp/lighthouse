@@ -988,7 +988,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match self
             .chain
-            .process_gossip_data_columns(vec![verified_data_column])
+            .process_gossip_data_column(verified_data_column)
             .await
         {
             Ok(availability) => {

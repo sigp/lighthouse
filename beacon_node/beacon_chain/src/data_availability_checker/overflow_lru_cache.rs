@@ -5,7 +5,7 @@ use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableBlock, AvailableExecutedBlock,
 };
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
-use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
+use crate::data_column_verification::{KzgVerifiedDataColumn, KzgVerifiedDataColumnsSameBlock};
 use crate::BeaconChainTypes;
 use lru::LruCache;
 use parking_lot::RwLock;
@@ -24,7 +24,7 @@ use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
-    pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
+    pub verified_data_columns: Vec<KzgVerifiedDataColumn<E>>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
 }
 
@@ -50,7 +50,7 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn get_cached_data_column(
         &self,
         data_column_index: u64,
-    ) -> Option<&KzgVerifiedCustodyDataColumn<E>> {
+    ) -> Option<&KzgVerifiedDataColumn<E>> {
         self.verified_data_columns
             .iter()
             .find(|d| d.index() == data_column_index)
@@ -157,13 +157,10 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Merges a given set of data columns into the cache.
-    fn merge_data_columns<I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<E>>>(
-        &mut self,
-        kzg_verified_data_columns: I,
-    ) {
+    fn merge_data_columns(&mut self, kzg_verified_data_columns: &[KzgVerifiedDataColumn<E>]) {
         for data_column in kzg_verified_data_columns {
             if !self.data_column_exists(data_column.index()) {
-                self.verified_data_columns.push(data_column);
+                self.verified_data_columns.push(data_column.clone());
             }
         }
     }
@@ -261,7 +258,7 @@ impl<E: EthSpec> PendingComponents<E> {
             BlockImportRequirement::CustodyColumns(_) => {
                 let verified_data_columns = verified_data_columns
                     .into_iter()
-                    .map(|d| d.into_inner())
+                    .map(|d| d.to_data_column())
                     .collect();
                 (None, Some(verified_data_columns))
             }
@@ -430,17 +427,13 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
     }
 
-    // TODO(das): rpc code paths to be implemented.
-    #[allow(dead_code)]
-    pub fn put_kzg_verified_data_columns<
-        I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,
-    >(
+    pub fn put_kzg_verified_data_columns(
         &self,
-        block_root: Hash256,
-        epoch: Epoch,
-        kzg_verified_data_columns: I,
+        data_columns: KzgVerifiedDataColumnsSameBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut write_lock = self.critical.write();
+        let block_root = data_columns.block_root();
+        let epoch = data_columns.slot().epoch(T::EthSpec::slots_per_epoch());
 
         // Grab existing entry or create a new entry.
         let mut pending_components = write_lock
@@ -449,7 +442,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             .unwrap_or_else(|| PendingComponents::empty(block_root));
 
         // Merge in the data columns.
-        pending_components.merge_data_columns(kzg_verified_data_columns);
+        pending_components.merge_data_columns(data_columns.columns());
 
         let block_import_requirement = self.block_import_requirement(epoch)?;
         if pending_components.is_available(&block_import_requirement) {

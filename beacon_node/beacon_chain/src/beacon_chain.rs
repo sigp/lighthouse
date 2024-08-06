@@ -23,7 +23,9 @@ use crate::chain_config::ChainConfig;
 use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, DataAvailabilityChecker,
 };
-use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use crate::data_column_verification::{
+    DataColumnsSameBlock, GossipDataColumnError, GossipVerifiedDataColumn,
+};
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
@@ -2968,23 +2970,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Cache the data columns in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
-    pub async fn process_gossip_data_columns(
+    pub async fn process_gossip_data_column(
         self: &Arc<Self>,
-        data_columns: Vec<GossipVerifiedDataColumn<T>>,
+        data_column: GossipVerifiedDataColumn<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        let Ok((slot, block_root)) = data_columns
-            .iter()
-            .map(|c| (c.slot(), c.block_root()))
-            .unique()
-            .exactly_one()
-        else {
-            return Err(BlockError::InternalError(
-                "Columns should be from the same block".to_string(),
-            ));
-        };
-
         // If this block has already been imported to forkchoice it must have been available, so
         // we don't need to process its samples again.
+        let block_root = data_column.block_root();
         if self
             .canonical_head
             .fork_choice_read_lock()
@@ -2994,7 +2986,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let r = self
-            .check_gossip_data_columns_availability_and_import(slot, block_root, data_columns)
+            .check_gossip_data_columns_availability_and_import(data_column)
             .await;
         self.remove_notified_custody_columns(&block_root, r)
     }
@@ -3029,6 +3021,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let r = self
             .check_rpc_blob_availability_and_import(slot, block_root, blobs)
+            .await;
+        self.remove_notified(&block_root, r)
+    }
+
+    /// Cache the columns in the processing cache, process it, then evict it from the cache if it was
+    /// imported or errors.
+    pub async fn process_rpc_custody_columns(
+        self: &Arc<Self>,
+        custody_columns: DataColumnsSameBlock<T::EthSpec>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        // If this block has already been imported to forkchoice it must have been available, so
+        // we don't need to process its columns again.
+        let block_root = custody_columns.block_root();
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            return Err(BlockError::BlockIsAlreadyKnown(block_root));
+        }
+
+        // TODO(das): custody column SSE event
+
+        let r = self
+            .check_rpc_custody_columns_availability_and_import(custody_columns)
             .await;
         self.remove_notified(&block_root, r)
     }
@@ -3311,21 +3328,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// if so, otherwise caches the data column in the data availability checker.
     async fn check_gossip_data_columns_availability_and_import(
         self: &Arc<Self>,
-        slot: Slot,
-        block_root: Hash256,
-        data_columns: Vec<GossipVerifiedDataColumn<T>>,
+        data_column: GossipVerifiedDataColumn<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
         if let Some(slasher) = self.slasher.as_ref() {
-            for data_colum in &data_columns {
-                slasher.accept_block_header(data_colum.signed_block_header());
-            }
+            slasher.accept_block_header(data_column.signed_block_header());
         }
 
-        let availability = self.data_availability_checker.put_gossip_data_columns(
-            slot,
-            block_root,
-            data_columns,
-        )?;
+        let slot = data_column.slot();
+        let availability = self
+            .data_availability_checker
+            .put_gossip_data_column(data_column)?;
 
         self.process_availability(slot, availability).await
     }
@@ -3365,6 +3377,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let availability = self
             .data_availability_checker
             .put_rpc_blobs(block_root, epoch, blobs)?;
+
+        self.process_availability(slot, availability).await
+    }
+
+    /// Checks if the provided columns can make any cached blocks available, and imports immediately
+    /// if so, otherwise caches the columns in the data availability checker.
+    async fn check_rpc_custody_columns_availability_and_import(
+        self: &Arc<Self>,
+        custody_columns: DataColumnsSameBlock<T::EthSpec>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
+        // Need to scope this to ensure the lock is dropped before calling `process_availability`
+        // Even an explicit drop is not enough to convince the borrow checker.
+        {
+            let mut slashable_cache = self.observed_slashable.write();
+            let header = custody_columns.signed_block_header();
+            let block_root = custody_columns.block_root();
+            if verify_header_signature::<T, BlockError<T::EthSpec>>(self, header).is_ok() {
+                slashable_cache
+                    .observe_slashable(
+                        header.message.slot,
+                        header.message.proposer_index,
+                        block_root,
+                    )
+                    .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+                if let Some(slasher) = self.slasher.as_ref() {
+                    slasher.accept_block_header(header.clone());
+                }
+            }
+        }
+
+        // This slot value is purely informative for the consumers of
+        // `AvailabilityProcessingStatus::MissingComponents` to log an error with a slot.
+        let slot = custody_columns.slot();
+        let availability = self
+            .data_availability_checker
+            .put_rpc_custody_columns(custody_columns)?;
 
         self.process_availability(slot, availability).await
     }
