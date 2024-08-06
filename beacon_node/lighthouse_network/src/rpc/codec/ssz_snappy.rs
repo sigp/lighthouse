@@ -423,7 +423,6 @@ fn context_bytes<E: EthSpec>(
                 | RPCResponse::BlobsByRoot(_)
                 | RPCResponse::DataColumnsByRoot(_)
                 | RPCResponse::DataColumnsByRange(_) => {
-                    // TODO(electra)
                     return fork_context.to_context_bytes(ForkName::Deneb);
                 }
                 RPCResponse::LightClientBootstrap(lc_bootstrap) => {
@@ -625,14 +624,18 @@ fn handle_rpc_response<E: EthSpec>(
             )),
         },
         SupportedProtocol::DataColumnsByRootV1 => match fork_name {
-            // TODO(das): update fork name
-            Some(ForkName::Deneb) => Ok(Some(RPCResponse::DataColumnsByRoot(Arc::new(
-                DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
-            )))),
-            Some(_) => Err(RPCError::ErrorResponse(
-                RPCResponseErrorCode::InvalidRequest,
-                "Invalid fork name for data columns by root".to_string(),
-            )),
+            Some(fork_name) => {
+                if fork_name.deneb_enabled() {
+                    Ok(Some(RPCResponse::DataColumnsByRoot(Arc::new(
+                        DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RPCResponseErrorCode::InvalidRequest,
+                        "Invalid fork name for data columns by root".to_string(),
+                    ))
+                }
+            }
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
                 format!(
@@ -642,14 +645,18 @@ fn handle_rpc_response<E: EthSpec>(
             )),
         },
         SupportedProtocol::DataColumnsByRangeV1 => match fork_name {
-            // TODO(das): update fork name
-            Some(ForkName::Deneb) => Ok(Some(RPCResponse::DataColumnsByRange(Arc::new(
-                DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
-            )))),
-            Some(_) => Err(RPCError::ErrorResponse(
-                RPCResponseErrorCode::InvalidRequest,
-                "Invalid fork name for data columns by range".to_string(),
-            )),
+            Some(fork_name) => {
+                if fork_name.deneb_enabled() {
+                    Ok(Some(RPCResponse::DataColumnsByRange(Arc::new(
+                        DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RPCResponseErrorCode::InvalidRequest,
+                        "Invalid fork name for data columns by range".to_string(),
+                    ))
+                }
+            }
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
                 format!(

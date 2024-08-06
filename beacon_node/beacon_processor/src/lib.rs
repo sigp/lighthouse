@@ -1123,17 +1123,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         // and BlocksByRoot)
                         } else if let Some(item) = status_queue.pop() {
                             self.spawn_worker(item, idle_tx);
-                        // Prioritize by_root requests over by_range as the former are time
-                        // sensitive for recovery
-                        } else if let Some(item) = bbroots_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
-                        } else if let Some(item) = blbroots_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
-                        } else if let Some(item) = dcbroots_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
-                        } else if let Some(item) = dcbrange_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
-                        // by_range sync after sampling
                         } else if let Some(item) = bbrange_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = bbroots_queue.pop() {
@@ -1141,6 +1130,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = blbrange_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = blbroots_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = dcbroots_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = dcbrange_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         // Check slashings after all other consensus messages so we prioritize
                         // following head.
