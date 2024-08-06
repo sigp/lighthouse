@@ -134,6 +134,12 @@ impl<T: Debug> fmt::Display for Errors<T> {
     }
 }
 
+impl<T> Errors<T> {
+    pub fn num_errors(&self) -> usize {
+        self.0.len()
+    }
+}
+
 /// Reasons why a candidate might not be ready.
 #[derive(Debug, Clone, Copy)]
 pub enum CandidateError {
