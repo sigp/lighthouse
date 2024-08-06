@@ -54,6 +54,7 @@ use crate::block_verification_types::{
     AsBlock, BlockContentsError, BlockImportData, GossipVerifiedBlockContents, RpcBlock,
 };
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
+use crate::data_column_verification::GossipDataColumnError;
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
@@ -63,7 +64,7 @@ use crate::observed_block_producers::SeenBlock;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
-    beacon_chain::{BeaconForkChoice, ForkChoiceError, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT},
+    beacon_chain::{BeaconForkChoice, ForkChoiceError},
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
@@ -299,10 +300,19 @@ pub enum BlockError<E: EthSpec> {
     /// 1. The block proposer is faulty
     /// 2. We received the blob over rpc and it is invalid (inconsistent w.r.t the block).
     /// 3. It is an internal error
+    ///
     /// For all these cases, we cannot penalize the peer that gave us the block.
+    ///
     /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
     /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
+    /// An internal error has occurred when processing the block or sidecars.
+    ///
+    /// ## Peer scoring
+    ///
+    /// We were unable to process this block due to an internal error. It's unclear if the block is
+    /// valid.
+    InternalError(String),
 }
 
 impl<E: EthSpec> From<AvailabilityCheckError> for BlockError<E> {
@@ -516,6 +526,20 @@ impl<E: EthSpec> BlockSlashInfo<GossipBlobError<E>> {
     pub fn from_early_error_blob(header: SignedBeaconBlockHeader, e: GossipBlobError<E>) -> Self {
         match e {
             GossipBlobError::ProposalSignatureInvalid => BlockSlashInfo::SignatureInvalid(e),
+            // `InvalidSignature` could indicate any signature in the block, so we want
+            // to recheck the proposer signature alone.
+            _ => BlockSlashInfo::SignatureNotChecked(header, e),
+        }
+    }
+}
+
+impl BlockSlashInfo<GossipDataColumnError> {
+    pub fn from_early_error_data_column(
+        header: SignedBeaconBlockHeader,
+        e: GossipDataColumnError,
+    ) -> Self {
+        match e {
+            GossipDataColumnError::ProposalSignatureInvalid => BlockSlashInfo::SignatureInvalid(e),
             // `InvalidSignature` could indicate any signature in the block, so we want
             // to recheck the proposer signature alone.
             _ => BlockSlashInfo::SignatureNotChecked(header, e),
@@ -2007,6 +2031,23 @@ impl<E: EthSpec> BlockBlobError for GossipBlobError<E> {
     }
 }
 
+impl BlockBlobError for GossipDataColumnError {
+    fn not_later_than_parent_error(data_column_slot: Slot, parent_slot: Slot) -> Self {
+        GossipDataColumnError::IsNotLaterThanParent {
+            data_column_slot,
+            parent_slot,
+        }
+    }
+
+    fn unknown_validator_error(validator_index: u64) -> Self {
+        GossipDataColumnError::UnknownValidator(validator_index)
+    }
+
+    fn proposer_signature_invalid() -> Self {
+        GossipDataColumnError::ProposalSignatureInvalid
+    }
+}
+
 /// Performs a cheap (time-efficient) state advancement so the committees and proposer shuffling for
 /// `slot` can be obtained from `state`.
 ///
@@ -2055,10 +2096,7 @@ pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobEr
 pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<RwLockReadGuard<ValidatorPubkeyCache<T>>, BeaconChainError> {
-    chain
-        .validator_pubkey_cache
-        .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-        .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)
+    Ok(chain.validator_pubkey_cache.read())
 }
 
 /// Produces an _empty_ `BlockSignatureVerifier`.

@@ -104,6 +104,7 @@ pub mod sqlite;
 
 pub mod blob_sidecar;
 pub mod data_column_sidecar;
+pub mod data_column_subnet_id;
 pub mod light_client_header;
 pub mod non_zero_usize;
 pub mod runtime_var_list;
@@ -146,6 +147,10 @@ pub use crate::config_and_preset::{
 };
 pub use crate::consolidation_request::ConsolidationRequest;
 pub use crate::contribution_and_proof::ContributionAndProof;
+pub use crate::data_column_sidecar::{
+    ColumnIndex, DataColumnIdentifier, DataColumnSidecar, DataColumnSidecarList,
+};
+pub use crate::data_column_subnet_id::DataColumnSubnetId;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;
 pub use crate::deposit_message::DepositMessage;
@@ -156,7 +161,8 @@ pub use crate::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
-pub use crate::execution_block_header::ExecutionBlockHeader;
+pub use crate::execution_block_header::{EncodableExecutionBlockHeader, ExecutionBlockHeader};
+pub use crate::execution_layer_withdrawal_request::ExecutionLayerWithdrawalRequest;
 pub use crate::execution_payload::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadElectra, ExecutionPayloadRef, Transaction, Transactions, Withdrawals,

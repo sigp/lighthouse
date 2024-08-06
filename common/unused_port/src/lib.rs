@@ -1,7 +1,7 @@
-use lazy_static::lazy_static;
 use lru_cache::LRUTimeCache;
 use parking_lot::Mutex;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
+use std::sync::LazyLock;
 use std::time::Duration;
 
 #[derive(Copy, Clone)]
@@ -18,10 +18,8 @@ pub enum IpVersion {
 
 pub const CACHED_PORTS_TTL: Duration = Duration::from_secs(300);
 
-lazy_static! {
-    static ref FOUND_PORTS_CACHE: Mutex<LRUTimeCache<u16>> =
-        Mutex::new(LRUTimeCache::new(CACHED_PORTS_TTL));
-}
+static FOUND_PORTS_CACHE: LazyLock<Mutex<LRUTimeCache<u16>>> =
+    LazyLock::new(|| Mutex::new(LRUTimeCache::new(CACHED_PORTS_TTL)));
 
 /// A convenience wrapper over [`zero_port`].
 pub fn unused_tcp4_port() -> Result<u16, String> {

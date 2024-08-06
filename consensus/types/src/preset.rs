@@ -279,6 +279,28 @@ impl ElectraPreset {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct Eip7594Preset {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub field_elements_per_cell: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub field_elements_per_ext_blob: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub kzg_commitments_inclusion_proof_depth: u64,
+}
+
+impl Eip7594Preset {
+    pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
+        Self {
+            field_elements_per_cell: E::field_elements_per_cell() as u64,
+            field_elements_per_ext_blob: E::field_elements_per_ext_blob() as u64,
+            kzg_commitments_inclusion_proof_depth: E::kzg_commitments_inclusion_proof_depth()
+                as u64,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -323,6 +345,9 @@ mod test {
 
         let electra: ElectraPreset = preset_from_file(&preset_name, "electra.yaml");
         assert_eq!(electra, ElectraPreset::from_chain_spec::<E>(&spec));
+
+        let eip7594: Eip7594Preset = preset_from_file(&preset_name, "eip7594.yaml");
+        assert_eq!(eip7594, Eip7594Preset::from_chain_spec::<E>(&spec));
     }
 
     #[test]

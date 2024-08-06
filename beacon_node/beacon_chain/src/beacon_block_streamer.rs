@@ -712,16 +712,16 @@ mod tests {
     use crate::test_utils::{test_spec, BeaconChainHarness, EphemeralHarnessType};
     use execution_layer::test_utils::{Block, DEFAULT_ENGINE_CAPABILITIES};
     use execution_layer::EngineCapabilities;
-    use lazy_static::lazy_static;
+    use std::sync::LazyLock;
     use std::time::Duration;
     use tokio::sync::mpsc;
     use types::{ChainSpec, Epoch, EthSpec, Hash256, Keypair, MinimalEthSpec, Slot};
 
     const VALIDATOR_COUNT: usize = 48;
-    lazy_static! {
-        /// A cached set of keys.
-        static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
-    }
+
+    /// A cached set of keys.
+    static KEYPAIRS: LazyLock<Vec<Keypair>> =
+        LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
     fn get_harness(
         validator_count: usize,
