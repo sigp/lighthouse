@@ -221,7 +221,9 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
     eprintln!("Starting to submit validator it may take several seconds");
 
     let validator_specification = ValidatorSpecification {
-        voting_keystore: KeystoreJsonStr(Keystore::from_json_file(&validator_file_path)),
+        voting_keystore: KeystoreJsonStr(
+            Keystore::from_json_file(&validator_file_path).map_err(|e| format!("{e:?}"))?,
+        ),
         voting_keystore_password: password,
         slashing_protection: None,
         fee_recipient,
@@ -358,10 +360,10 @@ pub mod tests {
         }
 
         pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
-            let dir = tempdir().unwrap();
+            let dir = tempdir();
             let vc = ApiTester::new_with_http_config(http_config).await;
             let vc_token_path = dir.path().join(VC_TOKEN_FILE_NAME);
-            fs::write(&vc_token_path, &vc.api_token).unwrap();
+            fs::write(&vc_token_path, &vc.api_token);
 
             Self {
                 import_config: ImportConfig {
@@ -370,7 +372,7 @@ pub mod tests {
                     vc_url: vc.url.clone(),
                     vc_token_path,
                     ignore_duplicates: false,
-                    password: ZeroizeString::from_str("password").unwrap(),
+                    password: ZeroizeString::from_str("password"),
                     fee_recipient: None,
                     builder_boost_factor: None,
                     gas_limit: None,
@@ -408,8 +410,7 @@ pub mod tests {
                 .read(true)
                 .create(false)
                 .open(&validators_file_path)
-                .map_err(|e| format!("Unable to open {:?}: {:?}", validators_file_path, e))
-                .unwrap();
+                .map_err(|e| format!("Unable to open {:?}: {:?}", validators_file_path, e));
 
             let validators: Vec<ValidatorSpecification> = serde_json::from_reader(&validators_file)
                 .map_err(|e| {
@@ -417,14 +418,13 @@ pub mod tests {
                         "Unable to parse JSON in {:?}: {:?}",
                         validators_file_path, e
                     )
-                })
-                .unwrap();
+                });
 
             let validator = &validators[0];
             let validator_json = validator.voting_keystore.0.clone();
 
-            let keystore_file = File::create(&validators_file_path).unwrap();
-            validator_json.to_json_writer(keystore_file).unwrap();
+            let keystore_file = File::create(&validators_file_path);
+            validator_json.to_json_writer(keystore_file);
 
             self.import_config.validator_file_path = create_result.validators_file_path();
             self.import_config.password = validator.voting_keystore_password.clone();
@@ -435,7 +435,7 @@ pub mod tests {
         /// Imports validator without running the entire test suite in `Self::run_test`. This is
         /// useful for simulating duplicate imports.
         pub async fn import_validators_without_checks(self) -> Self {
-            run(self.import_config.clone()).await.unwrap();
+            run(self.import_config.clone()).await?;
             self
         }
 
@@ -451,15 +451,13 @@ pub mod tests {
                             "Unable to open {:?}: {:?}",
                             &self.import_config.validator_file_path, e
                         )
-                    })
-                    .unwrap();
+                    });
 
                 let local_keystore: Keystore = Keystore::from_json_keystore(
                     serde_json::from_str(&validators_file).expect("JSON was not well formatted"),
-                )
-                .unwrap();
+                );
 
-                let list_keystores_response = self.vc.client.get_keystores().await.unwrap().data;
+                let list_keystores_response = self.vc.client.get_keystores().await.data;
 
                 assert_eq!(
                     1,
@@ -467,7 +465,7 @@ pub mod tests {
                     "vc should have exactly the number of validators imported"
                 );
 
-                let local_pubkey = local_keystore.public_key().unwrap().into();
+                let local_pubkey = local_keystore.public_key().into();
                 let remote_validator = list_keystores_response
                     .iter()
                     .find(|validator| validator.validating_pubkey == local_pubkey)
