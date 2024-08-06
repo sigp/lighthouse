@@ -1,86 +1,125 @@
 use eth2::lighthouse::{ProcessHealth, SystemHealth};
 use lighthouse_metrics::*;
+use std::sync::LazyLock;
 
-lazy_static::lazy_static! {
-    pub static ref PROCESS_NUM_THREADS: Result<IntGauge> = try_create_int_gauge(
+pub static PROCESS_NUM_THREADS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
         "process_num_threads",
-        "Number of threads used by the current process"
-    );
-    pub static ref PROCESS_RES_MEM: Result<IntGauge> = try_create_int_gauge(
+        "Number of threads used by the current process",
+    )
+});
+pub static PROCESS_RES_MEM: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
         "process_resident_memory_bytes",
-        "Resident memory used by the current process"
-    );
-    pub static ref PROCESS_VIRT_MEM: Result<IntGauge> = try_create_int_gauge(
+        "Resident memory used by the current process",
+    )
+});
+pub static PROCESS_VIRT_MEM: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
         "process_virtual_memory_bytes",
-        "Virtual memory used by the current process"
-    );
-    pub static ref PROCESS_SHR_MEM: Result<IntGauge> = try_create_int_gauge(
+        "Virtual memory used by the current process",
+    )
+});
+pub static PROCESS_SHR_MEM: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
         "process_shared_memory_bytes",
-        "Shared memory used by the current process"
-    );
-    pub static ref PROCESS_SECONDS: Result<IntGauge> = try_create_int_gauge(
+        "Shared memory used by the current process",
+    )
+});
+pub static PROCESS_SECONDS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
         "process_cpu_seconds_total",
-        "Total cpu time taken by the current process"
-    );
-    pub static ref SYSTEM_VIRT_MEM_TOTAL: Result<IntGauge> =
-        try_create_int_gauge("system_virt_mem_total_bytes", "Total system virtual memory");
-    pub static ref SYSTEM_VIRT_MEM_AVAILABLE: Result<IntGauge> = try_create_int_gauge(
+        "Total cpu time taken by the current process",
+    )
+});
+pub static SYSTEM_VIRT_MEM_TOTAL: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge("system_virt_mem_total_bytes", "Total system virtual memory")
+});
+pub static SYSTEM_VIRT_MEM_AVAILABLE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
         "system_virt_mem_available_bytes",
-        "Available system virtual memory"
-    );
-    pub static ref SYSTEM_VIRT_MEM_USED: Result<IntGauge> =
-        try_create_int_gauge("system_virt_mem_used_bytes", "Used system virtual memory");
-    pub static ref SYSTEM_VIRT_MEM_FREE: Result<IntGauge> =
-        try_create_int_gauge("system_virt_mem_free_bytes", "Free system virtual memory");
-    pub static ref SYSTEM_VIRT_MEM_CACHED: Result<IntGauge> =
-        try_create_int_gauge("system_virt_mem_cached_bytes", "Used system virtual memory");
-    pub static ref SYSTEM_VIRT_MEM_BUFFERS: Result<IntGauge> =
-        try_create_int_gauge("system_virt_mem_buffer_bytes", "Free system virtual memory");
-    pub static ref SYSTEM_VIRT_MEM_PERCENTAGE: Result<Gauge> = try_create_float_gauge(
+        "Available system virtual memory",
+    )
+});
+pub static SYSTEM_VIRT_MEM_USED: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge("system_virt_mem_used_bytes", "Used system virtual memory")
+});
+pub static SYSTEM_VIRT_MEM_FREE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge("system_virt_mem_free_bytes", "Free system virtual memory")
+});
+pub static SYSTEM_VIRT_MEM_CACHED: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge("system_virt_mem_cached_bytes", "Used system virtual memory")
+});
+pub static SYSTEM_VIRT_MEM_BUFFERS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge("system_virt_mem_buffer_bytes", "Free system virtual memory")
+});
+pub static SYSTEM_VIRT_MEM_PERCENTAGE: LazyLock<Result<Gauge>> = LazyLock::new(|| {
+    try_create_float_gauge(
         "system_virt_mem_percentage",
-        "Percentage of used virtual memory"
-    );
-    pub static ref SYSTEM_LOADAVG_1: Result<Gauge> =
-        try_create_float_gauge("system_loadavg_1", "Loadavg over 1 minute");
-    pub static ref SYSTEM_LOADAVG_5: Result<Gauge> =
-        try_create_float_gauge("system_loadavg_5", "Loadavg over 5 minutes");
-    pub static ref SYSTEM_LOADAVG_15: Result<Gauge> =
-        try_create_float_gauge("system_loadavg_15", "Loadavg over 15 minutes");
+        "Percentage of used virtual memory",
+    )
+});
+pub static SYSTEM_LOADAVG_1: LazyLock<Result<Gauge>> =
+    LazyLock::new(|| try_create_float_gauge("system_loadavg_1", "Loadavg over 1 minute"));
+pub static SYSTEM_LOADAVG_5: LazyLock<Result<Gauge>> =
+    LazyLock::new(|| try_create_float_gauge("system_loadavg_5", "Loadavg over 5 minutes"));
+pub static SYSTEM_LOADAVG_15: LazyLock<Result<Gauge>> =
+    LazyLock::new(|| try_create_float_gauge("system_loadavg_15", "Loadavg over 15 minutes"));
 
-    pub static ref CPU_CORES: Result<IntGauge> =
-        try_create_int_gauge("cpu_cores", "Number of physical cpu cores");
-    pub static ref CPU_THREADS: Result<IntGauge> =
-        try_create_int_gauge("cpu_threads", "Number of logical cpu cores");
+pub static CPU_CORES: LazyLock<Result<IntGauge>> =
+    LazyLock::new(|| try_create_int_gauge("cpu_cores", "Number of physical cpu cores"));
+pub static CPU_THREADS: LazyLock<Result<IntGauge>> =
+    LazyLock::new(|| try_create_int_gauge("cpu_threads", "Number of logical cpu cores"));
 
-    pub static ref CPU_SYSTEM_SECONDS_TOTAL: Result<IntGauge> =
-        try_create_int_gauge("cpu_system_seconds_total", "Total time spent in kernel mode");
-    pub static ref CPU_USER_SECONDS_TOTAL: Result<IntGauge> =
-        try_create_int_gauge("cpu_user_seconds_total", "Total time spent in user mode");
-    pub static ref CPU_IOWAIT_SECONDS_TOTAL: Result<IntGauge> =
-        try_create_int_gauge("cpu_iowait_seconds_total", "Total time spent waiting for io");
-    pub static ref CPU_IDLE_SECONDS_TOTAL: Result<IntGauge> =
-        try_create_int_gauge("cpu_idle_seconds_total", "Total time spent idle");
+pub static CPU_SYSTEM_SECONDS_TOTAL: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "cpu_system_seconds_total",
+        "Total time spent in kernel mode",
+    )
+});
+pub static CPU_USER_SECONDS_TOTAL: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge("cpu_user_seconds_total", "Total time spent in user mode")
+});
+pub static CPU_IOWAIT_SECONDS_TOTAL: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "cpu_iowait_seconds_total",
+        "Total time spent waiting for io",
+    )
+});
+pub static CPU_IDLE_SECONDS_TOTAL: LazyLock<Result<IntGauge>> =
+    LazyLock::new(|| try_create_int_gauge("cpu_idle_seconds_total", "Total time spent idle"));
 
-    pub static ref DISK_BYTES_TOTAL: Result<IntGauge> =
-        try_create_int_gauge("disk_node_bytes_total", "Total capacity of disk");
+pub static DISK_BYTES_TOTAL: LazyLock<Result<IntGauge>> =
+    LazyLock::new(|| try_create_int_gauge("disk_node_bytes_total", "Total capacity of disk"));
 
-    pub static ref DISK_BYTES_FREE: Result<IntGauge> =
-        try_create_int_gauge("disk_node_bytes_free", "Free space in disk");
+pub static DISK_BYTES_FREE: LazyLock<Result<IntGauge>> =
+    LazyLock::new(|| try_create_int_gauge("disk_node_bytes_free", "Free space in disk"));
 
-    pub static ref DISK_READS: Result<IntGauge> =
-        try_create_int_gauge("disk_node_reads_total", "Number of disk reads");
+pub static DISK_READS: LazyLock<Result<IntGauge>> =
+    LazyLock::new(|| try_create_int_gauge("disk_node_reads_total", "Number of disk reads"));
 
-    pub static ref DISK_WRITES: Result<IntGauge> =
-        try_create_int_gauge("disk_node_writes_total", "Number of disk writes");
+pub static DISK_WRITES: LazyLock<Result<IntGauge>> =
+    LazyLock::new(|| try_create_int_gauge("disk_node_writes_total", "Number of disk writes"));
 
-    pub static ref NETWORK_BYTES_RECEIVED: Result<IntGauge> =
-        try_create_int_gauge("network_node_bytes_total_received", "Total bytes received over all network interfaces");
-    pub static ref NETWORK_BYTES_SENT: Result<IntGauge> =
-        try_create_int_gauge("network_node_bytes_total_transmit", "Total bytes sent over all network interfaces");
+pub static NETWORK_BYTES_RECEIVED: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "network_node_bytes_total_received",
+        "Total bytes received over all network interfaces",
+    )
+});
+pub static NETWORK_BYTES_SENT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "network_node_bytes_total_transmit",
+        "Total bytes sent over all network interfaces",
+    )
+});
 
-    pub static ref BOOT_TIME: Result<IntGauge> =
-        try_create_int_gauge("misc_node_boot_ts_seconds", "Boot time as unix epoch timestamp");
-}
+pub static BOOT_TIME: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "misc_node_boot_ts_seconds",
+        "Boot time as unix epoch timestamp",
+    )
+});
 
 pub fn scrape_health_metrics() {
     scrape_process_health_metrics();

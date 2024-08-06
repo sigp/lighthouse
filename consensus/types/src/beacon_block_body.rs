@@ -129,6 +129,11 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBody<E, Payload> {
     pub fn execution_payload(&self) -> Result<Payload::Ref<'_>, Error> {
         self.to_ref().execution_payload()
     }
+
+    /// Returns the name of the fork pertaining to `self`.
+    pub fn fork_name(&self) -> ForkName {
+        self.to_ref().fork_name()
+    }
 }
 
 impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, Payload> {
@@ -237,6 +242,28 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             .generate_proof(BLOB_KZG_COMMITMENTS_INDEX, beacon_block_body_depth)
             .map_err(Error::MerkleTreeError)?;
         Ok(proof.into())
+    }
+
+    pub fn block_body_merkle_proof(&self, generalized_index: usize) -> Result<Vec<Hash256>, Error> {
+        let field_index = match generalized_index {
+            light_client_update::EXECUTION_PAYLOAD_INDEX => {
+                // Execution payload is a top-level field, subtract off the generalized indices
+                // for the internal nodes. Result should be 9, the field offset of the execution
+                // payload in the `BeaconBlockBody`:
+                // https://github.com/ethereum/consensus-specs/blob/dev/specs/deneb/beacon-chain.md#beaconblockbody
+                generalized_index
+                    .checked_sub(NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES)
+                    .ok_or(Error::IndexNotSupported(generalized_index))?
+            }
+            _ => return Err(Error::IndexNotSupported(generalized_index)),
+        };
+
+        let leaves = self.body_merkle_leaves();
+        let depth = light_client_update::EXECUTION_PAYLOAD_PROOF_LEN;
+        let tree = merkle_proof::MerkleTree::create(&leaves, depth);
+        let (_, proof) = tree.generate_proof(field_index, depth)?;
+
+        Ok(proof)
     }
 
     /// Return `true` if this block body has a non-zero number of blobs.
@@ -829,73 +856,6 @@ impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
             let (block, payload) = inner.into();
             (cons(block), payload.map(Into::into))
         })
-    }
-}
-
-impl<E: EthSpec> BeaconBlockBody<E> {
-    /// Returns the name of the fork pertaining to `self`.
-    pub fn fork_name(&self) -> ForkName {
-        self.to_ref().fork_name()
-    }
-
-    pub fn block_body_merkle_proof(&self, generalized_index: usize) -> Result<Vec<Hash256>, Error> {
-        let field_index = match generalized_index {
-            light_client_update::EXECUTION_PAYLOAD_INDEX => {
-                // Execution payload is a top-level field, subtract off the generalized indices
-                // for the internal nodes. Result should be 9, the field offset of the execution
-                // payload in the `BeaconBlockBody`:
-                // https://github.com/ethereum/consensus-specs/blob/dev/specs/deneb/beacon-chain.md#beaconblockbody
-                generalized_index
-                    .checked_sub(NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES)
-                    .ok_or(Error::IndexNotSupported(generalized_index))?
-            }
-            _ => return Err(Error::IndexNotSupported(generalized_index)),
-        };
-
-        let attestations_root = if self.fork_name() > ForkName::Electra {
-            self.attestations_electra()?.tree_hash_root()
-        } else {
-            self.attestations_base()?.tree_hash_root()
-        };
-
-        let attester_slashings_root = if self.fork_name() > ForkName::Electra {
-            self.attester_slashings_electra()?.tree_hash_root()
-        } else {
-            self.attester_slashings_base()?.tree_hash_root()
-        };
-
-        let mut leaves = vec![
-            self.randao_reveal().tree_hash_root(),
-            self.eth1_data().tree_hash_root(),
-            self.graffiti().tree_hash_root(),
-            self.proposer_slashings().tree_hash_root(),
-            attester_slashings_root,
-            attestations_root,
-            self.deposits().tree_hash_root(),
-            self.voluntary_exits().tree_hash_root(),
-        ];
-
-        if let Ok(sync_aggregate) = self.sync_aggregate() {
-            leaves.push(sync_aggregate.tree_hash_root())
-        }
-
-        if let Ok(execution_payload) = self.execution_payload() {
-            leaves.push(execution_payload.tree_hash_root())
-        }
-
-        if let Ok(bls_to_execution_changes) = self.bls_to_execution_changes() {
-            leaves.push(bls_to_execution_changes.tree_hash_root())
-        }
-
-        if let Ok(blob_kzg_commitments) = self.blob_kzg_commitments() {
-            leaves.push(blob_kzg_commitments.tree_hash_root())
-        }
-
-        let depth = light_client_update::EXECUTION_PAYLOAD_PROOF_LEN;
-        let tree = merkle_proof::MerkleTree::create(&leaves, depth);
-        let (_, proof) = tree.generate_proof(field_index, depth)?;
-
-        Ok(proof)
     }
 }
 

@@ -509,7 +509,8 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
     }
 
     fn into_rpc_block(self) -> RpcBlock<E> {
-        let (block_root, block, blobs_opt) = self.deconstruct();
+        // TODO(das): rpc data columns to be merged from `das` branch
+        let (block_root, block, blobs_opt, _data_columns_opt) = self.deconstruct();
         // Circumvent the constructor here, because an Available block will have already had
         // consistency checks performed.
         let inner = match blobs_opt {

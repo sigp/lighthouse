@@ -52,8 +52,8 @@ use crate::observed_aggregates::{
 use crate::observed_attesters::{
     ObservedAggregators, ObservedAttesters, ObservedSyncAggregators, ObservedSyncContributors,
 };
-use crate::observed_blob_sidecars::ObservedBlobSidecars;
 use crate::observed_block_producers::ObservedBlockProducers;
+use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
@@ -63,7 +63,6 @@ use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
-use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{
     get_slot_delay_ms, timestamp_now, ValidatorMonitor,
     HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
@@ -131,17 +130,6 @@ pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
 /// Alias to appease clippy.
 type HashBlockTuple<E> = (Hash256, RpcBlock<E>);
-
-/// The time-out before failure during an operation to take a read/write RwLock on the
-/// attestation cache.
-pub const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
-
-/// The time-out before failure during an operation to take a read/write RwLock on the
-/// validator pubkey cache.
-pub const VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
-
-/// The timeout for the eth1 finalization cache
-pub const ETH1_FINALIZATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_millis(200);
 
 // These keys are all zero because they get stored in different columns, see `DBColumn` type.
 pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::zero();
@@ -427,7 +415,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of which validators have proposed blocks for each slot.
     pub observed_block_producers: RwLock<ObservedBlockProducers<T::EthSpec>>,
     /// Maintains a record of blob sidecars seen over the gossip network.
-    pub observed_blob_sidecars: RwLock<ObservedBlobSidecars<T::EthSpec>>,
+    pub observed_blob_sidecars: RwLock<ObservedDataSidecars<BlobSidecar<T::EthSpec>>>,
+    /// Maintains a record of column sidecars seen over the gossip network.
+    pub observed_column_sidecars: RwLock<ObservedDataSidecars<DataColumnSidecar<T::EthSpec>>>,
     /// Maintains a record of slashable message seen over the gossip network or RPC.
     pub observed_slashable: RwLock<ObservedSlashable<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
@@ -465,13 +455,13 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Used to track the heads of the beacon chain.
     pub(crate) head_tracker: Arc<HeadTracker>,
     /// Caches the attester shuffling for a given epoch and shuffling key root.
-    pub shuffling_cache: TimeoutRwLock<ShufflingCache>,
+    pub shuffling_cache: RwLock<ShufflingCache>,
     /// A cache of eth1 deposit data at epoch boundaries for deposit finalization
-    pub eth1_finalization_cache: TimeoutRwLock<Eth1FinalizationCache>,
+    pub eth1_finalization_cache: RwLock<Eth1FinalizationCache>,
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
     pub beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
     /// Caches a map of `validator_index -> validator_pubkey`.
-    pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache<T>>,
+    pub(crate) validator_pubkey_cache: RwLock<ValidatorPubkeyCache<T>>,
     /// A cache used when producing attestations.
     pub(crate) attester_cache: Arc<AttesterCache>,
     /// A cache used when producing attestations whilst the head block is still being imported.
@@ -1472,10 +1462,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// May return an error if acquiring a read-lock on the `validator_pubkey_cache` times out.
     pub fn validator_index(&self, pubkey: &PublicKeyBytes) -> Result<Option<usize>, Error> {
-        let pubkey_cache = self
-            .validator_pubkey_cache
-            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
+        let pubkey_cache = self.validator_pubkey_cache.read();
 
         Ok(pubkey_cache.get_index(pubkey))
     }
@@ -1488,10 +1475,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         validator_pubkeys: impl Iterator<Item = &'a PublicKeyBytes>,
     ) -> Result<Vec<u64>, Error> {
-        let pubkey_cache = self
-            .validator_pubkey_cache
-            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
+        let pubkey_cache = self.validator_pubkey_cache.read();
 
         validator_pubkeys
             .map(|pubkey| {
@@ -1516,10 +1500,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// May return an error if acquiring a read-lock on the `validator_pubkey_cache` times out.
     pub fn validator_pubkey(&self, validator_index: usize) -> Result<Option<PublicKey>, Error> {
-        let pubkey_cache = self
-            .validator_pubkey_cache
-            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
+        let pubkey_cache = self.validator_pubkey_cache.read();
 
         Ok(pubkey_cache.get(validator_index).cloned())
     }
@@ -1529,10 +1510,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         validator_index: usize,
     ) -> Result<Option<PublicKeyBytes>, Error> {
-        let pubkey_cache = self
-            .validator_pubkey_cache
-            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
+        let pubkey_cache = self.validator_pubkey_cache.read();
 
         Ok(pubkey_cache.get_pubkey_bytes(validator_index).copied())
     }
@@ -1546,10 +1524,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         validator_indices: &[usize],
     ) -> Result<HashMap<usize, PublicKeyBytes>, Error> {
-        let pubkey_cache = self
-            .validator_pubkey_cache
-            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
+        let pubkey_cache = self.validator_pubkey_cache.read();
 
         let mut map = HashMap::with_capacity(validator_indices.len());
         for &validator_index in validator_indices {
@@ -2991,9 +2966,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         data_columns: Vec<GossipVerifiedDataColumn<T>>,
         publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
-        let Ok(block_root) = data_columns
+        let Ok((slot, block_root)) = data_columns
             .iter()
-            .map(|c| c.block_root())
+            .map(|c| (c.slot(), c.block_root()))
             .unique()
             .exactly_one()
         else {
@@ -3013,7 +2988,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let r = self
-            .check_gossip_data_columns_availability_and_import(data_columns, publish_fn)
+            .check_gossip_data_columns_availability_and_import(
+                slot,
+                block_root,
+                data_columns,
+                publish_fn,
+            )
             .await;
         self.remove_notified_custody_columns(&block_root, r)
     }
@@ -3333,6 +3313,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// if so, otherwise caches the data column in the data availability checker.
     async fn check_gossip_data_columns_availability_and_import(
         self: &Arc<Self>,
+        slot: Slot,
+        block_root: Hash256,
         data_columns: Vec<GossipVerifiedDataColumn<T>>,
         publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError<T::EthSpec>> {
@@ -3342,15 +3324,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        let Ok(slot) = data_columns.iter().map(|c| c.slot()).unique().exactly_one() else {
-            return Err(BlockError::InternalError(
-                "Columns for the same block should have matching slot".to_string(),
-            ));
-        };
-
-        let availability = self
-            .data_availability_checker
-            .put_gossip_data_columns(data_columns)?;
+        let availability = self.data_availability_checker.put_gossip_data_columns(
+            slot,
+            block_root,
+            data_columns,
+        )?;
 
         self.process_availability(slot, availability, publish_fn)
             .await
@@ -3521,11 +3499,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // is so we don't have to think about lock ordering with respect to the fork choice lock.
         // There are a bunch of places where we lock both fork choice and the pubkey cache and it
         // would be difficult to check that they all lock fork choice first.
-        let mut ops = self
-            .validator_pubkey_cache
-            .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?
-            .import_new_pubkeys(&state)?;
+        let mut ops = {
+            let _timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_PUBKEY_CACHE_LOCK);
+            let pubkey_cache = self.validator_pubkey_cache.upgradable_read();
+
+            // Only take a write lock if there are new keys to import.
+            if state.validators().len() > pubkey_cache.len() {
+                parking_lot::RwLockUpgradableReadGuard::upgrade(pubkey_cache)
+                    .import_new_pubkeys(&state)?
+            } else {
+                vec![]
+            }
+        };
 
         // Apply the state to the attester cache, only if it is from the previous epoch or later.
         //
@@ -3662,7 +3647,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the write fails, revert fork choice to the version from disk, else we can
         // end up with blocks in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
-        let (_, signed_block, blobs) = signed_block.deconstruct();
+        let (_, signed_block, blobs, data_columns) = signed_block.deconstruct();
         let block = signed_block.message();
         ops.extend(
             confirmed_state_roots
@@ -3681,6 +3666,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
                 ops.push(StoreOp::PutBlobs(block_root, blobs));
             }
+        }
+
+        if let Some(_data_columns) = data_columns {
+            // TODO(das): depends on https://github.com/sigp/lighthouse/pull/6073
+            // if !data_columns.is_empty() {
+            //     debug!(
+            //         self.log, "Writing data_columns to store";
+            //         "block_root" => %block_root,
+            //         "count" => data_columns.len(),
+            //     );
+            //     ops.push(StoreOp::PutDataColumns(block_root, data_columns));
+            // }
         }
 
         let txn_lock = self.store.hot_db.begin_rw_transaction();
@@ -4131,18 +4128,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for relative_epoch in [RelativeEpoch::Current, RelativeEpoch::Next] {
             let shuffling_id = AttestationShufflingId::new(block_root, state, relative_epoch)?;
 
-            let shuffling_is_cached = self
-                .shuffling_cache
-                .try_read_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                .ok_or(Error::AttestationCacheLockTimeout)?
-                .contains(&shuffling_id);
+            let shuffling_is_cached = self.shuffling_cache.read().contains(&shuffling_id);
 
             if !shuffling_is_cached {
                 state.build_committee_cache(relative_epoch, &self.spec)?;
                 let committee_cache = state.committee_cache(relative_epoch)?;
                 self.shuffling_cache
-                    .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                    .ok_or(Error::AttestationCacheLockTimeout)?
+                    .write()
                     .insert_committee_cache(shuffling_id, committee_cache);
             }
         }
@@ -4189,14 +4181,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )
                 };
 
-            if let Some(finalized_eth1_data) = self
-                .eth1_finalization_cache
-                .try_write_for(ETH1_FINALIZATION_CACHE_LOCK_TIMEOUT)
-                .and_then(|mut cache| {
-                    cache.insert(checkpoint, eth1_finalization_data);
-                    cache.finalize(&current_finalized_checkpoint)
-                })
-            {
+            let finalized_eth1_data = {
+                let mut cache = self.eth1_finalization_cache.write();
+                cache.insert(checkpoint, eth1_finalization_data);
+                cache.finalize(&current_finalized_checkpoint)
+            };
+            if let Some(finalized_eth1_data) = finalized_eth1_data {
                 if let Some(eth1_chain) = self.eth1_chain.as_ref() {
                     let finalized_deposit_count = finalized_eth1_data.deposit_count;
                     eth1_chain.finalize_eth1_data(finalized_eth1_data);
@@ -6380,15 +6370,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })?;
 
         // Obtain the shuffling cache, timing how long we wait.
-        let cache_wait_timer =
-            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SHUFFLING_CACHE_WAIT_TIMES);
-
-        let mut shuffling_cache = self
-            .shuffling_cache
-            .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::AttestationCacheLockTimeout)?;
-
-        metrics::stop_timer(cache_wait_timer);
+        let mut shuffling_cache = {
+            let _ =
+                metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SHUFFLING_CACHE_WAIT_TIMES);
+            self.shuffling_cache.write()
+        };
 
         if let Some(cache_item) = shuffling_cache.get(&shuffling_id) {
             // The shuffling cache is no longer required, drop the write-lock to allow concurrent
@@ -6496,8 +6482,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let shuffling_decision_block = shuffling_id.shuffling_decision_block;
 
             self.shuffling_cache
-                .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                .ok_or(Error::AttestationCacheLockTimeout)?
+                .write()
                 .insert_committee_cache(shuffling_id, &committee_cache);
 
             metrics::stop_timer(committee_building_timer);
@@ -6811,12 +6796,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<(LightClientBootstrap<T::EthSpec>, ForkName)>, Error> {
-        let handle = self
-            .task_executor
-            .handle()
-            .ok_or(BeaconChainError::RuntimeShutdown)?;
-
-        let Some(block) = handle.block_on(async { self.get_block(block_root).await })? else {
+        let Some(block) = self.get_blinded_block(block_root)? else {
             return Ok(None);
         };
 

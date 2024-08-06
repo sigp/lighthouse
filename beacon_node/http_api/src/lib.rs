@@ -2872,7 +2872,11 @@ pub fn serve<T: BeaconChainTypes>(
 
                     task_spawner
                         .blocking_json_task(Priority::P0, move || {
-                            let head_slot = chain.canonical_head.cached_head().head_slot();
+                            let (head, head_execution_status) = chain
+                                .canonical_head
+                                .head_and_execution_status()
+                                .map_err(warp_utils::reject::beacon_chain_error)?;
+                            let head_slot = head.head_slot();
                             let current_slot =
                                 chain.slot_clock.now_or_genesis().ok_or_else(|| {
                                     warp_utils::reject::custom_server_error(
@@ -2883,9 +2887,7 @@ pub fn serve<T: BeaconChainTypes>(
                             // Taking advantage of saturating subtraction on slot.
                             let sync_distance = current_slot - head_slot;
 
-                            let is_optimistic = chain
-                                .is_optimistic_or_invalid_head()
-                                .map_err(warp_utils::reject::beacon_chain_error)?;
+                            let is_optimistic = head_execution_status.is_optimistic_or_invalid();
 
                             let syncing_data = api_types::SyncingData {
                                 is_syncing: !network_globals.sync_state.read().is_synced(),
