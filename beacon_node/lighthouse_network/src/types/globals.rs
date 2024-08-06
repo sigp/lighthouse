@@ -1,4 +1,5 @@
 //! A collection of variables that are accessible outside of the network thread itself.
+use crate::discovery::enr::Eth2Enr;
 use crate::peer_manager::peerdb::PeerDB;
 use crate::rpc::{MetaData, MetaDataV2};
 use crate::types::{BackFillState, SyncState};
@@ -7,7 +8,7 @@ use crate::EnrExt;
 use crate::{Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;
-use types::{ChainSpec, ColumnIndex, EthSpec};
+use types::{ChainSpec, ColumnIndex, DataColumnSubnetId, EthSpec};
 
 pub struct NetworkGlobals<E: EthSpec> {
     /// The current local ENR.
@@ -111,10 +112,12 @@ impl<E: EthSpec> NetworkGlobals<E> {
     }
 
     /// Compute custody data columns the node is assigned to custody.
-    pub fn custody_columns(&self, _spec: &ChainSpec) -> Vec<ColumnIndex> {
-        let _enr = self.local_enr();
-        //TODO(das): implement ENR changes
-        vec![]
+    pub fn custody_columns(&self, spec: &ChainSpec) -> Vec<ColumnIndex> {
+        let enr = self.local_enr();
+        let node_id = enr.node_id().raw().into();
+        let custody_subnet_count = enr.custody_subnet_count::<E>(spec);
+        DataColumnSubnetId::compute_custody_columns::<E>(node_id, custody_subnet_count, spec)
+            .collect()
     }
 
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.
