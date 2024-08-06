@@ -603,9 +603,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         let mut retry_unsynced = vec![];
 
         // Run `func` using a `candidate`, returning the value or capturing errors.
-        //
-        // We use a macro instead of a closure here since it is not trivial to move `func` into a
-        // closure.
         let run_on_candidate = |candidate: &'a CandidateBeaconNode<E>| async {
             inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.beacon_node.as_ref()]);
 
