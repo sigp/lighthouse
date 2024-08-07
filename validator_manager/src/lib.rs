@@ -54,7 +54,8 @@ pub fn cli_app() -> Command {
                 .help("Prints help information")
                 .action(ArgAction::HelpLong)
                 .display_order(0)
-                .help_heading(FLAG_HEADER),
+                .help_heading(FLAG_HEADER)
+                .global(true),
         )
         .subcommand(create_validators::cli_app())
         .subcommand(import_validators::cli_app())
