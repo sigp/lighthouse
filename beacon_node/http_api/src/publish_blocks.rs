@@ -112,27 +112,28 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             publish_delay,
         );
 
-        info!(
-            log,
-            "Signed block published to network via HTTP API";
-            "slot" => block.slot(),
-            "publish_delay_ms" => publish_delay.as_millis()
-        );
+        let mut pubsub_messages = if should_publish {
+            info!(
+                log,
+                "Signed block published to network via HTTP API";
+                "slot" => block.slot(),
+                "blobs_published" => blob_sidecars.len(),
+                "publish_delay_ms" => publish_delay.as_millis(),
+            );
+            vec![PubsubMessage::BeaconBlock(block.clone())]
+        } else {
+            vec![]
+        };
 
         match block.as_ref() {
             SignedBeaconBlock::Base(_)
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Bellatrix(_)
             | SignedBeaconBlock::Capella(_) => {
-                crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block))
+                crate::publish_pubsub_messages(&sender, pubsub_messages)
                     .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
             }
             SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
-                let mut pubsub_messages = if should_publish {
-                    vec![PubsubMessage::BeaconBlock(block)]
-                } else {
-                    vec![]
-                };
                 for blob in blob_sidecars.into_iter() {
                     pubsub_messages.push(PubsubMessage::BlobSidecar(Box::new((blob.index, blob))));
                 }
@@ -381,7 +382,13 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
     log: &Logger,
 ) -> Result<Response, Rejection> {
     match result {
-        Ok(AvailabilityProcessingStatus::Imported(root)) => {
+        // The `DuplicateFullyImported` case here captures the case where the block finishes
+        // being imported after gossip verification. It could be that it finished imported as a
+        // result of the block being imported from gossip, OR it could be that it finished importing
+        // after processing of a gossip blob. In the latter case we MUST run fork choice to
+        // re-compute the head.
+        Ok(AvailabilityProcessingStatus::Imported(root))
+        | Err(BlockError::DuplicateFullyImported(root)) => {
             let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
             info!(
                 log,
