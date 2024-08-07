@@ -246,21 +246,22 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 let mut handles = vec![];
 
                 // Sign an `Attestation` for all required validators.
-                duties_by_committee_index.clone().into_iter().for_each(
+                duties_by_committee_index.iter().for_each(
                     |(committee_index, validator_duties)| {
-                        validator_duties.into_iter().for_each(|validator_duty| {
+                        validator_duties.iter().for_each(|validator_duty| {
                             // Get the previously downloaded attestation data for this committee index.
                             if let Some(attestation_data) = attestation_data_service
                                 .get_data_by_committee_index(&committee_index, &fork_name)
                             {
                                 let this = inner_self.clone();
+                                let duty = validator_duty.clone();
                                 // Have the validator sign the attestation.
                                 let handle =
                                     inner_self.inner.context.executor.spawn_blocking_handle(
                                         move || {
                                             this.sign_attestation(
                                                 attestation_data,
-                                                validator_duty.clone(),
+                                                duty,
                                             )
                                         },
                                         "Sign attestation",
