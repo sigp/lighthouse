@@ -426,6 +426,13 @@ impl ChainSpec {
         })
     }
 
+    /// Returns true if PeerDAS epoch is scheduled for some epoch less than `FAR_FUTURE_EPOCH`.
+    pub fn peerdas_scheduled(&self) -> bool {
+        self.eip7594_fork_epoch.map_or(false, |eip7594_fork_epoch| {
+            eip7594_fork_epoch <= Epoch::max_value()
+        })
+    }
+
     /// Returns a full `Fork` struct for a given epoch.
     pub fn fork_at_epoch(&self, epoch: Epoch) -> Fork {
         let current_fork_name = self.fork_name_at_epoch(epoch);

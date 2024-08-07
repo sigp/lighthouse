@@ -625,6 +625,9 @@ fn handle_rpc_response<E: EthSpec>(
         },
         SupportedProtocol::DataColumnsByRootV1 => match fork_name {
             Some(fork_name) => {
+                // TODO(das): PeerDAS is currently supported for both deneb and electra. This check
+                // does not advertise the topic on deneb, simply allows it to decode it. Advertise
+                // logic is in `SupportedTopic::currently_supported`.
                 if fork_name.deneb_enabled() {
                     Ok(Some(RPCResponse::DataColumnsByRoot(Arc::new(
                         DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
