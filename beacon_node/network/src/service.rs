@@ -742,9 +742,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 // move the subscription logic once it's ready to rebase PeerDAS on Electra, or if
                 // we decide to activate via the soft fork route:
                 // https://github.com/sigp/lighthouse/pull/5899
-                let peer_das_scheduled = self.fork_context.spec.eip7594_fork_epoch
-                    != Some(self.fork_context.spec.far_future_epoch);
-                if peer_das_scheduled {
+                if self.fork_context.spec.is_peer_das_scheduled() {
                     self.subscribe_to_peer_das_topics(&mut subscribed_topics);
                 }
 

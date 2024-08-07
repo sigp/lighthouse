@@ -239,7 +239,7 @@ pub fn build_enr<E: EthSpec>(
     builder.add_value(SYNC_COMMITTEE_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
 
     // only set `csc` if PeerDAS fork epoch has been scheduled
-    if spec.eip7594_fork_epoch != Some(spec.far_future_epoch) {
+    if spec.is_peer_das_scheduled() {
         let custody_subnet_count = if config.subscribe_all_data_column_subnets {
             spec.data_column_sidecar_subnet_count
         } else {
