@@ -2,7 +2,6 @@ use super::common::*;
 use crate::DumpConfig;
 use account_utils::{read_password_from_user, ZeroizeString};
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::FLAG_HEADER;
 use eth2::{
     lighthouse_vc::{
         std_types::{
