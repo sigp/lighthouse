@@ -76,15 +76,6 @@ pub fn cli_app() -> Command {
                 file system (i.e., not Web3Signer validators).",
         )
         .arg(
-            Arg::new("help")
-                .long("help")
-                .short('h')
-                .help("Prints help information")
-                .action(ArgAction::HelpLong)
-                .display_order(0)
-                .help_heading(FLAG_HEADER),
-        )
-        .arg(
             Arg::new(SRC_VC_URL_FLAG)
                 .long(SRC_VC_URL_FLAG)
                 .value_name("HTTP_ADDRESS")

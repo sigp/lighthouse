@@ -22,15 +22,6 @@ pub fn cli_app() -> Command {
                 command.",
         )
         .arg(
-            Arg::new("help")
-                .long("help")
-                .short('h')
-                .help("Prints help information")
-                .action(ArgAction::HelpLong)
-                .display_order(0)
-                .help_heading(FLAG_HEADER),
-        )
-        .arg(
             Arg::new(VALIDATORS_FILE_FLAG)
                 .long(VALIDATORS_FILE_FLAG)
                 .value_name("PATH_TO_JSON_FILE")

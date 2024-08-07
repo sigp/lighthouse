@@ -46,15 +46,6 @@ pub fn cli_app() -> Command {
                 deposits in the same format as the \"ethereum/staking-deposit-cli\" tool.",
         )
         .arg(
-            Arg::new("help")
-                .long("help")
-                .short('h')
-                .help("Prints help information")
-                .action(ArgAction::HelpLong)
-                .display_order(0)
-                .help_heading(FLAG_HEADER),
-        )
-        .arg(
             Arg::new(OUTPUT_PATH_FLAG)
                 .long(OUTPUT_PATH_FLAG)
                 .value_name("DIRECTORY")
