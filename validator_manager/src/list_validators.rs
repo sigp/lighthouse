@@ -125,13 +125,13 @@ mod test {
                 vc_token_path: builder.get_import_config().vc_token_path,
             });
 
-            self.vc_token =
-                Some(fs::read_to_string(builder.get_import_config().vc_token_path).unwrap());
+            self.vc_token = Some(fs::read_to_string(
+                builder.get_import_config().vc_token_path,
+            ));
 
             let local_validators: Vec<ValidatorSpecification> = {
-                let contents =
-                    fs::read_to_string(builder.get_import_config().validators_file_path).unwrap();
-                serde_json::from_str(&contents).unwrap()
+                let contents = fs::read_to_string(builder.get_import_config().validators_file_path);
+                serde_json::from_str(&contents)
             };
 
             self.validators = local_validators.clone();
@@ -140,11 +140,11 @@ mod test {
         }
 
         pub async fn run_test(self) -> TestResult {
-            let import_test_result = self.src_import_builder.unwrap().run_test().await;
+            let import_test_result = self.src_import_builder.run_test().await;
             assert!(import_test_result.result.is_ok());
 
-            let path = self.list_config.clone().unwrap().vc_token_path;
-            let parent = path.parent().unwrap();
+            let path = self.list_config.clone().vc_token_path;
+            let parent = path.parent();
 
             fs::create_dir_all(parent).expect("Was not able to create parent directory");
 
@@ -154,18 +154,16 @@ mod test {
                 .create(true)
                 .truncate(true)
                 .open(path)
-                .unwrap()
-                .write_all(self.vc_token.clone().unwrap().as_bytes())
-                .unwrap();
+                .write_all(self.vc_token.clone().as_bytes());
 
-            let result = run(self.list_config.clone().unwrap()).await;
+            let result = run(self.list_config.clone()).await;
 
             if result.is_ok() {
-                let result_ref = result.as_ref().unwrap();
+                let result_ref = result.as_ref();
 
                 for local_validator in &self.validators {
                     let local_keystore = &local_validator.voting_keystore.0;
-                    let local_pubkey = local_keystore.public_key().unwrap().as_hex_string();
+                    let local_pubkey = local_keystore.public_key().as_hex_string();
                     assert!(
                         result_ref.contains(&local_pubkey),
                         "local validator pubkey not found in result"
