@@ -178,12 +178,12 @@ impl ImportConfig {
             vc_token_path: clap_utils::parse_required(matches, VC_TOKEN_FLAG)?,
             ignore_duplicates: matches.get_flag(IGNORE_DUPLICATES_FLAG),
             password: clap_utils::parse_required(matches, PASSWORD)?,
-            fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT)?,
-            gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT)?,
-            builder_proposals: Some(matches.get_flag(BUILDER_PROPOSALS)),
-            builder_boost_factor: clap_utils::parse_optional(matches, BUILDER_BOOST_FACTOR)?,
-            prefer_builder_proposals: Some(matches.get_flag(PREFER_BUILDER_PROPOSALS)),
-            enabled: clap_utils::parse_optional(matches, ENABLED)?,
+            fee_recipient: None,
+            gas_limit: None,
+            builder_proposals: None,
+            builder_boost_factor: None,
+            prefer_builder_proposals: None,
+            enabled: None,
         })
     }
 }
