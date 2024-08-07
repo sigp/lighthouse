@@ -16,11 +16,6 @@ use std::{
 };
 use types::{ChainSpec, Epoch, EthSpec};
 
-const BOOTNODE_PORT: u16 = 42424;
-const QUIC_PORT: u16 = 43424;
-
-pub const EXECUTION_PORT: u16 = 4000;
-
 pub const TERMINAL_BLOCK: u64 = 0;
 
 pub struct LocalNetworkParams {
@@ -50,9 +45,7 @@ fn default_client_config(network_params: LocalNetworkParams, genesis_time: u64) 
         serde_json::from_reader(TRUSTED_SETUP_BYTES).expect("Trusted setup bytes should be valid");
 
     let el_config = execution_layer::Config {
-        execution_endpoint: Some(
-            SensitiveUrl::parse(&format!("http://localhost:{}", EXECUTION_PORT)).unwrap(),
-        ),
+        execution_endpoint: Some(SensitiveUrl::parse(&format!("http://localhost:{}", 0)).unwrap()),
         ..Default::default()
     };
     beacon_config.execution_layer = Some(el_config);
@@ -65,7 +58,7 @@ fn default_mock_execution_config<E: EthSpec>(
 ) -> MockExecutionConfig {
     let mut mock_execution_config = MockExecutionConfig {
         server_config: MockServerConfig {
-            listen_port: EXECUTION_PORT,
+            listen_port: 0,
             ..Default::default()
         },
         ..Default::default()
@@ -191,15 +184,10 @@ impl<E: EthSpec> LocalNetwork<E> {
         mut beacon_config: ClientConfig,
         mock_execution_config: MockExecutionConfig,
     ) -> Result<(LocalBeaconNode<E>, LocalExecutionNode<E>), String> {
-        beacon_config.network.set_ipv4_listening_address(
-            std::net::Ipv4Addr::UNSPECIFIED,
-            BOOTNODE_PORT,
-            BOOTNODE_PORT,
-            QUIC_PORT,
-        );
+        beacon_config
+            .network
+            .set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 0, 0, 0);
 
-        beacon_config.network.enr_udp4_port = Some(BOOTNODE_PORT.try_into().expect("non zero"));
-        beacon_config.network.enr_tcp4_port = Some(BOOTNODE_PORT.try_into().expect("non zero"));
         beacon_config.network.discv5_config.table_filter = |_| true;
 
         let execution_node = LocalExecutionNode::new(
@@ -232,20 +220,13 @@ impl<E: EthSpec> LocalNetwork<E> {
         let count = (self.beacon_node_count() + self.proposer_node_count()) as u16;
 
         // Set config.
-        let libp2p_tcp_port = BOOTNODE_PORT + count;
-        let discv5_port = BOOTNODE_PORT + count;
-        beacon_config.network.set_ipv4_listening_address(
-            std::net::Ipv4Addr::UNSPECIFIED,
-            libp2p_tcp_port,
-            discv5_port,
-            QUIC_PORT + count,
-        );
-        beacon_config.network.enr_udp4_port = Some(discv5_port.try_into().unwrap());
-        beacon_config.network.enr_tcp4_port = Some(libp2p_tcp_port.try_into().unwrap());
+        beacon_config
+            .network
+            .set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 0, 0, 0);
         beacon_config.network.discv5_config.table_filter = |_| true;
         beacon_config.network.proposer_only = is_proposer;
 
-        mock_execution_config.server_config.listen_port = EXECUTION_PORT + count;
+        mock_execution_config.server_config.listen_port = 0;
 
         // Construct execution node.
         let execution_node = LocalExecutionNode::new(
