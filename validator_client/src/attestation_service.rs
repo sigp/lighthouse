@@ -246,8 +246,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 let mut handles = vec![];
 
                 // Sign an `Attestation` for all required validators.
-                duties_by_committee_index.iter().for_each(
-                    |(committee_index, validator_duties)| {
+                duties_by_committee_index
+                    .iter()
+                    .for_each(|(committee_index, validator_duties)| {
                         validator_duties.iter().for_each(|validator_duty| {
                             // Get the previously downloaded attestation data for this committee index.
                             if let Some(attestation_data) = attestation_data_service
@@ -258,12 +259,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 // Have the validator sign the attestation.
                                 let handle =
                                     inner_self.inner.context.executor.spawn_blocking_handle(
-                                        move || {
-                                            this.sign_attestation(
-                                                attestation_data,
-                                                duty,
-                                            )
-                                        },
+                                        move || this.sign_attestation(attestation_data, duty),
                                         "Sign attestation",
                                     );
 
@@ -279,8 +275,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                                 )
                             }
                         })
-                    },
-                );
+                    });
 
                 let mut signed_attestations = vec![];
 
