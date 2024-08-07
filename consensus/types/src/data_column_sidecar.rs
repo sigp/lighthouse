@@ -164,7 +164,7 @@ pub enum DataColumnSidecarError {
     MissingBlobSidecars,
     PreDeneb,
     SszError(SszError),
-    InconsistentArrayLength(String),
+    BuildSidecarFailed(String),
 }
 
 impl From<ArithError> for DataColumnSidecarError {

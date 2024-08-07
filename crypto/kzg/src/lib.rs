@@ -35,6 +35,8 @@ pub enum Error {
     KzgVerificationFailed,
     /// Misc indexing error
     InconsistentArrayLength(String),
+    /// Error reconstructing data columns.
+    ReconstructFailed(String),
 }
 
 impl From<c_kzg::Error> for Error {
@@ -173,10 +175,9 @@ impl Kzg {
     }
 
     /// Computes the cells and associated proofs for a given `blob` at index `index`.
-    #[allow(clippy::needless_lifetimes)]
-    pub fn compute_cells_and_proofs<'a>(
+    pub fn compute_cells_and_proofs(
         &self,
-        blob: KzgBlobRef<'a>,
+        blob: KzgBlobRef<'_>,
     ) -> Result<CellsAndKzgProofs, Error> {
         let (cells, proofs) = self
             .context
@@ -193,10 +194,9 @@ impl Kzg {
     /// Here, `coordinates` correspond to the (row, col) coordinate of the cell in the extended
     /// blob "matrix". In the 1D extension, row corresponds to the blob index, and col corresponds
     /// to the data column index.
-    #[allow(clippy::needless_lifetimes)]
-    pub fn verify_cell_proof_batch<'a>(
+    pub fn verify_cell_proof_batch(
         &self,
-        cells: &[CellRef<'a>],
+        cells: &[CellRef<'_>],
         kzg_proofs: &[Bytes48],
         columns: Vec<CellIndex>,
         kzg_commitments: &[Bytes48],
@@ -221,11 +221,10 @@ impl Kzg {
         }
     }
 
-    #[allow(clippy::needless_lifetimes)]
-    pub fn recover_cells_and_compute_kzg_proofs<'a>(
+    pub fn recover_cells_and_compute_kzg_proofs(
         &self,
         cell_ids: &[u64],
-        cells: &[CellRef<'a>],
+        cells: &[CellRef<'_>],
     ) -> Result<CellsAndKzgProofs, Error> {
         let (cells, proofs) = self
             .context
