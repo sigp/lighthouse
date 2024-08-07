@@ -1243,7 +1243,7 @@ async fn generic_migration_test(
                 .await
             {
                 Ok(_) => (),
-                Err(e) => {
+                Err(_) => {
                     if should_succeed {
                         panic!("Should succeed");
                     } else {
