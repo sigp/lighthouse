@@ -8,6 +8,9 @@ beacon chain and publishing messages to the network.
 Usage: lighthouse beacon_node [OPTIONS]
 
 Options:
+      --allow-tree-states-migration <BOOLEAN>
+          Whether to allow a destructive freezer DB migration for hierarchical
+          state diffs [default: false]
       --auto-compact-db <auto-compact-db>
           Enable or disable automatic compaction of the database on
           finalization. [default: true]
