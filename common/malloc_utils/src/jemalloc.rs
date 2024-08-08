@@ -8,29 +8,31 @@
 //! A) `JEMALLOC_SYS_WITH_MALLOC_CONF` at compile-time.
 //! B) `_RJEM_MALLOC_CONF` at runtime.
 use jemalloc_ctl::{arenas, epoch, stats, Error};
-use lazy_static::lazy_static;
 use lighthouse_metrics::{set_gauge, try_create_int_gauge, IntGauge};
+use std::sync::LazyLock;
 
 #[global_allocator]
 static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 // Metrics for jemalloc.
-lazy_static! {
-    pub static ref NUM_ARENAS: lighthouse_metrics::Result<IntGauge> =
-        try_create_int_gauge("jemalloc_num_arenas", "The number of arenas in use");
-    pub static ref BYTES_ALLOCATED: lighthouse_metrics::Result<IntGauge> =
-        try_create_int_gauge("jemalloc_bytes_allocated", "Equivalent to stats.allocated");
-    pub static ref BYTES_ACTIVE: lighthouse_metrics::Result<IntGauge> =
-        try_create_int_gauge("jemalloc_bytes_active", "Equivalent to stats.active");
-    pub static ref BYTES_MAPPED: lighthouse_metrics::Result<IntGauge> =
-        try_create_int_gauge("jemalloc_bytes_mapped", "Equivalent to stats.mapped");
-    pub static ref BYTES_METADATA: lighthouse_metrics::Result<IntGauge> =
-        try_create_int_gauge("jemalloc_bytes_metadata", "Equivalent to stats.metadata");
-    pub static ref BYTES_RESIDENT: lighthouse_metrics::Result<IntGauge> =
-        try_create_int_gauge("jemalloc_bytes_resident", "Equivalent to stats.resident");
-    pub static ref BYTES_RETAINED: lighthouse_metrics::Result<IntGauge> =
-        try_create_int_gauge("jemalloc_bytes_retained", "Equivalent to stats.retained");
-}
+pub static NUM_ARENAS: LazyLock<lighthouse_metrics::Result<IntGauge>> =
+    LazyLock::new(|| try_create_int_gauge("jemalloc_num_arenas", "The number of arenas in use"));
+pub static BYTES_ALLOCATED: LazyLock<lighthouse_metrics::Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge("jemalloc_bytes_allocated", "Equivalent to stats.allocated")
+});
+pub static BYTES_ACTIVE: LazyLock<lighthouse_metrics::Result<IntGauge>> =
+    LazyLock::new(|| try_create_int_gauge("jemalloc_bytes_active", "Equivalent to stats.active"));
+pub static BYTES_MAPPED: LazyLock<lighthouse_metrics::Result<IntGauge>> =
+    LazyLock::new(|| try_create_int_gauge("jemalloc_bytes_mapped", "Equivalent to stats.mapped"));
+pub static BYTES_METADATA: LazyLock<lighthouse_metrics::Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge("jemalloc_bytes_metadata", "Equivalent to stats.metadata")
+});
+pub static BYTES_RESIDENT: LazyLock<lighthouse_metrics::Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge("jemalloc_bytes_resident", "Equivalent to stats.resident")
+});
+pub static BYTES_RETAINED: LazyLock<lighthouse_metrics::Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge("jemalloc_bytes_retained", "Equivalent to stats.retained")
+});
 
 pub fn scrape_jemalloc_metrics() {
     scrape_jemalloc_metrics_fallible().unwrap()
