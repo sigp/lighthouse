@@ -760,7 +760,7 @@ where
                 }
             } else {
                 tracing::error!(peer_id = %peer_id,
-                "Could not PUBLISH, peer doesn't exist in connected peer list");
+                "Could not send PUBLISH, peer doesn't exist in connected peer list");
             }
         }
 
@@ -1062,7 +1062,7 @@ where
                 });
             } else {
                 tracing::error!(peer = %peer_id,
-                "Could not GRAFT, peer doesn't exist in connected peer list");
+                "Could not send GRAFT, peer doesn't exist in connected peer list");
             }
 
             // If the peer did not previously exist in any mesh, inform the handler
@@ -1161,7 +1161,7 @@ where
                     peer.sender.prune(prune);
                 } else {
                     tracing::error!(peer = %peer_id,
-                        "Could not PRUNE, peer doesn't exist in connected peer list");
+                        "Could not send PRUNE, peer doesn't exist in connected peer list");
                 }
 
                 // If the peer did not previously exist in any mesh, inform the handler
@@ -1340,7 +1340,7 @@ where
                 }
             } else {
                 tracing::error!(peer = %peer_id,
-                "Could not IWANT, peer doesn't exist in connected peer list");
+                "Could not send IWANT, peer doesn't exist in connected peer list");
             }
         }
         tracing::trace!(peer=%peer_id, "Completed IHAVE handling for peer");
@@ -1363,7 +1363,7 @@ where
 
         for id in iwant_msgs {
             // If we have it and the IHAVE count is not above the threshold,
-            // foward the message.
+            // forward the message.
             if let Some((msg, count)) = self
                 .mcache
                 .get_with_iwant_counts(&id, peer_id)
@@ -1403,7 +1403,7 @@ where
                     }
                 } else {
                     tracing::error!(peer = %peer_id,
-                        "Could not IWANT, peer doesn't exist in connected peer list");
+                        "Could not send IWANT, peer doesn't exist in connected peer list");
                 }
             }
         }
@@ -2043,8 +2043,11 @@ where
             }
         }
 
-        // remove unsubscribed peers from the mesh if it exists
+        // remove unsubscribed peers from the mesh and fanout if they exist there
         for (peer_id, topic_hash) in unsubscribed_peers {
+            self.fanout
+                .get_mut(&topic_hash)
+                .map(|peers| peers.remove(&peer_id));
             self.remove_peer_from_mesh(&peer_id, &topic_hash, None, false, Churn::Unsub);
         }
 
@@ -2068,7 +2071,7 @@ where
             }
         } else {
             tracing::error!(peer = %propagation_source,
-                "Could not GRAFT, peer doesn't exist in connected peer list");
+                "Could not send GRAFT, peer doesn't exist in connected peer list");
         }
 
         // Notify the application of the subscriptions
@@ -2586,7 +2589,7 @@ where
                     }
                 } else {
                     tracing::error!(peer = %peer_id,
-                        "Could not IHAVE, peer doesn't exist in connected peer list");
+                        "Could not send IHAVE, peer doesn't exist in connected peer list");
                 }
             }
         }
@@ -2672,7 +2675,7 @@ where
                     peer.sender.prune(prune);
                 } else {
                     tracing::error!(peer = %peer_id,
-                        "Could not PRUNE, peer doesn't exist in connected peer list");
+                        "Could not send PRUNE, peer doesn't exist in connected peer list");
                 }
 
                 // inform the handler
@@ -2975,7 +2978,7 @@ where
             }
         } else {
             tracing::error!(peer = %peer_id,
-                "Could not SUBSCRIBE, peer doesn't exist in connected peer list");
+                "Could not send SUBSCRIBE, peer doesn't exist in connected peer list");
         }
     }
 
