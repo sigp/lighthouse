@@ -2086,9 +2086,12 @@ where
     fn apply_iwant_penalties(&mut self) {
         if let Some((peer_score, ..)) = &mut self.peer_score {
             for (peer, count) in self.gossip_promises.get_broken_promises() {
-                peer_score.add_penalty(&peer, count);
-                if let Some(metrics) = self.metrics.as_mut() {
-                    metrics.register_score_penalty(Penalty::BrokenPromise);
+                // We do not apply penalties to nodes that have disconnected.
+                if self.connected_peers.contains_key(&peer) {
+                    peer_score.add_penalty(&peer, count);
+                    if let Some(metrics) = self.metrics.as_mut() {
+                        metrics.register_score_penalty(Penalty::BrokenPromise);
+                    }
                 }
             }
         }
@@ -2706,8 +2709,8 @@ where
 
         for peer_id in recipient_peers {
             let Some(peer) = self.connected_peers.get_mut(peer_id) else {
-                tracing::error!(peer = %peer_id,
-                    "Could not IDONTWANT, peer doesn't exist in connected peer list");
+                // It can be the case that promises to disconnected peers appear here. In this case
+                // we simply ignore the peer-id.
                 continue;
             };
 
