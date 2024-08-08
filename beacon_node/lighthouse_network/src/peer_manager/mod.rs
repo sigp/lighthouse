@@ -1383,7 +1383,8 @@ mod tests {
             ..Default::default()
         };
         let log = build_log(slog::Level::Debug, false);
-        let globals = NetworkGlobals::new_test_globals(vec![], &log);
+        let spec = E::default_spec();
+        let globals = NetworkGlobals::new_test_globals(vec![], &log, spec);
         PeerManager::new(config, Arc::new(globals), &log).unwrap()
     }
 
@@ -1397,7 +1398,8 @@ mod tests {
             ..Default::default()
         };
         let log = build_log(slog::Level::Debug, false);
-        let globals = NetworkGlobals::new_test_globals(trusted_peers, &log);
+        let spec = E::default_spec();
+        let globals = NetworkGlobals::new_test_globals(trusted_peers, &log, spec);
         PeerManager::new(config, Arc::new(globals), &log).unwrap()
     }
 

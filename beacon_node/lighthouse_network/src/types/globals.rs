@@ -2,9 +2,9 @@
 use crate::peer_manager::peerdb::PeerDB;
 use crate::rpc::{MetaData, MetaDataV2};
 use crate::types::{BackFillState, SyncState};
+use crate::EnrExt;
 use crate::{Client, Eth2Enr};
 use crate::{Enr, GossipTopic, Multiaddr, PeerId};
-use crate::{EnrExt, Subnet};
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use types::data_column_sidecar::ColumnIndex;
@@ -27,6 +27,7 @@ pub struct NetworkGlobals<E: EthSpec> {
     pub sync_state: RwLock<SyncState>,
     /// The current state of the backfill sync.
     pub backfill_state: RwLock<BackFillState>,
+    spec: ChainSpec,
 }
 
 impl<E: EthSpec> NetworkGlobals<E> {
@@ -36,16 +37,23 @@ impl<E: EthSpec> NetworkGlobals<E> {
         trusted_peers: Vec<PeerId>,
         disable_peer_scoring: bool,
         log: &slog::Logger,
+        spec: ChainSpec,
     ) -> Self {
         NetworkGlobals {
             local_enr: RwLock::new(enr.clone()),
             peer_id: RwLock::new(enr.peer_id()),
             listen_multiaddrs: RwLock::new(Vec::new()),
             local_metadata: RwLock::new(local_metadata),
-            peers: RwLock::new(PeerDB::new(trusted_peers, disable_peer_scoring, log)),
+            peers: RwLock::new(PeerDB::new(
+                trusted_peers,
+                disable_peer_scoring,
+                log,
+                spec.clone(),
+            )),
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
             sync_state: RwLock::new(SyncState::Stalled),
             backfill_state: RwLock::new(BackFillState::NotRequired),
+            spec,
         }
     }
 
@@ -112,44 +120,45 @@ impl<E: EthSpec> NetworkGlobals<E> {
     }
 
     /// Compute custody data columns the node is assigned to custody.
-    pub fn custody_columns(&self, _epoch: Epoch, spec: &ChainSpec) -> Vec<ColumnIndex> {
+    pub fn custody_columns(&self, _epoch: Epoch) -> Vec<ColumnIndex> {
         let enr = self.local_enr();
         let node_id = enr.node_id().raw().into();
-        let custody_subnet_count = enr.custody_subnet_count::<E>(spec);
-        DataColumnSubnetId::compute_custody_columns::<E>(node_id, custody_subnet_count, spec)
+        let custody_subnet_count = enr.custody_subnet_count::<E>(&self.spec);
+        DataColumnSubnetId::compute_custody_columns::<E>(node_id, custody_subnet_count, &self.spec)
             .collect()
     }
 
     /// Compute custody data column subnets the node is assigned to custody.
-    pub fn custody_subnets(&self, spec: &ChainSpec) -> impl Iterator<Item = DataColumnSubnetId> {
+    pub fn custody_subnets(&self) -> impl Iterator<Item = DataColumnSubnetId> {
         let enr = self.local_enr();
         let node_id = enr.node_id().raw().into();
-        let custody_subnet_count = enr.custody_subnet_count::<E>(spec);
-        DataColumnSubnetId::compute_custody_subnets::<E>(node_id, custody_subnet_count, spec)
+        let custody_subnet_count = enr.custody_subnet_count::<E>(&self.spec);
+        DataColumnSubnetId::compute_custody_subnets::<E>(node_id, custody_subnet_count, &self.spec)
     }
 
     /// Returns a connected peer that:
     /// 1. is connected
-    /// 2. assigned to custody the column based on it's `custody_subnet_count` from metadata (WIP)
+    /// 2. assigned to custody the column based on it's `custody_subnet_count` from ENR or metadata (WIP)
     /// 3. has a good score
     /// 4. subscribed to the specified column - this condition can be removed later, so we can
     ///    identify and penalise peers that are supposed to custody the column.
-    pub fn custody_peers_for_column(
-        &self,
-        column_index: ColumnIndex,
-        spec: &ChainSpec,
-    ) -> Vec<PeerId> {
+    pub fn custody_peers_for_column(&self, column_index: ColumnIndex) -> Vec<PeerId> {
         self.peers
             .read()
-            .good_peers_on_subnet(Subnet::DataColumn(
-                DataColumnSubnetId::from_column_index::<E>(column_index as usize, spec),
+            .good_custody_subnet_peer(DataColumnSubnetId::from_column_index::<E>(
+                column_index as usize,
+                &self.spec,
             ))
             .cloned()
             .collect::<Vec<_>>()
     }
 
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.
-    pub fn new_test_globals(trusted_peers: Vec<PeerId>, log: &slog::Logger) -> NetworkGlobals<E> {
+    pub fn new_test_globals(
+        trusted_peers: Vec<PeerId>,
+        log: &slog::Logger,
+        spec: ChainSpec,
+    ) -> NetworkGlobals<E> {
         use crate::CombinedKeyExt;
         let keypair = libp2p::identity::secp256k1::Keypair::generate();
         let enr_key: discv5::enr::CombinedKey = discv5::enr::CombinedKey::from_secp256k1(&keypair);
@@ -164,6 +173,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
             trusted_peers,
             false,
             log,
+            spec,
         )
     }
 }
@@ -180,9 +190,9 @@ mod test {
         let default_custody_requirement_column_count = spec.number_of_columns as u64
             / spec.data_column_sidecar_subnet_count
             * spec.custody_requirement;
-        let globals = NetworkGlobals::<E>::new_test_globals(vec![], &log);
+        let globals = NetworkGlobals::<E>::new_test_globals(vec![], &log, spec.clone());
         let any_epoch = Epoch::new(0);
-        let columns = globals.custody_columns(any_epoch, &spec);
+        let columns = globals.custody_columns(any_epoch);
         assert_eq!(
             columns.len(),
             default_custody_requirement_column_count as usize
