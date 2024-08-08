@@ -51,14 +51,18 @@ pub fn build_transport(
     // yamux config
     let yamux_config = yamux::Config::default();
     // Creates the TCP transport layer
-    let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true))
-        .upgrade(core::upgrade::Version::V1)
-        .authenticate(generate_noise_config(&local_private_key))
-        .multiplex(core::upgrade::SelectUpgrade::new(
-            yamux_config,
-            mplex_config,
-        ))
-        .timeout(Duration::from_secs(10));
+    let tcp = libp2p::tcp::tokio::Transport::new(
+        libp2p::tcp::Config::default()
+            .nodelay(true)
+            .port_reuse(true),
+    )
+    .upgrade(core::upgrade::Version::V1)
+    .authenticate(generate_noise_config(&local_private_key))
+    .multiplex(core::upgrade::SelectUpgrade::new(
+        yamux_config,
+        mplex_config,
+    ))
+    .timeout(Duration::from_secs(10));
     let transport = if quic_support {
         // Enables Quic
         // The default quic configuration suits us for now.
