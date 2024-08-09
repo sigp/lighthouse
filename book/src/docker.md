@@ -35,9 +35,6 @@ Lighthouse vx.x.xx-xxxxxxxxx
 BLS Library: xxxx-xxxxxxx
 ```
 
-> Pro tip: try the `latest` image for a 20-30% speed-up! See [Available Docker
-> Images](#available-docker-images) below.
-
 ### Available Docker Images
 
 There are several images available on Docker Hub.
@@ -75,7 +72,7 @@ The `stability` is:
 
 The `modernity` is:
 
-* `-modern` for optimized builds
+* `-portable` for the default optimized builds
 
 The `features` is:
 
@@ -84,7 +81,7 @@ The `features` is:
 
 Examples:
 
-* `latest-unstable-modern`: most recent `unstable` build for all modern CPUs (x86_64 or ARM)
+* `latest-unstable`: most recent `unstable` build
 * `latest-amd64`: most recent Lighthouse release for older x86_64 CPUs
 * `latest-amd64-unstable`: most recent `unstable` build for older x86_64 CPUs
 
