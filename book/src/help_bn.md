@@ -585,10 +585,6 @@ Flags:
           server on localhost:5052 and import deposit logs from the execution
           node. This is equivalent to `--http` on merge-ready networks, or
           `--http --eth1` pre-merge
-      --subscribe-all-data-column-subnets
-          Subscribe to all data column subnets and participate in data custody
-          for all columns. This will also advertise the beacon node as being
-          long-lived subscribed to all data column subnets.
       --subscribe-all-subnets
           Subscribe to all subnets regardless of validator count. This will also
           advertise the beacon node as being long-lived subscribed to all
