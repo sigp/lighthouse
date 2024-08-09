@@ -62,7 +62,7 @@ install-lcli:
 #
 # The resulting binaries will be created in the `target/` directory.
 #
-# The *-portable options is now the default since v5.2.0.
+# The *-portable options is the default feature.
 build-x86_64:
 	cross build --bin lighthouse --target x86_64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 build-aarch64-portable:
