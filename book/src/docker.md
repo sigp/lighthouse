@@ -84,7 +84,7 @@ The `features` is:
 
 Examples:
 
-* `latest-unstable`: most recent `unstable` build for all modern CPUs (x86_64 or ARM)
+* `latest-unstable-modern`: most recent `unstable` build for all modern CPUs (x86_64 or ARM)
 * `latest-amd64`: most recent Lighthouse release for older x86_64 CPUs
 * `latest-amd64-unstable`: most recent `unstable` build for older x86_64 CPUs
 
