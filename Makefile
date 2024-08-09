@@ -62,15 +62,9 @@ install-lcli:
 #
 # The resulting binaries will be created in the `target/` directory.
 #
-# The *-portable options compile the blst library *without* the use of some
-# optimized CPU functions that may not be available on some systems. This
-# results in a more portable binary with ~20% slower BLS verification.
+# The *-portable options is now the default since v5.2.0.
 build-x86_64:
-	cross build --bin lighthouse --target x86_64-unknown-linux-gnu --features "modern,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
-build-x86_64-portable:
 	cross build --bin lighthouse --target x86_64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
-build-aarch64:
-	cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 build-aarch64-portable:
 	cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 
