@@ -160,7 +160,6 @@ FEATURES=gnosis,slasher-lmdb make
 Commonly used features include:
 
 - `gnosis`: support for the Gnosis Beacon Chain.
-- `portable`: support for legacy hardware.
 - `modern`: support for exclusively modern hardware.
 - `slasher-lmdb`: support for the LMDB slasher backend. Enabled by default.
 - `slasher-mdbx`: support for the MDBX slasher backend.

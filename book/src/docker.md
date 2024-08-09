@@ -35,22 +35,20 @@ Lighthouse vx.x.xx-xxxxxxxxx
 BLS Library: xxxx-xxxxxxx
 ```
 
-> Pro tip: try the `latest-modern` image for a 20-30% speed-up! See [Available Docker
+> Pro tip: try the `latest` image for a 20-30% speed-up! See [Available Docker
 > Images](#available-docker-images) below.
 
 ### Available Docker Images
 
 There are several images available on Docker Hub.
 
-Most users should use the `latest-modern` tag, which corresponds to the latest stable release of
-Lighthouse with optimizations enabled. If you are running on older hardware then the default
-`latest` image bundles a _portable_ version of Lighthouse which is slower but with better hardware
-compatibility (see [Portability](./installation-binaries.md#portability)).
+Most users should use the `latest` tag, which corresponds to the latest stable release of
+Lighthouse with optimizations enabled. 
 
-To install a specific tag (in this case `latest-modern`), add the tag name to your `docker` commands:
+To install a specific tag (in this case `latest`), add the tag name to your `docker` commands:
 
 ```bash
-docker pull sigp/lighthouse:latest-modern
+docker pull sigp/lighthouse:latest
 ```
 
 Image tags follow this format:
@@ -78,7 +76,6 @@ The `stability` is:
 The `modernity` is:
 
 * `-modern` for optimized builds
-* empty for a `portable` unoptimized build
 
 The `features` is:
 
@@ -87,7 +84,7 @@ The `features` is:
 
 Examples:
 
-* `latest-unstable-modern`: most recent `unstable` build for all modern CPUs (x86_64 or ARM)
+* `latest-unstable`: most recent `unstable` build for all modern CPUs (x86_64 or ARM)
 * `latest-amd64`: most recent Lighthouse release for older x86_64 CPUs
 * `latest-amd64-unstable`: most recent `unstable` build for older x86_64 CPUs
 
