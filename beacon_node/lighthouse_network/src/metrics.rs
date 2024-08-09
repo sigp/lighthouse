@@ -107,8 +107,17 @@ pub static TOTAL_RPC_ERRORS_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLo
         &["client", "rpc_error", "direction"],
     )
 });
-pub static TOTAL_RPC_REQUESTS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
-    try_create_int_counter_vec("libp2p_rpc_requests_total", "RPC requests total", &["type"])
+pub static TOTAL_RPC_REQUESTS_SENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec("libp2p_rpc_requests_sent_total", "RPC requests sent total", &["type"])
+});
+pub static TOTAL_RPC_REQUESTS_RECEIVED: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec("libp2p_rpc_requests_received_total", "RPC requests received total", &["type"])
+});
+pub static TOTAL_RPC_RESPONSES_SENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec("libp2p_rpc_responses_sent_total", "RPC responses sent total", &["type"])
+});
+pub static TOTAL_RPC_RESPONSES_RECEIVED: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec("libp2p_rpc_responses_received_total", "RPC responses received total", &["type"])
 });
 pub static PEER_ACTION_EVENTS_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
     try_create_int_counter_vec(

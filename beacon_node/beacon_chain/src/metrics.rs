@@ -1694,9 +1694,9 @@ pub static DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter
         )
     });
 
-pub static COLUMNS_IN_CUSTODY: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+pub static CUSTODY_COLUMNS_COUNT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
-        "beacon_columns_in_custody_total",
+        "beacon_custody_columns_count_total",
         "Total count of columns in custody",
     )
 });
@@ -1987,7 +1987,7 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     );
 
     set_gauge_by_usize(
-        &COLUMNS_IN_CUSTODY,
+        &CUSTODY_COLUMNS_COUNT,
         da_checker_metrics.custody_column_count,
     );
 

@@ -162,7 +162,7 @@ impl<E: EthSpec> std::convert::From<Request> for OutboundRequest<E> {
 ///
 // NOTE: This is an application-level wrapper over the lower network level responses that can be
 //       sent. The main difference is the absense of Pong and Metadata, which don't leave the
-//       Behaviour. For all protocol reponses managed by RPC see `RPCResponse` and
+//       Behaviour. For all protocol responses managed by RPC see `RPCResponse` and
 //       `RPCCodedResponse`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Response<E: EthSpec> {
