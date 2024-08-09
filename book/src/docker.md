@@ -40,7 +40,7 @@ BLS Library: xxxx-xxxxxxx
 There are several images available on Docker Hub.
 
 Most users should use the `latest` tag, which corresponds to the latest stable release of
-Lighthouse with optimizations enabled. 
+Lighthouse with optimizations enabled.
 
 To install a specific tag (in this case `latest`), add the tag name to your `docker` commands:
 
