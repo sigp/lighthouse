@@ -3,7 +3,7 @@ use crate::light_client_header::LightClientHeaderElectra;
 use crate::{
     beacon_state, test_utils::TestRandom, BeaconBlock, BeaconBlockHeader, BeaconState, ChainSpec,
     ForkName, ForkVersionDeserialize, LightClientHeaderAltair, LightClientHeaderCapella,
-    LightClientHeaderDeneb, SignedBeaconBlock,
+    LightClientHeaderDeneb, SignedBlindedBeaconBlock,
 };
 use derivative::Derivative;
 use safe_arith::ArithError;
@@ -156,8 +156,8 @@ impl<E: EthSpec> LightClientUpdate<E> {
         beacon_state: BeaconState<E>,
         block: BeaconBlock<E>,
         attested_state: &mut BeaconState<E>,
-        attested_block: &SignedBeaconBlock<E>,
-        finalized_block: &SignedBeaconBlock<E>,
+        attested_block: &SignedBlindedBeaconBlock<E>,
+        finalized_block: &SignedBlindedBeaconBlock<E>,
         chain_spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let sync_aggregate = block.body().sync_aggregate()?;
@@ -168,7 +168,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
         let signature_period = block.epoch().sync_committee_period(chain_spec)?;
         // Compute and validate attested header.
         let mut attested_header = attested_state.latest_block_header().clone();
-        attested_header.state_root = attested_state.tree_hash_root();
+        attested_header.state_root = attested_state.update_tree_hash_cache()?;
         let attested_period = attested_header
             .slot
             .epoch(E::slots_per_epoch())

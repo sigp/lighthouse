@@ -63,7 +63,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{BlobSidecar, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
@@ -106,6 +106,9 @@ pub enum SyncMessage<E: EthSpec> {
 
     /// A blob with an unknown parent has been received.
     UnknownParentBlob(PeerId, Arc<BlobSidecar<E>>),
+
+    /// A data column with an unknown parent has been received.
+    UnknownParentDataColumn(PeerId, Arc<DataColumnSidecar<E>>),
 
     /// A peer has sent an attestation that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
@@ -156,11 +159,12 @@ pub enum BlockProcessingResult<E: EthSpec> {
 pub enum BatchProcessResult {
     /// The batch was completed successfully. It carries whether the sent batch contained blocks.
     Success {
-        was_non_empty: bool,
+        sent_blocks: usize,
+        imported_blocks: usize,
     },
     /// The batch processing failed. It carries whether the processing imported any block.
     FaultyFailure {
-        imported_blocks: bool,
+        imported_blocks: usize,
         penalty: PeerAction,
     },
     NonFaultyFailure,
@@ -444,12 +448,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ///
     /// The logic for which sync should be running is as follows:
     /// - If there is a range-sync running (or required) pause any backfill and let range-sync
-    /// complete.
+    ///   complete.
     /// - If there is no current range sync, check for any requirement to backfill and either
-    /// start/resume a backfill sync if required. The global state will be BackFillSync if a
-    /// backfill sync is running.
+    ///   start/resume a backfill sync if required. The global state will be BackFillSync if a
+    ///   backfill sync is running.
     /// - If there is no range sync and no required backfill and we have synced up to the currently
-    /// known peers, we consider ourselves synced.
+    ///   known peers, we consider ourselves synced.
     fn update_sync_state(&mut self) {
         let new_state: SyncState = match self.range_sync.state() {
             Err(e) => {
@@ -570,6 +574,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // unless there is a bug.
         let mut prune_lookups_interval = tokio::time::interval(Duration::from_secs(15));
 
+        let mut register_metrics_interval = tokio::time::interval(Duration::from_secs(5));
+
         // process any inbound messages
         loop {
             tokio::select! {
@@ -581,6 +587,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 _ = prune_lookups_interval.tick() => {
                     self.block_lookups.prune_lookups();
+                }
+                _ = register_metrics_interval.tick() => {
+                    self.network.register_metrics();
                 }
             }
         }
@@ -639,6 +648,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         peer_id,
                     }),
                 );
+            }
+            SyncMessage::UnknownParentDataColumn(_peer_id, _data_column) => {
+                // TODO(das): data column parent lookup to be implemented
             }
             SyncMessage::UnknownBlockHashFromAttestation(peer_id, block_root) => {
                 if !self.notified_unknown_roots.contains(&(peer_id, block_root)) {

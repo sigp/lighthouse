@@ -67,6 +67,12 @@ const LOOKUP_MAX_DURATION_STUCK_SECS: u64 = 15 * PARENT_DEPTH_TOLERANCE as u64;
 /// lookup at most after 4 seconds, the lookup should gain peers.
 const LOOKUP_MAX_DURATION_NO_PEERS_SECS: u64 = 10;
 
+/// Lookups contain untrusted data, including blocks that have not yet been validated. In case of
+/// bugs or malicious activity we want to bound how much memory these lookups can consume. Aprox the
+/// max size of a lookup is ~ 10 MB (current max size of gossip and RPC blocks). 200 lookups can
+/// take at most 2 GB. 200 lookups allow 3 parallel chains of depth 64 (current maximum).
+const MAX_LOOKUPS: usize = 200;
+
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),
     Blob(DownloadResult<Arc<BlobSidecar<E>>>),
@@ -208,6 +214,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Check if this new lookup extends a bad chain:
     /// - Extending `child_block_root_trigger` would exceed the max depth
     /// - `block_root_to_search` is a failed chain
+    ///
     /// Returns true if the lookup is created or already exists
     pub fn search_parent_of_child(
         &mut self,
@@ -321,23 +328,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
         }
 
+        // Lookups contain untrusted data, bound the total count of lookups hold in memory to reduce
+        // the risk of OOM in case of bugs of malicious activity.
+        if self.single_block_lookups.len() > MAX_LOOKUPS {
+            warn!(self.log, "Dropping lookup reached max"; "block_root" => ?block_root);
+            return false;
+        }
+
         // If we know that this lookup has unknown parent (is awaiting a parent lookup to resolve),
         // signal here to hold processing downloaded data.
         let mut lookup = SingleBlockLookup::new(block_root, peers, cx.next_id(), awaiting_parent);
-
-        let msg = if block_component.is_some() {
-            "Searching for components of a block with unknown parent"
-        } else {
-            "Searching for block components"
-        };
-        debug!(
-            self.log,
-            "{}", msg;
-            "peer_ids" => ?peers,
-            "block_root" => ?block_root,
-            "id" => lookup.id,
-        );
-        metrics::inc_counter(&metrics::SYNC_LOOKUP_CREATED);
 
         // Add block components to the new request
         if let Some(block_component) = block_component {
@@ -353,6 +353,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 return false;
             }
         };
+
+        debug!(
+            self.log,
+            "Created block lookup";
+            "peer_ids" => ?peers,
+            "block_root" => ?block_root,
+            "awaiting_parent" => awaiting_parent.map(|root| root.to_string()).unwrap_or("none".to_owned()),
+            "id" => lookup.id,
+        );
+        metrics::inc_counter(&metrics::SYNC_LOOKUP_CREATED);
 
         let result = lookup.continue_requests(cx);
         if self.on_lookup_result(id, result, "new_current_lookup", cx) {

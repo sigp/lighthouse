@@ -2,7 +2,7 @@ use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, Kzg
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
 };
-use crate::data_availability_checker::overflow_lru_cache::OverflowLRUCache;
+use crate::data_availability_checker::overflow_lru_cache::DataAvailabilityCheckerInner;
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
 use slog::{debug, error, Logger};
@@ -14,12 +14,16 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
-use types::{BlobSidecarList, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
+use types::{
+    BlobSidecarList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock,
+    Slot,
+};
 
 mod error;
 mod overflow_lru_cache;
 mod state_lru_cache;
 
+use crate::data_column_verification::{GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn};
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::non_zero_usize::new_non_zero_usize;
 
@@ -33,12 +37,32 @@ pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(1024);
 pub const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(2);
 pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 
-/// This includes a cache for any blocks or blobs that have been received over gossip or RPC
-/// and are awaiting more components before they can be imported. Additionally the
-/// `DataAvailabilityChecker` is responsible for KZG verification of block components as well as
-/// checking whether a "availability check" is required at all.
+/// Cache to hold fully valid data that can't be imported to fork-choice yet. After Dencun hard-fork
+/// blocks have a sidecar of data that is received separately from the network. We call the concept
+/// of a block "becoming available" when all of its import dependencies are inserted into this
+/// cache.
+///
+/// Usually a block becomes available on its slot within a second of receiving its first component
+/// over gossip. However, a block may never become available if a malicious proposer does not
+/// publish its data, or there are network issues that prevent us from receiving it. If the block
+/// does not become available after some time we can safely forget about it. Consider these two
+/// cases:
+///
+/// - Global unavailability: If nobody has received the block components it's likely that the
+///   proposer never made the block available. So we can safely forget about the block as it will
+///   never become available.
+/// - Local unavailability: Some fraction of the network has received all block components, but not us.
+///   Some of our peers will eventually attest to a descendant of that block and lookup sync will
+///   fetch its components. Therefore it's not strictly necessary to hold to the partially available
+///   block for too long as we can recover from other peers.
+///
+/// Even in periods of non-finality, the proposer is expected to publish the block's data
+/// immediately. Because this cache only holds fully valid data, its capacity is bound to 1 block
+/// per slot and fork: before inserting into this cache we check the proposer signature and correct
+/// proposer. Having a capacity > 1 is an optimization to prevent sync lookup from having re-fetch
+/// data during moments of unstable network conditions.
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
-    availability_cache: Arc<OverflowLRUCache<T>>,
+    availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
     slot_clock: T::SlotClock,
     kzg: Option<Arc<Kzg>>,
     log: Logger,
@@ -74,7 +98,17 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         log: &Logger,
         spec: ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
-        let overflow_cache = OverflowLRUCache::new(OVERFLOW_LRU_CAPACITY, store, spec.clone())?;
+        // TODO(das): support supernode or custom custody requirement
+        let custody_subnet_count = spec.custody_requirement as usize;
+        let custody_column_count =
+            custody_subnet_count.saturating_mul(spec.data_columns_per_subnet());
+
+        let overflow_cache = DataAvailabilityCheckerInner::new(
+            OVERFLOW_LRU_CAPACITY,
+            store,
+            custody_column_count,
+            spec.clone(),
+        )?;
         Ok(Self {
             availability_cache: Arc::new(overflow_cache),
             slot_clock,
@@ -122,6 +156,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn put_rpc_blobs(
         &self,
         block_root: Hash256,
+        epoch: Epoch,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let Some(kzg) = self.kzg.as_ref() else {
@@ -138,7 +173,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 .map_err(AvailabilityCheckError::Kzg)?;
 
         self.availability_cache
-            .put_kzg_verified_blobs(block_root, verified_blobs)
+            .put_kzg_verified_blobs(block_root, epoch, verified_blobs)
     }
 
     /// Check if we've cached other blobs for this block. If it completes a set and we also
@@ -150,8 +185,27 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         gossip_blob: GossipVerifiedBlob<T>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        self.availability_cache.put_kzg_verified_blobs(
+            gossip_blob.block_root(),
+            gossip_blob.epoch(),
+            vec![gossip_blob.into_inner()],
+        )
+    }
+
+    pub fn put_gossip_data_columns(
+        &self,
+        slot: Slot,
+        block_root: Hash256,
+        gossip_data_columns: Vec<GossipVerifiedDataColumn<T>>,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+        let custody_columns = gossip_data_columns
+            .into_iter()
+            .map(|c| KzgVerifiedCustodyDataColumn::from_asserted_custody(c.into_inner()))
+            .collect::<Vec<_>>();
+
         self.availability_cache
-            .put_kzg_verified_blobs(gossip_blob.block_root(), vec![gossip_blob.into_inner()])
+            .put_kzg_verified_data_columns(block_root, epoch, custody_columns)
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
@@ -188,6 +242,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         block_root,
                         block,
                         blobs: None,
+                        data_columns: None,
                         blobs_available_timestamp: None,
                     }))
                 }
@@ -208,6 +263,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     block_root,
                     block,
                     blobs: verified_blobs,
+                    data_columns: None,
                     blobs_available_timestamp: None,
                 }))
             }
@@ -254,6 +310,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                             block_root,
                             block,
                             blobs: None,
+                            data_columns: None,
                             blobs_available_timestamp: None,
                         }))
                     }
@@ -269,6 +326,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         block_root,
                         block,
                         blobs: verified_blobs,
+                        data_columns: None,
                         blobs_available_timestamp: None,
                     }))
                 }
@@ -329,15 +387,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         })
     }
 
-    /// Persist all in memory components to disk
-    pub fn persist_all(&self) -> Result<(), AvailabilityCheckError> {
-        self.availability_cache.write_all_to_disk()
-    }
-
     /// Collects metrics from the data availability checker.
     pub fn metrics(&self) -> DataAvailabilityCheckerMetrics {
         DataAvailabilityCheckerMetrics {
-            num_store_entries: self.availability_cache.num_store_entries(),
             state_cache_size: self.availability_cache.state_cache_size(),
             block_cache_size: self.availability_cache.block_cache_size(),
         }
@@ -346,7 +398,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
 /// Helper struct to group data availability checker metrics.
 pub struct DataAvailabilityCheckerMetrics {
-    pub num_store_entries: usize,
     pub state_cache_size: usize,
     pub block_cache_size: usize,
 }
@@ -372,7 +423,7 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
 
 async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
-    overflow_cache: Arc<OverflowLRUCache<T>>,
+    overflow_cache: Arc<DataAvailabilityCheckerInner<T>>,
 ) {
     let epoch_duration = chain.slot_clock.slot_duration() * T::EthSpec::slots_per_epoch() as u32;
     loop {
@@ -441,6 +492,7 @@ pub struct AvailableBlock<E: EthSpec> {
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<E>>,
     blobs: Option<BlobSidecarList<E>>,
+    data_columns: Option<DataColumnSidecarList<E>>,
     /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
     blobs_available_timestamp: Option<Duration>,
 }
@@ -450,11 +502,13 @@ impl<E: EthSpec> AvailableBlock<E> {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
         blobs: Option<BlobSidecarList<E>>,
+        data_columns: Option<DataColumnSidecarList<E>>,
     ) -> Self {
         Self {
             block_root,
             block,
             blobs,
+            data_columns,
             blobs_available_timestamp: None,
         }
     }
@@ -474,20 +528,23 @@ impl<E: EthSpec> AvailableBlock<E> {
         self.blobs_available_timestamp
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn deconstruct(
         self,
     ) -> (
         Hash256,
         Arc<SignedBeaconBlock<E>>,
         Option<BlobSidecarList<E>>,
+        Option<DataColumnSidecarList<E>>,
     ) {
         let AvailableBlock {
             block_root,
             block,
             blobs,
+            data_columns,
             blobs_available_timestamp: _,
         } = self;
-        (block_root, block, blobs)
+        (block_root, block, blobs, data_columns)
     }
 }
 

@@ -5,8 +5,7 @@ use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::validator_monitor::UNAGGREGATED_ATTESTATION_LAG_SLOTS;
 use beacon_chain::{metrics, StateSkipConfig, WhenSlotSkipped};
-use lazy_static::lazy_static;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tree_hash::TreeHash;
 use types::{
     AggregateSignature, Attestation, EthSpec, Keypair, MainnetEthSpec, RelativeEpoch, Slot,
@@ -14,10 +13,9 @@ use types::{
 
 pub const VALIDATOR_COUNT: usize = 16;
 
-lazy_static! {
-    /// A cached set of keys.
-    static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
-}
+/// A cached set of keys.
+static KEYPAIRS: LazyLock<Vec<Keypair>> =
+    LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 /// This test builds a chain that is testing the performance of the unaggregated attestations
 /// produced by the attestation simulator service.

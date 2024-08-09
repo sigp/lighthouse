@@ -14,7 +14,6 @@ use beacon_chain::{
     migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
     BlockError, ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
-use lazy_static::lazy_static;
 use logging::test_logger;
 use maplit::hashset;
 use rand::Rng;
@@ -23,7 +22,7 @@ use state_processing::{state_advance::complete_state_advance, BlockReplayer};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::TryInto;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use store::chunked_vector::Chunk;
 use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN};
@@ -35,7 +34,6 @@ use store::{
 };
 use tempfile::{tempdir, TempDir};
 use tokio::time::sleep;
-use tree_hash::TreeHash;
 use types::test_utils::{SeedableRng, XorShiftRng};
 use types::*;
 
@@ -43,10 +41,9 @@ use types::*;
 pub const LOW_VALIDATOR_COUNT: usize = 24;
 pub const HIGH_VALIDATOR_COUNT: usize = 64;
 
-lazy_static! {
-    /// A cached set of keys.
-    static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(HIGH_VALIDATOR_COUNT);
-}
+/// A cached set of keys.
+static KEYPAIRS: LazyLock<Vec<Keypair>> =
+    LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(HIGH_VALIDATOR_COUNT));
 
 type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
@@ -199,8 +196,8 @@ async fn heal_freezer_block_roots_with_skip_slots() {
     );
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
-    let current_state = harness.get_current_state();
-    let state_root = harness.get_current_state().tree_hash_root();
+    let mut current_state = harness.get_current_state();
+    let state_root = current_state.canonical_root().unwrap();
     let all_validators = &harness.get_all_validators();
     harness
         .add_attested_blocks_at_slots(
@@ -611,12 +608,13 @@ async fn epoch_boundary_state_attestation_processing() {
             .get_blinded_block(&block_root)
             .unwrap()
             .expect("block exists");
-        let epoch_boundary_state = store
+        let mut epoch_boundary_state = store
             .load_epoch_boundary_state(&block.state_root())
             .expect("no error")
             .expect("epoch boundary state exists");
+        let ebs_state_root = epoch_boundary_state.canonical_root().unwrap();
         let ebs_of_ebs = store
-            .load_epoch_boundary_state(&epoch_boundary_state.canonical_root())
+            .load_epoch_boundary_state(&ebs_state_root)
             .expect("no error")
             .expect("ebs of ebs exists");
         assert_eq!(epoch_boundary_state, ebs_of_ebs);
@@ -2544,10 +2542,10 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     // signatures correctly. Regression test for https://github.com/sigp/lighthouse/pull/5120.
     let mut batch_with_invalid_first_block = available_blocks.clone();
     batch_with_invalid_first_block[0] = {
-        let (block_root, block, blobs) = available_blocks[0].clone().deconstruct();
+        let (block_root, block, blobs, data_columns) = available_blocks[0].clone().deconstruct();
         let mut corrupt_block = (*block).clone();
         *corrupt_block.signature_mut() = Signature::empty();
-        AvailableBlock::__new_for_testing(block_root, Arc::new(corrupt_block), blobs)
+        AvailableBlock::__new_for_testing(block_root, Arc::new(corrupt_block), blobs, data_columns)
     };
 
     // Importing the invalid batch should error.
@@ -2604,9 +2602,9 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .unwrap()
         .map(Result::unwrap)
     {
-        let state = store.get_state(&state_root, Some(slot)).unwrap().unwrap();
+        let mut state = store.get_state(&state_root, Some(slot)).unwrap().unwrap();
         assert_eq!(state.slot(), slot);
-        assert_eq!(state.canonical_root(), state_root);
+        assert_eq!(state.canonical_root().unwrap(), state_root);
     }
 
     // Anchor slot is still set to the slot of the checkpoint block.
