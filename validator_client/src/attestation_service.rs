@@ -252,7 +252,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         validator_duties.iter().for_each(|validator_duty| {
                             // Get the previously downloaded attestation data for this committee index.
                             if let Some(attestation_data) = attestation_data_service
-                                .get_data_by_committee_index(&committee_index, &fork_name)
+                                .get_data_by_committee_index(committee_index, &fork_name)
                             {
                                 let this = inner_self.clone();
                                 let duty = validator_duty.clone();

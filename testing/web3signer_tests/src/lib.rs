@@ -20,6 +20,7 @@ mod tests {
     use account_utils::validator_definitions::{
         SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
     };
+    use eth2::types::AttesterData;
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
     use parking_lot::Mutex;
@@ -40,6 +41,7 @@ mod tests {
     use tokio::time::sleep;
     use types::{attestation::AttestationBase, *};
     use url::Url;
+    use validator_client::duties_service::DutyAndProof;
     use validator_client::{
         initialized_validators::{
             load_pem_certificate, load_pkcs12_identity, InitializedValidators,
@@ -519,7 +521,7 @@ mod tests {
         ) -> Self
         where
             F: Fn(PublicKeyBytes, Arc<ValidatorStore<TestingSlotClock, E>>) -> R,
-            R: Future<Output = Result<(), ValidatorStoreError>>,
+            R: Future<Output = Result<(), ()>>,
         {
             for validator_rig in &self.validator_rigs {
                 let result =
@@ -837,9 +839,33 @@ mod tests {
             "double_vote_attestation",
             move |pubkey, validator_store| async move {
                 let mut attestation = double_vote_attestation();
+                let validator_duty = DutyAndProof::new_without_selection_proof(
+                    AttesterData {
+                        pubkey: pubkey,
+                        validator_index: 0,
+                        committees_at_slot: 0,
+                        committee_index: 0,
+                        committee_length: 0,
+                        validator_committee_index: 0,
+                        slot: attestation.data().slot,
+                    },
+                    attestation.data().slot,
+                );
+
                 validator_store
                     .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
                     .await
+                    .unwrap();
+
+                let safe_attestations = validator_store
+                    .check_and_insert_attestations(vec![(attestation, validator_duty)])
+                    .unwrap();
+
+                if !slashable_message_should_sign && safe_attestations.len() > 0 {
+                    return Err(());
+                }
+
+                Ok(())
             },
             slashable_message_should_sign,
         )
@@ -848,9 +874,32 @@ mod tests {
             "surrounding_attestation",
             move |pubkey, validator_store| async move {
                 let mut attestation = surrounding_attestation();
+                let validator_duty = DutyAndProof::new_without_selection_proof(
+                    AttesterData {
+                        pubkey: pubkey,
+                        validator_index: 0,
+                        committees_at_slot: 0,
+                        committee_index: 0,
+                        committee_length: 0,
+                        validator_committee_index: 0,
+                        slot: attestation.data().slot,
+                    },
+                    attestation.data().slot,
+                );
                 validator_store
                     .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
                     .await
+                    .unwrap();
+
+                let safe_attestations = validator_store
+                    .check_and_insert_attestations(vec![(attestation, validator_duty)])
+                    .unwrap();
+
+                if !slashable_message_should_sign && safe_attestations.len() > 0 {
+                    return Err(());
+                }
+
+                Ok(())
             },
             slashable_message_should_sign,
         )
@@ -859,9 +908,32 @@ mod tests {
             "surrounded_attestation",
             move |pubkey, validator_store| async move {
                 let mut attestation = surrounded_attestation();
+                let validator_duty = DutyAndProof::new_without_selection_proof(
+                    AttesterData {
+                        pubkey: pubkey,
+                        validator_index: 0,
+                        committees_at_slot: 0,
+                        committee_index: 0,
+                        committee_length: 0,
+                        validator_committee_index: 0,
+                        slot: attestation.data().slot,
+                    },
+                    attestation.data().slot,
+                );
                 validator_store
                     .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
                     .await
+                    .unwrap();
+
+                let safe_attestations = validator_store
+                    .check_and_insert_attestations(vec![(attestation, validator_duty)])
+                    .unwrap();
+
+                if !slashable_message_should_sign && safe_attestations.len() > 0 {
+                    return Err(());
+                }
+
+                Ok(())
             },
             slashable_message_should_sign,
         )
@@ -884,6 +956,7 @@ mod tests {
                     .sign_block(pubkey, block, slot)
                     .await
                     .map(|_| ())
+                    .map_err(|_| ())
             },
             slashable_message_should_sign,
         )
