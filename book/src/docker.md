@@ -51,7 +51,7 @@ docker pull sigp/lighthouse:latest
 Image tags follow this format:
 
 ```text
-${version}${arch}${stability}${modernity}${features}
+${version}${arch}${stability}${features}
 ```
 
 The `version` is:
@@ -69,10 +69,6 @@ The `stability` is:
 
 * `-unstable` for the `unstable` branch
 * empty for a tagged release or the `stable` branch
-
-The `modernity` is:
-
-* `-portable` for the default optimized builds
 
 The `features` is:
 
