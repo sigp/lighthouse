@@ -1,12 +1,13 @@
 use lighthouse_metrics::{
     inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult,
 };
-use slog::Logger;
+use slog::{Key, Logger};
 use slog_term::Decorator;
 use std::io::{Result, Write};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
+use tracing::Value;
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_logging_layer::LoggingLayer;

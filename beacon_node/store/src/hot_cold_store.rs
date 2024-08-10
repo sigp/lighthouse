@@ -42,8 +42,8 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
 use tracing::{debug, error, info, trace, warn};
+use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
 use types::*;
 
 /// On-disk database that stores finalized states efficiently.
@@ -344,11 +344,10 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         )?;
 
         info!(
-            db.log,
-            "Blob DB initialized";
-            "path" => ?blobs_db_path,
-            "oldest_blob_slot" => ?new_blob_info.oldest_blob_slot,
-            "oldest_data_column_slot" => ?new_data_column_info.oldest_data_column_slot,
+            path = ?blobs_db_path,
+            oldest_blob_slot =?new_blob_info.oldest_blob_slot,
+            oldest_data_column_slot = ?new_data_column_info.oldest_data_column_slot,
+            "Blob DB initialized"
         );
 
         // Ensure that the schema version of the on-disk database matches the software.
@@ -786,11 +785,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let split = self.split.read_recursive();
 
         if state_root != split.state_root {
-            warn!(
-                ?state_root,
-                ?block_root,
-                "State cache missed"
-            );
+            warn!(?state_root, ?block_root, "State cache missed");
         }
 
         // Sanity check max-slot against the split slot.
@@ -1057,12 +1052,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         }
                         Err(e) => {
                             error!(
-                                self.log, "Error getting blobs";
-                                "block_root" => %block_root,
-                                "error" => ?e
+                                %block_root,
+                                error = ?e,
+                                "Error getting blobs"
                             );
                         }
+                        _ => (),
                     }
+
                     true
                 }
                 StoreOp::DeleteDataColumns(block_root, indices) => {
@@ -1082,9 +1079,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         }
                         Err(e) => {
                             error!(
-                                self.log, "Error getting data columns";
-                                "block_root" => %block_root,
-                                "error" => ?e
+                                %block_root,
+                                error = ?e,
+                                "Error getting data columns"
                             );
                         }
                     }
@@ -1334,11 +1331,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                             .lock()
                             .put_state(state_root, latest_block_root, state)?
                     {
-                        debug!(
-                           ?state_root,
-                            ?state_slot,
-                            "Cached ancestor state"
-                        );
+                        debug!(?state_root, ?state_slot, "Cached ancestor state");
                     }
                     Ok(())
                 };
@@ -1631,10 +1624,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .apply_blocks(blocks, Some(target_slot))
             .map(|block_replayer| {
                 if have_state_root_iterator && block_replayer.state_root_miss() {
-                    warn!(
-                        ?target_slot,
-                        "State root cache miss during block replay"
-                    );
+                    warn!(?target_slot, "State root cache miss during block replay");
                 }
                 block_replayer.into_state()
             })
@@ -2483,22 +2473,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     // data columns
                     let indices = self.get_data_column_keys(block_root)?;
                     if !indices.is_empty() {
-                        trace!(
-                            self.log,
-                            "Pruning data columns of block";
-                            "slot" => slot,
-                            "block_root" => ?block_root,
-                        );
+                        trace!(?slot, ?block_root, "Pruning data columns of block");
                         last_pruned_block_root = Some(block_root);
                         ops.push(StoreOp::DeleteDataColumns(block_root, indices));
                     }
                 } else if self.blobs_exist(&block_root)? {
-                    trace!(
-                        self.log,
-                        "Pruning blobs of block";
-                        "slot" => slot,
-                        "block_root" => ?block_root,
-                    );
+                    trace!(?slot, ?block_root, "Pruning blobs of block");
                     last_pruned_block_root = Some(block_root);
                     ops.push(StoreOp::DeleteBlobs(block_root));
                 }

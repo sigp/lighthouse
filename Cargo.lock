@@ -828,6 +828,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
+ "tracing",
  "tree_hash",
  "tree_hash_derive",
  "types",
