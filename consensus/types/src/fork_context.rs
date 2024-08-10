@@ -133,9 +133,8 @@ impl ForkContext {
         self.digest_to_fork.keys().cloned().collect()
     }
 
-    /// Returns true if peerdas fork is schduled for some epoch != FAR_FUTURE_EPOCH
-    pub fn peerdas_fork_scheduled(&self) -> bool {
-        self.spec
-            .is_peer_das_enabled_for_epoch(Epoch::max_value().saturating_sub(Epoch::new(1)))
+    /// Returns true if `EIP7594_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    pub fn is_peer_das_scheduled(&self) -> bool {
+        self.spec.is_peer_das_scheduled()
     }
 }

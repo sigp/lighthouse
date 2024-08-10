@@ -58,7 +58,7 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
         }
     }
 
-    if fork_name >= ForkName::Altair {
+    if fork_name.altair_enabled() {
         topics.push(GossipKind::SignedContributionAndProof);
 
         if opts.subscribe_all_subnets {
@@ -73,11 +73,11 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
         }
     }
 
-    if fork_name >= ForkName::Capella {
+    if fork_name.capella_enabled() {
         topics.push(GossipKind::BlsToExecutionChange);
     }
 
-    if fork_name >= ForkName::Deneb && !spec.is_peer_das_enabled_for_epoch(epoch) {
+    if fork_name.deneb_enabled() && !spec.is_peer_das_enabled_for_epoch(epoch) {
         // All of deneb blob topics are core topics
         for i in 0..spec.blob_sidecar_subnet_count {
             topics.push(GossipKind::BlobSidecar(i));
@@ -104,14 +104,20 @@ pub fn new_topics_to_subscribe_at_epoch<E: EthSpec>(
     next_epoch: Epoch,
     opts: &TopicSubscriptionOpts,
 ) -> Vec<GossipKind> {
-    let prev_epoch = next_epoch.saturating_sub(Epoch::new(1));
-    let prev_set = core_topics_to_subscribe::<E>(spec, prev_epoch, opts)
-        .into_iter()
-        .collect::<HashSet<_>>();
-    let next_set = core_topics_to_subscribe::<E>(spec, next_epoch, opts)
-        .into_iter()
-        .collect::<HashSet<_>>();
-    next_set.difference(&prev_set).cloned().collect()
+    if next_epoch == Epoch::new(0) {
+        // Handle the genesis case explicitly. Otherwise prev_set == next_set and the node will not
+        // subscribe to anything
+        core_topics_to_subscribe::<E>(spec, next_epoch, opts)
+    } else {
+        let prev_epoch = next_epoch.saturating_sub(Epoch::new(1));
+        let prev_set = core_topics_to_subscribe::<E>(spec, prev_epoch, opts)
+            .into_iter()
+            .collect::<HashSet<_>>();
+        let next_set = core_topics_to_subscribe::<E>(spec, next_epoch, opts)
+            .into_iter()
+            .collect::<HashSet<_>>();
+        next_set.difference(&prev_set).cloned().collect()
+    }
 }
 
 pub fn old_topics_to_unsubscribe_at_epoch<E: EthSpec>(
@@ -119,6 +125,8 @@ pub fn old_topics_to_unsubscribe_at_epoch<E: EthSpec>(
     next_epoch: Epoch,
     opts: &TopicSubscriptionOpts,
 ) -> Vec<GossipKind> {
+    // No need to handle genesis case explicitly, as we never need to unsubscribe anything at
+    // genesis. Because prev_set == next_set at genesis, this function will return `vec![]`
     let prev_epoch = next_epoch.saturating_sub(Epoch::new(1));
     let prev_set = core_topics_to_subscribe::<E>(spec, prev_epoch, opts)
         .into_iter()
