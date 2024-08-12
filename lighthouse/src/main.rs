@@ -21,7 +21,8 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
-use tracing::{error, info, level_filters::LevelFilter};
+use tracing::{info, level_filters::LevelFilter};
+use logging::crit;
 use tracing_subscriber::EnvFilter;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
@@ -606,7 +607,7 @@ fn run<E: EthSpec>(
     {
         //let log = log.clone();
         std::panic::set_hook(Box::new(move |info| {
-            error!(
+            crit!(
                 location = info.location().map(ToString::to_string),
                 message = info.payload().downcast_ref::<String>(),
                 backtrace = %Backtrace::capture(),
@@ -712,7 +713,7 @@ fn run<E: EthSpec>(
             executor.clone().spawn(
                 async move {
                     if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
-                        error!(reason = ?e ,"Failed to start beacon node");
+                        crit!(reason = ?e ,"Failed to start beacon node");
                         // Ignore the error since it always occurs during normal operation when
                         // shutting down.
                         let _ = executor
@@ -743,7 +744,7 @@ fn run<E: EthSpec>(
                         .and_then(|mut vc| async move { vc.start_service().await })
                         .await
                     {
-                        error!(reason = ?e,"Failed to start validator client");
+                        crit!(reason = ?e,"Failed to start validator client");
                         // Ignore the error since it always occurs during normal operation when
                         // shutting down.
                         let _ = executor
@@ -755,7 +756,7 @@ fn run<E: EthSpec>(
             );
         }
         _ => {
-            error!("No subcommand supplied. See --help .");
+            crit!("No subcommand supplied. See --help .");
             return Err("No subcommand supplied.".into());
         }
     };
