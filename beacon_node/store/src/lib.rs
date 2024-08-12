@@ -50,7 +50,6 @@ pub type ColumnKeyIter<'a, K> = Result<Box<dyn Iterator<Item = Result<K, Error>>
 
 pub type RawEntryIter<'a> =
     Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>, Error>;
-pub type RawKeyIter<'a> = Result<Box<dyn Iterator<Item = Result<Vec<u8>, Error>> + 'a>, Error>;
 
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
@@ -115,8 +114,6 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     fn iter_raw_entries(&self, _column: DBColumn, _prefix: &[u8]) -> RawEntryIter {
         Ok(Box::new(std::iter::empty()))
     }
-
-    fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter;
 
     fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
 

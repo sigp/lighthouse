@@ -3,9 +3,7 @@ use crate::database::leveldb_impl;
 #[cfg(feature = "redb")]
 use crate::database::redb_impl;
 use crate::{config::DatabaseBackend, KeyValueStoreOp, StoreConfig};
-use crate::{
-    ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore, RawKeyIter,
-};
+use crate::{ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore};
 use std::path::Path;
 use types::EthSpec;
 
@@ -178,17 +176,6 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::compact_column(txn, _column),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::compact(txn),
-        }
-    }
-
-    fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter {
-        match self {
-            #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::iter_raw_keys(txn, column, prefix)
-            }
-            #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_raw_keys(txn, column, prefix),
         }
     }
 }

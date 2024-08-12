@@ -1,7 +1,7 @@
 use crate::{metrics, ColumnIter, ColumnKeyIter, Key};
 use crate::{DBColumn, Error, KeyValueStoreOp};
 use parking_lot::{Mutex, MutexGuard, RwLock};
-use redb::{ReadableTable, TableDefinition};
+use redb::TableDefinition;
 use std::{borrow::BorrowMut, marker::PhantomData, path::Path};
 use strum::IntoEnumIterator;
 use types::EthSpec;
@@ -75,8 +75,8 @@ impl<E: EthSpec> Redb<E> {
         val: &[u8],
         opts: WriteOptions,
     ) -> Result<(), Error> {
-        metrics::inc_counter(&metrics::DISK_DB_WRITE_COUNT);
-        metrics::inc_counter_by(&metrics::DISK_DB_WRITE_BYTES, val.len() as u64);
+        metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[col]);
+        metrics::inc_counter_vec_by(&metrics::DISK_DB_WRITE_BYTES, &[col], val.len() as u64);
         let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
 
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col);
@@ -107,7 +107,7 @@ impl<E: EthSpec> Redb<E> {
 
     // Retrieve some bytes in `column` with `key`.
     pub fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        metrics::inc_counter(&metrics::DISK_DB_READ_COUNT);
+        metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[col]);
         let timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
 
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col);
@@ -120,21 +120,24 @@ impl<E: EthSpec> Redb<E> {
         match result {
             Some(access_guard) => {
                 let value = access_guard.value().to_vec();
-                metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, value.len() as u64);
+                metrics::inc_counter_vec_by(
+                    &metrics::DISK_DB_READ_BYTES,
+                    &[col],
+                    value.len() as u64,
+                );
                 metrics::stop_timer(timer);
-                return Ok(Some(value));
+                Ok(Some(value))
             }
             None => {
-                metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, 0_u64);
                 metrics::stop_timer(timer);
-                return Ok(None);
+                Ok(None)
             }
         }
     }
 
     /// Return `true` if `key` exists in `column`.
     pub fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error> {
-        metrics::inc_counter(&metrics::DISK_DB_EXISTS_COUNT);
+        metrics::inc_counter_vec(&metrics::DISK_DB_EXISTS_COUNT, &[col]);
 
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col);
         let open_db = self.db.read();
@@ -154,7 +157,7 @@ impl<E: EthSpec> Redb<E> {
         let tx = open_db.begin_write()?;
         let mut table = tx.open_table(table_definition)?;
 
-        metrics::inc_counter(&metrics::DISK_DB_DELETE_COUNT);
+        metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[col]);
 
         table.remove(key).map(|_| ())?;
         drop(table);

@@ -1,8 +1,8 @@
 use crate::hot_cold_store::{BytesKey, HotColdDBError};
+use crate::Key;
 use crate::{
     get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, KeyValueStoreOp,
 };
-use crate::{Key, RawKeyIter};
 use leveldb::{
     compaction::Compaction,
     database::{
@@ -255,20 +255,5 @@ impl<E: EthSpec> LevelDB<E> {
         self.iter_column_from(column, &vec![0; column.key_size()], move |key, _| {
             BytesKey::from_vec(key.to_vec()).matches_column(column)
         })
-    }
-
-    pub fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter {
-        let start_key = BytesKey::from_vec(get_key_for_col(column.into(), prefix));
-
-        let iter = self.db.keys_iter(self.read_options());
-        iter.seek(&start_key);
-
-        Ok(Box::new(
-            iter.take_while(move |key| key.key.starts_with(start_key.key.as_slice()))
-                .map(move |bytes_key| {
-                    let subkey = &bytes_key.key[column.as_bytes().len()..];
-                    Ok(Vec::from(subkey))
-                }),
-        ))
     }
 }
