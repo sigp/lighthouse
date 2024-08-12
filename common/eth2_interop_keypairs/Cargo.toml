@@ -7,7 +7,6 @@ edition = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-lazy_static = { workspace = true }
 num-bigint = "0.4.2"
 ethereum_hashing = { workspace = true }
 hex = { workspace = true }

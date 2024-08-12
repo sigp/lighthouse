@@ -1,3 +1,6 @@
+use crate::version::{
+    add_consensus_version_header, add_ssz_content_type_header, fork_versioned_response, V1,
+};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::{
     self as api_types, ChainSpec, ForkVersionedResponse, LightClientUpdate,
@@ -10,10 +13,6 @@ use warp::{
     hyper::{Body, Response},
     reply::Reply,
     Rejection,
-};
-
-use crate::version::{
-    add_consensus_version_header, add_ssz_content_type_header, fork_versioned_response, V1,
 };
 
 const MAX_REQUEST_LIGHT_CLIENT_UPDATES: u64 = 128;

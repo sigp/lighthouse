@@ -1,8 +1,8 @@
 use crate::{
     light_client_update::*, test_utils::TestRandom, BeaconState, ChainSpec, EthSpec, FixedVector,
     ForkName, ForkVersionDeserialize, Hash256, LightClientHeader, LightClientHeaderAltair,
-    LightClientHeaderCapella, LightClientHeaderDeneb, LightClientHeaderElectra, SignedBeaconBlock,
-    Slot, SyncCommittee,
+    LightClientHeaderCapella, LightClientHeaderDeneb, LightClientHeaderElectra,
+    SignedBlindedBeaconBlock, Slot, SyncCommittee,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -113,7 +113,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
     }
 
     pub fn new(
-        block: &SignedBeaconBlock<E>,
+        block: &SignedBlindedBeaconBlock<E>,
         current_sync_committee: Arc<SyncCommittee<E>>,
         current_sync_committee_branch: FixedVector<Hash256, CurrentSyncCommitteeProofLen>,
         chain_spec: &ChainSpec,
@@ -150,7 +150,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
 
     pub fn from_beacon_state(
         beacon_state: &mut BeaconState<E>,
-        block: &SignedBeaconBlock<E>,
+        block: &SignedBlindedBeaconBlock<E>,
         chain_spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let mut header = beacon_state.latest_block_header().clone();

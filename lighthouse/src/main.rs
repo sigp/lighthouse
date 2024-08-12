@@ -14,20 +14,20 @@ use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
-use lazy_static::lazy_static;
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info};
 use std::backtrace::Backtrace;
 use std::path::PathBuf;
 use std::process::exit;
+use std::sync::LazyLock;
 use task_executor::ShutdownReason;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
-lazy_static! {
-    pub static ref SHORT_VERSION: String = VERSION.replace("Lighthouse/", "");
-    pub static ref LONG_VERSION: String = format!(
+pub static SHORT_VERSION: LazyLock<String> = LazyLock::new(|| VERSION.replace("Lighthouse/", ""));
+pub static LONG_VERSION: LazyLock<String> = LazyLock::new(|| {
+    format!(
         "{}\n\
          BLS library: {}\n\
          BLS hardware acceleration: {}\n\
@@ -43,8 +43,8 @@ lazy_static! {
         build_profile_name(),
         cfg!(feature = "spec-minimal"),
         cfg!(feature = "gnosis"),
-    );
-}
+    )
+});
 
 fn bls_library_name() -> &'static str {
     if cfg!(feature = "portable") {

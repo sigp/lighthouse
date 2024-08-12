@@ -2,7 +2,8 @@ use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
 use crate::light_client_header::LightClientHeaderElectra;
 use crate::{
     beacon_state, test_utils::TestRandom, ChainSpec, Epoch, ForkName, ForkVersionDeserialize,
-    LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb, SignedBeaconBlock,
+    LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
+    SignedBlindedBeaconBlock,
 };
 use derivative::Derivative;
 use safe_arith::ArithError;
@@ -161,8 +162,8 @@ impl<E: EthSpec> LightClientUpdate<E> {
         next_sync_committee: Arc<SyncCommittee<E>>,
         next_sync_committee_branch: FixedVector<Hash256, NextSyncCommitteeProofLen>,
         finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
-        attested_block: &SignedBeaconBlock<E>,
-        finalized_block: Option<&SignedBeaconBlock<E>>,
+        attested_block: &SignedBlindedBeaconBlock<E>,
+        finalized_block: Option<&SignedBlindedBeaconBlock<E>>,
         chain_spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let light_client_update = match attested_block
@@ -349,7 +350,6 @@ impl<E: EthSpec> LightClientUpdate<E> {
         // Compare presence of relevant sync committee
         let new_has_relevant_sync_committee = new.is_sync_committee_update(chain_spec)?;
         let prev_has_relevant_sync_committee = self.is_sync_committee_update(chain_spec)?;
-
         if new_has_relevant_sync_committee != prev_has_relevant_sync_committee {
             return Ok(new_has_relevant_sync_committee);
         }
@@ -364,9 +364,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
         // Compare sync committee finality
         if new_has_finality {
             let new_has_sync_committee_finality = new.has_sync_committee_finality(chain_spec)?;
-
             let prev_has_sync_committee_finality = self.has_sync_committee_finality(chain_spec)?;
-
             if new_has_sync_committee_finality != prev_has_sync_committee_finality {
                 return Ok(new_has_sync_committee_finality);
             }
