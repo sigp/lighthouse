@@ -2796,7 +2796,13 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         let (block_root, block, blobs, data_columns) = available_blocks[0].clone().deconstruct();
         let mut corrupt_block = (*block).clone();
         *corrupt_block.signature_mut() = Signature::empty();
-        AvailableBlock::__new_for_testing(block_root, Arc::new(corrupt_block), blobs, data_columns)
+        AvailableBlock::__new_for_testing(
+            block_root,
+            Arc::new(corrupt_block),
+            blobs,
+            data_columns,
+            Arc::new(spec),
+        )
     };
 
     // Importing the invalid batch should error.
