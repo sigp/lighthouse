@@ -285,36 +285,43 @@ pub fn reconstruct_data_columns<E: EthSpec>(
 #[cfg(test)]
 mod test {
     use crate::kzg_utils::{blobs_to_data_column_sidecars, reconstruct_data_columns};
-    use crate::test_utils::KZG;
     use bls::Signature;
-    use kzg::KzgCommitment;
+    use eth2_network_config::TRUSTED_SETUP_BYTES;
+    use kzg::{Kzg, KzgCommitment, TrustedSetup};
     use types::{
         beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockDeneb, Blob, BlobsList,
         ChainSpec, EmptyBlock, EthSpec, MainnetEthSpec, SignedBeaconBlock,
     };
 
+    type E = MainnetEthSpec;
+
+    // Loading and initializing PeerDAS KZG is expensive and slow, so we group the tests together
+    // only load it once.
     #[test]
-    fn test_build_sidecars_empty() {
-        type E = MainnetEthSpec;
-        let num_of_blobs = 0;
+    fn test_build_data_columns_sidecars() {
         let spec = E::default_spec();
-        let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(num_of_blobs, &spec);
+        let kzg = get_kzg();
+        test_build_data_columns_empty(&kzg, &spec);
+        test_build_data_columns(&kzg, &spec);
+        test_reconstruct_data_columns(&kzg, &spec);
+    }
 
+    #[track_caller]
+    fn test_build_data_columns_empty(kzg: &Kzg, spec: &ChainSpec) {
+        let num_of_blobs = 0;
+        let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(num_of_blobs, spec);
         let column_sidecars =
-            blobs_to_data_column_sidecars(&blob_sidecars, &signed_block, &KZG, &spec).unwrap();
-
+            blobs_to_data_column_sidecars(&blob_sidecars, &signed_block, kzg, spec).unwrap();
         assert!(column_sidecars.is_empty());
     }
 
-    #[test]
-    fn test_build_sidecars() {
-        type E = MainnetEthSpec;
+    #[track_caller]
+    fn test_build_data_columns(kzg: &Kzg, spec: &ChainSpec) {
         let num_of_blobs = 6;
-        let spec = E::default_spec();
-        let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(num_of_blobs, &spec);
+        let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(num_of_blobs, spec);
 
         let column_sidecars =
-            blobs_to_data_column_sidecars(&blob_sidecars, &signed_block, &KZG, &spec).unwrap();
+            blobs_to_data_column_sidecars(&blob_sidecars, &signed_block, kzg, spec).unwrap();
 
         let block_kzg_commitments = signed_block
             .message()
@@ -345,27 +352,31 @@ mod test {
         }
     }
 
-    #[test]
-    fn build_and_reconstruct() {
-        type E = MainnetEthSpec;
+    #[track_caller]
+    fn test_reconstruct_data_columns(kzg: &Kzg, spec: &ChainSpec) {
         let num_of_blobs = 6;
-        let spec = E::default_spec();
-        let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(num_of_blobs, &spec);
-
+        let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(num_of_blobs, spec);
         let column_sidecars =
-            blobs_to_data_column_sidecars(&blob_sidecars, &signed_block, &KZG, &spec).unwrap();
+            blobs_to_data_column_sidecars(&blob_sidecars, &signed_block, kzg, spec).unwrap();
 
         // Now reconstruct
         let reconstructed_columns = reconstruct_data_columns(
-            &KZG,
+            kzg,
             &column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2],
-            &spec,
+            spec,
         )
         .unwrap();
 
         for i in 0..spec.number_of_columns {
             assert_eq!(reconstructed_columns.get(i), column_sidecars.get(i), "{i}");
         }
+    }
+
+    fn get_kzg() -> Kzg {
+        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+            .expect("should have trusted setup");
+        Kzg::new_from_trusted_setup_das_enabled(trusted_setup).expect("should create kzg")
     }
 
     fn create_test_block_and_blobs<E: EthSpec>(
