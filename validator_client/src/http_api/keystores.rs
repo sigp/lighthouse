@@ -240,12 +240,10 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
 ) -> Result<DeleteKeystoresResponse, Rejection> {
     let export_response = export(request, validator_store, task_executor, log.clone())?;
 
-    let num_deleted = export_response.data.len();
-
     info!(
         log,
         "Deleting keystores via standard HTTP API";
-        "count" => num_deleted,
+        "count" => export_response.data.len(),
     );
 
     Ok(DeleteKeystoresResponse {
