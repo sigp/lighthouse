@@ -1,9 +1,9 @@
 use super::types::{BeaconProcessMetrics, ValidatorProcessMetrics};
-use lazy_static::lazy_static;
 use lighthouse_metrics::{MetricFamily, MetricType};
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::LazyLock;
 
 /// Represents a metric that needs to be fetched from lighthouse metrics registry
 /// and sent to the remote monitoring service.
@@ -126,19 +126,20 @@ pub enum JsonType {
     Boolean,
 }
 
-lazy_static! {
-    /// HashMap representing the `BEACON_PROCESS_METRICS`.
-    pub static ref BEACON_METRICS_MAP: HashMap<String, JsonMetric> = BEACON_PROCESS_METRICS
+/// HashMap representing the `BEACON_PROCESS_METRICS`.
+pub static BEACON_METRICS_MAP: LazyLock<HashMap<String, JsonMetric>> = LazyLock::new(|| {
+    BEACON_PROCESS_METRICS
         .iter()
         .map(|metric| (metric.lighthouse_metric_name.to_string(), metric.clone()))
-        .collect();
-    /// HashMap representing the `VALIDATOR_PROCESS_METRICS`.
-    pub static ref VALIDATOR_METRICS_MAP: HashMap<String,JsonMetric> =
-        VALIDATOR_PROCESS_METRICS
+        .collect()
+});
+/// HashMap representing the `VALIDATOR_PROCESS_METRICS`.
+pub static VALIDATOR_METRICS_MAP: LazyLock<HashMap<String, JsonMetric>> = LazyLock::new(|| {
+    VALIDATOR_PROCESS_METRICS
         .iter()
         .map(|metric| (metric.lighthouse_metric_name.to_string(), metric.clone()))
-        .collect();
-}
+        .collect()
+});
 
 /// Returns the value from a Counter/Gauge `MetricType` assuming that it has no associated labels
 /// else it returns `None`.

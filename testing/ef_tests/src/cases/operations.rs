@@ -6,6 +6,9 @@ use serde::Deserialize;
 use ssz::Decode;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use state_processing::epoch_cache::initialize_epoch_cache;
+use state_processing::per_block_processing::process_operations::{
+    process_consolidations, process_deposit_requests, process_execution_layer_withdrawal_requests,
+};
 use state_processing::{
     per_block_processing::{
         errors::BlockProcessingError,
@@ -21,8 +24,9 @@ use state_processing::{
 use std::fmt::Debug;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
-    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconState, BlindedPayload, Deposit,
-    ExecutionPayload, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
+    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState,
+    BlindedPayload, Deposit, DepositRequest, ExecutionLayerWithdrawalRequest, ExecutionPayload,
+    FullPayload, ProposerSlashing, SignedBlsToExecutionChange, SignedConsolidation,
     SignedVoluntaryExit, SyncAggregate,
 };
 
@@ -303,6 +307,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
                 ForkName::Bellatrix => BeaconBlockBody::Bellatrix(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Capella => BeaconBlockBody::Capella(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Deneb => BeaconBlockBody::Deneb(<_>::from_ssz_bytes(bytes)?),
+                ForkName::Electra => BeaconBlockBody::Electra(<_>::from_ssz_bytes(bytes)?),
                 _ => panic!(),
             })
         })
@@ -353,6 +358,10 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
                 ForkName::Deneb => {
                     let inner = <BeaconBlockBodyDeneb<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
                     BeaconBlockBody::Deneb(inner.clone_as_blinded())
+                }
+                ForkName::Electra => {
+                    let inner = <BeaconBlockBodyElectra<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Electra(inner.clone_as_blinded())
                 }
                 _ => panic!(),
             })
@@ -433,6 +442,75 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         process_bls_to_execution_changes(state, &[self.clone()], VerifySignatures::True, spec)
+    }
+}
+
+impl<E: EthSpec> Operation<E> for ExecutionLayerWithdrawalRequest {
+    fn handler_name() -> String {
+        "execution_layer_withdrawal_request".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name.electra_enabled()
+    }
+
+    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _extra: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        process_execution_layer_withdrawal_requests(state, &[self.clone()], spec)
+    }
+}
+
+impl<E: EthSpec> Operation<E> for DepositRequest {
+    fn handler_name() -> String {
+        "deposit_request".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name.electra_enabled()
+    }
+
+    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _extra: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        process_deposit_requests(state, &[self.clone()], spec)
+    }
+}
+
+impl<E: EthSpec> Operation<E> for SignedConsolidation {
+    fn handler_name() -> String {
+        "consolidation".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name.electra_enabled()
+    }
+
+    fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file(path)
+    }
+
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _extra: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        process_consolidations(state, &[self.clone()], VerifySignatures::True, spec)
     }
 }
 

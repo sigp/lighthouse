@@ -2,7 +2,7 @@ use super::{EthSpec, ForkName, ForkVersionDeserialize, LightClientHeader, Slot, 
 use crate::test_utils::TestRandom;
 use crate::{
     light_client_update::*, ChainSpec, LightClientHeaderAltair, LightClientHeaderCapella,
-    LightClientHeaderDeneb, LightClientHeaderElectra, SignedBeaconBlock,
+    LightClientHeaderDeneb, LightClientHeaderElectra, SignedBlindedBeaconBlock,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -63,7 +63,7 @@ pub struct LightClientOptimisticUpdate<E: EthSpec> {
 
 impl<E: EthSpec> LightClientOptimisticUpdate<E> {
     pub fn new(
-        attested_block: &SignedBeaconBlock<E>,
+        attested_block: &SignedBlindedBeaconBlock<E>,
         sync_aggregate: SyncAggregate<E>,
         signature_slot: Slot,
         chain_spec: &ChainSpec,
@@ -177,6 +177,19 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             ForkName::Electra => <LightClientOptimisticUpdateElectra<E> as Encode>::ssz_fixed_len(),
         };
         fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+    }
+
+    // Implements spec prioritization rules:
+    // > Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest attested_header.beacon.slot (if multiple, highest signature_slot)
+    //
+    // ref: https://github.com/ethereum/consensus-specs/blob/113c58f9bf9c08867f6f5f633c4d98e0364d612a/specs/altair/light-client/full-node.md#create_light_client_optimistic_update
+    pub fn is_latest(&self, attested_slot: Slot, signature_slot: Slot) -> bool {
+        let prev_slot = self.get_slot();
+        if attested_slot > prev_slot {
+            true
+        } else {
+            attested_slot == prev_slot && signature_slot > *self.signature_slot()
+        }
     }
 }
 

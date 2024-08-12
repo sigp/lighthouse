@@ -4,7 +4,6 @@ use super::signature_sets::{Error as SignatureSetError, *};
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
 use crate::{ConsensusContext, ContextError};
 use bls::{verify_signature_sets, PublicKey, PublicKeyBytes, SignatureSet};
-use rayon::prelude::*;
 use std::borrow::Cow;
 use types::{
     AbstractExecPayload, BeaconState, BeaconStateError, ChainSpec, EthSpec, Hash256,
@@ -122,7 +121,7 @@ where
     /// are valid.
     ///
     /// * : _Does not verify any signatures in `block.body.deposits`. A block is still valid if it
-    /// contains invalid signatures on deposits._
+    ///   contains invalid signatures on deposits._
     ///
     /// See `Self::verify` for more detail.
     pub fn verify_entire_block<Payload: AbstractExecPayload<E>>(
@@ -171,6 +170,7 @@ where
         self.include_exits(block)?;
         self.include_sync_aggregate(block)?;
         self.include_bls_to_execution_changes(block)?;
+        self.include_consolidations(block)?;
 
         Ok(())
     }
@@ -359,6 +359,27 @@ where
         Ok(())
     }
 
+    /// Includes all signatures in `self.block.body.consolidations` for verification.
+    pub fn include_consolidations<Payload: AbstractExecPayload<E>>(
+        &mut self,
+        block: &'a SignedBeaconBlock<E, Payload>,
+    ) -> Result<()> {
+        if let Ok(consolidations) = block.message().body().consolidations() {
+            self.sets.sets.reserve(consolidations.len());
+            for consolidation in consolidations {
+                let set = consolidation_signature_set(
+                    self.state,
+                    self.get_pubkey.clone(),
+                    consolidation,
+                    self.spec,
+                )?;
+
+                self.sets.push(set);
+            }
+        }
+        Ok(())
+    }
+
     /// Verify all the signatures that have been included in `self`, returning `true` if and only if
     /// all the signatures are valid.
     ///
@@ -389,15 +410,10 @@ impl<'a> ParallelSignatureSets<'a> {
     /// It is not possible to know exactly _which_ signature is invalid here, just that
     /// _at least one_ was invalid.
     ///
-    /// Uses `rayon` to do a map-reduce of Vitalik's method across multiple cores.
+    /// Blst library spreads the signature verification work across multiple available cores, so
+    /// this function is already parallelized.
     #[must_use]
     pub fn verify(self) -> bool {
-        let num_sets = self.sets.len();
-        let num_chunks = std::cmp::max(1, num_sets / rayon::current_num_threads());
-        self.sets
-            .into_par_iter()
-            .chunks(num_chunks)
-            .map(|chunk| verify_signature_sets(chunk.iter()))
-            .reduce(|| true, |current, this| current && this)
+        verify_signature_sets(self.sets.iter())
     }
 }

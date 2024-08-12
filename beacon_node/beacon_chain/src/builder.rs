@@ -11,9 +11,9 @@ use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
 use crate::head_tracker::HeadTracker;
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
+use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
-use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
@@ -104,6 +104,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     kzg: Option<Arc<Kzg>>,
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
+    import_all_data_columns: bool,
 }
 
 impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
@@ -145,6 +146,7 @@ where
             kzg: None,
             task_executor: None,
             validator_monitor_config: None,
+            import_all_data_columns: false,
         }
     }
 
@@ -615,6 +617,12 @@ where
         self
     }
 
+    /// Sets whether to require and import all data columns when importing block.
+    pub fn import_all_data_columns(mut self, import_all_data_columns: bool) -> Self {
+        self.import_all_data_columns = import_all_data_columns;
+        self
+    }
+
     /// Sets the `BeaconChain` event handler backend.
     ///
     /// For example, provide `ServerSentEventHandler` as a `handler`.
@@ -918,7 +926,8 @@ where
             observed_sync_aggregators: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
-            observed_blob_sidecars: <_>::default(),
+            observed_column_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
+            observed_blob_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
             observed_slashable: <_>::default(),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
@@ -935,16 +944,16 @@ where
             fork_choice_signal_rx,
             event_handler: self.event_handler,
             head_tracker,
-            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
+            shuffling_cache: RwLock::new(ShufflingCache::new(
                 shuffling_cache_size,
                 head_shuffling_ids,
                 log.clone(),
             )),
-            eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
+            eth1_finalization_cache: RwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache,
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
-            validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
+            validator_pubkey_cache: RwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
             reqresp_pre_import_cache: <_>::default(),
@@ -964,8 +973,15 @@ where
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
             data_availability_checker: Arc::new(
-                DataAvailabilityChecker::new(slot_clock, self.kzg.clone(), store, &log, self.spec)
-                    .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
+                DataAvailabilityChecker::new(
+                    slot_clock,
+                    self.kzg.clone(),
+                    store,
+                    self.import_all_data_columns,
+                    &log,
+                    self.spec,
+                )
+                .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
         };
@@ -1195,7 +1211,7 @@ mod test {
 
         let head = chain.head_snapshot();
 
-        let state = &head.beacon_state;
+        let mut state = head.beacon_state.clone();
         let block = &head.beacon_block;
 
         assert_eq!(state.slot(), Slot::new(0), "should start from genesis");
@@ -1206,7 +1222,7 @@ mod test {
         );
         assert_eq!(
             block.state_root(),
-            state.canonical_root(),
+            state.canonical_root().unwrap(),
             "block should have correct state root"
         );
         assert_eq!(

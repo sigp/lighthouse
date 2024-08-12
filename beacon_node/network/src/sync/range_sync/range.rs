@@ -22,7 +22,7 @@
 //!  - Only one finalized chain can sync at a time
 //!  - The finalized chain with the largest peer pool takes priority.
 //!  - As one finalized chain completes, others are checked to see if we they can be continued,
-//!  otherwise they are removed.
+//!    otherwise they are removed.
 //!
 //!  ## Head Chain Sync
 //!
@@ -43,13 +43,14 @@ use super::block_storage::BlockStorage;
 use super::chain::{BatchId, ChainId, RemoveChain, SyncingChain};
 use super::chain_collection::ChainCollection;
 use super::sync_type::RangeSyncType;
+use crate::metrics;
 use crate::status::ToStatusMessage;
-use crate::sync::manager::Id;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::BatchProcessResult;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::GoodbyeReason;
+use lighthouse_network::service::api_types::Id;
 use lighthouse_network::PeerId;
 use lighthouse_network::SyncInfo;
 use lru_cache::LRUTimeCache;
@@ -210,11 +211,11 @@ where
         chain_id: ChainId,
         batch_id: BatchId,
         request_id: Id,
-        beacon_block: Option<RpcBlock<T::EthSpec>>,
+        blocks: Vec<RpcBlock<T::EthSpec>>,
     ) {
         // check if this chunk removes the chain
         match self.chains.call_by_id(chain_id, |chain| {
-            chain.on_block_response(network, batch_id, &peer_id, request_id, beacon_block)
+            chain.on_block_response(network, batch_id, &peer_id, request_id, blocks)
         }) {
             Ok((removed_chain, sync_type)) => {
                 if let Some((removed_chain, remove_reason)) = removed_chain {
@@ -278,8 +279,9 @@ where
     /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
     /// retries. In this case, we need to remove the chain.
     fn remove_peer(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId) {
-        for (removed_chain, sync_type, remove_reason) in
-            self.chains.call_all(|chain| chain.remove_peer(peer_id))
+        for (removed_chain, sync_type, remove_reason) in self
+            .chains
+            .call_all(|chain| chain.remove_peer(peer_id, network))
         {
             self.on_chain_removed(
                 removed_chain,
@@ -345,6 +347,12 @@ where
             }
         }
 
+        metrics::inc_counter_vec_by(
+            &metrics::SYNCING_CHAINS_DROPPED_BLOCKS,
+            &[sync_type.as_str()],
+            chain.pending_blocks() as u64,
+        );
+
         network.status_peers(self.beacon_chain.as_ref(), chain.peers());
 
         let status = self.beacon_chain.status_message();
@@ -379,7 +387,6 @@ where
 #[cfg(test)]
 mod tests {
     use crate::network_beacon_processor::NetworkBeaconProcessor;
-    use crate::service::RequestId;
     use crate::NetworkMessage;
 
     use super::*;
@@ -390,7 +397,10 @@ mod tests {
     use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
     use beacon_chain::EngineState;
     use beacon_processor::WorkEvent as BeaconWorkEvent;
-    use lighthouse_network::{rpc::StatusMessage, NetworkGlobals};
+    use lighthouse_network::service::api_types::SyncRequestId;
+    use lighthouse_network::{
+        rpc::StatusMessage, service::api_types::AppRequestId, NetworkGlobals,
+    };
     use slog::{o, Drain};
     use slot_clock::TestingSlotClock;
     use std::collections::HashSet;
@@ -516,7 +526,7 @@ mod tests {
             &mut self,
             expected_peer: &PeerId,
             fork_name: ForkName,
-        ) -> (RequestId, Option<RequestId>) {
+        ) -> (AppRequestId, Option<AppRequestId>) {
             let block_req_id = if let Ok(NetworkMessage::SendRequest {
                 peer_id,
                 request: _,
@@ -548,12 +558,12 @@ mod tests {
 
         fn complete_range_block_and_blobs_response(
             &mut self,
-            block_req: RequestId,
-            blob_req_opt: Option<RequestId>,
+            block_req: AppRequestId,
+            blob_req_opt: Option<AppRequestId>,
         ) -> (ChainId, BatchId, Id) {
             if blob_req_opt.is_some() {
                 match block_req {
-                    RequestId::Sync(crate::sync::manager::RequestId::RangeBlockAndBlobs { id }) => {
+                    AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }) => {
                         let _ = self
                             .cx
                             .range_block_and_blob_response(id, BlockOrBlob::Block(None));
@@ -569,7 +579,7 @@ mod tests {
                 }
             } else {
                 match block_req {
-                    RequestId::Sync(crate::sync::manager::RequestId::RangeBlockAndBlobs { id }) => {
+                    AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }) => {
                         let response = self
                             .cx
                             .range_block_and_blob_response(id, BlockOrBlob::Block(None))
@@ -794,7 +804,7 @@ mod tests {
         rig.cx.update_execution_engine_state(EngineState::Offline);
 
         // send the response to the request
-        range.blocks_by_range_response(&mut rig.cx, peer1, chain1, batch1, id1, None);
+        range.blocks_by_range_response(&mut rig.cx, peer1, chain1, batch1, id1, vec![]);
 
         // the beacon processor shouldn't have received any work
         rig.expect_empty_processor();
@@ -808,7 +818,7 @@ mod tests {
             rig.complete_range_block_and_blobs_response(block_req, blob_req_opt);
 
         // send the response to the request
-        range.blocks_by_range_response(&mut rig.cx, peer2, chain2, batch2, id2, None);
+        range.blocks_by_range_response(&mut rig.cx, peer2, chain2, batch2, id2, vec![]);
 
         // the beacon processor shouldn't have received any work
         rig.expect_empty_processor();

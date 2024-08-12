@@ -46,8 +46,6 @@ Options:
       --builder-header-timeout <MILLISECONDS>
           Defines a timeout value (in milliseconds) to use when fetching a block
           header from the builder API. [default: 1000]
-      --builder-profit-threshold <WEI_VALUE>
-          This flag is deprecated and has no effect.
       --builder-user-agent <STRING>
           The HTTP user agent to send alongside requests to the builder URL. The
           default is Lighthouse's version string.
@@ -241,7 +239,7 @@ Options:
           [possible values: DEFAULT, JSON]
       --logfile-max-number <COUNT>
           The maximum number of log files that will be stored. If set to 0,
-          background file logging is disabled. [default: 5]
+          background file logging is disabled. [default: 10]
       --logfile-max-size <SIZE>
           The maximum size (in MB) each log file can grow to before rotating. If
           set to 0, background file logging is disabled. [default: 200]
@@ -482,9 +480,7 @@ Flags:
       --disable-inbound-rate-limiter
           Disables the inbound rate limiter (requests received by this node).
       --disable-lock-timeouts
-          Disable the timeouts applied to some internal locks by default. This
-          can lead to less spurious failures on slow hardware but is considered
-          experimental as it may obscure performance issues.
+          This flag is deprecated and has no effect.
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning
@@ -505,6 +501,8 @@ Flags:
       --disable-quic
           Disables the quic transport. The node will rely solely on the TCP
           transport for libp2p connections.
+      --disable-self-limiter
+          Disables the outbound rate limiter (requests sent by this node).
       --disable-upnp
           Disables UPnP support. Setting this will prevent Lighthouse from
           attempting to automatically establish external port mappings.
@@ -575,12 +573,6 @@ Flags:
           When present, Lighthouse will forget the payload statuses of any
           already-imported blocks. This can assist in the recovery from a
           consensus failure caused by the execution layer.
-      --self-limiter
-          Enables the outbound rate limiter (requests made by this node). Use
-          the self-limiter-protocol flag to set per protocol configurations. If
-          the self rate limiter is enabled and a protocol is not present in the
-          configuration, the quotas used for the inbound rate limiter will be
-          used.
       --shutdown-after-sync
           Shutdown beacon node as soon as sync is completed. Backfill sync will
           not be performed before shutdown.

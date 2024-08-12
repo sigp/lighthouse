@@ -14,11 +14,11 @@ use beacon_chain::{
 };
 use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
-use lazy_static::lazy_static;
 use ssz_types::BitVector;
 use state_processing::{
     per_block_processing::errors::AttestationValidationError, per_slot_processing,
 };
+use std::sync::LazyLock;
 use tree_hash::TreeHash;
 use types::{
     signed_aggregate_and_proof::SignedAggregateAndProofRefMut,
@@ -36,10 +36,9 @@ pub const VALIDATOR_COUNT: usize = 256;
 
 pub const CAPELLA_FORK_EPOCH: usize = 1;
 
-lazy_static! {
-    /// A cached set of keys.
-    static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
-}
+/// A cached set of keys.
+static KEYPAIRS: LazyLock<Vec<Keypair>> =
+    LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 /// Returns a beacon chain harness.
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {

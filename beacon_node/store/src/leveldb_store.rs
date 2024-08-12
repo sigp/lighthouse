@@ -59,16 +59,13 @@ impl<E: EthSpec> LevelDB<E> {
     ) -> Result<(), Error> {
         let column_key = get_key_for_col(col, key);
 
-        metrics::inc_counter(&metrics::DISK_DB_WRITE_COUNT);
-        metrics::inc_counter_by(&metrics::DISK_DB_WRITE_BYTES, val.len() as u64);
-        let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
+        metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[col]);
+        metrics::inc_counter_vec_by(&metrics::DISK_DB_WRITE_BYTES, &[col], val.len() as u64);
+        let _timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
 
         self.db
             .put(opts, BytesKey::from_vec(column_key), val)
             .map_err(Into::into)
-            .map(|()| {
-                metrics::stop_timer(timer);
-            })
     }
 
     pub fn keys_iter(&self) -> KeyIterator<BytesKey> {
@@ -94,7 +91,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
     fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let column_key = get_key_for_col(col, key);
 
-        metrics::inc_counter(&metrics::DISK_DB_READ_COUNT);
+        metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[col]);
         let timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
 
         self.db
@@ -102,7 +99,11 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
             .map_err(Into::into)
             .map(|opt| {
                 opt.map(|bytes| {
-                    metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, bytes.len() as u64);
+                    metrics::inc_counter_vec_by(
+                        &metrics::DISK_DB_READ_BYTES,
+                        &[col],
+                        bytes.len() as u64,
+                    );
                     metrics::stop_timer(timer);
                     bytes
                 })
@@ -113,7 +114,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
     fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error> {
         let column_key = get_key_for_col(col, key);
 
-        metrics::inc_counter(&metrics::DISK_DB_EXISTS_COUNT);
+        metrics::inc_counter_vec(&metrics::DISK_DB_EXISTS_COUNT, &[col]);
 
         self.db
             .get(self.read_options(), BytesKey::from_vec(column_key))
@@ -125,7 +126,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
     fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error> {
         let column_key = get_key_for_col(col, key);
 
-        metrics::inc_counter(&metrics::DISK_DB_DELETE_COUNT);
+        metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[col]);
 
         self.db
             .delete(self.write_options(), BytesKey::from_vec(column_key))
@@ -137,14 +138,28 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         for op in ops_batch {
             match op {
                 KeyValueStoreOp::PutKeyValue(key, value) => {
+                    let col = get_col_from_key(&key).unwrap_or("unknown".to_owned());
+                    metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[&col]);
+                    metrics::inc_counter_vec_by(
+                        &metrics::DISK_DB_WRITE_BYTES,
+                        &[&col],
+                        value.len() as u64,
+                    );
+
                     leveldb_batch.put(BytesKey::from_vec(key), &value);
                 }
 
                 KeyValueStoreOp::DeleteKey(key) => {
+                    let col = get_col_from_key(&key).unwrap_or("unknown".to_owned());
+                    metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[&col]);
+
                     leveldb_batch.delete(BytesKey::from_vec(key));
                 }
             }
         }
+
+        let _timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
+
         self.db.write(self.write_options(), &leveldb_batch)?;
         Ok(())
     }
@@ -167,7 +182,6 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
 
     fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
         let start_key = BytesKey::from_vec(get_key_for_col(column.into(), from));
-
         let iter = self.db.iter(self.read_options());
         iter.seek(&start_key);
 
@@ -255,6 +269,10 @@ impl db_key::Key for BytesKey {
 }
 
 impl BytesKey {
+    pub fn starts_with(&self, prefix: &Self) -> bool {
+        self.key.starts_with(&prefix.key)
+    }
+
     /// Return `true` iff this `BytesKey` was created with the given `column`.
     pub fn matches_column(&self, column: DBColumn) -> bool {
         self.key.starts_with(column.as_bytes())

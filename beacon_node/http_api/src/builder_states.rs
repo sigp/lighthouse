@@ -33,7 +33,7 @@ pub fn get_next_withdrawals<T: BeaconChainTypes>(
     }
 
     match get_expected_withdrawals(&state, &chain.spec) {
-        Ok(withdrawals) => Ok(withdrawals),
+        Ok((withdrawals, _)) => Ok(withdrawals),
         Err(e) => Err(warp_utils::reject::custom_server_error(format!(
             "failed to get expected withdrawal: {:?}",
             e
