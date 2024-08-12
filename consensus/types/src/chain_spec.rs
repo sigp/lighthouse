@@ -426,10 +426,10 @@ impl ChainSpec {
         })
     }
 
-    /// Returns true if PeerDAS epoch is scheduled for some epoch less than `FAR_FUTURE_EPOCH`.
-    pub fn peerdas_scheduled(&self) -> bool {
+    /// Returns true if `EIP7594_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    pub fn is_peer_das_scheduled(&self) -> bool {
         self.eip7594_fork_epoch.map_or(false, |eip7594_fork_epoch| {
-            eip7594_fork_epoch <= Epoch::max_value()
+            eip7594_fork_epoch != self.far_future_epoch
         })
     }
 

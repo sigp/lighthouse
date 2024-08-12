@@ -149,6 +149,15 @@ impl<E: EthSpec> LightClientHeaderAltair<E> {
     }
 }
 
+impl<E: EthSpec> Default for LightClientHeaderAltair<E> {
+    fn default() -> Self {
+        Self {
+            beacon: BeaconBlockHeader::empty(),
+            _phantom_data: PhantomData,
+        }
+    }
+}
+
 impl<E: EthSpec> LightClientHeaderCapella<E> {
     pub fn block_to_light_client_header(
         block: &SignedBlindedBeaconBlock<E>,
@@ -177,6 +186,17 @@ impl<E: EthSpec> LightClientHeaderCapella<E> {
             execution_branch: FixedVector::new(execution_branch)?,
             _phantom_data: PhantomData,
         });
+    }
+}
+
+impl<E: EthSpec> Default for LightClientHeaderCapella<E> {
+    fn default() -> Self {
+        Self {
+            beacon: BeaconBlockHeader::empty(),
+            execution: ExecutionPayloadHeaderCapella::default(),
+            execution_branch: FixedVector::default(),
+            _phantom_data: PhantomData,
+        }
     }
 }
 
@@ -211,6 +231,17 @@ impl<E: EthSpec> LightClientHeaderDeneb<E> {
     }
 }
 
+impl<E: EthSpec> Default for LightClientHeaderDeneb<E> {
+    fn default() -> Self {
+        Self {
+            beacon: BeaconBlockHeader::empty(),
+            execution: ExecutionPayloadHeaderDeneb::default(),
+            execution_branch: FixedVector::default(),
+            _phantom_data: PhantomData,
+        }
+    }
+}
+
 impl<E: EthSpec> LightClientHeaderElectra<E> {
     pub fn block_to_light_client_header(
         block: &SignedBlindedBeaconBlock<E>,
@@ -239,6 +270,17 @@ impl<E: EthSpec> LightClientHeaderElectra<E> {
             execution_branch: FixedVector::new(execution_branch)?,
             _phantom_data: PhantomData,
         })
+    }
+}
+
+impl<E: EthSpec> Default for LightClientHeaderElectra<E> {
+    fn default() -> Self {
+        Self {
+            beacon: BeaconBlockHeader::empty(),
+            execution: ExecutionPayloadHeaderElectra::default(),
+            execution_branch: FixedVector::default(),
+            _phantom_data: PhantomData,
+        }
     }
 }
 
