@@ -94,7 +94,6 @@ pub async fn run<'a>(config: RemoveConfig) -> Result<(), String> {
         .iter()
         .any(|validator| validator.validating_pubkey == validator_to_remove)
     {
-        eprintln!("Validator {} doesn't exists", validator_to_remove);
         return Err(format!("Validator {} doesn't exists", validator_to_remove));
     }
 
