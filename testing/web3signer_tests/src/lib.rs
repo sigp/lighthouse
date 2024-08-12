@@ -26,6 +26,7 @@ mod tests {
     use parking_lot::Mutex;
     use reqwest::Client;
     use serde::Serialize;
+    use slashing_protection::NotSafe;
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::env;
     use std::fmt::Debug;
@@ -521,7 +522,7 @@ mod tests {
         ) -> Self
         where
             F: Fn(PublicKeyBytes, Arc<ValidatorStore<TestingSlotClock, E>>) -> R,
-            R: Future<Output = Result<(), ()>>,
+            R: Future<Output = Result<(), ValidatorStoreError>>,
         {
             for validator_rig in &self.validator_rigs {
                 let result =
@@ -862,7 +863,8 @@ mod tests {
                     .unwrap();
 
                 if !slashable_message_should_sign && safe_attestations.len() > 0 {
-                    return Err(());
+                    // return a validator store error to get the test to pass
+                    return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
                 }
 
                 Ok(())
@@ -896,7 +898,8 @@ mod tests {
                     .unwrap();
 
                 if !slashable_message_should_sign && safe_attestations.len() > 0 {
-                    return Err(());
+                    // return a validator store error to get the test to pass
+                    return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
                 }
 
                 Ok(())
@@ -930,7 +933,8 @@ mod tests {
                     .unwrap();
 
                 if !slashable_message_should_sign && safe_attestations.len() > 0 {
-                    return Err(());
+                    // return a validator store error to get the test to pass
+                    return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
                 }
 
                 Ok(())
@@ -956,7 +960,6 @@ mod tests {
                     .sign_block(pubkey, block, slot)
                     .await
                     .map(|_| ())
-                    .map_err(|_| ())
             },
             slashable_message_should_sign,
         )
