@@ -95,11 +95,16 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         slot_clock: T::SlotClock,
         kzg: Option<Arc<Kzg>>,
         store: BeaconStore<T>,
+        import_all_data_columns: bool,
         log: &Logger,
         spec: ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
-        // TODO(das): support supernode or custom custody requirement
-        let custody_subnet_count = spec.custody_requirement as usize;
+        let custody_subnet_count = if import_all_data_columns {
+            spec.data_column_sidecar_subnet_count as usize
+        } else {
+            spec.custody_requirement as usize
+        };
+
         let custody_column_count =
             custody_subnet_count.saturating_mul(spec.data_columns_per_subnet());
 
@@ -112,8 +117,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         Ok(Self {
             availability_cache: Arc::new(overflow_cache),
             slot_clock,
-            log: log.clone(),
             kzg,
+            log: log.clone(),
             spec,
         })
     }
