@@ -61,8 +61,10 @@ pub fn cli_app() -> Command {
                 .help_heading(FLAG_HEADER)
                 .help("Subscribe to all data column subnets and participate in data custody for \
                         all columns. This will also advertise the beacon node as being long-lived \
-                        subscribed to all data column subnets.")
+                        subscribed to all data column subnets. \
+                        NOTE: this is an experimental flag and may change any time without notice!")
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             // TODO(das): remove this before release

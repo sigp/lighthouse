@@ -94,6 +94,7 @@ use operation_pool::{
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DoNotReOrg, ProposerHeadError};
 use safe_arith::SafeArith;
+use slasher::test_utils::E;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -1425,10 +1426,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), Error> {
         self.light_client_server_cache.recompute_and_cache_updates(
             self.store.clone(),
-            &parent_root,
             slot,
+            &parent_root,
             &sync_aggregate,
             &self.log,
+            &self.spec,
+        )
+    }
+
+    pub fn get_light_client_updates(
+        &self,
+        sync_committee_period: u64,
+        count: u64,
+    ) -> Result<Vec<LightClientUpdate<T::EthSpec>>, Error> {
+        self.light_client_server_cache.get_light_client_updates(
+            &self.store,
+            sync_committee_period,
+            count,
             &self.spec,
         )
     }
@@ -3056,9 +3070,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ),
         BlockError<T::EthSpec>,
     > {
-        let Ok(block_root) = data_columns
+        let Ok((slot, block_root)) = data_columns
             .iter()
-            .map(|c| c.block_root())
+            .map(|c| (c.slot(), c.block_root()))
             .unique()
             .exactly_one()
         else {
@@ -3078,7 +3092,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let r = self
-            .check_gossip_data_columns_availability_and_import(data_columns)
+            .check_gossip_data_columns_availability_and_import(slot, block_root, data_columns)
             .await;
         self.remove_notified_custody_columns(&block_root, r)
     }
@@ -3434,6 +3448,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// if so, otherwise caches the data column in the data availability checker.
     async fn check_gossip_data_columns_availability_and_import(
         self: &Arc<Self>,
+        slot: Slot,
+        block_root: Hash256,
         data_columns: Vec<GossipVerifiedDataColumn<T>>,
     ) -> Result<
         (
@@ -3448,15 +3464,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        let Ok(slot) = data_columns.iter().map(|c| c.slot()).unique().exactly_one() else {
-            return Err(BlockError::InternalError(
-                "Columns for the same block should have matching slot".to_string(),
-            ));
-        };
-
         let (availability, data_columns_to_publish) = self
             .data_availability_checker
-            .put_gossip_data_columns(data_columns)?;
+            .put_gossip_data_columns(slot, block_root, data_columns)?;
 
         self.process_availability(slot, availability)
             .await
@@ -3539,9 +3549,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
         }
+        let epoch = slot.epoch(E::slots_per_epoch());
         let (availability, data_columns_to_publish) = self
             .data_availability_checker
-            .put_rpc_custody_columns(block_root, custody_columns)?;
+            .put_rpc_custody_columns(block_root, epoch, custody_columns)?;
 
         self.process_availability(slot, availability)
             .await
@@ -6978,12 +6989,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<(LightClientBootstrap<T::EthSpec>, ForkName)>, Error> {
-        let handle = self
-            .task_executor
-            .handle()
-            .ok_or(BeaconChainError::RuntimeShutdown)?;
-
-        let Some(block) = handle.block_on(async { self.get_block(block_root).await })? else {
+        let Some(block) = self.get_blinded_block(block_root)? else {
             return Ok(None);
         };
 

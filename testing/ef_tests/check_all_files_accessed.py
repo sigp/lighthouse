@@ -30,7 +30,9 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/Eth1Block/",
     "tests/.*/.*/ssz_static/PowBlock/",
     # light_client
-    "tests/.*/.*/light_client",
+    # "tests/.*/.*/light_client",
+    "tests/.*/.*/light_client/single_merkle_proof",
+    "tests/.*/.*/light_client/sync",
     # LightClientStore
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientSnapshot

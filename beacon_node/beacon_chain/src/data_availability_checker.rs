@@ -16,7 +16,7 @@ use task_executor::TaskExecutor;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarVec, Epoch, EthSpec, Hash256,
-    RuntimeVariableList, SignedBeaconBlock,
+    RuntimeVariableList, SignedBeaconBlock, Slot,
 };
 
 mod error;
@@ -208,6 +208,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn put_rpc_custody_columns(
         &self,
         block_root: Hash256,
+        epoch: Epoch,
         custody_columns: Vec<CustodyDataColumn<T::EthSpec>>,
     ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
     {
@@ -225,6 +226,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.availability_cache.put_kzg_verified_data_columns(
             kzg,
             block_root,
+            epoch,
             verified_custody_columns,
         )
     }
@@ -253,24 +255,27 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     #[allow(clippy::type_complexity)]
     pub fn put_gossip_data_columns(
         &self,
+        slot: Slot,
+        block_root: Hash256,
         gossip_data_columns: Vec<GossipVerifiedDataColumn<T>>,
     ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
     {
         let Some(kzg) = self.kzg.as_ref() else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
         };
-        let block_root = gossip_data_columns
-            .first()
-            .ok_or(AvailabilityCheckError::MissingCustodyColumns)?
-            .block_root();
+        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
 
         let custody_columns = gossip_data_columns
             .into_iter()
             .map(|c| KzgVerifiedCustodyDataColumn::from_asserted_custody(c.into_inner()))
             .collect::<Vec<_>>();
 
-        self.availability_cache
-            .put_kzg_verified_data_columns(kzg, block_root, custody_columns)
+        self.availability_cache.put_kzg_verified_data_columns(
+            kzg,
+            block_root,
+            epoch,
+            custody_columns,
+        )
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
@@ -430,10 +435,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         block_root,
                         block,
                         blobs: None,
-                        blobs_available_timestamp: None,
                         data_columns: data_columns.map(|data_columns| {
                             data_columns.into_iter().map(|d| d.into_inner()).collect()
                         }),
+                        blobs_available_timestamp: None,
                         spec: self.spec.clone(),
                     })
                 } else {
@@ -444,8 +449,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     block_root,
                     block,
                     blobs: None,
-                    blobs_available_timestamp: None,
                     data_columns: None,
+                    blobs_available_timestamp: None,
                     spec: self.spec.clone(),
                 })
             };
@@ -613,9 +618,9 @@ pub struct AvailableBlock<E: EthSpec> {
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<E>>,
     blobs: Option<BlobSidecarList<E>>,
+    data_columns: Option<DataColumnSidecarVec<E>>,
     /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
     blobs_available_timestamp: Option<Duration>,
-    data_columns: Option<DataColumnSidecarVec<E>>,
     pub spec: Arc<ChainSpec>,
 }
 
@@ -631,8 +636,8 @@ impl<E: EthSpec> AvailableBlock<E> {
             block_root,
             block,
             blobs,
-            blobs_available_timestamp: None,
             data_columns,
+            blobs_available_timestamp: None,
             spec,
         }
     }
@@ -670,8 +675,8 @@ impl<E: EthSpec> AvailableBlock<E> {
             block_root,
             block,
             blobs,
-            blobs_available_timestamp: _,
             data_columns,
+            blobs_available_timestamp: _,
             ..
         } = self;
         (block_root, block, blobs, data_columns)
