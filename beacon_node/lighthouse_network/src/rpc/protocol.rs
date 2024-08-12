@@ -401,7 +401,7 @@ impl SupportedProtocol {
                 ProtocolId::new(SupportedProtocol::BlobsByRangeV1, Encoding::SSZSnappy),
             ]);
         }
-        if fork_context.spec.peerdas_scheduled() {
+        if fork_context.spec.is_peer_das_scheduled() {
             supported.extend_from_slice(&[
                 ProtocolId::new(SupportedProtocol::DataColumnsByRootV1, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::DataColumnsByRangeV1, Encoding::SSZSnappy),

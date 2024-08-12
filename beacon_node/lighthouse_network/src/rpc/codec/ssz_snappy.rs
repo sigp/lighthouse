@@ -423,6 +423,8 @@ fn context_bytes<E: EthSpec>(
                 | RPCResponse::BlobsByRoot(_)
                 | RPCResponse::DataColumnsByRoot(_)
                 | RPCResponse::DataColumnsByRange(_) => {
+                    // TODO(das): If DataColumnSidecar is defined as an Electra type, update the
+                    // context bytes to point to ForkName::Electra
                     return fork_context.to_context_bytes(ForkName::Deneb);
                 }
                 RPCResponse::LightClientBootstrap(lc_bootstrap) => {
