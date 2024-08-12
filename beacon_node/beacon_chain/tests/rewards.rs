@@ -1,6 +1,7 @@
 #![cfg(test)]
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use beacon_chain::test_utils::{
     generate_deterministic_keypairs, BeaconChainHarness, EphemeralHarnessType,
@@ -12,7 +13,6 @@ use beacon_chain::{
 use eth2::lighthouse::attestation_rewards::TotalAttestationRewards;
 use eth2::lighthouse::StandardAttestationRewards;
 use eth2::types::ValidatorId;
-use lazy_static::lazy_static;
 use types::beacon_state::Error as BeaconStateError;
 use types::{BeaconState, ChainSpec, ForkName, Slot};
 
@@ -20,9 +20,8 @@ pub const VALIDATOR_COUNT: usize = 64;
 
 type E = MinimalEthSpec;
 
-lazy_static! {
-    static ref KEYPAIRS: Vec<Keypair> = generate_deterministic_keypairs(VALIDATOR_COUNT);
-}
+static KEYPAIRS: LazyLock<Vec<Keypair>> =
+    LazyLock::new(|| generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 fn get_harness(spec: ChainSpec) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::builder(E::default())

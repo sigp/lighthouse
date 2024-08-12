@@ -170,10 +170,7 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("produce-block-v3")
                 .long("produce-block-v3")
-                .help("Enable block production via the block v3 endpoint for this validator client. \
-                       This should only be enabled when paired with a beacon node \
-                       that has this endpoint implemented. This flag will be enabled by default in \
-                       future.")
+                .help("This flag is deprecated and is no longer in use.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
@@ -405,6 +402,15 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
+        )
+        .arg(
+            Arg::new("latency-measurement-service")
+                .long("latency-measurement-service")
+                .help("DEPRECATED")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("validator-registration-batch-size")

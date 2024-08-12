@@ -25,7 +25,6 @@ types = { workspace = true }
 state_processing = { workspace = true }
 slog = { workspace = true }
 serde = { workspace = true }
-lazy_static = { workspace = true }
 lighthouse_metrics = { workspace = true }
 lru = { workspace = true }
 sloggers = { workspace = true }

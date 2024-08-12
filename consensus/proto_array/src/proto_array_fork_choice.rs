@@ -896,7 +896,7 @@ impl ProtoArrayForkChoice {
 ///
 /// - If a value in `indices` is greater to or equal to `indices.len()`.
 /// - If some `Hash256` in `votes` is not a key in `indices` (except for `Hash256::zero()`, this is
-/// always valid).
+///   always valid).
 fn compute_deltas(
     indices: &HashMap<Hash256, usize>,
     votes: &mut ElasticList<VoteTracker>,
@@ -995,7 +995,7 @@ mod test_compute_deltas {
     use super::*;
     use types::MainnetEthSpec;
 
-    /// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
+    /// Gives a hash that is not the zero hash (unless i is `usize::MAX)`.
     fn hash_from_index(i: usize) -> Hash256 {
         Hash256::from_low_u64_be(i as u64 + 1)
     }

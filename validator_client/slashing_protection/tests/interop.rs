@@ -1,11 +1,9 @@
-use lazy_static::lazy_static;
 use slashing_protection::interchange_test::MultiTestCase;
 use std::fs::File;
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
-lazy_static! {
-    pub static ref TEST_ROOT_DIR: PathBuf = test_root_dir();
-}
+pub static TEST_ROOT_DIR: LazyLock<PathBuf> = LazyLock::new(test_root_dir);
 
 fn download_tests() {
     let make_output = std::process::Command::new("make")

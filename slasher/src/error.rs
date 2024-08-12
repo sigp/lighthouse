@@ -8,11 +8,14 @@ pub enum Error {
     DatabaseMdbxError(mdbx::Error),
     #[cfg(feature = "lmdb")]
     DatabaseLmdbError(lmdb::Error),
+    #[cfg(feature = "redb")]
+    DatabaseRedbError(redb::Error),
     SlasherDatabaseBackendDisabled,
     MismatchedDatabaseVariant,
     DatabaseIOError(io::Error),
     DatabasePermissionsError(filesystem::Error),
     SszDecodeError(ssz::DecodeError),
+    SszTypesError(ssz_types::Error),
     BincodeError(bincode::Error),
     ArithError(safe_arith::ArithError),
     ChunkIndexOutOfBounds(usize),
@@ -66,6 +69,7 @@ pub enum Error {
     MissingIndexedAttestationId,
     MissingIndexedAttestationIdKey,
     InconsistentAttestationDataRoot,
+    MissingKey,
 }
 
 #[cfg(feature = "mdbx")]
@@ -88,6 +92,41 @@ impl From<lmdb::Error> for Error {
     }
 }
 
+#[cfg(feature = "redb")]
+impl From<redb::TableError> for Error {
+    fn from(e: redb::TableError) -> Self {
+        Error::DatabaseRedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::TransactionError> for Error {
+    fn from(e: redb::TransactionError) -> Self {
+        Error::DatabaseRedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::DatabaseError> for Error {
+    fn from(e: redb::DatabaseError) -> Self {
+        Error::DatabaseRedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::StorageError> for Error {
+    fn from(e: redb::StorageError) -> Self {
+        Error::DatabaseRedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::CommitError> for Error {
+    fn from(e: redb::CommitError) -> Self {
+        Error::DatabaseRedbError(e.into())
+    }
+}
+
 impl From<io::Error> for Error {
     fn from(e: io::Error) -> Self {
         Error::DatabaseIOError(e)
@@ -97,6 +136,12 @@ impl From<io::Error> for Error {
 impl From<ssz::DecodeError> for Error {
     fn from(e: ssz::DecodeError) -> Self {
         Error::SszDecodeError(e)
+    }
+}
+
+impl From<ssz_types::Error> for Error {
+    fn from(e: ssz_types::Error) -> Self {
+        Error::SszTypesError(e)
     }
 }
 

@@ -1,7 +1,8 @@
 use crate::{
     light_client_update::*, test_utils::TestRandom, BeaconState, ChainSpec, EthSpec, FixedVector,
     ForkName, ForkVersionDeserialize, Hash256, LightClientHeader, LightClientHeaderAltair,
-    LightClientHeaderCapella, LightClientHeaderDeneb, SignedBeaconBlock, Slot, SyncCommittee,
+    LightClientHeaderCapella, LightClientHeaderDeneb, LightClientHeaderElectra,
+    SignedBlindedBeaconBlock, Slot, SyncCommittee,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -16,7 +17,7 @@ use tree_hash_derive::TreeHash;
 /// A LightClientBootstrap is the initializer we send over to light_client nodes
 /// that are trying to generate their basic storage when booting up.
 #[superstruct(
-    variants(Altair, Capella, Deneb),
+    variants(Altair, Capella, Deneb, Electra),
     variant_attributes(
         derive(
             Debug,
@@ -51,6 +52,8 @@ pub struct LightClientBootstrap<E: EthSpec> {
     pub header: LightClientHeaderCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "header_deneb"))]
     pub header: LightClientHeaderDeneb<E>,
+    #[superstruct(only(Electra), partial_getter(rename = "header_electra"))]
+    pub header: LightClientHeaderElectra<E>,
     /// The `SyncCommittee` used in the requested period.
     pub current_sync_committee: Arc<SyncCommittee<E>>,
     /// Merkle proof for sync committee
@@ -66,6 +69,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             Self::Altair(_) => func(ForkName::Altair),
             Self::Capella(_) => func(ForkName::Capella),
             Self::Deneb(_) => func(ForkName::Deneb),
+            Self::Electra(_) => func(ForkName::Electra),
         }
     }
 
@@ -82,9 +86,8 @@ impl<E: EthSpec> LightClientBootstrap<E> {
                 Self::Altair(LightClientBootstrapAltair::from_ssz_bytes(bytes)?)
             }
             ForkName::Capella => Self::Capella(LightClientBootstrapCapella::from_ssz_bytes(bytes)?),
-            ForkName::Deneb | ForkName::Electra => {
-                Self::Deneb(LightClientBootstrapDeneb::from_ssz_bytes(bytes)?)
-            }
+            ForkName::Deneb => Self::Deneb(LightClientBootstrapDeneb::from_ssz_bytes(bytes)?),
+            ForkName::Electra => Self::Electra(LightClientBootstrapElectra::from_ssz_bytes(bytes)?),
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientBootstrap decoding for {fork_name} not implemented"
@@ -97,23 +100,21 @@ impl<E: EthSpec> LightClientBootstrap<E> {
 
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
-        // TODO(electra): review electra changes
-        match fork_name {
+        let fixed_len = match fork_name {
             ForkName::Base => 0,
-            ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra => {
+            ForkName::Altair | ForkName::Bellatrix => {
                 <LightClientBootstrapAltair<E> as Encode>::ssz_fixed_len()
-                    + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
             }
-        }
+            ForkName::Capella => <LightClientBootstrapCapella<E> as Encode>::ssz_fixed_len(),
+            ForkName::Deneb => <LightClientBootstrapDeneb<E> as Encode>::ssz_fixed_len(),
+            ForkName::Electra => <LightClientBootstrapElectra<E> as Encode>::ssz_fixed_len(),
+        };
+        fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }
 
     pub fn from_beacon_state(
         beacon_state: &mut BeaconState<E>,
-        block: &SignedBeaconBlock<E>,
+        block: &SignedBlindedBeaconBlock<E>,
         chain_spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let mut header = beacon_state.latest_block_header().clone();
@@ -138,8 +139,13 @@ impl<E: EthSpec> LightClientBootstrap<E> {
                 current_sync_committee,
                 current_sync_committee_branch,
             }),
-            ForkName::Deneb | ForkName::Electra => Self::Deneb(LightClientBootstrapDeneb {
+            ForkName::Deneb => Self::Deneb(LightClientBootstrapDeneb {
                 header: LightClientHeaderDeneb::block_to_light_client_header(block)?,
+                current_sync_committee,
+                current_sync_committee_branch,
+            }),
+            ForkName::Electra => Self::Electra(LightClientBootstrapElectra {
+                header: LightClientHeaderElectra::block_to_light_client_header(block)?,
                 current_sync_committee,
                 current_sync_committee_branch,
             }),

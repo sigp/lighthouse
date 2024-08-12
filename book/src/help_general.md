@@ -9,7 +9,7 @@ Usage: lighthouse [OPTIONS] [COMMAND]
 Commands:
   account_manager
           Utilities for generating and managing Ethereum 2.0 accounts. [aliases:
-          a, am, account, account_manager]
+          a, am, account]
   beacon_node
           The primary component which connects to the Ethereum 2.0 P2P network
           and downloads, verifies and stores blocks. Provides a HTTP API for
@@ -23,14 +23,14 @@ Commands:
           is the recommended way to provide a network boot-node since it has a
           reduced attack surface compared to a full beacon node.
   database_manager
-          Manage a beacon node database [aliases: db]
+          Manage a beacon node database. [aliases: db]
   validator_client
           When connected to a beacon node, performs the duties of a staked
           validator (e.g., proposing blocks and attestations). [aliases: v, vc,
           validator]
   validator_manager
           Utilities for managing a Lighthouse validator client via the HTTP API.
-          [aliases: vm, validator-manager, validator_manager]
+          [aliases: vm, validator-manager]
   help
           Print this message or the help of the given subcommand(s)
 
@@ -70,7 +70,7 @@ Options:
           [possible values: DEFAULT, JSON]
       --logfile-max-number <COUNT>
           The maximum number of log files that will be stored. If set to 0,
-          background file logging is disabled. [default: 5]
+          background file logging is disabled. [default: 10]
       --logfile-max-size <SIZE>
           The maximum size (in MB) each log file can grow to before rotating. If
           set to 0, background file logging is disabled. [default: 200]

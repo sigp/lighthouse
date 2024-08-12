@@ -11,8 +11,8 @@ use crate::{
     BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
 };
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-use lazy_static::lazy_static;
 use ssz_types::Bitfield;
+use std::sync::LazyLock;
 use test_utils::generate_deterministic_keypairs;
 use types::*;
 
@@ -22,10 +22,9 @@ pub const VALIDATOR_COUNT: usize = 64;
 pub const EPOCH_OFFSET: u64 = 4;
 pub const NUM_ATTESTATIONS: u64 = 1;
 
-lazy_static! {
-    /// A cached set of keys.
-    static ref KEYPAIRS: Vec<Keypair> = generate_deterministic_keypairs(MAX_VALIDATOR_COUNT);
-}
+/// A cached set of keys.
+static KEYPAIRS: LazyLock<Vec<Keypair>> =
+    LazyLock::new(|| generate_deterministic_keypairs(MAX_VALIDATOR_COUNT));
 
 async fn get_harness<E: EthSpec>(
     epoch_offset: u64,
@@ -388,8 +387,13 @@ async fn invalid_attestation_no_committee_for_index() {
         .clone()
         .deconstruct()
         .0;
-    head_block.to_mut().body_mut().attestations_mut()[0]
-        .data
+    head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .data_mut()
         .index += 1;
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -423,11 +427,22 @@ async fn invalid_attestation_wrong_justified_checkpoint() {
         .clone()
         .deconstruct()
         .0;
-    let old_justified_checkpoint = head_block.body().attestations()[0].data.source;
+    let old_justified_checkpoint = head_block
+        .body()
+        .attestations()
+        .next()
+        .unwrap()
+        .data()
+        .source;
     let mut new_justified_checkpoint = old_justified_checkpoint;
     new_justified_checkpoint.epoch += Epoch::new(1);
-    head_block.to_mut().body_mut().attestations_mut()[0]
-        .data
+    head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .data_mut()
         .source = new_justified_checkpoint;
 
     let mut ctxt = ConsensusContext::new(state.slot());
@@ -467,8 +482,14 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
         .clone()
         .deconstruct()
         .0;
-    head_block.to_mut().body_mut().attestations_mut()[0].aggregation_bits =
-        Bitfield::with_capacity(spec.target_committee_size).unwrap();
+    *head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .aggregation_bits_base_mut()
+        .unwrap() = Bitfield::with_capacity(spec.target_committee_size).unwrap();
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -501,7 +522,13 @@ async fn invalid_attestation_bad_signature() {
         .clone()
         .deconstruct()
         .0;
-    head_block.to_mut().body_mut().attestations_mut()[0].signature = AggregateSignature::empty();
+    *head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .signature_mut() = AggregateSignature::empty();
 
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
@@ -536,10 +563,15 @@ async fn invalid_attestation_included_too_early() {
         .clone()
         .deconstruct()
         .0;
-    let new_attesation_slot = head_block.body().attestations()[0].data.slot
+    let new_attesation_slot = head_block.body().attestations().next().unwrap().data().slot
         + Slot::new(MainnetEthSpec::slots_per_epoch());
-    head_block.to_mut().body_mut().attestations_mut()[0]
-        .data
+    head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .data_mut()
         .slot = new_attesation_slot;
 
     let mut ctxt = ConsensusContext::new(state.slot());
@@ -579,10 +611,15 @@ async fn invalid_attestation_included_too_late() {
         .clone()
         .deconstruct()
         .0;
-    let new_attesation_slot = head_block.body().attestations()[0].data.slot
+    let new_attesation_slot = head_block.body().attestations().next().unwrap().data().slot
         - Slot::new(MainnetEthSpec::slots_per_epoch());
-    head_block.to_mut().body_mut().attestations_mut()[0]
-        .data
+    head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .data_mut()
         .slot = new_attesation_slot;
 
     let mut ctxt = ConsensusContext::new(state.slot());
@@ -619,8 +656,13 @@ async fn invalid_attestation_target_epoch_slot_mismatch() {
         .clone()
         .deconstruct()
         .0;
-    head_block.to_mut().body_mut().attestations_mut()[0]
-        .data
+    head_block
+        .to_mut()
+        .body_mut()
+        .attestations_mut()
+        .next()
+        .unwrap()
+        .data_mut()
         .target
         .epoch += Epoch::new(1);
 
@@ -655,7 +697,7 @@ async fn valid_insert_attester_slashing() {
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attester_slashings(
         &mut state,
-        &[attester_slashing],
+        [attester_slashing.to_ref()].into_iter(),
         VerifySignatures::True,
         &mut ctxt,
         &spec,
@@ -671,13 +713,20 @@ async fn invalid_attester_slashing_not_slashable() {
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
-    attester_slashing.attestation_1 = attester_slashing.attestation_2.clone();
+    match &mut attester_slashing {
+        AttesterSlashing::Base(ref mut attester_slashing) => {
+            attester_slashing.attestation_1 = attester_slashing.attestation_2.clone();
+        }
+        AttesterSlashing::Electra(ref mut attester_slashing) => {
+            attester_slashing.attestation_1 = attester_slashing.attestation_2.clone();
+        }
+    }
 
     let mut state = harness.get_current_state();
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attester_slashings(
         &mut state,
-        &[attester_slashing],
+        [attester_slashing.to_ref()].into_iter(),
         VerifySignatures::True,
         &mut ctxt,
         &spec,
@@ -699,13 +748,20 @@ async fn invalid_attester_slashing_1_invalid() {
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
-    attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2, 1]);
+    match &mut attester_slashing {
+        AttesterSlashing::Base(ref mut attester_slashing) => {
+            attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2, 1]);
+        }
+        AttesterSlashing::Electra(ref mut attester_slashing) => {
+            attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2, 1]);
+        }
+    }
 
     let mut state = harness.get_current_state();
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attester_slashings(
         &mut state,
-        &[attester_slashing],
+        [attester_slashing.to_ref()].into_iter(),
         VerifySignatures::True,
         &mut ctxt,
         &spec,
@@ -730,13 +786,20 @@ async fn invalid_attester_slashing_2_invalid() {
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
-    attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2, 1]);
+    match &mut attester_slashing {
+        AttesterSlashing::Base(ref mut attester_slashing) => {
+            attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2, 1]);
+        }
+        AttesterSlashing::Electra(ref mut attester_slashing) => {
+            attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2, 1]);
+        }
+    }
 
     let mut state = harness.get_current_state();
     let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attester_slashings(
         &mut state,
-        &[attester_slashing],
+        [attester_slashing.to_ref()].into_iter(),
         VerifySignatures::True,
         &mut ctxt,
         &spec,

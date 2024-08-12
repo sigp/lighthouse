@@ -1,8 +1,8 @@
 use crate::hot_cold_store::{BytesKey, HotColdDBError};
-use crate::Key;
 use crate::{
     get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, KeyValueStoreOp,
 };
+use crate::{Key, RawKeyIter};
 use leveldb::{
     compaction::Compaction,
     database::{
@@ -75,8 +75,8 @@ impl<E: EthSpec> LevelDB<E> {
     ) -> Result<(), Error> {
         let column_key = get_key_for_col(col, key);
 
-        metrics::inc_counter(&metrics::DISK_DB_WRITE_COUNT);
-        metrics::inc_counter_by(&metrics::DISK_DB_WRITE_BYTES, val.len() as u64);
+        metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[col]);
+        metrics::inc_counter_vec_by(&metrics::DISK_DB_WRITE_BYTES, &[col], val.len() as u64);
         let timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
 
         self.db
@@ -104,7 +104,7 @@ impl<E: EthSpec> LevelDB<E> {
     pub fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let column_key = get_key_for_col(col, key);
 
-        metrics::inc_counter(&metrics::DISK_DB_READ_COUNT);
+        metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[col]);
         let timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
 
         self.db
@@ -112,7 +112,11 @@ impl<E: EthSpec> LevelDB<E> {
             .map_err(Into::into)
             .map(|opt| {
                 opt.map(|bytes| {
-                    metrics::inc_counter_by(&metrics::DISK_DB_READ_BYTES, bytes.len() as u64);
+                    metrics::inc_counter_vec_by(
+                        &metrics::DISK_DB_READ_BYTES,
+                        &[col],
+                        bytes.len() as u64,
+                    );
                     metrics::stop_timer(timer);
                     bytes
                 })
@@ -123,7 +127,7 @@ impl<E: EthSpec> LevelDB<E> {
     pub fn key_exists(&self, col: &str, key: &[u8]) -> Result<bool, Error> {
         let column_key = get_key_for_col(col, key);
 
-        metrics::inc_counter(&metrics::DISK_DB_EXISTS_COUNT);
+        metrics::inc_counter_vec(&metrics::DISK_DB_EXISTS_COUNT, &[col]);
 
         self.db
             .get(self.read_options(), BytesKey::from_vec(column_key))
@@ -135,7 +139,7 @@ impl<E: EthSpec> LevelDB<E> {
     pub fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error> {
         let column_key = get_key_for_col(col, key);
 
-        metrics::inc_counter(&metrics::DISK_DB_DELETE_COUNT);
+        metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[col]);
 
         self.db
             .delete(self.write_options().into(), BytesKey::from_vec(column_key))
@@ -251,5 +255,20 @@ impl<E: EthSpec> LevelDB<E> {
         self.iter_column_from(column, &vec![0; column.key_size()], move |key, _| {
             BytesKey::from_vec(key.to_vec()).matches_column(column)
         })
+    }
+
+    pub fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter {
+        let start_key = BytesKey::from_vec(get_key_for_col(column.into(), prefix));
+
+        let iter = self.db.keys_iter(self.read_options());
+        iter.seek(&start_key);
+
+        Ok(Box::new(
+            iter.take_while(move |key| key.key.starts_with(start_key.key.as_slice()))
+                .map(move |bytes_key| {
+                    let subkey = &bytes_key.key[column.as_bytes().len()..];
+                    Ok(Vec::from(subkey))
+                }),
+        ))
     }
 }

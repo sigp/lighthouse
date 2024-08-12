@@ -11,11 +11,10 @@ mod sync_aggregate_id;
 
 pub use crate::bls_to_execution_changes::ReceivedPreCapella;
 pub use attestation::{earliest_attestation_validators, AttMaxCover};
-pub use attestation_storage::{AttestationRef, SplitAttestation};
+pub use attestation_storage::{CompactAttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
 pub use persistence::{
-    PersistedOperationPool, PersistedOperationPoolV12, PersistedOperationPoolV14,
-    PersistedOperationPoolV15, PersistedOperationPoolV5,
+    PersistedOperationPool, PersistedOperationPoolV15, PersistedOperationPoolV20,
 };
 pub use reward_cache::RewardCache;
 use state_processing::epoch_cache::is_epoch_cache_initialized;
@@ -228,7 +227,7 @@ impl<E: EthSpec> OperationPool<E> {
         state: &'a BeaconState<E>,
         reward_cache: &'a RewardCache,
         total_active_balance: u64,
-        validity_filter: impl FnMut(&AttestationRef<'a, E>) -> bool + Send,
+        validity_filter: impl FnMut(&CompactAttestationRef<'a, E>) -> bool + Send,
         spec: &'a ChainSpec,
     ) -> impl Iterator<Item = AttMaxCover<'a, E>> + Send {
         all_attestations
@@ -252,10 +251,11 @@ impl<E: EthSpec> OperationPool<E> {
     pub fn get_attestations(
         &self,
         state: &BeaconState<E>,
-        prev_epoch_validity_filter: impl for<'a> FnMut(&AttestationRef<'a, E>) -> bool + Send,
-        curr_epoch_validity_filter: impl for<'a> FnMut(&AttestationRef<'a, E>) -> bool + Send,
+        prev_epoch_validity_filter: impl for<'a> FnMut(&CompactAttestationRef<'a, E>) -> bool + Send,
+        curr_epoch_validity_filter: impl for<'a> FnMut(&CompactAttestationRef<'a, E>) -> bool + Send,
         spec: &ChainSpec,
     ) -> Result<Vec<Attestation<E>>, OpPoolError> {
+        let fork_name = state.fork_name_unchecked();
         if !matches!(state, BeaconState::Base(_)) {
             // Epoch cache must be initialized to fetch base reward values in the max cover `score`
             // function. Currently max cover ignores items on errors. If epoch cache is not
@@ -267,7 +267,6 @@ impl<E: EthSpec> OperationPool<E> {
 
         // Attestations for the current fork, which may be from the current or previous epoch.
         let (prev_epoch_key, curr_epoch_key) = CheckpointKey::keys_for_state(state);
-        let all_attestations = self.attestations.read();
         let total_active_balance = state
             .get_total_active_balance()
             .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
@@ -283,6 +282,16 @@ impl<E: EthSpec> OperationPool<E> {
         // can optimise them individually in parallel.
         let mut num_prev_valid = 0_i64;
         let mut num_curr_valid = 0_i64;
+
+        // TODO(electra): Work out how to do this more elegantly. This is a bit of a hack.
+        let mut all_attestations = self.attestations.write();
+
+        if fork_name.electra_enabled() {
+            all_attestations.aggregate_across_committees(prev_epoch_key);
+            all_attestations.aggregate_across_committees(curr_epoch_key);
+        }
+
+        let all_attestations = parking_lot::RwLockWriteGuard::downgrade(all_attestations);
 
         let prev_epoch_att = self
             .get_valid_attestations_for_epoch(
@@ -307,6 +316,11 @@ impl<E: EthSpec> OperationPool<E> {
             )
             .inspect(|_| num_curr_valid += 1);
 
+        let curr_epoch_limit = if fork_name.electra_enabled() {
+            E::MaxAttestationsElectra::to_usize()
+        } else {
+            E::MaxAttestations::to_usize()
+        };
         let prev_epoch_limit = if let BeaconState::Base(base_state) = state {
             std::cmp::min(
                 E::MaxPendingAttestations::to_usize()
@@ -314,7 +328,7 @@ impl<E: EthSpec> OperationPool<E> {
                 E::MaxAttestations::to_usize(),
             )
         } else {
-            E::MaxAttestations::to_usize()
+            curr_epoch_limit
         };
 
         let (prev_cover, curr_cover) = rayon::join(
@@ -329,11 +343,7 @@ impl<E: EthSpec> OperationPool<E> {
             },
             move || {
                 let _timer = metrics::start_timer(&metrics::ATTESTATION_CURR_EPOCH_PACKING_TIME);
-                maximum_cover(
-                    curr_epoch_att,
-                    E::MaxAttestations::to_usize(),
-                    "curr_epoch_attestations",
-                )
+                maximum_cover(curr_epoch_att, curr_epoch_limit, "curr_epoch_attestations")
             },
         );
 
@@ -343,7 +353,7 @@ impl<E: EthSpec> OperationPool<E> {
         Ok(max_cover::merge_solutions(
             curr_cover,
             prev_cover,
-            E::MaxAttestations::to_usize(),
+            curr_epoch_limit,
         ))
     }
 
@@ -428,7 +438,7 @@ impl<E: EthSpec> OperationPool<E> {
 
         let relevant_attester_slashings = reader.iter().flat_map(|slashing| {
             if slashing.signature_is_still_valid(&state.fork()) {
-                AttesterSlashingMaxCover::new(slashing.as_inner(), to_be_slashed, state)
+                AttesterSlashingMaxCover::new(slashing.as_inner().to_ref(), to_be_slashed, state)
             } else {
                 None
             }
@@ -442,7 +452,7 @@ impl<E: EthSpec> OperationPool<E> {
         .into_iter()
         .map(|cover| {
             to_be_slashed.extend(cover.covering_set().keys());
-            cover.intermediate().clone()
+            AttesterSlashingMaxCover::convert_to_object(cover.intermediate())
         })
         .collect()
     }
@@ -463,16 +473,19 @@ impl<E: EthSpec> OperationPool<E> {
             // Check that the attestation's signature is still valid wrt the fork version.
             let signature_ok = slashing.signature_is_still_valid(&head_state.fork());
             // Slashings that don't slash any validators can also be dropped.
-            let slashing_ok =
-                get_slashable_indices_modular(head_state, slashing.as_inner(), |_, validator| {
+            let slashing_ok = get_slashable_indices_modular(
+                head_state,
+                slashing.as_inner().to_ref(),
+                |_, validator| {
                     // Declare that a validator is still slashable if they have not exited prior
                     // to the finalized epoch.
                     //
                     // We cannot check the `slashed` field since the `head` is not finalized and
                     // a fork could un-slash someone.
                     validator.exit_epoch > head_state.finalized_checkpoint().epoch
-                })
-                .map_or(false, |indices| !indices.is_empty());
+                },
+            )
+            .map_or(false, |indices| !indices.is_empty());
 
             signature_ok && slashing_ok
         });
@@ -602,7 +615,7 @@ impl<E: EthSpec> OperationPool<E> {
                         })
             },
             |address_change| address_change.as_inner().clone(),
-            usize::max_value(),
+            usize::MAX,
         );
         changes.shuffle(&mut thread_rng());
         changes
@@ -784,20 +797,19 @@ mod release_tests {
     use beacon_chain::test_utils::{
         test_spec, BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee,
     };
-    use lazy_static::lazy_static;
     use maplit::hashset;
     use state_processing::epoch_cache::initialize_epoch_cache;
     use state_processing::{common::get_attesting_indices_from_state, VerifyOperation};
     use std::collections::BTreeSet;
+    use std::sync::LazyLock;
     use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
     use types::*;
 
     pub const MAX_VALIDATOR_COUNT: usize = 4 * 32 * 128;
 
-    lazy_static! {
-        /// A cached set of keys.
-        static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(MAX_VALIDATOR_COUNT);
-    }
+    /// A cached set of keys.
+    static KEYPAIRS: LazyLock<Vec<Keypair>> =
+        LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(MAX_VALIDATOR_COUNT));
 
     fn get_harness<E: EthSpec>(
         validator_count: usize,
@@ -891,7 +903,7 @@ mod release_tests {
         );
 
         for (atts, aggregate) in &attestations {
-            let att2 = aggregate.as_ref().unwrap().message.aggregate.clone();
+            let att2 = aggregate.as_ref().unwrap().message().aggregate().clone();
 
             let att1 = atts
                 .into_iter()
@@ -899,7 +911,7 @@ mod release_tests {
                 .take(2)
                 .fold::<Option<Attestation<MainnetEthSpec>>, _>(None, |att, new_att| {
                     if let Some(mut a) = att {
-                        a.aggregate(&new_att);
+                        a.aggregate(new_att.to_ref());
                         Some(a)
                     } else {
                         Some(new_att.clone())
@@ -907,13 +919,13 @@ mod release_tests {
                 })
                 .unwrap();
 
-            let att1_indices = get_attesting_indices_from_state(&state, &att1).unwrap();
-            let att2_indices = get_attesting_indices_from_state(&state, &att2).unwrap();
+            let att1_indices = get_attesting_indices_from_state(&state, att1.to_ref()).unwrap();
+            let att2_indices = get_attesting_indices_from_state(&state, att2).unwrap();
             let att1_split = SplitAttestation::new(att1.clone(), att1_indices);
-            let att2_split = SplitAttestation::new(att2.clone(), att2_indices);
+            let att2_split = SplitAttestation::new(att2.clone_as_attestation(), att2_indices);
 
             assert_eq!(
-                att1.aggregation_bits.num_set_bits(),
+                att1.num_set_aggregation_bits(),
                 earliest_attestation_validators(
                     &att1_split.as_ref(),
                     &state,
@@ -927,8 +939,8 @@ mod release_tests {
                 .unwrap()
                 .current_epoch_attestations
                 .push(PendingAttestation {
-                    aggregation_bits: att1.aggregation_bits.clone(),
-                    data: att1.data.clone(),
+                    aggregation_bits: att1.aggregation_bits_base().unwrap().clone(),
+                    data: att1.data().clone(),
                     inclusion_delay: 0,
                     proposer_index: 0,
                 })
@@ -981,7 +993,8 @@ mod release_tests {
 
         for (atts, _) in attestations {
             for (att, _) in atts {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                let attesting_indices =
+                    get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         }
@@ -1007,7 +1020,7 @@ mod release_tests {
 
         let agg_att = &block_attestations[0];
         assert_eq!(
-            agg_att.aggregation_bits.num_set_bits(),
+            agg_att.num_set_aggregation_bits(),
             spec.target_committee_size as usize
         );
 
@@ -1050,12 +1063,15 @@ mod release_tests {
         );
 
         for (_, aggregate) in attestations {
-            let att = aggregate.unwrap().message.aggregate;
-            let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+            let agg = aggregate.unwrap();
+            let att = agg.message().aggregate();
+            let attesting_indices = get_attesting_indices_from_state(&state, att).unwrap();
             op_pool
-                .insert_attestation(att.clone(), attesting_indices.clone())
+                .insert_attestation(att.clone_as_attestation(), attesting_indices.clone())
                 .unwrap();
-            op_pool.insert_attestation(att, attesting_indices).unwrap();
+            op_pool
+                .insert_attestation(att.clone_as_attestation(), attesting_indices)
+                .unwrap();
         }
 
         assert_eq!(op_pool.num_attestations(), committees.len());
@@ -1104,7 +1120,7 @@ mod release_tests {
                         None,
                         |att, new_att| {
                             if let Some(mut a) = att {
-                                a.aggregate(new_att);
+                                a.aggregate(new_att.to_ref());
                                 Some(a)
                             } else {
                                 Some(new_att.clone())
@@ -1127,7 +1143,7 @@ mod release_tests {
                         None,
                         |att, new_att| {
                             if let Some(mut a) = att {
-                                a.aggregate(new_att);
+                                a.aggregate(new_att.to_ref());
                                 Some(a)
                             } else {
                                 Some(new_att.clone())
@@ -1139,7 +1155,8 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs1.into_iter().chain(aggs2.into_iter()) {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                let attesting_indices =
+                    get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         }
@@ -1203,7 +1220,7 @@ mod release_tests {
                         .fold::<Attestation<MainnetEthSpec>, _>(
                             att_0.clone(),
                             |mut att, new_att| {
-                                att.aggregate(new_att);
+                                att.aggregate(new_att.to_ref());
                                 att
                             },
                         )
@@ -1211,7 +1228,8 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                let attesting_indices =
+                    get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         };
@@ -1228,7 +1246,17 @@ mod release_tests {
         let num_big = target_committee_size / big_step_size;
 
         let stats = op_pool.attestation_stats();
-        assert_eq!(stats.num_attestation_data, committees.len());
+        let fork_name = state.fork_name_unchecked();
+
+        match fork_name {
+            ForkName::Electra => {
+                assert_eq!(stats.num_attestation_data, 1);
+            }
+            _ => {
+                assert_eq!(stats.num_attestation_data, committees.len());
+            }
+        };
+
         assert_eq!(
             stats.num_attestations,
             (num_small + num_big) * committees.len()
@@ -1239,11 +1267,25 @@ mod release_tests {
         let best_attestations = op_pool
             .get_attestations(&state, |_| true, |_| true, spec)
             .expect("should have best attestations");
-        assert_eq!(best_attestations.len(), max_attestations);
+        match fork_name {
+            ForkName::Electra => {
+                assert_eq!(best_attestations.len(), 8);
+            }
+            _ => {
+                assert_eq!(best_attestations.len(), max_attestations);
+            }
+        };
 
         // All the best attestations should be signed by at least `big_step_size` (4) validators.
         for att in &best_attestations {
-            assert!(att.aggregation_bits.num_set_bits() >= big_step_size);
+            match fork_name {
+                ForkName::Electra => {
+                    assert!(att.num_set_aggregation_bits() >= small_step_size);
+                }
+                _ => {
+                    assert!(att.num_set_aggregation_bits() >= big_step_size);
+                }
+            };
         }
     }
 
@@ -1298,7 +1340,7 @@ mod release_tests {
                         .fold::<Attestation<MainnetEthSpec>, _>(
                             att_0.clone(),
                             |mut att, new_att| {
-                                att.aggregate(new_att);
+                                att.aggregate(new_att.to_ref());
                                 att
                             },
                         )
@@ -1306,7 +1348,8 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs {
-                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                let attesting_indices =
+                    get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
                 op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         };
@@ -1321,11 +1364,20 @@ mod release_tests {
 
         let num_small = target_committee_size / small_step_size;
         let num_big = target_committee_size / big_step_size;
+        let fork_name = state.fork_name_unchecked();
 
-        assert_eq!(
-            op_pool.attestation_stats().num_attestation_data,
-            committees.len()
-        );
+        match fork_name {
+            ForkName::Electra => {
+                assert_eq!(op_pool.attestation_stats().num_attestation_data, 1);
+            }
+            _ => {
+                assert_eq!(
+                    op_pool.attestation_stats().num_attestation_data,
+                    committees.len()
+                );
+            }
+        };
+
         assert_eq!(
             op_pool.num_attestations(),
             (num_small + num_big) * committees.len()
@@ -1336,20 +1388,28 @@ mod release_tests {
         let best_attestations = op_pool
             .get_attestations(&state, |_| true, |_| true, spec)
             .expect("should have valid best attestations");
-        assert_eq!(best_attestations.len(), max_attestations);
+
+        match fork_name {
+            ForkName::Electra => {
+                assert_eq!(best_attestations.len(), 8);
+            }
+            _ => {
+                assert_eq!(best_attestations.len(), max_attestations);
+            }
+        };
 
         let total_active_balance = state.get_total_active_balance().unwrap();
 
         // Set of indices covered by previous attestations in `best_attestations`.
         let mut seen_indices = BTreeSet::<u64>::new();
         // Used for asserting that rewards are in decreasing order.
-        let mut prev_reward = u64::max_value();
+        let mut prev_reward = u64::MAX;
 
         let mut reward_cache = RewardCache::default();
         reward_cache.update(&state).unwrap();
 
         for att in best_attestations {
-            let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+            let attesting_indices = get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
             let split_attestation = SplitAttestation::new(att, attesting_indices);
             let mut fresh_validators_rewards = AttMaxCover::new(
                 split_attestation.as_ref(),

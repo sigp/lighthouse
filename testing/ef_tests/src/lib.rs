@@ -3,8 +3,8 @@ pub use cases::WithdrawalsPayload;
 pub use cases::{
     Case, EffectiveBalanceUpdates, Eth1DataReset, HistoricalRootsUpdate, HistoricalSummariesUpdate,
     InactivityUpdates, JustificationAndFinalization, ParticipationFlagUpdates,
-    ParticipationRecordUpdates, RandaoMixesReset, RegistryUpdates, RewardsAndPenalties, Slashings,
-    SlashingsReset, SyncCommitteeUpdates,
+    ParticipationRecordUpdates, PendingBalanceDeposits, PendingConsolidations, RandaoMixesReset,
+    RegistryUpdates, RewardsAndPenalties, Slashings, SlashingsReset, SyncCommitteeUpdates,
 };
 pub use decode::log_file_access;
 pub use error::Error;

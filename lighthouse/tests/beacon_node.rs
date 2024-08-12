@@ -59,13 +59,22 @@ impl CommandLineTest {
 
     fn run_with_zero_port(&mut self) -> CompletedTest<Config> {
         // Required since Deneb was enabled on mainnet.
-        self.cmd.arg("--allow-insecure-genesis-sync");
-        self.run_with_zero_port_and_no_genesis_sync()
+        self.set_allow_insecure_genesis_sync()
+            .run_with_zero_port_and_no_genesis_sync()
     }
 
     fn run_with_zero_port_and_no_genesis_sync(&mut self) -> CompletedTest<Config> {
+        self.set_zero_port().run()
+    }
+
+    fn set_allow_insecure_genesis_sync(&mut self) -> &mut Self {
+        self.cmd.arg("--allow-insecure-genesis-sync");
+        self
+    }
+
+    fn set_zero_port(&mut self) -> &mut Self {
         self.cmd.arg("-z");
-        self.run()
+        self
     }
 }
 
@@ -102,9 +111,20 @@ fn staking_flag() {
 }
 
 #[test]
-#[should_panic]
 fn allow_insecure_genesis_sync_default() {
-    CommandLineTest::new().run_with_zero_port_and_no_genesis_sync();
+    CommandLineTest::new()
+        .run_with_zero_port_and_no_genesis_sync()
+        .with_config(|config| {
+            assert_eq!(config.allow_insecure_genesis_sync, false);
+        });
+}
+
+#[test]
+#[should_panic]
+fn insecure_genesis_sync_should_panic() {
+    CommandLineTest::new()
+        .set_zero_port()
+        .run_with_immediate_shutdown(false);
 }
 
 #[test]
@@ -141,18 +161,10 @@ fn max_skip_slots_flag() {
 }
 
 #[test]
-fn enable_lock_timeouts_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.enable_lock_timeouts));
-}
-
-#[test]
 fn disable_lock_timeouts_flag() {
     CommandLineTest::new()
         .flag("disable-lock-timeouts", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(!config.chain.enable_lock_timeouts));
+        .run_with_zero_port();
 }
 
 #[test]
@@ -248,8 +260,18 @@ fn always_prepare_payload_default() {
 
 #[test]
 fn always_prepare_payload_override() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
         .flag("always-prepare-payload", None)
+        .flag(
+            "suggested-fee-recipient",
+            Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
+        )
+        .flag("execution-endpoint", Some("http://localhost:8551/"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
         .run_with_zero_port()
         .with_config(|config| assert!(config.chain.always_prepare_payload));
 }
@@ -2179,6 +2201,21 @@ fn slasher_broadcast_flag_no_default() {
         });
 }
 #[test]
+fn slasher_broadcast_flag_no_argument() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
+        .flag("slasher-broadcast", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert!(slasher_config.broadcast);
+        });
+}
+#[test]
 fn slasher_broadcast_flag_true() {
     CommandLineTest::new()
         .flag("slasher", None)
@@ -2208,6 +2245,8 @@ fn slasher_broadcast_flag_false() {
             assert!(!slasher_config.broadcast);
         });
 }
+
+#[cfg(all(feature = "slasher-lmdb"))]
 #[test]
 fn slasher_backend_override_to_default() {
     // Hard to test this flag because all but one backend is disabled by default and the backend
@@ -2238,7 +2277,9 @@ fn ensure_panic_on_failed_launch() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-chunk-size", Some("10"))
-        .run_with_zero_port()
+        .set_allow_insecure_genesis_sync()
+        .set_zero_port()
+        .run_with_immediate_shutdown(false)
         .with_config(|config| {
             let slasher_config = config
                 .slasher

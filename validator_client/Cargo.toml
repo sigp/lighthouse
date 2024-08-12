@@ -50,7 +50,6 @@ libsecp256k1 = { workspace = true }
 ring = { workspace = true }
 rand = { workspace = true, features = ["small_rng"] }
 lighthouse_metrics = { workspace = true }
-lazy_static = { workspace = true }
 monitoring_api = { workspace = true }
 sensitive_url = { workspace = true }
 task_executor = { workspace = true }
