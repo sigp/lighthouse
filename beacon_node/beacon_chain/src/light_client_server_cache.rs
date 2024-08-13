@@ -399,6 +399,9 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         self.latest_optimistic_update.read().clone()
     }
 
+    /// Fetches a `sync_committee_branch` for a given `block_root`
+    ///
+    /// Note:
     pub fn get_sync_committee_branch(
         &self,
         store: &BeaconStore<T>,
@@ -410,9 +413,9 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             .hot_db
             .get_bytes(column.into(), &block_root.as_ssz_bytes())?
         {
-            // TODO unwrap
             let sync_committee_branch: FixedVector<Hash256, CurrentSyncCommitteeProofLen> =
-                FixedVector::from_ssz_bytes(&bytes).unwrap();
+                FixedVector::from_ssz_bytes(&bytes)
+                    .map_err(store::errors::Error::SszDecodeError)?;
 
             return Ok(Some(sync_committee_branch));
         }
@@ -432,13 +435,20 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             .get_bytes(column.into(), &sync_committee_period.as_ssz_bytes())?
         {
             let sync_committee: SyncCommittee<T::EthSpec> =
-                SyncCommittee::from_ssz_bytes(&bytes).unwrap();
+                SyncCommittee::from_ssz_bytes(&bytes)
+                    .map_err(store::errors::Error::SszDecodeError)?;
             return Ok(Some(sync_committee));
         }
 
         Ok(None)
     }
 
+    /// Fetches a light client bootstrap for a given finalized checkpoint `block_root`. We eagerly persist
+    /// `sync_committee_branch and `sync_committee` to allow for a more efficient bootstrap construction.
+    ///
+    /// Note: It should be the case that a `sync_committee_branch` and `sync_committee` exist in the db
+    /// for a finalized checkpoint block root. However, we currently have no backfill mechanism for these values.
+    /// Therefore, `sync_committee_branch` and `sync_committee` are only persisted while a node is synced.
     #[allow(clippy::type_complexity)]
     pub fn get_light_client_bootstrap(
         &self,
