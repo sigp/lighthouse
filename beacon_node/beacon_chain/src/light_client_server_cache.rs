@@ -44,7 +44,7 @@ pub struct LightClientServerCache<T: BeaconChainTypes> {
     /// Caches the most recent light client update
     latest_light_client_update: RwLock<Option<LightClientUpdate<T::EthSpec>>>,
     /// Caches the current sync committee,
-    latest_current_sync_committee: RwLock<Option<Arc<SyncCommittee<T::EthSpec>>>>,
+    latest_written_current_sync_committee: RwLock<Option<Arc<SyncCommittee<T::EthSpec>>>>,
     /// Caches state proofs by block root
     prev_block_cache: Mutex<lru::LruCache<Hash256, LightClientCachedData<T::EthSpec>>>,
 }
@@ -55,7 +55,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             latest_finality_update: None.into(),
             latest_optimistic_update: None.into(),
             latest_light_client_update: None.into(),
-            latest_current_sync_committee: None.into(),
+            latest_written_current_sync_committee: None.into(),
             prev_block_cache: lru::LruCache::new(PREV_BLOCK_CACHE_SIZE).into(),
         }
     }
@@ -251,7 +251,9 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         sync_committee_period: u64,
         finalized_period: u64,
     ) -> Result<(), BeaconChainError> {
-        if let Some(latest_sync_committee) = self.latest_current_sync_committee.read().clone() {
+        if let Some(latest_sync_committee) =
+            self.latest_written_current_sync_committee.read().clone()
+        {
             if latest_sync_committee == cached_parts.current_sync_committee {
                 return Ok(());
             }
@@ -265,10 +267,9 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                 &sync_committee_period.to_le_bytes(),
                 &cached_parts.current_sync_committee.as_ssz_bytes(),
             )?;
+            *self.latest_written_current_sync_committee.write() =
+                Some(cached_parts.current_sync_committee.clone());
         }
-
-        *self.latest_current_sync_committee.write() =
-            Some(cached_parts.current_sync_committee.clone());
 
         Ok(())
     }
