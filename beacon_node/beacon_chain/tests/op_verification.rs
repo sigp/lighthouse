@@ -13,11 +13,11 @@ use sloggers::{null::NullLoggerBuilder, Build};
 use state_processing::per_block_processing::errors::{
     AttesterSlashingInvalid, BlockOperationError, ExitInvalid, ProposerSlashingInvalid,
 };
-use std::sync::Arc;
 use store::database::interface::BeaconNodeBackend;
 use store::StoreConfig;
 use tempfile::{tempdir, TempDir};
 use types::*;
+use std::sync::{Arc, LazyLock};
 
 pub const VALIDATOR_COUNT: usize = 24;
 
