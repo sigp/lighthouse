@@ -200,24 +200,13 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         // Spec: Full nodes SHOULD provide the best derivable LightClientUpdate (according to is_better_update)
         // for each sync committee period
-        let prev_light_client_update = match &self.latest_light_client_update.read().clone() {
-            Some(prev_light_client_update) => Some(prev_light_client_update.clone()),
-            None => self.get_light_client_update(&store, sync_period, chain_spec)?,
-        };
+        let prev_light_client_update =
+            self.get_light_client_update(&store, sync_period, chain_spec)?;
 
         let should_persist_light_client_update =
             if let Some(prev_light_client_update) = prev_light_client_update {
-                let prev_sync_period = prev_light_client_update
-                    .signature_slot()
-                    .epoch(T::EthSpec::slots_per_epoch())
-                    .sync_committee_period(chain_spec)?;
-
-                if sync_period != prev_sync_period {
-                    true
-                } else {
-                    prev_light_client_update
-                        .is_better_light_client_update(&new_light_client_update, chain_spec)?
-                }
+                prev_light_client_update
+                    .is_better_light_client_update(&new_light_client_update, chain_spec)?
             } else {
                 true
             };
@@ -293,9 +282,11 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         Ok(())
     }
 
-    // Used to fetch the most recently persisted "best" light client update.
-    // Should not be used outside the light client server, as it also caches the fetched
-    // light client update.
+    /// Used to fetch the most recently persisted light client update for the given `sync_committee_period`.
+    /// It first checks the `latest_light_client_update` cache before querying the db.
+    ///
+    /// Note: Should not be used outside the light client server, as it also caches the fetched
+    /// light client update.
     fn get_light_client_update(
         &self,
         store: &BeaconStore<T>,
@@ -457,9 +448,9 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         chain_spec: &ChainSpec,
     ) -> Result<Option<(LightClientBootstrap<T::EthSpec>, ForkName)>, BeaconChainError> {
         let Some(block) = store.get_blinded_block(block_root)? else {
-            return Err(BeaconChainError::LightClientBootstrapError(
-                "Block not found".to_string(),
-            ));
+            return Err(BeaconChainError::LightClientBootstrapError(format!(
+                "Block root {block_root} not found"
+            )));
         };
 
         let (_, slot) = (block.state_root(), block.slot());
@@ -474,16 +465,22 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         let Some(current_sync_committee_branch) =
             self.get_sync_committee_branch(store, block_root)?
         else {
-            return Ok(None);
+            return Err(BeaconChainError::LightClientBootstrapError(format!(
+                "Sync committee branch for block root {block_root} not found"
+            )));
         };
 
         if sync_committee_period > finalized_period {
-            return Ok(None);
+            return Err(BeaconChainError::LightClientBootstrapError(
+                format!("The blocks sync committee period {sync_committee_period} is greater than the current finalized period {finalized_period}"),
+            ));
         }
 
         let Some(current_sync_committee) = self.get_sync_committee(store, sync_committee_period)?
         else {
-            return Ok(None);
+            return Err(BeaconChainError::LightClientBootstrapError(format!(
+                "Sync committee for block root {block_root} not found"
+            )));
         };
 
         let light_client_bootstrap = LightClientBootstrap::new(
