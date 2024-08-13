@@ -323,6 +323,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request_id: PeerRequestId,
         request: DataColumnsByRootRequest,
     ) {
+        self.terminate_response_stream(
+            peer_id,
+            request_id,
+            self.handle_data_columns_by_root_request_inner(peer_id, request_id, request),
+            Response::DataColumnsByRoot,
+        );
+    }
+
+    /// Handle a `DataColumnsByRoot` request from the peer.
+    pub fn handle_data_columns_by_root_request_inner(
+        &self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: DataColumnsByRootRequest,
+    ) -> Result<(), (RPCResponseErrorCode, &'static str)> {
         let mut send_data_column_count = 0;
 
         for data_column_id in request.data_column_ids.as_slice() {
@@ -340,19 +355,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
                 Ok(None) => {} // no-op
                 Err(e) => {
-                    self.send_error_response(
-                        peer_id,
-                        RPCResponseErrorCode::ServerError,
-                        // TODO(das): leak error details to ease debugging
-                        format!("{:?}", e).to_string(),
-                        request_id,
-                    );
+                    // TODO(das): lower log level when feature is stabilized
                     error!(self.log, "Error getting data column";
                         "block_root" => ?data_column_id.block_root,
                         "peer" => %peer_id,
                         "error" => ?e
                     );
-                    return;
+                    return Err((
+                        RPCResponseErrorCode::ServerError,
+                        "Error getting data column",
+                    ));
                 }
             }
         }
@@ -365,8 +377,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "returned" => send_data_column_count
         );
 
-        // send stream termination
-        self.send_response(peer_id, Response::DataColumnsByRoot(None), request_id);
+        Ok(())
     }
 
     /// Handle a `LightClientBootstrap` request from the peer.
