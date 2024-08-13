@@ -835,7 +835,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "5.2.1"
+version = "5.3.0"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -1057,7 +1057,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "5.2.1"
+version = "5.3.0"
 dependencies = [
  "beacon_node",
  "clap",
@@ -4438,7 +4438,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "5.2.1"
+version = "5.3.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -5009,7 +5009,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "5.2.1"
+version = "5.3.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -6576,8 +6576,7 @@ checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 [[package]]
 name = "quick-protobuf"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d6da84cc204722a989e01ba2f6e1e276e190f22263d0cb6ce8526fcdb0d2e1f"
+source = "git+https://github.com/sigp/quick-protobuf.git?rev=681f413312404ab6e51f0b46f39b0075c6f4ebfd#681f413312404ab6e51f0b46f39b0075c6f4ebfd"
 dependencies = [
  "byteorder",
 ]
