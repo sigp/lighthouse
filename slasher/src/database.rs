@@ -848,7 +848,7 @@ impl<E: EthSpec> SlasherDB<E> {
     }
 
     fn reset_db(&self, txn: &mut RwTransaction<'_>, db: &Database<'static>) -> Result<(), Error> {
-        let mut cursor = txn.cursor(&db)?;
+        let mut cursor = txn.cursor(db)?;
         if cursor.first_key()?.is_none() {
             return Ok(());
         }
