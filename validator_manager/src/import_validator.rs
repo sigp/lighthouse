@@ -453,8 +453,9 @@ pub mod tests {
                         )
                     });
 
-                let local_keystore: Keystore = Keystore::from_json_keystore(
-                    serde_json::from_str(&validators_file).expect("JSON was not well formatted"),
+                let local_keystore: Keystore = Keystore::from_json_file(
+                    serde_json::from_str(&validators_file_path)
+                        .expect("JSON was not well formatted"),
                 );
 
                 let list_keystores_response = self.vc.client.get_keystores().await.data;
