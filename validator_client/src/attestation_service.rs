@@ -287,20 +287,39 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     }
                 }
 
-                // Check that the signed attestations are not slash-able (if slash-ability checks are enabled).
-                let safe_attestations = match inner_self
+                let slashing_checks_enabled = match inner_self
                     .validator_store
-                    .check_and_insert_attestations(signed_attestations)
+                    .attestation_slashing_checks_enabled(&signed_attestations)
                 {
-                    Ok(attestations) => attestations,
+                    Ok(slashing_checks_enabled) => slashing_checks_enabled,
                     Err(e) => {
                         crit!(
                             log,
-                            "An error occurred when checking for slashable attestations";
+                            "An error occurred when checking if slashing checks are enabled";
                             "error" => format!("{:?}", e)
                         );
                         return;
                     }
+                };
+
+                // Check that the signed attestations are not slash-able (if slash-ability checks are enabled).
+                let safe_attestations = if slashing_checks_enabled {
+                    match inner_self
+                        .validator_store
+                        .check_and_insert_attestations(signed_attestations)
+                    {
+                        Ok(attestations) => attestations,
+                        Err(e) => {
+                            crit!(
+                                log,
+                                "An error occurred when checking for slashable attestations";
+                                "error" => format!("{:?}", e)
+                            );
+                            return;
+                        }
+                    }
+                } else {
+                    signed_attestations
                 };
 
                 match inner_self

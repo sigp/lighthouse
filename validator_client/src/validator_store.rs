@@ -675,6 +675,23 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         Ok(())
     }
 
+    /// If a single validator in the list of attestation duties requires slashing protection return true
+    pub fn attestation_slashing_checks_enabled(
+        &self,
+        attestations: &Vec<(Attestation<E>, DutyAndProof)>,
+    ) -> Result<bool, Error> {
+        for (_, validator_duty) in attestations.iter() {
+            let validator_pubkey = validator_duty.duty.pubkey;
+            let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+            if signing_method
+                .requires_local_slashing_protection(self.enable_web3signer_slashing_protection)
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     pub fn check_and_insert_attestations(
         &self,
         attestations: Vec<(Attestation<E>, DutyAndProof)>,
