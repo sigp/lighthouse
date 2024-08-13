@@ -24,12 +24,13 @@ Commands:
           signing via a keystore on the local file system (i.e., not Web3Signer
           validators).
   list
-          Lists all the validators in VC
+          Lists all validators in a validator client using the HTTP API.
   delete
-          Deletes validator from VC
+          Deletes validator from a validator client using the HTTP API.
   import-standard
-          Uploads standard keystore JSON format validator to a validator client
-          using the HTTP API.
+          Uploads validators to a validator client using the HTTP API. The
+          validators are defined in a JSON file which can be generated using the
+          staking deposit CLI.
   help
           Print this message or the help of the given subcommand(s)
 
