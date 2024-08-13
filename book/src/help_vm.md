@@ -23,6 +23,13 @@ Commands:
           "create-validators" command. This command only supports validators
           signing via a keystore on the local file system (i.e., not Web3Signer
           validators).
+  list
+          Lists all the validators in VC
+  delete
+          Deletes validator from VC
+  import-standard
+          Uploads standard keystore JSON format validator to a validator client
+          using the HTTP API.
   help
           Print this message or the help of the given subcommand(s)
 
