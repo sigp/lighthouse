@@ -9,13 +9,16 @@ use eth2_wallet::{
 use filesystem::{create_with_600_perms, Error as FsError};
 use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
-use std::{fs::{self, File}, str::FromStr};
 use std::io;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::str::from_utf8;
 use std::thread::sleep;
 use std::time::Duration;
+use std::{
+    fs::{self, File},
+    str::FromStr,
+};
 use zeroize::Zeroize;
 
 pub mod validator_definitions;
