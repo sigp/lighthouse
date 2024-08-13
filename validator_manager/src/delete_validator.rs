@@ -10,20 +10,20 @@ use types::PublicKeyBytes;
 
 use crate::{common::vc_http_client, DumpConfig};
 
-pub const CMD: &str = "remove";
+pub const CMD: &str = "delete";
 pub const VC_URL_FLAG: &str = "vc-url";
 pub const VC_TOKEN_FLAG: &str = "vc-token";
 pub const VALIDATOR_FLAG: &str = "validator";
 
 #[derive(Debug)]
-pub enum RemoveError {
+pub enum DeleteError {
     InvalidPublicKey,
-    RemoveFailed(eth2::Error),
+    DeleteFailed(eth2::Error),
 }
 
 pub fn cli_app() -> Command {
     Command::new(CMD)
-        .about("Removes validator from VC")
+        .about("Deletes validator from VC")
         .arg(
             Arg::new(VC_URL_FLAG)
                 .long(VC_URL_FLAG)
@@ -48,30 +48,30 @@ pub fn cli_app() -> Command {
             Arg::new(VALIDATOR_FLAG)
                 .long(VALIDATOR_FLAG)
                 .value_name("STRING")
-                .help("Validator that will be removed (pubkey).")
+                .help("Validator that will be deleted (pubkey).")
                 .action(ArgAction::Set),
         )
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
-pub struct RemoveConfig {
+pub struct DeleteConfig {
     pub vc_url: SensitiveUrl,
     pub vc_token_path: PathBuf,
-    pub validator_to_remove: PublicKeyBytes,
+    pub validator_to_delete: PublicKeyBytes,
 }
 
-impl RemoveConfig {
+impl DeleteConfig {
     fn from_cli(matches: &ArgMatches) -> Result<Self, String> {
         Ok(Self {
             vc_token_path: clap_utils::parse_required(matches, VC_TOKEN_FLAG)?,
-            validator_to_remove: clap_utils::parse_required(matches, VALIDATOR_FLAG)?,
+            validator_to_delete: clap_utils::parse_required(matches, VALIDATOR_FLAG)?,
             vc_url: clap_utils::parse_required(matches, VC_URL_FLAG)?,
         })
     }
 }
 
 pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<(), String> {
-    let config = RemoveConfig::from_cli(matches)?;
+    let config = DeleteConfig::from_cli(matches)?;
     if dump_config.should_exit_early(&config)? {
         Ok(())
     } else {
@@ -79,11 +79,11 @@ pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<()
     }
 }
 
-pub async fn run<'a>(config: RemoveConfig) -> Result<(), String> {
-    let RemoveConfig {
+pub async fn run<'a>(config: DeleteConfig) -> Result<(), String> {
+    let DeleteConfig {
         vc_url,
         vc_token_path,
-        validator_to_remove,
+        validator_to_delete,
     } = config;
 
     let (http_client, _keystores) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
@@ -92,13 +92,13 @@ pub async fn run<'a>(config: RemoveConfig) -> Result<(), String> {
 
     if !validators
         .iter()
-        .any(|validator| validator.validating_pubkey == validator_to_remove)
+        .any(|validator| validator.validating_pubkey == validator_to_delete)
     {
-        return Err(format!("Validator {} doesn't exists", validator_to_remove));
+        return Err(format!("Validator {} doesn't exists", validator_to_delete));
     }
 
     let delete_request = DeleteKeystoresRequest {
-        pubkeys: vec![validator_to_remove],
+        pubkeys: vec![validator_to_delete],
     };
 
     let response = http_client
@@ -111,10 +111,10 @@ pub async fn run<'a>(config: RemoveConfig) -> Result<(), String> {
         || response[0].status == DeleteKeystoreStatus::NotFound
         || response[0].status == DeleteKeystoreStatus::NotActive
     {
-        eprintln!("Problem with removing validator {}", validator_to_remove);
+        eprintln!("Problem with removing validator {}", validator_to_delete);
         return Err(format!(
             "Problem with removing validator {}",
-            validator_to_remove
+            validator_to_delete
         ));
     }
 
@@ -138,7 +138,7 @@ mod test {
     use validator_client::http_api::{test_utils::ApiTester, Config as HttpConfig};
 
     struct TestBuilder {
-        remove_config: Option<RemoveConfig>,
+        delete_config: Option<DeleteConfig>,
         src_import_builder: Option<ImportTestBuilder>,
         http_config: HttpConfig,
         vc_token: Option<String>,
@@ -148,7 +148,7 @@ mod test {
     impl TestBuilder {
         async fn new() -> Self {
             Self {
-                remove_config: None,
+                delete_config: None,
                 src_import_builder: None,
                 http_config: ApiTester::default_http_config(),
                 vc_token: None,
@@ -160,7 +160,7 @@ mod test {
             mut self,
             count: u32,
             first_index: u32,
-            index_of_validator_to_remove: usize,
+            index_of_validator_to_delete: usize,
         ) -> Self {
             let builder = ImportTestBuilder::new_with_http_config(self.http_config.clone())
                 .await
@@ -178,13 +178,13 @@ mod test {
 
             let import_config = builder.get_import_config();
 
-            self.remove_config = Some(RemoveConfig {
+            self.delete_config = Some(DeleteConfig {
                 vc_url: import_config.vc_url,
                 vc_token_path: import_config.vc_token_path,
-                validator_to_remove: PublicKeyBytes::from_str(
+                validator_to_delete: PublicKeyBytes::from_str(
                     format!(
                         "0x{}",
-                        local_validators[index_of_validator_to_remove]
+                        local_validators[index_of_validator_to_delete]
                             .voting_keystore
                             .pubkey()
                     )
@@ -202,8 +202,8 @@ mod test {
             let import_test_result = import_builder.run_test().await;
             assert!(import_test_result.result.is_ok());
 
-            let path = self.remove_config.clone().vc_token_path;
-            let url = self.remove_config.clone().vc_url;
+            let path = self.delete_config.clone().vc_token_path;
+            let url = self.delete_config.clone().vc_url;
             let parent = path.parent();
 
             fs::create_dir_all(parent).expect("Was not able to create parent directory");
@@ -216,7 +216,7 @@ mod test {
                 .open(path.clone())
                 .write_all(self.vc_token.clone().as_bytes());
 
-            let result = run(self.remove_config.clone()).await;
+            let result = run(self.delete_config.clone()).await;
 
             if result.is_ok() {
                 let (http_client, _keystores) = vc_http_client(url, path.clone()).await;
@@ -226,7 +226,7 @@ mod test {
                 assert!(list_keystores_response
                     .iter()
                     .all(|keystore| keystore.validating_pubkey
-                        != self.remove_config.clone().validator_to_remove));
+                        != self.delete_config.clone().validator_to_delete));
 
                 return TestResult { result: Ok(()) };
             }

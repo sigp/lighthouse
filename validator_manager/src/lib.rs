@@ -8,11 +8,11 @@ use types::EthSpec;
 
 pub mod common;
 pub mod create_validators;
+pub mod delete_validator;
 pub mod import_validator;
 pub mod import_validators;
 pub mod list_validators;
 pub mod move_validators;
-pub mod remove_validator;
 
 pub const CMD: &str = "validator_manager";
 
@@ -61,7 +61,7 @@ pub fn cli_app() -> Command {
         .subcommand(import_validators::cli_app())
         .subcommand(move_validators::cli_app())
         .subcommand(list_validators::cli_app())
-        .subcommand(remove_validator::cli_app())
+        .subcommand(delete_validator::cli_app())
         .subcommand(import_validator::cli_app())
 }
 
@@ -93,8 +93,8 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), 
                     Some((list_validators::CMD, matches)) => {
                         list_validators::cli_run(matches, dump_config).await
                     }
-                    Some((remove_validator::CMD, matches)) => {
-                        remove_validator::cli_run(matches, dump_config).await
+                    Some((delete_validator::CMD, matches)) => {
+                        delete_validator::cli_run(matches, dump_config).await
                     }
                     Some((import_validator::CMD, matches)) => {
                         import_validator::cli_run(matches, dump_config).await
