@@ -16,6 +16,7 @@ use task_executor::TaskExecutor;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock,
+    Slot,
 };
 
 mod error;
@@ -23,7 +24,7 @@ mod overflow_lru_cache;
 mod state_lru_cache;
 
 use crate::data_column_verification::{
-    DataColumnsSameBlock, GossipVerifiedDataColumn, KzgVerifiedDataColumnsSameBlock,
+    GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
 };
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::non_zero_usize::new_non_zero_usize;
@@ -187,7 +188,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     #[allow(clippy::type_complexity)]
     pub fn put_rpc_custody_columns(
         &self,
-        custody_columns: DataColumnsSameBlock<T::EthSpec>,
+        block_root: Hash256,
+        epoch: Epoch,
+        custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let Some(kzg) = self.kzg.as_ref() else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
@@ -195,10 +198,21 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         // TODO(das): report which column is invalid for proper peer scoring
         // TODO(das): batch KZG verification here
-        let verified_custody_columns = custody_columns.verify(kzg)?;
+        let verified_custody_columns = custody_columns
+            .iter()
+            .map(|column| {
+                Ok(KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                    KzgVerifiedDataColumn::new(column.clone(), kzg)
+                        .map_err(AvailabilityCheckError::Kzg)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, AvailabilityCheckError>>()?;
 
-        self.availability_cache
-            .put_kzg_verified_data_columns(verified_custody_columns)
+        self.availability_cache.put_kzg_verified_data_columns(
+            block_root,
+            epoch,
+            verified_custody_columns,
+        )
     }
 
     /// Check if we've cached other blobs for this block. If it completes a set and we also
@@ -217,18 +231,20 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         )
     }
 
-    pub fn put_gossip_data_column(
+    pub fn put_gossip_data_columns(
         &self,
-        gossip_data_column: GossipVerifiedDataColumn<T>,
+        slot: Slot,
+        block_root: Hash256,
+        gossip_data_columns: Vec<GossipVerifiedDataColumn<T>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let custody_column = gossip_data_column.into_inner();
-
-        // Will never error as there's exactly one column
-        let custody_columns_same_block = KzgVerifiedDataColumnsSameBlock::new(vec![custody_column])
-            .expect("exactly one column is always in same block");
+        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+        let custody_columns = gossip_data_columns
+            .into_iter()
+            .map(|c| KzgVerifiedCustodyDataColumn::from_asserted_custody(c.into_inner()))
+            .collect::<Vec<_>>();
 
         self.availability_cache
-            .put_kzg_verified_data_columns(custody_columns_same_block)
+            .put_kzg_verified_data_columns(block_root, epoch, custody_columns)
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information

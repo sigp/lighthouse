@@ -8,7 +8,6 @@ use crate::sync::{
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::MaybeAvailableBlock;
-use beacon_chain::data_column_verification::DataColumnsSameBlock;
 use beacon_chain::{
     validator_monitor::get_slot_delay_ms, AvailabilityProcessingStatus, BeaconChainError,
     BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError, NotifyExecutionLayer,
@@ -25,7 +24,7 @@ use store::KzgCommitment;
 use tokio::sync::mpsc;
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::BlockImportSource;
+use types::{BlockImportSource, DataColumnSidecarList};
 use types::{Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
@@ -310,11 +309,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     pub async fn process_rpc_custody_columns(
         self: Arc<NetworkBeaconProcessor<T>>,
-        custody_columns: DataColumnsSameBlock<T::EthSpec>,
+        block_root: Hash256,
+        custody_columns: DataColumnSidecarList<T::EthSpec>,
         _seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
-        let block_root = custody_columns.block_root();
         let result = self
             .chain
             .process_rpc_custody_columns(custody_columns)

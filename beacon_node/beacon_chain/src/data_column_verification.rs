@@ -14,11 +14,10 @@ use slot_clock::SlotClock;
 use ssz_derive::{Decode, Encode};
 use std::iter;
 use std::sync::Arc;
-use tree_hash::TreeHash;
 use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier};
 use types::{
-    BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSidecarList, DataColumnSubnetId,
-    EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlockHeader, Slot,
+    BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
+    RuntimeVariableList, SignedBeaconBlockHeader, Slot,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -227,86 +226,29 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     }
 }
 
-/// Collection of data columns for the same block root
-pub struct DataColumnsSameBlock<E: EthSpec> {
-    block_root: Hash256,
-    signed_block_header: SignedBeaconBlockHeader,
-    columns: DataColumnSidecarList<E>,
+/// Data column that we must custody and has completed kzg verification
+#[derive(Debug, Derivative, Clone, Encode, Decode)]
+#[derivative(PartialEq, Eq)]
+#[ssz(struct_behaviour = "transparent")]
+pub struct KzgVerifiedCustodyDataColumn<E: EthSpec> {
+    data: Arc<DataColumnSidecar<E>>,
 }
 
-impl<E: EthSpec> DataColumnsSameBlock<E> {
-    pub fn new(columns: DataColumnSidecarList<E>) -> Result<Self, &'static str> {
-        let first_column = columns.first().ok_or("empty columns")?;
-        let signed_block_header = first_column.signed_block_header.clone();
-        for column in columns.iter().skip(1) {
-            if column.signed_block_header != signed_block_header {
-                return Err("no same block");
-            }
+impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
+    /// Mark a column as custody column. Caller must ensure that our current custody requirements
+    /// include this column
+    pub fn from_asserted_custody(kzg_verified: KzgVerifiedDataColumn<E>) -> Self {
+        Self {
+            data: kzg_verified.to_data_column(),
         }
-        Ok(Self {
-            block_root: signed_block_header.message.tree_hash_root(),
-            signed_block_header,
-            columns,
-        })
     }
 
-    pub fn verify(self, kzg: &Kzg) -> Result<KzgVerifiedDataColumnsSameBlock<E>, KzgError> {
-        Ok(KzgVerifiedDataColumnsSameBlock {
-            block_root: self.block_root,
-            signed_block_header: self.signed_block_header,
-            columns: self
-                .columns
-                .into_iter()
-                .map(|column| KzgVerifiedDataColumn::new(column, kzg))
-                .collect::<Result<Vec<_>, _>>()?,
-        })
+    pub fn index(&self) -> ColumnIndex {
+        self.data.index
     }
 
-    pub fn block_root(&self) -> Hash256 {
-        self.block_root
-    }
-    pub fn slot(&self) -> Slot {
-        self.signed_block_header.message.slot
-    }
-    pub fn signed_block_header(&self) -> &SignedBeaconBlockHeader {
-        &self.signed_block_header
-    }
-    pub fn columns(&self) -> &DataColumnSidecarList<E> {
-        &self.columns
-    }
-}
-
-/// Collection of KZG verified data columns for the same block root
-pub struct KzgVerifiedDataColumnsSameBlock<E: EthSpec> {
-    block_root: Hash256,
-    signed_block_header: SignedBeaconBlockHeader,
-    columns: Vec<KzgVerifiedDataColumn<E>>,
-}
-
-impl<E: EthSpec> KzgVerifiedDataColumnsSameBlock<E> {
-    pub fn new(columns: Vec<KzgVerifiedDataColumn<E>>) -> Result<Self, &'static str> {
-        let first_column = columns.first().ok_or("empty columns")?;
-        let signed_block_header = first_column.as_data_column().signed_block_header.clone();
-        for column in columns.iter().skip(1) {
-            if column.as_data_column().signed_block_header != signed_block_header {
-                return Err("no same block");
-            }
-        }
-        Ok(Self {
-            block_root: signed_block_header.message.tree_hash_root(),
-            signed_block_header,
-            columns,
-        })
-    }
-
-    pub fn block_root(&self) -> Hash256 {
-        self.block_root
-    }
-    pub fn slot(&self) -> Slot {
-        self.signed_block_header.message.slot
-    }
-    pub fn columns(&self) -> &[KzgVerifiedDataColumn<E>] {
-        &self.columns
+    pub fn into_inner(self) -> Arc<DataColumnSidecar<E>> {
+        self.data
     }
 }
 
