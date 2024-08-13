@@ -108,19 +108,25 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let custody_column_count =
             custody_subnet_count.saturating_mul(spec.data_columns_per_subnet());
 
-        let overflow_cache = DataAvailabilityCheckerInner::new(
+        let inner = DataAvailabilityCheckerInner::new(
             OVERFLOW_LRU_CAPACITY,
             store,
             custody_column_count,
             spec.clone(),
         )?;
         Ok(Self {
-            availability_cache: Arc::new(overflow_cache),
+            availability_cache: Arc::new(inner),
             slot_clock,
             kzg,
             log: log.clone(),
             spec,
         })
+    }
+
+    pub fn get_custody_columns_count(&self) -> usize {
+        self.availability_cache
+            .custody_subnet_count()
+            .saturating_mul(self.spec.data_columns_per_subnet())
     }
 
     /// Checks if the block root is currenlty in the availability cache awaiting import because
