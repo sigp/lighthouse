@@ -33,6 +33,19 @@ impl<E: EthSpec> Slasher<E> {
         config.validate()?;
         let config = Arc::new(config);
         let db = SlasherDB::open(config.clone(), spec, log.clone())?;
+        Self::from_config_and_db(config, db, log)
+    }
+
+    /// TESTING ONLY.
+    ///
+    /// Initialise a slasher database from an existing `db`. The caller must ensure that the
+    /// database's config matches the one provided.
+    pub fn from_config_and_db(
+        config: Arc<Config>,
+        db: SlasherDB<E>,
+        log: Logger,
+    ) -> Result<Self, Error> {
+        config.validate()?;
         let attester_slashings = Mutex::new(HashSet::new());
         let proposer_slashings = Mutex::new(HashSet::new());
         let attestation_queue = AttestationQueue::default();
@@ -46,6 +59,11 @@ impl<E: EthSpec> Slasher<E> {
             config,
             log,
         })
+    }
+
+    pub fn into_reset_db(self) -> Result<SlasherDB<E>, Error> {
+        self.db.reset()?;
+        Ok(self.db)
     }
 
     /// Harvest all attester slashings found, removing them from the slasher.
