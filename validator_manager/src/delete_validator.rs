@@ -23,7 +23,7 @@ pub enum DeleteError {
 
 pub fn cli_app() -> Command {
     Command::new(CMD)
-        .about("Deletes validator from VC")
+        .about("Deletes validator from a validator client using the HTTP API.")
         .arg(
             Arg::new(VC_URL_FLAG)
                 .long(VC_URL_FLAG)

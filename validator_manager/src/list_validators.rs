@@ -12,7 +12,7 @@ pub const VC_TOKEN_FLAG: &str = "vc-token";
 
 pub fn cli_app() -> Command {
     Command::new(CMD)
-        .about("Lists all the validators in VC")
+        .about("Lists all validators in a validator client using the HTTP API.")
         .arg(
             Arg::new(VC_URL_FLAG)
                 .long(VC_URL_FLAG)

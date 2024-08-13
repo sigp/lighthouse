@@ -45,7 +45,7 @@ pub const VALIDATOR_FILE_FLAG: &str = "validator-file";
 pub const VC_URL_FLAG: &str = "vc-url";
 pub const VC_TOKEN_FLAG: &str = "vc-token";
 pub const PASSWORD: &str = "password";
-pub const FEE_RECIPIENT: &str = "fee-recipient";
+pub const FEE_RECIPIENT: &str = "suggested-fee-recipient";
 pub const GAS_LIMIT: &str = "gas-limit";
 pub const BUILDER_PROPOSALS: &str = "builder-proposals";
 pub const BUILDER_BOOST_FACTOR: &str = "builder-boost-factor";
@@ -57,7 +57,8 @@ pub const DETECTED_DUPLICATE_MESSAGE: &str = "Duplicate validator detected!";
 pub fn cli_app() -> Command {
     Command::new(CMD)
         .about(
-            "Uploads standard keystore JSON format validator to a validator client using the HTTP API.",
+            "Uploads validators to a validator client using the HTTP API. The validators \
+                are defined in a JSON file which can be generated using the staking deposit CLI.",
         )
         .arg(
             Arg::new(VALIDATOR_FILE_FLAG)
@@ -92,7 +93,7 @@ pub fn cli_app() -> Command {
         )
         .arg(
             Arg::new(IGNORE_DUPLICATES_FLAG)
-            .action(ArgAction::Set)
+                .action(ArgAction::Set)
                 .long(IGNORE_DUPLICATES_FLAG)
                 .help(
                     "If present, ignore any validators which already exist on the VC. \
@@ -103,54 +104,58 @@ pub fn cli_app() -> Command {
                     validators that already exist on the VC.",
                 )
                 .action(ArgAction::SetTrue),
-
         )
         .arg(
             Arg::new(PASSWORD)
                 .long(PASSWORD)
                 .value_name("STRING")
-                .help("Password of keystore file.")
+                .help("Password of the keystore file.")
                 .action(ArgAction::Set),
         )
         .arg(
             Arg::new(FEE_RECIPIENT)
                 .long(FEE_RECIPIENT)
-                .value_name("STRING")
-                .help("Address of fee recipient.")
+                .value_name("ETH1_ADDRESS")
+                .help("When provided, the imported validator will use the suggested fee recipient. Omit this flag to use the default value from the VC.")
                 .action(ArgAction::Set),
         )
         .arg(
             Arg::new(GAS_LIMIT)
                 .long(GAS_LIMIT)
-                .value_name("U64")
-                .help("Gas limit.")
+                .value_name("UINT64")
+                .help("When provided, the imported validator will use this gas limit. It is recommended \
+                to leave this as the default value by not specifying this flag.",)
                 .action(ArgAction::Set),
         )
         .arg(
             Arg::new(BUILDER_PROPOSALS)
                 .long(BUILDER_PROPOSALS)
-                .help("Builder proposals.")
-                .action(ArgAction::SetTrue)
+                .help("When provided, the imported validator will attempt to create \
+                blocks via builder rather than the local EL.",)
+                .action(ArgAction::SetTrue),
         )
         .arg(
             Arg::new(BUILDER_BOOST_FACTOR)
                 .long(BUILDER_BOOST_FACTOR)
-                .value_name("U64")
-                .help("Builder boost factor.")
+                .value_name("UINT64")
+                .help("When provided, the imported validator will use this \
+                percentage multiplier to apply to the builder's payload value \
+                when choosing between a builder payload header and payload from \
+                the local execution node.",)
                 .action(ArgAction::Set),
         )
         .arg(
             Arg::new(PREFER_BUILDER_PROPOSALS)
                 .long(PREFER_BUILDER_PROPOSALS)
-                .value_name("BOOL")
-                .help("Prefer builder proposals.")
-                .action(ArgAction::SetTrue)
+                .help("When provided, the imported validator will always prefer blocks \
+                constructed by builders, regardless of payload value.",)
+                .action(ArgAction::SetTrue),
         )
         .arg(
             Arg::new(ENABLED)
                 .long(ENABLED)
                 .value_name("BOOL")
-                .help("Enabled.")
+                .help("Enabled or disable the imported validator.")
                 .action(ArgAction::Set),
         )
 }
