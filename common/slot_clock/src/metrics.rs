@@ -1,19 +1,22 @@
 use crate::SlotClock;
 pub use lighthouse_metrics::*;
+use std::sync::LazyLock;
 use types::{EthSpec, Slot};
 
-lazy_static! {
-    pub static ref PRESENT_SLOT: Result<IntGauge> =
-        try_create_int_gauge("slotclock_present_slot", "The present wall-clock slot");
-    pub static ref PRESENT_EPOCH: Result<IntGauge> =
-        try_create_int_gauge("slotclock_present_epoch", "The present wall-clock epoch");
-    pub static ref SLOTS_PER_EPOCH: Result<IntGauge> =
-        try_create_int_gauge("slotclock_slots_per_epoch", "Slots per epoch (constant)");
-    pub static ref SECONDS_PER_SLOT: Result<IntGauge> = try_create_int_gauge(
+pub static PRESENT_SLOT: LazyLock<Result<IntGauge>> =
+    LazyLock::new(|| try_create_int_gauge("slotclock_present_slot", "The present wall-clock slot"));
+pub static PRESENT_EPOCH: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge("slotclock_present_epoch", "The present wall-clock epoch")
+});
+pub static SLOTS_PER_EPOCH: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge("slotclock_slots_per_epoch", "Slots per epoch (constant)")
+});
+pub static SECONDS_PER_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
         "slotclock_slot_time_seconds",
-        "The duration in seconds between each slot"
-    );
-}
+        "The duration in seconds between each slot",
+    )
+});
 
 /// Update the global metrics `DEFAULT_REGISTRY` with info from the slot clock.
 pub fn scrape_for_metrics<E: EthSpec, U: SlotClock>(clock: &U) {

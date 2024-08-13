@@ -2,7 +2,7 @@ use super::{EthSpec, ForkName, ForkVersionDeserialize, LightClientHeader, Slot, 
 use crate::test_utils::TestRandom;
 use crate::{
     light_client_update::*, ChainSpec, LightClientHeaderAltair, LightClientHeaderCapella,
-    LightClientHeaderDeneb, SignedBeaconBlock,
+    LightClientHeaderDeneb, LightClientHeaderElectra, SignedBlindedBeaconBlock,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -18,7 +18,7 @@ use tree_hash_derive::TreeHash;
 /// A LightClientOptimisticUpdate is the update we send on each slot,
 /// it is based off the current unfinalized epoch is verified only against BLS signature.
 #[superstruct(
-    variants(Altair, Capella, Deneb),
+    variants(Altair, Capella, Deneb, Electra),
     variant_attributes(
         derive(
             Debug,
@@ -53,6 +53,8 @@ pub struct LightClientOptimisticUpdate<E: EthSpec> {
     pub attested_header: LightClientHeaderCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "attested_header_deneb"))]
     pub attested_header: LightClientHeaderDeneb<E>,
+    #[superstruct(only(Electra), partial_getter(rename = "attested_header_electra"))]
+    pub attested_header: LightClientHeaderElectra<E>,
     /// current sync aggregate
     pub sync_aggregate: SyncAggregate<E>,
     /// Slot of the sync aggregated signature
@@ -61,7 +63,7 @@ pub struct LightClientOptimisticUpdate<E: EthSpec> {
 
 impl<E: EthSpec> LightClientOptimisticUpdate<E> {
     pub fn new(
-        attested_block: &SignedBeaconBlock<E>,
+        attested_block: &SignedBlindedBeaconBlock<E>,
         sync_aggregate: SyncAggregate<E>,
         signature_slot: Slot,
         chain_spec: &ChainSpec,
@@ -86,8 +88,15 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
                 sync_aggregate,
                 signature_slot,
             }),
-            ForkName::Deneb | ForkName::Electra => Self::Deneb(LightClientOptimisticUpdateDeneb {
+            ForkName::Deneb => Self::Deneb(LightClientOptimisticUpdateDeneb {
                 attested_header: LightClientHeaderDeneb::block_to_light_client_header(
+                    attested_block,
+                )?,
+                sync_aggregate,
+                signature_slot,
+            }),
+            ForkName::Electra => Self::Electra(LightClientOptimisticUpdateElectra {
+                attested_header: LightClientHeaderElectra::block_to_light_client_header(
                     attested_block,
                 )?,
                 sync_aggregate,
@@ -107,6 +116,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             Self::Altair(_) => func(ForkName::Altair),
             Self::Capella(_) => func(ForkName::Capella),
             Self::Deneb(_) => func(ForkName::Deneb),
+            Self::Electra(_) => func(ForkName::Electra),
         }
     }
 
@@ -139,8 +149,11 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             ForkName::Capella => {
                 Self::Capella(LightClientOptimisticUpdateCapella::from_ssz_bytes(bytes)?)
             }
-            ForkName::Deneb | ForkName::Electra => {
+            ForkName::Deneb => {
                 Self::Deneb(LightClientOptimisticUpdateDeneb::from_ssz_bytes(bytes)?)
+            }
+            ForkName::Electra => {
+                Self::Electra(LightClientOptimisticUpdateElectra::from_ssz_bytes(bytes)?)
             }
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
@@ -154,17 +167,28 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
 
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
-        // TODO(electra): review electra changes
-        match fork_name {
+        let fixed_len = match fork_name {
             ForkName::Base => 0,
-            ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra => {
+            ForkName::Altair | ForkName::Bellatrix => {
                 <LightClientOptimisticUpdateAltair<E> as Encode>::ssz_fixed_len()
-                    + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
             }
+            ForkName::Capella => <LightClientOptimisticUpdateCapella<E> as Encode>::ssz_fixed_len(),
+            ForkName::Deneb => <LightClientOptimisticUpdateDeneb<E> as Encode>::ssz_fixed_len(),
+            ForkName::Electra => <LightClientOptimisticUpdateElectra<E> as Encode>::ssz_fixed_len(),
+        };
+        fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+    }
+
+    // Implements spec prioritization rules:
+    // > Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest attested_header.beacon.slot (if multiple, highest signature_slot)
+    //
+    // ref: https://github.com/ethereum/consensus-specs/blob/113c58f9bf9c08867f6f5f633c4d98e0364d612a/specs/altair/light-client/full-node.md#create_light_client_optimistic_update
+    pub fn is_latest(&self, attested_slot: Slot, signature_slot: Slot) -> bool {
+        let prev_slot = self.get_slot();
+        if attested_slot > prev_slot {
+            true
+        } else {
+            attested_slot == prev_slot && signature_slot > *self.signature_slot()
         }
     }
 }

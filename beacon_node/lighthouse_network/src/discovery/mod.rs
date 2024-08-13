@@ -43,7 +43,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc;
-use types::{EnrForkId, EthSpec};
+use types::{ChainSpec, EnrForkId, EthSpec};
 
 mod subnet_predicate;
 pub use subnet_predicate::subnet_predicate;
@@ -192,6 +192,7 @@ pub struct Discovery<E: EthSpec> {
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
+    spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> Discovery<E> {
@@ -201,6 +202,7 @@ impl<E: EthSpec> Discovery<E> {
         config: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<E>>,
         log: &slog::Logger,
+        spec: &ChainSpec,
     ) -> error::Result<Self> {
         let log = log.clone();
 
@@ -325,6 +327,7 @@ impl<E: EthSpec> Discovery<E> {
             update_ports,
             log,
             enr_dir,
+            spec: Arc::new(spec.clone()),
         })
     }
 
@@ -548,6 +551,8 @@ impl<E: EthSpec> Discovery<E> {
                     )
                     .map_err(|e| format!("{:?}", e))?;
             }
+            // Data column subnets are computed from node ID. No subnet bitfield in the ENR.
+            Subnet::DataColumn(_) => return Ok(()),
         }
 
         // replace the global version
@@ -561,8 +566,8 @@ impl<E: EthSpec> Discovery<E> {
     /// Updates the `eth2` field of our local ENR.
     pub fn update_eth2_enr(&mut self, enr_fork_id: EnrForkId) {
         // to avoid having a reference to the spec constant, for the logging we assume
-        // FAR_FUTURE_EPOCH is u64::max_value()
-        let next_fork_epoch_log = if enr_fork_id.next_fork_epoch == u64::max_value() {
+        // FAR_FUTURE_EPOCH is u64::MAX
+        let next_fork_epoch_log = if enr_fork_id.next_fork_epoch == u64::MAX {
             String::from("No other fork")
         } else {
             format!("{:?}", enr_fork_id.next_fork_epoch)
@@ -753,7 +758,8 @@ impl<E: EthSpec> Discovery<E> {
         // Only start a discovery query if we have a subnet to look for.
         if !filtered_subnet_queries.is_empty() {
             // build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
-            let subnet_predicate = subnet_predicate::<E>(filtered_subnets, &self.log);
+            let subnet_predicate =
+                subnet_predicate::<E>(filtered_subnets, &self.log, self.spec.clone());
 
             debug!(
                 self.log,
@@ -867,6 +873,7 @@ impl<E: EthSpec> Discovery<E> {
                             let query_str = match query.subnet {
                                 Subnet::Attestation(_) => "attestation",
                                 Subnet::SyncCommittee(_) => "sync_committee",
+                                Subnet::DataColumn(_) => "data_column",
                             };
 
                             if let Some(v) = metrics::get_int_counter(
@@ -879,8 +886,11 @@ impl<E: EthSpec> Discovery<E> {
                             self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
 
                             // Check the specific subnet against the enr
-                            let subnet_predicate =
-                                subnet_predicate::<E>(vec![query.subnet], &self.log);
+                            let subnet_predicate = subnet_predicate::<E>(
+                                vec![query.subnet],
+                                &self.log,
+                                self.spec.clone(),
+                            );
 
                             r.clone()
                                 .into_iter()
@@ -1156,8 +1166,19 @@ impl<E: EthSpec> Discovery<E> {
     fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: &DialError) {
         if let Some(peer_id) = peer_id {
             match error {
+                DialError::Denied { .. } => {
+                    if self.network_globals.peers.read().is_connected(&peer_id) {
+                        // There's an active connection, so we don’t disconnect the peer.
+                        // Lighthouse dials to a peer twice using TCP and QUIC (if QUIC is not
+                        // disabled). Usually, one establishes a connection, and the other fails
+                        // because the peer allows only one connection per peer.
+                        return;
+                    }
+                    // set peer as disconnected in discovery DHT
+                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id, "error" => %ClearDialError(error));
+                    self.disconnect_peer(&peer_id);
+                }
                 DialError::LocalPeerId { .. }
-                | DialError::Denied { .. }
                 | DialError::NoAddresses
                 | DialError::Transport(_)
                 | DialError::WrongPeerId { .. } => {
@@ -1194,11 +1215,12 @@ mod tests {
     }
 
     async fn build_discovery() -> Discovery<E> {
+        let spec = ChainSpec::default();
         let keypair = secp256k1::Keypair::generate();
         let mut config = NetworkConfig::default();
         config.set_listening_addr(crate::ListenAddress::unused_v4_ports());
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
-        let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default()).unwrap();
+        let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default(), &spec).unwrap();
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,
@@ -1212,7 +1234,7 @@ mod tests {
             &log,
         );
         let keypair = keypair.into();
-        Discovery::new(keypair, &config, Arc::new(globals), &log)
+        Discovery::new(keypair, &config, Arc::new(globals), &log, &spec)
             .await
             .unwrap()
     }

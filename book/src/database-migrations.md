@@ -16,19 +16,18 @@ validator client or the slasher**.
 
 | Lighthouse version | Release date | Schema version | Downgrade available? |
 |--------------------|--------------|----------------|----------------------|
-| v5.1.0             | Mar 2024     | v19            | yes before Deneb     |
-| v5.0.0             | Feb 2024     | v19            | yes before Deneb     |
-| v4.6.0             | Dec 2023     | v19            | yes before Deneb     |
-| v4.6.0-rc.0        | Dec 2023     | v18            | yes before Deneb     |
-| v4.5.0             | Sep 2023     | v17            | yes                  |
-| v4.4.0             | Aug 2023     | v17            | yes                  |
-| v4.3.0             | Jul 2023     | v17            | yes                  |
-| v4.2.0             | May 2023     | v17            | yes                  |
-| v4.1.0             | Apr 2023     | v16            | no                   |
-| v4.0.1             | Mar 2023     | v16            | no                   |
+| v5.3.0             | Aug 2024     | v21            | yes                  |
+| v5.2.0             | Jun 2024     | v19            | no                   |
+| v5.1.0             | Mar 2024     | v19            | no                   |
+| v5.0.0             | Feb 2024     | v19            | no                   |
+| v4.6.0             | Dec 2023     | v19            | no                   |
 
 > **Note**: All point releases (e.g. v4.4.1) are schema-compatible with the prior minor release
 > (e.g. v4.4.0).
+
+> **Note**: Even if no schema downgrade is available, it is still possible to move between versions
+> that use the same schema. E.g. you can downgrade from v5.2.0 to v5.0.0 because both use schema
+> v19.
 
 > **Note**: Support for old schemas is gradually removed from newer versions of Lighthouse. We
 usually do this after a major version has been out for a while and everyone has upgraded. Deprecated
@@ -209,12 +208,16 @@ Here are the steps to prune historic states:
 
 | Lighthouse version | Release date | Schema version | Downgrade available?                |
 |--------------------|--------------|----------------|-------------------------------------|
-| v4.6.0             | Dec 2023     | v19            | yes before Deneb                    |
-| v4.6.0-rc.0        | Dec 2023     | v18            | yes before Deneb                    |
-| v4.5.0             | Sep 2023     | v17            | yes                                 |
-| v4.4.0             | Aug 2023     | v17            | yes                                 |
-| v4.3.0             | Jul 2023     | v17            | yes                                 |
-| v4.2.0             | May 2023     | v17            | yes                                 |
+| v5.3.0             | Aug 2024     | v21            | yes                                 |
+| v5.2.0             | Jun 2024     | v19            | yes before Deneb using <= v5.2.1    |
+| v5.1.0             | Mar 2024     | v19            | yes before Deneb using <= v5.2.1    |
+| v5.0.0             | Feb 2024     | v19            | yes before Deneb using <= v5.2.1    |
+| v4.6.0             | Dec 2023     | v19            | yes before Deneb using <= v5.2.1    |
+| v4.6.0-rc.0        | Dec 2023     | v18            | yes before Deneb using <= v5.2.1    |
+| v4.5.0             | Sep 2023     | v17            | yes using <= v5.2.1                 |
+| v4.4.0             | Aug 2023     | v17            | yes using <= v5.2.1                 |
+| v4.3.0             | Jul 2023     | v17            | yes using <= v5.2.1                 |
+| v4.2.0             | May 2023     | v17            | yes using <= v5.2.1                 |
 | v4.1.0             | Apr 2023     | v16            | yes before Capella using <= v4.5.0  |
 | v4.0.1             | Mar 2023     | v16            | yes before Capella using <= v4.5.0  |
 | v3.5.0             | Feb 2023     | v15            | yes before Capella using <= v4.5.0  |

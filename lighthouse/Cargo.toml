@@ -1,10 +1,10 @@
 [package]
 name = "lighthouse"
-version = "5.1.3"
+version = "5.2.1"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
-rust-version = "1.75.0"
+rust-version = "1.80.0"
 
 [features]
 default = ["slasher-lmdb", "beacon-node-redb"]
@@ -22,13 +22,21 @@ gnosis = []
 slasher-mdbx = ["slasher/mdbx"]
 # Support slasher LMDB backend.
 slasher-lmdb = ["slasher/lmdb"]
-# Use jemalloc.
-jemalloc = ["malloc_utils/jemalloc"]
+# Support slasher redb backend.
+slasher-redb = ["slasher/redb"]
 # Supports beacon node leveldb backend.
 beacon-node-leveldb = ["store/leveldb"]
 # Supports beacon node redb backend.
 beacon-node-redb = ["store/redb"]
 
+# Deprecated. This is now enabled by default on non windows targets.
+jemalloc = []
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+malloc_utils = { workspace = true, features = ["jemalloc"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+malloc_utils = { workspace = true }
 
 [dependencies]
 beacon_node = { workspace = true }
@@ -47,7 +55,6 @@ eth2_network_config = { workspace = true }
 lighthouse_version = { workspace = true }
 account_utils = { workspace = true }
 lighthouse_metrics = { workspace = true }
-lazy_static = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }

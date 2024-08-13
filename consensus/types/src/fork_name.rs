@@ -31,6 +31,16 @@ impl ForkName {
         ]
     }
 
+    pub fn list_all_fork_epochs(spec: &ChainSpec) -> Vec<(ForkName, Option<Epoch>)> {
+        vec![
+            (ForkName::Altair, spec.altair_fork_epoch),
+            (ForkName::Bellatrix, spec.bellatrix_fork_epoch),
+            (ForkName::Capella, spec.capella_fork_epoch),
+            (ForkName::Deneb, spec.deneb_fork_epoch),
+            (ForkName::Electra, spec.electra_fork_epoch),
+        ]
+    }
+
     pub fn latest() -> ForkName {
         // This unwrap is safe as long as we have 1+ forks. It is tested below.
         *ForkName::list_all().last().unwrap()
@@ -118,6 +128,26 @@ impl ForkName {
             ForkName::Deneb => Some(ForkName::Electra),
             ForkName::Electra => None,
         }
+    }
+
+    pub fn altair_enabled(self) -> bool {
+        self >= ForkName::Altair
+    }
+
+    pub fn bellatrix_enabled(self) -> bool {
+        self >= ForkName::Bellatrix
+    }
+
+    pub fn capella_enabled(self) -> bool {
+        self >= ForkName::Capella
+    }
+
+    pub fn deneb_enabled(self) -> bool {
+        self >= ForkName::Deneb
+    }
+
+    pub fn electra_enabled(self) -> bool {
+        self >= ForkName::Electra
     }
 }
 

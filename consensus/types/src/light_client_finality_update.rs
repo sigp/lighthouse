@@ -2,7 +2,8 @@ use super::{EthSpec, FixedVector, Hash256, LightClientHeader, Slot, SyncAggregat
 use crate::ChainSpec;
 use crate::{
     light_client_update::*, test_utils::TestRandom, ForkName, ForkVersionDeserialize,
-    LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb, SignedBeaconBlock,
+    LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
+    LightClientHeaderElectra, SignedBlindedBeaconBlock,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -15,7 +16,7 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
-    variants(Altair, Capella, Deneb),
+    variants(Altair, Capella, Deneb, Electra),
     variant_attributes(
         derive(
             Debug,
@@ -50,6 +51,8 @@ pub struct LightClientFinalityUpdate<E: EthSpec> {
     pub attested_header: LightClientHeaderCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "attested_header_deneb"))]
     pub attested_header: LightClientHeaderDeneb<E>,
+    #[superstruct(only(Electra), partial_getter(rename = "attested_header_electra"))]
+    pub attested_header: LightClientHeaderElectra<E>,
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
     #[superstruct(only(Altair), partial_getter(rename = "finalized_header_altair"))]
     pub finalized_header: LightClientHeaderAltair<E>,
@@ -57,6 +60,8 @@ pub struct LightClientFinalityUpdate<E: EthSpec> {
     pub finalized_header: LightClientHeaderCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "finalized_header_deneb"))]
     pub finalized_header: LightClientHeaderDeneb<E>,
+    #[superstruct(only(Electra), partial_getter(rename = "finalized_header_electra"))]
+    pub finalized_header: LightClientHeaderElectra<E>,
     /// Merkle proof attesting finalized header.
     #[test_random(default)]
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
@@ -68,8 +73,8 @@ pub struct LightClientFinalityUpdate<E: EthSpec> {
 
 impl<E: EthSpec> LightClientFinalityUpdate<E> {
     pub fn new(
-        attested_block: &SignedBeaconBlock<E>,
-        finalized_block: &SignedBeaconBlock<E>,
+        attested_block: &SignedBlindedBeaconBlock<E>,
+        finalized_block: &SignedBlindedBeaconBlock<E>,
         finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
         sync_aggregate: SyncAggregate<E>,
         signature_slot: Slot,
@@ -80,7 +85,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
             .map_err(|_| Error::InconsistentFork)?
         {
             ForkName::Altair | ForkName::Bellatrix => {
-                let finality_update = LightClientFinalityUpdateAltair {
+                Self::Altair(LightClientFinalityUpdateAltair {
                     attested_header: LightClientHeaderAltair::block_to_light_client_header(
                         attested_block,
                     )?,
@@ -90,37 +95,42 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                     finality_branch,
                     sync_aggregate,
                     signature_slot,
-                };
-                Self::Altair(finality_update)
+                })
             }
-            ForkName::Capella => {
-                let finality_update = LightClientFinalityUpdateCapella {
-                    attested_header: LightClientHeaderCapella::block_to_light_client_header(
-                        attested_block,
-                    )?,
-                    finalized_header: LightClientHeaderCapella::block_to_light_client_header(
-                        finalized_block,
-                    )?,
-                    finality_branch,
-                    sync_aggregate,
-                    signature_slot,
-                };
-                Self::Capella(finality_update)
-            }
-            ForkName::Deneb | ForkName::Electra => {
-                let finality_update = LightClientFinalityUpdateDeneb {
-                    attested_header: LightClientHeaderDeneb::block_to_light_client_header(
-                        attested_block,
-                    )?,
-                    finalized_header: LightClientHeaderDeneb::block_to_light_client_header(
-                        finalized_block,
-                    )?,
-                    finality_branch,
-                    sync_aggregate,
-                    signature_slot,
-                };
-                Self::Deneb(finality_update)
-            }
+            ForkName::Capella => Self::Capella(LightClientFinalityUpdateCapella {
+                attested_header: LightClientHeaderCapella::block_to_light_client_header(
+                    attested_block,
+                )?,
+                finalized_header: LightClientHeaderCapella::block_to_light_client_header(
+                    finalized_block,
+                )?,
+                finality_branch,
+                sync_aggregate,
+                signature_slot,
+            }),
+            ForkName::Deneb => Self::Deneb(LightClientFinalityUpdateDeneb {
+                attested_header: LightClientHeaderDeneb::block_to_light_client_header(
+                    attested_block,
+                )?,
+                finalized_header: LightClientHeaderDeneb::block_to_light_client_header(
+                    finalized_block,
+                )?,
+                finality_branch,
+                sync_aggregate,
+                signature_slot,
+            }),
+            ForkName::Electra => Self::Electra(LightClientFinalityUpdateElectra {
+                attested_header: LightClientHeaderElectra::block_to_light_client_header(
+                    attested_block,
+                )?,
+                finalized_header: LightClientHeaderElectra::block_to_light_client_header(
+                    finalized_block,
+                )?,
+                finality_branch,
+                sync_aggregate,
+                signature_slot,
+            }),
+
             ForkName::Base => return Err(Error::AltairForkNotActive),
         };
 
@@ -135,6 +145,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
             Self::Altair(_) => func(ForkName::Altair),
             Self::Capella(_) => func(ForkName::Capella),
             Self::Deneb(_) => func(ForkName::Deneb),
+            Self::Electra(_) => func(ForkName::Electra),
         }
     }
 
@@ -153,8 +164,9 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
             ForkName::Capella => {
                 Self::Capella(LightClientFinalityUpdateCapella::from_ssz_bytes(bytes)?)
             }
-            ForkName::Deneb | ForkName::Electra => {
-                Self::Deneb(LightClientFinalityUpdateDeneb::from_ssz_bytes(bytes)?)
+            ForkName::Deneb => Self::Deneb(LightClientFinalityUpdateDeneb::from_ssz_bytes(bytes)?),
+            ForkName::Electra => {
+                Self::Electra(LightClientFinalityUpdateElectra::from_ssz_bytes(bytes)?)
             }
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
@@ -168,17 +180,29 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
 
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
-        // TODO(electra): review electra changes
-        match fork_name {
+        let fixed_size = match fork_name {
             ForkName::Base => 0,
-            ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra => {
+            ForkName::Altair | ForkName::Bellatrix => {
                 <LightClientFinalityUpdateAltair<E> as Encode>::ssz_fixed_len()
-                    + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
             }
+            ForkName::Capella => <LightClientFinalityUpdateCapella<E> as Encode>::ssz_fixed_len(),
+            ForkName::Deneb => <LightClientFinalityUpdateDeneb<E> as Encode>::ssz_fixed_len(),
+            ForkName::Electra => <LightClientFinalityUpdateElectra<E> as Encode>::ssz_fixed_len(),
+        };
+        // `2 *` because there are two headers in the update
+        fixed_size + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+    }
+
+    // Implements spec prioritization rules:
+    // > Full nodes SHOULD provide the LightClientFinalityUpdate with the highest attested_header.beacon.slot (if multiple, highest signature_slot)
+    //
+    // ref: https://github.com/ethereum/consensus-specs/blob/113c58f9bf9c08867f6f5f633c4d98e0364d612a/specs/altair/light-client/full-node.md#create_light_client_finality_update
+    pub fn is_latest(&self, attested_slot: Slot, signature_slot: Slot) -> bool {
+        let prev_slot = self.get_attested_header_slot();
+        if attested_slot > prev_slot {
+            true
+        } else {
+            attested_slot == prev_slot && signature_slot > *self.signature_slot()
         }
     }
 }

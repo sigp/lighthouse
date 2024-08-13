@@ -54,6 +54,7 @@ use crate::block_verification_types::{
     AsBlock, BlockContentsError, BlockImportData, GossipVerifiedBlockContents, RpcBlock,
 };
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
+use crate::data_column_verification::GossipDataColumnError;
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
@@ -63,11 +64,11 @@ use crate::observed_block_producers::SeenBlock;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
-    beacon_chain::{BeaconForkChoice, ForkChoiceError, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT},
+    beacon_chain::{BeaconForkChoice, ForkChoiceError},
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
-use eth2::types::{EventKind, PublishBlockRequest};
+use eth2::types::{BlockGossip, EventKind, PublishBlockRequest};
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
@@ -93,7 +94,6 @@ use std::io::Write;
 use std::sync::Arc;
 use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
-use tree_hash::TreeHash;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ExecutionBlockHash,
     Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
@@ -300,10 +300,19 @@ pub enum BlockError<E: EthSpec> {
     /// 1. The block proposer is faulty
     /// 2. We received the blob over rpc and it is invalid (inconsistent w.r.t the block).
     /// 3. It is an internal error
+    ///
     /// For all these cases, we cannot penalize the peer that gave us the block.
+    ///
     /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
     /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
+    /// An internal error has occurred when processing the block or sidecars.
+    ///
+    /// ## Peer scoring
+    ///
+    /// We were unable to process this block due to an internal error. It's unclear if the block is
+    /// valid.
+    InternalError(String),
 }
 
 impl<E: EthSpec> From<AvailabilityCheckError> for BlockError<E> {
@@ -517,6 +526,20 @@ impl<E: EthSpec> BlockSlashInfo<GossipBlobError<E>> {
     pub fn from_early_error_blob(header: SignedBeaconBlockHeader, e: GossipBlobError<E>) -> Self {
         match e {
             GossipBlobError::ProposalSignatureInvalid => BlockSlashInfo::SignatureInvalid(e),
+            // `InvalidSignature` could indicate any signature in the block, so we want
+            // to recheck the proposer signature alone.
+            _ => BlockSlashInfo::SignatureNotChecked(header, e),
+        }
+    }
+}
+
+impl BlockSlashInfo<GossipDataColumnError> {
+    pub fn from_early_error_data_column(
+        header: SignedBeaconBlockHeader,
+        e: GossipDataColumnError,
+    ) -> Self {
+        match e {
+            GossipDataColumnError::ProposalSignatureInvalid => BlockSlashInfo::SignatureInvalid(e),
             // `InvalidSignature` could indicate any signature in the block, so we want
             // to recheck the proposer signature alone.
             _ => BlockSlashInfo::SignatureNotChecked(header, e),
@@ -975,6 +998,16 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Validate the block's execution_payload (if any).
         validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
+        // Beacon API block_gossip events
+        if let Some(event_handler) = chain.event_handler.as_ref() {
+            if event_handler.has_block_gossip_subscribers() {
+                event_handler.register(EventKind::BlockGossip(Box::new(BlockGossip {
+                    slot: block.slot(),
+                    block: block_root,
+                })));
+            }
+        }
+
         // Having checked the proposer index and the block root we can cache them.
         let consensus_context = ConsensusContext::new(block.slot())
             .set_current_block_root(block_root)
@@ -1335,6 +1368,13 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             // The specification declares that this should be run *inside* `per_block_processing`,
             // however we run it here to keep `per_block_processing` pure (i.e., no calls to external
             // servers).
+            if let Some(started_execution) = chain.slot_clock.now_duration() {
+                chain.block_times_cache.write().set_time_started_execution(
+                    block_root,
+                    block.slot(),
+                    started_execution,
+                );
+            }
             let payload_verification_status = payload_notifier.notify_new_payload().await?;
 
             // If the payload did not validate or invalidate the block, check to see if this block is
@@ -1625,7 +1665,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         }
 
         // Register each attestation in the block with fork choice.
-        for (i, attestation) in block.message().body().attestations().iter().enumerate() {
+        for (i, attestation) in block.message().body().attestations().enumerate() {
             let _fork_choice_attestation_timer =
                 metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
 
@@ -1991,6 +2031,23 @@ impl<E: EthSpec> BlockBlobError for GossipBlobError<E> {
     }
 }
 
+impl BlockBlobError for GossipDataColumnError {
+    fn not_later_than_parent_error(data_column_slot: Slot, parent_slot: Slot) -> Self {
+        GossipDataColumnError::IsNotLaterThanParent {
+            data_column_slot,
+            parent_slot,
+        }
+    }
+
+    fn unknown_validator_error(validator_index: u64) -> Self {
+        GossipDataColumnError::UnknownValidator(validator_index)
+    }
+
+    fn proposer_signature_invalid() -> Self {
+        GossipDataColumnError::ProposalSignatureInvalid
+    }
+}
+
 /// Performs a cheap (time-efficient) state advancement so the committees and proposer shuffling for
 /// `slot` can be obtained from `state`.
 ///
@@ -2039,10 +2096,7 @@ pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobEr
 pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<RwLockReadGuard<ValidatorPubkeyCache<T>>, BeaconChainError> {
-    chain
-        .validator_pubkey_cache
-        .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-        .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)
+    Ok(chain.validator_pubkey_cache.read())
 }
 
 /// Produces an _empty_ `BlockSignatureVerifier`.
@@ -2107,7 +2161,14 @@ pub fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
 
 fn write_state<E: EthSpec>(prefix: &str, state: &BeaconState<E>, log: &Logger) {
     if WRITE_BLOCK_PROCESSING_SSZ {
-        let root = state.tree_hash_root();
+        let mut state = state.clone();
+        let Ok(root) = state.canonical_root() else {
+            error!(
+                log,
+                "Unable to hash state for writing";
+            );
+            return;
+        };
         let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot(), root);
         let mut path = std::env::temp_dir().join("lighthouse");
         let _ = fs::create_dir_all(path.clone());

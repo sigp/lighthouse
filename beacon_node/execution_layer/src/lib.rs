@@ -1994,6 +1994,22 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         .collect(),
                 )
                 .map_err(ApiError::DeserializeWithdrawals)?;
+                let deposit_requests = VariableList::new(
+                    electra_block
+                        .deposit_requests
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
+                .map_err(ApiError::DeserializeDepositRequests)?;
+                let withdrawal_requests = VariableList::new(
+                    electra_block
+                        .withdrawal_requests
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
+                .map_err(ApiError::DeserializeWithdrawalRequests)?;
                 ExecutionPayload::Electra(ExecutionPayloadElectra {
                     parent_hash: electra_block.parent_hash,
                     fee_recipient: electra_block.fee_recipient,
@@ -2012,11 +2028,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     withdrawals,
                     blob_gas_used: electra_block.blob_gas_used,
                     excess_blob_gas: electra_block.excess_blob_gas,
-                    // TODO(electra)
-                    // deposit_receipts: electra_block.deposit_receipts,
-                    // withdrawal_requests: electra_block.withdrawal_requests,
-                    deposit_receipts: <_>::default(),
-                    withdrawal_requests: <_>::default(),
+                    deposit_requests,
+                    withdrawal_requests,
                 })
             }
         };
@@ -2178,7 +2191,7 @@ fn verify_builder_bid<E: EthSpec>(
 
     // Avoid logging values that we can't represent with our Prometheus library.
     let payload_value_gwei = bid.data.message.value() / 1_000_000_000;
-    if payload_value_gwei <= Uint256::from(i64::max_value()) {
+    if payload_value_gwei <= Uint256::from(i64::MAX) {
         metrics::set_gauge_vec(
             &metrics::EXECUTION_LAYER_PAYLOAD_BIDS,
             &[metrics::BUILDER],
@@ -2191,7 +2204,7 @@ fn verify_builder_bid<E: EthSpec>(
         .ok()
         .cloned()
         .map(|withdrawals| Withdrawals::<E>::from(withdrawals).tree_hash_root());
-    let payload_withdrawals_root = header.withdrawals_root().ok().copied();
+    let payload_withdrawals_root = header.withdrawals_root().ok();
 
     if header.parent_hash() != parent_hash {
         Err(Box::new(InvalidBuilderPayload::ParentHash {

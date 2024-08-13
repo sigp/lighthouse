@@ -3,12 +3,12 @@
 use beacon_chain::sync_committee_verification::{Error as SyncCommitteeError, SyncCommitteeData};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee};
 use int_to_bytes::int_to_bytes32;
-use lazy_static::lazy_static;
 use safe_arith::SafeArith;
 use state_processing::{
     per_block_processing::{altair::sync_committee::process_sync_aggregate, VerifySignatures},
     state_advance::complete_state_advance,
 };
+use std::sync::LazyLock;
 use store::{SignedContributionAndProof, SyncCommitteeMessage};
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
@@ -21,10 +21,9 @@ pub type E = MainnetEthSpec;
 
 pub const VALIDATOR_COUNT: usize = 256;
 
-lazy_static! {
-    /// A cached set of keys.
-    static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
-}
+/// A cached set of keys.
+static KEYPAIRS: LazyLock<Vec<Keypair>> =
+    LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 /// Returns a beacon chain harness.
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
@@ -318,7 +317,6 @@ async fn aggregated_gossip_verification() {
      * The contribution_and_proof.selection_proof is a valid signature of the `SyncAggregatorSelectionData`
      * derived from the contribution by the validator with index `contribution_and_proof.aggregator_index`.
      */
-
     assert_invalid!(
         "aggregate with bad selection proof signature",
         {
@@ -354,7 +352,6 @@ async fn aggregated_gossip_verification() {
      * derived from the participation info in `aggregation_bits` for the subcommittee specified by
      * the `contribution.subcommittee_index`.
      */
-
     assert_invalid!(
         "aggregate with bad aggregate signature",
         {
@@ -450,6 +447,7 @@ async fn aggregated_gossip_verification() {
         root: contribution.beacon_block_root,
         subcommittee_index: contribution.subcommittee_index,
     };
+
     assert_invalid!(
         "aggregate that has already been seen",
         valid_aggregate.clone(),

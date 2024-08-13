@@ -9,12 +9,11 @@ use beacon_chain::{
     },
     BeaconChainError,
 };
-use lazy_static::lazy_static;
 use sloggers::{null::NullLoggerBuilder, Build};
 use state_processing::per_block_processing::errors::{
     AttesterSlashingInvalid, BlockOperationError, ExitInvalid, ProposerSlashingInvalid,
 };
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use store::database::interface::BeaconNodeBackend;
 use store::StoreConfig;
 use tempfile::{tempdir, TempDir};
@@ -22,11 +21,9 @@ use types::*;
 
 pub const VALIDATOR_COUNT: usize = 24;
 
-lazy_static! {
-    /// A cached set of keys.
-    static ref KEYPAIRS: Vec<Keypair> =
-        types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
-}
+/// A cached set of keys.
+static KEYPAIRS: LazyLock<Vec<Keypair>> =
+    LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;

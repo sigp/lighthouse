@@ -2,23 +2,24 @@
 
 use beacon_chain::block_verification_types::{AsBlock, ExecutedBlock, RpcBlock};
 use beacon_chain::{
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
+    test_utils::{
+        test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    },
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, ExecutionPendingBlock,
 };
 use beacon_chain::{
     BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult, IntoExecutionPendingBlock,
     NotifyExecutionLayer,
 };
-use lazy_static::lazy_static;
 use logging::test_logger;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
-    common::get_indexed_attestation,
+    common::{attesting_indices_base, attesting_indices_electra},
     per_block_processing::{per_block_processing, BlockSignatureStrategy},
     per_slot_processing, BlockProcessingError, ConsensusContext, VerifyBlockRoot,
 };
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tempfile::tempdir;
 use types::{test_utils::generate_deterministic_keypair, *};
 
@@ -29,10 +30,9 @@ const VALIDATOR_COUNT: usize = 24;
 const CHAIN_SEGMENT_LENGTH: usize = 64 * 5;
 const BLOCK_INDICES: &[usize] = &[0, 1, 32, 64, 68 + 1, 129, CHAIN_SEGMENT_LENGTH - 1];
 
-lazy_static! {
-    /// A cached set of keys.
-    static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
-}
+/// A cached set of keys.
+static KEYPAIRS: LazyLock<Vec<Keypair>> =
+    LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<BlobSidecarList<E>>>) {
     let harness = get_harness(VALIDATOR_COUNT);
@@ -666,37 +666,95 @@ async fn invalid_signature_attester_slashing() {
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
-        let indexed_attestation = IndexedAttestation {
-            attesting_indices: vec![0].into(),
-            data: AttestationData {
-                slot: Slot::new(0),
-                index: 0,
-                beacon_block_root: Hash256::zero(),
-                source: Checkpoint {
-                    epoch: Epoch::new(0),
-                    root: Hash256::zero(),
+        let fork_name = harness.chain.spec.fork_name_at_slot::<E>(Slot::new(0));
+
+        let attester_slashing = if fork_name.electra_enabled() {
+            let indexed_attestation = IndexedAttestationElectra {
+                attesting_indices: vec![0].into(),
+                data: AttestationData {
+                    slot: Slot::new(0),
+                    index: 0,
+                    beacon_block_root: Hash256::zero(),
+                    source: Checkpoint {
+                        epoch: Epoch::new(0),
+                        root: Hash256::zero(),
+                    },
+                    target: Checkpoint {
+                        epoch: Epoch::new(0),
+                        root: Hash256::zero(),
+                    },
                 },
-                target: Checkpoint {
-                    epoch: Epoch::new(0),
-                    root: Hash256::zero(),
+                signature: junk_aggregate_signature(),
+            };
+            let attester_slashing = AttesterSlashingElectra {
+                attestation_1: indexed_attestation.clone(),
+                attestation_2: indexed_attestation,
+            };
+
+            AttesterSlashing::Electra(attester_slashing)
+        } else {
+            let indexed_attestation = IndexedAttestationBase {
+                attesting_indices: vec![0].into(),
+                data: AttestationData {
+                    slot: Slot::new(0),
+                    index: 0,
+                    beacon_block_root: Hash256::zero(),
+                    source: Checkpoint {
+                        epoch: Epoch::new(0),
+                        root: Hash256::zero(),
+                    },
+                    target: Checkpoint {
+                        epoch: Epoch::new(0),
+                        root: Hash256::zero(),
+                    },
                 },
-            },
-            signature: junk_aggregate_signature(),
+                signature: junk_aggregate_signature(),
+            };
+            let attester_slashing = AttesterSlashingBase {
+                attestation_1: indexed_attestation.clone(),
+                attestation_2: indexed_attestation,
+            };
+
+            AttesterSlashing::Base(attester_slashing)
         };
-        let attester_slashing = AttesterSlashing {
-            attestation_1: indexed_attestation.clone(),
-            attestation_2: indexed_attestation,
-        };
+
         let (mut block, signature) = snapshots[block_index]
             .beacon_block
             .as_ref()
             .clone()
             .deconstruct();
-        block
-            .body_mut()
-            .attester_slashings_mut()
-            .push(attester_slashing)
-            .expect("should update attester slashing");
+        match &mut block.body_mut() {
+            BeaconBlockBodyRefMut::Base(ref mut blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_base().unwrap().clone())
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Altair(ref mut blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_base().unwrap().clone())
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Bellatrix(ref mut blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_base().unwrap().clone())
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Capella(ref mut blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_base().unwrap().clone())
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Deneb(ref mut blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_base().unwrap().clone())
+                    .expect("should update attester slashing");
+            }
+            BeaconBlockBodyRefMut::Electra(ref mut blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_electra().unwrap().clone())
+                    .expect("should update attester slashing");
+            }
+        }
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));
         update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
@@ -726,8 +784,34 @@ async fn invalid_signature_attestation() {
             .as_ref()
             .clone()
             .deconstruct();
-        if let Some(attestation) = block.body_mut().attestations_mut().get_mut(0) {
-            attestation.signature = junk_aggregate_signature();
+        match &mut block.body_mut() {
+            BeaconBlockBodyRefMut::Base(ref mut blk) => blk
+                .attestations
+                .get_mut(0)
+                .map(|att| att.signature = junk_aggregate_signature()),
+            BeaconBlockBodyRefMut::Altair(ref mut blk) => blk
+                .attestations
+                .get_mut(0)
+                .map(|att| att.signature = junk_aggregate_signature()),
+            BeaconBlockBodyRefMut::Bellatrix(ref mut blk) => blk
+                .attestations
+                .get_mut(0)
+                .map(|att| att.signature = junk_aggregate_signature()),
+            BeaconBlockBodyRefMut::Capella(ref mut blk) => blk
+                .attestations
+                .get_mut(0)
+                .map(|att| att.signature = junk_aggregate_signature()),
+            BeaconBlockBodyRefMut::Deneb(ref mut blk) => blk
+                .attestations
+                .get_mut(0)
+                .map(|att| att.signature = junk_aggregate_signature()),
+            BeaconBlockBodyRefMut::Electra(ref mut blk) => blk
+                .attestations
+                .get_mut(0)
+                .map(|att| att.signature = junk_aggregate_signature()),
+        };
+
+        if block.body().attestations_len() > 0 {
             snapshots[block_index].beacon_block =
                 Arc::new(SignedBeaconBlock::from_block(block, signature));
             update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
@@ -1126,8 +1210,14 @@ async fn block_gossip_verification() {
 #[tokio::test]
 async fn verify_block_for_gossip_slashing_detection() {
     let slasher_dir = tempdir().unwrap();
+    let spec = Arc::new(test_spec::<E>());
     let slasher = Arc::new(
-        Slasher::open(SlasherConfig::new(slasher_dir.path().into()), test_logger()).unwrap(),
+        Slasher::open(
+            SlasherConfig::new(slasher_dir.path().into()),
+            spec,
+            test_logger(),
+        )
+        .unwrap(),
     );
 
     let inner_slasher = slasher.clone();
@@ -1191,9 +1281,13 @@ async fn verify_block_for_gossip_doppelganger_detection() {
 
     let state = harness.get_current_state();
     let ((block, _), _) = harness.make_block(state.clone(), Slot::new(1)).await;
-
+    let attestations = block
+        .message()
+        .body()
+        .attestations()
+        .map(|att| att.clone_as_attestation())
+        .collect::<Vec<_>>();
     let verified_block = harness.chain.verify_block_for_gossip(block).await.unwrap();
-    let attestations = verified_block.block.message().body().attestations().clone();
     harness
         .chain
         .process_block(
@@ -1207,13 +1301,23 @@ async fn verify_block_for_gossip_doppelganger_detection() {
         .unwrap();
 
     for att in attestations.iter() {
-        let epoch = att.data.target.epoch;
-        let committee = state
-            .get_beacon_committee(att.data.slot, att.data.index)
-            .unwrap();
-        let indexed_attestation = get_indexed_attestation(committee.committee, att).unwrap();
+        let epoch = att.data().target.epoch;
+        let indexed_attestation = match att {
+            Attestation::Base(att) => {
+                let committee = state
+                    .get_beacon_committee(att.data.slot, att.data.index)
+                    .unwrap();
+                attesting_indices_base::get_indexed_attestation(committee.committee, att).unwrap()
+            }
+            Attestation::Electra(att) => {
+                attesting_indices_electra::get_indexed_attestation_from_state(&state, att).unwrap()
+            }
+        };
 
-        for &index in &indexed_attestation.attesting_indices {
+        for index in match indexed_attestation {
+            IndexedAttestation::Base(att) => att.attesting_indices.into_iter(),
+            IndexedAttestation::Electra(att) => att.attesting_indices.into_iter(),
+        } {
             let index = index as usize;
 
             assert!(harness.chain.validator_seen_at_epoch(index, epoch));

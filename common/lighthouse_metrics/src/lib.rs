@@ -1,12 +1,12 @@
 #![allow(clippy::needless_doctest_main)]
-//! A wrapper around the `prometheus` crate that provides a global, `lazy_static` metrics registry
+//! A wrapper around the `prometheus` crate that provides a global metrics registry
 //! and functions to add and use the following components (more info at
 //! [Prometheus docs](https://prometheus.io/docs/concepts/metric_types/)):
 //!
 //! - `Histogram`: used with `start_timer(..)` and `stop_timer(..)` to record durations (e.g.,
-//! block processing time).
+//!   block processing time).
 //! - `IncCounter`: used to represent an ideally ever-growing, never-shrinking integer (e.g.,
-//! number of block processing requests).
+//!   number of block processing requests).
 //! - `IntGauge`: used to represent an varying integer (e.g., number of attestations per block).
 //!
 //! ## Important
@@ -20,24 +20,20 @@
 //! ## Example
 //!
 //! ```rust
-//! #[macro_use]
-//! extern crate lazy_static;
 //! use lighthouse_metrics::*;
+//! use std::sync::LazyLock;
 //!
 //! // These metrics are "magically" linked to the global registry defined in `lighthouse_metrics`.
-//! lazy_static! {
-//!     pub static ref RUN_COUNT: Result<IntCounter> = try_create_int_counter(
-//!         "runs_total",
-//!         "Total number of runs"
-//!     );
-//!     pub static ref CURRENT_VALUE: Result<IntGauge> = try_create_int_gauge(
-//!         "current_value",
-//!         "The current value"
-//!     );
-//!     pub static ref RUN_TIME: Result<Histogram> =
-//!         try_create_histogram("run_seconds", "Time taken (measured to high precision)");
-//! }
-//!
+//! pub static RUN_COUNT: LazyLock<Result<IntCounter>> = LazyLock::new(|| try_create_int_counter(
+//!     "runs_total",
+//!     "Total number of runs"
+//! ));
+//! pub static CURRENT_VALUE: LazyLock<Result<IntGauge>> = LazyLock::new(|| try_create_int_gauge(
+//!     "current_value",
+//!     "The current value"
+//! ));
+//! pub static RUN_TIME: LazyLock<Result<Histogram>> =
+//!     LazyLock::new(|| try_create_histogram("run_seconds", "Time taken (measured to high precision)"));
 //!
 //! fn main() {
 //!     for i in 0..100 {

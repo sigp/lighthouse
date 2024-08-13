@@ -110,6 +110,12 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         })))
     }
 
+    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
+        Ok(Box::new(
+            self.iter_column(column)?.map(|res| res.map(|(k, _)| k)),
+        ))
+    }
+
     fn begin_rw_transaction(&self) -> MutexGuard<()> {
         self.transaction_mutex.lock()
     }

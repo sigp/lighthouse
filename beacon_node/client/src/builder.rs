@@ -208,6 +208,7 @@ where
             .beacon_graffiti(beacon_graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
+            .import_all_data_columns(config.network.subscribe_all_data_column_subnets)
             .validator_monitor_config(config.validator_monitor.clone());
 
         let builder = if let Some(slasher) = self.slasher.clone() {

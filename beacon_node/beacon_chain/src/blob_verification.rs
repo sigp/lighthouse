@@ -10,14 +10,15 @@ use crate::block_verification::{
 use crate::kzg_utils::{validate_blob, validate_blobs};
 use crate::{metrics, BeaconChainError};
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
-use merkle_proof::MerkleTreeError;
 use slog::debug;
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use std::time::Duration;
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
-use types::{BeaconStateError, BlobSidecar, EthSpec, Hash256, SignedBeaconBlockHeader, Slot};
+use types::{
+    BeaconStateError, BlobSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
+};
 
 /// An error occurred while validating a gossip blob.
 #[derive(Debug)]
@@ -128,13 +129,6 @@ pub enum GossipBlobError<E: EthSpec> {
     /// The blob sidecar is invalid and the peer is faulty.
     KzgError(kzg::Error),
 
-    /// The kzg commitment inclusion proof failed.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The blob sidecar is invalid
-    InclusionProof(MerkleTreeError),
-
     /// The pubkey cache timed out.
     ///
     /// ## Peer scoring
@@ -230,6 +224,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     }
     pub fn slot(&self) -> Slot {
         self.blob.blob.slot()
+    }
+    pub fn epoch(&self) -> Epoch {
+        self.blob.blob.epoch()
     }
     pub fn index(&self) -> u64 {
         self.blob.blob.index
@@ -459,10 +456,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
 
     // Verify the inclusion proof in the sidecar
     let _timer = metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_VERIFICATION);
-    if !blob_sidecar
-        .verify_blob_sidecar_inclusion_proof()
-        .map_err(GossipBlobError::InclusionProof)?
-    {
+    if !blob_sidecar.verify_blob_sidecar_inclusion_proof() {
         return Err(GossipBlobError::InvalidInclusionProof);
     }
     drop(_timer);

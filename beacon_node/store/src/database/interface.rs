@@ -170,7 +170,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
         }
     }
 
-    fn compact_column(&self, _column: DBColumn) -> Result<(), crate::Error> {
+    fn compact_column(&self, _column: DBColumn) -> Result<(), Error> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::compact_column(txn, _column),
