@@ -5,6 +5,7 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::io::Write;
 use std::num::NonZeroUsize;
+use superstruct::superstruct;
 use types::non_zero_usize::new_non_zero_usize;
 use types::{EthSpec, Unsigned};
 use zstd::Encoder;
@@ -57,10 +58,28 @@ pub struct StoreConfig {
 }
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
-// FIXME(sproul): schema migration
+#[superstruct(
+    variants(V1, V22),
+    variant_attributes(derive(Debug, Clone, PartialEq, Eq, Encode, Decode))
+)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OnDiskStoreConfig {
+    #[superstruct(only(V1))]
+    pub slots_per_restore_point: u64,
+    /// Prefix byte to future-proof versions of the `OnDiskStoreConfig` post V1
+    #[superstruct(only(V22))]
+    version_byte: u8,
+    #[superstruct(only(V22))]
     pub hierarchy_config: HierarchyConfig,
+}
+
+impl OnDiskStoreConfigV22 {
+    fn new(hierarchy_config: HierarchyConfig) -> Self {
+        Self {
+            version_byte: 22,
+            hierarchy_config,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +100,7 @@ pub enum StoreConfigError {
         max_supported: u64,
     },
     ZeroEpochsPerBlobPrune,
+    InvalidVersionByte(Option<u8>),
 }
 
 impl Default for StoreConfig {
@@ -106,9 +126,7 @@ impl Default for StoreConfig {
 
 impl StoreConfig {
     pub fn as_disk_config(&self) -> OnDiskStoreConfig {
-        OnDiskStoreConfig {
-            hierarchy_config: self.hierarchy_config.clone(),
-        }
+        OnDiskStoreConfig::V22(OnDiskStoreConfigV22::new(self.hierarchy_config.clone()))
     }
 
     pub fn check_compatibility(
@@ -117,17 +135,23 @@ impl StoreConfig {
         split: &Split,
         anchor: Option<&AnchorInfo>,
     ) -> Result<(), StoreConfigError> {
-        let db_config = self.as_disk_config();
         // Allow changing the hierarchy exponents if no historic states are stored.
-        if db_config.hierarchy_config == on_disk_config.hierarchy_config
-            || anchor.map_or(false, |anchor| anchor.no_historic_states_stored(split.slot))
-        {
-            Ok(())
-        } else {
+        let no_historic_states_stored =
+            anchor.map_or(false, |anchor| anchor.no_historic_states_stored(split.slot));
+        let hierarchy_config_changed =
+            if let Ok(on_disk_hierarchy_config) = on_disk_config.hierarchy_config() {
+                *on_disk_hierarchy_config != self.hierarchy_config
+            } else {
+                false
+            };
+
+        if hierarchy_config_changed && !no_historic_states_stored {
             Err(StoreConfigError::IncompatibleStoreConfig {
-                config: db_config,
+                config: self.as_disk_config(),
                 on_disk: on_disk_config.clone(),
             })
+        } else {
+            Ok(())
         }
     }
 
@@ -210,11 +234,21 @@ impl StoreItem for OnDiskStoreConfig {
     }
 
     fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
+        match self {
+            OnDiskStoreConfig::V1(value) => value.as_ssz_bytes(),
+            OnDiskStoreConfig::V22(value) => value.as_ssz_bytes(),
+        }
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        Ok(Self::from_ssz_bytes(bytes)?)
+        // NOTE: V22 config can never be deserialized as a V1 because the minimum length of its
+        // serialization is: 1 prefix byte + 1 offset (OnDiskStoreConfigV1 container) +
+        // 1 offset (HierarchyConfig container) = 9.
+        if let Ok(value) = OnDiskStoreConfigV1::from_ssz_bytes(bytes) {
+            return Ok(Self::V1(value));
+        }
+
+        Ok(Self::V22(OnDiskStoreConfigV22::from_ssz_bytes(bytes)?))
     }
 }
 
@@ -222,6 +256,7 @@ impl StoreItem for OnDiskStoreConfig {
 mod test {
     use super::*;
     use crate::{metadata::STATE_UPPER_LIMIT_NO_RETAIN, AnchorInfo, Split};
+    use ssz::DecodeError;
     use types::{Hash256, Slot};
 
     #[test]
@@ -229,9 +264,23 @@ mod test {
         let store_config = StoreConfig {
             ..Default::default()
         };
-        let on_disk_config = OnDiskStoreConfig {
-            hierarchy_config: store_config.hierarchy_config.clone(),
+        let on_disk_config = OnDiskStoreConfig::V22(OnDiskStoreConfigV22::new(
+            store_config.hierarchy_config.clone(),
+        ));
+        let split = Split::default();
+        assert!(store_config
+            .check_compatibility(&on_disk_config, &split, None)
+            .is_ok());
+    }
+
+    #[test]
+    fn check_compatibility_after_migration() {
+        let store_config = StoreConfig {
+            ..Default::default()
         };
+        let on_disk_config = OnDiskStoreConfig::V1(OnDiskStoreConfigV1 {
+            slots_per_restore_point: 8192,
+        });
         let split = Split::default();
         assert!(store_config
             .check_compatibility(&on_disk_config, &split, None)
@@ -243,11 +292,9 @@ mod test {
         let store_config = StoreConfig {
             ..Default::default()
         };
-        let on_disk_config = OnDiskStoreConfig {
-            hierarchy_config: HierarchyConfig {
-                exponents: vec![5, 8, 11, 13, 16, 18, 21],
-            },
-        };
+        let on_disk_config = OnDiskStoreConfig::V22(OnDiskStoreConfigV22::new(HierarchyConfig {
+            exponents: vec![5, 8, 11, 13, 16, 18, 21],
+        }));
         let split = Split::default();
         assert!(store_config
             .check_compatibility(&on_disk_config, &split, None)
@@ -259,11 +306,9 @@ mod test {
         let store_config = StoreConfig {
             ..Default::default()
         };
-        let on_disk_config = OnDiskStoreConfig {
-            hierarchy_config: HierarchyConfig {
-                exponents: vec![5, 8, 11, 13, 16, 18, 21],
-            },
-        };
+        let on_disk_config = OnDiskStoreConfig::V22(OnDiskStoreConfigV22::new(HierarchyConfig {
+            exponents: vec![5, 8, 11, 13, 16, 18, 21],
+        }));
         let split = Split::default();
         let anchor = AnchorInfo {
             anchor_slot: Slot::new(0),
@@ -275,5 +320,46 @@ mod test {
         assert!(store_config
             .check_compatibility(&on_disk_config, &split, Some(&anchor))
             .is_ok());
+    }
+
+    #[test]
+    fn serde_on_disk_config_v0_from_v1_default() {
+        let config = OnDiskStoreConfig::V22(OnDiskStoreConfigV22::new(<_>::default()));
+        let config_bytes = config.as_store_bytes();
+        // On a downgrade, the previous version of lighthouse will attempt to deserialize the
+        // prefixed V22 as just the V1 version.
+        assert_eq!(
+            OnDiskStoreConfigV1::from_ssz_bytes(&config_bytes).unwrap_err(),
+            DecodeError::InvalidByteLength {
+                len: 16,
+                expected: 8
+            },
+        );
+    }
+
+    #[test]
+    fn serde_on_disk_config_v0_from_v1_empty() {
+        let config = OnDiskStoreConfig::V22(OnDiskStoreConfigV22::new(HierarchyConfig {
+            exponents: vec![],
+        }));
+        let config_bytes = config.as_store_bytes();
+        // On a downgrade, the previous version of lighthouse will attempt to deserialize the
+        // prefixed V22 as just the V1 version.
+        assert_eq!(
+            OnDiskStoreConfigV1::from_ssz_bytes(&config_bytes).unwrap_err(),
+            DecodeError::InvalidByteLength {
+                len: 9,
+                expected: 8
+            },
+        );
+    }
+
+    #[test]
+    fn serde_on_disk_config_v1_roundtrip() {
+        let config = OnDiskStoreConfig::V22(OnDiskStoreConfigV22::new(<_>::default()));
+        let bytes = config.as_store_bytes();
+        assert_eq!(bytes[0], 22);
+        let config_out = OnDiskStoreConfig::from_store_bytes(&bytes).unwrap();
+        assert_eq!(config_out, config);
     }
 }

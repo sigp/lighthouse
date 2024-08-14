@@ -322,13 +322,15 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                 .check_compatibility(&disk_config, &split, anchor.as_ref())?;
 
             // Inform user if hierarchy config is changing.
-            if db.config.hierarchy_config != disk_config.hierarchy_config {
-                info!(
-                    db.log,
-                    "Updating historic state config";
-                    "previous_config" => ?disk_config.hierarchy_config,
-                    "new_config" => ?db.config.hierarchy_config,
-                );
+            if let Ok(hierarchy_config) = disk_config.hierarchy_config() {
+                if &db.config.hierarchy_config != hierarchy_config {
+                    info!(
+                        db.log,
+                        "Updating historic state config";
+                        "previous_config" => ?hierarchy_config,
+                        "new_config" => ?db.config.hierarchy_config,
+                    );
+                }
             }
         }
         db.store_config()?;
