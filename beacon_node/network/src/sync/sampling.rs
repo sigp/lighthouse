@@ -382,7 +382,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
 
                 // Valid, continue_sampling will maybe consider sampling succees
                 for column_index in column_indexes {
-                    let Some(request) = self.column_requests.get_mut(&column_index) else {
+                    let Some(request) = self.column_requests.get_mut(column_index) else {
                         warn!(
                             self.log,
                             "Active column sample request not found"; "block_root" => %self.block_root, "column_index" => column_index
@@ -399,7 +399,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                 // TODO(das): Peer sent invalid data, penalize and try again from different peer
                 // TODO(das): Count individual failures
                 for column_index in column_indexes {
-                    let Some(request) = self.column_requests.get_mut(&column_index) else {
+                    let Some(request) = self.column_requests.get_mut(column_index) else {
                         warn!(
                             self.log,
                             "Active column sample request not found"; "block_root" => %self.block_root, "column_index" => column_index
@@ -591,7 +591,7 @@ mod request {
             peer_ids.retain(|peer_id| !self.peers_dont_have.contains(peer_id));
 
             if let Some(peer_id) = peer_ids.choose(&mut thread_rng()) {
-                Some(peer_id.clone())
+                Some(*peer_id)
             } else {
                 self.status = Status::NoPeers;
                 None
