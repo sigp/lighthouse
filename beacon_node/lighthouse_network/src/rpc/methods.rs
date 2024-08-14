@@ -14,9 +14,9 @@ use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    blob_sidecar::BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, LightClientBootstrap,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, RuntimeVariableList, SignedBeaconBlock,
-    Slot,
+    blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
+    Epoch, EthSpec, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, RuntimeVariableList, SignedBeaconBlock, Slot,
 };
 
 /// Maximum length of error message.
@@ -293,6 +293,43 @@ impl BlobsByRangeRequest {
     }
 }
 
+/// Request a number of beacon data columns from a peer.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct DataColumnsByRangeRequest {
+    /// The starting slot to request data columns.
+    pub start_slot: u64,
+    /// The number of slots from the start slot.
+    pub count: u64,
+    /// The list column indices being requested.
+    pub columns: Vec<ColumnIndex>,
+}
+
+impl DataColumnsByRangeRequest {
+    pub fn max_requested<E: EthSpec>(&self) -> u64 {
+        self.count.saturating_mul(self.columns.len() as u64)
+    }
+
+    pub fn ssz_min_len() -> usize {
+        DataColumnsByRangeRequest {
+            start_slot: 0,
+            count: 0,
+            columns: vec![0],
+        }
+        .as_ssz_bytes()
+        .len()
+    }
+
+    pub fn ssz_max_len(spec: &ChainSpec) -> usize {
+        DataColumnsByRangeRequest {
+            start_slot: 0,
+            count: 0,
+            columns: vec![0; spec.number_of_columns],
+        }
+        .as_ssz_bytes()
+        .len()
+    }
+}
+
 /// Request a number of beacon block roots from a peer.
 #[superstruct(
     variants(V1, V2),
@@ -370,6 +407,27 @@ impl BlobsByRootRequest {
     }
 }
 
+/// Request a number of data columns from a peer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DataColumnsByRootRequest {
+    /// The list of beacon block roots and column indices being requested.
+    pub data_column_ids: RuntimeVariableList<DataColumnIdentifier>,
+}
+
+impl DataColumnsByRootRequest {
+    pub fn new(data_column_ids: Vec<DataColumnIdentifier>, spec: &ChainSpec) -> Self {
+        let data_column_ids = RuntimeVariableList::from_vec(
+            data_column_ids,
+            spec.max_request_data_column_sidecars as usize,
+        );
+        Self { data_column_ids }
+    }
+
+    pub fn new_single(block_root: Hash256, index: ColumnIndex, spec: &ChainSpec) -> Self {
+        Self::new(vec![DataColumnIdentifier { block_root, index }], spec)
+    }
+}
+
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
@@ -400,6 +458,12 @@ pub enum RPCResponse<E: EthSpec> {
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Arc<BlobSidecar<E>>),
 
+    /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
+    DataColumnsByRoot(Arc<DataColumnSidecar<E>>),
+
+    /// A response to a get DATA_COLUMN_SIDECARS_BY_RANGE request.
+    DataColumnsByRange(Arc<DataColumnSidecar<E>>),
+
     /// A PONG response to a PING request.
     Pong(Ping),
 
@@ -421,6 +485,12 @@ pub enum ResponseTermination {
 
     /// Blobs by root stream termination.
     BlobsByRoot,
+
+    /// Data column sidecars by root stream termination.
+    DataColumnsByRoot,
+
+    /// Data column sidecars by range stream termination.
+    DataColumnsByRange,
 }
 
 /// The structured response containing a result/code indicating success or failure
@@ -511,6 +581,8 @@ impl<E: EthSpec> RPCResponse<E> {
             RPCResponse::BlocksByRoot(_) => Protocol::BlocksByRoot,
             RPCResponse::BlobsByRange(_) => Protocol::BlobsByRange,
             RPCResponse::BlobsByRoot(_) => Protocol::BlobsByRoot,
+            RPCResponse::DataColumnsByRoot(_) => Protocol::DataColumnsByRoot,
+            RPCResponse::DataColumnsByRange(_) => Protocol::DataColumnsByRange,
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
@@ -555,6 +627,16 @@ impl<E: EthSpec> std::fmt::Display for RPCResponse<E> {
             }
             RPCResponse::BlobsByRoot(sidecar) => {
                 write!(f, "BlobsByRoot: Blob slot: {}", sidecar.slot())
+            }
+            RPCResponse::DataColumnsByRoot(sidecar) => {
+                write!(f, "DataColumnsByRoot: Data column slot: {}", sidecar.slot())
+            }
+            RPCResponse::DataColumnsByRange(sidecar) => {
+                write!(
+                    f,
+                    "DataColumnsByRange: Data column slot: {}",
+                    sidecar.slot()
+                )
             }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
