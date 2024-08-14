@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{BlobSidecar, EthSpec, Hash256, SignedBeaconBlock};
+use types::{BlobSidecar, DataColumnSidecarList, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 mod requests;
 
@@ -45,6 +45,10 @@ pub enum RangeRequestId {
         batch_id: BatchId,
     },
 }
+
+/// 0: expected blob count
+/// 1: block slot
+pub type DownloadedBlockSummary = (/* expected blob count */ usize, Slot);
 
 #[derive(Debug)]
 pub enum RpcEvent<T> {
@@ -447,16 +451,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_id: SingleLookupId,
         peer_id: PeerId,
         block_root: Hash256,
-        downloaded_block_expected_blobs: Option<usize>,
+        downloaded_block: Option<DownloadedBlockSummary>,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
-        let Some(expected_blobs) = downloaded_block_expected_blobs.or_else(|| {
+        let Some((expected_blobs, block_slot)) = downloaded_block.or_else(|| {
             // If the block is already being processed or fully validated, retrieve how many blobs
             // it expects. Consider any stage of the block. If the block root has been validated, we
             // can assert that this is the correct value of `blob_kzg_commitments_count`.
             match self.chain.get_block_process_status(&block_root) {
                 BlockProcessStatus::Unknown => None,
                 BlockProcessStatus::NotValidated(block)
-                | BlockProcessStatus::ExecutionValidated(block) => Some(block.num_expected_blobs()),
+                | BlockProcessStatus::ExecutionValidated(block) => {
+                    Some((block.num_expected_blobs(), block.slot()))
+                }
             }
         }) else {
             // Wait to download the block before downloading blobs. Then we can be sure that the
@@ -473,6 +479,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // get dropped as completed.
             return Ok(LookupRequestResult::Pending("waiting for block download"));
         };
+
+        // Check if we are into peerdas
+        if !self
+            .chain
+            .should_fetch_blobs(block_slot.epoch(T::EthSpec::slots_per_epoch()))
+        {
+            return Ok(LookupRequestResult::NoRequestNeeded);
+        }
 
         let imported_blob_indexes = self
             .chain
@@ -518,6 +532,79 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         self.blobs_by_root_requests
             .insert(id, ActiveBlobsByRootRequest::new(request, peer_id));
+
+        Ok(LookupRequestResult::RequestSent(req_id))
+    }
+
+    pub fn custody_lookup_request(
+        &mut self,
+        lookup_id: SingleLookupId,
+        block_root: Hash256,
+        downloaded_block: Option<DownloadedBlockSummary>,
+    ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        let Some((expected_blobs, block_slot)) =
+            downloaded_block.or_else(|| match self.chain.get_block_process_status(&block_root) {
+                BlockProcessStatus::Unknown => None,
+                BlockProcessStatus::NotValidated(block)
+                | BlockProcessStatus::ExecutionValidated(block) => {
+                    Some((block.num_expected_blobs(), block.slot()))
+                }
+            })
+        else {
+            // Wait to download the block before downloading columns. Then we can be sure that the
+            // block has data, so there's no need to do "blind" requests for all possible columns and
+            // latter handle the case where if the peer sent no columns, penalize.
+            // - if `downloaded_block_expected_blobs` is Some = block is downloading or processing.
+            // - if `num_expected_blobs` returns Some = block is processed.
+            return Ok(LookupRequestResult::Pending("waiting for block download"));
+        };
+
+        // Check if we are into peerdas
+        if !self
+            .chain
+            .should_fetch_custody_columns(block_slot.epoch(T::EthSpec::slots_per_epoch()))
+        {
+            return Ok(LookupRequestResult::NoRequestNeeded);
+        }
+
+        // No data required for this block
+        if expected_blobs == 0 {
+            return Ok(LookupRequestResult::NoRequestNeeded);
+        }
+
+        let custody_indexes_imported = self
+            .chain
+            .data_availability_checker
+            .imported_custody_column_indexes(&block_root)
+            .unwrap_or_default();
+
+        // TODO(das): figure out how to pass block.slot if we end up doing rotation
+        let custody_indexes_duty = self.network_globals().custody_columns(&self.chain.spec);
+
+        // Include only the blob indexes not yet imported (received through gossip)
+        let custody_indexes_to_fetch = custody_indexes_duty
+            .into_iter()
+            .filter(|index| !custody_indexes_imported.contains(index))
+            .collect::<Vec<_>>();
+
+        if custody_indexes_to_fetch.is_empty() {
+            // No indexes required, do not issue any request
+            return Ok(LookupRequestResult::NoRequestNeeded);
+        }
+
+        let req_id = self.next_id();
+        let id = SingleLookupReqId { lookup_id, req_id };
+
+        debug!(
+            self.log,
+            "Starting custody columns request";
+            "block_root" => ?block_root,
+            "indices" => ?custody_indexes_to_fetch,
+            "id" => ?id
+        );
+
+        // TODO(das): Issue a custody request with `id` for the set of columns
+        // `custody_indexes_to_fetch` and block `block_root`.
 
         Ok(LookupRequestResult::RequestSent(req_id))
     }
@@ -774,6 +861,26 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 );
                 SendErrorProcessor::SendError
             })
+    }
+
+    pub fn send_custody_columns_for_processing(
+        &self,
+        id: Id,
+        block_root: Hash256,
+        _custody_columns: DataColumnSidecarList<T::EthSpec>,
+        _duration: Duration,
+    ) -> Result<(), SendErrorProcessor> {
+        let _beacon_processor = self
+            .beacon_processor_if_enabled()
+            .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
+
+        debug!(self.log, "Sending custody columns for processing"; "block" => ?block_root, "id" => id);
+
+        // Lookup sync event safety: If `beacon_processor.send_rpc_custody_columns` returns Ok() sync
+        // must receive a single `SyncMessage::BlockComponentProcessed` event with this process type
+        //
+        // TODO(das): After merging processor import PR, actually send columns to beacon processor.
+        Ok(())
     }
 
     pub(crate) fn register_metrics(&self) {

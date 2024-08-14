@@ -148,6 +148,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             })
     }
 
+    /// Return the set of imported custody column indexes for `block_root`. Returns None if there is
+    /// no block component for `block_root`.
+    pub fn imported_custody_column_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
+        self.availability_cache
+            .peek_pending_components(block_root, |components| {
+                components.map(|components| components.get_cached_data_columns_indices())
+            })
+    }
+
     /// Get a blob from the availability cache.
     pub fn get_blob(
         &self,

@@ -14,7 +14,7 @@ use ssz_types::{FixedVector, VariableList};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use types::blob_sidecar::BlobIdentifier;
-use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
+use types::{BlobSidecar, ChainSpec, ColumnIndex, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
 /// This represents the components of a partially available block
 ///
@@ -107,6 +107,14 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Returns the number of data columns that have been received and are stored in the cache.
     pub fn num_received_data_columns(&self) -> usize {
         self.verified_data_columns.len()
+    }
+
+    /// Returns the indices of cached custody columns
+    pub fn get_cached_data_columns_indices(&self) -> Vec<ColumnIndex> {
+        self.verified_data_columns
+            .iter()
+            .map(|d| d.index())
+            .collect()
     }
 
     /// Inserts a block into the cache.
