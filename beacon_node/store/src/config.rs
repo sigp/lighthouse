@@ -73,7 +73,9 @@ impl Default for StoreConfig {
             compact_on_init: false,
             compact_on_prune: true,
             prune_payloads: true,
-            backend: DEFAULT_BACKEND,
+            // TODO revert
+            // backend: DEFAULT_BACKEND,
+            backend: DatabaseBackend::Redb,
             prune_blobs: true,
             epochs_per_blob_prune: DEFAULT_EPOCHS_PER_BLOB_PRUNE,
             blob_prune_margin_epochs: DEFAULT_BLOB_PUNE_MARGIN_EPOCHS,
