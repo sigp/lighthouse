@@ -117,7 +117,7 @@ impl Default for Config {
             // This default value should always be overwritten by the CLI default value.
             genesis_state_url_timeout: Duration::from_secs(60),
             allow_insecure_genesis_sync: false,
-            database_backend: store::config::DatabaseBackend::LevelDb,
+            database_backend: store::config::DatabaseBackend::Redb,
         }
     }
 }
