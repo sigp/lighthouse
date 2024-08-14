@@ -716,7 +716,13 @@ impl TestRig {
     ) {
         let first_dc = data_columns.first().unwrap();
         let block_root = first_dc.block_root();
-        let column_index = first_dc.index;
+        let sampling_request_id = match id.0 {
+            SyncRequestId::DataColumnsByRoot(
+                _,
+                _requester @ DataColumnsByRootRequester::Sampling(sampling_id),
+            ) => sampling_id.sampling_request_id,
+            _ => unreachable!(),
+        };
         self.complete_data_columns_by_root_request(id, data_columns);
 
         // Expect work event
@@ -727,7 +733,7 @@ impl TestRig {
         self.send_sync_message(SyncMessage::SampleVerified {
             id: SamplingId {
                 id: SamplingRequester::ImportedBlock(block_root),
-                column_index,
+                sampling_request_id,
             },
             result: Ok(()),
         })
