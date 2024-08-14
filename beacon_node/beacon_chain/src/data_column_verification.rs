@@ -2,7 +2,8 @@ use crate::block_verification::{
     cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
     BlockSlashInfo,
 };
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::kzg_utils::validate_data_columns;
+use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
 use derivative::Derivative;
 use fork_choice::ProtoBlock;
 use kzg::{Error as KzgError, Kzg};
@@ -11,6 +12,7 @@ use slasher::test_utils::E;
 use slog::debug;
 use slot_clock::SlotClock;
 use ssz_derive::{Decode, Encode};
+use std::iter;
 use std::sync::Arc;
 use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier};
 use types::{
@@ -248,6 +250,10 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     pub fn into_inner(self) -> Arc<DataColumnSidecar<E>> {
         self.data
     }
+
+    pub fn as_data_column(&self) -> &DataColumnSidecar<E> {
+        &self.data
+    }
 }
 
 /// Complete kzg verification for a `DataColumnSidecar`.
@@ -255,9 +261,10 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
 /// Returns an error if the kzg verification check fails.
 pub fn verify_kzg_for_data_column<E: EthSpec>(
     data_column: Arc<DataColumnSidecar<E>>,
-    _kzg: &Kzg,
+    kzg: &Kzg,
 ) -> Result<KzgVerifiedDataColumn<E>, KzgError> {
-    // TODO(das): KZG verification to be implemented
+    let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
+    validate_data_columns(kzg, iter::once(&data_column))?;
     Ok(KzgVerifiedDataColumn { data: data_column })
 }
 
@@ -267,13 +274,14 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
 /// Note: This function should be preferred over calling `verify_kzg_for_data_column`
 /// in a loop since this function kzg verifies a list of data columns more efficiently.
 pub fn verify_kzg_for_data_column_list<'a, E: EthSpec, I>(
-    _data_column_iter: I,
-    _kzg: &'a Kzg,
+    data_column_iter: I,
+    kzg: &'a Kzg,
 ) -> Result<(), KzgError>
 where
     I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
 {
-    // TODO(das): implement KZG verification
+    let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES);
+    validate_data_columns(kzg, data_column_iter)?;
     Ok(())
 }
 

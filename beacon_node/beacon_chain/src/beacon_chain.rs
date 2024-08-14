@@ -1351,10 +1351,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), Error> {
         self.light_client_server_cache.recompute_and_cache_updates(
             self.store.clone(),
-            &parent_root,
             slot,
+            &parent_root,
             &sync_aggregate,
             &self.log,
+            &self.spec,
+        )
+    }
+
+    pub fn get_light_client_updates(
+        &self,
+        sync_committee_period: u64,
+        count: u64,
+    ) -> Result<Vec<LightClientUpdate<T::EthSpec>>, Error> {
+        self.light_client_server_cache.get_light_client_updates(
+            &self.store,
+            sync_committee_period,
+            count,
             &self.spec,
         )
     }
@@ -3648,16 +3661,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        if let Some(_data_columns) = data_columns {
-            // TODO(das): depends on https://github.com/sigp/lighthouse/pull/6073
-            // if !data_columns.is_empty() {
-            //     debug!(
-            //         self.log, "Writing data_columns to store";
-            //         "block_root" => %block_root,
-            //         "count" => data_columns.len(),
-            //     );
-            //     ops.push(StoreOp::PutDataColumns(block_root, data_columns));
-            // }
+        if let Some(data_columns) = data_columns {
+            if !data_columns.is_empty() {
+                debug!(
+                    self.log, "Writing data_columns to store";
+                    "block_root" => %block_root,
+                    "count" => data_columns.len(),
+                );
+                ops.push(StoreOp::PutDataColumns(block_root, data_columns));
+            }
         }
 
         let txn_lock = self.store.hot_db.begin_rw_transaction();

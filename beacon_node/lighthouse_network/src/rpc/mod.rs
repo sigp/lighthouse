@@ -471,6 +471,8 @@ where
                             ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,
                             ResponseTermination::BlobsByRange => Protocol::BlobsByRange,
                             ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
+                            ResponseTermination::DataColumnsByRoot => Protocol::DataColumnsByRoot,
+                            ResponseTermination::DataColumnsByRange => Protocol::DataColumnsByRange,
                         },
                     ),
                 };

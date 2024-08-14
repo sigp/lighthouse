@@ -24,7 +24,7 @@ use types::{Epoch, Hash256, Slot};
 const PARALLEL_HEAD_CHAINS: usize = 2;
 
 /// Minimum work we require a finalized chain to do before picking a chain with more peers.
-const MIN_FINALIZED_CHAIN_VALIDATED_EPOCHS: u64 = 10;
+const MIN_FINALIZED_CHAIN_PROCESSED_EPOCHS: u64 = 10;
 
 /// The state of the long range/batch sync.
 #[derive(Clone)]
@@ -273,8 +273,8 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                     // chains are different, check that they don't have the same number of peers
                     if let Some(syncing_chain) = self.finalized_chains.get_mut(&syncing_id) {
                         if max_peers > syncing_chain.available_peers()
-                            && syncing_chain.validated_epochs()
-                                > MIN_FINALIZED_CHAIN_VALIDATED_EPOCHS
+                            && syncing_chain.processed_epochs()
+                                > MIN_FINALIZED_CHAIN_PROCESSED_EPOCHS
                         {
                             syncing_chain.stop_syncing();
                             old_id = Some(Some(syncing_id));
