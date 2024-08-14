@@ -9,7 +9,6 @@ use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::BeaconChainTypes;
 use lru::LruCache;
 use parking_lot::RwLock;
-use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -20,7 +19,7 @@ use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 ///
 /// The blobs are all gossip and kzg verified.
 /// The block has completed all verifications except the availability check.
-#[derive(Encode, Decode, Clone)]
+#[derive(Clone)]
 pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
@@ -303,6 +302,15 @@ impl<E: EthSpec> PendingComponents<E> {
                         });
                     }
                 }
+
+                if let Some(kzg_verified_data_column) = self.verified_data_columns.first() {
+                    let epoch = kzg_verified_data_column
+                        .as_data_column()
+                        .slot()
+                        .epoch(E::slots_per_epoch());
+                    return Some(epoch);
+                }
+
                 None
             })
     }
@@ -334,6 +342,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             custody_column_count,
             spec,
         })
+    }
+
+    pub fn custody_subnet_count(&self) -> usize {
+        self.custody_column_count
     }
 
     /// Returns true if the block root is known, without altering the LRU ordering
