@@ -238,14 +238,15 @@ pub fn build_enr<E: EthSpec>(
 
     builder.add_value(SYNC_COMMITTEE_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
 
-    // set the "custody_subnet_count" field on our ENR
-    let custody_subnet_count = if config.subscribe_all_data_column_subnets {
-        spec.data_column_sidecar_subnet_count
-    } else {
-        spec.custody_requirement
-    };
-
-    builder.add_value(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY, &custody_subnet_count);
+    // only set `csc` if PeerDAS fork epoch has been scheduled
+    if spec.is_peer_das_scheduled() {
+        let custody_subnet_count = if config.subscribe_all_data_column_subnets {
+            spec.data_column_sidecar_subnet_count
+        } else {
+            spec.custody_requirement
+        };
+        builder.add_value(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY, &custody_subnet_count);
+    }
 
     builder
         .build(enr_key)
@@ -313,9 +314,15 @@ pub fn save_enr_to_disk(dir: &Path, enr: &Enr, log: &slog::Logger) {
 mod test {
     use super::*;
     use crate::config::Config as NetworkConfig;
-    use types::MainnetEthSpec;
+    use types::{Epoch, MainnetEthSpec};
 
     type E = MainnetEthSpec;
+
+    fn make_eip7594_spec() -> ChainSpec {
+        let mut spec = E::default_spec();
+        spec.eip7594_fork_epoch = Some(Epoch::new(10));
+        spec
+    }
 
     #[test]
     fn custody_subnet_count_default() {
@@ -323,7 +330,8 @@ mod test {
             subscribe_all_data_column_subnets: false,
             ..NetworkConfig::default()
         };
-        let spec = E::default_spec();
+        let spec = make_eip7594_spec();
+
         let enr = build_enr_with_config(config, &spec).0;
 
         assert_eq!(
@@ -338,7 +346,7 @@ mod test {
             subscribe_all_data_column_subnets: true,
             ..NetworkConfig::default()
         };
-        let spec = E::default_spec();
+        let spec = make_eip7594_spec();
         let enr = build_enr_with_config(config, &spec).0;
 
         assert_eq!(
@@ -350,7 +358,7 @@ mod test {
     #[test]
     fn custody_subnet_count_fallback_default() {
         let config = NetworkConfig::default();
-        let spec = E::default_spec();
+        let spec = make_eip7594_spec();
         let (mut enr, enr_key) = build_enr_with_config(config, &spec);
         let invalid_subnet_count = 99u64;
 

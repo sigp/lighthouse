@@ -936,6 +936,11 @@ fn merkle_proof_validity() {
 }
 
 #[test]
+fn light_client_update() {
+    LightClientUpdateHandler::<MinimalEthSpec>::default().run();
+}
+
+#[test]
 #[cfg(feature = "fake_crypto")]
 fn kzg_inclusion_merkle_proof_validity() {
     KzgInclusionMerkleProofValidityHandler::<MainnetEthSpec>::default().run();

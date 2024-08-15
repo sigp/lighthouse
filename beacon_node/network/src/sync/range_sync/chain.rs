@@ -10,7 +10,7 @@ use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_metrics::set_int_gauge;
 use lighthouse_network::service::api_types::Id;
-use lighthouse_network::{PeerAction, PeerId, Subnet};
+use lighthouse_network::{PeerAction, PeerId};
 use rand::seq::SliceRandom;
 use rand::Rng;
 use slog::{crit, debug, o, warn};
@@ -1115,24 +1115,25 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     fn good_peers_on_custody_subnets(&self, epoch: Epoch, network: &SyncNetworkContext<T>) -> bool {
         if network.chain.spec.is_peer_das_enabled_for_epoch(epoch) {
             // Require peers on all custody column subnets before sending batches
-            let peers_on_all_custody_subnets = network
-                .network_globals()
-                .custody_subnets(&network.chain.spec)
-                .all(|subnet_id| {
-                    let peer_count = network
-                        .network_globals()
-                        .peers
-                        .read()
-                        .good_peers_on_subnet(Subnet::DataColumn(subnet_id))
-                        .count();
+            let peers_on_all_custody_subnets =
+                network
+                    .network_globals()
+                    .custody_subnets()
+                    .all(|subnet_id| {
+                        let peer_count = network
+                            .network_globals()
+                            .peers
+                            .read()
+                            .good_custody_subnet_peer(subnet_id)
+                            .count();
 
-                    set_int_gauge(
-                        &PEERS_PER_COLUMN_SUBNET,
-                        &[&subnet_id.to_string()],
-                        peer_count as i64,
-                    );
-                    peer_count > 0
-                });
+                        set_int_gauge(
+                            &PEERS_PER_COLUMN_SUBNET,
+                            &[&subnet_id.to_string()],
+                            peer_count as i64,
+                        );
+                        peer_count > 0
+                    });
             peers_on_all_custody_subnets
         } else {
             true

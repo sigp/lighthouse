@@ -242,6 +242,7 @@ impl<E: EthSpec> PendingComponents<E> {
     /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
     pub fn make_available<R>(
         self,
+        block_import_requirement: BlockImportRequirement,
         spec: &Arc<ChainSpec>,
         recover: R,
     ) -> Result<Availability<E>, AvailabilityCheckError>
@@ -268,9 +269,8 @@ impl<E: EthSpec> PendingComponents<E> {
             return Err(AvailabilityCheckError::Unexpected);
         };
 
-        let is_before_peer_das = !spec.is_peer_das_enabled_for_epoch(diet_executed_block.epoch());
-        let blobs = is_before_peer_das
-            .then(|| {
+        let (blobs, data_columns) = match block_import_requirement {
+            BlockImportRequirement::AllBlobs => {
                 let num_blobs_expected = diet_executed_block.num_blobs_expected();
                 let Some(verified_blobs) = verified_blobs
                     .into_iter()
@@ -281,9 +281,16 @@ impl<E: EthSpec> PendingComponents<E> {
                 else {
                     return Err(AvailabilityCheckError::Unexpected);
                 };
-                Ok(VariableList::new(verified_blobs)?)
-            })
-            .transpose()?;
+                (Some(VariableList::new(verified_blobs)?), None)
+            }
+            BlockImportRequirement::CustodyColumns(_) => {
+                let verified_data_columns = verified_data_columns
+                    .into_iter()
+                    .map(|d| d.into_inner())
+                    .collect();
+                (None, Some(verified_data_columns))
+            }
+        };
 
         let executed_block = recover(diet_executed_block)?;
 
@@ -297,13 +304,8 @@ impl<E: EthSpec> PendingComponents<E> {
             block_root,
             block,
             blobs,
+            data_columns,
             blobs_available_timestamp,
-            data_columns: Some(
-                verified_data_columns
-                    .into_iter()
-                    .map(|d| d.into_inner())
-                    .collect(),
-            ),
             spec: spec.clone(),
         };
         Ok(Availability::Available(Box::new(
@@ -496,7 +498,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             write_lock.put(block_root, pending_components.clone());
             // No need to hold the write lock anymore
             drop(write_lock);
-            pending_components.make_available(&self.spec, |diet_block| {
+            pending_components.make_available(block_import_requirement, &self.spec, |diet_block| {
                 self.state_cache.recover_pending_executed_block(diet_block)
             })
         } else {
@@ -505,7 +507,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
     }
 
-    // TODO(das): gossip and rpc code paths to be implemented.
+    // TODO(das): rpc code paths to be implemented.
     #[allow(dead_code)]
     #[allow(clippy::type_complexity)]
     pub fn put_kzg_verified_data_columns<
@@ -514,6 +516,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         &self,
         kzg: &Kzg,
         block_root: Hash256,
+        epoch: Epoch,
         kzg_verified_data_columns: I,
     ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
     {
@@ -528,9 +531,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // Merge in the data columns.
         pending_components.merge_data_columns(kzg_verified_data_columns)?;
 
-        let epoch = pending_components
-            .epoch()
-            .ok_or(AvailabilityCheckError::UnableToDetermineImportRequirement)?;
         let block_import_requirement = self.block_import_requirement(epoch)?;
 
         // Potentially trigger reconstruction if:
@@ -581,7 +581,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             // No need to hold the write lock anymore
             drop(write_lock);
             pending_components
-                .make_available(&self.spec, |diet_block| {
+                .make_available(block_import_requirement, &self.spec, |diet_block| {
                     self.state_cache.recover_pending_executed_block(diet_block)
                 })
                 .map(|availability| (availability, data_columns_to_publish))
@@ -624,7 +624,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             write_lock.put(block_root, pending_components.clone());
             // No need to hold the write lock anymore
             drop(write_lock);
-            pending_components.make_available(&self.spec, |diet_block| {
+            pending_components.make_available(block_import_requirement, &self.spec, |diet_block| {
                 self.state_cache.recover_pending_executed_block(diet_block)
             })
         } else {

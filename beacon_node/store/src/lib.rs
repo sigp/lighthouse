@@ -44,6 +44,8 @@ use std::sync::Arc;
 use strum::{EnumString, IntoStaticStr};
 pub use types::*;
 
+const DATA_COLUMN_DB_KEY_SIZE: usize = 32 + 8;
+
 pub type ColumnIter<'a, K> = Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>;
 pub type ColumnKeyIter<'a, K> = Box<dyn Iterator<Item = Result<K, Error>> + 'a>;
 
@@ -155,7 +157,7 @@ pub fn get_data_column_key(block_root: &Hash256, column_index: &ColumnIndex) -> 
 }
 
 pub fn parse_data_column_key(data: Vec<u8>) -> Result<(Hash256, ColumnIndex), Error> {
-    if data.len() != 32 + 8 {
+    if data.len() != DBColumn::BeaconDataColumn.key_size() {
         return Err(Error::InvalidKey);
     }
     // split_at panics if 32 < 40 which will never happen after the length check above
@@ -165,7 +167,7 @@ pub fn parse_data_column_key(data: Vec<u8>) -> Result<(Hash256, ColumnIndex), Er
     let column_index = ColumnIndex::from_le_bytes(
         column_index_bytes
             .try_into()
-            .expect("slice with incorrect length"),
+            .map_err(|_| Error::InvalidKey)?,
     );
     Ok((block_root, column_index))
 }
@@ -298,6 +300,9 @@ pub enum DBColumn {
     BeaconHistoricalSummaries,
     #[strum(serialize = "olc")]
     OverflowLRUCache,
+    /// For persisting eagerly computed light client data
+    #[strum(serialize = "lcu")]
+    LightClientUpdate,
 }
 
 /// A block from the database, which might have an execution payload or not.
@@ -340,8 +345,9 @@ impl DBColumn {
             | Self::BeaconStateRoots
             | Self::BeaconHistoricalRoots
             | Self::BeaconHistoricalSummaries
-            | Self::BeaconRandaoMixes => 8,
-            Self::BeaconDataColumn => 32 + 8,
+            | Self::BeaconRandaoMixes
+            | Self::LightClientUpdate => 8,
+            Self::BeaconDataColumn => DATA_COLUMN_DB_KEY_SIZE,
         }
     }
 }
