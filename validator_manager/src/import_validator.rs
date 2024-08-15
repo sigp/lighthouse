@@ -377,7 +377,7 @@ pub mod tests {
                     vc_url: vc.url.clone(),
                     vc_token_path,
                     ignore_duplicates: false,
-                    password: ZeroizeString::from_str("password"),
+                    password: ZeroizeString::from_str("password").unwrap(),
                     fee_recipient: None,
                     builder_boost_factor: None,
                     gas_limit: None,
@@ -415,7 +415,8 @@ pub mod tests {
                 .read(true)
                 .create(false)
                 .open(&validators_file_path)
-                .map_err(|e| format!("Unable to open {:?}: {:?}", validators_file_path, e));
+                .map_err(|e| format!("Unable to open {:?}: {:?}", validators_file_path, e))
+                .unwrap();
 
             let validators: Vec<ValidatorSpecification> = serde_json::from_reader(&validators_file)
                 .map_err(|e| {
@@ -423,12 +424,13 @@ pub mod tests {
                         "Unable to parse JSON in {:?}: {:?}",
                         validators_file_path, e
                     )
-                });
+                })
+                .unwrap();
 
             let validator = &validators[0];
             let validator_json = validator.voting_keystore.0.clone();
 
-            let keystore_file = File::create(&validators_file_path);
+            let keystore_file = File::create(&validators_file_path).unwrap();
             validator_json.to_json_writer(keystore_file);
 
             self.import_config.validator_file_path = create_result.validators_file_path();
@@ -456,11 +458,13 @@ pub mod tests {
                             "Unable to open {:?}: {:?}",
                             &self.import_config.validator_file_path, e
                         )
-                    });
+                    })
+                    .unwrap();
 
                 let local_keystore: Keystore = Keystore::from_json_file(
                     serde_json::from_str(&validators_file).expect("JSON was not well formatted"),
-                );
+                )
+                .unwrap();
 
                 let list_keystores_response = self.vc.client.get_keystores().await.unwrap().data;
 
@@ -470,7 +474,7 @@ pub mod tests {
                     "vc should have exactly the number of validators imported"
                 );
 
-                let local_pubkey = local_keystore.public_key().into();
+                let local_pubkey = local_keystore.public_key().unwrap().into();
                 let remote_validator = list_keystores_response
                     .iter()
                     .find(|validator| validator.validating_pubkey == local_pubkey)
