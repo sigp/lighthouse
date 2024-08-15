@@ -362,7 +362,7 @@ async fn light_client_updates_test() {
             AttestationStrategy::AllValidators,
         )
         .await;
-
+    
     let lc_bootstrap = beacon_chain
         .get_light_client_bootstrap(&block_root)
         .unwrap();
