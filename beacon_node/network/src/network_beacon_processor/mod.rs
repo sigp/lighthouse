@@ -476,6 +476,30 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for some custody columns. `process_rpc_custody_columns` reports
+    /// the result back to sync.
+    pub fn send_rpc_custody_columns(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        custody_columns: DataColumnSidecarList<T::EthSpec>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let s = self.clone();
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::RpcCustodyColumn(Box::pin(async move {
+                s.process_rpc_custody_columns(
+                    block_root,
+                    custody_columns,
+                    seen_timestamp,
+                    process_type,
+                )
+                .await;
+            })),
+        })
+    }
+
     /// Create a new work event to import `blocks` as a beacon chain segment.
     pub fn send_chain_segment(
         self: &Arc<Self>,
