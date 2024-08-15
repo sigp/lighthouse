@@ -678,7 +678,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// If a single validator in the list of attestation duties requires slashing protection return true
     pub fn attestation_slashing_checks_enabled(
         &self,
-        attestations: &Vec<(Attestation<E>, DutyAndProof)>,
+        attestations: &[(Attestation<E>, DutyAndProof)],
     ) -> Result<bool, Error> {
         for (_, validator_duty) in attestations.iter() {
             let validator_pubkey = validator_duty.duty.pubkey;

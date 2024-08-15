@@ -221,8 +221,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     ) {
         let inner_self = self.clone();
 
-        // TODO(attn-slash) more granular metric names
-        let attestations_timer = metrics::start_timer_vec(
+        let _attestations_timer = metrics::start_timer_vec(
             &metrics::ATTESTATION_SERVICE_TIMES,
             &[metrics::ATTESTATIONS],
         );
@@ -304,6 +303,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
                 // Check that the signed attestations are not slash-able (if slash-ability checks are enabled).
                 let safe_attestations = if slashing_checks_enabled {
+                    let _timer = metrics::start_timer_vec(
+                        &metrics::ATTESTATION_SERVICE_TIMES,
+                        &[metrics::ATTESTATION_SLASHABILITY_CHECK],
+                    );
                     match inner_self
                         .validator_store
                         .check_and_insert_attestations(signed_attestations)
@@ -340,6 +343,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     }
                 };
 
+                let _timer = metrics::start_timer_vec(
+                    &metrics::ATTESTATION_SERVICE_TIMES,
+                    &[metrics::AGGREGATES],
+                );
                 // Create and publish `SignedAggregateAndProof` for all aggregating validators.
                 for (committee_index, validator_duties) in duties_by_committee_index.iter() {
                     // TODO(attn-slash) we could make this multi threaded
@@ -376,8 +383,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             },
             "Download and sign attestations",
         );
-
-        drop(attestations_timer);
     }
 
     /// Performs the first step of the attesting process: downloading `AttestationData` objects.
@@ -391,6 +396,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         fork_name: &ForkName,
     ) {
         let log = self.context.log().clone();
+
         for (committee_index, _) in duties_by_committee_index.iter() {
             match attestation_data_service
                 .download_data(committee_index, slot, fork_name)
@@ -425,6 +431,10 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         validator_duty: DutyAndProof,
     ) -> Result<Option<(Attestation<E>, DutyAndProof)>, String> {
         let log = self.context.log();
+        let _timer = metrics::start_timer_vec(
+            &metrics::ATTESTATION_SERVICE_TIMES,
+            &[metrics::ATTESTATION_SIGN],
+        );
 
         let current_epoch = self
             .slot_clock
