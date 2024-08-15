@@ -14,8 +14,8 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar, Epoch, EthSpec, Hash256,
-    SignedBeaconBlock,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar, Epoch, EthSpec,
+    Hash256, SignedBeaconBlock,
 };
 
 /// This represents the components of a partially available block
