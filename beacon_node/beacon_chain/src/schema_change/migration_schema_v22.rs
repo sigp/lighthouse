@@ -44,10 +44,6 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
 
     db.prune_historic_states(genesis_state_root, &genesis_state)?;
 
-    // TODO:
-    // delete all other "chunked vector" columns: BeaconStateRoots, BeaconRandao, HistoricSummaries, etc
-    // we can do this by calling `prune_historic_states`
-
     Ok(ops)
 }
 
