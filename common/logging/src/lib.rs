@@ -231,7 +231,7 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
                     tracing_log_path = tracing_log_path.join(p);
                 }
             }
-            // An error here just means that part of `base_tracing_log_path`,
+            // An error here just means that part of `base_tracing_log_path` doesn't exist,
             // we can safely continue.
             Err(_) => {
                 tracing_log_path = base_tracing_log_path;
