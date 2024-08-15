@@ -254,6 +254,9 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     pub fn as_data_column(&self) -> &DataColumnSidecar<E> {
         &self.data
     }
+    pub fn clone_arc(&self) -> Arc<DataColumnSidecar<E>> {
+        self.data.clone()
+    }
 }
 
 /// Complete kzg verification for a `DataColumnSidecar`.

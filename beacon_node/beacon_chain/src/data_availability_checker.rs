@@ -15,8 +15,8 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock,
-    Slot,
+    BlobSidecarList, ChainSpec, DataColumnIdentifier, DataColumnSidecar, DataColumnSidecarList,
+    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 mod error;
@@ -171,6 +171,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         blob_id: &BlobIdentifier,
     ) -> Result<Option<Arc<BlobSidecar<T::EthSpec>>>, AvailabilityCheckError> {
         self.availability_cache.peek_blob(blob_id)
+    }
+
+    /// Get a data column from the availability cache.
+    pub fn get_data_column(
+        &self,
+        data_column_id: &DataColumnIdentifier,
+    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, AvailabilityCheckError> {
+        self.availability_cache.peek_data_column(data_column_id)
     }
 
     /// Put a list of blobs received via RPC into the availability cache. This performs KZG

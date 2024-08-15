@@ -1155,6 +1155,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_or_else(|| self.get_blobs(block_root), Ok)
     }
 
+    pub fn get_data_column_checking_all_caches(
+        &self,
+        block_root: Hash256,
+        index: ColumnIndex,
+    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, Error> {
+        if let Some(column) = self
+            .data_availability_checker
+            .get_data_column(&DataColumnIdentifier { block_root, index })?
+        {
+            return Ok(Some(column));
+        }
+
+        if let Some(columns) = self.early_attester_cache.get_data_columns(block_root) {
+            return Ok(columns.iter().find(|c| c.index == index).cloned());
+        }
+
+        self.get_data_column(&block_root, &index)
+    }
+
     /// Returns the block at the given root, if any.
     ///
     /// ## Errors
@@ -1228,6 +1247,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Some(blobs) => Ok(blobs),
             None => Ok(BlobSidecarList::default()),
         }
+    }
+
+    /// Returns the data columns at the given root, if any.
+    ///
+    /// ## Errors
+    /// May return a database error.
+    pub fn get_data_column(
+        &self,
+        block_root: &Hash256,
+        column_index: &ColumnIndex,
+    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, Error> {
+        Ok(self.store.get_data_column(block_root, column_index)?)
     }
 
     pub fn get_blinded_block(
