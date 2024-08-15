@@ -23,7 +23,9 @@ mod error;
 mod overflow_lru_cache;
 mod state_lru_cache;
 
-use crate::data_column_verification::{GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn};
+use crate::data_column_verification::{
+    GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
+};
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::non_zero_usize::new_non_zero_usize;
 
@@ -185,6 +187,37 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         self.availability_cache
             .put_kzg_verified_blobs(block_root, epoch, verified_blobs)
+    }
+
+    /// Put a list of custody columns received via RPC into the availability cache. This performs KZG
+    /// verification on the blobs in the list.
+    pub fn put_rpc_custody_columns(
+        &self,
+        block_root: Hash256,
+        epoch: Epoch,
+        custody_columns: DataColumnSidecarList<T::EthSpec>,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        let Some(kzg) = self.kzg.as_ref() else {
+            return Err(AvailabilityCheckError::KzgNotInitialized);
+        };
+
+        // TODO(das): report which column is invalid for proper peer scoring
+        // TODO(das): batch KZG verification here
+        let verified_custody_columns = custody_columns
+            .iter()
+            .map(|column| {
+                Ok(KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                    KzgVerifiedDataColumn::new(column.clone(), kzg)
+                        .map_err(AvailabilityCheckError::Kzg)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, AvailabilityCheckError>>()?;
+
+        self.availability_cache.put_kzg_verified_data_columns(
+            block_root,
+            epoch,
+            verified_custody_columns,
+        )
     }
 
     /// Check if we've cached other blobs for this block. If it completes a set and we also
