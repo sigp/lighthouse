@@ -3661,16 +3661,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        if let Some(_data_columns) = data_columns {
-            // TODO(das): depends on https://github.com/sigp/lighthouse/pull/6073
-            // if !data_columns.is_empty() {
-            //     debug!(
-            //         self.log, "Writing data_columns to store";
-            //         "block_root" => %block_root,
-            //         "count" => data_columns.len(),
-            //     );
-            //     ops.push(StoreOp::PutDataColumns(block_root, data_columns));
-            // }
+        if let Some(data_columns) = data_columns {
+            if !data_columns.is_empty() {
+                debug!(
+                    self.log, "Writing data_columns to store";
+                    "block_root" => %block_root,
+                    "count" => data_columns.len(),
+                );
+                ops.push(StoreOp::PutDataColumns(block_root, data_columns));
+            }
         }
 
         let txn_lock = self.store.hot_db.begin_rw_transaction();
