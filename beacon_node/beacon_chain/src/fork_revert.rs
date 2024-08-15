@@ -1,7 +1,7 @@
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
 use fork_choice::{ForkChoice, PayloadVerificationStatus};
 use itertools::process_results;
-use slog::{info, warn, Logger};
+use slog::Logger;
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
     per_block_processing, per_block_processing::BlockSignatureStrategy, ConsensusContext,
@@ -10,6 +10,7 @@ use state_processing::{
 use std::sync::Arc;
 use std::time::Duration;
 use store::{iter::ParentRootBlockIterator, HotColdDB, ItemStore};
+use tracing::{info, warn};
 use types::{BeaconState, ChainSpec, EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot};
 
 const CORRUPT_DB_MESSAGE: &str = "The database could be corrupt. Check its file permissions or \
@@ -42,10 +43,9 @@ pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
     }
 
     warn!(
-        log,
-        "Reverting invalid head block";
-        "target_fork" => %current_fork,
-        "fork_epoch" => fork_epoch,
+        target_fork = %current_fork,
+        ?fork_epoch,
+        "Reverting invalid head block"
     );
     let block_iter = ParentRootBlockIterator::fork_tolerant(&store, head_block_root);
 
@@ -55,10 +55,9 @@ pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
                 Some((block_root, block))
             } else {
                 info!(
-                    log,
-                    "Reverting block";
-                    "block_root" => ?block_root,
-                    "slot" => block.slot(),
+                    ?block_root,
+                    slot = ?block.slot(),
+                    "Reverting block"
                 );
                 None
             }

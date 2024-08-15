@@ -15,6 +15,7 @@ use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODE
 use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
 use lighthouse_version::VERSION;
+use logging::crit;
 use malloc_utils::configure_memory_allocator;
 use std::backtrace::Backtrace;
 use std::path::PathBuf;
@@ -22,7 +23,6 @@ use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
 use tracing::{info, level_filters::LevelFilter};
-use logging::crit;
 use tracing_subscriber::EnvFilter;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;

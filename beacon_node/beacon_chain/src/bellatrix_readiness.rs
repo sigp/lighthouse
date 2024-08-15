@@ -4,9 +4,9 @@
 use crate::{BeaconChain, BeaconChainError as Error, BeaconChainTypes};
 use execution_layer::BlockByNumberQuery;
 use serde::{Deserialize, Serialize, Serializer};
-use slog::debug;
 use std::fmt;
 use std::fmt::Write;
+use tracing::debug;
 use types::*;
 
 /// The time before the Bellatrix fork when we will start issuing warnings about preparation.
@@ -257,10 +257,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if header_from_payload.to_ref() != latest_execution_payload_header {
             debug!(
-                self.log,
-                "Genesis execution payload reconstruction failure";
-                "consensus_node_header" => ?latest_execution_payload_header,
-                "execution_node_header" => ?header_from_payload
+                consensus_node_header = ?latest_execution_payload_header,
+                execution_node_header = ?header_from_payload,
+                "Genesis execution payload reconstruction failure"
             );
             return Ok(GenesisExecutionPayloadStatus::OtherMismatch);
         }

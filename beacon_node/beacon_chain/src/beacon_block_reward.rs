@@ -2,7 +2,6 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::StandardBlockReward;
 use operation_pool::RewardCache;
 use safe_arith::SafeArith;
-use slog::error;
 use state_processing::{
     common::{get_attestation_participation_flag_indices, get_attesting_indices_from_state},
     epoch_cache::initialize_epoch_cache,
@@ -14,6 +13,7 @@ use store::{
     consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
     RelativeEpoch,
 };
+use tracing::error;
 use types::{AbstractExecPayload, BeaconBlockRef, BeaconState, BeaconStateError, Hash256};
 
 type BeaconBlockSubRewardValue = u64;
@@ -53,9 +53,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .compute_beacon_block_proposer_slashing_reward(block, state)
             .map_err(|e| {
                 error!(
-                self.log,
-                "Error calculating proposer slashing reward";
-                "error" => ?e
+                error = ?e,
+                "Error calculating proposer slashing reward"
                 );
                 BeaconChainError::BlockRewardError
             })?;
@@ -64,9 +63,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .compute_beacon_block_attester_slashing_reward(block, state)
             .map_err(|e| {
                 error!(
-                self.log,
-                "Error calculating attester slashing reward";
-                "error" => ?e
+                    error = ?e,
+                "Error calculating attester slashing reward"
                 );
                 BeaconChainError::BlockRewardError
             })?;
@@ -75,9 +73,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.compute_beacon_block_attestation_reward_base(block, block_root, state)
                 .map_err(|e| {
                     error!(
-                        self.log,
-                        "Error calculating base block attestation reward";
-                        "error" => ?e
+                        error = ?e,
+                        "Error calculating base block attestation reward"
                     );
                     BeaconChainError::BlockRewardAttestationError
                 })?
@@ -85,9 +82,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.compute_beacon_block_attestation_reward_altair_deneb(block, state)
                 .map_err(|e| {
                     error!(
-                        self.log,
-                        "Error calculating altair block attestation reward";
-                        "error" => ?e
+                        error = ?e,
+                        "Error calculating altair block attestation reward"
                     );
                     BeaconChainError::BlockRewardAttestationError
                 })?

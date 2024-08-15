@@ -4,7 +4,6 @@ use eth2::lighthouse::StandardAttestationRewards;
 use eth2::types::ValidatorId;
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
-use slog::debug;
 use state_processing::common::base::{self, SqrtTotalActiveBalance};
 use state_processing::per_epoch_processing::altair::{
     process_inactivity_updates_slow, process_justification_and_finalization,
@@ -29,6 +28,7 @@ use store::consts::altair::{
     PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
     TIMELY_TARGET_FLAG_INDEX,
 };
+use tracing::debug;
 use types::consts::altair::WEIGHT_DENOMINATOR;
 use types::{BeaconState, Epoch, EthSpec, RelativeEpoch};
 
@@ -38,7 +38,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         epoch: Epoch,
         validators: Vec<ValidatorId>,
     ) -> Result<StandardAttestationRewards, BeaconChainError> {
-        debug!(self.log, "computing attestation rewards"; "epoch" => epoch, "validator_count" => validators.len());
+        debug!(
+            ?epoch,
+            validator_count = validators.len(),
+            "computing attestation rewards"
+        );
 
         // Get state
         let state_slot = (epoch + 1).end_slot(T::EthSpec::slots_per_epoch());
@@ -204,10 +208,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Return 0s for unknown/inactive validator indices.
             let Ok(validator) = state.get_validator(validator_index) else {
                 debug!(
-                    self.log,
-                    "No rewards for inactive/unknown validator";
-                    "index" => validator_index,
-                    "epoch" => previous_epoch
+                    index = ?validator_index,
+                    epoch = ?previous_epoch,
+                    "No rewards for inactive/unknown validator"
                 );
                 total_rewards.push(TotalAttestationRewards {
                     validator_index: validator_index as u64,

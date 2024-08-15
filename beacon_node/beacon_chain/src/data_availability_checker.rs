@@ -5,7 +5,7 @@ use crate::block_verification_types::{
 use crate::data_availability_checker::overflow_lru_cache::DataAvailabilityCheckerInner;
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
-use slog::{debug, error, Logger};
+use slog::Logger;
 use slot_clock::SlotClock;
 use std::fmt;
 use std::fmt::Debug;
@@ -13,6 +13,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
+use tracing::{debug, error};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock,
@@ -367,10 +368,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
     pub fn da_check_required_for_current_epoch(&self) -> bool {
         let Some(current_slot) = self.slot_clock.now_or_genesis() else {
-            error!(
-                self.log,
-                "Failed to read slot clock when checking for missing blob ids"
-            );
+            error!("Failed to read slot clock when checking for missing blob ids");
             return false;
         };
 
@@ -414,10 +412,7 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
             "availability_cache_service",
         );
     } else {
-        debug!(
-            chain.log,
-            "Deneb fork not configured, not starting availability cache maintenance service"
-        );
+        debug!("Deneb fork not configured, not starting availability cache maintenance service");
     }
 }
 
@@ -441,10 +436,7 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                     break;
                 };
 
-                debug!(
-                    chain.log,
-                    "Availability cache maintenance service firing";
-                );
+                debug!("Availability cache maintenance service firing");
                 let Some(current_epoch) = chain
                     .slot_clock
                     .now()
@@ -474,11 +466,11 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                 );
 
                 if let Err(e) = overflow_cache.do_maintenance(cutoff_epoch) {
-                    error!(chain.log, "Failed to maintain availability cache"; "error" => ?e);
+                    error!(error = ?e,"Failed to maintain availability cache");
                 }
             }
             None => {
-                error!(chain.log, "Failed to read slot clock");
+                error!("Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
                 tokio::time::sleep(chain.slot_clock.slot_duration()).await;
             }

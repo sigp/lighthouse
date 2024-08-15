@@ -3,7 +3,7 @@ use crate::errors::BeaconChainError;
 use crate::head_tracker::{HeadTracker, SszHeadTracker};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use parking_lot::Mutex;
-use slog::{debug, error, info, warn, Logger};
+use slog::Logger;
 use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::sync::{mpsc, Arc};
@@ -13,6 +13,7 @@ use store::hot_cold_store::{migrate_database, HotColdDBError};
 use store::iter::RootsIterator;
 use store::{Error, ItemStore, StoreItem, StoreOp};
 pub use store::{HotColdDB, MemoryStore};
+use tracing::{debug, error, info, warn};
 use types::{
     BeaconState, BeaconStateError, BeaconStateHash, Checkpoint, Epoch, EthSpec, Hash256,
     SignedBeaconBlockHash, Slot,
@@ -203,9 +204,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     pub fn run_reconstruction(db: Arc<HotColdDB<E, Hot, Cold>>, log: &Logger) {
         if let Err(e) = db.reconstruct_historic_states() {
             error!(
-                log,
-                "State reconstruction failed";
-                "error" => ?e,
+                error = ?e,
+                "State reconstruction failed"
             );
         }
     }
@@ -217,9 +217,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     ) {
         if let Err(e) = db.try_prune_blobs(false, data_availability_boundary) {
             error!(
-                log,
-                "Blob pruning failed";
-                "error" => ?e,
+                error = ?e,
+                "Blob pruning failed"
             );
         }
     }
@@ -244,9 +243,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 // halted normally just now as a result of us dropping the old `mpsc::Sender`.
                 if let Err(thread_err) = old_thread.join() {
                     warn!(
-                        self.log,
-                        "Migration thread died, so it was restarted";
-                        "reason" => format!("{:?}", thread_err)
+                        reason = format!("{:?}", thread_err),
+                        "Migration thread died, so it was restarted"
                     );
                 }
 
@@ -271,11 +269,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         let mut prev_migration = notif.prev_migration.lock();
         if epoch < prev_migration.epoch + prev_migration.epochs_per_migration {
             debug!(
-                log,
-                "Database consolidation deferred";
-                "last_finalized_epoch" => prev_migration.epoch,
-                "new_finalized_epoch" => epoch,
-                "epochs_per_migration" => prev_migration.epochs_per_migration,
+                last_finalized_epoch = ?prev_migration.epoch,
+                new_finalized_epoch = ?epoch,
+                epochs_per_migration = prev_migration.epochs_per_migration,
+                "Database consolidation deferred"
             );
             return;
         }
@@ -286,7 +283,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         prev_migration.epoch = epoch;
         drop(prev_migration);
 
-        debug!(log, "Database consolidation started");
+        debug!("Database consolidation started");
 
         let finalized_state_root = notif.finalized_state_root;
         let finalized_block_root = notif.finalized_checkpoint.root;
@@ -295,10 +292,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             Ok(Some(state)) => state,
             other => {
                 error!(
-                    log,
-                    "Migrator failed to load state";
-                    "state_root" => ?finalized_state_root,
-                    "error" => ?other
+                    state_root = ?finalized_state_root,
+                    error = ?other,
+                    "Migrator failed to load state"
                 );
                 return;
             }
@@ -318,9 +314,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             }) => old_finalized_checkpoint,
             Ok(PruningOutcome::DeferredConcurrentHeadTrackerMutation) => {
                 warn!(
-                    log,
-                    "Pruning deferred because of a concurrent mutation";
-                    "message" => "this is expected only very rarely!"
+                    message = "this is expected only very rarely!",
+                    "Pruning deferred because of a concurrent mutation"
                 );
                 return;
             }
@@ -329,16 +324,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 new_finalized_checkpoint,
             }) => {
                 warn!(
-                    log,
-                    "Ignoring out of order finalization request";
-                    "old_finalized_epoch" => old_finalized_checkpoint.epoch,
-                    "new_finalized_epoch" => new_finalized_checkpoint.epoch,
-                    "message" => "this is expected occasionally due to a (harmless) race condition"
+                    old_finalized_epoch = ?old_finalized_checkpoint.epoch,
+                    new_finalized_epoch = ?new_finalized_checkpoint.epoch,
+                    message = "this is expected occasionally due to a (harmless) race condition",
+                    "Ignoring out of order finalization request"
                 );
                 return;
             }
             Err(e) => {
-                warn!(log, "Block pruning failed"; "error" => ?e);
+                warn!(error = ?e,"Block pruning failed");
                 return;
             }
         };
@@ -352,17 +346,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             Ok(()) => {}
             Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
                 debug!(
-                    log,
-                    "Database migration postponed, unaligned finalized block";
-                    "slot" => slot.as_u64()
+                    slot = ?slot.as_u64(),
+                    "Database migration postponed, unaligned finalized block"
                 );
             }
             Err(e) => {
-                warn!(
-                    log,
-                    "Database migration failed";
-                    "error" => format!("{:?}", e)
-                );
+                warn!(error = format!("{:?}", e), "Database migration failed");
                 return;
             }
         };
@@ -374,10 +363,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             notif.finalized_checkpoint.epoch,
             log,
         ) {
-            warn!(log, "Database compaction failed"; "error" => format!("{:?}", e));
+            warn!(error = format!("{:?}", e), "Database compaction failed");
         }
 
-        debug!(log, "Database consolidation complete");
+        debug!("Database consolidation complete");
     }
 
     /// Spawn a new child thread to run the migration process.
@@ -484,10 +473,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         }
 
         debug!(
-            log,
-            "Starting database pruning";
-            "old_finalized_epoch" => old_finalized_checkpoint.epoch,
-            "new_finalized_epoch" => new_finalized_checkpoint.epoch,
+            old_finalized_epoch = ?old_finalized_checkpoint.epoch,
+            new_finalized_epoch = ?new_finalized_checkpoint.epoch,
+            "Starting database pruning"
         );
         // For each slot between the new finalized checkpoint and the old finalized checkpoint,
         // collect the beacon block root and state root of the canonical chain.
@@ -515,11 +503,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
         let heads = head_tracker.heads();
         debug!(
-            log,
-            "Extra pruning information";
-            "old_finalized_root" => format!("{:?}", old_finalized_checkpoint.root),
-            "new_finalized_root" => format!("{:?}", new_finalized_checkpoint.root),
-            "head_count" => heads.len(),
+            old_finalized_root = format!("{:?}", old_finalized_checkpoint.root),
+            new_finalized_root = format!("{:?}", new_finalized_checkpoint.root),
+            head_count = heads.len(),
+            "Extra pruning information"
         );
 
         for (head_hash, head_slot) in heads {
@@ -534,10 +521,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 }
                 Err(Error::SszDecodeError(e)) => {
                     warn!(
-                        log,
-                        "Forgetting invalid head block";
-                        "block_root" => ?head_hash,
-                        "error" => ?e,
+                        block_root = ?head_hash,
+                        error = ?e,
+                        "Forgetting invalid head block"
                     );
                     abandoned_heads.insert(head_hash);
                     continue;
@@ -575,10 +561,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                             // checkpoint, i.e. there aren't any forks starting at a block that is a
                             // strict ancestor of old_finalized_checkpoint.
                             warn!(
-                                log,
-                                "Found a chain that should already have been pruned";
-                                "head_block_root" => format!("{:?}", head_hash),
-                                "head_slot" => head_slot,
+                                head_block_root = format!("{:?}", head_hash),
+                                ?head_slot,
+                                "Found a chain that should already have been pruned"
                             );
                             potentially_abandoned_head.take();
                             break;
@@ -632,10 +617,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
             if let Some(abandoned_head) = potentially_abandoned_head {
                 debug!(
-                    log,
-                    "Pruning head";
-                    "head_block_root" => format!("{:?}", abandoned_head),
-                    "head_slot" => head_slot,
+                    head_block_root = format!("{:?}", abandoned_head),
+                    ?head_slot,
+                    "Pruning head"
                 );
                 abandoned_heads.insert(abandoned_head);
                 abandoned_blocks.extend(
@@ -708,7 +692,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         // advance which are not canonical due to blocks being applied on top.
         store.prune_old_hot_states()?;
 
-        debug!(log, "Database pruning complete");
+        debug!("Database pruning complete");
 
         Ok(PruningOutcome::Successful {
             old_finalized_checkpoint,
@@ -743,10 +727,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 && seconds_since_last_compaction > MIN_COMPACTION_PERIOD_SECONDS)
         {
             info!(
-                log,
-                "Starting database compaction";
-                "old_finalized_epoch" => old_finalized_epoch,
-                "new_finalized_epoch" => new_finalized_epoch,
+                ?old_finalized_epoch,
+                ?new_finalized_epoch,
+                "Starting database compaction"
             );
             db.compact()?;
 
@@ -755,7 +738,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 .unwrap_or(start_time);
             db.store_compaction_timestamp(finish_time)?;
 
-            info!(log, "Database compaction complete");
+            info!("Database compaction complete");
         }
         Ok(())
     }

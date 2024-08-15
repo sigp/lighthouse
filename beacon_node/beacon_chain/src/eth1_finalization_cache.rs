@@ -1,7 +1,8 @@
-use slog::{debug, Logger};
+use slog::Logger;
 use ssz_derive::{Decode, Encode};
 use std::cmp;
 use std::collections::BTreeMap;
+use tracing::debug;
 use types::{Checkpoint, Epoch, Eth1Data, Hash256 as Root};
 
 /// The default size of the cache.
@@ -136,10 +137,9 @@ impl Eth1FinalizationCache {
                 eth1_finalization_data.eth1_data.clone(),
             );
             debug!(
-                self.log,
-                "Eth1Cache: inserted pending eth1";
-                "eth1_data.deposit_count" => eth1_finalization_data.eth1_data.deposit_count,
-                "eth1_deposit_index" => eth1_finalization_data.eth1_deposit_index,
+                eth1_data.deposit_count = eth1_finalization_data.eth1_data.deposit_count,
+                eth1_deposit_index = eth1_finalization_data.eth1_deposit_index,
+                "Eth1Cache: inserted pending eth1"
             );
         }
         self.by_checkpoint
@@ -154,10 +154,8 @@ impl Eth1FinalizationCache {
                 if finalized_deposit_index >= pending_count {
                     result = self.pending_eth1.remove(&pending_count);
                     debug!(
-                        self.log,
-                        "Eth1Cache: dropped pending eth1";
-                        "pending_count" => pending_count,
-                        "finalized_deposit_index" => finalized_deposit_index,
+                        pending_count,
+                        finalized_deposit_index, "Eth1Cache: dropped pending eth1"
                     );
                 } else {
                     break;
@@ -172,9 +170,8 @@ impl Eth1FinalizationCache {
             self.last_finalized.clone()
         } else {
             debug!(
-                self.log,
-                "Eth1Cache: cache miss";
-                "epoch" => checkpoint.epoch,
+                epoch = ?checkpoint.epoch,
+                "Eth1Cache: cache miss"
             );
             None
         }

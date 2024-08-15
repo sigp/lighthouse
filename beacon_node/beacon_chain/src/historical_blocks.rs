@@ -1,7 +1,6 @@
 use crate::data_availability_checker::AvailableBlock;
 use crate::{errors::BeaconChainError as Error, metrics, BeaconChain, BeaconChainTypes};
 use itertools::Itertools;
-use slog::debug;
 use state_processing::{
     per_block_processing::ParallelSignatureSets,
     signature_sets::{block_proposal_signature_set_from_parts, Error as SignatureSetError},
@@ -10,6 +9,7 @@ use std::borrow::Cow;
 use std::iter;
 use std::time::Duration;
 use store::{chunked_vector::BlockRoots, AnchorInfo, BlobInfo, ChunkWriter, KeyValueStore};
+use tracing::debug;
 use types::{Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
@@ -78,11 +78,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if blocks_to_import.len() != total_blocks {
             debug!(
-                self.log,
-                "Ignoring some historic blocks";
-                "oldest_block_slot" => anchor_info.oldest_block_slot,
-                "total_blocks" => total_blocks,
-                "ignored" => total_blocks.saturating_sub(blocks_to_import.len()),
+                oldest_block_slot = ?anchor_info.oldest_block_slot,
+                ?total_blocks,
+                ignored = total_blocks.saturating_sub(blocks_to_import.len()),
+                "Ignoring some historic blocks"
             );
         }
 

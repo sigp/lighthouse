@@ -1199,7 +1199,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let header_from_payload = ExecutionPayloadHeader::from(execution_payload.to_ref());
         if header_from_payload != execution_payload_header {
             for txn in execution_payload.transactions() {
-                debug!( 
+                debug!(
                     bytes = format!("0x{}", hex::encode(&**txn)),
                     "Reconstructed txn"
                 );
@@ -3172,11 +3172,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(status)
             }
             Ok(status @ AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
-                debug!(
-                    ?block_root,
-                    ?slot,
-                    "Beacon block awaiting blobs"
-                );
+                debug!(?block_root, ?slot, "Beacon block awaiting blobs");
 
                 Ok(status)
             }
@@ -3198,10 +3194,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             // The block failed verification.
             Err(other) => {
-                debug!(
-                    reason = other.to_string(),
-                    "Beacon block rejected"
-                );
+                debug!(reason = other.to_string(), "Beacon block rejected");
                 Err(other)
             }
         }
@@ -3636,16 +3629,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        if let Some(_data_columns) = data_columns {
-            // TODO(das): depends on https://github.com/sigp/lighthouse/pull/6073
-            // if !data_columns.is_empty() {
-            //     debug!(
-            //         self.log, "Writing data_columns to store";
-            //         "block_root" => %block_root,
-            //         "count" => data_columns.len(),
-            //     );
-            //     ops.push(StoreOp::PutDataColumns(block_root, data_columns));
-            // }
+        if let Some(data_columns) = data_columns {
+            if !data_columns.is_empty() {
+                debug!(
+                    %block_root,
+                    count = data_columns.len(),
+                    "Writing data_columns to store"
+                );
+                ops.push(StoreOp::PutDataColumns(block_root, data_columns));
+            }
         }
 
         let txn_lock = self.store.hot_db.begin_rw_transaction();
@@ -4330,10 +4322,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .slot_clock
             .seconds_from_current_slot_start()
             .or_else(|| {
-                warn!(
-                    error = "unable to read slot clock",
-                    "Not attempting re-org"
-                );
+                warn!(error = "unable to read slot clock", "Not attempting re-org");
                 None
             })?;
 
@@ -4344,19 +4333,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // 3. The `get_proposer_head` conditions from fork choice pass.
         let proposing_on_time = slot_delay < self.config.re_org_cutoff(self.spec.seconds_per_slot);
         if !proposing_on_time {
-            debug!(
-                reason = "not proposing on time",
-                "Not attempting re-org"
-            );
+            debug!(reason = "not proposing on time", "Not attempting re-org");
             return None;
         }
 
         let head_late = self.block_observed_after_attestation_deadline(canonical_head, head_slot);
         if !head_late {
-            debug!(
-                reason = "head not late",
-                "Not attempting re-org"
-            );
+            debug!(reason = "head not late", "Not attempting re-org");
             return None;
         }
 
@@ -4396,10 +4379,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .store
             .get_advanced_hot_state_from_cache(re_org_parent_block, slot)
             .or_else(|| {
-                warn!(
-                    reason = "no state in cache",
-                    "Not attempting re-org"
-                );
+                warn!(reason = "no state in cache", "Not attempting re-org");
                 None
             })?;
 
@@ -4495,10 +4475,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             //
             // Exit now, after updating the cache.
             if decision_root != shuffling_decision_root {
-                warn!(
-
-                    "Head changed during proposer preparation"
-                );
+                warn!("Head changed during proposer preparation");
                 return Ok(None);
             }
 
@@ -5382,10 +5359,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         let block_size = block.ssz_bytes_len();
-        debug!(
-            ?block_size,
-            "Produced block on state"
-        );
+        debug!(?block_size, "Produced block on state");
 
         metrics::observe(&metrics::BLOCK_SIZE, block_size as f64);
 

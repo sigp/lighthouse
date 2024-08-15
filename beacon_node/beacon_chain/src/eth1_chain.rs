@@ -3,7 +3,7 @@ use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2::lighthouse::Eth1SyncStatusData;
 use ethereum_hashing::hash;
 use int_to_bytes::int_to_bytes32;
-use slog::{debug, error, trace, Logger};
+use slog::Logger;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::get_new_eth1_data;
@@ -13,6 +13,7 @@ use std::marker::PhantomData;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::{DBColumn, Error as StoreError, StoreItem};
 use task_executor::TaskExecutor;
+use tracing::{debug, error, trace};
 use types::{
     BeaconState, BeaconStateError, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256, Slot, Unsigned,
 };
@@ -481,9 +482,8 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
             get_votes_to_consider(blocks.iter(), voting_period_start_seconds, spec);
 
         trace!(
-            self.log,
-            "Found eth1 data votes_to_consider";
-            "votes_to_consider" => votes_to_consider.len(),
+            votes_to_consider = votes_to_consider.len(),
+            "Found eth1 data votes_to_consider"
         );
         let valid_votes = collect_valid_votes(state, &votes_to_consider);
 
@@ -500,22 +500,20 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
                 .map(|vote| {
                     let vote = vote.0.clone();
                     debug!(
-                        self.log,
-                        "No valid eth1_data votes";
-                        "outcome" => "Casting vote corresponding to last candidate eth1 block",
-                        "vote" => ?vote
+                        outcome = "Casting vote corresponding to last candidate eth1 block",
+                        ?vote,
+                        "No valid eth1_data votes"
                     );
                     vote
                 })
                 .unwrap_or_else(|| {
                     let vote = state.eth1_data().clone();
                     error!(
-                        self.log,
-                        "No valid eth1_data votes, `votes_to_consider` empty";
-                        "lowest_block_number" => self.core.lowest_block_number(),
-                        "earliest_block_timestamp" => self.core.earliest_block_timestamp(),
-                        "genesis_time" => state.genesis_time(),
-                        "outcome" => "casting `state.eth1_data` as eth1 vote"
+                        lowest_block_number = self.core.lowest_block_number(),
+                        earliest_block_timestamp = self.core.earliest_block_timestamp(),
+                        genesis_time = state.genesis_time(),
+                        outcome = "casting `state.eth1_data` as eth1 vote",
+                        "No valid eth1_data votes, `votes_to_consider` empty"
                     );
                     metrics::inc_counter(&metrics::DEFAULT_ETH1_VOTES);
                     vote
@@ -523,11 +521,10 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
         };
 
         debug!(
-            self.log,
-            "Produced vote for eth1 chain";
-            "deposit_root" => format!("{:?}", eth1_data.deposit_root),
-            "deposit_count" => eth1_data.deposit_count,
-            "block_hash" => format!("{:?}", eth1_data.block_hash),
+            deposit_root = format!("{:?}", eth1_data.deposit_root),
+            deposit_count = eth1_data.deposit_count,
+            block_hash = format!("{:?}", eth1_data.block_hash),
+            "Produced vote for eth1 chain"
         );
 
         Ok(eth1_data)
