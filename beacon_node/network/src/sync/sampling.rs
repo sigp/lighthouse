@@ -276,7 +276,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                         // Peer does not have the requested data.
                         // TODO(das) what to do?
                         debug!(self.log, "Sampling peer claims to not have the data"; "block_root" => %self.block_root, "column_index" => column_index);
-                        request.on_sampling_error()?; // TODO: should return error here?
+                        request.on_sampling_error()?;
                         continue;
                     };
 
@@ -453,7 +453,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
         // First, attempt to progress sampling by requesting more columns, so that request failures
         // are accounted for below.
 
-        // Group the requested column indexes by the destination peer.
+        // Group the requested column indexes by the destination peer to batch sampling requests.
         let mut column_indexes_to_request = FnvHashMap::default();
         for idx in 0..*required_successes {
             // Re-request columns. Note: out of bounds error should never happen, inputs are hardcoded
@@ -588,6 +588,7 @@ mod request {
                 block_slot.epoch(<T::EthSpec as EthSpec>::slots_per_epoch()),
                 self.column_index,
             );
+
             peer_ids.retain(|peer_id| !self.peers_dont_have.contains(peer_id));
 
             if let Some(peer_id) = peer_ids.choose(&mut thread_rng()) {
@@ -605,7 +606,8 @@ mod request {
                     Ok(())
                 }
                 other => Err(SamplingError::BadState(format!(
-                    "bad state on_start_sampling expected NoPeers|NotStarted got {other:?}"
+                    "bad state on_start_sampling expected NoPeers|NotStarted got {other:?}. column_index:{}",
+                    self.column_index
                 ))),
             }
         }
@@ -618,7 +620,8 @@ mod request {
                     Ok(peer_id)
                 }
                 other => Err(SamplingError::BadState(format!(
-                    "bad state on_sampling_error expected Sampling got {other:?}"
+                    "bad state on_sampling_error expected Sampling got {other:?}. column_index:{}",
+                    self.column_index
                 ))),
             }
         }
@@ -630,7 +633,8 @@ mod request {
                     Ok(())
                 }
                 other => Err(SamplingError::BadState(format!(
-                    "bad state on_sampling_success expected Sampling got {other:?}"
+                    "bad state on_sampling_success expected Sampling got {other:?}. column_index:{}",
+                    self.column_index
                 ))),
             }
         }
