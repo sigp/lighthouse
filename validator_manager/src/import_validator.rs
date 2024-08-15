@@ -368,7 +368,7 @@ pub mod tests {
             let dir = tempdir().unwrap();
             let vc = ApiTester::new_with_http_config(http_config).await;
             let vc_token_path = dir.path().join(VC_TOKEN_FILE_NAME);
-            fs::write(&vc_token_path, &vc.api_token);
+            fs::write(&vc_token_path, &vc.api_token).unwrap();
 
             Self {
                 import_config: ImportConfig {
@@ -431,7 +431,7 @@ pub mod tests {
             let validator_json = validator.voting_keystore.0.clone();
 
             let keystore_file = File::create(&validators_file_path).unwrap();
-            validator_json.to_json_writer(keystore_file);
+            validator_json.to_json_writer(keystore_file).unwrap();
 
             self.import_config.validator_file_path = create_result.validators_file_path();
             self.import_config.password = validator.voting_keystore_password.clone();
@@ -452,19 +452,8 @@ pub mod tests {
             if result.is_ok() {
                 self.vc.ensure_key_cache_consistency().await;
 
-                let validators_file = fs::read_to_string(&self.import_config.validator_file_path)
-                    .map_err(|e| {
-                        format!(
-                            "Unable to open {:?}: {:?}",
-                            &self.import_config.validator_file_path, e
-                        )
-                    })
-                    .unwrap();
-
-                let local_keystore: Keystore = Keystore::from_json_file(
-                    serde_json::from_str(&validators_file).expect("JSON was not well formatted"),
-                )
-                .unwrap();
+                let local_keystore: Keystore =
+                    Keystore::from_json_file(&self.import_config.validator_file_path).unwrap();
 
                 let list_keystores_response = self.vc.client.get_keystores().await.unwrap().data;
 
