@@ -221,25 +221,24 @@ impl TimeLatch {
 }
 
 pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
-
     let mut tracing_log_path = PathBuf::new();
 
     // Ensure that `tracing_log_path` only contains directories.
-    base_tracing_log_path
-        .iter()
-        .for_each(|p| {
-            match metadata(p) {
-                Ok(metadata) => {
-                    if metadata.is_dir() {
-                        tracing_log_path = tracing_log_path.join(p);
-                    }
-                },
-                // An error here just means the directory doesn't exist yet,
-                // we can safely continue.
-                Err(_) => (),
+    for p in base_tracing_log_path.iter() {
+        match metadata(p) {
+            Ok(metadata) => {
+                if metadata.is_dir() {
+                    tracing_log_path = tracing_log_path.join(p);
+                }
             }
-        });
-
+            // An error here just means that part of `base_tracing_log_path`,
+            // we can safely continue.
+            Err(_) => {
+                tracing_log_path = base_tracing_log_path;
+                break;
+            }
+        }
+    }
 
     let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env()
         .or_else(|_| tracing_subscriber::EnvFilter::try_new("warn"))
