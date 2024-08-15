@@ -3,6 +3,7 @@ use lighthouse_metrics::{
 };
 use slog::Logger;
 use slog_term::Decorator;
+use std::fs::metadata;
 use std::io::{Result, Write};
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -220,6 +221,26 @@ impl TimeLatch {
 }
 
 pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
+
+    let mut tracing_log_path = PathBuf::new();
+
+    // Ensure that `tracing_log_path` only contains directories.
+    base_tracing_log_path
+        .iter()
+        .for_each(|p| {
+            match metadata(p) {
+                Ok(metadata) => {
+                    if metadata.is_dir() {
+                        tracing_log_path = tracing_log_path.join(p);
+                    }
+                },
+                // An error here just means the directory doesn't exist yet,
+                // we can safely continue.
+                Err(_) => (),
+            }
+        });
+
+
     let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env()
         .or_else(|_| tracing_subscriber::EnvFilter::try_new("warn"))
     {
@@ -235,7 +256,7 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
         .max_log_files(2)
         .filename_prefix("libp2p")
         .filename_suffix("log")
-        .build(base_tracing_log_path.clone())
+        .build(tracing_log_path.clone())
     else {
         eprintln!("Failed to initialize libp2p rolling file appender");
         return;
@@ -246,7 +267,7 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
         .max_log_files(2)
         .filename_prefix("discv5")
         .filename_suffix("log")
-        .build(base_tracing_log_path.clone())
+        .build(tracing_log_path)
     else {
         eprintln!("Failed to initialize discv5 rolling file appender");
         return;
