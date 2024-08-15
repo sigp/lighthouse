@@ -351,6 +351,18 @@ async fn light_client_updates_test() {
         .get_light_client_updates(sync_period, 100)
         .unwrap();
 
+    // Create the minimum ~2.5 epochs of extra blocks required to finalize the chain.
+    // Having this set lower ensures that we start justifying and finalizing quickly after a skip.
+    let final_blocks = 2 * E::slots_per_epoch() + E::slots_per_epoch() / 2;
+
+    harness
+        .extend_chain(
+            final_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
     let lc_bootstrap = beacon_chain
         .get_light_client_bootstrap(&block_root)
         .unwrap();

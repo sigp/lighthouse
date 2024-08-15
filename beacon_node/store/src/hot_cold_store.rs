@@ -2907,7 +2907,8 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     }
 
     let epoch_boundary_slots = epoch_boundary_blocks.len();
-    let number_of_epochs = usize::from((finalized_state.slot() - current_split_slot) / E::slots_per_epoch());
+    let number_of_epochs =
+        usize::from((finalized_state.slot() - current_split_slot) / E::slots_per_epoch());
 
     // if the number of epochs between the current split slot and the new finalized state is not equal
     // to the number of boundary slot blocks, we have a missed slot at an epoch boundary and need to calculate

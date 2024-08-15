@@ -73,6 +73,7 @@ pub fn get_light_client_bootstrap<T: BeaconChainTypes>(
         .get_light_client_bootstrap(block_root)
         .map_err(|err| {
             let error_message = if let BeaconChainError::LightClientBootstrapError(err) = err {
+                println!("{:?}", err);
                 err
             } else {
                 "No LightClientBootstrap found".to_string()

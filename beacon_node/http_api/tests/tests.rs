@@ -1843,22 +1843,28 @@ impl ApiTester {
         self
     }
 
+    // TODO(lc-bootstrap) do we need this test
     pub async fn test_get_beacon_light_client_bootstrap(self) -> Self {
         let block_id = BlockId(CoreBlockId::Finalized);
         let (block_root, _, _) = block_id.root(&self.chain).unwrap();
-        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
 
         let result = match self
             .client
             .get_light_client_bootstrap::<E>(block_root)
             .await
         {
-            Ok(result) => result.unwrap().data,
+            Ok(result) => result,
             Err(e) => panic!("query failed incorrectly: {e:?}"),
         };
 
-        let expected = block.slot();
-        assert_eq!(result.get_slot(), expected);
+        assert!(result.is_none());
+
+        let expected = self
+            .chain
+            .light_client_server_cache
+            .get_light_client_bootstrap(&self.chain.store, &block_root, 1u64, &self.chain.spec);
+
+        assert!(expected.is_err());
 
         self
     }
