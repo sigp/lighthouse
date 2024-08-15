@@ -4,9 +4,7 @@ use crate::sync::block_lookups::single_block_lookup::{
 use crate::sync::block_lookups::{
     BlobRequestState, BlockRequestState, CustodyRequestState, PeerId,
 };
-use crate::sync::network_context::{
-    DownloadedBlockSummary, LookupRequestResult, SyncNetworkContext,
-};
+use crate::sync::network_context::{LookupRequestResult, SyncNetworkContext};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::service::api_types::Id;
@@ -43,7 +41,7 @@ pub trait RequestState<T: BeaconChainTypes> {
         &self,
         id: Id,
         peer_id: PeerId,
-        downloaded_block: Option<DownloadedBlockSummary>,
+        downloaded_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupRequestResult, LookupRequestError>;
 
@@ -78,7 +76,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
         &self,
         id: SingleLookupId,
         peer_id: PeerId,
-        _: Option<DownloadedBlockSummary>,
+        _: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupRequestResult, LookupRequestError> {
         cx.block_lookup_request(id, peer_id, self.requested_block_root)
@@ -126,7 +124,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
         &self,
         id: Id,
         peer_id: PeerId,
-        downloaded_block: Option<DownloadedBlockSummary>,
+        downloaded_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupRequestResult, LookupRequestError> {
         cx.blob_lookup_request(id, peer_id, self.block_root, downloaded_block)
@@ -170,7 +168,7 @@ impl<T: BeaconChainTypes> RequestState<T> for CustodyRequestState<T::EthSpec> {
         id: Id,
         // TODO(das): consider selecting peers that have custody but are in this set
         _peer_id: PeerId,
-        downloaded_block: Option<DownloadedBlockSummary>,
+        downloaded_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupRequestResult, LookupRequestError> {
         cx.custody_lookup_request(id, self.block_root, downloaded_block)

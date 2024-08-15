@@ -6778,23 +6778,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Returns true if epoch is within the data availability boundary
-    pub fn is_within_data_availability_boundary(&self, epoch: Epoch) -> bool {
-        if let Some(boundary) = self.data_availability_boundary() {
-            epoch > boundary
-        } else {
-            false
-        }
+    pub fn da_check_required_for_epoch(&self, epoch: Epoch) -> bool {
+        self.data_availability_checker
+            .da_check_required_for_epoch(epoch)
     }
 
     /// Returns true if we should fetch blobs for this block
     pub fn should_fetch_blobs(&self, block_epoch: Epoch) -> bool {
-        self.is_within_data_availability_boundary(block_epoch)
+        self.da_check_required_for_epoch(block_epoch)
             && !self.spec.is_peer_das_enabled_for_epoch(block_epoch)
     }
 
     /// Returns true if we should fetch custody columns for this block
     pub fn should_fetch_custody_columns(&self, block_epoch: Epoch) -> bool {
-        self.is_within_data_availability_boundary(block_epoch)
+        self.da_check_required_for_epoch(block_epoch)
             && self.spec.is_peer_das_enabled_for_epoch(block_epoch)
     }
 

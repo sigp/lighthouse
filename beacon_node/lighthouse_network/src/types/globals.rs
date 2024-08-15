@@ -113,7 +113,8 @@ impl<E: EthSpec> NetworkGlobals<E> {
     /// Compute custody data columns the node is assigned to custody.
     pub fn custody_columns(&self, _spec: &ChainSpec) -> Vec<ColumnIndex> {
         let _enr = self.local_enr();
-        todo!("implement ENR changes");
+        //TODO(das): implement ENR changes
+        vec![]
     }
 
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.

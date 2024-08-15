@@ -182,11 +182,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     ) -> Result<(), LookupRequestError> {
         let id = self.id;
         let awaiting_parent = self.awaiting_parent.is_some();
-        let downloaded_block_summary = self
+        let downloaded_block = self
             .block_request_state
             .state
             .peek_downloaded_data()
-            .map(|block| (block.num_expected_blobs(), block.slot()));
+            .map(|block| block.clone());
         let block_is_processed = self.block_request_state.state.is_processed();
         let request = R::request_state_mut(self);
 
@@ -213,7 +213,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             };
 
             let request = R::request_state_mut(self);
-            match request.make_request(id, peer_id, downloaded_block_summary, cx)? {
+            match request.make_request(id, peer_id, downloaded_block, cx)? {
                 LookupRequestResult::RequestSent(req_id) => {
                     // Lookup sync event safety: If make_request returns `RequestSent`, we are
                     // guaranteed that `BlockLookups::on_download_response` will be called exactly
@@ -328,7 +328,7 @@ impl<E: EthSpec> BlobRequestState<E> {
     }
 }
 
-/// The state of the blob request component of a `SingleBlockLookup`.
+/// The state of the custody request component of a `SingleBlockLookup`.
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct CustodyRequestState<E: EthSpec> {

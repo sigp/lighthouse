@@ -723,6 +723,7 @@ impl TestRig {
                     (ev.work_type() == beacon_processor::RPC_BLOBS).then_some(())
                 })
                 .unwrap_or_else(|e| panic!("Expected blobs work event: {e}")),
+            // TODO(das): remove todo when adding tests for custody sync lookup
             ResponseType::CustodyColumn => todo!(),
         }
     }

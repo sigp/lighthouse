@@ -46,10 +46,6 @@ pub enum RangeRequestId {
     },
 }
 
-/// 0: expected blob count
-/// 1: block slot
-pub type DownloadedBlockSummary = (/* expected blob count */ usize, Slot);
-
 #[derive(Debug)]
 pub enum RpcEvent<T> {
     StreamTermination,
@@ -451,18 +447,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_id: SingleLookupId,
         peer_id: PeerId,
         block_root: Hash256,
-        downloaded_block: Option<DownloadedBlockSummary>,
+        downloaded_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
-        let Some((expected_blobs, block_slot)) = downloaded_block.or_else(|| {
+        let Some(block) = downloaded_block.or_else(|| {
             // If the block is already being processed or fully validated, retrieve how many blobs
             // it expects. Consider any stage of the block. If the block root has been validated, we
             // can assert that this is the correct value of `blob_kzg_commitments_count`.
             match self.chain.get_block_process_status(&block_root) {
                 BlockProcessStatus::Unknown => None,
                 BlockProcessStatus::NotValidated(block)
-                | BlockProcessStatus::ExecutionValidated(block) => {
-                    Some((block.num_expected_blobs(), block.slot()))
-                }
+                | BlockProcessStatus::ExecutionValidated(block) => Some(block.clone()),
             }
         }) else {
             // Wait to download the block before downloading blobs. Then we can be sure that the
@@ -479,12 +473,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // get dropped as completed.
             return Ok(LookupRequestResult::Pending("waiting for block download"));
         };
+        let expected_blobs = block.num_expected_blobs();
+        let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
 
         // Check if we are into peerdas
-        if !self
-            .chain
-            .should_fetch_blobs(block_slot.epoch(T::EthSpec::slots_per_epoch()))
-        {
+        if !self.chain.should_fetch_blobs(block_epoch) {
             return Ok(LookupRequestResult::NoRequestNeeded);
         }
 
@@ -540,15 +533,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         lookup_id: SingleLookupId,
         block_root: Hash256,
-        downloaded_block: Option<DownloadedBlockSummary>,
+        downloaded_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
-        let Some((expected_blobs, block_slot)) =
+        let Some(block) =
             downloaded_block.or_else(|| match self.chain.get_block_process_status(&block_root) {
                 BlockProcessStatus::Unknown => None,
                 BlockProcessStatus::NotValidated(block)
-                | BlockProcessStatus::ExecutionValidated(block) => {
-                    Some((block.num_expected_blobs(), block.slot()))
-                }
+                | BlockProcessStatus::ExecutionValidated(block) => Some(block.clone()),
             })
         else {
             // Wait to download the block before downloading columns. Then we can be sure that the
@@ -558,12 +549,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // - if `num_expected_blobs` returns Some = block is processed.
             return Ok(LookupRequestResult::Pending("waiting for block download"));
         };
+        let expected_blobs = block.num_expected_blobs();
+        let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
 
         // Check if we are into peerdas
-        if !self
-            .chain
-            .should_fetch_custody_columns(block_slot.epoch(T::EthSpec::slots_per_epoch()))
-        {
+        if !self.chain.should_fetch_custody_columns(block_epoch) {
             return Ok(LookupRequestResult::NoRequestNeeded);
         }
 
