@@ -185,7 +185,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
     /// Put a list of custody columns received via RPC into the availability cache. This performs KZG
     /// verification on the blobs in the list.
-    #[allow(clippy::type_complexity)]
     pub fn put_rpc_custody_columns(
         &self,
         block_root: Hash256,
