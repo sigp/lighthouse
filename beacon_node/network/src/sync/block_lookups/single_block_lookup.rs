@@ -186,7 +186,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             .block_request_state
             .state
             .peek_downloaded_data()
-            .map(|block| block.clone());
+            .cloned();
         let block_is_processed = self.block_request_state.state.is_processed();
         let request = R::request_state_mut(self);
 

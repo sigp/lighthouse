@@ -25,7 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{BlobSidecar, DataColumnSidecarList, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{BlobSidecar, DataColumnSidecarList, EthSpec, Hash256, SignedBeaconBlock};
 
 mod requests;
 
