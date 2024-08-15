@@ -167,13 +167,13 @@ mod test {
                 .create_validators(count, first_index)
                 .await;
 
-            self.vc_token = Some(fs::read_to_string(
-                builder.get_import_config().vc_token_path,
-            )?);
+            self.vc_token =
+                Some(fs::read_to_string(builder.get_import_config().vc_token_path).unwrap());
 
             let local_validators: Vec<ValidatorSpecification> = {
-                let contents = fs::read_to_string(builder.get_import_config().validators_file_path);
-                serde_json::from_str(&contents)?
+                let contents =
+                    fs::read_to_string(builder.get_import_config().validators_file_path).unwrap();
+                serde_json::from_str(&contents).unwrap()
             };
 
             let import_config = builder.get_import_config();
@@ -189,7 +189,8 @@ mod test {
                             .pubkey()
                     )
                     .as_str(),
-                )?,
+                )
+                .unwrap(),
             });
 
             self.validators = local_validators.clone();
@@ -198,13 +199,13 @@ mod test {
         }
 
         pub async fn run_test(self) -> TestResult {
-            let import_builder = self.src_import_builder?;
+            let import_builder = self.src_import_builder.unwrap();
             let import_test_result = import_builder.run_test().await;
             assert!(import_test_result.result.is_ok());
 
-            let path = self.delete_config.clone()?.vc_token_path;
-            let url = self.delete_config.clone()?.vc_url;
-            let parent = path.parent()?;
+            let path = self.delete_config.clone().unwrap().vc_token_path;
+            let url = self.delete_config.clone().unwrap().vc_url;
+            let parent = path.parent().unwrap();
 
             fs::create_dir_all(parent).expect("Was not able to create parent directory");
 
@@ -213,20 +214,22 @@ mod test {
                 .read(true)
                 .create(true)
                 .truncate(true)
-                .open(path.clone())?
-                .write_all(self.vc_token.clone().as_bytes())?;
+                .open(path.clone())
+                .unwrap()
+                .write_all(self.vc_token.clone().unwrap().as_bytes())
+                .unwrap();
 
-            let result = run(self.delete_config.clone()?).await;
+            let result = run(self.delete_config.clone().unwrap()).await;
 
             if result.is_ok() {
-                let (http_client, _keystores) = vc_http_client(url, path.clone()).await?;
-                let list_keystores_response = http_client.get_keystores().await?.data;
+                let (http_client, _keystores) = vc_http_client(url, path.clone()).await.unwrap();
+                let list_keystores_response = http_client.get_keystores().await.unwrap().data;
 
                 assert_eq!(list_keystores_response.len(), self.validators.len() - 1);
                 assert!(list_keystores_response
                     .iter()
                     .all(|keystore| keystore.validating_pubkey
-                        != self.delete_config.clone()?.validator_to_delete));
+                        != self.delete_config.clone().unwrap().validator_to_delete));
 
                 return TestResult { result: Ok(()) };
             }

@@ -365,7 +365,7 @@ pub mod tests {
         }
 
         pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
-            let dir = tempdir();
+            let dir = tempdir().unwrap();
             let vc = ApiTester::new_with_http_config(http_config).await;
             let vc_token_path = dir.path().join(VC_TOKEN_FILE_NAME);
             fs::write(&vc_token_path, &vc.api_token);
@@ -440,7 +440,7 @@ pub mod tests {
         /// Imports validator without running the entire test suite in `Self::run_test`. This is
         /// useful for simulating duplicate imports.
         pub async fn import_validators_without_checks(self) -> Self {
-            run(self.import_config.clone()).await?;
+            run(self.import_config.clone()).await.unwrap();
             self
         }
 
@@ -459,11 +459,10 @@ pub mod tests {
                     });
 
                 let local_keystore: Keystore = Keystore::from_json_file(
-                    serde_json::from_str(&validators_file_path)
-                        .expect("JSON was not well formatted"),
+                    serde_json::from_str(&validators_file).expect("JSON was not well formatted"),
                 );
 
-                let list_keystores_response = self.vc.client.get_keystores().await.data;
+                let list_keystores_response = self.vc.client.get_keystores().await.unwrap().data;
 
                 assert_eq!(
                     1,
