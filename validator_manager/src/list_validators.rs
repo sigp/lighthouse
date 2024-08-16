@@ -24,14 +24,16 @@ pub fn cli_app() -> Command {
                 )
                 .default_value("http://localhost:5062")
                 .requires(VC_TOKEN_FLAG)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(VC_TOKEN_FLAG)
                 .long(VC_TOKEN_FLAG)
                 .value_name("PATH")
                 .help("The file containing a token required by the validator client.")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
 }
 

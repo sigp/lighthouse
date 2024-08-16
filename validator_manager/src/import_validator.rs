@@ -70,7 +70,8 @@ pub fn cli_app() -> Command {
                     using staking-deposit-cli.",
                 )
                 .required(true)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(VC_URL_FLAG)
@@ -83,14 +84,16 @@ pub fn cli_app() -> Command {
                 )
                 .default_value("http://localhost:5062")
                 .requires(VC_TOKEN_FLAG)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(VC_TOKEN_FLAG)
                 .long(VC_TOKEN_FLAG)
                 .value_name("PATH")
                 .help("The file containing a token required by the validator client.")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(IGNORE_DUPLICATES_FLAG)
@@ -104,21 +107,24 @@ pub fn cli_app() -> Command {
                     Users should also be careful to avoid submitting duplicate deposits for \
                     validators that already exist on the VC.",
                 )
-                .action(ArgAction::SetTrue),
+                .action(ArgAction::SetTrue)
+                .display_order(0),
         )
         .arg(
             Arg::new(PASSWORD)
                 .long(PASSWORD)
                 .value_name("STRING")
                 .help("Password of the keystore file.")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(FEE_RECIPIENT)
                 .long(FEE_RECIPIENT)
                 .value_name("ETH1_ADDRESS")
                 .help("When provided, the imported validator will use the suggested fee recipient. Omit this flag to use the default value from the VC.")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(GAS_LIMIT)
@@ -126,14 +132,16 @@ pub fn cli_app() -> Command {
                 .value_name("UINT64")
                 .help("When provided, the imported validator will use this gas limit. It is recommended \
                 to leave this as the default value by not specifying this flag.",)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(BUILDER_PROPOSALS)
                 .long(BUILDER_PROPOSALS)
                 .help("When provided, the imported validator will attempt to create \
                 blocks via builder rather than the local EL.",)
-                .action(ArgAction::SetTrue),
+                .action(ArgAction::SetTrue)
+                .display_order(0),
         )
         .arg(
             Arg::new(BUILDER_BOOST_FACTOR)
@@ -143,21 +151,24 @@ pub fn cli_app() -> Command {
                 percentage multiplier to apply to the builder's payload value \
                 when choosing between a builder payload header and payload from \
                 the local execution node.",)
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
         .arg(
             Arg::new(PREFER_BUILDER_PROPOSALS)
                 .long(PREFER_BUILDER_PROPOSALS)
                 .help("When provided, the imported validator will always prefer blocks \
                 constructed by builders, regardless of payload value.",)
-                .action(ArgAction::SetTrue),
+                .action(ArgAction::SetTrue)
+                .display_order(0),
         )
         .arg(
             Arg::new(ENABLED)
                 .long(ENABLED)
                 .value_name("BOOL")
                 .help("Enabled or disable the imported validator.")
-                .action(ArgAction::Set),
+                .action(ArgAction::Set)
+                .display_order(0),
         )
 }
 
