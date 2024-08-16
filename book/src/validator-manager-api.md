@@ -1,6 +1,6 @@
 # Managing Validators
 
-The `lighthouse validator-manager` supports the [Keymanager API](https://ethereum.github.io/keymanager-APIs/#/) to list, import and delete keystores via the HTTP API. This requires the validator client running with the flag `--http`. 
+The `lighthouse validator-manager` supports the [Keymanager API](https://ethereum.github.io/keymanager-APIs/#/) to list, import and delete keystores via the HTTP API. This requires the validator client running with the flag `--http`.
 
 The `delete` command deletes a keystore from the validator client. It will also modify the `validator_definitions.yml` file automatically so there is no manual action required from the user after the delete. To `delete`:
 
@@ -21,6 +21,7 @@ lighthouse vm import-standard --vc-token <API-TOKEN-PATH> --validators-file /pat
 ```
 
 Example:
+
 ```
 lighthouse vm import-standard --vc-token ~/.lighthouse/mainnet/validators/api-token.txt --validator-file keystore.json --password keystore_password
 ```
@@ -30,7 +31,3 @@ To list the validators running on the validator client:
 ```bash
 lighthouse vm list --vc-token ~/.lighthouse/mainnet/validators/api-token.txt
 ```
-
-
-
-
