@@ -2,6 +2,7 @@ use super::common::*;
 use crate::DumpConfig;
 use account_utils::{eth2_keystore::Keystore, ZeroizeString};
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap_utils::FLAG_HEADER;
 use eth2::lighthouse_vc::types::KeystoreJsonStr;
 use eth2::{lighthouse_vc::std_types::ImportKeystoreStatus, SensitiveUrl};
 use serde::{Deserialize, Serialize};
@@ -141,6 +142,7 @@ pub fn cli_app() -> Command {
                 .help("When provided, the imported validator will attempt to create \
                 blocks via builder rather than the local EL.",)
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .display_order(0),
         )
         .arg(
@@ -160,14 +162,6 @@ pub fn cli_app() -> Command {
                 .help("When provided, the imported validator will always prefer blocks \
                 constructed by builders, regardless of payload value.",)
                 .action(ArgAction::SetTrue)
-                .display_order(0),
-        )
-        .arg(
-            Arg::new(ENABLED)
-                .long(ENABLED)
-                .value_name("BOOL")
-                .help("Enabled or disable the imported validator.")
-                .action(ArgAction::Set)
                 .display_order(0),
         )
 }
