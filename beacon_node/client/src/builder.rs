@@ -206,7 +206,7 @@ where
                 Arc::new(Kzg::new_from_trusted_setup(trusted_setup).map_err(kzg_err_msg)?)
             }
         } else {
-            // TODO(kzg) is it ok to panic here?
+            // TODO(kzg) this causes us failed tests i.e. http_server_genesis_state
             panic!("Failed to load KZG");
         };
 
