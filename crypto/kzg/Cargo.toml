@@ -18,6 +18,7 @@ hex = { workspace = true }
 ethereum_hashing = { workspace = true }
 c-kzg = { workspace = true }
 rust_eth_kzg = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

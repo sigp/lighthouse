@@ -195,19 +195,13 @@ where
             None
         };
 
-        let kzg = if let Some(trusted_setup) = config.clone().trusted_setup {
-            let kzg_err_msg = |e| format!("Failed to load trusted setup: {:?}", e);
+        let trusted_setup = config.clone().trusted_setup;
+        let kzg_err_msg = |e| format!("Failed to load trusted setup: {:?}", e);
 
-            if spec.is_peer_das_scheduled() {
-                Arc::new(
-                    Kzg::new_from_trusted_setup_das_enabled(trusted_setup).map_err(kzg_err_msg)?,
-                )
-            } else {
-                Arc::new(Kzg::new_from_trusted_setup(trusted_setup).map_err(kzg_err_msg)?)
-            }
+        let kzg = if spec.is_peer_das_scheduled() {
+            Arc::new(Kzg::new_from_trusted_setup_das_enabled(trusted_setup).map_err(kzg_err_msg)?)
         } else {
-            // TODO(kzg) this causes us failed tests i.e. http_server_genesis_state
-            panic!("Failed to load KZG");
+            Arc::new(Kzg::new_from_trusted_setup(trusted_setup).map_err(kzg_err_msg)?)
         };
 
         let builder = BeaconChainBuilder::new(eth_spec_instance, kzg.clone())

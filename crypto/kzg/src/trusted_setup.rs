@@ -5,6 +5,9 @@ use serde::{
     Deserialize, Serialize,
 };
 
+pub const TRUSTED_SETUP_BYTES: &[u8] =
+    include_bytes!("../trusted_setup.json");
+
 /// Wrapper over a BLS G1 point's byte representation.
 #[derive(Debug, Clone, PartialEq)]
 struct G1Point([u8; BYTES_PER_G1_POINT]);
@@ -28,6 +31,20 @@ pub struct TrustedSetup {
     g1_points: Vec<G1Point>,
     #[serde(rename = "g2_monomial")]
     g2_points: Vec<G2Point>,
+}
+
+impl Default for TrustedSetup {
+    fn default() -> Self {
+        if let Ok(trusted_setup) = serde_json::from_slice(TRUSTED_SETUP_BYTES) {
+            trusted_setup
+        } else {
+            Self {
+                g1_monomial_points: Default::default(),
+                g1_points: Default::default(),
+                g2_points: Default::default(),
+            }
+        }
+    }
 }
 
 impl TrustedSetup {
