@@ -5,8 +5,7 @@ use serde::{
     Deserialize, Serialize,
 };
 
-pub const TRUSTED_SETUP_BYTES: &[u8] =
-    include_bytes!("../trusted_setup.json");
+pub const TRUSTED_SETUP_BYTES: &[u8] = include_bytes!("../trusted_setup.json");
 
 /// Wrapper over a BLS G1 point's byte representation.
 #[derive(Debug, Clone, PartialEq)]

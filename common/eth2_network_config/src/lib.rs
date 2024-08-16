@@ -24,7 +24,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
-use types::{BeaconState, ChainSpec, Config, Epoch, EthSpec, EthSpecId, Hash256};
+use types::{BeaconState, ChainSpec, Config, EthSpec, EthSpecId, Hash256};
 use url::Url;
 
 pub use eth2_config::GenesisStateSource;
@@ -582,7 +582,7 @@ mod tests {
                 .map(Encode::as_ssz_bytes)
                 .map(Into::into),
             config,
-            kzg_trusted_setup: kzg_trusted_setup,
+            kzg_trusted_setup,
         };
 
         testnet
