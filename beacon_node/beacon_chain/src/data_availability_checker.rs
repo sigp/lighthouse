@@ -66,7 +66,7 @@ pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
     slot_clock: T::SlotClock,
-    kzg: Option<Arc<Kzg>>,
+    kzg: Arc<Kzg>,
     log: Logger,
     spec: ChainSpec,
 }
@@ -95,7 +95,7 @@ impl<E: EthSpec> Debug for Availability<E> {
 impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn new(
         slot_clock: T::SlotClock,
-        kzg: Option<Arc<Kzg>>,
+        kzg: Arc<Kzg>,
         store: BeaconStore<T>,
         import_all_data_columns: bool,
         log: &Logger,
@@ -189,9 +189,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         epoch: Epoch,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let Some(kzg) = self.kzg.as_ref() else {
-            return Err(AvailabilityCheckError::KzgNotInitialized);
-        };
+        let kzg = self.kzg.as_ref();
 
         let seen_timestamp = self
             .slot_clock
@@ -214,9 +212,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         epoch: Epoch,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let Some(kzg) = self.kzg.as_ref() else {
-            return Err(AvailabilityCheckError::KzgNotInitialized);
-        };
+        let kzg = self.kzg.as_ref();
 
         // TODO(das): report which column is invalid for proper peer scoring
         // TODO(das): batch KZG verification here
@@ -310,10 +306,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             }
             Some(blob_list) => {
                 let verified_blobs = if self.blobs_required_for_block(&block) {
-                    let kzg = self
-                        .kzg
-                        .as_ref()
-                        .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
+                    let kzg = self.kzg.as_ref();
                     verify_kzg_for_blob_list(blob_list.iter(), kzg)
                         .map_err(AvailabilityCheckError::Kzg)?;
                     Some(blob_list)
@@ -353,10 +346,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         // verify kzg for all blobs at once
         if !all_blobs.is_empty() {
-            let kzg = self
-                .kzg
-                .as_ref()
-                .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
+            let kzg = self.kzg.as_ref();
             verify_kzg_for_blob_list(all_blobs.iter(), kzg)?;
         }
 

@@ -507,12 +507,12 @@ where
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
-        let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone());
+        let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone()).unwrap();
 
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
 
         let chain_config = self.chain_config.unwrap_or_default();
-        let mut builder = BeaconChainBuilder::new(self.eth_spec_instance)
+        let mut builder = BeaconChainBuilder::new(self.eth_spec_instance, kzg.clone())
             .logger(log.clone())
             .custom_spec(spec.clone())
             .store(self.store.expect("cannot build without store"))
@@ -531,8 +531,7 @@ where
                 log.clone(),
                 5,
             )))
-            .validator_monitor_config(validator_monitor_config)
-            .kzg(kzg);
+            .validator_monitor_config(validator_monitor_config);
 
         builder = if let Some(mutator) = self.initial_mutator {
             mutator(builder)

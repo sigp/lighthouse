@@ -101,7 +101,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     // Pending I/O batch that is constructed during building and should be executed atomically
     // alongside `PersistedBeaconChain` storage when `BeaconChainBuilder::build` is called.
     pending_io_batch: Vec<KeyValueStoreOp>,
-    kzg: Option<Arc<Kzg>>,
+    kzg: Arc<Kzg>,
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     import_all_data_columns: bool,
@@ -120,7 +120,7 @@ where
     ///
     /// The `_eth_spec_instance` parameter is only supplied to make concrete the `E` trait.
     /// This should generally be either the `MinimalEthSpec` or `MainnetEthSpec` types.
-    pub fn new(_eth_spec_instance: E) -> Self {
+    pub fn new(_eth_spec_instance: E, kzg: Arc<Kzg>) -> Self {
         Self {
             store: None,
             store_migrator_config: None,
@@ -143,7 +143,7 @@ where
             beacon_graffiti: GraffitiOrigin::default(),
             slasher: None,
             pending_io_batch: vec![],
-            kzg: None,
+            kzg,
             task_executor: None,
             validator_monitor_config: None,
             import_all_data_columns: false,
@@ -681,11 +681,6 @@ where
     /// `validators` is a comma-separated string of 0x-formatted BLS pubkeys.
     pub fn validator_monitor_config(mut self, config: ValidatorMonitorConfig) -> Self {
         self.validator_monitor_config = Some(config);
-        self
-    }
-
-    pub fn kzg(mut self, kzg: Option<Arc<Kzg>>) -> Self {
-        self.kzg = kzg;
         self
     }
 

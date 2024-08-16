@@ -2,8 +2,9 @@ use super::*;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
-    BeaconChain,
+    BeaconChain, Kzg, TrustedSetup,
 };
+use eth2_network_config::TRUSTED_SETUP_BYTES;
 use futures::prelude::*;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::NetworkConfig;
@@ -45,12 +46,18 @@ impl TestBeaconChain {
         let store =
             HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone()).unwrap();
 
+        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+            .expect("should have trusted setup");
+
+        let kzg = Arc::new(Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg"));
+
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
 
         let test_runtime = TestRuntime::default();
 
         let chain = Arc::new(
-            BeaconChainBuilder::new(MainnetEthSpec)
+            BeaconChainBuilder::new(MainnetEthSpec, kzg.clone())
                 .logger(log.clone())
                 .custom_spec(spec.clone())
                 .store(Arc::new(store))

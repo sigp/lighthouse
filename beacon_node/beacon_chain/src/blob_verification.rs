@@ -566,10 +566,8 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     }
 
     // Kzg verification for gossip blob sidecar
-    let kzg = chain
-        .kzg
-        .as_ref()
-        .ok_or(GossipBlobError::KzgNotInitialized)?;
+    let kzg = chain.kzg.as_ref();
+
     let kzg_verified_blob = KzgVerifiedBlob::new(blob_sidecar.clone(), kzg, seen_timestamp)
         .map_err(GossipBlobError::KzgError)?;
 

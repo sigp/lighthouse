@@ -493,7 +493,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// they are collected and combined.
     pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
     /// The KZG trusted setup used by this chain.
-    pub kzg: Option<Arc<Kzg>>,
+    pub kzg: Arc<Kzg>,
 }
 
 pub enum BeaconBlockResponseWrapper<E: EthSpec> {
@@ -5617,10 +5617,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 let kzg_proofs = Vec::from(proofs);
 
-                let kzg = self
-                    .kzg
-                    .as_ref()
-                    .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
+                let kzg = self.kzg.as_ref();
+
                 kzg_utils::validate_blobs::<T::EthSpec>(
                     kzg,
                     expected_kzg_commitments,
