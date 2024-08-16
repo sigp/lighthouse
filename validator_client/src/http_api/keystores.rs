@@ -242,7 +242,7 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
 
     info!(
         log,
-        "Deleting keystores via standard HTTP API";
+        "Deleted keystore via standard HTTP API";
         "count" => export_response.data.len(),
     );
 

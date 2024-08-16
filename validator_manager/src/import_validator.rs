@@ -41,7 +41,7 @@ struct KdfParamsStandard {
 }
 
 pub const CMD: &str = "import-standard";
-pub const VALIDATOR_FILE_FLAG: &str = "validator-file";
+pub const VALIDATOR_FILE_FLAG: &str = "validators-file";
 pub const VC_URL_FLAG: &str = "vc-url";
 pub const VC_TOKEN_FLAG: &str = "vc-token";
 pub const PASSWORD: &str = "password";
@@ -66,7 +66,8 @@ pub fn cli_app() -> Command {
                 .value_name("PATH_TO_JSON_FILE")
                 .help(
                     "The path to a JSON file containing a validators to be \
-                    imported to the validator client.",
+                    imported to the validator client. The JSON file is typically created \
+                    using staking-deposit-cli.",
                 )
                 .required(true)
                 .action(ArgAction::Set),
