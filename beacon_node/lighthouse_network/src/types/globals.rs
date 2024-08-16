@@ -7,7 +7,9 @@ use crate::EnrExt;
 use crate::{Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;
-use types::{ChainSpec, ColumnIndex, EthSpec};
+use types::{ChainSpec, ColumnIndex, DataColumnSubnetId, EthSpec};
+
+use super::Subnet;
 
 pub struct NetworkGlobals<E: EthSpec> {
     /// The current local ENR.
@@ -115,6 +117,26 @@ impl<E: EthSpec> NetworkGlobals<E> {
         let _enr = self.local_enr();
         //TODO(das): implement ENR changes
         vec![]
+    }
+
+    /// Returns a connected peer that:
+    /// 1. is connected
+    /// 2. assigned to custody the column based on it's `custody_subnet_count` from metadata (WIP)
+    /// 3. has a good score
+    /// 4. subscribed to the specified column - this condition can be removed later, so we can
+    ///    identify and penalise peers that are supposed to custody the column.
+    pub fn custody_peers_for_column(
+        &self,
+        column_index: ColumnIndex,
+        spec: &ChainSpec,
+    ) -> Vec<PeerId> {
+        self.peers
+            .read()
+            .good_peers_on_subnet(Subnet::DataColumn(
+                DataColumnSubnetId::from_column_index::<E>(column_index as usize, spec),
+            ))
+            .cloned()
+            .collect::<Vec<_>>()
     }
 
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.

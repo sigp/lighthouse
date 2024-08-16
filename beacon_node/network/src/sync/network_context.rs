@@ -13,6 +13,7 @@ use crate::sync::block_lookups::SingleLookupId;
 use crate::sync::manager::BlockProcessType;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
+use custody_by_root::ActiveCustodyRequest;
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError};
@@ -29,9 +30,11 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    BlobSidecar, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256, SignedBeaconBlock,
+    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256,
+    SignedBeaconBlock,
 };
 
+mod custody_by_root;
 mod requests;
 
 pub struct BlocksAndBlobsByRangeResponse<E: EthSpec> {
@@ -60,15 +63,20 @@ pub enum RpcEvent<T> {
 
 pub type RpcResponseResult<T> = Result<(T, Duration), RpcResponseError>;
 
+#[derive(Debug)]
 pub enum RpcResponseError {
     RpcError(RPCError),
     VerifyError(LookupVerifyError),
+    // TODO(das): handle this nested error better
+    CustodyRequestError(custody_by_root::Error),
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum RpcRequestSendError {
     /// Network channel send failed
     NetworkSendError,
+    // TODO(das): handle this nested error better
+    CustodyRequestError(custody_by_root::Error),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -82,6 +90,7 @@ impl std::fmt::Display for RpcResponseError {
         match self {
             RpcResponseError::RpcError(e) => write!(f, "RPC Error: {:?}", e),
             RpcResponseError::VerifyError(e) => write!(f, "Lookup Verify Error: {:?}", e),
+            RpcResponseError::CustodyRequestError(e) => write!(f, "Custody Send Error: {:?}", e),
         }
     }
 }
@@ -132,6 +141,9 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     data_columns_by_root_requests:
         FnvHashMap<DataColumnsByRootRequestId, ActiveDataColumnsByRootRequest<T::EthSpec>>,
 
+    /// Mapping of active custody column requests for a block root
+    custody_by_root_requests: FnvHashMap<SingleLookupReqId, ActiveCustodyRequest<T>>,
+
     /// BlocksByRange requests paired with BlobsByRange
     range_blocks_and_blobs_requests:
         FnvHashMap<Id, (RangeRequestId, BlocksAndBlobsRequestInfo<T::EthSpec>)>,
@@ -181,6 +193,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             blocks_by_root_requests: <_>::default(),
             blobs_by_root_requests: <_>::default(),
             data_columns_by_root_requests: <_>::default(),
+            custody_by_root_requests: <_>::default(),
             range_blocks_and_blobs_requests: FnvHashMap::default(),
             network_beacon_processor,
             chain,
@@ -232,6 +245,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     }
                 });
 
+        // No need to fail custody by root requests as those only include items already
+        // inside data_columns_by_root_requests
+
         failed_range_ids
             .chain(failed_block_ids)
             .chain(failed_blob_ids)
@@ -241,6 +257,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     pub fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
         &self.network_beacon_processor.network_globals
+    }
+
+    pub fn get_custodial_peers(&self, column_index: ColumnIndex) -> Vec<PeerId> {
+        self.network_globals()
+            .custody_peers_for_column(column_index, &self.chain.spec)
     }
 
     /// Returns the Client type of the peer if known
@@ -651,10 +672,27 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "id" => ?id
         );
 
-        // TODO(das): Issue a custody request with `id` for the set of columns
-        // `custody_indexes_to_fetch` and block `block_root`.
+        let mut request = ActiveCustodyRequest::new(
+            block_root,
+            // TODO(das): should attach a unique req_id here?
+            id,
+            &custody_indexes_to_fetch,
+            self.log.clone(),
+        );
 
-        Ok(LookupRequestResult::RequestSent(req_id))
+        // Potentially trigger N data_columns_by_root requests.
+        // Note that you can only send, but not handle a response here
+        match request.continue_requests(self) {
+            Ok(_) => {
+                // Ignoring the result of `continue_requests` is okay. A request that has just been
+                // created cannot return data immediately, it must send some request to the network
+                // first. And there must exist some request, `custody_indexes_to_fetch` is not empty.
+                self.custody_by_root_requests.insert(id, request);
+                Ok(LookupRequestResult::RequestSent(req_id))
+            }
+            // TODO(das): handle this error properly
+            Err(e) => Err(RpcRequestSendError::CustodyRequestError(e)),
+        }
     }
 
     pub fn is_execution_engine_online(&self) -> bool {
@@ -894,6 +932,53 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     Some(Err(e))
                 }
             }
+        }
+    }
+
+    /// Insert a downloaded column into an active custody request. Then make progress on the
+    /// entire request.
+    ///
+    /// ### Returns
+    ///
+    /// - `Some`: Request completed, won't make more progress. Expect requester to act on the result.
+    /// - `None`: Request still active, requester should do no action
+    #[allow(clippy::type_complexity)]
+    pub fn on_custody_by_root_response(
+        &mut self,
+        requester: SingleLookupReqId,
+        req_id: DataColumnsByRootRequestId,
+        peer_id: PeerId,
+        resp: RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>,
+    ) -> Option<Result<DataColumnSidecarList<T::EthSpec>, RpcResponseError>> {
+        // Note: need to remove the request to borrow self again below. Otherwise we can't
+        // do nested requests
+        let Some(mut request) = self.custody_by_root_requests.remove(&requester) else {
+            // TOOD(das): This log can happen if the request is error'ed early and dropped
+            debug!(self.log, "Custody column downloaded event for unknown request"; "id" => ?requester);
+            return None;
+        };
+
+        let result = request
+            .on_data_column_downloaded(peer_id, req_id, resp, self)
+            .map_err(RpcResponseError::CustodyRequestError)
+            .transpose();
+
+        // Convert a result from internal format of `ActiveCustodyRequest` (error first to use ?) to
+        // an Option first to use in an `if let Some() { act on result }` block.
+        if let Some(result) = result {
+            match result.as_ref() {
+                Ok(columns) => {
+                    debug!(self.log, "Custody request success, removing"; "id" => ?requester, "count" => columns.len())
+                }
+                Err(e) => {
+                    debug!(self.log, "Custody request failure, removing"; "id" => ?requester, "error" => ?e)
+                }
+            }
+
+            Some(result)
+        } else {
+            self.custody_by_root_requests.insert(requester, request);
+            None
         }
     }
 

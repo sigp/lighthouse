@@ -34,7 +34,7 @@
 //! search for the block and subsequently search for parents if needed.
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
-use super::block_lookups::BlockLookups;
+use super::block_lookups::{BlockLookups, CustodyRequestState};
 use super::network_context::{BlockOrBlob, RangeRequestId, RpcEvent, SyncNetworkContext};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
@@ -965,15 +965,31 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn on_data_columns_by_root_response(
         &mut self,
         req_id: DataColumnsByRootRequestId,
-        _requester: SingleLookupReqId,
+        requester: SingleLookupReqId,
         peer_id: PeerId,
         rpc_event: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
-        if let Some(_resp) = self
+        if let Some(resp) = self
             .network
             .on_data_columns_by_root_response(req_id, peer_id, rpc_event)
         {
-            // TODO(das): pass data_columns_by_root result to consumer
+            if let Some(custody_columns) = self
+                .network
+                .on_custody_by_root_response(requester, req_id, peer_id, resp)
+            {
+                // TODO(das): get proper timestamp
+                let seen_timestamp = timestamp_now();
+                self.block_lookups
+                    .on_download_response::<CustodyRequestState<T::EthSpec>>(
+                        requester,
+                        // TODO(das): this is not the correct peer to attribute to a response. It's
+                        // just the last peer of multiple potential requests. We should switch to a
+                        // concept of "peer group" to attribute fault to the correct peer.
+                        peer_id,
+                        custody_columns.map(|custody_columns| (custody_columns, seen_timestamp)),
+                        &mut self.network,
+                    );
+            }
         }
     }
 
