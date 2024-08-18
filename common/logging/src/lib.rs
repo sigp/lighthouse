@@ -225,18 +225,15 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
 
     // Ensure that `tracing_log_path` only contains directories.
     for p in base_tracing_log_path.iter() {
+        tracing_log_path = tracing_log_path.join(p);
         match metadata(p) {
             Ok(metadata) => {
-                if metadata.is_dir() {
-                    tracing_log_path = tracing_log_path.join(p);
+                if !metadata.is_dir() {
+                    tracing_log_path.pop();
+                    break;
                 }
             }
-            // An error here just means that part of `base_tracing_log_path` doesn't exist,
-            // we can safely continue.
-            Err(_) => {
-                tracing_log_path = base_tracing_log_path;
-                break;
-            }
+            Err(_) => ()
         }
     }
 
