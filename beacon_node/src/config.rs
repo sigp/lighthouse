@@ -90,8 +90,7 @@ pub fn get_config<E: EthSpec>(
                     log,
                     "The `--purge-db` flag was passed, but Lighthouse is not running \
                     interactively. The database was not purged. Use `--purge-db-force` \
-                    or `lighthouse db purge` to purge the database without requiring \
-                    confirmation."
+                    to purge the database without requiring confirmation."
                 );
             }
         }
