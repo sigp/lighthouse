@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use libp2p::swarm::ConnectionId;
 use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, EthSpec, Hash256, LightClientBootstrap,
+    BlobSidecar, DataColumnSidecar, EthSpec, Hash256, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, SignedBeaconBlock,
 };
 
@@ -62,13 +62,17 @@ pub enum DataColumnsByRootRequester {
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct SamplingId {
     pub id: SamplingRequester,
-    pub column_index: ColumnIndex,
+    pub sampling_request_id: SamplingRequestId,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum SamplingRequester {
     ImportedBlock(Hash256),
 }
+
+/// Identifier of sampling requests.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct SamplingRequestId(pub usize);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct CustodyId {
