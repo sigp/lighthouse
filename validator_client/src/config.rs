@@ -16,6 +16,7 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
+use crate::ValidatorClient;
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 pub const DEFAULT_WEB3SIGNER_KEEP_ALIVE: Option<Duration> = Some(Duration::from_secs(20));
@@ -140,25 +141,26 @@ impl Default for Config {
 impl Config {
     /// Returns a `Default` implementation of `Self` with some parameters modified by the supplied
     /// `cli_args`.
-    pub fn from_cli(cli_args: &ArgMatches, log: &Logger) -> Result<Config, String> {
+    /// 
+    pub fn from_cli(
+        validator_client_config: &ValidatorClient,
+        global_config: &GlobalConfig,
+        log: &Logger,
+    ) -> Result<Config, String> {
         let mut config = Config::default();
 
         let default_root_dir = dirs::home_dir()
             .map(|home| home.join(DEFAULT_ROOT_DIR))
             .unwrap_or_else(|| PathBuf::from("."));
 
-        let (mut validator_dir, mut secrets_dir) = (None, None);
         if cli_args.get_one::<String>("datadir").is_some() {
             let base_dir: PathBuf = parse_required(cli_args, "datadir")?;
             validator_dir = Some(base_dir.join(DEFAULT_VALIDATOR_DIR));
             secrets_dir = Some(base_dir.join(DEFAULT_SECRET_DIR));
         }
-        if cli_args.get_one::<String>("validators-dir").is_some() {
-            validator_dir = Some(parse_required(cli_args, "validators-dir")?);
-        }
-        if cli_args.get_one::<String>("secrets-dir").is_some() {
-            secrets_dir = Some(parse_required(cli_args, "secrets-dir")?);
-        }
+
+        let mut validator_dir = validator_client_config.validators_dir;
+        let mut secrets_dir = validator_client_config.secrets_dir;
 
         config.validator_dir = validator_dir.unwrap_or_else(|| {
             default_root_dir
@@ -177,9 +179,8 @@ impl Config {
                 .map_err(|e| format!("Failed to create {:?}: {:?}", config.validator_dir, e))?;
         }
 
-        if let Some(beacon_nodes) = parse_optional::<String>(cli_args, "beacon-nodes")? {
+        if let Some(beacon_nodes) = validator_client_config.beacon_nodes {
             config.beacon_nodes = beacon_nodes
-                .split(',')
                 .map(SensitiveUrl::parse)
                 .collect::<Result<_, _>>()
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
