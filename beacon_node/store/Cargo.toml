@@ -15,6 +15,7 @@ parking_lot = { workspace = true }
 itertools = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
+superstruct = { workspace = true }
 types = { workspace = true }
 state_processing = { workspace = true }
 slog = { workspace = true }

@@ -45,6 +45,7 @@ pub enum Error {
     },
     MissingStateRoot(Slot),
     MissingState(Hash256),
+    MissingGenesisState,
     MissingSnapshot(Slot),
     NoBaseStateFound(Hash256),
     BlockReplayError(BlockReplayError),
@@ -63,7 +64,6 @@ pub enum Error {
     AddPayloadLogicError,
     SlotClockUnavailableForMigration,
     MissingValidator(usize),
-    V9MigrationFailure(Hash256),
     ValidatorPubkeyCacheError(String),
     DuplicateValidatorPublicKey,
     InvalidValidatorPubkeyBytes(bls::Error),
@@ -79,6 +79,10 @@ pub enum Error {
     ForwardsIterGap(DBColumn, Slot, Slot),
     StateShouldNotBeRequired(Slot),
     MissingBlock(Hash256),
+    DestructiveFreezerUpgrade,
+    NoAnchorInfo,
+    RandaoMixOutOfBounds,
+    GenesisStateUnknown,
 }
 
 pub trait HandleUnavailable<T> {

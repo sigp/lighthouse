@@ -133,7 +133,6 @@ pub enum HotColdDBError {
         proposed_split_slot: Slot,
     },
     MissingStateToFreeze(Hash256),
-    MissingRestorePointHash(u64),
     MissingRestorePointState(Slot),
     MissingRestorePoint(Hash256),
     MissingColdStateSummary(Hash256),
@@ -323,13 +322,15 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                 .check_compatibility(&disk_config, &split, anchor.as_ref())?;
 
             // Inform user if hierarchy config is changing.
-            if db.config.hierarchy_config != disk_config.hierarchy_config {
-                info!(
-                    db.log,
-                    "Updating historic state config";
-                    "previous_config" => ?disk_config.hierarchy_config,
-                    "new_config" => ?db.config.hierarchy_config,
-                );
+            if let Ok(hierarchy_config) = disk_config.hierarchy_config() {
+                if &db.config.hierarchy_config != hierarchy_config {
+                    info!(
+                        db.log,
+                        "Updating historic state config";
+                        "previous_config" => ?hierarchy_config,
+                        "new_config" => ?db.config.hierarchy_config,
+                    );
+                }
             }
         }
         db.store_config()?;
@@ -2379,9 +2380,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // migrating to the tree-states schema (delete everything in the freezer then start afresh).
         let mut cold_ops = vec![];
 
+        // This function works for both pre-tree-states and post-tree-states pruning. It deletes
+        // everything related to historic states from either DB!
         let columns = [
             DBColumn::BeaconState,
             DBColumn::BeaconStateSummary,
+            DBColumn::BeaconStateSnapshot,
             DBColumn::BeaconStateDiff,
             DBColumn::BeaconRestorePoint,
             DBColumn::BeaconStateRoots,
@@ -2399,20 +2403,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 )));
             }
         }
-
-        // XXX: We need to commit the mass deletion here *before* re-storing the genesis state, as
-        // the current schema performs reads as part of `store_cold_state`. This can be deleted
-        // once the target schema is tree-states. If the process is killed before the genesis state
-        // is written this can be fixed by re-running.
-        info!(
-            self.log,
-            "Deleting historic states";
-            "num_kv" => cold_ops.len(),
-        );
-        self.cold_db.do_atomically(std::mem::take(&mut cold_ops))?;
+        let delete_ops = cold_ops.len();
 
         // If we just deleted the the genesis state, re-store it using the *current* schema, which
         // may be different from the schema of the genesis state we just deleted.
+        //
+        // During the tree-states migration this will re-store the genesis state as compressed
+        // beacon state SSZ, which is different from the previous `PartialBeaconState` format.
         if self.get_split_slot() > 0 {
             info!(
                 self.log,
@@ -2420,8 +2417,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 "state_root" => ?genesis_state_root,
             );
             self.store_cold_state(&genesis_state_root, genesis_state, &mut cold_ops)?;
-            self.cold_db.do_atomically(cold_ops)?;
         }
+
+        info!(
+            self.log,
+            "Deleting historic states";
+            "delete_ops" => delete_ops,
+        );
+        self.cold_db.do_atomically(cold_ops)?;
 
         // In order to reclaim space, we need to compact the freezer DB as well.
         self.cold_db.compact()?;
@@ -2739,26 +2742,6 @@ pub(crate) struct ColdStateSummary {
 impl StoreItem for ColdStateSummary {
     fn db_column() -> DBColumn {
         DBColumn::BeaconStateSummary
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
-    }
-
-    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        Ok(Self::from_ssz_bytes(bytes)?)
-    }
-}
-
-/// Struct for storing the state root of a restore point in the database.
-#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
-struct RestorePointHash {
-    state_root: Hash256,
-}
-
-impl StoreItem for RestorePointHash {
-    fn db_column() -> DBColumn {
-        DBColumn::BeaconRestorePoint
     }
 
     fn as_store_bytes(&self) -> Vec<u8> {

@@ -8,6 +8,9 @@ beacon chain and publishing messages to the network.
 Usage: lighthouse beacon_node [OPTIONS]
 
 Options:
+      --allow-tree-states-migration <BOOLEAN>
+          Whether to allow a destructive freezer DB migration for hierarchical
+          state diffs [default: false]
       --auto-compact-db <auto-compact-db>
           Enable or disable automatic compaction of the database on
           finalization. [default: true]
@@ -166,6 +169,15 @@ Options:
       --graffiti <GRAFFITI>
           Specify your custom graffiti to be included in blocks. Defaults to the
           current version and commit, truncated to fit in 32 bytes.
+      --hierarchy-exponents <EXPONENTS>
+          Specifies the frequency for storing full state snapshots and
+          hierarchical diffs in the freezer DB. Accepts a comma-separated list
+          of ascending exponents. Each exponent defines an interval for storing
+          diffs to the layer above. The last exponent defines the interval for
+          full snapshots. For example, a config of '4,8,12' would store a full
+          snapshot every 4096 (2^12) slots, first-level diffs every 256 (2^8)
+          slots, and second-level diffs every 16 (2^4) slots. Cannot be changed
+          after initialization. [default: 5,9,11,13,16,18,21]
       --historic-state-cache-size <SIZE>
           Specifies how many states from the freezer database should cache in
           memory [default: 1]
@@ -375,9 +387,7 @@ Options:
       --slasher-validator-chunk-size <NUM_VALIDATORS>
           Number of validators per chunk stored on disk.
       --slots-per-restore-point <SLOT_COUNT>
-          Specifies how often a freezer DB restore point should be stored.
-          Cannot be changed after initialization. [default: 8192 (mainnet) or 64
-          (minimal)]
+          DEPRECATED. This flag has no effect.
       --state-cache-size <STATE_CACHE_SIZE>
           Specifies the size of the state cache [default: 128]
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>

@@ -292,6 +292,7 @@ fn parse_migrate_config(migrate_config: &Migrate) -> Result<MigrateConfig, Strin
 pub fn migrate_db<E: EthSpec>(
     migrate_config: MigrateConfig,
     client_config: ClientConfig,
+    mut genesis_state: BeaconState<E>,
     runtime_context: &RuntimeContext<E>,
     log: Logger,
 ) -> Result<(), Error> {
@@ -322,13 +323,13 @@ pub fn migrate_db<E: EthSpec>(
         "to" => to.as_u64(),
     );
 
+    let genesis_state_root = genesis_state.canonical_root()?;
     migrate_schema::<Witness<SystemTimeSlotClock, CachingEth1Backend<E>, _, _, _>>(
         db,
-        client_config.eth1.deposit_contract_deploy_block,
+        Some(genesis_state_root),
         from,
         to,
         log,
-        spec,
     )
 }
 
@@ -478,10 +479,33 @@ pub fn run<E: EthSpec>(
     let log = context.log().clone();
     let format_err = |e| format!("Fatal error: {:?}", e);
 
+    let get_genesis_state = || {
+        let executor = env.core_context().executor;
+        let network_config = context
+            .eth2_network_config
+            .clone()
+            .ok_or("Missing network config")?;
+
+        executor
+            .block_on_dangerous(
+                network_config.genesis_state::<E>(
+                    client_config.genesis_state_url.as_deref(),
+                    client_config.genesis_state_url_timeout,
+                    &log,
+                ),
+                "get_genesis_state",
+            )
+            .ok_or("Shutting down")?
+            .map_err(|e| format!("Error getting genesis state: {e}"))?
+            .ok_or("Genesis state missing".to_string())
+    };
+
     match &db_manager_config.subcommand {
         cli::DatabaseManagerSubcommand::Migrate(migrate_config) => {
             let migrate_config = parse_migrate_config(migrate_config)?;
-            migrate_db(migrate_config, client_config, &context, log).map_err(format_err)
+            let genesis_state = get_genesis_state()?;
+            migrate_db(migrate_config, client_config, genesis_state, &context, log)
+                .map_err(format_err)
         }
         cli::DatabaseManagerSubcommand::Inspect(inspect_config) => {
             let inspect_config = parse_inspect_config(inspect_config)?;
@@ -497,27 +521,8 @@ pub fn run<E: EthSpec>(
             prune_blobs(client_config, &context, log).map_err(format_err)
         }
         cli::DatabaseManagerSubcommand::PruneStates(prune_states_config) => {
-            let executor = env.core_context().executor;
-            let network_config = context
-                .eth2_network_config
-                .clone()
-                .ok_or("Missing network config")?;
-
-            let genesis_state = executor
-                .block_on_dangerous(
-                    network_config.genesis_state::<E>(
-                        client_config.genesis_state_url.as_deref(),
-                        client_config.genesis_state_url_timeout,
-                        &log,
-                    ),
-                    "get_genesis_state",
-                )
-                .ok_or("Shutting down")?
-                .map_err(|e| format!("Error getting genesis state: {e}"))?
-                .ok_or("Genesis state missing")?;
-
             let prune_config = parse_prune_states_config(prune_states_config)?;
-
+            let genesis_state = get_genesis_state()?;
             prune_states(client_config, prune_config, genesis_state, &context, log)
         }
         cli::DatabaseManagerSubcommand::Compact(compact_config) => {
