@@ -362,11 +362,6 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
         result: Result<(), String>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<Option<()>, SamplingError> {
-        // Select columns to sample
-        // Create individual request per column
-        // Progress requests
-        // If request fails retry or expand search
-        // If all good return
         let Some(column_indexes) = self
             .column_indexes_by_sampling_request
             .get(&sampling_request_id)
