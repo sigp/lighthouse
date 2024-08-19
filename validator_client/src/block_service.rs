@@ -480,30 +480,28 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         // Try the proposer nodes last, since it's likely that they don't have a
         // great view of attestations on the network.
         let unsigned_block = proposer_fallback
-            .request_proposers_last(
-                |beacon_node| async move {
-                    let _get_timer = metrics::start_timer_vec(
-                        &metrics::BLOCK_SERVICE_TIMES,
-                        &[metrics::BEACON_BLOCK_HTTP_GET],
-                    );
-                    Self::get_validator_block(
-                        &beacon_node,
-                        slot,
-                        randao_reveal_ref,
-                        graffiti,
-                        proposer_index,
-                        builder_boost_factor,
-                        log,
-                    )
-                    .await
-                    .map_err(|e| {
-                        BlockError::Recoverable(format!(
-                            "Error from beacon node when producing block: {:?}",
-                            e
-                        ))
-                    })
-                },
-            )
+            .request_proposers_last(|beacon_node| async move {
+                let _get_timer = metrics::start_timer_vec(
+                    &metrics::BLOCK_SERVICE_TIMES,
+                    &[metrics::BEACON_BLOCK_HTTP_GET],
+                );
+                Self::get_validator_block(
+                    &beacon_node,
+                    slot,
+                    randao_reveal_ref,
+                    graffiti,
+                    proposer_index,
+                    builder_boost_factor,
+                    log,
+                )
+                .await
+                .map_err(|e| {
+                    BlockError::Recoverable(format!(
+                        "Error from beacon node when producing block: {:?}",
+                        e
+                    ))
+                })
+            })
             .await?;
 
         self_ref

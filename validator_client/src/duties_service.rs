@@ -740,18 +740,15 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         let subscriptions_ref = &subscriptions;
         let subscription_result = duties_service
             .beacon_nodes
-            .request(
-                ApiTopic::Subscriptions,
-                |beacon_node| async move {
-                    let _timer = metrics::start_timer_vec(
-                        &metrics::DUTIES_SERVICE_TIMES,
-                        &[metrics::SUBSCRIPTIONS_HTTP_POST],
-                    );
-                    beacon_node
-                        .post_validator_beacon_committee_subscriptions(subscriptions_ref)
-                        .await
-                },
-            )
+            .request(ApiTopic::Subscriptions, |beacon_node| async move {
+                let _timer = metrics::start_timer_vec(
+                    &metrics::DUTIES_SERVICE_TIMES,
+                    &[metrics::SUBSCRIPTIONS_HTTP_POST],
+                );
+                beacon_node
+                    .post_validator_beacon_committee_subscriptions(subscriptions_ref)
+                    .await
+            })
             .await;
         if subscription_result.as_ref().is_ok() {
             debug!(
