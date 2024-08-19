@@ -21,6 +21,7 @@ mod leveldb_store;
 mod memory_store;
 pub mod metadata;
 pub mod metrics;
+pub mod partial_beacon_state;
 pub mod reconstruct;
 pub mod state_cache;
 

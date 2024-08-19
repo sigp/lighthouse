@@ -64,7 +64,6 @@ pub enum Error {
     AddPayloadLogicError,
     SlotClockUnavailableForMigration,
     MissingValidator(usize),
-    V9MigrationFailure(Hash256),
     ValidatorPubkeyCacheError(String),
     DuplicateValidatorPublicKey,
     InvalidValidatorPubkeyBytes(bls::Error),
@@ -82,6 +81,8 @@ pub enum Error {
     MissingBlock(Hash256),
     DestructiveFreezerUpgrade,
     NoAnchorInfo,
+    RandaoMixOutOfBounds,
+    GenesisStateUnknown,
 }
 
 pub trait HandleUnavailable<T> {
