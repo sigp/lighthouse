@@ -182,7 +182,6 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
 
     fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
         let start_key = BytesKey::from_vec(get_key_for_col(column.into(), from));
-
         let iter = self.db.iter(self.read_options());
         iter.seek(&start_key);
 
@@ -270,6 +269,10 @@ impl db_key::Key for BytesKey {
 }
 
 impl BytesKey {
+    pub fn starts_with(&self, prefix: &Self) -> bool {
+        self.key.starts_with(&prefix.key)
+    }
+
     /// Return `true` iff this `BytesKey` was created with the given `column`.
     pub fn matches_column(&self, column: DBColumn) -> bool {
         self.key.starts_with(column.as_bytes())

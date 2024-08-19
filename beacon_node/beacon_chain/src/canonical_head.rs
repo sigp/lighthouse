@@ -48,7 +48,7 @@ use fork_choice::{
 };
 use itertools::process_results;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use slog::{crit, debug, error, warn, Logger};
+use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::AllCaches;
 use std::sync::Arc;
@@ -1214,7 +1214,7 @@ fn detect_reorg<E: EthSpec>(
             &metrics::FORK_CHOICE_REORG_DISTANCE,
             reorg_distance.as_u64() as i64,
         );
-        warn!(
+        info!(
             log,
             "Beacon chain re-org";
             "previous_head" => ?old_block_root,

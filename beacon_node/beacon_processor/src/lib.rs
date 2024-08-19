@@ -108,6 +108,7 @@ pub struct BeaconProcessorQueueLengths {
     unknown_light_client_update_queue: usize,
     rpc_block_queue: usize,
     rpc_blob_queue: usize,
+    rpc_custody_column_queue: usize,
     chain_segment_queue: usize,
     backfill_chain_segment: usize,
     gossip_block_queue: usize,
@@ -119,6 +120,8 @@ pub struct BeaconProcessorQueueLengths {
     bbroots_queue: usize,
     blbroots_queue: usize,
     blbrange_queue: usize,
+    dcbroots_queue: usize,
+    dcbrange_queue: usize,
     gossip_bls_to_execution_change_queue: usize,
     lc_bootstrap_queue: usize,
     lc_optimistic_update_queue: usize,
@@ -161,6 +164,7 @@ impl BeaconProcessorQueueLengths {
             unknown_light_client_update_queue: 128,
             rpc_block_queue: 1024,
             rpc_blob_queue: 1024,
+            rpc_custody_column_queue: 1024,
             chain_segment_queue: 64,
             backfill_chain_segment: 64,
             gossip_block_queue: 1024,
@@ -172,6 +176,9 @@ impl BeaconProcessorQueueLengths {
             bbroots_queue: 1024,
             blbroots_queue: 1024,
             blbrange_queue: 1024,
+            // TODO(das): pick proper values
+            dcbroots_queue: 1024,
+            dcbrange_queue: 1024,
             gossip_bls_to_execution_change_queue: 16384,
             lc_bootstrap_queue: 1024,
             lc_optimistic_update_queue: 512,
@@ -223,6 +230,7 @@ pub const GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic
 pub const RPC_BLOCK: &str = "rpc_block";
 pub const IGNORED_RPC_BLOCK: &str = "ignored_rpc_block";
 pub const RPC_BLOBS: &str = "rpc_blob";
+pub const RPC_CUSTODY_COLUMN: &str = "rpc_custody_column";
 pub const CHAIN_SEGMENT: &str = "chain_segment";
 pub const CHAIN_SEGMENT_BACKFILL: &str = "chain_segment_backfill";
 pub const STATUS_PROCESSING: &str = "status_processing";
@@ -230,6 +238,8 @@ pub const BLOCKS_BY_RANGE_REQUEST: &str = "blocks_by_range_request";
 pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
 pub const BLOBS_BY_RANGE_REQUEST: &str = "blobs_by_range_request";
 pub const BLOBS_BY_ROOTS_REQUEST: &str = "blobs_by_roots_request";
+pub const DATA_COLUMNS_BY_ROOTS_REQUEST: &str = "data_columns_by_roots_request";
+pub const DATA_COLUMNS_BY_RANGE_REQUEST: &str = "data_columns_by_range_request";
 pub const LIGHT_CLIENT_BOOTSTRAP_REQUEST: &str = "light_client_bootstrap";
 pub const LIGHT_CLIENT_FINALITY_UPDATE_REQUEST: &str = "light_client_finality_update_request";
 pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST: &str = "light_client_optimistic_update_request";
@@ -599,6 +609,7 @@ pub enum Work<E: EthSpec> {
     RpcBlobs {
         process_fn: AsyncFn,
     },
+    RpcCustodyColumn(AsyncFn),
     IgnoredRpcBlock {
         process_fn: BlockingFn,
     },
@@ -609,6 +620,8 @@ pub enum Work<E: EthSpec> {
     BlocksByRootsRequest(AsyncFn),
     BlobsByRangeRequest(BlockingFn),
     BlobsByRootsRequest(BlockingFn),
+    DataColumnsByRootsRequest(BlockingFn),
+    DataColumnsByRangeRequest(BlockingFn),
     GossipBlsToExecutionChange(BlockingFn),
     LightClientBootstrapRequest(BlockingFn),
     LightClientOptimisticUpdateRequest(BlockingFn),
@@ -644,6 +657,7 @@ impl<E: EthSpec> Work<E> {
             Work::GossipLightClientOptimisticUpdate(_) => GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
             Work::RpcBlock { .. } => RPC_BLOCK,
             Work::RpcBlobs { .. } => RPC_BLOBS,
+            Work::RpcCustodyColumn { .. } => RPC_CUSTODY_COLUMN,
             Work::IgnoredRpcBlock { .. } => IGNORED_RPC_BLOCK,
             Work::ChainSegment { .. } => CHAIN_SEGMENT,
             Work::ChainSegmentBackfill(_) => CHAIN_SEGMENT_BACKFILL,
@@ -652,6 +666,8 @@ impl<E: EthSpec> Work<E> {
             Work::BlocksByRootsRequest(_) => BLOCKS_BY_ROOTS_REQUEST,
             Work::BlobsByRangeRequest(_) => BLOBS_BY_RANGE_REQUEST,
             Work::BlobsByRootsRequest(_) => BLOBS_BY_ROOTS_REQUEST,
+            Work::DataColumnsByRootsRequest(_) => DATA_COLUMNS_BY_ROOTS_REQUEST,
+            Work::DataColumnsByRangeRequest(_) => DATA_COLUMNS_BY_RANGE_REQUEST,
             Work::LightClientBootstrapRequest(_) => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
             Work::LightClientOptimisticUpdateRequest(_) => LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST,
             Work::LightClientFinalityUpdateRequest(_) => LIGHT_CLIENT_FINALITY_UPDATE_REQUEST,
@@ -804,6 +820,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         // Using a FIFO queue since blocks need to be imported sequentially.
         let mut rpc_block_queue = FifoQueue::new(queue_lengths.rpc_block_queue);
         let mut rpc_blob_queue = FifoQueue::new(queue_lengths.rpc_blob_queue);
+        let mut rpc_custody_column_queue = FifoQueue::new(queue_lengths.rpc_custody_column_queue);
         let mut chain_segment_queue = FifoQueue::new(queue_lengths.chain_segment_queue);
         let mut backfill_chain_segment = FifoQueue::new(queue_lengths.backfill_chain_segment);
         let mut gossip_block_queue = FifoQueue::new(queue_lengths.gossip_block_queue);
@@ -816,6 +833,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut bbroots_queue = FifoQueue::new(queue_lengths.bbroots_queue);
         let mut blbroots_queue = FifoQueue::new(queue_lengths.blbroots_queue);
         let mut blbrange_queue = FifoQueue::new(queue_lengths.blbrange_queue);
+        let mut dcbroots_queue = FifoQueue::new(queue_lengths.dcbroots_queue);
+        let mut dcbrange_queue = FifoQueue::new(queue_lengths.dcbrange_queue);
 
         let mut gossip_bls_to_execution_change_queue =
             FifoQueue::new(queue_lengths.gossip_bls_to_execution_change_queue);
@@ -956,6 +975,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = rpc_block_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = rpc_blob_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = rpc_custody_column_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         // Check delayed blocks before gossip blocks, the gossip blocks might rely
                         // on the delayed ones.
@@ -1118,6 +1139,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = blbroots_queue.pop() {
                             self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = dcbroots_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = dcbrange_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
                         // Check slashings after all other consensus messages so we prioritize
                         // following head.
                         //
@@ -1245,6 +1270,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 rpc_block_queue.push(work, work_id, &self.log)
                             }
                             Work::RpcBlobs { .. } => rpc_blob_queue.push(work, work_id, &self.log),
+                            Work::RpcCustodyColumn { .. } => {
+                                rpc_custody_column_queue.push(work, work_id, &self.log)
+                            }
                             Work::ChainSegment { .. } => {
                                 chain_segment_queue.push(work, work_id, &self.log)
                             }
@@ -1281,6 +1309,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             }
                             Work::BlobsByRootsRequest { .. } => {
                                 blbroots_queue.push(work, work_id, &self.log)
+                            }
+                            Work::DataColumnsByRootsRequest { .. } => {
+                                dcbroots_queue.push(work, work_id, &self.log)
+                            }
+                            Work::DataColumnsByRangeRequest { .. } => {
+                                dcbrange_queue.push(work, work_id, &self.log)
                             }
                             Work::UnknownLightClientOptimisticUpdate { .. } => {
                                 unknown_light_client_update_queue.push(work, work_id, &self.log)
@@ -1474,16 +1508,19 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 beacon_block_root: _,
                 process_fn,
             } => task_spawner.spawn_async(process_fn),
-            Work::RpcBlock { process_fn } | Work::RpcBlobs { process_fn } => {
-                task_spawner.spawn_async(process_fn)
-            }
+            Work::RpcBlock { process_fn }
+            | Work::RpcBlobs { process_fn }
+            | Work::RpcCustodyColumn(process_fn) => task_spawner.spawn_async(process_fn),
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
             Work::GossipBlock(work)
             | Work::GossipBlobSidecar(work)
             | Work::GossipDataColumnSidecar(work) => task_spawner.spawn_async(async move {
                 work.await;
             }),
-            Work::BlobsByRangeRequest(process_fn) | Work::BlobsByRootsRequest(process_fn) => {
+            Work::BlobsByRangeRequest(process_fn)
+            | Work::BlobsByRootsRequest(process_fn)
+            | Work::DataColumnsByRootsRequest(process_fn)
+            | Work::DataColumnsByRangeRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
             Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {

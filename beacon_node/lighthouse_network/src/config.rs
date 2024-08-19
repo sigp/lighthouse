@@ -42,7 +42,7 @@ pub struct Config {
     pub network_dir: PathBuf,
 
     /// IP addresses to listen on.
-    listen_addresses: ListenAddress,
+    pub(crate) listen_addresses: ListenAddress,
 
     /// The address to broadcast to peers about which address we are listening on. None indicates
     /// that no discovery address has been set in the CLI args.
@@ -99,6 +99,9 @@ pub struct Config {
 
     /// Attempt to construct external port mappings with UPnP.
     pub upnp_enabled: bool,
+
+    /// Subscribe to all data column subnets for the duration of the runtime.
+    pub subscribe_all_data_column_subnets: bool,
 
     /// Subscribe to all subnets for the duration of the runtime.
     pub subscribe_all_subnets: bool,
@@ -338,6 +341,7 @@ impl Default for Config {
             upnp_enabled: true,
             network_load: 4,
             private: false,
+            subscribe_all_data_column_subnets: false,
             subscribe_all_subnets: false,
             import_all_attestations: false,
             shutdown_after_sync: false,
