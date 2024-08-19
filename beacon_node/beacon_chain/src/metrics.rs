@@ -569,19 +569,6 @@ pub static FORK_CHOICE_AFTER_FINALIZATION_TIMES: LazyLock<Result<Histogram>> =
             exponential_buckets(1e-3, 2.0, 10),
         )
     });
-pub static FORK_CHOICE_PROCESS_BLOCK_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "beacon_fork_choice_process_block_seconds",
-        "Time taken to add a block and all attestations to fork choice",
-    )
-});
-pub static FORK_CHOICE_PROCESS_ATTESTATION_TIMES: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-            "beacon_fork_choice_process_attestation_seconds",
-            "Time taken to add an attestation to fork choice",
-        )
-    });
 pub static FORK_CHOICE_READ_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram_with_buckets(
         "beacon_fork_choice_read_lock_aquire_seconds",
