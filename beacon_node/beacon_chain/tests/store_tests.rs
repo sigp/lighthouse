@@ -115,14 +115,7 @@ async fn light_client_updates_test() {
     let log = test_logger();
 
     let seconds_per_slot = spec.seconds_per_slot;
-    let store = get_store_generic(
-        &db_path,
-        StoreConfig {
-            slots_per_restore_point: 2 * E::slots_per_epoch(),
-            ..Default::default()
-        },
-        test_spec::<E>(),
-    );
+    let store = get_store_generic(&db_path, StoreConfig::default(), test_spec::<E>());
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
     let num_initial_slots = E::slots_per_epoch() * 10;
@@ -3047,7 +3040,6 @@ async fn schema_downgrade_to_min_version() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
-    let spec = &harness.chain.spec.clone();
 
     harness
         .extend_chain(
@@ -3058,6 +3050,7 @@ async fn schema_downgrade_to_min_version() {
         .await;
 
     let min_version = SchemaVersion(19);
+    let genesis_state_root = Some(harness.chain.genesis_state_root);
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();
@@ -3070,25 +3063,22 @@ async fn schema_downgrade_to_min_version() {
     let store = get_store(&db_path);
 
     // Downgrade.
-    let deposit_contract_deploy_block = 0;
     migrate_schema::<DiskHarnessType<E>>(
         store.clone(),
-        deposit_contract_deploy_block,
+        genesis_state_root,
         CURRENT_SCHEMA_VERSION,
         min_version,
         store.logger().clone(),
-        spec,
     )
     .expect("schema downgrade to minimum version should work");
 
     // Upgrade back.
     migrate_schema::<DiskHarnessType<E>>(
         store.clone(),
-        deposit_contract_deploy_block,
+        genesis_state_root,
         min_version,
         CURRENT_SCHEMA_VERSION,
         store.logger().clone(),
-        spec,
     )
     .expect("schema upgrade from minimum version should work");
 
@@ -3111,11 +3101,10 @@ async fn schema_downgrade_to_min_version() {
     let min_version_sub_1 = SchemaVersion(min_version.as_u64().checked_sub(1).unwrap());
     migrate_schema::<DiskHarnessType<E>>(
         store.clone(),
-        deposit_contract_deploy_block,
+        genesis_state_root,
         CURRENT_SCHEMA_VERSION,
         min_version_sub_1,
         harness.logger().clone(),
-        spec,
     )
     .expect_err("should not downgrade below minimum version");
 }
