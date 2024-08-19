@@ -569,19 +569,6 @@ pub static FORK_CHOICE_AFTER_FINALIZATION_TIMES: LazyLock<Result<Histogram>> =
             exponential_buckets(1e-3, 2.0, 10),
         )
     });
-pub static FORK_CHOICE_PROCESS_BLOCK_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "beacon_fork_choice_process_block_seconds",
-        "Time taken to add a block and all attestations to fork choice",
-    )
-});
-pub static FORK_CHOICE_PROCESS_ATTESTATION_TIMES: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-            "beacon_fork_choice_process_attestation_seconds",
-            "Time taken to add an attestation to fork choice",
-        )
-    });
 pub static FORK_CHOICE_SET_HEAD_LAG_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_fork_choice_set_head_lag_times",
@@ -1955,6 +1942,11 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
         .validator_monitor
         .read()
         .scrape_metrics(&beacon_chain.slot_clock, &beacon_chain.spec);
+
+    beacon_chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .scrape_for_metrics();
 }
 
 /// Scrape the given `state` assuming it's the head state, updating the `DEFAULT_REGISTRY`.
