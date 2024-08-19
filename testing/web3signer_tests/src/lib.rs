@@ -22,7 +22,7 @@ mod tests {
     };
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
-    use lazy_static::lazy_static;
+    use logging::test_logger;
     use parking_lot::Mutex;
     use reqwest::Client;
     use serde::Serialize;
@@ -33,7 +33,7 @@ mod tests {
     use std::future::Future;
     use std::path::PathBuf;
     use std::process::{Child, Command, Stdio};
-    use std::sync::Arc;
+    use std::sync::{Arc, LazyLock};
     use std::time::{Duration, Instant};
     use task_executor::TaskExecutor;
     use tempfile::{tempdir, TempDir};
@@ -57,12 +57,13 @@ mod tests {
     /// debugging.
     const SUPPRESS_WEB3SIGNER_LOGS: bool = true;
 
-    lazy_static! {
-        static ref TEMP_DIR: Arc<Mutex<TempDir>> = Arc::new(Mutex::new(
-            tempdir().expect("Failed to create temporary directory")
-        ));
-        static ref GET_WEB3SIGNER_BIN: OnceCell<()> = OnceCell::new();
-    }
+    static TEMP_DIR: LazyLock<Arc<Mutex<TempDir>>> = LazyLock::new(|| {
+        Arc::new(Mutex::new(
+            tempdir().expect("Failed to create temporary directory"),
+        ))
+    });
+
+    static GET_WEB3SIGNER_BIN: OnceCell<()> = OnceCell::const_new();
 
     type E = MainnetEthSpec;
 
@@ -318,7 +319,7 @@ mod tests {
             using_web3signer: bool,
             spec: ChainSpec,
         ) -> Self {
-            let log = environment::null_logger().unwrap();
+            let log = test_logger();
             let validator_dir = TempDir::new().unwrap();
 
             let config = validator_client::Config::default();

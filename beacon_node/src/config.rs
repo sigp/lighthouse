@@ -753,7 +753,11 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.get_flag("disable-lock-timeouts") {
-        client_config.chain.enable_lock_timeouts = false;
+        warn!(
+            log,
+            "Ignoring --disable-lock-timeouts";
+            "info" => "this flag is deprecated and will be removed"
+        );
     }
 
     if cli_args.get_flag("disable-proposer-reorgs") {
@@ -1125,6 +1129,10 @@ pub fn set_network_config(
     } else {
         config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
+
+    if parse_flag(cli_args, "subscribe-all-data-column-subnets") {
+        config.subscribe_all_data_column_subnets = true;
+    }
 
     if parse_flag(cli_args, "subscribe-all-subnets") {
         config.subscribe_all_subnets = true;

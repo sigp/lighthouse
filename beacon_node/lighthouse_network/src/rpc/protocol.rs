@@ -3,13 +3,12 @@ use crate::rpc::codec::{base::BaseInboundCodec, ssz_snappy::SSZSnappyInboundCode
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, StreamExt};
-use lazy_static::lazy_static;
 use libp2p::core::{InboundUpgrade, UpgradeInfo};
 use ssz::Encode;
 use ssz_types::VariableList;
 use std::io;
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
 use tokio_io_timeout::TimeoutStream;
@@ -18,112 +17,131 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockCapella,
-    BeaconBlockElectra, BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockElectra,
+    BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, ForkContext, ForkName,
     LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
     LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
     LightClientOptimisticUpdateAltair, MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
-lazy_static! {
-    // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
-    // same across different `EthSpec` implementations.
-    pub static ref SIGNED_BEACON_BLOCK_BASE_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Base(BeaconBlockBase::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec())),
+// Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
+// same across different `EthSpec` implementations.
+pub static SIGNED_BEACON_BLOCK_BASE_MIN: LazyLock<usize> = LazyLock::new(|| {
+    SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Base(BeaconBlockBase::<MainnetEthSpec>::empty(
+            &MainnetEthSpec::default_spec(),
+        )),
         Signature::empty(),
     )
     .as_ssz_bytes()
-    .len();
-    pub static ref SIGNED_BEACON_BLOCK_BASE_MAX: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+    .len()
+});
+pub static SIGNED_BEACON_BLOCK_BASE_MAX: LazyLock<usize> = LazyLock::new(|| {
+    SignedBeaconBlock::<MainnetEthSpec>::from_block(
         BeaconBlock::Base(BeaconBlockBase::full(&MainnetEthSpec::default_spec())),
         Signature::empty(),
     )
     .as_ssz_bytes()
-    .len();
+    .len()
+});
 
-    pub static ref SIGNED_BEACON_BLOCK_ALTAIR_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Altair(BeaconBlockAltair::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec())),
-        Signature::empty(),
-    )
-    .as_ssz_bytes()
-    .len();
-    pub static ref SIGNED_BEACON_BLOCK_ALTAIR_MAX: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+pub static SIGNED_BEACON_BLOCK_ALTAIR_MAX: LazyLock<usize> = LazyLock::new(|| {
+    SignedBeaconBlock::<MainnetEthSpec>::from_block(
         BeaconBlock::Altair(BeaconBlockAltair::full(&MainnetEthSpec::default_spec())),
         Signature::empty(),
     )
     .as_ssz_bytes()
-    .len();
+    .len()
+});
 
-    pub static ref SIGNED_BEACON_BLOCK_BELLATRIX_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Bellatrix(BeaconBlockBellatrix::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec())),
-        Signature::empty(),
-    )
-    .as_ssz_bytes()
-    .len();
-
-    pub static ref SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+pub static SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD: LazyLock<usize> = LazyLock::new(|| {
+    SignedBeaconBlock::<MainnetEthSpec>::from_block(
         BeaconBlock::Capella(BeaconBlockCapella::full(&MainnetEthSpec::default_spec())),
         Signature::empty(),
     )
     .as_ssz_bytes()
-    .len();
+    .len()
+});
 
-    pub static ref SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+pub static SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD: LazyLock<usize> = LazyLock::new(|| {
+    SignedBeaconBlock::<MainnetEthSpec>::from_block(
         BeaconBlock::Electra(BeaconBlockElectra::full(&MainnetEthSpec::default_spec())),
         Signature::empty(),
     )
     .as_ssz_bytes()
-    .len();
+    .len()
+});
 
-    /// The `BeaconBlockBellatrix` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
-    /// We calculate the value from its fields instead of constructing the block and checking the length.
-    /// Note: This is only the theoretical upper bound. We further bound the max size we receive over the network
-    /// with `max_chunk_size`.
-    pub static ref SIGNED_BEACON_BLOCK_BELLATRIX_MAX: usize =
-    // Size of a full altair block
+/// The `BeaconBlockBellatrix` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
+/// We calculate the value from its fields instead of constructing the block and checking the length.
+/// Note: This is only the theoretical upper bound. We further bound the max size we receive over the network
+/// with `max_chunk_size`.
+pub static SIGNED_BEACON_BLOCK_BELLATRIX_MAX: LazyLock<usize> =
+    LazyLock::new(||     // Size of a full altair block
     *SIGNED_BEACON_BLOCK_ALTAIR_MAX
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_bellatrix_size() // adding max size of execution payload (~16gb)
-    + ssz::BYTES_PER_LENGTH_OFFSET; // Adding the additional ssz offset for the `ExecutionPayload` field
+    + ssz::BYTES_PER_LENGTH_OFFSET); // Adding the additional ssz offset for the `ExecutionPayload` field
 
-    pub static ref SIGNED_BEACON_BLOCK_CAPELLA_MAX: usize = *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
+pub static SIGNED_BEACON_BLOCK_CAPELLA_MAX: LazyLock<usize> = LazyLock::new(|| {
+    *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_capella_size() // adding max size of execution payload (~16gb)
-    + ssz::BYTES_PER_LENGTH_OFFSET; // Adding the additional ssz offset for the `ExecutionPayload` field
+    + ssz::BYTES_PER_LENGTH_OFFSET
+}); // Adding the additional ssz offset for the `ExecutionPayload` field
 
-    pub static ref SIGNED_BEACON_BLOCK_DENEB_MAX: usize = *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
+pub static SIGNED_BEACON_BLOCK_DENEB_MAX: LazyLock<usize> = LazyLock::new(|| {
+    *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_deneb_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional offsets for the `ExecutionPayload`
     + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
-    + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
-                                    //
-    pub static ref SIGNED_BEACON_BLOCK_ELECTRA_MAX: usize = *SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD
+    + ssz::BYTES_PER_LENGTH_OFFSET
+}); // Length offset for the blob commitments field.
+    //
+pub static SIGNED_BEACON_BLOCK_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|| {
+    *SIGNED_BEACON_BLOCK_ELECTRA_MAX_WITHOUT_PAYLOAD
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_electra_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET // Adding the additional ssz offset for the `ExecutionPayload` field
     + (<types::KzgCommitment as Encode>::ssz_fixed_len() * <MainnetEthSpec>::max_blobs_per_block())
-    + ssz::BYTES_PER_LENGTH_OFFSET; // Length offset for the blob commitments field.
+    + ssz::BYTES_PER_LENGTH_OFFSET
+}); // Length offset for the blob commitments field.
 
-    pub static ref ERROR_TYPE_MIN: usize =
-        VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
-    .as_ssz_bytes()
-    .len();
-    pub static ref ERROR_TYPE_MAX: usize =
-        VariableList::<u8, MaxErrorLen>::from(vec![
-            0u8;
-            MAX_ERROR_LEN
-                as usize
-        ])
-    .as_ssz_bytes()
-    .len();
+pub static ERROR_TYPE_MIN: LazyLock<usize> = LazyLock::new(|| {
+    VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
+        .as_ssz_bytes()
+        .len()
+});
 
-    pub static ref LIGHT_CLIENT_FINALITY_UPDATE_CAPELLA_MAX: usize = LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella);
-    pub static ref LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX: usize = LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb);
-    pub static ref LIGHT_CLIENT_FINALITY_UPDATE_ELECTRA_MAX: usize = LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra);
-    pub static ref LIGHT_CLIENT_OPTIMISTIC_UPDATE_CAPELLA_MAX: usize = LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella);
-    pub static ref LIGHT_CLIENT_OPTIMISTIC_UPDATE_DENEB_MAX: usize = LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb);
-    pub static ref LIGHT_CLIENT_OPTIMISTIC_UPDATE_ELECTRA_MAX: usize = LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra);
-    pub static ref LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX: usize = LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella);
-    pub static ref LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX: usize = LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb);
-    pub static ref LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX: usize = LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra);
-}
+pub static ERROR_TYPE_MAX: LazyLock<usize> = LazyLock::new(|| {
+    VariableList::<u8, MaxErrorLen>::from(vec![0u8; MAX_ERROR_LEN as usize])
+        .as_ssz_bytes()
+        .len()
+});
+
+pub static LIGHT_CLIENT_FINALITY_UPDATE_CAPELLA_MAX: LazyLock<usize> = LazyLock::new(|| {
+    LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella)
+});
+pub static LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX: LazyLock<usize> = LazyLock::new(|| {
+    LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb)
+});
+pub static LIGHT_CLIENT_FINALITY_UPDATE_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|| {
+    LightClientFinalityUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra)
+});
+pub static LIGHT_CLIENT_OPTIMISTIC_UPDATE_CAPELLA_MAX: LazyLock<usize> = LazyLock::new(|| {
+    LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella)
+});
+pub static LIGHT_CLIENT_OPTIMISTIC_UPDATE_DENEB_MAX: LazyLock<usize> = LazyLock::new(|| {
+    LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb)
+});
+pub static LIGHT_CLIENT_OPTIMISTIC_UPDATE_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|| {
+    LightClientOptimisticUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra)
+});
+pub static LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX: LazyLock<usize> = LazyLock::new(|| {
+    LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella)
+});
+pub static LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX: LazyLock<usize> =
+    LazyLock::new(|| LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb));
+pub static LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|| {
+    LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra)
+});
 
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
@@ -250,6 +268,12 @@ pub enum Protocol {
     /// The `BlobsByRoot` protocol name.
     #[strum(serialize = "blob_sidecars_by_root")]
     BlobsByRoot,
+    /// The `DataColumnSidecarsByRoot` protocol name.
+    #[strum(serialize = "data_column_sidecars_by_root")]
+    DataColumnsByRoot,
+    /// The `DataColumnSidecarsByRange` protocol name.
+    #[strum(serialize = "data_column_sidecars_by_range")]
+    DataColumnsByRange,
     /// The `Ping` protocol name.
     Ping,
     /// The `MetaData` protocol name.
@@ -275,6 +299,8 @@ impl Protocol {
             Protocol::BlocksByRoot => Some(ResponseTermination::BlocksByRoot),
             Protocol::BlobsByRange => Some(ResponseTermination::BlobsByRange),
             Protocol::BlobsByRoot => Some(ResponseTermination::BlobsByRoot),
+            Protocol::DataColumnsByRoot => Some(ResponseTermination::DataColumnsByRoot),
+            Protocol::DataColumnsByRange => Some(ResponseTermination::DataColumnsByRange),
             Protocol::Ping => None,
             Protocol::MetaData => None,
             Protocol::LightClientBootstrap => None,
@@ -301,6 +327,8 @@ pub enum SupportedProtocol {
     BlocksByRootV2,
     BlobsByRangeV1,
     BlobsByRootV1,
+    DataColumnsByRootV1,
+    DataColumnsByRangeV1,
     PingV1,
     MetaDataV1,
     MetaDataV2,
@@ -320,6 +348,8 @@ impl SupportedProtocol {
             SupportedProtocol::BlocksByRootV2 => "2",
             SupportedProtocol::BlobsByRangeV1 => "1",
             SupportedProtocol::BlobsByRootV1 => "1",
+            SupportedProtocol::DataColumnsByRootV1 => "1",
+            SupportedProtocol::DataColumnsByRangeV1 => "1",
             SupportedProtocol::PingV1 => "1",
             SupportedProtocol::MetaDataV1 => "1",
             SupportedProtocol::MetaDataV2 => "2",
@@ -339,6 +369,8 @@ impl SupportedProtocol {
             SupportedProtocol::BlocksByRootV2 => Protocol::BlocksByRoot,
             SupportedProtocol::BlobsByRangeV1 => Protocol::BlobsByRange,
             SupportedProtocol::BlobsByRootV1 => Protocol::BlobsByRoot,
+            SupportedProtocol::DataColumnsByRootV1 => Protocol::DataColumnsByRoot,
+            SupportedProtocol::DataColumnsByRangeV1 => Protocol::DataColumnsByRange,
             SupportedProtocol::PingV1 => Protocol::Ping,
             SupportedProtocol::MetaDataV1 => Protocol::MetaData,
             SupportedProtocol::MetaDataV2 => Protocol::MetaData,
@@ -367,6 +399,12 @@ impl SupportedProtocol {
             supported.extend_from_slice(&[
                 ProtocolId::new(SupportedProtocol::BlobsByRootV1, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::BlobsByRangeV1, Encoding::SSZSnappy),
+            ]);
+        }
+        if fork_context.spec.is_peer_das_scheduled() {
+            supported.extend_from_slice(&[
+                ProtocolId::new(SupportedProtocol::DataColumnsByRootV1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::DataColumnsByRangeV1, Encoding::SSZSnappy),
             ]);
         }
         supported
@@ -477,6 +515,11 @@ impl ProtocolId {
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlobsByRoot => RpcLimits::new(0, spec.max_blobs_by_root_request),
+            Protocol::DataColumnsByRoot => RpcLimits::new(0, spec.max_data_columns_by_root_request),
+            Protocol::DataColumnsByRange => RpcLimits::new(
+                DataColumnsByRangeRequest::ssz_min_len(),
+                DataColumnsByRangeRequest::ssz_max_len(spec),
+            ),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -503,6 +546,8 @@ impl ProtocolId {
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
+            Protocol::DataColumnsByRoot => rpc_data_column_limits::<E>(),
+            Protocol::DataColumnsByRange => rpc_data_column_limits::<E>(),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -531,6 +576,8 @@ impl ProtocolId {
             | SupportedProtocol::BlocksByRootV2
             | SupportedProtocol::BlobsByRangeV1
             | SupportedProtocol::BlobsByRootV1
+            | SupportedProtocol::DataColumnsByRootV1
+            | SupportedProtocol::DataColumnsByRangeV1
             | SupportedProtocol::LightClientBootstrapV1
             | SupportedProtocol::LightClientOptimisticUpdateV1
             | SupportedProtocol::LightClientFinalityUpdateV1 => true,
@@ -568,6 +615,13 @@ pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
     RpcLimits::new(
         BlobSidecar::<E>::empty().as_ssz_bytes().len(),
         BlobSidecar::<E>::max_size(),
+    )
+}
+
+pub fn rpc_data_column_limits<E: EthSpec>() -> RpcLimits {
+    RpcLimits::new(
+        DataColumnSidecar::<E>::empty().as_ssz_bytes().len(),
+        DataColumnSidecar::<E>::max_size(),
     )
 }
 
@@ -650,6 +704,8 @@ pub enum InboundRequest<E: EthSpec> {
     BlocksByRoot(BlocksByRootRequest),
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
+    DataColumnsByRoot(DataColumnsByRootRequest),
+    DataColumnsByRange(DataColumnsByRangeRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
     LightClientOptimisticUpdate,
     LightClientFinalityUpdate,
@@ -670,6 +726,8 @@ impl<E: EthSpec> InboundRequest<E> {
             InboundRequest::BlocksByRoot(req) => req.block_roots().len() as u64,
             InboundRequest::BlobsByRange(req) => req.max_blobs_requested::<E>(),
             InboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
+            InboundRequest::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
+            InboundRequest::DataColumnsByRange(req) => req.max_requested::<E>(),
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
             InboundRequest::LightClientBootstrap(_) => 1,
@@ -693,6 +751,8 @@ impl<E: EthSpec> InboundRequest<E> {
             },
             InboundRequest::BlobsByRange(_) => SupportedProtocol::BlobsByRangeV1,
             InboundRequest::BlobsByRoot(_) => SupportedProtocol::BlobsByRootV1,
+            InboundRequest::DataColumnsByRoot(_) => SupportedProtocol::DataColumnsByRootV1,
+            InboundRequest::DataColumnsByRange(_) => SupportedProtocol::DataColumnsByRangeV1,
             InboundRequest::Ping(_) => SupportedProtocol::PingV1,
             InboundRequest::MetaData(req) => match req {
                 MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
@@ -718,6 +778,8 @@ impl<E: EthSpec> InboundRequest<E> {
             InboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
             InboundRequest::BlobsByRange(_) => ResponseTermination::BlobsByRange,
             InboundRequest::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
+            InboundRequest::DataColumnsByRoot(_) => ResponseTermination::DataColumnsByRoot,
+            InboundRequest::DataColumnsByRange(_) => ResponseTermination::DataColumnsByRange,
             InboundRequest::Status(_) => unreachable!(),
             InboundRequest::Goodbye(_) => unreachable!(),
             InboundRequest::Ping(_) => unreachable!(),
@@ -828,6 +890,10 @@ impl<E: EthSpec> std::fmt::Display for InboundRequest<E> {
             InboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
             InboundRequest::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
             InboundRequest::BlobsByRoot(req) => write!(f, "Blobs by root: {:?}", req),
+            InboundRequest::DataColumnsByRoot(req) => write!(f, "Data columns by root: {:?}", req),
+            InboundRequest::DataColumnsByRange(req) => {
+                write!(f, "Data columns by range: {:?}", req)
+            }
             InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
             InboundRequest::LightClientBootstrap(bootstrap) => {

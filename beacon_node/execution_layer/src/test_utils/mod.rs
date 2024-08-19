@@ -6,11 +6,10 @@ use crate::engine_api::{
 };
 use crate::json_structures::JsonClientVersionV1;
 use bytes::Bytes;
-use environment::null_logger;
 use execution_block_generator::PoWBlock;
 use handle_rpc::handle_rpc;
 use kzg::Kzg;
-use lazy_static::lazy_static;
+use logging::test_logger;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -20,7 +19,7 @@ use std::convert::Infallible;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tokio::{runtime, sync::oneshot};
 use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{http::StatusCode, Filter, Rejection};
@@ -56,14 +55,13 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     get_client_version_v1: true,
 };
 
-lazy_static! {
-    pub static ref DEFAULT_CLIENT_VERSION: JsonClientVersionV1 = JsonClientVersionV1 {
+pub static DEFAULT_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
+    LazyLock::new(|| JsonClientVersionV1 {
         code: "MC".to_string(), // "mock client"
         name: "Mock Execution Client".to_string(),
         version: "0.1.0".to_string(),
         commit: "0xabcdef01".to_string(),
-    };
-}
+    });
 
 mod execution_block_generator;
 mod handle_rpc;
@@ -151,7 +149,7 @@ impl<E: EthSpec> MockServer<E> {
         let ctx: Arc<Context<E>> = Arc::new(Context {
             config: server_config,
             jwt_key,
-            log: null_logger().unwrap(),
+            log: test_logger(),
             last_echo_request: last_echo_request.clone(),
             execution_block_generator: RwLock::new(execution_block_generator),
             previous_request: <_>::default(),

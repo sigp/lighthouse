@@ -77,7 +77,6 @@ pub fn cli_app() -> Command {
                 )
                 .arg(
                     Arg::new("vc-count")
-                        .short('n')
                         .long("vc-count")
                         .action(ArgAction::Set)
                         .default_value("3")

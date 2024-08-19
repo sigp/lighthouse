@@ -36,7 +36,7 @@ use fnv::FnvHashMap;
 use lighthouse_network::service::api_types::SingleLookupReqId;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
-pub use single_block_lookup::{BlobRequestState, BlockRequestState};
+pub use single_block_lookup::{BlobRequestState, BlockRequestState, CustodyRequestState};
 use slog::{debug, error, warn, Logger};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
@@ -214,6 +214,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Check if this new lookup extends a bad chain:
     /// - Extending `child_block_root_trigger` would exceed the max depth
     /// - `block_root_to_search` is a failed chain
+    ///
     /// Returns true if the lookup is created or already exists
     pub fn search_parent_of_child(
         &mut self,
@@ -526,7 +527,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // if both components have been processed.
                 request_state.on_processing_success()?;
 
-                if lookup.both_components_processed() {
+                if lookup.all_components_processed() {
                     // We don't request for other block components until being sure that the block has
                     // data. If we request blobs / columns to a peer we are sure those must exist.
                     // Therefore if all components are processed and we still receive `MissingComponents`
@@ -598,6 +599,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             match R::response_type() {
                                 ResponseType::Block => "lookup_block_processing_failure",
                                 ResponseType::Blob => "lookup_blobs_processing_failure",
+                                ResponseType::CustodyColumn => "lookup_custody_processing_failure",
                             },
                         );
 

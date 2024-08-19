@@ -31,7 +31,6 @@
 //! the head block root. This is unacceptable for fast-responding functions like the networking
 //! stack.
 
-use crate::beacon_chain::ATTESTATION_CACHE_LOCK_TIMEOUT;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::BlockShufflingIds;
 use crate::{
@@ -49,7 +48,7 @@ use fork_choice::{
 };
 use itertools::process_results;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use slog::{crit, debug, error, warn, Logger};
+use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::AllCaches;
 use std::sync::Arc;
@@ -817,21 +816,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             new_snapshot.beacon_block_root,
             &new_snapshot.beacon_state,
         ) {
-            Ok(head_shuffling_ids) => {
-                self.shuffling_cache
-                    .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                    .map(|mut shuffling_cache| {
-                        shuffling_cache.update_head_shuffling_ids(head_shuffling_ids)
-                    })
-                    .unwrap_or_else(|| {
-                        error!(
-                            self.log,
-                            "Failed to obtain cache write lock";
-                            "lock" => "shuffling_cache",
-                            "task" => "update head shuffling decision root"
-                        );
-                    });
-            }
+            Ok(head_shuffling_ids) => self
+                .shuffling_cache
+                .write()
+                .update_head_shuffling_ids(head_shuffling_ids),
             Err(e) => {
                 error!(
                     self.log,
@@ -1224,7 +1212,7 @@ fn detect_reorg<E: EthSpec>(
             &metrics::FORK_CHOICE_REORG_DISTANCE,
             reorg_distance.as_u64() as i64,
         );
-        warn!(
+        info!(
             log,
             "Beacon chain re-org";
             "previous_head" => ?old_block_root,

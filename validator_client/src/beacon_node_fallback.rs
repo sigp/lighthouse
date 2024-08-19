@@ -122,6 +122,12 @@ impl<T: Debug> fmt::Display for Errors<T> {
     }
 }
 
+impl<T> Errors<T> {
+    pub fn num_errors(&self) -> usize {
+        self.0.len()
+    }
+}
+
 /// Reasons why a candidate might not be ready.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
 pub enum CandidateError {
@@ -565,47 +571,30 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         F: Fn(BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<O, Err>>,
     {
-        let mut results = vec![];
-        let mut to_retry = vec![];
-
         // Run `func` using a `candidate`, returning the value or capturing errors.
-        //
-        // We use a macro instead of a closure here since it is not trivial to move `func` into a
-        // closure.
-        macro_rules! try_func {
-            ($candidate: ident) => {{
-                inc_counter_vec(&ENDPOINT_REQUESTS, &[$candidate.beacon_node.as_ref()]);
+        let run_on_candidate = |candidate: CandidateBeaconNode<E>| async {
+            //inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.beacon_node.as_ref()]);
 
-                // There exists a race condition where `func` may be called when the candidate is
-                // actually not ready. We deem this an acceptable inefficiency.
-                match func($candidate.beacon_node.clone()).await {
-                    Ok(val) => results.push(Ok(val)),
-                    Err(e) => {
-                        results.push(Err((
-                            $candidate.beacon_node.to_string(),
-                            Error::RequestFailed(e),
-                        )));
-                        to_retry.push($candidate);
-                        inc_counter_vec(&ENDPOINT_ERRORS, &[$candidate.beacon_node.as_ref()]);
-                    }
+            // There exists a race condition where `func` may be called when the candidate is
+            // actually not ready. We deem this an acceptable inefficiency.
+            match func(candidate.beacon_node.clone()).await {
+                Ok(val) => Ok(val),
+                Err(e) => {
+                    //inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.beacon_node.as_ref()]);
+                    drop(candidate);
+                    Err(("Placeholder".to_string(), Error::RequestFailed(e)))
+                    //Err((candidate.beacon_node.to_string(), Error::RequestFailed(e)))
                 }
-            }};
-        }
-
-        // First pass: try `func` on all candidates. Candidate order has already been set in
-        // `update_all_candidates`. This ensures the most suitable node is always tried first.
-        let candidates = self.candidates.read().await;
-        for candidate in candidates.iter() {
-            try_func!(candidate);
-        }
-
-        if !to_retry.is_empty() {
-            // Second pass. Some candidates did not return successfully. Try them again.
-            // Errors will still be shown for a node if it required a retry.
-            for candidate in to_retry.clone().iter() {
-                try_func!(candidate);
             }
+        };
+
+        // Run `func` on all candidates.
+        let mut futures = vec![];
+        let candidates = self.candidates.read().await.clone();
+        for candidate in candidates.iter() {
+            futures.push(run_on_candidate(candidate.clone()));
         }
+        let results = future::join_all(futures).await;
 
         let errors: Vec<_> = results.into_iter().filter_map(|res| res.err()).collect();
 

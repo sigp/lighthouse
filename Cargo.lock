@@ -780,7 +780,6 @@ dependencies = [
  "bitvec 1.0.1",
  "bls",
  "derivative",
- "environment",
  "eth1",
  "eth2",
  "eth2_network_config",
@@ -796,7 +795,6 @@ dependencies = [
  "int_to_bytes",
  "itertools 0.10.5",
  "kzg",
- "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
  "logging",
@@ -836,7 +834,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "5.2.1"
+version = "5.3.0"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -872,7 +870,6 @@ dependencies = [
  "fnv",
  "futures",
  "itertools 0.10.5",
- "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",
  "logging",
@@ -1021,14 +1018,30 @@ dependencies = [
 
 [[package]]
 name = "blst"
-version = "0.3.12"
+version = "0.3.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62dc83a094a71d43eeadd254b1ec2d24cb6a0bb6cadce00df51f0db594711a32"
+checksum = "4378725facc195f1a538864863f6de233b500a8862747e7f165078a419d5e874"
 dependencies = [
  "cc",
  "glob",
  "threadpool",
  "zeroize",
+]
+
+[[package]]
+name = "blstrs"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a8a8ed6fefbeef4a8c7b460e4110e12c5e22a5b7cf32621aae6ad650c4dcf29"
+dependencies = [
+ "blst",
+ "byte-slice-cast",
+ "ff 0.13.0",
+ "group 0.13.0",
+ "pairing",
+ "rand_core",
+ "serde",
+ "subtle",
 ]
 
 [[package]]
@@ -1043,7 +1056,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "5.2.1"
+version = "5.3.0"
 dependencies = [
  "beacon_node",
  "clap",
@@ -1390,7 +1403,6 @@ dependencies = [
  "genesis",
  "http_api",
  "http_metrics",
- "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",
  "monitoring_api",
@@ -1515,6 +1527,52 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "53fe5e26ff1b7aef8bca9c6080520cfb8d9333c7568e1829cef191a9723e5504"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "crate_crypto_internal_eth_kzg_bls12_381"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8761b04feb6031ffaf93933c955a0c91a2f3ce15dcac6b9586d2487fe55abf0b"
+dependencies = [
+ "blst",
+ "blstrs",
+ "ff 0.13.0",
+ "group 0.13.0",
+ "pairing",
+ "rayon",
+]
+
+[[package]]
+name = "crate_crypto_internal_eth_kzg_erasure_codes"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eca410dff79524a2babe8a0d9ab5fdce21b16808f8189eb8b6da6159681f8de2"
+dependencies = [
+ "crate_crypto_internal_eth_kzg_bls12_381",
+ "crate_crypto_internal_eth_kzg_polynomial",
+]
+
+[[package]]
+name = "crate_crypto_internal_eth_kzg_polynomial"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68be1a5f16bc1c09254dec5209e22278d7d395284443576886a5890e7131234f"
+dependencies = [
+ "crate_crypto_internal_eth_kzg_bls12_381",
+]
+
+[[package]]
+name = "crate_crypto_kzg_multi_open_fk20"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "702fe5b687fe8c5a46851b8bc624ad49603a339dc93c920d4f7e61592c201ee8"
+dependencies = [
+ "crate_crypto_internal_eth_kzg_bls12_381",
+ "crate_crypto_internal_eth_kzg_polynomial",
+ "hex",
+ "rayon",
+ "sha2 0.10.8",
 ]
 
 [[package]]
@@ -2413,8 +2471,8 @@ dependencies = [
  "ethereum_ssz_derive",
  "execution_layer",
  "futures",
- "lazy_static",
  "lighthouse_metrics",
+ "logging",
  "merkle_proof",
  "parking_lot 0.12.3",
  "sensitive_url",
@@ -2493,7 +2551,6 @@ dependencies = [
  "bls",
  "ethereum_hashing",
  "hex",
- "lazy_static",
  "num-bigint",
  "serde",
  "serde_yaml",
@@ -2901,7 +2958,6 @@ dependencies = [
  "arc-swap",
  "builder_client",
  "bytes",
- "environment",
  "eth2",
  "eth2_network_config",
  "ethereum_serde_utils",
@@ -2914,9 +2970,9 @@ dependencies = [
  "jsonwebtoken",
  "keccak-hash",
  "kzg",
- "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
+ "logging",
  "lru",
  "parking_lot 0.12.3",
  "pretty_reqwest_error",
@@ -3008,6 +3064,7 @@ version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ded41244b729663b1e574f1b4fb731469f69f79c17667b5d776b16cda0479449"
 dependencies = [
+ "bitvec 1.0.1",
  "rand_core",
  "subtle",
 ]
@@ -3106,6 +3163,7 @@ dependencies = [
  "beacon_chain",
  "ethereum_ssz",
  "ethereum_ssz_derive",
+ "lighthouse_metrics",
  "proto_array",
  "slog",
  "state_processing",
@@ -3438,7 +3496,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0f9ef7462f7c099f518d754361858f86d8a07af53ba9af0fe635bbccb151a63"
 dependencies = [
  "ff 0.13.0",
+ "rand",
  "rand_core",
+ "rand_xorshift",
  "subtle",
 ]
 
@@ -3775,7 +3835,6 @@ dependencies = [
  "bs58 0.4.0",
  "bytes",
  "directory",
- "environment",
  "eth1",
  "eth2",
  "ethereum_serde_utils",
@@ -3784,7 +3843,6 @@ dependencies = [
  "futures",
  "genesis",
  "hex",
- "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",
  "lighthouse_version",
@@ -3818,10 +3876,10 @@ name = "http_metrics"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
- "environment",
  "lighthouse_metrics",
  "lighthouse_network",
  "lighthouse_version",
+ "logging",
  "malloc_utils",
  "reqwest",
  "serde",
@@ -4350,13 +4408,17 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "c-kzg",
+ "criterion",
  "derivative",
+ "eth2_network_config",
  "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "hex",
+ "rust_eth_kzg",
  "serde",
+ "serde_json",
  "tree_hash",
 ]
 
@@ -4377,7 +4439,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "5.2.1"
+version = "5.3.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -4402,6 +4464,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sloggers",
  "snap",
  "state_processing",
  "store",
@@ -4948,7 +5011,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "5.2.1"
+version = "5.3.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -4966,7 +5029,6 @@ dependencies = [
  "eth2_network_config",
  "ethereum_hashing",
  "futures",
- "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",
  "lighthouse_version",
@@ -5014,7 +5076,6 @@ dependencies = [
  "gossipsub",
  "hex",
  "itertools 0.10.5",
- "lazy_static",
  "libp2p",
  "libp2p-mplex",
  "lighthouse_metrics",
@@ -5127,7 +5188,6 @@ name = "logging"
 version = "0.2.0"
 dependencies = [
  "chrono",
- "lazy_static",
  "lighthouse_metrics",
  "parking_lot 0.12.3",
  "serde",
@@ -5185,7 +5245,6 @@ version = "0.1.0"
 dependencies = [
  "jemalloc-ctl",
  "jemallocator",
- "lazy_static",
  "libc",
  "lighthouse_metrics",
  "parking_lot 0.12.3",
@@ -5272,7 +5331,6 @@ version = "0.2.0"
 dependencies = [
  "ethereum-types 0.14.1",
  "ethereum_hashing",
- "lazy_static",
  "quickcheck",
  "quickcheck_macros",
  "safe_arith",
@@ -5399,7 +5457,6 @@ name = "monitoring_api"
 version = "0.1.0"
 dependencies = [
  "eth2",
- "lazy_static",
  "lighthouse_metrics",
  "lighthouse_version",
  "regex",
@@ -5577,7 +5634,6 @@ dependencies = [
  "hex",
  "igd-next",
  "itertools 0.10.5",
- "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",
  "logging",
@@ -5752,9 +5808,9 @@ dependencies = [
 
 [[package]]
 name = "object"
-version = "0.36.1"
+version = "0.36.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "081b846d1d56ddfc18fdf1a922e4f6e07a11768ea1b92dec44e42b72712ccfce"
+checksum = "3f203fa8daa7bb185f760ae12bd8e097f63d17041dcdcaf675ac54cdf863170e"
 dependencies = [
  "memchr",
 ]
@@ -5882,7 +5938,6 @@ dependencies = [
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "itertools 0.10.5",
- "lazy_static",
  "lighthouse_metrics",
  "maplit",
  "parking_lot 0.12.3",
@@ -5911,6 +5966,15 @@ dependencies = [
  "elliptic-curve 0.13.8",
  "primeorder",
  "sha2 0.10.8",
+]
+
+[[package]]
+name = "pairing"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81fec4625e73cf41ef4bb6846cafa6d44736525f442ba45e407c4a000a13996f"
+dependencies = [
+ "group 0.13.0",
 ]
 
 [[package]]
@@ -6514,8 +6578,7 @@ checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 [[package]]
 name = "quick-protobuf"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d6da84cc204722a989e01ba2f6e1e276e190f22263d0cb6ce8526fcdb0d2e1f"
+source = "git+https://github.com/sigp/quick-protobuf.git?rev=681f413312404ab6e51f0b46f39b0075c6f4ebfd#681f413312404ab6e51f0b46f39b0075c6f4ebfd"
 dependencies = [
  "byteorder",
 ]
@@ -7029,6 +7092,21 @@ dependencies = [
  "hashlink 0.8.4",
  "libsqlite3-sys",
  "smallvec",
+]
+
+[[package]]
+name = "rust_eth_kzg"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "013a850c7e131a8f9651ffbb151dc33240234f21dd357b692bd5ff4cdc84bf9a"
+dependencies = [
+ "crate_crypto_internal_eth_kzg_bls12_381",
+ "crate_crypto_internal_eth_kzg_erasure_codes",
+ "crate_crypto_kzg_multi_open_fk20",
+ "hex",
+ "rayon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -7699,7 +7777,6 @@ dependencies = [
  "ethereum_ssz_derive",
  "filesystem",
  "flate2",
- "lazy_static",
  "libmdbx",
  "lighthouse_metrics",
  "lmdb-rkv",
@@ -7746,7 +7823,6 @@ dependencies = [
  "arbitrary",
  "ethereum_serde_utils",
  "filesystem",
- "lazy_static",
  "r2d2",
  "r2d2_sqlite",
  "rayon",
@@ -7863,7 +7939,6 @@ dependencies = [
 name = "slot_clock"
 version = "0.2.0"
 dependencies = [
- "lazy_static",
  "lighthouse_metrics",
  "parking_lot 0.12.3",
  "types",
@@ -7992,7 +8067,6 @@ dependencies = [
  "int_to_bytes",
  "integer-sqrt",
  "itertools 0.10.5",
- "lazy_static",
  "lighthouse_metrics",
  "merkle_proof",
  "rand",
@@ -8012,7 +8086,6 @@ version = "0.1.0"
 dependencies = [
  "beacon_chain",
  "ethereum_ssz",
- "lazy_static",
  "state_processing",
  "tokio",
  "types",
@@ -8034,7 +8107,6 @@ dependencies = [
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "itertools 0.10.5",
- "lazy_static",
  "leveldb",
  "lighthouse_metrics",
  "lru",
@@ -8245,7 +8317,6 @@ version = "0.1.0"
 dependencies = [
  "async-channel",
  "futures",
- "lazy_static",
  "lighthouse_metrics",
  "logging",
  "slog",
@@ -8857,7 +8928,6 @@ dependencies = [
  "int_to_bytes",
  "itertools 0.10.5",
  "kzg",
- "lazy_static",
  "log",
  "maplit",
  "merkle_proof",
@@ -9023,7 +9093,6 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 name = "unused_port"
 version = "0.1.0"
 dependencies = [
- "lazy_static",
  "lru_cache",
  "parking_lot 0.12.3",
 ]
@@ -9077,7 +9146,6 @@ dependencies = [
  "hex",
  "hyper 1.4.1",
  "itertools 0.10.5",
- "lazy_static",
  "libsecp256k1",
  "lighthouse_metrics",
  "lighthouse_version",
@@ -9247,7 +9315,6 @@ dependencies = [
  "bytes",
  "eth2",
  "headers",
- "lazy_static",
  "lighthouse_metrics",
  "safe_arith",
  "serde",
@@ -9429,7 +9496,7 @@ dependencies = [
  "eth2_keystore",
  "eth2_network_config",
  "futures",
- "lazy_static",
+ "logging",
  "parking_lot 0.12.3",
  "reqwest",
  "serde",

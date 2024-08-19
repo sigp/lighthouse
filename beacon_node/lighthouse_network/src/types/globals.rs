@@ -7,7 +7,7 @@ use crate::EnrExt;
 use crate::{Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;
-use types::EthSpec;
+use types::{ChainSpec, ColumnIndex, EthSpec};
 
 pub struct NetworkGlobals<E: EthSpec> {
     /// The current local ENR.
@@ -108,6 +108,13 @@ impl<E: EthSpec> NetworkGlobals<E> {
     /// The old state is returned
     pub fn set_sync_state(&self, new_state: SyncState) -> SyncState {
         std::mem::replace(&mut *self.sync_state.write(), new_state)
+    }
+
+    /// Compute custody data columns the node is assigned to custody.
+    pub fn custody_columns(&self, _spec: &ChainSpec) -> Vec<ColumnIndex> {
+        let _enr = self.local_enr();
+        //TODO(das): implement ENR changes
+        vec![]
     }
 
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.

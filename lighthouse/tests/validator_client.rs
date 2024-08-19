@@ -425,19 +425,12 @@ fn no_doppelganger_protection_flag() {
         .run()
         .with_config(|config| assert!(!config.enable_doppelganger_protection));
 }
-#[test]
-fn produce_block_v3_flag() {
-    CommandLineTest::new()
-        .flag("produce-block-v3", None)
-        .run()
-        .with_config(|config| assert!(config.produce_block_v3));
-}
 
 #[test]
-fn no_produce_block_v3_flag() {
-    CommandLineTest::new()
-        .run()
-        .with_config(|config| assert!(!config.produce_block_v3));
+fn produce_block_v3_flag() {
+    // The flag is DEPRECATED but providing it should not trigger an error.
+    // We can delete this test when deleting the flag entirely.
+    CommandLineTest::new().flag("produce-block-v3", None).run();
 }
 
 #[test]

@@ -55,6 +55,18 @@ pub fn cli_app() -> Command {
          * Network parameters.
          */
         .arg(
+            Arg::new("subscribe-all-data-column-subnets")
+                .long("subscribe-all-data-column-subnets")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .help("Subscribe to all data column subnets and participate in data custody for \
+                        all columns. This will also advertise the beacon node as being long-lived \
+                        subscribed to all data column subnets. \
+                        NOTE: this is an experimental flag and may change any time without notice!")
+                .display_order(0)
+                .hide(true)
+        )
+        .arg(
             Arg::new("subscribe-all-subnets")
                 .long("subscribe-all-subnets")
                 .action(ArgAction::SetTrue)
@@ -1246,9 +1258,7 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("disable-lock-timeouts")
                 .long("disable-lock-timeouts")
-                .help("Disable the timeouts applied to some internal locks by default. This can \
-                       lead to less spurious failures on slow hardware but is considered \
-                       experimental as it may obscure performance issues.")
+                .help("This flag is deprecated and has no effect.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
