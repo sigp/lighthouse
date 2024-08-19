@@ -380,41 +380,45 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             false
         };
 
-        let expects_custody_columns = if matches!(batch_type, ByRangeRequestType::BlocksAndColumns)
-        {
-            let custody_indexes = self.network_globals().custody_columns(epoch);
+        let (expects_custody_columns, num_of_custody_column_req) =
+            if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
+                let custody_indexes = self.network_globals().custody_columns(epoch);
+                let mut num_of_custody_column_req = 0;
 
-            for (peer_id, columns_by_range_request) in
-                self.make_columns_by_range_requests(epoch, request, &custody_indexes)?
-            {
-                requested_peers.push(peer_id);
+                for (peer_id, columns_by_range_request) in
+                    self.make_columns_by_range_requests(epoch, request, &custody_indexes)?
+                {
+                    requested_peers.push(peer_id);
 
-                debug!(
-                    self.log,
-                    "Sending DataColumnsByRange requests";
-                    "method" => "DataColumnsByRange",
-                    "count" => columns_by_range_request.count,
-                    "epoch" => epoch,
-                    "columns" => ?columns_by_range_request.columns,
-                    "peer" => %peer_id,
-                );
+                    debug!(
+                        self.log,
+                        "Sending DataColumnsByRange requests";
+                        "method" => "DataColumnsByRange",
+                        "count" => columns_by_range_request.count,
+                        "epoch" => epoch,
+                        "columns" => ?columns_by_range_request.columns,
+                        "peer" => %peer_id,
+                    );
 
-                self.send_network_msg(NetworkMessage::SendRequest {
-                    peer_id,
-                    request: Request::DataColumnsByRange(columns_by_range_request),
-                    request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
-                })
-                .map_err(|_| RpcRequestSendError::NetworkSendError)?;
-            }
+                    self.send_network_msg(NetworkMessage::SendRequest {
+                        peer_id,
+                        request: Request::DataColumnsByRange(columns_by_range_request),
+                        request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
+                    })
+                    .map_err(|_| RpcRequestSendError::NetworkSendError)?;
 
-            Some(custody_indexes)
-        } else {
-            None
-        };
+                    num_of_custody_column_req += 1;
+                }
+
+                (Some(custody_indexes), Some(num_of_custody_column_req))
+            } else {
+                (None, None)
+            };
 
         let info = RangeBlockComponentsRequest::new(
             expected_blobs,
             expects_custody_columns,
+            num_of_custody_column_req,
             requested_peers,
         );
         self.range_block_components_requests

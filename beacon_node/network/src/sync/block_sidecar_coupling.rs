@@ -26,6 +26,9 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
     /// Used to determine if this accumulator should wait for a sidecars stream termination
     expects_blobs: bool,
     expects_custody_columns: Option<Vec<ColumnIndex>>,
+    /// Used to determine if the number of data columns stream termination this accumulator should
+    /// wait for. This may be less than the number of `expects_custody_columns` due to request batching.
+    num_custody_column_requests: Option<usize>,
     /// The peers the request was made to.
     pub(crate) peer_ids: Vec<PeerId>,
 }
@@ -34,6 +37,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     pub fn new(
         expects_blobs: bool,
         expects_custody_columns: Option<Vec<ColumnIndex>>,
+        num_custody_column_requests: Option<usize>,
         peer_ids: Vec<PeerId>,
     ) -> Self {
         Self {
@@ -45,6 +49,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             custody_columns_streams_terminated: 0,
             expects_blobs,
             expects_custody_columns,
+            num_custody_column_requests,
             peer_ids,
         }
     }
@@ -219,8 +224,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         if self.expects_blobs && !self.is_sidecars_stream_terminated {
             return false;
         }
-        if let Some(expects_custody_columns) = &self.expects_custody_columns {
-            if self.custody_columns_streams_terminated < expects_custody_columns.len() {
+        if let Some(expects_custody_column_responses) = self.num_custody_column_requests {
+            if self.custody_columns_streams_terminated < expects_custody_column_responses {
                 return false;
             }
         }
@@ -241,7 +246,7 @@ mod tests {
     #[test]
     fn no_blobs_into_responses() {
         let peer_id = PeerId::random();
-        let mut info = RangeBlockComponentsRequest::<E>::new(false, None, vec![peer_id]);
+        let mut info = RangeBlockComponentsRequest::<E>::new(false, None, None, vec![peer_id]);
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng).0)
@@ -261,7 +266,7 @@ mod tests {
     #[test]
     fn empty_blobs_into_responses() {
         let peer_id = PeerId::random();
-        let mut info = RangeBlockComponentsRequest::<E>::new(true, None, vec![peer_id]);
+        let mut info = RangeBlockComponentsRequest::<E>::new(true, None, None, vec![peer_id]);
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {
@@ -292,6 +297,7 @@ mod tests {
         let mut info = RangeBlockComponentsRequest::<E>::new(
             false,
             Some(expects_custody_columns.clone()),
+            Some(expects_custody_columns.len()),
             vec![PeerId::random()],
         );
         let mut rng = XorShiftRng::from_seed([42; 16]);
@@ -337,6 +343,63 @@ mod tests {
                     info.is_finished(),
                     "request should be finishied at loop {i}"
                 );
+            }
+        }
+
+        // All completed construct response
+        info.into_responses(&spec).unwrap();
+    }
+
+    #[test]
+    fn rpc_block_with_custody_columns_batched() {
+        let spec = test_spec::<E>();
+        let expects_custody_columns = vec![1, 2, 3, 4];
+        let num_of_data_column_requests = 2;
+        let mut info = RangeBlockComponentsRequest::<E>::new(
+            false,
+            Some(expects_custody_columns.clone()),
+            Some(num_of_data_column_requests),
+            vec![PeerId::random()],
+        );
+        let mut rng = XorShiftRng::from_seed([42; 16]);
+        let blocks = (0..4)
+            .map(|_| {
+                generate_rand_block_and_data_columns::<E>(
+                    ForkName::Deneb,
+                    NumBlobs::Number(1),
+                    &mut rng,
+                    &spec,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        // Send blocks and complete terminate response
+        for block in &blocks {
+            info.add_block_response(Some(block.0.clone().into()));
+        }
+        info.add_block_response(None);
+        // Assert response is not finished
+        assert!(!info.is_finished());
+
+        // Send data columns interleaved
+        for block in &blocks {
+            for column in &block.1 {
+                if expects_custody_columns.contains(&column.index) {
+                    info.add_data_column(Some(column.clone()));
+                }
+            }
+        }
+
+        // Terminate the requests
+        for i in 0..num_of_data_column_requests {
+            info.add_data_column(None);
+            if i < num_of_data_column_requests - 1 {
+                assert!(
+                    !info.is_finished(),
+                    "requested should not be finished at loop {i}"
+                );
+            } else {
+                assert!(info.is_finished(), "request should be finished at loop {i}");
             }
         }
 
