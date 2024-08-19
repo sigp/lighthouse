@@ -2,9 +2,9 @@ pub use clap::{Arg, ArgAction, Args, Command, FromArgMatches, Parser};
 use clap_utils::get_color_style;
 use clap_utils::FLAG_HEADER;
 use serde::{Deserialize, Serialize};
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
-
-use crate::InspectTarget;
+use types::Address;
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(
@@ -369,7 +369,7 @@ pub struct ValidatorClient {
         value_name = "UNIX-TIMESTAMP",
         help = "This flag takes a unix timestamp value that will be used to override the \
                 timestamp used in the builder api registration.",
-        display_order = 0,
+        display_order = 0
     )]
     pub builder_registration_timestamp_override: Option<u64>,
 
