@@ -3049,7 +3049,7 @@ async fn schema_downgrade_to_min_version() {
         )
         .await;
 
-    let min_version = SchemaVersion(19);
+    let min_version = SchemaVersion(22);
     let genesis_state_root = Some(harness.chain.genesis_state_root);
 
     // Save the slot clock so that the new harness doesn't revert in time.
