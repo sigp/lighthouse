@@ -140,7 +140,10 @@ pub struct ProposerFallback<T, E: EthSpec> {
 
 impl<T: SlotClock, E: EthSpec> ProposerFallback<T, E> {
     // Try `func` on `self.proposer_nodes` first. If that doesn't work, try `self.beacon_nodes`.
-    pub async fn request_proposers_first<F, Err, R>(&self, func: F) -> Result<(), Errors<Err>>
+    pub async fn request_proposers_first<'a, F, Err, R>(
+        &'a self,
+        func: F,
+    ) -> Result<(), Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R + Clone,
         R: Future<Output = Result<(), Err>>,
@@ -162,7 +165,10 @@ impl<T: SlotClock, E: EthSpec> ProposerFallback<T, E> {
     }
 
     // Try `func` on `self.beacon_nodes` first. If that doesn't work, try `self.proposer_nodes`.
-    pub async fn request_proposers_last<F, O, Err, R>(&self, func: F) -> Result<O, Errors<Err>>
+    pub async fn request_proposers_last<'a, F, O, Err, R>(
+        &'a self,
+        func: F,
+    ) -> Result<O, Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R + Clone,
         R: Future<Output = Result<O, Err>>,

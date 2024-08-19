@@ -424,14 +424,14 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             for node in &*block_filter.beacon_nodes.candidates.read().await {
                 result.insert(
                     (node.index, node.beacon_node.to_string()),
-                    *node.health.read(),
+                    *node.health.read().await,
                 );
             }
             if let Some(proposer_nodes) = &block_filter.proposer_nodes {
                 for node in &*proposer_nodes.candidates.read().await {
                     result.insert(
                         (node.index, node.beacon_node.to_string()),
-                        *node.health.read(),
+                        *node.health.read().await,
                     );
                 }
             }
