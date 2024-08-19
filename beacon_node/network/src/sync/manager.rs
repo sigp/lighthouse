@@ -1161,6 +1161,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         RangeBlockComponentsRequest::new(
                             resp.expects_blobs,
                             resp.expects_custody_columns,
+                            None,
                             vec![],
                         ),
                     );
