@@ -235,3 +235,8 @@ fn no_crash_blocks_example1() {
         },
     );
 }
+
+#[test]
+fn no_crash_aug_24() {
+    random_test(13519442335106054152, TestConfig::default())
+}

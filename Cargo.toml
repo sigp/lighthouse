@@ -107,13 +107,14 @@ bytes = "1"
 clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 # Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
 # feature ourselves when desired.
-c-kzg = { version = "1", default-features =  false }
+c-kzg = { version = "1", default-features = false }
 compare_fields_derive = { path = "common/compare_fields_derive" }
 criterion = "0.5"
 delay_map = "0.3"
 derivative = "2"
 dirs = "3"
 either = "1.9"
+rust_eth_kzg = "0.3.4"
 discv5 = { version = "0.4.1", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"
@@ -240,6 +241,9 @@ validator_dir = { path = "common/validator_dir" }
 warp_utils = { path = "common/warp_utils" }
 xdelta3 = { git = "http://github.com/sigp/xdelta3-rs", rev = "2a06390cd5b61b44ca3eaa89632b4ba3410d3d7f" }
 zstd = "0.13"
+
+[patch.crates-io]
+quick-protobuf = { git = "https://github.com/sigp/quick-protobuf.git", rev = "681f413312404ab6e51f0b46f39b0075c6f4ebfd" }
 
 [profile.maxperf]
 inherits = "release"
