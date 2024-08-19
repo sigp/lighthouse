@@ -15,15 +15,17 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock,
-    Slot,
+    BlobSidecarList, ChainSpec, DataColumnIdentifier, DataColumnSidecar, DataColumnSidecarList,
+    Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 mod error;
 mod overflow_lru_cache;
 mod state_lru_cache;
 
-use crate::data_column_verification::{GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn};
+use crate::data_column_verification::{
+    GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
+};
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::non_zero_usize::new_non_zero_usize;
 
@@ -108,19 +110,25 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let custody_column_count =
             custody_subnet_count.saturating_mul(spec.data_columns_per_subnet());
 
-        let overflow_cache = DataAvailabilityCheckerInner::new(
+        let inner = DataAvailabilityCheckerInner::new(
             OVERFLOW_LRU_CAPACITY,
             store,
             custody_column_count,
             spec.clone(),
         )?;
         Ok(Self {
-            availability_cache: Arc::new(overflow_cache),
+            availability_cache: Arc::new(inner),
             slot_clock,
             kzg,
             log: log.clone(),
             spec,
         })
+    }
+
+    pub fn get_custody_columns_count(&self) -> usize {
+        self.availability_cache
+            .custody_subnet_count()
+            .saturating_mul(self.spec.data_columns_per_subnet())
     }
 
     /// Checks if the block root is currenlty in the availability cache awaiting import because
@@ -148,12 +156,29 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             })
     }
 
+    /// Return the set of imported custody column indexes for `block_root`. Returns None if there is
+    /// no block component for `block_root`.
+    pub fn imported_custody_column_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
+        self.availability_cache
+            .peek_pending_components(block_root, |components| {
+                components.map(|components| components.get_cached_data_columns_indices())
+            })
+    }
+
     /// Get a blob from the availability cache.
     pub fn get_blob(
         &self,
         blob_id: &BlobIdentifier,
     ) -> Result<Option<Arc<BlobSidecar<T::EthSpec>>>, AvailabilityCheckError> {
         self.availability_cache.peek_blob(blob_id)
+    }
+
+    /// Get a data column from the availability cache.
+    pub fn get_data_column(
+        &self,
+        data_column_id: &DataColumnIdentifier,
+    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, AvailabilityCheckError> {
+        self.availability_cache.peek_data_column(data_column_id)
     }
 
     /// Put a list of blobs received via RPC into the availability cache. This performs KZG
@@ -179,6 +204,37 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         self.availability_cache
             .put_kzg_verified_blobs(block_root, epoch, verified_blobs)
+    }
+
+    /// Put a list of custody columns received via RPC into the availability cache. This performs KZG
+    /// verification on the blobs in the list.
+    pub fn put_rpc_custody_columns(
+        &self,
+        block_root: Hash256,
+        epoch: Epoch,
+        custody_columns: DataColumnSidecarList<T::EthSpec>,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        let Some(kzg) = self.kzg.as_ref() else {
+            return Err(AvailabilityCheckError::KzgNotInitialized);
+        };
+
+        // TODO(das): report which column is invalid for proper peer scoring
+        // TODO(das): batch KZG verification here
+        let verified_custody_columns = custody_columns
+            .iter()
+            .map(|column| {
+                Ok(KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                    KzgVerifiedDataColumn::new(column.clone(), kzg)
+                        .map_err(AvailabilityCheckError::Kzg)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, AvailabilityCheckError>>()?;
+
+        self.availability_cache.put_kzg_verified_data_columns(
+            block_root,
+            epoch,
+            verified_custody_columns,
+        )
     }
 
     /// Check if we've cached other blobs for this block. If it completes a set and we also

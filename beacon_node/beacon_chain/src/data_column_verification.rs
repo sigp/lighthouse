@@ -177,7 +177,7 @@ impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T> {
     pub fn id(&self) -> DataColumnIdentifier {
         DataColumnIdentifier {
             block_root: self.block_root,
-            index: self.data_column.data_column_index(),
+            index: self.data_column.index(),
         }
     }
 
@@ -221,7 +221,7 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         self.data.clone()
     }
 
-    pub fn data_column_index(&self) -> u64 {
+    pub fn index(&self) -> ColumnIndex {
         self.data.index
     }
 }
@@ -249,6 +249,13 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
 
     pub fn into_inner(self) -> Arc<DataColumnSidecar<E>> {
         self.data
+    }
+
+    pub fn as_data_column(&self) -> &DataColumnSidecar<E> {
+        &self.data
+    }
+    pub fn clone_arc(&self) -> Arc<DataColumnSidecar<E>> {
+        self.data.clone()
     }
 }
 
