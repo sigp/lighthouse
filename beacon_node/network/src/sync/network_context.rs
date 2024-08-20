@@ -1048,20 +1048,31 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &self,
         id: Id,
         block_root: Hash256,
-        _custody_columns: DataColumnSidecarList<T::EthSpec>,
-        _duration: Duration,
+        custody_columns: DataColumnSidecarList<T::EthSpec>,
+        duration: Duration,
     ) -> Result<(), SendErrorProcessor> {
-        let _beacon_processor = self
+        let beacon_processor = self
             .beacon_processor_if_enabled()
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
 
         debug!(self.log, "Sending custody columns for processing"; "block" => ?block_root, "id" => id);
-
         // Lookup sync event safety: If `beacon_processor.send_rpc_custody_columns` returns Ok() sync
         // must receive a single `SyncMessage::BlockComponentProcessed` event with this process type
-        //
-        // TODO(das): After merging processor import PR, actually send columns to beacon processor.
-        Ok(())
+        beacon_processor
+            .send_rpc_custody_columns(
+                block_root,
+                custody_columns,
+                duration,
+                BlockProcessType::SingleCustodyColumn { id },
+            )
+            .map_err(|e| {
+                error!(
+                    self.log,
+                    "Failed to send sync custody columns to processor";
+                    "error" => ?e
+                );
+                SendErrorProcessor::SendError
+            })
     }
 
     pub(crate) fn register_metrics(&self) {

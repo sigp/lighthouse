@@ -155,6 +155,7 @@ pub enum SyncMessage<E: EthSpec> {
 pub enum BlockProcessType {
     SingleBlock { id: Id },
     SingleBlob { id: Id },
+    SingleCustodyColumn { id: Id },
 }
 
 #[derive(Debug)]

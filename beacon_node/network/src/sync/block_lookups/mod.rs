@@ -481,9 +481,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessType::SingleBlob { id } => {
                 self.on_processing_result_inner::<BlobRequestState<T::EthSpec>>(id, result, cx)
             }
+            BlockProcessType::SingleCustodyColumn { id } => {
+                self.on_processing_result_inner::<CustodyRequestState<T::EthSpec>>(id, result, cx)
+            }
         };
         let id = match process_type {
-            BlockProcessType::SingleBlock { id } | BlockProcessType::SingleBlob { id } => id,
+            BlockProcessType::SingleBlock { id }
+            | BlockProcessType::SingleBlob { id }
+            | BlockProcessType::SingleCustodyColumn { id } => id,
         };
         self.on_lookup_result(id, lookup_result, "processing_result", cx);
     }

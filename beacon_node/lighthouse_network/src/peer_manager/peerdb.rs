@@ -1,4 +1,6 @@
+use crate::discovery::enr::PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY;
 use crate::discovery::CombinedKey;
+use crate::EnrExt;
 use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, Gossipsub, PeerId};
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use rand::seq::SliceRandom;
@@ -12,7 +14,7 @@ use std::{
     fmt::Formatter,
 };
 use sync_status::SyncStatus;
-use types::EthSpec;
+use types::{ChainSpec, EthSpec};
 
 pub mod client;
 pub mod peer_info;
@@ -673,17 +675,34 @@ impl<E: EthSpec> PeerDB<E> {
     }
 
     /// Updates the connection state. MUST ONLY BE USED IN TESTS.
-    pub fn __add_connected_peer_testing_only(&mut self, peer_id: &PeerId) -> Option<BanOperation> {
+    pub fn __add_connected_peer_testing_only(
+        &mut self,
+        supernode: bool,
+        spec: &ChainSpec,
+    ) -> PeerId {
         let enr_key = CombinedKey::generate_secp256k1();
-        let enr = Enr::builder().build(&enr_key).unwrap();
+        let mut enr = Enr::builder().build(&enr_key).unwrap();
+        let peer_id = enr.peer_id();
+
+        if supernode {
+            enr.insert(
+                PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY,
+                &spec.data_column_sidecar_subnet_count,
+                &enr_key,
+            )
+            .expect("u64 can be encoded");
+        }
+
         self.update_connection_state(
-            peer_id,
+            &peer_id,
             NewConnectionState::Connected {
                 enr: Some(enr),
                 seen_address: Multiaddr::empty(),
                 direction: ConnectionDirection::Outgoing,
             },
-        )
+        );
+
+        peer_id
     }
 
     /// The connection state of the peer has been changed. Modify the peer in the db to ensure all
