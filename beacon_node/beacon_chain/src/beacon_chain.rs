@@ -3098,7 +3098,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .contains_block(&block_root)
         {
-            return Err(BlockError::BlockIsAlreadyKnown(block_root));
+            return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
         // TODO(das): custody column SSE event
@@ -3489,7 +3489,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             custody_columns,
         )?;
 
-        self.process_availability(slot, availability).await
+        self.process_availability(slot, availability, || Ok(()))
+            .await
     }
 
     /// Imports a fully available block. Otherwise, returns `AvailabilityProcessingStatus::MissingComponents`
