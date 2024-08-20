@@ -76,11 +76,11 @@ pub fn get_config<E: EthSpec>(
                 let confirmation = read_input_from_user(stdin_inputs)?;
 
                 if confirmation == PURGE_DB_CONFIRMATION {
-                    info!(log, "Database was deleted.");
                     let chain_db = client_config.get_db_path();
                     let freezer_db = client_config.get_freezer_db_path();
                     let blobs_db = client_config.get_blobs_db_path();
                     purge_db(chain_db, freezer_db, blobs_db)?;
+                    info!(log, "Database was deleted.");
                 } else {
                     info!(log, "Database was not deleted. Lighthouse will now close.");
                     std::process::exit(1);
