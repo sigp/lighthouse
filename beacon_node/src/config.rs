@@ -50,11 +50,6 @@ pub fn get_config<E: EthSpec>(
 
     let mut client_config = ClientConfig::default();
 
-    if let Some(beacon_node_backend) = clap_utils::parse_optional(cli_args, "beacon-node-backend")?
-    {
-        client_config.database_backend = beacon_node_backend;
-    }
-
     // Update the client's data directory
     client_config.set_data_dir(get_data_dir(cli_args));
 
@@ -427,6 +422,12 @@ pub fn get_config<E: EthSpec>(
         cli_args,
         "slots-per-restore-point",
     )?)?;
+
+    if let Some(beacon_node_backend) = clap_utils::parse_optional(cli_args, "beacon-node-backend")?
+    {
+        client_config.store.backend = beacon_node_backend;
+    }
+
     client_config.store.slots_per_restore_point = sprp;
     client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
 
