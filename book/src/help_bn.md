@@ -11,6 +11,9 @@ Options:
       --auto-compact-db <auto-compact-db>
           Enable or disable automatic compaction of the database on
           finalization. [default: true]
+      --beacon-node-backend <DATABASE>
+          Set the database backend to be used by the beacon node backend.
+          [possible values: leveldb]
       --blob-prune-margin-epochs <EPOCHS>
           The margin for blob pruning in epochs. The oldest blobs are pruned up
           until data_availability_boundary - blob_prune_margin_epochs. [default:
@@ -603,6 +606,4 @@ Flags:
   -z, --zero-ports
           Sets all listening TCP/UDP ports to 0, allowing the OS to choose some
           arbitrary free ports.
-```
-
-<style> .content main {max-width:88%;} </style>
+```n<style> .content main {max-width:88%;} </style>

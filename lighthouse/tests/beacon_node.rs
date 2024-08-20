@@ -2717,6 +2717,6 @@ fn beacon_node_backend_override() {
         .flag("beacon-node-backend", Some("leveldb"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.database_backend, BeaconNodeBackend::LevelDb);
+            assert_eq!(config.store.backend, BeaconNodeBackend::LevelDb);
         });
 }
