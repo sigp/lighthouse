@@ -220,7 +220,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     // with this `req_id`.
                     request.get_state_mut().on_download_start(req_id)?
                 }
-                LookupRequestResult::NoRequestNeeded => {
+                LookupRequestResult::NoRequestNeeded(_reason) => {
                     // Lookup sync event safety: Advances this request to the terminal `Processed`
                     // state. If all requests reach this state, the request is marked as completed
                     // in `Self::continue_requests`.
