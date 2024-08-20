@@ -47,7 +47,9 @@ use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
 use logging::TimeLatch;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, trace, warn, Logger};
+use slog::Logger;
+use tracing::{debug, error, trace, warn};
+use logging::crit;
 use slot_clock::SlotClock;
 use std::cmp;
 use std::collections::{HashSet, VecDeque};
@@ -108,6 +110,7 @@ pub struct BeaconProcessorQueueLengths {
     unknown_light_client_update_queue: usize,
     rpc_block_queue: usize,
     rpc_blob_queue: usize,
+    rpc_custody_column_queue: usize,
     chain_segment_queue: usize,
     backfill_chain_segment: usize,
     gossip_block_queue: usize,
@@ -119,6 +122,8 @@ pub struct BeaconProcessorQueueLengths {
     bbroots_queue: usize,
     blbroots_queue: usize,
     blbrange_queue: usize,
+    dcbroots_queue: usize,
+    dcbrange_queue: usize,
     gossip_bls_to_execution_change_queue: usize,
     lc_bootstrap_queue: usize,
     lc_optimistic_update_queue: usize,
@@ -161,6 +166,7 @@ impl BeaconProcessorQueueLengths {
             unknown_light_client_update_queue: 128,
             rpc_block_queue: 1024,
             rpc_blob_queue: 1024,
+            rpc_custody_column_queue: 1024,
             chain_segment_queue: 64,
             backfill_chain_segment: 64,
             gossip_block_queue: 1024,
@@ -172,6 +178,9 @@ impl BeaconProcessorQueueLengths {
             bbroots_queue: 1024,
             blbroots_queue: 1024,
             blbrange_queue: 1024,
+            // TODO(das): pick proper values
+            dcbroots_queue: 1024,
+            dcbrange_queue: 1024,
             gossip_bls_to_execution_change_queue: 16384,
             lc_bootstrap_queue: 1024,
             lc_optimistic_update_queue: 512,
@@ -223,6 +232,7 @@ pub const GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic
 pub const RPC_BLOCK: &str = "rpc_block";
 pub const IGNORED_RPC_BLOCK: &str = "ignored_rpc_block";
 pub const RPC_BLOBS: &str = "rpc_blob";
+pub const RPC_CUSTODY_COLUMN: &str = "rpc_custody_column";
 pub const CHAIN_SEGMENT: &str = "chain_segment";
 pub const CHAIN_SEGMENT_BACKFILL: &str = "chain_segment_backfill";
 pub const STATUS_PROCESSING: &str = "status_processing";
@@ -230,6 +240,8 @@ pub const BLOCKS_BY_RANGE_REQUEST: &str = "blocks_by_range_request";
 pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
 pub const BLOBS_BY_RANGE_REQUEST: &str = "blobs_by_range_request";
 pub const BLOBS_BY_ROOTS_REQUEST: &str = "blobs_by_roots_request";
+pub const DATA_COLUMNS_BY_ROOTS_REQUEST: &str = "data_columns_by_roots_request";
+pub const DATA_COLUMNS_BY_RANGE_REQUEST: &str = "data_columns_by_range_request";
 pub const LIGHT_CLIENT_BOOTSTRAP_REQUEST: &str = "light_client_bootstrap";
 pub const LIGHT_CLIENT_FINALITY_UPDATE_REQUEST: &str = "light_client_finality_update_request";
 pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST: &str = "light_client_optimistic_update_request";
@@ -314,11 +326,10 @@ impl<T> FifoQueue<T> {
     pub fn push(&mut self, item: T, item_desc: &str, log: &Logger) {
         if self.queue.len() == self.max_length {
             error!(
-                log,
-                "Work queue is full";
-                "msg" => "the system has insufficient resources for load",
-                "queue_len" => self.max_length,
-                "queue" => item_desc,
+                msg = "the system has insufficient resources for load",
+                queue_len = self.max_length,
+                queue = item_desc,
+                "Work queue is full"
             )
         } else {
             self.queue.push_back(item);
@@ -599,6 +610,7 @@ pub enum Work<E: EthSpec> {
     RpcBlobs {
         process_fn: AsyncFn,
     },
+    RpcCustodyColumn(AsyncFn),
     IgnoredRpcBlock {
         process_fn: BlockingFn,
     },
@@ -609,6 +621,8 @@ pub enum Work<E: EthSpec> {
     BlocksByRootsRequest(AsyncFn),
     BlobsByRangeRequest(BlockingFn),
     BlobsByRootsRequest(BlockingFn),
+    DataColumnsByRootsRequest(BlockingFn),
+    DataColumnsByRangeRequest(BlockingFn),
     GossipBlsToExecutionChange(BlockingFn),
     LightClientBootstrapRequest(BlockingFn),
     LightClientOptimisticUpdateRequest(BlockingFn),
@@ -644,6 +658,7 @@ impl<E: EthSpec> Work<E> {
             Work::GossipLightClientOptimisticUpdate(_) => GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
             Work::RpcBlock { .. } => RPC_BLOCK,
             Work::RpcBlobs { .. } => RPC_BLOBS,
+            Work::RpcCustodyColumn { .. } => RPC_CUSTODY_COLUMN,
             Work::IgnoredRpcBlock { .. } => IGNORED_RPC_BLOCK,
             Work::ChainSegment { .. } => CHAIN_SEGMENT,
             Work::ChainSegmentBackfill(_) => CHAIN_SEGMENT_BACKFILL,
@@ -652,6 +667,8 @@ impl<E: EthSpec> Work<E> {
             Work::BlocksByRootsRequest(_) => BLOCKS_BY_ROOTS_REQUEST,
             Work::BlobsByRangeRequest(_) => BLOBS_BY_RANGE_REQUEST,
             Work::BlobsByRootsRequest(_) => BLOBS_BY_ROOTS_REQUEST,
+            Work::DataColumnsByRootsRequest(_) => DATA_COLUMNS_BY_ROOTS_REQUEST,
+            Work::DataColumnsByRangeRequest(_) => DATA_COLUMNS_BY_RANGE_REQUEST,
             Work::LightClientBootstrapRequest(_) => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
             Work::LightClientOptimisticUpdateRequest(_) => LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST,
             Work::LightClientFinalityUpdateRequest(_) => LIGHT_CLIENT_FINALITY_UPDATE_REQUEST,
@@ -804,6 +821,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         // Using a FIFO queue since blocks need to be imported sequentially.
         let mut rpc_block_queue = FifoQueue::new(queue_lengths.rpc_block_queue);
         let mut rpc_blob_queue = FifoQueue::new(queue_lengths.rpc_blob_queue);
+        let mut rpc_custody_column_queue = FifoQueue::new(queue_lengths.rpc_custody_column_queue);
         let mut chain_segment_queue = FifoQueue::new(queue_lengths.chain_segment_queue);
         let mut backfill_chain_segment = FifoQueue::new(queue_lengths.backfill_chain_segment);
         let mut gossip_block_queue = FifoQueue::new(queue_lengths.gossip_block_queue);
@@ -816,6 +834,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut bbroots_queue = FifoQueue::new(queue_lengths.bbroots_queue);
         let mut blbroots_queue = FifoQueue::new(queue_lengths.blbroots_queue);
         let mut blbrange_queue = FifoQueue::new(queue_lengths.blbrange_queue);
+        let mut dcbroots_queue = FifoQueue::new(queue_lengths.dcbroots_queue);
+        let mut dcbrange_queue = FifoQueue::new(queue_lengths.dcbrange_queue);
 
         let mut gossip_bls_to_execution_change_queue =
             FifoQueue::new(queue_lengths.gossip_bls_to_execution_change_queue);
@@ -868,9 +888,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 {
                                     Err(e) => {
                                         warn!(
-                                            self.log,
-                                            "Unable to queue backfill work event. Will try to process now.";
-                                            "error" => %e
+                                            error = %e,
+                                            "Unable to queue backfill work event. Will try to process now."
                                         );
                                         match e {
                                             TrySendError::Full(reprocess_queue_message)
@@ -881,9 +900,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                     ) => Some(backfill_batch.into()),
                                                     other => {
                                                         crit!(
-                                                            self.log,
-                                                            "Unexpected queue message type";
-                                                            "message_type" => other.as_ref()
+                                                            message_type = other.as_ref(),
+                                                            "Unexpected queue message type"
+                                                            
                                                         );
                                                         // This is an unhandled exception, drop the message.
                                                         continue;
@@ -905,9 +924,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     | Some(InboundEvent::ReprocessingWork(event)) => Some(event),
                     None => {
                         debug!(
-                            self.log,
-                            "Gossip processor stopped";
-                            "msg" => "stream ended"
+                            msg = "stream ended",
+                            "Gossip processor stopped"
                         );
                         break;
                     }
@@ -956,6 +974,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = rpc_block_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = rpc_blob_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = rpc_custody_column_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         // Check delayed blocks before gossip blocks, the gossip blocks might rely
                         // on the delayed ones.
@@ -1008,7 +1028,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                 }
                                             }
                                             _ => {
-                                                error!(self.log, "Invalid item in aggregate queue");
+                                                error!("Invalid item in aggregate queue");
                                             }
                                         }
                                     }
@@ -1029,7 +1049,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     // Since we only form batches when multiple
                                     // work items exist, we should always have a
                                     // work closure at this point.
-                                    crit!(self.log, "Missing aggregate work");
+                                    crit!("Missing aggregate work");
                                 }
                             }
                         // Check the unaggregated attestation queue.
@@ -1068,7 +1088,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                 }
                                             }
                                             _ => error!(
-                                                self.log,
                                                 "Invalid item in attestation queue"
                                             ),
                                         }
@@ -1090,7 +1109,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     // Since we only form batches when multiple
                                     // work items exist, we should always have a
                                     // work closure at this point.
-                                    crit!(self.log, "Missing attestations work");
+                                    crit!("Missing attestations work");
                                 }
                             }
                         // Check sync committee messages after attestations as their rewards are lesser
@@ -1117,6 +1136,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = blbrange_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = blbroots_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = dcbroots_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = dcbrange_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         // Check slashings after all other consensus messages so we prioritize
                         // following head.
@@ -1165,9 +1188,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     // I cannot see any good reason why this would happen.
                     None => {
                         warn!(
-                            self.log,
-                            "Unexpected gossip processor condition";
-                            "msg" => "no new work and cannot spawn worker"
+                            msg = "no new work and cannot spawn worker",
+                            "Unexpected gossip processor condition"
                         );
                     }
                     // The chain is syncing and this event should be dropped during sync.
@@ -1181,10 +1203,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             &[work_id],
                         );
                         trace!(
-                            self.log,
-                            "Gossip processor skipping work";
-                            "msg" => "chain is syncing",
-                            "work_id" => work_id
+                            msg = "chain is syncing",
+                            work_id = work_id,
+                            "Gossip processor skipping work"
                         );
                     }
                     // There is a new work event and the chain is not syncing. Process it or queue
@@ -1198,17 +1219,15 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             // Attestation batches are formed internally within the
                             // `BeaconProcessor`, they are not sent from external services.
                             Work::GossipAttestationBatch { .. } => crit!(
-                                    self.log,
-                                    "Unsupported inbound event";
-                                    "type" => "GossipAttestationBatch"
+                                r#type = "GossipAttestationBatch",
+                                "Unsupported inbound event"
                             ),
                             Work::GossipAggregate { .. } => aggregate_queue.push(work),
                             // Aggregate batches are formed internally within the `BeaconProcessor`,
                             // they are not sent from external services.
                             Work::GossipAggregateBatch { .. } => crit!(
-                                    self.log,
-                                    "Unsupported inbound event";
-                                    "type" => "GossipAggregateBatch"
+                                r#type = "GossipAggregateBatch",
+                                "Unsupported inbound event"
                             ),
                             Work::GossipBlock { .. } => {
                                 gossip_block_queue.push(work, work_id, &self.log)
@@ -1245,6 +1264,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 rpc_block_queue.push(work, work_id, &self.log)
                             }
                             Work::RpcBlobs { .. } => rpc_blob_queue.push(work, work_id, &self.log),
+                            Work::RpcCustodyColumn { .. } => {
+                                rpc_custody_column_queue.push(work, work_id, &self.log)
+                            }
                             Work::ChainSegment { .. } => {
                                 chain_segment_queue.push(work, work_id, &self.log)
                             }
@@ -1281,6 +1303,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             }
                             Work::BlobsByRootsRequest { .. } => {
                                 blbroots_queue.push(work, work_id, &self.log)
+                            }
+                            Work::DataColumnsByRootsRequest { .. } => {
+                                dcbroots_queue.push(work, work_id, &self.log)
+                            }
+                            Work::DataColumnsByRangeRequest { .. } => {
+                                dcbrange_queue.push(work, work_id, &self.log)
                             }
                             Work::UnknownLightClientOptimisticUpdate { .. } => {
                                 unknown_light_client_update_queue.push(work, work_id, &self.log)
@@ -1370,19 +1398,17 @@ impl<E: EthSpec> BeaconProcessor<E> {
 
                 if aggregate_queue.is_full() && aggregate_debounce.elapsed() {
                     error!(
-                        self.log,
-                        "Aggregate attestation queue full";
-                        "msg" => "the system has insufficient resources for load",
-                        "queue_len" => aggregate_queue.max_length,
+                        msg = "the system has insufficient resources for load",
+                        queue_len = aggregate_queue.max_length,
+                        "Aggregate attestation queue full"
                     )
                 }
 
                 if attestation_queue.is_full() && attestation_debounce.elapsed() {
                     error!(
-                        self.log,
-                        "Attestation queue full";
-                        "msg" => "the system has insufficient resources for load",
-                        "queue_len" => attestation_queue.max_length,
+                        msg = "the system has insufficient resources for load",
+                        queue_len = attestation_queue.max_length,
+                        "Attestation queue full"
                     )
                 }
             }
@@ -1422,10 +1448,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let executor = self.executor.clone();
 
         trace!(
-            self.log,
-            "Spawning beacon processor worker";
-            "work" => work_id,
-            "worker" => worker_id,
+            work = work_id,
+            worker = worker_id,
+            "Spawning beacon processor worker"
         );
 
         let task_spawner = TaskSpawner {
@@ -1474,16 +1499,19 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 beacon_block_root: _,
                 process_fn,
             } => task_spawner.spawn_async(process_fn),
-            Work::RpcBlock { process_fn } | Work::RpcBlobs { process_fn } => {
-                task_spawner.spawn_async(process_fn)
-            }
+            Work::RpcBlock { process_fn }
+            | Work::RpcBlobs { process_fn }
+            | Work::RpcCustodyColumn(process_fn) => task_spawner.spawn_async(process_fn),
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
             Work::GossipBlock(work)
             | Work::GossipBlobSidecar(work)
             | Work::GossipDataColumnSidecar(work) => task_spawner.spawn_async(async move {
                 work.await;
             }),
-            Work::BlobsByRangeRequest(process_fn) | Work::BlobsByRootsRequest(process_fn) => {
+            Work::BlobsByRangeRequest(process_fn)
+            | Work::BlobsByRootsRequest(process_fn)
+            | Work::DataColumnsByRootsRequest(process_fn)
+            | Work::DataColumnsByRangeRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
             Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {
@@ -1572,10 +1600,9 @@ impl Drop for SendOnDrop {
     fn drop(&mut self) {
         if let Err(e) = self.tx.try_send(()) {
             warn!(
-                self.log,
-                "Unable to free worker";
-                "msg" => "did not free worker, shutdown may be underway",
-                "error" => %e
+                msg = "did not free worker, shutdown may be underway",
+                error = %e,
+                "Unable to free worker"
             )
         }
     }

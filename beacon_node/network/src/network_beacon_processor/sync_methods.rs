@@ -24,7 +24,7 @@ use store::KzgCommitment;
 use tokio::sync::mpsc;
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::BlockImportSource;
+use types::{BlockImportSource, DataColumnSidecarList};
 use types::{Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
@@ -301,6 +301,60 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         // Sync handles these results
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
+            process_type,
+            result: result.into(),
+        });
+    }
+
+    pub async fn process_rpc_custody_columns(
+        self: Arc<NetworkBeaconProcessor<T>>,
+        block_root: Hash256,
+        custody_columns: DataColumnSidecarList<T::EthSpec>,
+        _seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) {
+        let result = self
+            .chain
+            .process_rpc_custody_columns(custody_columns)
+            .await;
+
+        match &result {
+            Ok(availability) => match availability {
+                AvailabilityProcessingStatus::Imported(hash) => {
+                    debug!(
+                        self.log,
+                        "Block components retrieved";
+                        "result" => "imported block and custody columns",
+                        "block_hash" => %hash,
+                    );
+                    self.chain.recompute_head_at_current_slot().await;
+                }
+                AvailabilityProcessingStatus::MissingComponents(_, _) => {
+                    debug!(
+                        self.log,
+                        "Missing components over rpc";
+                        "block_hash" => %block_root,
+                    );
+                }
+            },
+            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+                debug!(
+                    self.log,
+                    "Custody columns have already been imported";
+                    "block_hash" => %block_root,
+                );
+            }
+            Err(e) => {
+                warn!(
+                    self.log,
+                    "Error when importing rpc custody columns";
+                    "error" => ?e,
+                    "block_hash" => %block_root,
+                );
+            }
+        }
+
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
             result: result.into(),

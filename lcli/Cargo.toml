@@ -1,7 +1,7 @@
 [package]
 name = "lcli"
 description = "Lighthouse CLI (modeled after zcli)"
-version = "5.2.1"
+version = "5.3.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
@@ -14,6 +14,7 @@ jemalloc = ["malloc_utils/jemalloc"]
 bls = { workspace = true }
 clap = { workspace = true }
 log = { workspace = true }
+sloggers = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
 serde_json = { workspace = true }

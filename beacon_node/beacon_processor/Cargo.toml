@@ -13,6 +13,7 @@ futures = { workspace = true }
 fnv = { workspace = true }
 strum = { workspace = true }
 task_executor = { workspace = true }
+tracing = {workspace = true }
 slot_clock = { workspace = true }
 lighthouse_network = { workspace = true }
 types = { workspace = true }
