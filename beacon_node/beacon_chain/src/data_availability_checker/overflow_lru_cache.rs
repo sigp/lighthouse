@@ -373,6 +373,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         })
     }
 
+    pub fn custody_subnet_count(&self) -> usize {
+        self.custody_column_count
+    }
+
     /// Returns true if the block root is known, without altering the LRU ordering
     pub fn get_execution_valid_block(
         &self,

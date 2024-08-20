@@ -19,14 +19,7 @@
 // DEALINGS IN THE SOFTWARE.
 
 use std::{
-    cmp::{max, Ordering},
-    collections::HashSet,
-    collections::VecDeque,
-    collections::{BTreeSet, HashMap},
-    fmt,
-    net::IpAddr,
-    task::{Context, Poll},
-    time::Duration,
+    cmp::{max, Ordering}, collections::{BTreeSet, HashMap, HashSet, VecDeque}, fmt, io::Read, net::IpAddr, task::{Context, Poll}, time::Duration
 };
 
 use futures::StreamExt;
@@ -1833,7 +1826,7 @@ where
 
         // Record the received message with the metrics
         if let Some(metrics) = self.metrics.as_mut() {
-            metrics.msg_recvd(&message.topic, &message.raw_protobuf_len());
+            metrics.msg_recvd(&message.topic, message.get_size());
         }
 
         // Consider the message as delivered for gossip promises.

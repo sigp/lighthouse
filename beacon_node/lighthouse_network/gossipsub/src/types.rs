@@ -30,6 +30,7 @@ use libp2p::identity::PeerId;
 use libp2p::swarm::ConnectionId;
 use prometheus_client::encoding::EncodeLabelValue;
 use quick_protobuf::MessageWrite;
+use quick_protobuf::sizeofs::*;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -234,6 +235,16 @@ impl fmt::Debug for Message {
             .field("sequence_number", &self.sequence_number)
             .field("topic", &self.topic)
             .finish()
+    }
+}
+
+impl Message {
+    pub(crate) fn get_size(&self) -> usize {
+        0
+            + self.source.as_ref().map_or(0, |m| 1 + sizeof_len(m.to_bytes().len()))
+            + sizeof_len(self.data.len())
+            + self.sequence_number.as_ref().map_or(0, |m| 1 + sizeof_varint(*(m) as u64))
+            + sizeof_len(self.topic.hash_byte_len())
     }
 }
 

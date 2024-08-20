@@ -1988,7 +1988,7 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
 
     set_gauge_by_usize(
         &CUSTODY_COLUMNS_COUNT,
-        da_checker_metrics.custody_column_count,
+        da_checker_metrics.custody_columns_count,
     );
 
     beacon_chain
