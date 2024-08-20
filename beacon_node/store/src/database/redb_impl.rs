@@ -8,7 +8,7 @@ use types::EthSpec;
 
 use super::interface::WriteOptions;
 
-pub const DB_FILE_NAME: &str = "database";
+pub const DB_FILE_NAME: &str = "database.redb";
 
 pub struct Redb<E: EthSpec> {
     db: RwLock<redb::Database>,
