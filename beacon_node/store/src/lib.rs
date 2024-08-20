@@ -151,7 +151,7 @@ pub fn get_col_from_key(key: &[u8]) -> Option<String> {
 }
 
 pub fn get_data_column_key(block_root: &Hash256, column_index: &ColumnIndex) -> Vec<u8> {
-    let mut result = block_root.as_bytes().to_vec();
+    let mut result = block_root.as_slice().to_vec();
     result.extend_from_slice(&column_index.to_le_bytes());
     result
 }
@@ -300,6 +300,9 @@ pub enum DBColumn {
     BeaconHistoricalSummaries,
     #[strum(serialize = "olc")]
     OverflowLRUCache,
+    /// For persisting eagerly computed light client data
+    #[strum(serialize = "lcu")]
+    LightClientUpdate,
 }
 
 /// A block from the database, which might have an execution payload or not.
@@ -342,7 +345,8 @@ impl DBColumn {
             | Self::BeaconStateRoots
             | Self::BeaconHistoricalRoots
             | Self::BeaconHistoricalSummaries
-            | Self::BeaconRandaoMixes => 8,
+            | Self::BeaconRandaoMixes
+            | Self::LightClientUpdate => 8,
             Self::BeaconDataColumn => DATA_COLUMN_DB_KEY_SIZE,
         }
     }

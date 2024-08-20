@@ -1682,7 +1682,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Fetch all keys in the data_column column with prefix `block_root`
     pub fn get_data_column_keys(&self, block_root: Hash256) -> Result<Vec<ColumnIndex>, Error> {
         self.blobs_db
-            .iter_raw_keys(DBColumn::BeaconDataColumn, block_root.as_bytes())
+            .iter_raw_keys(DBColumn::BeaconDataColumn, block_root.as_slice())
             .map(|key| key.and_then(|key| parse_data_column_key(key).map(|key| key.1)))
             .collect()
     }

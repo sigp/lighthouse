@@ -6,10 +6,10 @@ use crate::engine_api::{
 };
 use crate::json_structures::JsonClientVersionV1;
 use bytes::Bytes;
-use environment::null_logger;
 use execution_block_generator::PoWBlock;
 use handle_rpc::handle_rpc;
 use kzg::Kzg;
+use logging::test_logger;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -149,7 +149,7 @@ impl<E: EthSpec> MockServer<E> {
         let ctx: Arc<Context<E>> = Arc::new(Context {
             config: server_config,
             jwt_key,
-            log: null_logger().unwrap(),
+            log: test_logger(),
             last_echo_request: last_echo_request.clone(),
             execution_block_generator: RwLock::new(execution_block_generator),
             previous_request: <_>::default(),

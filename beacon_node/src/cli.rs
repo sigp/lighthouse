@@ -55,6 +55,18 @@ pub fn cli_app() -> Command {
          * Network parameters.
          */
         .arg(
+            Arg::new("subscribe-all-data-column-subnets")
+                .long("subscribe-all-data-column-subnets")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .help("Subscribe to all data column subnets and participate in data custody for \
+                        all columns. This will also advertise the beacon node as being long-lived \
+                        subscribed to all data column subnets. \
+                        NOTE: this is an experimental flag and may change any time without notice!")
+                .display_order(0)
+                .hide(true)
+        )
+        .arg(
             Arg::new("subscribe-all-subnets")
                 .long("subscribe-all-subnets")
                 .action(ArgAction::SetTrue)
@@ -907,7 +919,15 @@ pub fn cli_app() -> Command {
                 .long("purge-db")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
-                .help("If present, the chain database will be deleted. Use with caution.")
+                .help("If present, the chain database will be deleted. Requires manual confirmation.")
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("purge-db-force")
+                .long("purge-db-force")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .help("If present, the chain database will be deleted without confirmation. Use with caution.")
                 .display_order(0)
         )
         .arg(

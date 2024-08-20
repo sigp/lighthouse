@@ -426,6 +426,13 @@ impl ChainSpec {
         })
     }
 
+    /// Returns true if `EIP7594_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    pub fn is_peer_das_scheduled(&self) -> bool {
+        self.eip7594_fork_epoch.map_or(false, |eip7594_fork_epoch| {
+            eip7594_fork_epoch != self.far_future_epoch
+        })
+    }
+
     /// Returns a full `Fork` struct for a given epoch.
     pub fn fork_at_epoch(&self, epoch: Epoch) -> Fork {
         let current_fork_name = self.fork_name_at_epoch(epoch);
@@ -1366,10 +1373,13 @@ pub struct Config {
     #[serde(with = "serde_utils::quoted_u64")]
     max_per_epoch_activation_exit_churn_limit: u64,
 
+    #[serde(default = "default_custody_requirement")]
     #[serde(with = "serde_utils::quoted_u64")]
     custody_requirement: u64,
+    #[serde(default = "default_data_column_sidecar_subnet_count")]
     #[serde(with = "serde_utils::quoted_u64")]
     data_column_sidecar_subnet_count: u64,
+    #[serde(default = "default_number_of_columns")]
     #[serde(with = "serde_utils::quoted_u64")]
     number_of_columns: u64,
 }
@@ -1508,6 +1518,18 @@ const fn default_attestation_propagation_slot_range() -> u64 {
 
 const fn default_maximum_gossip_clock_disparity_millis() -> u64 {
     500
+}
+
+const fn default_custody_requirement() -> u64 {
+    1
+}
+
+const fn default_data_column_sidecar_subnet_count() -> u64 {
+    32
+}
+
+const fn default_number_of_columns() -> u64 {
+    128
 }
 
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {

@@ -2,6 +2,7 @@ use crate::common::read_wallet_name_from_cli;
 use crate::WALLETS_DIR_FLAG;
 use account_utils::{
     is_password_sufficiently_complex, random_password, read_password_from_user, strip_off_newlines,
+    STDIN_INPUTS_FLAG,
 };
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2_wallet::{
@@ -20,7 +21,6 @@ pub const NAME_FLAG: &str = "name";
 pub const PASSWORD_FLAG: &str = "password-file";
 pub const TYPE_FLAG: &str = "type";
 pub const MNEMONIC_FLAG: &str = "mnemonic-output-path";
-pub const STDIN_INPUTS_FLAG: &str = "stdin-inputs";
 pub const MNEMONIC_LENGTH_FLAG: &str = "mnemonic-length";
 pub const MNEMONIC_TYPES: &[MnemonicType] = &[
     MnemonicType::Words12,
@@ -81,14 +81,6 @@ pub fn cli_app() -> Command {
                     "If present, the mnemonic will be saved to this file. DO NOT SHARE THE MNEMONIC.",
                 )
                 .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new(STDIN_INPUTS_FLAG)
-                .action(ArgAction::SetTrue)
-                .hide(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty.")
                 .display_order(0)
         )
         .arg(

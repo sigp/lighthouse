@@ -9,18 +9,20 @@ use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::BeaconChainTypes;
 use lru::LruCache;
 use parking_lot::RwLock;
-use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use types::blob_sidecar::BlobIdentifier;
-use types::{BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
+use types::{
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar, Epoch, EthSpec,
+    Hash256, SignedBeaconBlock,
+};
 
 /// This represents the components of a partially available block
 ///
 /// The blobs are all gossip and kzg verified.
 /// The block has completed all verifications except the availability check.
-#[derive(Encode, Decode, Clone)]
+#[derive(Clone)]
 pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
@@ -107,6 +109,14 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Returns the number of data columns that have been received and are stored in the cache.
     pub fn num_received_data_columns(&self) -> usize {
         self.verified_data_columns.len()
+    }
+
+    /// Returns the indices of cached custody columns
+    pub fn get_cached_data_columns_indices(&self) -> Vec<ColumnIndex> {
+        self.verified_data_columns
+            .iter()
+            .map(|d| d.index())
+            .collect()
     }
 
     /// Inserts a block into the cache.
@@ -249,7 +259,6 @@ impl<E: EthSpec> PendingComponents<E> {
                 let num_blobs_expected = diet_executed_block.num_blobs_expected();
                 let Some(verified_blobs) = verified_blobs
                     .into_iter()
-                    .cloned()
                     .map(|b| b.map(|b| b.to_blob()))
                     .take(num_blobs_expected)
                     .collect::<Option<Vec<_>>>()
@@ -303,6 +312,15 @@ impl<E: EthSpec> PendingComponents<E> {
                         });
                     }
                 }
+
+                if let Some(kzg_verified_data_column) = self.verified_data_columns.first() {
+                    let epoch = kzg_verified_data_column
+                        .as_data_column()
+                        .slot()
+                        .epoch(E::slots_per_epoch());
+                    return Some(epoch);
+                }
+
                 None
             })
     }
@@ -336,6 +354,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         })
     }
 
+    pub fn custody_subnet_count(&self) -> usize {
+        self.custody_column_count
+    }
+
     /// Returns true if the block root is known, without altering the LRU ordering
     pub fn get_execution_valid_block(
         &self,
@@ -364,6 +386,22 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
                 .ok_or(AvailabilityCheckError::BlobIndexInvalid(blob_id.index))?
                 .as_ref()
                 .map(|blob| blob.clone_blob()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Fetch a data column from the cache without affecting the LRU ordering
+    pub fn peek_data_column(
+        &self,
+        data_column_id: &DataColumnIdentifier,
+    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, AvailabilityCheckError> {
+        if let Some(pending_components) = self.critical.read().peek(&data_column_id.block_root) {
+            Ok(pending_components
+                .verified_data_columns
+                .iter()
+                .find(|data_column| data_column.as_data_column().index == data_column_id.index)
+                .map(|data_column| data_column.clone_arc()))
         } else {
             Ok(None)
         }
@@ -430,8 +468,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
     }
 
-    // TODO(das): rpc code paths to be implemented.
-    #[allow(dead_code)]
     pub fn put_kzg_verified_data_columns<
         I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,
     >(
