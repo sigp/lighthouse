@@ -248,4 +248,3 @@ incremental = false
 
 [patch.crates-io]
 quick-protobuf = { git = "https://github.com/sigp/quick-protobuf.git", rev = "681f413312404ab6e51f0b46f39b0075c6f4ebfd" }
-alloy-primitives = { git = "https://github.com/eserilev/core", branch = "remove-ethereum-ssz-dep" }
