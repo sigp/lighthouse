@@ -1648,9 +1648,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         // Register each attestation in the block with fork choice.
         for (i, attestation) in block.message().body().attestations().enumerate() {
-            let _fork_choice_attestation_timer =
-                metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
-
             let indexed_attestation = consensus_context
                 .get_indexed_attestation(&state, attestation)
                 .map_err(|e| BlockError::PerBlockProcessingError(e.into_with_index(i)))?;
