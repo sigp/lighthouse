@@ -8,13 +8,13 @@ use crate::{
     subnet_service::{AttestationService, SubnetServiceMessage},
     NetworkConfig,
 };
+use alloy_primitives::U256;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend};
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
 use futures::StreamExt;
-use alloy_primitives::U256;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
 use lighthouse_network::Eth2Enr;

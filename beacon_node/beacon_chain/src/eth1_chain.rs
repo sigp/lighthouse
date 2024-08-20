@@ -685,7 +685,7 @@ fn is_candidate_block(block: &Eth1Block, period_start: u64, spec: &ChainSpec) ->
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::{DepositData, MinimalEthSpec, Signature, FixedBytesExtended};
+    use types::{DepositData, FixedBytesExtended, MinimalEthSpec, Signature};
 
     type E = MinimalEthSpec;
 

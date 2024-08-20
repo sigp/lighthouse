@@ -812,9 +812,9 @@ mod tests {
     use crate::rpc::protocol::*;
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
     use types::{
-        blob_sidecar::BlobIdentifier, BeaconBlock, BeaconBlockAltair, BeaconBlockBase, FixedBytesExtended,
-        BeaconBlockBellatrix, DataColumnIdentifier, EmptyBlock, Epoch, FullPayload, Signature,
-        Slot,
+        blob_sidecar::BlobIdentifier, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
+        BeaconBlockBellatrix, DataColumnIdentifier, EmptyBlock, Epoch, FixedBytesExtended,
+        FullPayload, Signature, Slot,
     };
 
     type Spec = types::MainnetEthSpec;
