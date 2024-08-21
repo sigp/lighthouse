@@ -14,6 +14,7 @@ jemalloc = ["malloc_utils/jemalloc"]
 bls = { workspace = true }
 clap = { workspace = true }
 log = { workspace = true }
+sloggers = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
 serde_json = { workspace = true }

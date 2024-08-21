@@ -10,6 +10,7 @@ alloy-primitives = { workspace = true }
 types = { workspace = true }
 tokio = { workspace = true }
 slog = { workspace = true }
+logging = { workspace = true }
 sensitive_url = { workspace = true }
 reqwest = { workspace = true }
 ethereum_serde_utils = { workspace = true }
@@ -17,7 +18,6 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 warp = { workspace = true }
 jsonwebtoken = "8"
-environment = { workspace = true }
 bytes = { workspace = true }
 task_executor = { workspace = true }
 hex = { workspace = true }
