@@ -212,3 +212,9 @@ impl slog::Value for RequestId {
         }
     }
 }
+
+impl std::fmt::Display for DataColumnsByRootRequestId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
