@@ -807,7 +807,7 @@ impl ChainSpec {
              * DAS params
              */
             eip7594_fork_epoch: None,
-            custody_requirement: 1,
+            custody_requirement: 4,
             data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
 
@@ -1129,7 +1129,7 @@ impl ChainSpec {
              * DAS params
              */
             eip7594_fork_epoch: None,
-            custody_requirement: 1,
+            custody_requirement: 4,
             data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
             /*
