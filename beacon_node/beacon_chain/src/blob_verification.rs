@@ -339,16 +339,16 @@ impl<E: EthSpec> KzgVerifiedBlobList<E> {
         kzg: &Kzg,
         seen_timestamp: Duration,
     ) -> Result<Self, KzgError> {
-        let blobs = blob_list.into_iter().collect::<Vec<_>>();
-        verify_kzg_for_blob_list(blobs.iter(), kzg)?;
+        let blobs = blob_list
+            .into_iter()
+            .map(|blob| KzgVerifiedBlob {
+                blob,
+                seen_timestamp,
+            })
+            .collect::<Vec<_>>();
+        verify_kzg_for_blob_list(blobs.iter().map(|b| &b.blob), kzg)?;
         Ok(Self {
-            verified_blobs: blobs
-                .into_iter()
-                .map(|blob| KzgVerifiedBlob {
-                    blob,
-                    seen_timestamp,
-                })
-                .collect(),
+            verified_blobs: blobs,
         })
     }
 }
@@ -570,8 +570,9 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         .kzg
         .as_ref()
         .ok_or(GossipBlobError::KzgNotInitialized)?;
-    let kzg_verified_blob = KzgVerifiedBlob::new(blob_sidecar.clone(), kzg, seen_timestamp)
+    let kzg_verified_blob = KzgVerifiedBlob::new(blob_sidecar, kzg, seen_timestamp)
         .map_err(GossipBlobError::KzgError)?;
+    let blob_sidecar = &kzg_verified_blob.blob;
 
     chain
         .observed_slashable
@@ -597,7 +598,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     if chain
         .observed_blob_sidecars
         .write()
-        .observe_sidecar(&blob_sidecar)
+        .observe_sidecar(blob_sidecar)
         .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?
     {
         return Err(GossipBlobError::RepeatBlob {

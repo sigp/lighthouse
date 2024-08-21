@@ -24,9 +24,7 @@ use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, DataAvailabilityChecker,
     DataColumnsToPublish,
 };
-use crate::data_column_verification::{
-    CustodyDataColumn, GossipDataColumnError, GossipVerifiedDataColumn,
-};
+use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
@@ -94,7 +92,6 @@ use operation_pool::{
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DoNotReOrg, ProposerHeadError};
 use safe_arith::SafeArith;
-use slasher::test_utils::E;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -2236,8 +2233,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         verified: &impl VerifiedAttestation<T>,
     ) -> Result<(), Error> {
-        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
-
         self.canonical_head
             .fork_choice_write_lock()
             .on_attestation(
@@ -3135,8 +3130,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// imported or errors.
     pub async fn process_rpc_custody_columns(
         self: &Arc<Self>,
-        block_root: Hash256,
-        custody_columns: Vec<CustodyDataColumn<T::EthSpec>>,
+        custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<
         (
             AvailabilityProcessingStatus,
@@ -3144,6 +3138,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ),
         BlockError<T::EthSpec>,
     > {
+        let Ok((slot, block_root)) = custody_columns
+            .iter()
+            .map(|c| (c.slot(), c.block_root()))
+            .unique()
+            .exactly_one()
+        else {
+            return Err(BlockError::InternalError(
+                "Columns should be from the same block".to_string(),
+            ));
+        };
+
         // If this block has already been imported to forkchoice it must have been available, so
         // we don't need to process its columns again.
         if self
@@ -3155,13 +3160,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // TODO(das): custody column SSE event
-        let slot = custody_columns
-            .first()
-            .ok_or(BeaconChainError::EmptyRpcCustodyColumns)?
-            .as_data_column()
-            .signed_block_header
-            .message
-            .slot;
+
         let r = self
             .check_rpc_custody_columns_availability_and_import(slot, block_root, custody_columns)
             .await;
@@ -3518,7 +3517,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         slot: Slot,
         block_root: Hash256,
-        custody_columns: Vec<CustodyDataColumn<T::EthSpec>>,
+        custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<
         (
             AvailabilityProcessingStatus,
@@ -3530,12 +3529,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Even an explicit drop is not enough to convince the borrow checker.
         {
             let mut slashable_cache = self.observed_slashable.write();
-            for header in custody_columns
-                .iter()
-                .map(|c| c.as_data_column().signed_block_header.clone())
-                .unique()
-            {
-                if verify_header_signature::<T, BlockError<T::EthSpec>>(self, &header).is_ok() {
+            // Assumes all items in custody_columns are for the same block_root
+            if let Some(column) = custody_columns.first() {
+                let header = &column.signed_block_header;
+                if verify_header_signature::<T, BlockError<T::EthSpec>>(self, header).is_ok() {
                     slashable_cache
                         .observe_slashable(
                             header.message.slot,
@@ -3544,15 +3541,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         )
                         .map_err(|e| BlockError::BeaconChainError(e.into()))?;
                     if let Some(slasher) = self.slasher.as_ref() {
-                        slasher.accept_block_header(header);
+                        slasher.accept_block_header(header.clone());
                     }
                 }
             }
         }
-        let epoch = slot.epoch(E::slots_per_epoch());
-        let (availability, data_columns_to_publish) = self
-            .data_availability_checker
-            .put_rpc_custody_columns(block_root, epoch, custody_columns)?;
+
+        // This slot value is purely informative for the consumers of
+        // `AvailabilityProcessingStatus::MissingComponents` to log an error with a slot.
+        let (availability, data_columns_to_publish) =
+            self.data_availability_checker.put_rpc_custody_columns(
+                block_root,
+                slot.epoch(T::EthSpec::slots_per_epoch()),
+                custody_columns,
+            )?;
 
         self.process_availability(slot, availability)
             .await
@@ -3719,8 +3721,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Register the new block with the fork choice service.
         {
-            let _fork_choice_block_timer =
-                metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
             let block_delay = self
                 .slot_clock
                 .seconds_from_current_slot_start()
@@ -6966,6 +6966,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// `None` if the `Deneb` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
         self.data_availability_checker.data_availability_boundary()
+    }
+
+    /// Returns true if epoch is within the data availability boundary
+    pub fn da_check_required_for_epoch(&self, epoch: Epoch) -> bool {
+        self.data_availability_checker
+            .da_check_required_for_epoch(epoch)
+    }
+
+    /// Returns true if we should fetch blobs for this block
+    pub fn should_fetch_blobs(&self, block_epoch: Epoch) -> bool {
+        self.da_check_required_for_epoch(block_epoch)
+            && !self.spec.is_peer_das_enabled_for_epoch(block_epoch)
+    }
+
+    /// Returns true if we should fetch custody columns for this block
+    pub fn should_fetch_custody_columns(&self, block_epoch: Epoch) -> bool {
+        self.da_check_required_for_epoch(block_epoch)
+            && self.spec.is_peer_das_enabled_for_epoch(block_epoch)
     }
 
     /// Returns true if we should issue a sampling request for this block

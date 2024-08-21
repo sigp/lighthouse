@@ -15,8 +15,8 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarVec, Epoch, EthSpec, Hash256,
-    RuntimeVariableList, SignedBeaconBlock, Slot,
+    BlobSidecarList, ChainSpec, DataColumnIdentifier, DataColumnSidecar, DataColumnSidecarList,
+    Epoch, EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock, Slot,
 };
 
 mod error;
@@ -25,10 +25,9 @@ mod state_lru_cache;
 
 use crate::data_column_verification::{
     verify_kzg_for_data_column_list, CustodyDataColumn, GossipVerifiedDataColumn,
-    KzgVerifiedCustodyDataColumn,
+    KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
 };
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
-use types::data_column_sidecar::DataColumnIdentifier;
 use types::non_zero_usize::new_non_zero_usize;
 
 pub use self::overflow_lru_cache::DataColumnsToPublish;
@@ -113,18 +112,24 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let custody_column_count =
             custody_subnet_count.saturating_mul(spec.data_columns_per_subnet());
 
-        let overflow_cache = DataAvailabilityCheckerInner::new(
+        let inner = DataAvailabilityCheckerInner::new(
             OVERFLOW_LRU_CAPACITY,
             store,
             custody_column_count,
             spec.clone(),
         )?;
         Ok(Self {
-            availability_cache: Arc::new(overflow_cache),
+            availability_cache: Arc::new(inner),
             slot_clock,
             kzg,
             spec,
         })
+    }
+
+    pub fn get_custody_columns_count(&self) -> usize {
+        self.availability_cache
+            .custody_subnet_count()
+            .saturating_mul(self.spec.data_columns_per_subnet())
     }
 
     /// Checks if the block root is currenlty in the availability cache awaiting import because
@@ -209,7 +214,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: Hash256,
         epoch: Epoch,
-        custody_columns: Vec<CustodyDataColumn<T::EthSpec>>,
+        custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
     {
         let Some(kzg) = self.kzg.as_ref() else {
@@ -220,8 +225,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         // TODO(das): batch KZG verification here
         let verified_custody_columns = custody_columns
             .into_iter()
-            .map(|c| KzgVerifiedCustodyDataColumn::new(c, kzg))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|column| {
+                Ok(KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                    KzgVerifiedDataColumn::new(column, kzg).map_err(AvailabilityCheckError::Kzg)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, AvailabilityCheckError>>()?;
 
         self.availability_cache.put_kzg_verified_data_columns(
             kzg,
@@ -618,7 +627,7 @@ pub struct AvailableBlock<E: EthSpec> {
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<E>>,
     blobs: Option<BlobSidecarList<E>>,
-    data_columns: Option<DataColumnSidecarVec<E>>,
+    data_columns: Option<DataColumnSidecarList<E>>,
     /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
     blobs_available_timestamp: Option<Duration>,
     pub spec: Arc<ChainSpec>,
@@ -629,7 +638,7 @@ impl<E: EthSpec> AvailableBlock<E> {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
         blobs: Option<BlobSidecarList<E>>,
-        data_columns: Option<DataColumnSidecarVec<E>>,
+        data_columns: Option<DataColumnSidecarList<E>>,
         spec: Arc<ChainSpec>,
     ) -> Self {
         Self {
@@ -658,7 +667,7 @@ impl<E: EthSpec> AvailableBlock<E> {
         self.blobs_available_timestamp
     }
 
-    pub fn data_columns(&self) -> Option<&DataColumnSidecarVec<E>> {
+    pub fn data_columns(&self) -> Option<&DataColumnSidecarList<E>> {
         self.data_columns.as_ref()
     }
 
@@ -669,7 +678,7 @@ impl<E: EthSpec> AvailableBlock<E> {
         Hash256,
         Arc<SignedBeaconBlock<E>>,
         Option<BlobSidecarList<E>>,
-        Option<DataColumnSidecarVec<E>>,
+        Option<DataColumnSidecarList<E>>,
     ) {
         let AvailableBlock {
             block_root,

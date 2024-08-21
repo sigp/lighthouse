@@ -1,17 +1,19 @@
 use beacon_chain::get_block_root;
 use lighthouse_network::{
-    rpc::{
-        methods::{BlobsByRootRequest, DataColumnsByRootRequest},
-        BlocksByRootRequest, RPCError,
-    },
+    rpc::{methods::BlobsByRootRequest, BlocksByRootRequest},
     PeerId,
 };
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use types::{
-    blob_sidecar::BlobIdentifier, data_column_sidecar::DataColumnIdentifier, BlobSidecar,
-    ChainSpec, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock,
+    blob_sidecar::BlobIdentifier, BlobSidecar, ChainSpec, EthSpec, Hash256, SignedBeaconBlock,
 };
+
+pub use data_columns_by_root::{
+    ActiveDataColumnsByRootRequest, DataColumnsByRootSingleBlockRequest,
+};
+
+mod data_columns_by_root;
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupVerifyError {
@@ -19,7 +21,7 @@ pub enum LookupVerifyError {
     NotEnoughResponsesReturned { expected: usize, actual: usize },
     TooManyResponses,
     UnrequestedBlockRoot(Hash256),
-    UnrequestedBlobIndex(u64),
+    UnrequestedIndex(u64),
     InvalidInclusionProof,
     DuplicateData,
 }
@@ -135,7 +137,7 @@ impl<E: EthSpec> ActiveBlobsByRootRequest<E> {
             return Err(LookupVerifyError::InvalidInclusionProof);
         }
         if !self.request.indices.contains(&blob.index) {
-            return Err(LookupVerifyError::UnrequestedBlobIndex(blob.index));
+            return Err(LookupVerifyError::UnrequestedIndex(blob.index));
         }
         if self.blobs.iter().any(|b| b.index == blob.index) {
             return Err(LookupVerifyError::DuplicateData);
@@ -166,90 +168,5 @@ impl<E: EthSpec> ActiveBlobsByRootRequest<E> {
     /// true for future calls.
     pub fn resolve(&mut self) -> bool {
         std::mem::replace(&mut self.resolved, true)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct DataColumnsByRootSingleBlockRequest {
-    pub block_root: Hash256,
-    pub indices: Vec<u64>,
-}
-
-impl DataColumnsByRootSingleBlockRequest {
-    pub fn into_request(self, spec: &ChainSpec) -> DataColumnsByRootRequest {
-        DataColumnsByRootRequest::new(
-            self.indices
-                .into_iter()
-                .map(|index| DataColumnIdentifier {
-                    block_root: self.block_root,
-                    index,
-                })
-                .collect(),
-            spec,
-        )
-    }
-}
-
-pub struct ActiveDataColumnsByRootRequest<E: EthSpec> {
-    request: DataColumnsByRootSingleBlockRequest,
-    items: Vec<Arc<DataColumnSidecar<E>>>,
-    resolved: bool,
-}
-
-impl<E: EthSpec> ActiveDataColumnsByRootRequest<E> {
-    pub fn new(request: DataColumnsByRootSingleBlockRequest) -> Self {
-        Self {
-            request,
-            items: vec![],
-            resolved: false,
-        }
-    }
-
-    /// Appends a chunk to this multi-item request. If all expected chunks are received, this
-    /// method returns `Some`, resolving the request before the stream terminator.
-    /// The active request SHOULD be dropped after `add_response` returns an error
-    pub fn add_response(
-        &mut self,
-        data_column: Arc<DataColumnSidecar<E>>,
-    ) -> Result<Option<Vec<Arc<DataColumnSidecar<E>>>>, RPCError> {
-        if self.resolved {
-            return Err(RPCError::InvalidData("too many responses".to_string()));
-        }
-
-        let block_root = data_column.block_root();
-        if self.request.block_root != block_root {
-            return Err(RPCError::InvalidData(format!(
-                "un-requested block root {block_root:?}"
-            )));
-        }
-        if !data_column.verify_inclusion_proof() {
-            return Err(RPCError::InvalidData("invalid inclusion proof".to_string()));
-        }
-        if !self.request.indices.contains(&data_column.index) {
-            return Err(RPCError::InvalidData(format!(
-                "un-requested index {}",
-                data_column.index
-            )));
-        }
-        if self.items.iter().any(|b| b.index == data_column.index) {
-            return Err(RPCError::InvalidData("duplicated data".to_string()));
-        }
-
-        self.items.push(data_column);
-        if self.items.len() >= self.request.indices.len() {
-            // All expected chunks received, return result early
-            self.resolved = true;
-            Ok(Some(std::mem::take(&mut self.items)))
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub fn terminate(self) -> Option<Vec<Arc<DataColumnSidecar<E>>>> {
-        if self.resolved {
-            None
-        } else {
-            Some(self.items)
-        }
     }
 }

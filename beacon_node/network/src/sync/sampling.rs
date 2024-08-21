@@ -19,7 +19,7 @@ use types::{data_column_sidecar::ColumnIndex, ChainSpec, DataColumnSidecar, Hash
 
 pub type SamplingResult = Result<(), SamplingError>;
 
-type DataColumnSidecarVec<E> = Vec<Arc<DataColumnSidecar<E>>>;
+type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
 pub struct Sampling<T: BeaconChainTypes> {
     // TODO(das): stalled sampling request are never cleaned up
@@ -96,7 +96,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
         &mut self,
         id: SamplingId,
         peer_id: PeerId,
-        resp: Result<(DataColumnSidecarVec<T::EthSpec>, Duration), RpcResponseError>,
+        resp: Result<(DataColumnSidecarList<T::EthSpec>, Duration), RpcResponseError>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Option<(SamplingRequester, SamplingResult)> {
         let Some(request) = self.requests.get_mut(&id.id) else {
@@ -237,7 +237,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
         &mut self,
         _peer_id: PeerId,
         sampling_request_id: SamplingRequestId,
-        resp: Result<(DataColumnSidecarVec<T::EthSpec>, Duration), RpcResponseError>,
+        resp: Result<(DataColumnSidecarList<T::EthSpec>, Duration), RpcResponseError>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<Option<()>, SamplingError> {
         // Select columns to sample
