@@ -171,15 +171,8 @@ impl<T: BeaconChainTypes> RequestState<T> for CustodyRequestState<T::EthSpec> {
         downloaded_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupRequestResult, LookupRequestError> {
-        let x = cx
-            .custody_lookup_request(id, self.block_root, downloaded_block)
-            .map_err(LookupRequestError::SendFailedNetwork);
-        match x.as_ref().unwrap() {
-            LookupRequestResult::RequestSent { .. } => println!("RequestSent"),
-            LookupRequestResult::NoRequestNeeded(s) => println!("NoRequestNeeded {}", s),
-            LookupRequestResult::Pending(s) => println!("Pending {}", s),
-        }
-        x
+        cx.custody_lookup_request(id, self.block_root, downloaded_block)
+            .map_err(LookupRequestError::SendFailedNetwork)
     }
 
     fn send_for_processing(

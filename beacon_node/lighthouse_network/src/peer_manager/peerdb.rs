@@ -1,5 +1,6 @@
 use crate::discovery::enr::PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY;
 use crate::discovery::CombinedKey;
+use crate::rpc::{MetaData, MetaDataV2};
 use crate::EnrExt;
 use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, Gossipsub, PeerId};
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
@@ -14,7 +15,7 @@ use std::{
     fmt::Formatter,
 };
 use sync_status::SyncStatus;
-use types::{ChainSpec, EthSpec};
+use types::{ChainSpec, DataColumnSubnetId, EthSpec};
 
 pub mod client;
 pub mod peer_info;
@@ -683,15 +684,20 @@ impl<E: EthSpec> PeerDB<E> {
         let enr_key = CombinedKey::generate_secp256k1();
         let mut enr = Enr::builder().build(&enr_key).unwrap();
         let peer_id = enr.peer_id();
+        let node_id = enr.node_id().raw().into();
 
-        if supernode {
-            enr.insert(
-                PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY,
-                &spec.data_column_sidecar_subnet_count,
-                &enr_key,
-            )
-            .expect("u64 can be encoded");
-        }
+        let custody_subnet_count = if supernode {
+            spec.data_column_sidecar_subnet_count
+        } else {
+            spec.custody_requirement
+        };
+
+        enr.insert(
+            PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY,
+            &custody_subnet_count,
+            &enr_key,
+        )
+        .expect("u64 can be encoded");
 
         self.update_connection_state(
             &peer_id,
@@ -701,6 +707,29 @@ impl<E: EthSpec> PeerDB<E> {
                 direction: ConnectionDirection::Outgoing,
             },
         );
+        let peer = self.peers.get_mut(&peer_id).expect("peer exists");
+
+        // Need to insert an empty metadata to pass the condition `on_subnet_metadata`
+        peer.set_meta_data(MetaData::V2(MetaDataV2 {
+            seq_number: 0,
+            attnets: <_>::default(),
+            syncnets: <_>::default(),
+        }));
+
+        for subnet in
+            DataColumnSubnetId::compute_custody_columns::<E>(node_id, custody_subnet_count, spec)
+        {
+            // Need to pass the tests on PeerInfo
+            // - on_subnet_metadata: no action, `Subnet::DataColumn` returns true
+            // - on_subnet_gossipsub: subnets field contains subnet
+            // - is_good_gossipsub_peer: score >= 0, which equals default score
+            // peer.set_meta_data(crate::rpc::MetaData::V2(crate::rpc::MetaDataV2 {
+            //     seq_number: 0,
+            //     attnets: <_>::default(),
+            //     syncnets: <_>::default(),
+            // }));
+            peer.insert_subnet(Subnet::DataColumn(subnet.into()));
+        }
 
         peer_id
     }

@@ -377,6 +377,14 @@ impl TestRig {
         }
         // One supernode peer to ensure all columns have at least one peer
         self.new_connected_supernode_peer();
+
+        // ensure we have peers in each subnet
+        for i in 0..self.harness.spec.data_column_sidecar_subnet_count {
+            let peers = self
+                .network_globals
+                .custody_peers_for_column(i, &self.harness.spec);
+            println!("peers column {} {:?}", i, peers);
+        }
     }
 
     fn parent_chain_processed_success(
