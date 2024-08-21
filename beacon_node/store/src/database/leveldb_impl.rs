@@ -220,7 +220,10 @@ impl<E: EthSpec> LevelDB<E> {
                 let Some(trimmed_key) = key.remove_column_variable(column) else {
                     return false;
                 };
-                key.matches_column(column) && predicate(trimmed_key, start_key.key.as_slice())
+                let Some(trimmed_start_key) = start_key.remove_column_variable(column) else {
+                    return false;
+                };
+                key.matches_column(column) && predicate(trimmed_key, trimmed_start_key)
             })
             .map(move |(bytes_key, value)| {
                 let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
