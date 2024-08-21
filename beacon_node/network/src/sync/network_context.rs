@@ -1048,7 +1048,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn on_data_columns_by_root_response(
         &mut self,
         id: DataColumnsByRootRequestId,
-        peer_id: PeerId,
+        _peer_id: PeerId,
         rpc_event: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) -> Option<RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>> {
         let Entry::Occupied(mut request) = self.data_columns_by_root_requests.entry(id) else {
@@ -1080,8 +1080,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // catch if a peer is returning more columns than requested or if the excess blobs are
             // invalid.
             Err((e, resolved)) => {
-                if let RpcResponseError::VerifyError(e) = &e {
-                    self.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
+                if let RpcResponseError::VerifyError(_e) = &e {
+                    // TODO(das): this is a bug, we should not penalise peer in this case.
+                    // confirm this can be removed.
+                    // self.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
                 }
                 if resolved {
                     None
