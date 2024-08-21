@@ -277,10 +277,15 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         let column = DBColumn::LightClientUpdate;
         let mut light_client_updates = vec![];
 
+        println!("start period {}", start_period);
+
         let results = store.hot_db.iter_column_from::<Vec<u8>>(
             column,
             &start_period.to_le_bytes(),
             move |sync_committee_bytes, _| {
+                println!("sync_committee_bytes {:?}", sync_committee_bytes);
+                println!("calculated {:?}", u64::from_ssz_bytes(sync_committee_bytes));
+                println!("count {}", count);
                 let Ok(sync_committee_period) = u64::from_ssz_bytes(sync_committee_bytes) else {
                     return false;
                 };

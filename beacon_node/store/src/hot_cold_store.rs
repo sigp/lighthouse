@@ -3145,6 +3145,7 @@ impl BytesKey {
     pub fn remove_column_variable(&self, column: DBColumn) -> Option<&[u8]> {
         if self.matches_column(column) {
             let subkey = &self.key[column.as_bytes().len()..];
+            println!("subkey {:?}", subkey);
             if subkey.len() == column.key_size() {
                 return Some(subkey);
             }

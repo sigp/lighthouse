@@ -217,8 +217,11 @@ impl<E: EthSpec> LevelDB<E> {
 
         Ok(Box::new(
             iter.take_while(move |(key, _)| {
+                let Some(trimmed_key) = key.remove_column_variable(column) else {
+                    return false
+                };
                 key.matches_column(column)
-                    && predicate(key.key.as_slice(), start_key.key.as_slice())
+                    && predicate(trimmed_key, start_key.key.as_slice())
             })
             .map(move |(bytes_key, value)| {
                 let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
