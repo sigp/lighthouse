@@ -1686,13 +1686,6 @@ pub static DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histog
             "Full runtime of data column sidecars gossip verification",
         )
     });
-pub static DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
-    LazyLock::new(|| {
-        try_create_int_counter(
-            "beacon_blobs_column_sidecar_processing_successes_total",
-            "Number of data column sidecars verified for gossip",
-        )
-    });
 
 pub static CUSTODY_COLUMNS_COUNT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
