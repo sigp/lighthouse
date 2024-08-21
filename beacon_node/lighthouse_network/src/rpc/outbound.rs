@@ -36,8 +36,8 @@ pub enum OutboundRequest<E: EthSpec> {
     BlocksByRoot(BlocksByRootRequest),
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
-    DataColumnsByRange(DataColumnsByRangeRequest),
     DataColumnsByRoot(DataColumnsByRootRequest),
+    DataColumnsByRange(DataColumnsByRangeRequest),
     Ping(Ping),
     MetaData(MetadataRequest<E>),
 }

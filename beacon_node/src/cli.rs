@@ -938,7 +938,15 @@ pub fn cli_app() -> Command {
                 .long("purge-db")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
-                .help("If present, the chain database will be deleted. Use with caution.")
+                .help("If present, the chain database will be deleted. Requires manual confirmation.")
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("purge-db-force")
+                .long("purge-db-force")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .help("If present, the chain database will be deleted without confirmation. Use with caution.")
                 .display_order(0)
         )
         .arg(

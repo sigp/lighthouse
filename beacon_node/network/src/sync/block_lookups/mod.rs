@@ -528,7 +528,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // if both components have been processed.
                 request_state.on_processing_success()?;
 
-                if lookup.both_components_processed() {
+                if lookup.all_components_processed() {
                     // We don't request for other block components until being sure that the block has
                     // data. If we request blobs / columns to a peer we are sure those must exist.
                     // Therefore if all components are processed and we still receive `MissingComponents`

@@ -1,4 +1,5 @@
 use crate::block_verification_types::{AsBlock, RpcBlock};
+use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::BeaconBlockResponseWrapper;
@@ -79,6 +80,14 @@ pub static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
         .map_err(|e| format!("Unable to read trusted setup file: {}", e))
         .expect("should have trusted setup");
     let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
+    Arc::new(kzg)
+});
+
+pub static KZG_PEERDAS: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
+    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+        .expect("should have trusted setup");
+    let kzg = Kzg::new_from_trusted_setup_das_enabled(trusted_setup).expect("should create kzg");
     Arc::new(kzg)
 });
 
@@ -2703,7 +2712,7 @@ pub fn generate_rand_block_and_data_columns<E: EthSpec>(
 ) {
     let (block, blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng);
     let blob: BlobsList<E> = blobs.into_iter().map(|b| b.blob).collect::<Vec<_>>().into();
-    let data_columns = DataColumnSidecar::build_sidecars(&blob, &block, &KZG, spec).unwrap();
+    let data_columns = blobs_to_data_column_sidecars(&blob, &block, &KZG_PEERDAS, spec).unwrap();
 
     (block, data_columns)
 }

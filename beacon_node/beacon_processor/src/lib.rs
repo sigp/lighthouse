@@ -183,6 +183,7 @@ impl BeaconProcessorQueueLengths {
             bbroots_queue: 1024,
             blbroots_queue: 1024,
             blbrange_queue: 1024,
+            // TODO(das): pick proper values
             dcbroots_queue: 1024,
             dcbrange_queue: 1024,
             gossip_bls_to_execution_change_queue: 16384,
@@ -1002,6 +1003,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = rpc_blob_queue.pop() {
                             self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = rpc_custody_column_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
                         // TODO(das): decide proper prioritization for sampling columns
                         } else if let Some(item) = rpc_custody_column_queue.pop() {
                             self.spawn_worker(item, idle_tx);
@@ -1162,9 +1165,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         // and BlocksByRoot)
                         } else if let Some(item) = status_queue.pop() {
                             self.spawn_worker(item, idle_tx);
-                        // Prioritize by_root requests over by_range as the former are time
-                        // sensitive for recovery
+                        } else if let Some(item) = bbrange_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = bbroots_queue.pop() {
+                            self.spawn_worker(item, idle_tx);
+                        } else if let Some(item) = blbrange_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         } else if let Some(item) = blbroots_queue.pop() {
                             self.spawn_worker(item, idle_tx);
@@ -1174,11 +1179,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             self.spawn_worker(item, idle_tx);
                         // Prioritize sampling requests after block syncing requests
                         } else if let Some(item) = unknown_block_sampling_request_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
-                        // by_range sync after sampling
-                        } else if let Some(item) = bbrange_queue.pop() {
-                            self.spawn_worker(item, idle_tx);
-                        } else if let Some(item) = blbrange_queue.pop() {
                             self.spawn_worker(item, idle_tx);
                         // Check slashings after all other consensus messages so we prioritize
                         // following head.

@@ -2,7 +2,7 @@ use crate::block_verification::{
     cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
     BlockSlashInfo,
 };
-use crate::kzg_utils::validate_data_column;
+use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
 use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
 use derivative::Derivative;
 use fork_choice::ProtoBlock;
@@ -177,7 +177,7 @@ impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T> {
     pub fn id(&self) -> DataColumnIdentifier {
         DataColumnIdentifier {
             block_root: self.block_root,
-            index: self.data_column.data_column_index(),
+            index: self.data_column.index(),
         }
     }
 
@@ -234,7 +234,7 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         self.data.clone()
     }
 
-    pub fn data_column_index(&self) -> u64 {
+    pub fn index(&self) -> ColumnIndex {
         self.data.index
     }
 }
@@ -304,7 +304,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
         // Will only return an error if:
         // - < 50% of columns
         // - There are duplicates
-        let all_data_columns = DataColumnSidecar::reconstruct(
+        let all_data_columns = reconstruct_data_columns(
             kzg,
             &partial_set_of_columns
                 .iter()
@@ -326,10 +326,10 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     pub fn into_inner(self) -> Arc<DataColumnSidecar<E>> {
         self.data
     }
+
     pub fn as_data_column(&self) -> &DataColumnSidecar<E> {
         &self.data
     }
-    /// This is cheap as we're calling clone on an Arc
     pub fn clone_arc(&self) -> Arc<DataColumnSidecar<E>> {
         self.data.clone()
     }
@@ -346,7 +346,7 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
     kzg: &Kzg,
 ) -> Result<KzgVerifiedDataColumn<E>, KzgError> {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
-    validate_data_column(kzg, iter::once(&data_column))?;
+    validate_data_columns(kzg, iter::once(&data_column))?;
     Ok(KzgVerifiedDataColumn { data: data_column })
 }
 
@@ -363,7 +363,7 @@ where
     I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
 {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES);
-    validate_data_column(kzg, data_column_iter)?;
+    validate_data_columns(kzg, data_column_iter)?;
     Ok(())
 }
 

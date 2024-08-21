@@ -2,10 +2,7 @@ use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERA
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
-use beacon_chain::{
-    BeaconChainError, BeaconChainTypes, BlockImportStatus, HistoricalBlockError, WhenSlotSkipped,
-};
-use beacon_processor::work_reprocessing_queue::{QueuedSamplingRequest, ReprocessQueueMessage};
+use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
 use itertools::process_results;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
@@ -16,7 +13,6 @@ use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
 use types::{Epoch, EthSpec, ForkName, Hash256, Slot};
@@ -326,99 +322,50 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         request_id: PeerRequestId,
         request: DataColumnsByRootRequest,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
     ) {
-        let column_indexes_by_block = request.group_by_ordered_block_root();
+        self.terminate_response_stream(
+            peer_id,
+            request_id,
+            self.handle_data_columns_by_root_request_inner(peer_id, request_id, request),
+            Response::DataColumnsByRoot,
+        );
+    }
+
+    /// Handle a `DataColumnsByRoot` request from the peer.
+    pub fn handle_data_columns_by_root_request_inner(
+        &self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: DataColumnsByRootRequest,
+    ) -> Result<(), (RPCResponseErrorCode, &'static str)> {
         let mut send_data_column_count = 0;
 
-        for (block_root, column_indices) in column_indexes_by_block.iter() {
-            for index in column_indices {
-                match self
-                    .chain
-                    .get_data_column_checking_all_caches(*block_root, *index)
-                {
-                    Ok(Some(data_column)) => {
-                        send_data_column_count += 1;
-                        self.send_response(
-                            peer_id,
-                            Response::DataColumnsByRoot(Some(data_column)),
-                            request_id,
-                        );
-                    }
-                    Ok(None) => {} // no-op
-                    Err(e) => {
-                        self.send_error_response(
-                            peer_id,
-                            RPCResponseErrorCode::ServerError,
-                            // TODO(das): leak error details to ease debugging
-                            format!("{:?}", e).to_string(),
-                            request_id,
-                        );
-                        error!(self.log, "Error getting data column";
-                            "block_root" => ?block_root,
-                            "peer" => %peer_id,
-                            "error" => ?e
-                        );
-                        return;
-                    }
+        for data_column_id in request.data_column_ids.as_slice() {
+            match self.chain.get_data_column_checking_all_caches(
+                data_column_id.block_root,
+                data_column_id.index,
+            ) {
+                Ok(Some(data_column)) => {
+                    send_data_column_count += 1;
+                    self.send_response(
+                        peer_id,
+                        Response::DataColumnsByRoot(Some(data_column)),
+                        request_id,
+                    );
                 }
-            }
-        }
-
-        let should_reprocess = column_indexes_by_block
-            .first()
-            .filter(|_| column_indexes_by_block.len() == 1 && send_data_column_count == 0)
-            .and_then(
-                |(block_root, _)| match self.chain.get_block_import_status(block_root) {
-                    BlockImportStatus::PendingImport(block) => {
-                        if block.num_expected_blobs() > 0 {
-                            // Known block not yet imported (still have not received columns) but we
-                            // are certain the block has data. Schedule this request for retry once
-                            // the block is imported
-                            // TODO(das): consider only re-processing for some range of slots
-                            Some(*block_root)
-                        } else {
-                            // We know the block has no data, do not retry
-                            None
-                        }
-                    }
-                    BlockImportStatus::Imported => {
-                        // If the block is imported, custody columns should also be imported and be
-                        // returned in the attempts above to retrieve columns. Do not retry
-                        None
-                    }
-                    BlockImportStatus::Unknown => {
-                        // Two options:
-                        // (a) race condition where peer receives a block before than us and has
-                        //     started a sampling request
-                        // (b) peer sent a sampling request for a random root we will never receive
-                        //     to fill our reprocessing queue
-                        //     TODO(das): high tolerance penalty for requests that never resolve
-                        Some(*block_root)
-                    }
-                },
-            );
-
-        if let (Some(beacon_block_root), Some(reprocess_tx)) = (should_reprocess, reprocess_tx) {
-            let processor = self.clone();
-            if reprocess_tx
-                .try_send(ReprocessQueueMessage::UnknownBlockSamplingRequest(
-                    QueuedSamplingRequest {
-                        beacon_block_root,
-                        process_fn: Box::new(move || {
-                            processor.handle_data_columns_by_root_request(
-                                peer_id, request_id, request,
-                                None, // Only allow a single retry
-                            )
-                        }),
-                    },
-                ))
-                .is_err()
-            {
-                error!(
-                    self.log,
-                    "Failed to send UnknownBlockSamplingRequest for re-processing"
-                )
+                Ok(None) => {} // no-op
+                Err(e) => {
+                    // TODO(das): lower log level when feature is stabilized
+                    error!(self.log, "Error getting data column";
+                        "block_root" => ?data_column_id.block_root,
+                        "peer" => %peer_id,
+                        "error" => ?e
+                    );
+                    return Err((
+                        RPCResponseErrorCode::ServerError,
+                        "Error getting data column",
+                    ));
+                }
             }
         }
 
@@ -426,12 +373,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.log,
             "Received DataColumnsByRoot Request";
             "peer" => %peer_id,
-            "request" => ?column_indexes_by_block,
+            "request" => ?request.group_by_ordered_block_root(),
             "returned" => send_data_column_count
         );
 
-        // send stream termination
-        self.send_response(peer_id, Response::DataColumnsByRoot(None), request_id);
+        Ok(())
     }
 
     /// Handle a `LightClientBootstrap` request from the peer.

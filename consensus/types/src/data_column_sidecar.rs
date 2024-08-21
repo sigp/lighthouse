@@ -1,20 +1,12 @@
 use crate::beacon_block_body::{KzgCommitments, BLOB_KZG_COMMITMENTS_INDEX};
 use crate::test_utils::TestRandom;
-use crate::{
-    BeaconBlockHeader, ChainSpec, EthSpec, Hash256, KzgProofs, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot,
-};
-use crate::{BeaconStateError, BlobsList};
+use crate::BeaconStateError;
+use crate::{BeaconBlockHeader, EthSpec, Hash256, KzgProofs, SignedBeaconBlockHeader, Slot};
 use bls::Signature;
 use derivative::Derivative;
-#[cfg_attr(test, double)]
-use kzg::Kzg;
-use kzg::{CellRef as KzgCellRef, Error as KzgError};
+use kzg::Error as KzgError;
 use kzg::{KzgCommitment, KzgProof};
 use merkle_proof::verify_merkle_proof;
-#[cfg(test)]
-use mockall_double::double;
-use rayon::prelude::*;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
@@ -41,7 +33,7 @@ pub struct DataColumnIdentifier {
     pub index: ColumnIndex,
 }
 
-pub type DataColumnSidecarVec<E> = Vec<Arc<DataColumnSidecar<E>>>;
+pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
 #[derive(
     Debug,
@@ -63,7 +55,7 @@ pub struct DataColumnSidecar<E: EthSpec> {
     pub index: ColumnIndex,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub column: DataColumn<E>,
-    /// All of the KZG commitments and proofs associated with the block, used for verifying sample cells.
+    /// All the KZG commitments and proofs associated with the block, used for verifying sample cells.
     pub kzg_commitments: KzgCommitments<E>,
     pub kzg_proofs: KzgProofs<E>,
     pub signed_block_header: SignedBeaconBlockHeader,
@@ -99,192 +91,6 @@ impl<E: EthSpec> DataColumnSidecar<E> {
             BLOB_KZG_COMMITMENTS_INDEX,
             self.signed_block_header.message.body_root,
         )
-    }
-
-    pub fn build_sidecars(
-        blobs: &BlobsList<E>,
-        block: &SignedBeaconBlock<E>,
-        kzg: &Kzg,
-        spec: &ChainSpec,
-    ) -> Result<DataColumnSidecarVec<E>, DataColumnSidecarError> {
-        let number_of_columns = spec.number_of_columns;
-        if blobs.is_empty() {
-            return Ok(vec![]);
-        }
-        let kzg_commitments = block
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .map_err(|_err| DataColumnSidecarError::PreDeneb)?;
-        let kzg_commitments_inclusion_proof =
-            block.message().body().kzg_commitments_merkle_proof()?;
-        let signed_block_header = block.signed_block_header();
-
-        let mut columns = vec![Vec::with_capacity(E::max_blobs_per_block()); number_of_columns];
-        let mut column_kzg_proofs =
-            vec![Vec::with_capacity(E::max_blobs_per_block()); number_of_columns];
-
-        // NOTE: assumes blob sidecars are ordered by index
-        let blob_cells_and_proofs_vec = blobs
-            .into_par_iter()
-            .map(|blob| {
-                let blob = blob
-                    .as_ref()
-                    .try_into()
-                    .expect("blob should have a guaranteed size due to FixedVector");
-                kzg.compute_cells_and_proofs(blob)
-            })
-            .collect::<Result<Vec<_>, KzgError>>()?;
-
-        for (blob_cells, blob_cell_proofs) in blob_cells_and_proofs_vec {
-            // we iterate over each column, and we construct the column from "top to bottom",
-            // pushing on the cell and the corresponding proof at each column index. we do this for
-            // each blob (i.e. the outer loop).
-            for col in 0..number_of_columns {
-                let cell =
-                    blob_cells
-                        .get(col)
-                        .ok_or(DataColumnSidecarError::InconsistentArrayLength(format!(
-                            "Missing blob cell at index {col}"
-                        )))?;
-                let cell: Vec<u8> = cell.to_vec();
-                let cell = Cell::<E>::from(cell);
-
-                let proof = blob_cell_proofs.get(col).ok_or(
-                    DataColumnSidecarError::InconsistentArrayLength(format!(
-                        "Missing blob cell KZG proof at index {col}"
-                    )),
-                )?;
-
-                let column =
-                    columns
-                        .get_mut(col)
-                        .ok_or(DataColumnSidecarError::InconsistentArrayLength(format!(
-                            "Missing data column at index {col}"
-                        )))?;
-                let column_proofs = column_kzg_proofs.get_mut(col).ok_or(
-                    DataColumnSidecarError::InconsistentArrayLength(format!(
-                        "Missing data column proofs at index {col}"
-                    )),
-                )?;
-
-                column.push(cell);
-                column_proofs.push(*proof);
-            }
-        }
-
-        let sidecars: Vec<Arc<DataColumnSidecar<E>>> = columns
-            .into_iter()
-            .zip(column_kzg_proofs)
-            .enumerate()
-            .map(|(index, (col, proofs))| {
-                Arc::new(DataColumnSidecar {
-                    index: index as u64,
-                    column: DataColumn::<E>::from(col),
-                    kzg_commitments: kzg_commitments.clone(),
-                    kzg_proofs: KzgProofs::<E>::from(proofs),
-                    signed_block_header: signed_block_header.clone(),
-                    kzg_commitments_inclusion_proof: kzg_commitments_inclusion_proof.clone(),
-                })
-            })
-            .collect();
-
-        Ok(sidecars)
-    }
-
-    pub fn reconstruct(
-        kzg: &Kzg,
-        data_columns: &[Arc<Self>],
-        spec: &ChainSpec,
-    ) -> Result<Vec<Arc<Self>>, KzgError> {
-        let number_of_columns = spec.number_of_columns;
-        let mut columns = vec![Vec::with_capacity(E::max_blobs_per_block()); number_of_columns];
-        let mut column_kzg_proofs =
-            vec![Vec::with_capacity(E::max_blobs_per_block()); number_of_columns];
-
-        let first_data_column = data_columns
-            .first()
-            .ok_or(KzgError::InconsistentArrayLength(
-                "data_columns should have at least one element".to_string(),
-            ))?;
-        let num_of_blobs = first_data_column.kzg_commitments.len();
-
-        let blob_cells_and_proofs_vec = (0..num_of_blobs)
-            .into_par_iter()
-            .map(|row_index| {
-                let mut cells: Vec<KzgCellRef> = vec![];
-                let mut cell_ids: Vec<u64> = vec![];
-                for data_column in data_columns {
-                    let cell = data_column.column.get(row_index).ok_or(
-                        KzgError::InconsistentArrayLength(format!(
-                            "Missing data column at index {row_index}"
-                        )),
-                    )?;
-
-                    cells.push(ssz_cell_to_crypto_cell::<E>(cell)?);
-                    cell_ids.push(data_column.index);
-                }
-                kzg.recover_cells_and_compute_kzg_proofs(&cell_ids, &cells)
-            })
-            .collect::<Result<Vec<_>, KzgError>>()?;
-
-        for (blob_cells, blob_cell_proofs) in blob_cells_and_proofs_vec {
-            // we iterate over each column, and we construct the column from "top to bottom",
-            // pushing on the cell and the corresponding proof at each column index. we do this for
-            // each blob (i.e. the outer loop).
-            for col in 0..number_of_columns {
-                let cell = blob_cells
-                    .get(col)
-                    .ok_or(KzgError::InconsistentArrayLength(format!(
-                        "Missing blob cell at index {col}"
-                    )))?;
-                let cell: Vec<u8> = cell.to_vec();
-                let cell = Cell::<E>::from(cell);
-
-                let proof = blob_cell_proofs
-                    .get(col)
-                    .ok_or(KzgError::InconsistentArrayLength(format!(
-                        "Missing blob cell KZG proof at index {col}"
-                    )))?;
-
-                let column = columns
-                    .get_mut(col)
-                    .ok_or(KzgError::InconsistentArrayLength(format!(
-                        "Missing data column at index {col}"
-                    )))?;
-                let column_proofs =
-                    column_kzg_proofs
-                        .get_mut(col)
-                        .ok_or(KzgError::InconsistentArrayLength(format!(
-                            "Missing data column proofs at index {col}"
-                        )))?;
-
-                column.push(cell);
-                column_proofs.push(*proof);
-            }
-        }
-
-        // Clone sidecar elements from existing data column, no need to re-compute
-        let kzg_commitments = &first_data_column.kzg_commitments;
-        let signed_block_header = &first_data_column.signed_block_header;
-        let kzg_commitments_inclusion_proof = &first_data_column.kzg_commitments_inclusion_proof;
-
-        let sidecars: Vec<Arc<DataColumnSidecar<E>>> = columns
-            .into_iter()
-            .zip(column_kzg_proofs)
-            .enumerate()
-            .map(|(index, (col, proofs))| {
-                Arc::new(DataColumnSidecar {
-                    index: index as u64,
-                    column: DataColumn::<E>::from(col),
-                    kzg_commitments: kzg_commitments.clone(),
-                    kzg_proofs: KzgProofs::<E>::from(proofs),
-                    signed_block_header: signed_block_header.clone(),
-                    kzg_commitments_inclusion_proof: kzg_commitments_inclusion_proof.clone(),
-                })
-            })
-            .collect();
-        Ok(sidecars)
     }
 
     pub fn min_size() -> usize {
@@ -358,7 +164,7 @@ pub enum DataColumnSidecarError {
     MissingBlobSidecars,
     PreDeneb,
     SszError(SszError),
-    InconsistentArrayLength(String),
+    BuildSidecarFailed(String),
 }
 
 impl From<ArithError> for DataColumnSidecarError {
@@ -382,110 +188,5 @@ impl From<KzgError> for DataColumnSidecarError {
 impl From<SszError> for DataColumnSidecarError {
     fn from(e: SszError) -> Self {
         Self::SszError(e)
-    }
-}
-
-/// Converts a cell ssz List object to an array to be used with the kzg
-/// crypto library.
-fn ssz_cell_to_crypto_cell<E: EthSpec>(cell: &Cell<E>) -> Result<KzgCellRef, KzgError> {
-    let cell_bytes: &[u8] = cell.as_ref();
-    Ok(cell_bytes
-        .try_into()
-        .expect("expected cell to have size {BYTES_PER_CELL}. This should be guaranteed by the `FixedVector type"))
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::beacon_block::EmptyBlock;
-    use crate::beacon_block_body::KzgCommitments;
-    use crate::eth_spec::EthSpec;
-    use crate::{
-        BeaconBlock, BeaconBlockDeneb, Blob, ChainSpec, DataColumnSidecar, MainnetEthSpec,
-        SignedBeaconBlock,
-    };
-    use bls::Signature;
-    use kzg::KzgCommitment;
-    use std::sync::Arc;
-
-    #[test]
-    fn test_build_sidecars_empty() {
-        type E = MainnetEthSpec;
-        let num_of_blobs = 0;
-        let spec = E::default_spec();
-        let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(num_of_blobs, &spec);
-
-        let mock_kzg = Arc::new(Kzg::default());
-        let column_sidecars =
-            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &mock_kzg, &spec)
-                .unwrap();
-
-        assert!(column_sidecars.is_empty());
-    }
-
-    #[test]
-    fn test_build_sidecars() {
-        type E = MainnetEthSpec;
-        let num_of_blobs = 6;
-        let spec = E::default_spec();
-        let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(num_of_blobs, &spec);
-
-        let mut mock_kzg = Kzg::default();
-        mock_kzg
-            .expect_compute_cells_and_proofs()
-            .returning(kzg::mock::compute_cells_and_proofs);
-
-        let column_sidecars =
-            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &mock_kzg, &spec)
-                .unwrap();
-
-        let block_kzg_commitments = signed_block
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .unwrap()
-            .clone();
-        let block_kzg_commitments_inclusion_proof = signed_block
-            .message()
-            .body()
-            .kzg_commitments_merkle_proof()
-            .unwrap();
-
-        assert_eq!(column_sidecars.len(), spec.number_of_columns);
-        for (idx, col_sidecar) in column_sidecars.iter().enumerate() {
-            assert_eq!(col_sidecar.index, idx as u64);
-
-            assert_eq!(col_sidecar.kzg_commitments.len(), num_of_blobs);
-            assert_eq!(col_sidecar.column.len(), num_of_blobs);
-            assert_eq!(col_sidecar.kzg_proofs.len(), num_of_blobs);
-
-            assert_eq!(col_sidecar.kzg_commitments, block_kzg_commitments);
-            assert_eq!(
-                col_sidecar.kzg_commitments_inclusion_proof,
-                block_kzg_commitments_inclusion_proof
-            );
-            assert!(col_sidecar.verify_inclusion_proof());
-        }
-    }
-
-    fn create_test_block_and_blobs<E: EthSpec>(
-        num_of_blobs: usize,
-        spec: &ChainSpec,
-    ) -> (SignedBeaconBlock<E>, BlobsList<E>) {
-        let mut block = BeaconBlock::Deneb(BeaconBlockDeneb::empty(spec));
-        let mut body = block.body_mut();
-        let blob_kzg_commitments = body.blob_kzg_commitments_mut().unwrap();
-        *blob_kzg_commitments =
-            KzgCommitments::<E>::new(vec![KzgCommitment::empty_for_testing(); num_of_blobs])
-                .unwrap();
-
-        let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
-
-        let blobs = (0..num_of_blobs)
-            .map(|_| Blob::<E>::default())
-            .collect::<Vec<_>>()
-            .into();
-
-        (signed_block, blobs)
     }
 }

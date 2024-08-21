@@ -97,10 +97,10 @@ pub struct RPCRateLimiter {
     blbrange_rl: Limiter<PeerId>,
     /// BlobsByRoot rate limiter.
     blbroot_rl: Limiter<PeerId>,
-    /// DataColumnssByRange rate limiter.
-    dcbrange_rl: Limiter<PeerId>,
     /// DataColumnssByRoot rate limiter.
     dcbroot_rl: Limiter<PeerId>,
+    /// DataColumnsByRange rate limiter.
+    dcbrange_rl: Limiter<PeerId>,
     /// LightClientBootstrap rate limiter.
     lc_bootstrap_rl: Limiter<PeerId>,
     /// LightClientOptimisticUpdate rate limiter.
@@ -137,10 +137,10 @@ pub struct RPCRateLimiterBuilder {
     blbrange_quota: Option<Quota>,
     /// Quota for the BlobsByRoot protocol.
     blbroot_quota: Option<Quota>,
-    /// Quota for the DataColumnsByRange protocol.
-    dcbrange_quota: Option<Quota>,
     /// Quota for the DataColumnsByRoot protocol.
     dcbroot_quota: Option<Quota>,
+    /// Quota for the DataColumnsByRange protocol.
+    dcbrange_quota: Option<Quota>,
     /// Quota for the LightClientBootstrap protocol.
     lcbootstrap_quota: Option<Quota>,
     /// Quota for the LightClientOptimisticUpdate protocol.
@@ -162,8 +162,8 @@ impl RPCRateLimiterBuilder {
             Protocol::BlocksByRoot => self.bbroots_quota = q,
             Protocol::BlobsByRange => self.blbrange_quota = q,
             Protocol::BlobsByRoot => self.blbroot_quota = q,
-            Protocol::DataColumnsByRange => self.dcbrange_quota = q,
             Protocol::DataColumnsByRoot => self.dcbroot_quota = q,
+            Protocol::DataColumnsByRange => self.dcbrange_quota = q,
             Protocol::LightClientBootstrap => self.lcbootstrap_quota = q,
             Protocol::LightClientOptimisticUpdate => self.lc_optimistic_update_quota = q,
             Protocol::LightClientFinalityUpdate => self.lc_finality_update_quota = q,
@@ -199,12 +199,14 @@ impl RPCRateLimiterBuilder {
         let blbroots_quota = self
             .blbroot_quota
             .ok_or("BlobsByRoot quota not specified")?;
-        let dcbrange_quota = self
-            .dcbrange_quota
-            .ok_or("DataColumnsByRange quota not specified")?;
+
         let dcbroot_quota = self
             .dcbroot_quota
             .ok_or("DataColumnsByRoot quota not specified")?;
+
+        let dcbrange_quota = self
+            .dcbrange_quota
+            .ok_or("DataColumnsByRange quota not specified")?;
 
         // create the rate limiters
         let ping_rl = Limiter::from_quota(ping_quota)?;
@@ -215,8 +217,8 @@ impl RPCRateLimiterBuilder {
         let bbrange_rl = Limiter::from_quota(bbrange_quota)?;
         let blbrange_rl = Limiter::from_quota(blbrange_quota)?;
         let blbroot_rl = Limiter::from_quota(blbroots_quota)?;
-        let dcbrange_rl = Limiter::from_quota(dcbrange_quota)?;
         let dcbroot_rl = Limiter::from_quota(dcbroot_quota)?;
+        let dcbrange_rl = Limiter::from_quota(dcbrange_quota)?;
         let lc_bootstrap_rl = Limiter::from_quota(lc_bootstrap_quota)?;
         let lc_optimistic_update_rl = Limiter::from_quota(lc_optimistic_update_quota)?;
         let lc_finality_update_rl = Limiter::from_quota(lc_finality_update_quota)?;
@@ -235,8 +237,8 @@ impl RPCRateLimiterBuilder {
             bbrange_rl,
             blbrange_rl,
             blbroot_rl,
-            dcbrange_rl,
             dcbroot_rl,
+            dcbrange_rl,
             lc_bootstrap_rl,
             lc_optimistic_update_rl,
             lc_finality_update_rl,
@@ -281,8 +283,8 @@ impl RPCRateLimiter {
             blocks_by_root_quota,
             blobs_by_range_quota,
             blobs_by_root_quota,
-            data_columns_by_range_quota,
             data_columns_by_root_quota,
+            data_columns_by_range_quota,
             light_client_bootstrap_quota,
             light_client_optimistic_update_quota,
             light_client_finality_update_quota,
@@ -297,8 +299,8 @@ impl RPCRateLimiter {
             .set_quota(Protocol::BlocksByRoot, blocks_by_root_quota)
             .set_quota(Protocol::BlobsByRange, blobs_by_range_quota)
             .set_quota(Protocol::BlobsByRoot, blobs_by_root_quota)
-            .set_quota(Protocol::DataColumnsByRange, data_columns_by_range_quota)
             .set_quota(Protocol::DataColumnsByRoot, data_columns_by_root_quota)
+            .set_quota(Protocol::DataColumnsByRange, data_columns_by_range_quota)
             .set_quota(Protocol::LightClientBootstrap, light_client_bootstrap_quota)
             .set_quota(
                 Protocol::LightClientOptimisticUpdate,
@@ -335,8 +337,8 @@ impl RPCRateLimiter {
             Protocol::BlocksByRoot => &mut self.bbroots_rl,
             Protocol::BlobsByRange => &mut self.blbrange_rl,
             Protocol::BlobsByRoot => &mut self.blbroot_rl,
-            Protocol::DataColumnsByRange => &mut self.dcbrange_rl,
             Protocol::DataColumnsByRoot => &mut self.dcbroot_rl,
+            Protocol::DataColumnsByRange => &mut self.dcbrange_rl,
             Protocol::LightClientBootstrap => &mut self.lc_bootstrap_rl,
             Protocol::LightClientOptimisticUpdate => &mut self.lc_optimistic_update_rl,
             Protocol::LightClientFinalityUpdate => &mut self.lc_finality_update_rl,

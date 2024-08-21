@@ -62,6 +62,7 @@ use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
     AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
 };
+use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -98,10 +99,10 @@ use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use types::data_column_sidecar::DataColumnSidecarError;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecar,
-    DataColumnSubnetId, Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork,
-    KzgProofs, PublicKey, PublicKeyBytes, RelativeEpoch, RuntimeVariableList, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSubnetId, Epoch,
+    EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs, PublicKey,
+    PublicKeyBytes, RelativeEpoch, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader,
+    Slot,
 };
 use types::{BlobSidecar, ExecPayload};
 
@@ -802,7 +803,7 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
                 ))?;
 
             let timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_COMPUTATION);
-            let sidecars = DataColumnSidecar::build_sidecars(&blobs, block, kzg, &chain.spec)?;
+            let sidecars = blobs_to_data_column_sidecars(&blobs, block, kzg, &chain.spec)?;
             drop(timer);
             let mut gossip_verified_data_columns = vec![];
             for sidecar in sidecars {
@@ -1743,9 +1744,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         // Register each attestation in the block with fork choice.
         for (i, attestation) in block.message().body().attestations().enumerate() {
-            let _fork_choice_attestation_timer =
-                metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
-
             let indexed_attestation = consensus_context
                 .get_indexed_attestation(&state, attestation)
                 .map_err(|e| BlockError::PerBlockProcessingError(e.into_with_index(i)))?;

@@ -42,7 +42,7 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar, DataColumnSidecarVec};
+use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
 use types::*;
 
 /// On-disk database that stores finalized states efficiently.
@@ -680,7 +680,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn data_columns_as_kv_store_ops(
         &self,
         block_root: &Hash256,
-        data_columns: DataColumnSidecarVec<E>,
+        data_columns: DataColumnSidecarList<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
         for data_column in data_columns {

@@ -57,8 +57,12 @@ impl<E: EthSpec> Case for KZGVerifyCellKZGProofBatch<E> {
                 let proofs: Vec<Bytes48> = proofs.iter().map(|&proof| proof.into()).collect();
                 let commitments: Vec<Bytes48> = commitments.iter().map(|&c| c.into()).collect();
                 let cells = cells.iter().map(|c| c.as_ref()).collect::<Vec<_>>();
+                let column_indices = coordinates
+                    .into_iter()
+                    .map(|(_row, col)| col)
+                    .collect::<Vec<_>>();
                 let kzg = get_kzg()?;
-                match kzg.verify_cell_proof_batch(&cells, &proofs, &coordinates, &commitments) {
+                match kzg.verify_cell_proof_batch(&cells, &proofs, column_indices, &commitments) {
                     Ok(_) => Ok(true),
                     Err(KzgError::KzgVerificationFailed) => Ok(false),
                     Err(e) => Err(Error::InternalError(format!(

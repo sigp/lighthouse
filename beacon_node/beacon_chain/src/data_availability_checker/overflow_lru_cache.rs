@@ -16,10 +16,9 @@ use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use types::blob_sidecar::BlobIdentifier;
-use types::data_column_sidecar::DataColumnIdentifier;
 use types::{
-    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, Epoch, EthSpec, Hash256,
-    SignedBeaconBlock,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar, Epoch, EthSpec,
+    Hash256, SignedBeaconBlock,
 };
 
 pub type DataColumnsToPublish<E> = Option<Vec<Arc<DataColumnSidecar<E>>>>;
@@ -375,6 +374,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         })
     }
 
+    pub fn custody_subnet_count(&self) -> usize {
+        self.custody_column_count
+    }
+
     /// Returns true if the block root is known, without altering the LRU ordering
     pub fn get_execution_valid_block(
         &self,
@@ -408,6 +411,22 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
     }
 
+    /// Fetch a data column from the cache without affecting the LRU ordering
+    pub fn peek_data_column(
+        &self,
+        data_column_id: &DataColumnIdentifier,
+    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, AvailabilityCheckError> {
+        if let Some(pending_components) = self.critical.read().peek(&data_column_id.block_root) {
+            Ok(pending_components
+                .verified_data_columns
+                .iter()
+                .find(|data_column| data_column.as_data_column().index == data_column_id.index)
+                .map(|data_column| data_column.clone_arc()))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn peek_pending_components<R, F: FnOnce(Option<&PendingComponents<T::EthSpec>>) -> R>(
         &self,
         block_root: &Hash256,
@@ -427,22 +446,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             ))
         } else {
             Ok(BlockImportRequirement::AllBlobs)
-        }
-    }
-
-    /// Fetch a data column from the cache without affecting the LRU ordering
-    pub fn peek_data_column(
-        &self,
-        data_column_id: &DataColumnIdentifier,
-    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, AvailabilityCheckError> {
-        if let Some(pending_components) = self.critical.read().peek(&data_column_id.block_root) {
-            Ok(pending_components
-                .verified_data_columns
-                .iter()
-                .find(|data_column| data_column.as_data_column().index == data_column_id.index)
-                .map(|data_column| data_column.clone_arc()))
-        } else {
-            Ok(None)
         }
     }
 
@@ -507,8 +510,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
     }
 
-    // TODO(das): rpc code paths to be implemented.
-    #[allow(dead_code)]
     #[allow(clippy::type_complexity)]
     pub fn put_kzg_verified_data_columns<
         I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,

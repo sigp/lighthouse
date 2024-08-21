@@ -22,5 +22,5 @@ malloc_utils = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true }
 reqwest = { workspace = true }
-environment = { workspace = true }
 types = { workspace = true }
+logging = { workspace = true }
