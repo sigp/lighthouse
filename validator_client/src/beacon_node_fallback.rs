@@ -195,14 +195,18 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
             match check_node_health(&self.beacon_node, log).await {
                 Ok((head, is_optimistic, el_offline)) => {
                     let Some(slot_clock_head) = slot_clock.now() else {
-                        match slot_clock.is_prior_to_genesis() {
-                            Some(true) => return Err(CandidateError::PreGenesis),
-                            _ => return Err(CandidateError::Uninitialized),
-                        }
+                        let e = match slot_clock.is_prior_to_genesis() {
+                            Some(true) => CandidateError::PreGenesis,
+                            _ => CandidateError::Uninitialized,
+                        };
+                        *self.health.write().await = Err(e);
+                        return Err(e);
                     };
 
                     if head > slot_clock_head + FUTURE_SLOT_TOLERANCE {
-                        return Err(CandidateError::TimeDiscrepancy);
+                        let e = CandidateError::TimeDiscrepancy;
+                        *self.health.write().await = Err(e);
+                        return Err(e);
                     }
                     let sync_distance = slot_clock_head.saturating_sub(head);
 
@@ -239,8 +243,9 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
             }
         } else {
             // Slot clock will only be `None` at startup.
-            // Assume compatible nodes are available.
-            Ok(())
+            let e = CandidateError::Uninitialized;
+            *self.health.write().await = Err(e);
+            Err(e)
         }
     }
 
@@ -449,7 +454,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                 if *e != CandidateError::PreGenesis {
                     warn!(
                         self.log,
-                        "A connected beacon node errored during routine health check.";
+                        "A connected beacon node errored during routine health check";
                         "error" => ?e,
                         "endpoint" => node,
                     );
