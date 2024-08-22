@@ -550,12 +550,6 @@ pub struct BeaconBlockResponse<E: EthSpec, Payload: AbstractExecPayload<E>> {
     pub consensus_block_value: u64,
 }
 
-pub enum BlockImportStatus<E: EthSpec> {
-    PendingImport(Arc<SignedBeaconBlock<E>>),
-    Imported,
-    Unknown,
-}
-
 impl FinalizationAndCanonicity {
     pub fn is_finalized(self) -> bool {
         self.slot_is_finalized && self.canonical
@@ -1182,37 +1176,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         self.get_data_column(&block_root, &index)
-    }
-
-    /// Returns the import status of block checking (in order) pre-import caches, fork-choice, db store
-    pub fn get_block_import_status(&self, block_root: &Hash256) -> BlockImportStatus<T::EthSpec> {
-        if let Some(block) = self
-            .reqresp_pre_import_cache
-            .read()
-            .get(block_root)
-            .map(|block| {
-                metrics::inc_counter(&metrics::BEACON_REQRESP_PRE_IMPORT_CACHE_HITS);
-                block.clone()
-            })
-        {
-            return BlockImportStatus::PendingImport(block);
-        }
-        // Check fork-choice before early_attester_cache as the latter is pruned lazily
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(block_root)
-        {
-            return BlockImportStatus::Imported;
-        }
-        if let Some(block) = self.early_attester_cache.get_block(*block_root) {
-            return BlockImportStatus::PendingImport(block);
-        }
-        if let Ok(true) = self.store.block_exists(block_root) {
-            BlockImportStatus::Imported
-        } else {
-            BlockImportStatus::Unknown
-        }
     }
 
     /// Returns the block at the given root, if any.
