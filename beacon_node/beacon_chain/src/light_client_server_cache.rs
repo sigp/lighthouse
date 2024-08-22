@@ -5,7 +5,6 @@ use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
 use slog::{debug, Logger};
 use ssz::Decode;
-use ssz::Encode;
 use ssz_types::FixedVector;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -211,7 +210,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             };
 
         if should_persist_light_client_update {
-            self.store_light_client_update(&store, sync_period, &new_light_client_update)?;
+            store.store_light_client_update(sync_period, &new_light_client_update)?;
+            *self.latest_light_client_update.write() = Some(new_light_client_update);
         }
 
         Ok(())
@@ -240,25 +240,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             *self.latest_written_current_sync_committee.write() =
                 Some(cached_parts.current_sync_committee.clone());
         }
-
-        Ok(())
-    }
-
-    pub fn store_light_client_update(
-        &self,
-        store: &BeaconStore<T>,
-        sync_committee_period: u64,
-        light_client_update: &LightClientUpdate<T::EthSpec>,
-    ) -> Result<(), BeaconChainError> {
-        let column = DBColumn::LightClientUpdate;
-
-        store.hot_db.put_bytes(
-            column.into(),
-            &sync_committee_period.to_le_bytes(),
-            &light_client_update.as_ssz_bytes(),
-        )?;
-
-        *self.latest_light_client_update.write() = Some(light_client_update.clone());
 
         Ok(())
     }

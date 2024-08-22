@@ -757,6 +757,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(light_client_updates)
     }
 
+    pub fn store_light_client_update(
+        &self,
+        sync_committee_period: u64,
+        light_client_update: &LightClientUpdate<E>,
+    ) -> Result<(), Error> {
+        let column = DBColumn::LightClientUpdate;
+
+        self.hot_db.put_bytes(
+            column.into(),
+            &sync_committee_period.to_le_bytes(),
+            &light_client_update.as_ssz_bytes(),
+        )?;
+
+        Ok(())
+    }
+
     /// Check if the blobs for a block exists on disk.
     pub fn blobs_exist(&self, block_root: &Hash256) -> Result<bool, Error> {
         self.blobs_db
