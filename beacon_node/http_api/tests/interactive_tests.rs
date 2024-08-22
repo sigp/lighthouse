@@ -1,7 +1,7 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
 use beacon_chain::{
     chain_config::{DisallowedReOrgOffsets, ReOrgThreshold},
-    test_utils::{AttestationStrategy, BlockStrategy, SyncCommitteeStrategy, LightClientStrategy},
+    test_utils::{AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy},
     ChainConfig,
 };
 use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;

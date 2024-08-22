@@ -1,6 +1,6 @@
 //! Tests related to the beacon node's sync status
 use beacon_chain::{
-    test_utils::{AttestationStrategy, BlockStrategy, SyncCommitteeStrategy, LightClientStrategy},
+    test_utils::{AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy},
     BlockError,
 };
 use eth2::StatusCode;
