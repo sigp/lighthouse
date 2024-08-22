@@ -55,7 +55,7 @@ Example Response Body:
 
 > Note: The command provided in this documentation links to the API token file. In this documentation, it is assumed that the API token file is located in `/var/lib/lighthouse/validators/api-token.txt`. If your database is saved in another directory, modify the `DATADIR` accordingly. If you are having permission issue with accessing the API token file, you can modify the header to become `-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)"`.
 
-> As an alternative, you can also provide the API token directly, for example, `-H "Authorization: Bearer hGut6B8uEujufDXSmZsT0thnxvdvKFBvh`. In this case, you obtain the token from the file `API token.txt` and the command becomes:
+> As an alternative, you can also provide the API token directly, for example, `-H "Authorization: Bearer hGut6B8uEujufDXSmZsT0thnxvdvKFBvh`. In this case, you obtain the token from the file `api-token.txt` and the command becomes:
 
 ```bash
 curl -X GET "http://localhost:5062/lighthouse/version" -H "Authorization: Bearer hGut6B8uEujufDXSmZsT0thnxvdvKFBvh" | jq
