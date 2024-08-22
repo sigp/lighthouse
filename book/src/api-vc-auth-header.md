@@ -6,7 +6,7 @@ The validator client HTTP server requires that all requests have the following
 HTTP header:
 
 - Name: `Authorization`
-- Value: `Bearer <string>`
+- Value: `Bearer <api-token>`
 
 Where `<api-token>` is a string of 33 characters that can be obtained from the validator client
 host. Here is an example of the `Authorization` header:
