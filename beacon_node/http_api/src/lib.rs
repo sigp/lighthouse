@@ -714,7 +714,14 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              query_res: Result<api_types::ValidatorsQuery, warp::Rejection>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                // Prioritise requests for validators at the head. These should be fast to service
+                // and could be required by the validator client.
+                let priority = if let StateId(eth2::types::StateId::Head) = state_id {
+                    Priority::P0
+                } else {
+                    Priority::P1
+                };
+                task_spawner.blocking_json_task(priority, move || {
                     let query = query_res?;
                     crate::validators::get_beacon_state_validators(
                         state_id,
@@ -737,7 +744,14 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              query: ValidatorsRequestBody| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                // Prioritise requests for validators at the head. These should be fast to service
+                // and could be required by the validator client.
+                let priority = if let StateId(eth2::types::StateId::Head) = state_id {
+                    Priority::P0
+                } else {
+                    Priority::P1
+                };
+                task_spawner.blocking_json_task(priority, move || {
                     crate::validators::get_beacon_state_validators(
                         state_id,
                         chain,
@@ -763,7 +777,14 @@ pub fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              validator_id: ValidatorId| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                // Prioritise requests for validators at the head. These should be fast to service
+                // and could be required by the validator client.
+                let priority = if let StateId(eth2::types::StateId::Head) = state_id {
+                    Priority::P0
+                } else {
+                    Priority::P1
+                };
+                task_spawner.blocking_json_task(priority, move || {
                     let (data, execution_optimistic, finalized) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
                             &chain,
