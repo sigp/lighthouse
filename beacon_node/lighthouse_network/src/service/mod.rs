@@ -929,15 +929,17 @@ impl<E: EthSpec> Network<E> {
         self.eth2_rpc_mut().send_request(
             peer_id,
             RequestId::Application(request_id),
-            request.into(),
+            request.clone().into(),
         );
+        metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS_SENT, &[request.into()]);
         Ok(())
     }
 
     /// Send a successful response to a peer over RPC.
     pub fn send_response(&mut self, peer_id: PeerId, id: PeerRequestId, response: Response<E>) {
         self.eth2_rpc_mut()
-            .send_response(peer_id, id, response.into())
+            .send_response(peer_id, id, response.clone().into());
+        metrics::inc_counter_vec(&metrics::TOTAL_RPC_RESPONSES_SENT, &[response.into()]);
     }
 
     /// Inform the peer that their request produced an error.

@@ -444,7 +444,7 @@ impl DataColumnsByRootRequest {
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, IntoStaticStr)]
 pub enum RPCResponse<E: EthSpec> {
     /// A HELLO message.
     Status(StatusMessage),

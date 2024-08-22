@@ -1,3 +1,4 @@
+use crate::metrics;
 use crate::rpc::methods::*;
 use crate::rpc::{
     codec::base::OutboundCodec,
@@ -120,6 +121,9 @@ impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
 
         // Write compressed bytes to `dst`
         dst.extend_from_slice(writer.get_ref());
+        if let RPCCodedResponse::Success(resp) = &item {
+            metrics::inc_counter_vec_by(&metrics::TOTAL_RPC_RESPONSES_BYTES_SENT, &[resp.clone().into()], dst.len() as u64);
+        }
         Ok(())
     }
 }
@@ -214,7 +218,7 @@ impl<E: EthSpec> Encoder<OutboundRequest<E>> for SSZSnappyOutboundCodec<E> {
     type Error = RPCError;
 
     fn encode(&mut self, item: OutboundRequest<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let bytes = match item {
+        let bytes = match &item {
             OutboundRequest::Status(req) => req.as_ssz_bytes(),
             OutboundRequest::Goodbye(req) => req.as_ssz_bytes(),
             OutboundRequest::BlocksByRange(r) => match r {
@@ -251,6 +255,7 @@ impl<E: EthSpec> Encoder<OutboundRequest<E>> for SSZSnappyOutboundCodec<E> {
 
         // Write compressed bytes to `dst`
         dst.extend_from_slice(writer.get_ref());
+        metrics::inc_counter_vec_by(&metrics::TOTAL_RPC_REQUESTS_BYTES_SENT, &[item.into()], dst.len() as u64);
         Ok(())
     }
 }
@@ -482,9 +487,12 @@ fn handle_rpc_request<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<Option<InboundRequest<E>>, RPCError> {
     match versioned_protocol {
-        SupportedProtocol::StatusV1 => Ok(Some(InboundRequest::Status(
-            StatusMessage::from_ssz_bytes(decoded_buffer)?,
-        ))),
+        SupportedProtocol::StatusV1 => {
+            metrics::inc_counter_vec_by(&metrics::TOTAL_RPC_REQUESTS_BYTES_RECEIVED, &["status"], decoded_buffer.len() as u64);
+            Ok(Some(InboundRequest::Status(
+                StatusMessage::from_ssz_bytes(decoded_buffer)?,
+            )))
+        },
         SupportedProtocol::GoodbyeV1 => Ok(Some(InboundRequest::Goodbye(
             GoodbyeReason::from_ssz_bytes(decoded_buffer)?,
         ))),
@@ -571,7 +579,7 @@ fn handle_rpc_request<E: EthSpec>(
 /// `decoded_buffer` should be an ssz-encoded bytestream with
 /// length = length-prefix received in the beginning of the stream.
 ///
-/// For BlocksByRange/BlocksByRoot reponses, decodes the appropriate response
+/// For BlocksByRange/BlocksByRoot responses, decodes the appropriate response
 /// according to the received `ForkName`.
 fn handle_rpc_response<E: EthSpec>(
     versioned_protocol: SupportedProtocol,
@@ -579,9 +587,12 @@ fn handle_rpc_response<E: EthSpec>(
     fork_name: Option<ForkName>,
 ) -> Result<Option<RPCResponse<E>>, RPCError> {
     match versioned_protocol {
-        SupportedProtocol::StatusV1 => Ok(Some(RPCResponse::Status(
-            StatusMessage::from_ssz_bytes(decoded_buffer)?,
-        ))),
+        SupportedProtocol::StatusV1 => {
+            metrics::inc_counter_vec_by(&metrics::TOTAL_RPC_RESPONSES_BYTES_RECEIVED, &["status"], decoded_buffer.len() as u64);
+            Ok(Some(RPCResponse::Status(
+                StatusMessage::from_ssz_bytes(decoded_buffer)?,
+            )))
+        },
         // This case should be unreachable as `Goodbye` has no response.
         SupportedProtocol::GoodbyeV1 => Err(RPCError::InvalidData(
             "Goodbye RPC message has no valid response".to_string(),
