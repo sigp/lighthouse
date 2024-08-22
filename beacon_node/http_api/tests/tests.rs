@@ -1843,7 +1843,6 @@ impl ApiTester {
         self
     }
 
-    // TODO(lc-bootstrap) do we need this test
     pub async fn test_get_beacon_light_client_bootstrap(self) -> Self {
         let block_id = BlockId(CoreBlockId::Finalized);
         let (block_root, _, _) = block_id.root(&self.chain).unwrap();
