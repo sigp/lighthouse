@@ -11,7 +11,7 @@ use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_RE
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
-use serde::{Deserialize, Serialize};
+use serde::{ser::SerializeStruct, Deserialize, Serialize, Serializer};
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp::Ordering;
@@ -138,11 +138,47 @@ pub enum CandidateError {
     TimeDiscrepancy,
 }
 
-#[derive(Debug, Clone)]
+impl std::fmt::Display for CandidateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CandidateError::PreGenesis => write!(f, "PreGenesis"),
+            CandidateError::Uninitialized => write!(f, "Uninitialized"),
+            CandidateError::Offline => write!(f, "Offline"),
+            CandidateError::Incompatible => write!(f, "Incompatible"),
+            CandidateError::TimeDiscrepancy => write!(f, "TimeDiscrepancy"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct CandidateInfo {
     pub index: usize,
-    pub node: String,
-    pub health: Option<BeaconNodeHealth>,
+    pub endpoint: String,
+    pub health: Result<BeaconNodeHealth, CandidateError>,
+}
+
+impl Serialize for CandidateInfo {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("CandidateInfo", 2)?;
+
+        state.serialize_field("index", &self.index)?;
+        state.serialize_field("endpoint", &self.endpoint)?;
+
+        // Serialize either the health or the error field based on the Result
+        match &self.health {
+            Ok(health) => {
+                state.serialize_field("health", health)?;
+            }
+            Err(e) => {
+                state.serialize_field("error", &e.to_string())?;
+            }
+        }
+
+        state.end()
+    }
 }
 
 /// Represents a `BeaconNodeHttpClient` inside a `BeaconNodeFallback` that may or may not be used
@@ -417,8 +453,8 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
             candidate_info.push(CandidateInfo {
                 index: candidate.index,
-                node: candidate.beacon_node.to_string(),
-                health: health.ok(),
+                endpoint: candidate.beacon_node.to_string(),
+                health,
             });
         }
 

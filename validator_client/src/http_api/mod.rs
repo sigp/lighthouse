@@ -8,8 +8,7 @@ mod tests;
 
 pub mod test_utils;
 
-use crate::beacon_node_fallback::CandidateError;
-use crate::beacon_node_health::BeaconNodeHealth;
+use crate::beacon_node_fallback::CandidateInfo;
 use crate::http_api::graffiti::{delete_graffiti, get_graffiti, set_graffiti};
 
 use crate::http_api::create_signed_voluntary_exit::create_signed_voluntary_exit;
@@ -419,21 +418,28 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(block_service_filter.clone())
         .then(|block_filter: BlockService<T, E>| async move {
-            let mut result: HashMap<(usize, String), Result<BeaconNodeHealth, CandidateError>> =
-                HashMap::new();
+            let mut result: HashMap<String, Vec<CandidateInfo>> = HashMap::new();
+
+            let mut beacon_nodes = Vec::new();
             for node in &*block_filter.beacon_nodes.candidates.read().await {
-                result.insert(
-                    (node.index, node.beacon_node.to_string()),
-                    *node.health.read().await,
-                );
+                beacon_nodes.push(CandidateInfo {
+                    index: node.index,
+                    endpoint: node.beacon_node.to_string(),
+                    health: *node.health.read().await,
+                });
             }
-            if let Some(proposer_nodes) = &block_filter.proposer_nodes {
-                for node in &*proposer_nodes.candidates.read().await {
-                    result.insert(
-                        (node.index, node.beacon_node.to_string()),
-                        *node.health.read().await,
-                    );
+            result.insert("beacon_nodes".to_string(), beacon_nodes);
+
+            if let Some(proposer_nodes_list) = &block_filter.proposer_nodes {
+                let mut proposer_nodes = Vec::new();
+                for node in &*proposer_nodes_list.candidates.read().await {
+                    proposer_nodes.push(CandidateInfo {
+                        index: node.index,
+                        endpoint: node.beacon_node.to_string(),
+                        health: *node.health.read().await,
+                    });
                 }
+                result.insert("proposer_nodes".to_string(), proposer_nodes);
             }
 
             blocking_json_task(move || Ok(api_types::GenericResponse::from(result))).await

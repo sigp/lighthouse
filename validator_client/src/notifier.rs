@@ -59,7 +59,7 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
     if num_synced > 0 {
         let primary = candidate_info
             .first()
-            .map(|candidate| candidate.node.as_str())
+            .map(|candidate| candidate.endpoint.as_str())
             .unwrap_or("None");
         info!(
             log,
@@ -85,13 +85,13 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
     }
 
     for info in candidate_info {
-        if let Some(health) = info.health {
+        if let Ok(health) = info.health {
             debug!(
                 log,
                 "Beacon node info";
                 "status" => "Connected",
                 "index" => info.index,
-                "endpoint" => info.node,
+                "endpoint" => info.endpoint,
                 "head_slot" => %health.head,
                 "is_optimistic" => ?health.optimistic_status,
                 "execution_engine_status" => ?health.execution_status,
@@ -103,7 +103,7 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
                 "Beacon node info";
                 "status" => "Disconnected",
                 "index" => info.index,
-                "endpoint" => info.node,
+                "endpoint" => info.endpoint,
             );
         }
     }
