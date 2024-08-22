@@ -37,6 +37,7 @@ async fn post_merge_tester(chain_depth: u64, validator_count: u64) -> Interactiv
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
             SyncCommitteeStrategy::AllValidators,
+            LightClientStrategy::Disabled,
         )
         .await;
     tester

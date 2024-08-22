@@ -88,6 +88,7 @@ async fn state_by_root_pruned_from_fork_choice() {
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
             SyncCommitteeStrategy::NoValidators,
+            LightClientStrategy::Disabled,
         )
         .await;
 
@@ -469,6 +470,7 @@ pub async fn proposer_boost_re_org_test(
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
             SyncCommitteeStrategy::AllValidators,
+            LightClientStrategy::Disabled,
         )
         .await;
 
