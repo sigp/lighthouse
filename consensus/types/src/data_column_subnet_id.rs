@@ -51,9 +51,9 @@ impl DataColumnSubnetId {
             let mut node_id_bytes = [0u8; 32];
             current_id.to_little_endian(&mut node_id_bytes);
             let hash = ethereum_hashing::hash_fixed(&node_id_bytes);
-            let hash_prefix = [
-                hash[0], hash[1], hash[2], hash[3], hash[4], hash[5], hash[6], hash[7],
-            ];
+            let hash_prefix: [u8; 8] = hash[0..8]
+                .try_into()
+                .expect("hash_fixed produces a 32 byte array");
             let hash_prefix_u64 = u64::from_le_bytes(hash_prefix);
             let subnet = hash_prefix_u64 % spec.data_column_sidecar_subnet_count;
 

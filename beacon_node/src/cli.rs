@@ -67,7 +67,7 @@ pub fn cli_app() -> Command {
                 .hide(true)
         )
         .arg(
-            // TODO(das): remove this before release
+            // TODO(das): remove this before PeerDAS release
             Arg::new("malicious-withhold-count")
                 .long("malicious-withhold-count")
                 .action(ArgAction::Set)
