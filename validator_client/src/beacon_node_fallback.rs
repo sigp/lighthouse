@@ -407,7 +407,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                     num_available += 1;
                 }
                 Err(CandidateError::Uninitialized) => num_available += 1,
-                Err(_) => continue,
+                Err(_) => (),
             }
 
             candidate_info.push(CandidateInfo {
