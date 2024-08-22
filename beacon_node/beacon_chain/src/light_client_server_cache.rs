@@ -124,13 +124,12 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             .epoch
             .sync_committee_period(chain_spec)?;
 
-        self.store_current_sync_committee_branch(
-            &store,
-            &cached_parts,
+        store.store_sync_committee_branch(
             attested_block.message().tree_hash_root(),
+            &cached_parts.current_sync_committee_branch,
         )?;
 
-        self.store_sync_committee(&store, &cached_parts, sync_period, finalized_period)?;
+        self.store_current_sync_committee(&store, &cached_parts, sync_period, finalized_period)?;
 
         let attested_slot = attested_block.slot();
 
@@ -218,22 +217,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         Ok(())
     }
 
-    fn store_current_sync_committee_branch(
-        &self,
-        store: &BeaconStore<T>,
-        cached_parts: &LightClientCachedData<T::EthSpec>,
-        block_root: Hash256,
-    ) -> Result<(), BeaconChainError> {
-        let column = DBColumn::SyncCommitteeBranch;
-        store.hot_db.put_bytes(
-            column.into(),
-            &block_root.as_ssz_bytes(),
-            &cached_parts.current_sync_committee_branch.as_ssz_bytes(),
-        )?;
-        Ok(())
-    }
-
-    fn store_sync_committee(
+    fn store_current_sync_committee(
         &self,
         store: &BeaconStore<T>,
         cached_parts: &LightClientCachedData<T::EthSpec>,
@@ -248,13 +232,10 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             }
         };
 
-        let column = DBColumn::SyncCommittee;
-
         if finalized_period >= sync_committee_period - 1 {
-            store.hot_db.put_bytes(
-                column.into(),
-                &sync_committee_period.to_le_bytes(),
-                &cached_parts.current_sync_committee.as_ssz_bytes(),
+            store.store_sync_committee(
+                sync_committee_period,
+                &cached_parts.current_sync_committee,
             )?;
             *self.latest_written_current_sync_committee.write() =
                 Some(cached_parts.current_sync_committee.clone());
@@ -303,21 +284,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             }
         }
 
-        let column = DBColumn::LightClientUpdate;
-        let res = store
-            .hot_db
-            .get_bytes(column.into(), &sync_committee_period.to_le_bytes())?;
-
-        if let Some(light_client_update_bytes) = res {
-            let epoch = sync_committee_period
-                .safe_mul(chain_spec.epochs_per_sync_committee_period.into())?;
-
-            let fork_name = chain_spec.fork_name_at_epoch(epoch.into());
-
-            let light_client_update =
-                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)
-                    .map_err(store::errors::Error::SszDecodeError)?;
-
+        if let Some(light_client_update) = store.get_light_client_update(sync_committee_period)? {
             *self.latest_light_client_update.write() = Some(light_client_update.clone());
             return Ok(Some(light_client_update));
         }
@@ -399,50 +366,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         self.latest_optimistic_update.read().clone()
     }
 
-    /// Fetches a `sync_committee_branch` for a given `block_root`
-    ///
-    /// Note:
-    pub fn get_sync_committee_branch(
-        &self,
-        store: &BeaconStore<T>,
-        block_root: &Hash256,
-    ) -> Result<Option<FixedVector<Hash256, CurrentSyncCommitteeProofLen>>, BeaconChainError> {
-        let column = DBColumn::SyncCommitteeBranch;
-
-        if let Some(bytes) = store
-            .hot_db
-            .get_bytes(column.into(), &block_root.as_ssz_bytes())?
-        {
-            let sync_committee_branch: FixedVector<Hash256, CurrentSyncCommitteeProofLen> =
-                FixedVector::from_ssz_bytes(&bytes)
-                    .map_err(store::errors::Error::SszDecodeError)?;
-
-            return Ok(Some(sync_committee_branch));
-        }
-
-        Ok(None)
-    }
-
-    pub fn get_sync_committee(
-        &self,
-        store: &BeaconStore<T>,
-        sync_committee_period: u64,
-    ) -> Result<Option<SyncCommittee<T::EthSpec>>, BeaconChainError> {
-        let column = DBColumn::SyncCommittee;
-
-        if let Some(bytes) = store
-            .hot_db
-            .get_bytes(column.into(), &sync_committee_period.as_ssz_bytes())?
-        {
-            let sync_committee: SyncCommittee<T::EthSpec> =
-                SyncCommittee::from_ssz_bytes(&bytes)
-                    .map_err(store::errors::Error::SszDecodeError)?;
-            return Ok(Some(sync_committee));
-        }
-
-        Ok(None)
-    }
-
     /// Fetches a light client bootstrap for a given finalized checkpoint `block_root`. We eagerly persist
     /// `sync_committee_branch and `sync_committee` to allow for a more efficient bootstrap construction.
     ///
@@ -472,8 +395,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             .epoch(T::EthSpec::slots_per_epoch())
             .sync_committee_period(chain_spec)?;
 
-        let Some(current_sync_committee_branch) =
-            self.get_sync_committee_branch(store, block_root)?
+        let Some(current_sync_committee_branch) = store.get_sync_committee_branch(block_root)?
         else {
             return Err(BeaconChainError::LightClientBootstrapError(format!(
                 "Sync committee branch for block root {:?} not found",
@@ -487,8 +409,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             ));
         }
 
-        let Some(current_sync_committee) = self.get_sync_committee(store, sync_committee_period)?
-        else {
+        let Some(current_sync_committee) = store.get_sync_committee(sync_committee_period)? else {
             return Err(BeaconChainError::LightClientBootstrapError(format!(
                 "Sync committee for block root {block_root} not found"
             )));

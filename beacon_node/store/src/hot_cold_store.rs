@@ -27,6 +27,7 @@ use itertools::process_results;
 use leveldb::iterator::LevelDBIterator;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
+use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, trace, warn, Logger};
 use ssz::{Decode, Encode};
@@ -43,6 +44,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
+use types::light_client_update::CurrentSyncCommitteeProofLen;
 use types::*;
 
 /// On-disk database that stores finalized states efficiently.
@@ -632,6 +634,127 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn execution_payload_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
         self.get_item::<ExecutionPayload<E>>(block_root)
             .map(|payload| payload.is_some())
+    }
+
+    /// Get the sync committee branch for the given block root
+    /// Note: we only persist sync committee branches for checkpoint slots
+    pub fn get_sync_committee_branch(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<FixedVector<Hash256, CurrentSyncCommitteeProofLen>>, Error> {
+        let column = DBColumn::SyncCommitteeBranch;
+
+        if let Some(bytes) = self
+            .hot_db
+            .get_bytes(column.into(), &block_root.as_ssz_bytes())?
+        {
+            let sync_committee_branch: FixedVector<Hash256, CurrentSyncCommitteeProofLen> =
+                FixedVector::from_ssz_bytes(&bytes)?;
+            return Ok(Some(sync_committee_branch));
+        }
+
+        Ok(None)
+    }
+
+    /// Fetch sync committee by sync committee period
+    pub fn get_sync_committee(
+        &self,
+        sync_committee_period: u64,
+    ) -> Result<Option<SyncCommittee<E>>, Error> {
+        let column = DBColumn::SyncCommittee;
+
+        if let Some(bytes) = self
+            .hot_db
+            .get_bytes(column.into(), &sync_committee_period.as_ssz_bytes())?
+        {
+            let sync_committee: SyncCommittee<E> = SyncCommittee::from_ssz_bytes(&bytes)?;
+            return Ok(Some(sync_committee));
+        }
+
+        Ok(None)
+    }
+
+    pub fn store_sync_committee_branch(
+        &self,
+        block_root: Hash256,
+        sync_committee_branch: &FixedVector<Hash256, CurrentSyncCommitteeProofLen>,
+    ) -> Result<(), Error> {
+        let column = DBColumn::SyncCommitteeBranch;
+        self.hot_db.put_bytes(
+            column.into(),
+            &block_root.as_ssz_bytes(),
+            &sync_committee_branch.as_ssz_bytes(),
+        )?;
+        Ok(())
+    }
+
+    pub fn store_sync_committee(
+        &self,
+        sync_committee_period: u64,
+        sync_committee: &SyncCommittee<E>,
+    ) -> Result<(), Error> {
+        let column = DBColumn::SyncCommittee;
+        self.hot_db.put_bytes(
+            column.into(),
+            &sync_committee_period.to_le_bytes(),
+            &sync_committee.as_ssz_bytes(),
+        )?;
+
+        Ok(())
+    }
+
+    pub fn get_light_client_update(
+        &self,
+        sync_committee_period: u64,
+    ) -> Result<Option<LightClientUpdate<E>>, Error> {
+        let column = DBColumn::LightClientUpdate;
+        let res = self
+            .hot_db
+            .get_bytes(column.into(), &sync_committee_period.to_le_bytes())?;
+
+        if let Some(light_client_update_bytes) = res {
+            let epoch = sync_committee_period
+                .safe_mul(self.spec.epochs_per_sync_committee_period.into())?;
+
+            let fork_name = self.spec.fork_name_at_epoch(epoch.into());
+
+            let light_client_update =
+                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)?;
+
+            return Ok(Some(light_client_update));
+        }
+
+        Ok(None)
+    }
+
+    pub fn get_light_client_updates(
+        &self,
+        start_period: u64,
+        count: u64,
+    ) -> Result<Vec<LightClientUpdate<E>>, Error> {
+        let column = DBColumn::LightClientUpdate;
+        let mut light_client_updates = vec![];
+        for res in self
+            .hot_db
+            .iter_column_from::<Vec<u8>>(column, &start_period.to_le_bytes())
+        {
+            let (sync_committee_bytes, light_client_update_bytes) = res?;
+            let sync_committee_period = u64::from_ssz_bytes(&sync_committee_bytes)?;
+            let epoch = sync_committee_period
+                .safe_mul(self.spec.epochs_per_sync_committee_period.into())?;
+
+            let fork_name = self.spec.fork_name_at_epoch(epoch.into());
+
+            let light_client_update =
+                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)?;
+
+            light_client_updates.push(light_client_update);
+
+            if sync_committee_period >= start_period + count {
+                break;
+            }
+        }
+        Ok(light_client_updates)
     }
 
     /// Check if the blobs for a block exists on disk.
