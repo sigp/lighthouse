@@ -15,7 +15,7 @@ use std::{
     collections::hash_map::Entry, collections::HashMap, marker::PhantomData, sync::Arc,
     time::Duration,
 };
-use types::{data_column_sidecar::ColumnIndex, ChainSpec, DataColumnSidecar, Hash256, Slot};
+use types::{data_column_sidecar::ColumnIndex, ChainSpec, DataColumnSidecar, Hash256};
 
 pub type SamplingResult = Result<(), SamplingError>;
 
@@ -51,7 +51,6 @@ impl<T: BeaconChainTypes> Sampling<T> {
     pub fn on_new_sample_request(
         &mut self,
         block_root: Hash256,
-        block_slot: Slot,
         cx: &mut SyncNetworkContext<T>,
     ) -> Option<(SamplingRequester, SamplingResult)> {
         let id = SamplingRequester::ImportedBlock(block_root);
@@ -59,7 +58,6 @@ impl<T: BeaconChainTypes> Sampling<T> {
         let request = match self.requests.entry(id) {
             Entry::Vacant(e) => e.insert(ActiveSamplingRequest::new(
                 block_root,
-                block_slot,
                 id,
                 &self.sampling_config,
                 self.log.clone(),
@@ -157,7 +155,6 @@ impl<T: BeaconChainTypes> Sampling<T> {
 
 pub struct ActiveSamplingRequest<T: BeaconChainTypes> {
     block_root: Hash256,
-    block_slot: Slot,
     requester_id: SamplingRequester,
     column_requests: FnvHashMap<ColumnIndex, ActiveColumnSampleRequest>,
     /// Mapping of column indexes for a sampling request.
@@ -196,7 +193,6 @@ pub enum SamplingConfig {
 impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
     fn new(
         block_root: Hash256,
-        block_slot: Slot,
         requester_id: SamplingRequester,
         sampling_config: &SamplingConfig,
         log: slog::Logger,
@@ -210,7 +206,6 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
 
         Self {
             block_root,
-            block_slot,
             requester_id,
             column_requests: <_>::default(),
             column_indexes_by_sampling_request: <_>::default(),
