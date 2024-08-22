@@ -476,7 +476,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             self.get_sync_committee_branch(store, block_root)?
         else {
             return Err(BeaconChainError::LightClientBootstrapError(format!(
-                "Sync committee branch for block root {block_root} not found"
+                "Sync committee branch for block root {:?} not found",
+                block_root
             )));
         };
 

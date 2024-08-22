@@ -36,7 +36,7 @@ use state_processing::{
     SlotProcessingError,
 };
 use std::cmp::min;
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::path::Path;
@@ -2832,8 +2832,8 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 
     let mut hot_db_ops = vec![];
     let mut cold_db_ops = vec![];
-    let mut epoch_boundary_blocks = vec![];
-    let mut non_epoch_boundary_blocks = vec![];
+    let mut epoch_boundary_blocks = HashSet::new();
+    let mut non_checkpoint_block_roots = HashSet::new();
 
     // Chunk writer for the linear block roots in the freezer DB.
     // Start at the new upper limit because we iterate backwards.
@@ -2861,10 +2861,20 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
             hot_db_ops.push(StoreOp::DeleteExecutionPayload(block_root));
         }
 
-        if slot % E::slots_per_epoch() != 0 {
-            non_epoch_boundary_blocks.push((slot, block_root))
+        // At a missed slot, `state_root_iter` will return the block root
+        // from the previous non-missed slot. This ensures that the block root at an
+        // epoch boundary is always a checkpoint block root. We keep track of block roots
+        // at epoch boundaries by storing them in the `epoch_boundary_blocks` hash set.
+        // We then ensure that block roots at the epoch boundary aren't included in the
+        // `non_checkpoint_block_roots` hash set.
+        if slot % E::slots_per_epoch() == 0 {
+            epoch_boundary_blocks.insert(block_root);
         } else {
-            epoch_boundary_blocks.push((slot, block_root))
+            non_checkpoint_block_roots.insert(block_root);
+        }
+
+        if epoch_boundary_blocks.contains(&block_root) {
+            non_checkpoint_block_roots.remove(&block_root);
         }
 
         // Delete the old summary, and the full state if we lie on an epoch boundary.
@@ -2906,95 +2916,14 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         }
     }
 
-    let epoch_boundary_slots = epoch_boundary_blocks.len();
-    let number_of_epochs =
-        usize::from((finalized_state.slot() - current_split_slot) / E::slots_per_epoch());
-
-    // if the number of epochs between the current split slot and the new finalized state is not equal
-    // to the number of boundary slot blocks, we have a missed slot at an epoch boundary and need to calculate
-    // the correct checkpoint slots.
-    if number_of_epochs != epoch_boundary_slots {
-        // an epoch has a boundary block if the first slot in the epoch has a block
-        let epochs_with_boundary_blocks = epoch_boundary_blocks
-            .iter()
-            .map(|(slot, _)| slot.epoch(E::slots_per_epoch()))
-            .collect::<HashSet<_>>();
-
-        let mut checkpoint_slots_on_non_epoch_boundaries = HashMap::new();
-
-        non_epoch_boundary_blocks
-            .iter()
-            .for_each(|(slot, block_root)| {
-                // If we already have boundary block for this epoch AND the next epoch
-                // we can safely delete all sync committee branches for non boundary blocks.
-                if epochs_with_boundary_blocks.contains(&slot.epoch(E::slots_per_epoch()))
-                    && epochs_with_boundary_blocks
-                        .contains(&(slot.epoch(E::slots_per_epoch()) + Epoch::new(1)))
-                {
-                    hot_db_ops.push(StoreOp::DeleteSyncCommitteeBranch(*block_root));
-                } else if !epochs_with_boundary_blocks.contains(&slot.epoch(E::slots_per_epoch()))
-                    && !epochs_with_boundary_blocks
-                        .contains(&(slot.epoch(E::slots_per_epoch()) + Epoch::new(1)))
-                {
-                    // There is a missed block at this epoch boundary and the next epoch boundary. The largest slot at this epoch
-                    // should be used as the checkpoint for the next epoch
-                    match checkpoint_slots_on_non_epoch_boundaries
-                        .entry(slot.epoch(E::slots_per_epoch()) + Epoch::new(1))
-                    {
-                        Entry::Occupied(mut occupied_entry) => {
-                            let (entry_slot, entry_block_root) = occupied_entry.get();
-                            if slot > entry_slot {
-                                let (_, prev_block_root) =
-                                    occupied_entry.insert((*slot, *block_root));
-                                hot_db_ops
-                                    .push(StoreOp::DeleteSyncCommitteeBranch(prev_block_root));
-                            } else {
-                                hot_db_ops
-                                    .push(StoreOp::DeleteSyncCommitteeBranch(*entry_block_root));
-                            }
-                        }
-                        Entry::Vacant(v) => {
-                            v.insert((*slot, *block_root));
-                        }
-                    }
-                } else if epochs_with_boundary_blocks.contains(&slot.epoch(E::slots_per_epoch()))
-                    && !epochs_with_boundary_blocks
-                        .contains(&(slot.epoch(E::slots_per_epoch()) + Epoch::new(1)))
-                {
-                    // We have a boundary block for this epoch, but not the next epoch. We keep track of the largest non-missed slot
-                    // in this epoch to use as the checkpoint slot for the next epoch while staging all other sync committee branches for deletion.
-                    let epoch = slot.epoch(E::slots_per_epoch());
-                    match checkpoint_slots_on_non_epoch_boundaries.entry(epoch) {
-                        Entry::Occupied(mut occupied_entry) => {
-                            let (entry_slot, entry_block_root) = occupied_entry.get();
-                            if slot > entry_slot {
-                                let (_, prev_block_root) =
-                                    occupied_entry.insert((*slot, *block_root));
-                                hot_db_ops
-                                    .push(StoreOp::DeleteSyncCommitteeBranch(prev_block_root));
-                            } else {
-                                hot_db_ops
-                                    .push(StoreOp::DeleteSyncCommitteeBranch(*entry_block_root));
-                            }
-                        }
-                        Entry::Vacant(v) => {
-                            v.insert((*slot, *block_root));
-                        }
-                    }
-                } else {
-                    // There was a missed block at this epochs boundary slot, but not at the next epoch boundaries slot. Since
-                    // the boundary slot for this epoch will end up being at the previous epoch, we can safely stage all
-                    // sync committee branches for deletion.
-                    hot_db_ops.push(StoreOp::DeleteSyncCommitteeBranch(*block_root));
-                }
-            });
-    } else {
-        non_epoch_boundary_blocks
-            .iter()
-            .for_each(|(_, block_root)| {
-                hot_db_ops.push(StoreOp::DeleteSyncCommitteeBranch(*block_root));
-            });
-    }
+    // Prune sync committee branch data for all non checkpoint block roots.
+    // Note that `non_checkpoint_block_roots` should only contain non checkpoint block roots
+    // as long as `finalized_state.slot()` is at an epoch boundary.
+    non_checkpoint_block_roots
+        .into_iter()
+        .for_each(|block_root| {
+            hot_db_ops.push(StoreOp::DeleteSyncCommitteeBranch(block_root));
+        });
 
     // Finish writing the block roots and commit the remaining cold DB ops.
     block_root_writer.write(&mut cold_db_ops)?;
