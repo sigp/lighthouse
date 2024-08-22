@@ -901,6 +901,7 @@ fn kzg_verify_kzg_proof() {
     KZGVerifyKZGProofHandler::<MainnetEthSpec>::default().run();
 }
 
+/* TODO(das): enable these tests
 #[test]
 fn kzg_compute_cells_and_proofs() {
     KZGComputeCellsAndKZGProofHandler::<MainnetEthSpec>::default()
@@ -918,6 +919,7 @@ fn kzg_recover_cells_and_proofs() {
     KZGRecoverCellsAndKZGProofHandler::<MainnetEthSpec>::default()
         .run_for_feature(ForkName::Deneb, FeatureName::Eip7594);
 }
+*/
 
 #[test]
 fn merkle_proof_validity() {

@@ -10,6 +10,7 @@ use types::Blob;
 pub fn get_kzg() -> Result<Kzg, Error> {
     let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
         .map_err(|e| Error::InternalError(format!("Failed to initialize kzg: {:?}", e)))?;
+    // TODO(das): need to enable these tests when rayon issues in rust_eth_kzg are fixed
     Kzg::new_from_trusted_setup(trusted_setup)
         .map_err(|e| Error::InternalError(format!("Failed to initialize kzg: {:?}", e)))
 }
