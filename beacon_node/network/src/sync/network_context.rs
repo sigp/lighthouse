@@ -36,7 +36,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
+    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256,
     SignedBeaconBlock, Slot,
 };
 
@@ -285,18 +285,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .collect()
     }
 
-    // TODO(das): epoch argument left here in case custody rotation is implemented
-    pub fn get_custodial_peers(&self, _epoch: Epoch, column_index: ColumnIndex) -> Vec<PeerId> {
+    pub fn get_custodial_peers(&self, column_index: ColumnIndex) -> Vec<PeerId> {
         self.network_globals()
             .custody_peers_for_column(column_index)
     }
 
-    pub fn get_random_custodial_peer(
-        &self,
-        epoch: Epoch,
-        column_index: ColumnIndex,
-    ) -> Option<PeerId> {
-        self.get_custodial_peers(epoch, column_index)
+    pub fn get_random_custodial_peer(&self, column_index: ColumnIndex) -> Option<PeerId> {
+        self.get_custodial_peers(column_index)
             .choose(&mut thread_rng())
             .cloned()
     }
@@ -398,7 +393,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 let mut num_of_custody_column_req = 0;
 
                 for (peer_id, columns_by_range_request) in
-                    self.make_columns_by_range_requests(epoch, request, &custody_indexes)?
+                    self.make_columns_by_range_requests(request, &custody_indexes)?
                 {
                     requested_peers.push(peer_id);
 
@@ -440,7 +435,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     fn make_columns_by_range_requests(
         &self,
-        epoch: Epoch,
         request: BlocksByRangeRequest,
         custody_indexes: &Vec<ColumnIndex>,
     ) -> Result<HashMap<PeerId, DataColumnsByRangeRequest>, RpcRequestSendError> {
@@ -450,7 +444,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // TODO(das): The peer selection logic here needs to be improved - we should probably
             // avoid retrying from failed peers, however `BatchState` currently only tracks the peer
             // serving the blocks.
-            let Some(custody_peer) = self.get_random_custodial_peer(epoch, *column_index) else {
+            let Some(custody_peer) = self.get_random_custodial_peer(*column_index) else {
                 // TODO(das): this will be pretty bad UX. To improve we should:
                 // - Attempt to fetch custody requests first, before requesting blocks
                 // - Handle the no peers case gracefully, maybe add some timeout and give a few
@@ -857,31 +851,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .unwrap_or_else(|e| {
                 warn!(self.log, "Could not report peer: channel failed"; "error"=> %e);
             });
-    }
-
-    pub fn report_peer_on_rpc_error(&self, peer_id: &PeerId, error: &RPCError) {
-        // Note: logging the report event here with the full error display. The log inside
-        // `report_peer` only includes a smaller string, like "invalid_data"
-        debug!(self.log, "reporting peer for sync lookup error"; "error" => %error);
-        if let Some(action) = match error {
-            // Protocol errors are heavily penalized
-            RPCError::SSZDecodeError(..)
-            | RPCError::IoError(..)
-            | RPCError::ErrorResponse(..)
-            | RPCError::InvalidData(..)
-            | RPCError::HandlerRejected => Some(PeerAction::LowToleranceError),
-            // Timing / network errors are less penalized
-            // TODO: Is IoError a protocol error or network error?
-            RPCError::StreamTimeout | RPCError::IncompleteStream | RPCError::NegotiationTimeout => {
-                Some(PeerAction::MidToleranceError)
-            }
-            // Not supporting a specific protocol is tolerated. TODO: Are you sure?
-            RPCError::UnsupportedProtocol => None,
-            // Our fault, don't penalize peer
-            RPCError::InternalError(..) | RPCError::Disconnected => None,
-        } {
-            self.report_peer(*peer_id, action, error.into());
-        }
     }
 
     /// Subscribes to core topics.

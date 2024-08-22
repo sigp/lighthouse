@@ -462,7 +462,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                 .or_insert(ActiveColumnSampleRequest::new(column_index));
 
             if request.is_ready_to_request() {
-                if let Some(peer_id) = request.choose_peer(self.block_slot, cx) {
+                if let Some(peer_id) = request.choose_peer(cx) {
                     let indexes = column_indexes_to_request.entry(peer_id).or_insert(vec![]);
                     indexes.push(column_index);
                 }
@@ -518,7 +518,7 @@ mod request {
     use rand::seq::SliceRandom;
     use rand::thread_rng;
     use std::collections::HashSet;
-    use types::{data_column_sidecar::ColumnIndex, EthSpec, Slot};
+    use types::data_column_sidecar::ColumnIndex;
 
     pub(crate) struct ActiveColumnSampleRequest {
         column_index: ColumnIndex,
@@ -574,15 +574,11 @@ mod request {
 
         pub(crate) fn choose_peer<T: BeaconChainTypes>(
             &mut self,
-            block_slot: Slot,
             cx: &SyncNetworkContext<T>,
         ) -> Option<PeerId> {
             // TODO: When is a fork and only a subset of your peers know about a block, sampling should only
             // be queried on the peers on that fork. Should this case be handled? How to handle it?
-            let mut peer_ids = cx.get_custodial_peers(
-                block_slot.epoch(<T::EthSpec as EthSpec>::slots_per_epoch()),
-                self.column_index,
-            );
+            let mut peer_ids = cx.get_custodial_peers(self.column_index);
 
             peer_ids.retain(|peer_id| !self.peers_dont_have.contains(peer_id));
 
