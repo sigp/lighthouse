@@ -5583,8 +5583,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             bls_to_execution_changes: bls_to_execution_changes.into(),
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
-                            // TODO(electra): finish consolidations when they're more spec'd out
-                            consolidations: Vec::new().into(),
                         },
                     }),
                     maybe_blobs_and_proofs,

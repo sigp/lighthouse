@@ -58,10 +58,7 @@ excluded_paths = [
     # TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
     "tests/.*/electra/ssz_static/LightClientUpdate",
     "tests/.*/electra/ssz_static/LightClientFinalityUpdate",
-    "tests/.*/electra/ssz_static/LightClientBootstrap",
-    # TODO(electra) re-enable as DepositRequest when EF tests are updated
-    "tests/.*/electra/operations/deposit_receipt",
-    "tests/.*/electra/ssz_static/DepositReceipt"
+    "tests/.*/electra/ssz_static/LightClientBootstrap"
 ]
 
 
