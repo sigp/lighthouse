@@ -1,4 +1,5 @@
 use crate::multiaddr::Protocol;
+use crate::rpc::methods::MetaDataV3;
 use crate::rpc::{MetaData, MetaDataV1, MetaDataV2};
 use crate::types::{
     error, EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipEncoding, GossipKind,
@@ -168,6 +169,7 @@ pub fn strip_peer_id(addr: &mut Multiaddr) {
 /// Load metadata from persisted file. Return default metadata if loading fails.
 pub fn load_or_build_metadata<E: EthSpec>(
     network_dir: &std::path::Path,
+    custody_subnet_count: Option<u64>,
     log: &slog::Logger,
 ) -> MetaData<E> {
     // We load a V2 metadata version by default (regardless of current fork)
@@ -218,7 +220,16 @@ pub fn load_or_build_metadata<E: EthSpec>(
     };
 
     // Wrap the MetaData
-    let meta_data = MetaData::V2(meta_data);
+    let meta_data = if let Some(custody_count) = custody_subnet_count {
+        MetaData::V3(MetaDataV3 {
+            attnets: meta_data.attnets,
+            seq_number: meta_data.seq_number,
+            syncnets: meta_data.syncnets,
+            custody_subnet_count: custody_count,
+        })
+    } else {
+        MetaData::V2(meta_data)
+    };
 
     debug!(log, "Metadata sequence number"; "seq_num" => meta_data.seq_number());
     save_metadata_to_disk(network_dir, meta_data.clone(), log);
@@ -275,7 +286,12 @@ pub(crate) fn save_metadata_to_disk<E: EthSpec>(
     log: &slog::Logger,
 ) {
     let _ = std::fs::create_dir_all(dir);
-    let metadata_bytes = metadata.as_ssz_bytes();
+    // We always store the metadata v2 to disk because
+    // custody_subnet_count parameter doesn't need to be persisted across runs.
+    // custody_subnet_count is what the user sets it for the current run.
+    // This is to prevent ugly branching logic when reading the metadata from disk.
+    // TODO(pawan): check if this is unnecessaarily convoluted.
+    let metadata_bytes = metadata.metadata_v2().as_ssz_bytes();
     match File::create(dir.join(METADATA_FILENAME)).and_then(|mut f| f.write_all(&metadata_bytes)) {
         Ok(_) => {
             debug!(log, "Metadata written to disk");

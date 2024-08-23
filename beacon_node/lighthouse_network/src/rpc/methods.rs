@@ -89,7 +89,7 @@ pub struct Ping {
 
 /// The METADATA request structure.
 #[superstruct(
-    variants(V1, V2),
+    variants(V1, V2, V3),
     variant_attributes(derive(Clone, Debug, PartialEq, Serialize),)
 )]
 #[derive(Clone, Debug, PartialEq)]
@@ -106,6 +106,12 @@ impl<E: EthSpec> MetadataRequest<E> {
 
     pub fn new_v2() -> Self {
         Self::V2(MetadataRequestV2 {
+            _phantom_data: PhantomData,
+        })
+    }
+
+    pub fn new_v3() -> Self {
+        Self::V3(MetadataRequestV3 {
             _phantom_data: PhantomData,
         })
     }

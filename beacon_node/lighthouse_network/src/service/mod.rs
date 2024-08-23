@@ -165,7 +165,17 @@ impl<E: EthSpec> Network<E> {
                 ctx.chain_spec,
             )?;
             // Construct the metadata
-            let meta_data = utils::load_or_build_metadata(&config.network_dir, &log);
+            let custody_subnet_count = if ctx.chain_spec.is_peer_das_scheduled() {
+                if config.subscribe_all_data_column_subnets {
+                    Some(ctx.chain_spec.data_column_sidecar_subnet_count)
+                } else {
+                    Some(ctx.chain_spec.custody_requirement)
+                }
+            } else {
+                None
+            };
+            let meta_data =
+                utils::load_or_build_metadata(&config.network_dir, custody_subnet_count, &log);
             let globals = NetworkGlobals::new(
                 enr,
                 meta_data,
@@ -1130,8 +1140,14 @@ impl<E: EthSpec> Network<E> {
 
     /// Sends a METADATA request to a peer.
     fn send_meta_data_request(&mut self, peer_id: PeerId) {
-        // We always prefer sending V2 requests
-        let event = OutboundRequest::MetaData(MetadataRequest::new_v2());
+        let event = if self.fork_context.spec.is_peer_das_scheduled() {
+            // Nodes with higher custody will probably start advertising it
+            // before peerdas is activated
+            OutboundRequest::MetaData(MetadataRequest::new_v3())
+        } else {
+            // We always prefer sending V2 requests otherwise
+            OutboundRequest::MetaData(MetadataRequest::new_v2())
+        };
         self.eth2_rpc_mut()
             .send_request(peer_id, RequestId::Internal, event);
     }
@@ -1146,7 +1162,8 @@ impl<E: EthSpec> Network<E> {
         let metadata = self.network_globals.local_metadata.read().clone();
         let metadata = match req {
             MetadataRequest::V1(_) => metadata.metadata_v1(),
-            MetadataRequest::V2(_) => metadata,
+            MetadataRequest::V2(_) => metadata.metadata_v2(),
+            MetadataRequest::V3(_) => metadata.metadata_v3(),
         };
         let event = RPCCodedResponse::Success(RPCResponse::MetaData(metadata));
         self.eth2_rpc_mut().send_response(peer_id, id, event);
