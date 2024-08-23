@@ -4,6 +4,7 @@
 mod keystores;
 
 use crate::doppelganger_service::DoppelgangerService;
+use crate::BlockServiceBuilder;
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
     initialized_validators::InitializedValidators,
@@ -115,7 +116,9 @@ impl ApiTester {
         let context = Arc::new(Context {
             task_executor: test_runtime.task_executor.clone(),
             api_secret,
-            block_service: None,
+            block_service: BlockServiceBuilder::new()
+                .build()
+                .expect("Should build block service"),
             validator_dir: Some(validator_dir.path().into()),
             secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
