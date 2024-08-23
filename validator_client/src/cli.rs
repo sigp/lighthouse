@@ -30,7 +30,7 @@ pub struct ValidatorClient {
         help_heading = FLAG_HEADER
     )]
     help: Option<bool>,
-    
+
     #[clap(
         long,
         value_name = "NETWORK_ADDRESSES",
