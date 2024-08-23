@@ -863,7 +863,14 @@ mod tests {
                     .unwrap();
 
                 if !slashable_message_should_sign && safe_attestations.len() > 0 {
-                    // return a validator store error to get the test to pass
+                    // if slashability checks are disabled and we don't return any safe attestations
+                    // we raise an error to indicate that thi test case has failed
+                    return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
+                }
+
+                if slashable_message_should_sign && !safe_attestations.len() > 0 {
+                    // if slashability checks are eabled and we return safe attestations
+                    // we raise an error to indicate that this test case has failed
                     return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
                 }
 
@@ -898,7 +905,14 @@ mod tests {
                     .unwrap();
 
                 if !slashable_message_should_sign && safe_attestations.len() > 0 {
-                    // return a validator store error to get the test to pass
+                    // if slashability checks are disabled and we don't return any safe attestations
+                    // we raise an error to indicate that thi test case has failed
+                    return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
+                }
+
+                if slashable_message_should_sign && !safe_attestations.len() > 0 {
+                    // if slashability checks are eabled and we return safe attestations
+                    // we raise an error to indicate that this test case has failed
                     return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
                 }
 
@@ -933,7 +947,14 @@ mod tests {
                     .unwrap();
 
                 if !slashable_message_should_sign && safe_attestations.len() > 0 {
-                    // return a validator store error to get the test to pass
+                    // if slashability checks are disabled and we don't return any safe attestations
+                    // we raise an error to indicate that thi test case has failed
+                    return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
+                }
+
+                if slashable_message_should_sign && !safe_attestations.len() > 0 {
+                    // if slashability checks are eabled and we return safe attestations
+                    // we raise an error to indicate that this test case has failed
                     return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
                 }
 
