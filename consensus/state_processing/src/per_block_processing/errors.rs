@@ -89,46 +89,6 @@ pub enum BlockProcessingError {
         found: Hash256,
     },
     WithdrawalCredentialsInvalid,
-    TooManyPendingConsolidations {
-        consolidations: usize,
-        limit: usize,
-    },
-    ConsolidationChurnLimitTooLow {
-        churn_limit: u64,
-        minimum: u64,
-    },
-    MatchingSourceTargetConsolidation {
-        index: u64,
-    },
-    InactiveConsolidationSource {
-        index: u64,
-        current_epoch: Epoch,
-    },
-    InactiveConsolidationTarget {
-        index: u64,
-        current_epoch: Epoch,
-    },
-    SourceValidatorExiting {
-        index: u64,
-    },
-    TargetValidatorExiting {
-        index: u64,
-    },
-    FutureConsolidationEpoch {
-        current_epoch: Epoch,
-        consolidation_epoch: Epoch,
-    },
-    NoSourceExecutionWithdrawalCredential {
-        index: u64,
-    },
-    NoTargetExecutionWithdrawalCredential {
-        index: u64,
-    },
-    MismatchedWithdrawalCredentials {
-        source_address: Address,
-        target_address: Address,
-    },
-    InavlidConsolidationSignature,
     PendingAttestationInElectra,
 }
 
