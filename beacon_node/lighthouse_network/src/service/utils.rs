@@ -12,7 +12,6 @@ use libp2p::{core, noise, yamux, PeerId, Transport};
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
 use ssz::Decode;
-use ssz::Encode;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::prelude::*;
@@ -276,10 +275,7 @@ pub(crate) fn save_metadata_to_disk<E: EthSpec>(
     log: &slog::Logger,
 ) {
     let _ = std::fs::create_dir_all(dir);
-    let metadata_bytes = match metadata {
-        MetaData::V1(md) => md.as_ssz_bytes(),
-        MetaData::V2(md) => md.as_ssz_bytes(),
-    };
+    let metadata_bytes = metadata.as_ssz_bytes();
     match File::create(dir.join(METADATA_FILENAME)).and_then(|mut f| f.write_all(&metadata_bytes)) {
         Ok(_) => {
             debug!(log, "Metadata written to disk");
