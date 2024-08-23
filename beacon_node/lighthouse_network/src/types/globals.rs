@@ -26,7 +26,7 @@ pub struct NetworkGlobals<E: EthSpec> {
     pub sync_state: RwLock<SyncState>,
     /// The current state of the backfill sync.
     pub backfill_state: RwLock<BackFillState>,
-    spec: ChainSpec,
+    pub spec: ChainSpec,
 }
 
 impl<E: EthSpec> NetworkGlobals<E> {
@@ -137,10 +137,8 @@ impl<E: EthSpec> NetworkGlobals<E> {
 
     /// Returns a connected peer that:
     /// 1. is connected
-    /// 2. assigned to custody the column based on it's `custody_subnet_count` from ENR or metadata (WIP)
+    /// 2. assigned to custody the column based on it's `custody_subnet_count` from ENR or metadata
     /// 3. has a good score
-    /// 4. subscribed to the specified column - this condition can be removed later, so we can
-    ///    identify and penalise peers that are supposed to custody the column.
     pub fn custody_peers_for_column(&self, column_index: ColumnIndex) -> Vec<PeerId> {
         self.peers
             .read()

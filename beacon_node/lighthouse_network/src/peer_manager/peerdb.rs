@@ -249,13 +249,15 @@ impl<E: EthSpec> PeerDB<E> {
             .filter(move |(_, info)| {
                 // We check both the metadata and gossipsub data as we only want to count long-lived subscribed peers
                 info.is_connected()
-                    && info.on_subnet_metadata(&subnet)
+                    && info.on_subnet_metadata(&subnet, &self.spec)
                     && info.on_subnet_gossipsub(&subnet)
                     && info.is_good_gossipsub_peer()
             })
             .map(|(peer_id, _)| peer_id)
     }
 
+    /// Returns an iterator of all good gossipsub peers that are supposed to be custodying
+    /// the given subnet id.
     pub fn good_custody_subnet_peer(
         &self,
         subnet: DataColumnSubnetId,
@@ -263,15 +265,7 @@ impl<E: EthSpec> PeerDB<E> {
         self.peers
             .iter()
             .filter(move |(_, info)| {
-                // TODO(das): we currently consider peer to be a subnet peer if the peer is *either*
-                // subscribed to the subnet or assigned to the subnet.
-                // The first condition is currently required as we don't have custody count in
-                // metadata implemented yet, and therefore unable to reliably determine custody
-                // subnet count (ENR is not always available).
-                // This condition can be removed later so that we can identify peers that are not
-                // serving custody columns and penalise accordingly.
-                let is_custody_subnet_peer = info.on_subnet_gossipsub(&Subnet::DataColumn(subnet))
-                    || info.is_assigned_to_custody_subnet(&subnet);
+                let is_custody_subnet_peer = info.on_subnet_metadata(&Subnet::DataColumn(subnet));
                 info.is_connected() && info.is_good_gossipsub_peer() && is_custody_subnet_peer
             })
             .map(|(peer_id, _)| peer_id)
@@ -645,9 +639,10 @@ impl<E: EthSpec> PeerDB<E> {
     // VISIBILITY: The behaviour is able to adjust subscriptions.
     pub(crate) fn extend_peers_on_subnet(&mut self, subnet: &Subnet, min_ttl: Instant) {
         let log = &self.log;
+        let spec = &self.spec;
         self.peers.iter_mut()
             .filter(move |(_, info)| {
-                info.is_connected() && info.on_subnet_metadata(subnet) && info.on_subnet_gossipsub(subnet)
+                info.is_connected() && info.on_subnet_metadata(subnet, spec) && info.on_subnet_gossipsub(subnet)
             })
             .for_each(|(peer_id,info)| {
                 if info.min_ttl().is_none() || Some(&min_ttl) > info.min_ttl() {
