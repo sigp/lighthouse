@@ -76,7 +76,7 @@ pub struct ValidatorClient {
                 and the validator_definitions.yml",
         display_order = 0
     )]
-    pub validators_dir: Option<PathBuf>,
+    pub validator_dir: Option<PathBuf>,
 
     #[clap(
         long,
@@ -451,8 +451,8 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "MILLIS",
-        default_value_t = 90000,
-        help = "Keep-alive timeout for each web3signer connection. Set to 'null' to never \
+        default_value_t = 20000,
+        help = "Keep-alive timeout for each web3signer connection. Set to '0' to never \
                 timeout.",
         display_order = 0
     )]

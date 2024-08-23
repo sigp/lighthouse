@@ -159,7 +159,7 @@ impl Config {
             secrets_dir = Some(base_dir.join(DEFAULT_SECRET_DIR));
         }
 
-        if let Some(validator_dir_path) = validator_client_config.validators_dir.as_ref() {
+        if let Some(validator_dir_path) = validator_client_config.validator_dir.as_ref() {
             validator_dir = Some(validator_dir_path.clone());
         }
         if let Some(secrets_dir_path) = validator_client_config.secrets_dir.as_ref() {
@@ -267,9 +267,13 @@ impl Config {
         /*
          * Web3 signer
          */
-        config.web3_signer_keep_alive_timeout = Some(Duration::from_millis(
-            validator_client_config.web3_signer_keep_alive_timeout,
-        ));
+        if validator_client_config.web3_signer_keep_alive_timeout == 0 {
+            config.web3_signer_keep_alive_timeout = None
+        } else {
+            config.web3_signer_keep_alive_timeout = Some(Duration::from_millis(
+                validator_client_config.web3_signer_keep_alive_timeout,
+            ));
+        }
 
         if let Some(n) = validator_client_config.web3_signer_max_idle_connections {
             config.web3_signer_max_idle_connections = Some(n);
