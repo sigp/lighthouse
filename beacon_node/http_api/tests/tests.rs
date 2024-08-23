@@ -3431,7 +3431,7 @@ impl ApiTester {
                     .get_validator_aggregate_attestation_v2(
                         attestation.data().slot,
                         attestation.data().tree_hash_root(),
-                        attestation.committee_index().unwrap(),
+                        attestation.committee_index().expect("committee index"),
                     )
                     .await
                     .unwrap()

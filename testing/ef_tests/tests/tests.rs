@@ -1,7 +1,7 @@
 #![cfg(feature = "ef_tests")]
 
 use ef_tests::*;
-use types::{ExecutionLayerWithdrawalRequest, MainnetEthSpec, MinimalEthSpec, *};
+use types::*;
 
 // Check that the hand-computed multiplications on EthSpec are correctly computed.
 // This test lives here because one is most likely to muck these up during a spec update.
@@ -93,24 +93,22 @@ fn operations_withdrawals() {
 }
 
 #[test]
-fn operations_execution_layer_withdrawal_reqeusts() {
-    OperationsHandler::<MinimalEthSpec, ExecutionLayerWithdrawalRequest>::default().run();
-    OperationsHandler::<MainnetEthSpec, ExecutionLayerWithdrawalRequest>::default().run();
+fn operations_withdrawal_reqeusts() {
+    OperationsHandler::<MinimalEthSpec, WithdrawalRequest>::default().run();
+    OperationsHandler::<MainnetEthSpec, WithdrawalRequest>::default().run();
 }
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
 fn operations_deposit_requests() {
-    //TODO(electra): re-enable mainnet once they update the name for this
-    // OperationsHandler::<MinimalEthSpec, DepositRequest>::default().run();
-    // OperationsHandler::<MainnetEthSpec, DepositRequest>::default().run();
+    OperationsHandler::<MinimalEthSpec, DepositRequest>::default().run();
+    OperationsHandler::<MainnetEthSpec, DepositRequest>::default().run();
 }
 
 #[test]
 fn operations_consolidations() {
-    OperationsHandler::<MinimalEthSpec, SignedConsolidation>::default().run();
-    //TODO(electra): re-enable mainnet once they make tests for this
-    //OperationsHandler::<MainnetEthSpec, SignedConsolidation>::default().run();
+    OperationsHandler::<MinimalEthSpec, ConsolidationRequest>::default().run();
+    OperationsHandler::<MainnetEthSpec, ConsolidationRequest>::default().run();
 }
 
 #[test]
@@ -243,9 +241,9 @@ mod ssz_static {
     use types::blob_sidecar::BlobIdentifier;
     use types::historical_summary::HistoricalSummary;
     use types::{
-        AttesterSlashingBase, AttesterSlashingElectra, Consolidation,
-        ExecutionLayerWithdrawalRequest, LightClientBootstrapAltair, PendingBalanceDeposit,
-        PendingPartialWithdrawal, *,
+        AttesterSlashingBase, AttesterSlashingElectra, ConsolidationRequest, DepositRequest,
+        LightClientBootstrapAltair, PendingBalanceDeposit, PendingPartialWithdrawal,
+        WithdrawalRequest, *,
     };
 
     ssz_static_test!(attestation_data, AttestationData);
@@ -631,23 +629,20 @@ mod ssz_static {
 
     #[test]
     fn consolidation() {
-        SszStaticHandler::<Consolidation, MinimalEthSpec>::electra_and_later().run();
-        SszStaticHandler::<Consolidation, MainnetEthSpec>::electra_and_later().run();
+        SszStaticHandler::<ConsolidationRequest, MinimalEthSpec>::electra_and_later().run();
+        SszStaticHandler::<ConsolidationRequest, MainnetEthSpec>::electra_and_later().run();
     }
 
-    // TODO(electra) re-enable when EF tests are updated
-    // #[test]
-    // fn deposit_request() {
-    //     SszStaticHandler::<DepositRequest, MinimalEthSpec>::electra_and_later().run();
-    //     SszStaticHandler::<DepositRequest, MainnetEthSpec>::electra_and_later().run();
-    // }
+    #[test]
+    fn deposit_request() {
+        SszStaticHandler::<DepositRequest, MinimalEthSpec>::electra_and_later().run();
+        SszStaticHandler::<DepositRequest, MainnetEthSpec>::electra_and_later().run();
+    }
 
     #[test]
-    fn execution_layer_withdrawal_request() {
-        SszStaticHandler::<ExecutionLayerWithdrawalRequest, MinimalEthSpec>::electra_and_later()
-            .run();
-        SszStaticHandler::<ExecutionLayerWithdrawalRequest, MainnetEthSpec>::electra_and_later()
-            .run();
+    fn withdrawal_request() {
+        SszStaticHandler::<WithdrawalRequest, MinimalEthSpec>::electra_and_later().run();
+        SszStaticHandler::<WithdrawalRequest, MainnetEthSpec>::electra_and_later().run();
     }
 
     #[test]
@@ -666,12 +661,6 @@ mod ssz_static {
     fn pending_partial_withdrawal() {
         SszStaticHandler::<PendingPartialWithdrawal, MinimalEthSpec>::electra_and_later().run();
         SszStaticHandler::<PendingPartialWithdrawal, MainnetEthSpec>::electra_and_later().run();
-    }
-
-    #[test]
-    fn signed_consolidation() {
-        SszStaticHandler::<SignedConsolidation, MinimalEthSpec>::electra_and_later().run();
-        SszStaticHandler::<SignedConsolidation, MainnetEthSpec>::electra_and_later().run();
     }
 }
 
