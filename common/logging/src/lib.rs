@@ -226,14 +226,11 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
     // Ensure that `tracing_log_path` only contains directories.
     for p in base_tracing_log_path.iter() {
         tracing_log_path = tracing_log_path.join(p);
-        match metadata(p) {
-            Ok(metadata) => {
-                if !metadata.is_dir() {
-                    tracing_log_path.pop();
-                    break;
-                }
+        if let Ok(metadata) = metadata(p) {
+            if !metadata.is_dir() {
+                tracing_log_path.pop();
+                break;
             }
-            Err(_) => (),
         }
     }
 
