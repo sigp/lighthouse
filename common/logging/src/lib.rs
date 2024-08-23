@@ -233,7 +233,7 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
                     break;
                 }
             }
-            Err(_) => ()
+            Err(_) => (),
         }
     }
 
