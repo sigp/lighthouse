@@ -15,7 +15,6 @@ test_backfill = []
 
 [dev-dependencies]
 maplit = { workspace = true }
-environment = { workspace = true }
 serde_json = { workspace = true }
 
 [dependencies]

@@ -306,10 +306,10 @@ pub fn test_logger() -> Logger {
         sloggers::terminal::TerminalLoggerBuilder::new()
             .level(sloggers::types::Severity::Debug)
             .build()
-            .expect("Should build test_logger")
+            .expect("Should build TerminalLoggerBuilder")
     } else {
         sloggers::null::NullLoggerBuilder
             .build()
-            .expect("Should build null_logger")
+            .expect("Should build NullLoggerBuilder")
     }
 }

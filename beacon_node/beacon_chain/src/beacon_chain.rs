@@ -2192,8 +2192,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         verified: &impl VerifiedAttestation<T>,
     ) -> Result<(), Error> {
-        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
-
         self.canonical_head
             .fork_choice_write_lock()
             .on_attestation(
@@ -3634,8 +3632,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Register the new block with the fork choice service.
         {
-            let _fork_choice_block_timer =
-                metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
             let block_delay = self
                 .slot_clock
                 .seconds_from_current_slot_start()
@@ -5535,8 +5531,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             bls_to_execution_changes: bls_to_execution_changes.into(),
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
-                            // TODO(electra): finish consolidations when they're more spec'd out
-                            consolidations: Vec::new().into(),
                         },
                     }),
                     maybe_blobs_and_proofs,

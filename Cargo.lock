@@ -780,7 +780,6 @@ dependencies = [
  "bitvec 1.0.1",
  "bls",
  "derivative",
- "environment",
  "eth1",
  "eth2",
  "eth2_network_config",
@@ -837,6 +836,7 @@ dependencies = [
 name = "beacon_node"
 version = "5.3.0"
 dependencies = [
+ "account_utils",
  "beacon_chain",
  "clap",
  "clap_utils",
@@ -2473,6 +2473,7 @@ dependencies = [
  "execution_layer",
  "futures",
  "lighthouse_metrics",
+ "logging",
  "merkle_proof",
  "parking_lot 0.12.3",
  "sensitive_url",
@@ -2957,7 +2958,6 @@ dependencies = [
  "arc-swap",
  "builder_client",
  "bytes",
- "environment",
  "eth2",
  "eth2_network_config",
  "ethereum_serde_utils",
@@ -2972,6 +2972,7 @@ dependencies = [
  "kzg",
  "lighthouse_metrics",
  "lighthouse_version",
+ "logging",
  "lru",
  "parking_lot 0.12.3",
  "pretty_reqwest_error",
@@ -3162,6 +3163,7 @@ dependencies = [
  "beacon_chain",
  "ethereum_ssz",
  "ethereum_ssz_derive",
+ "lighthouse_metrics",
  "proto_array",
  "slog",
  "state_processing",
@@ -3833,7 +3835,6 @@ dependencies = [
  "bs58 0.4.0",
  "bytes",
  "directory",
- "environment",
  "eth1",
  "eth2",
  "ethereum_serde_utils",
@@ -3875,10 +3876,10 @@ name = "http_metrics"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
- "environment",
  "lighthouse_metrics",
  "lighthouse_network",
  "lighthouse_version",
+ "logging",
  "malloc_utils",
  "reqwest",
  "serde",
@@ -4333,13 +4334,14 @@ dependencies = [
 
 [[package]]
 name = "jsonwebtoken"
-version = "8.3.0"
+version = "9.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6971da4d9c3aa03c3d8f3ff0f4155b534aad021292003895a469716b2a230378"
+checksum = "b9ae10193d25051e74945f1ea2d0b42e03cc3b890f7e4cc5faa44997d808193f"
 dependencies = [
  "base64 0.21.7",
- "pem 1.1.1",
- "ring 0.16.20",
+ "js-sys",
+ "pem",
+ "ring 0.17.8",
  "serde",
  "serde_json",
  "simple_asn1",
@@ -4463,6 +4465,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sloggers",
  "snap",
  "state_processing",
  "store",
@@ -6121,15 +6124,6 @@ dependencies = [
 
 [[package]]
 name = "pem"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8835c273a76a90455d7344889b0964598e3316e2a79ede8e36f16bdcf2228b8"
-dependencies = [
- "base64 0.13.1",
-]
-
-[[package]]
-name = "pem"
 version = "3.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e459365e590736a54c3fa561947c84837534b8e9af6fc5bf781307e82658fae"
@@ -6783,7 +6777,7 @@ version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52c4f3084aa3bc7dfbba4eff4fab2a54db4324965d8872ab933565e6fbd83bc6"
 dependencies = [
- "pem 3.0.4",
+ "pem",
  "ring 0.16.20",
  "time",
  "yasna",
@@ -9494,6 +9488,7 @@ dependencies = [
  "eth2_keystore",
  "eth2_network_config",
  "futures",
+ "logging",
  "parking_lot 0.12.3",
  "reqwest",
  "serde",
