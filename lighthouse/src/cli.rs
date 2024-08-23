@@ -6,7 +6,7 @@ use validator_client::cli::ValidatorClient;
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 pub enum LighthouseSubcommands {
     #[clap(name = "database_manager")]
-    DatabaseManager(DatabaseManager),
+    DatabaseManager(Box<DatabaseManager>),
     #[clap(name = "validator_client")]
-    ValidatorClient(ValidatorClient),
+    ValidatorClient(Box<ValidatorClient>),
 }
