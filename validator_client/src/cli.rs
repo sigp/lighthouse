@@ -22,6 +22,17 @@ use types::Address;
 pub struct ValidatorClient {
     #[clap(
         long,
+        short = 'h',
+        global = true,
+        help = "Prints help information",
+        action = clap::ArgAction::HelpLong,
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    help: Option<bool>,
+    
+    #[clap(
+        long,
         value_name = "NETWORK_ADDRESSES",
         value_delimiter = ',',
         help = "Comma-separated addresses to one or more beacon node HTTP APIs. \
@@ -109,7 +120,7 @@ pub struct ValidatorClient {
         display_order = 0,
         help_heading = FLAG_HEADER
     )]
-    pub disable_auto_discovery: bool,
+    pub disable_auto_discover: bool,
 
     #[clap(
         long,
@@ -331,7 +342,7 @@ pub struct ValidatorClient {
         requires = "monitoring_endpoint",
         default_value_t = 60,
         help = "Defines how many seconds to wait between each message sent to \
-                the monitoring-endpoint. Default: 60s",
+                the monitoring-endpoint.",
         display_order = 0
     )]
     pub monitoring_endpoint_period: u64,
@@ -379,20 +390,10 @@ pub struct ValidatorClient {
         default_value_t = 30_000_000,
         help = "The gas limit to be used in all builder proposals for all validators managed \
                 by this validator client. Note this will not necessarily be used if the gas limit \
-                set here moves too far from the previous block's gas limit. [default: 30,000,000]",
+                set here moves too far from the previous block's gas limit.",
         display_order = 0
     )]
     pub gas_limit: u64,
-
-    #[clap(
-        long,
-        value_name = "BOOLEAN",
-        default_value_t = true,
-        help = "DEPRECATED",
-        display_order = 0,
-        help_heading = FLAG_HEADER
-    )]
-    pub latency_measurement_service: bool,
 
     #[clap(
         long,

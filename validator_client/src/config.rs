@@ -197,7 +197,7 @@ impl Config {
                 .collect::<Vec<_>>();
         }
 
-        config.disable_auto_discover = validator_client_config.disable_auto_discovery;
+        config.disable_auto_discover = validator_client_config.disable_auto_discover;
         config.init_slashing_protection = validator_client_config.init_slashing_protection;
         config.use_long_timeouts = validator_client_config.use_long_timeouts;
 
@@ -364,13 +364,6 @@ impl Config {
             validator_client_config.builder_registration_timestamp_override;
 
         config.builder_boost_factor = validator_client_config.builder_boost_factor;
-        if validator_client_config.latency_measurement_service {
-            warn!(
-                log,
-                "latency-measurement-service flag";
-                "note" => "deprecated flag has no effect and should be removed"
-            );
-        }
         config.enable_latency_measurement_service =
             !validator_client_config.disable_latency_measurement_service;
         config.validator_registration_batch_size =

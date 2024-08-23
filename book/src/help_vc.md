@@ -25,9 +25,9 @@ Options:
           Defines the boost factor, a percentage multiplier to apply to the
           builder's payload value when choosing between a builder payload header
           and payload from the local execution node.
-      --builder-registration-timestamp-override <builder-registration-timestamp-override>
+      --builder-registration-timestamp-override <UNIX-TIMESTAMP>
           This flag takes a unix timestamp value that will be used to override
-          the timestamp used in the builder api registration
+          the timestamp used in the builder api registration.
   -d, --datadir <DIR>
           Used to specify a custom root data directory for lighthouse keys and
           databases. Defaults to $HOME/.lighthouse/{network} where network is
@@ -41,7 +41,7 @@ Options:
           The gas limit to be used in all builder proposals for all validators
           managed by this validator client. Note this will not necessarily be
           used if the gas limit set here moves too far from the previous block's
-          gas limit. [default: 30,000,000]
+          gas limit. [default: 30000000]
       --genesis-state-url <URL>
           A URL of a beacon-API compatible server from which to download the
           genesis state. Checkpoint sync server URLs can generally be used with
@@ -68,7 +68,8 @@ Options:
           is supplied, the CORS allowed origin is set to the listen address of
           this server (e.g., http://localhost:5062).
       --http-port <PORT>
-          Set the listen TCP port for the RESTful HTTP API server.
+          Set the listen TCP port for the RESTful HTTP API server. [default:
+          5062]
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]
@@ -92,6 +93,7 @@ Options:
           set to 0, background file logging is disabled. [default: 200]
       --metrics-address <ADDRESS>
           Set the listen address for the Prometheus metrics HTTP server.
+          [default: 127.0.0.1]
       --metrics-allow-origin <ORIGIN>
           Set the value of the Access-Control-Allow-Origin response HTTP header.
           Use * to allow any origin (not recommended in production). If no value
@@ -99,6 +101,7 @@ Options:
           this server (e.g., http://localhost:5064).
       --metrics-port <PORT>
           Set the listen TCP port for the Prometheus metrics HTTP server.
+          [default: 5064]
       --monitoring-endpoint <ADDRESS>
           Enables the monitoring service for sending system metrics to a remote
           endpoint. This can be used to monitor your setup on certain services
@@ -109,7 +112,7 @@ Options:
           provide an untrusted URL.
       --monitoring-endpoint-period <SECONDS>
           Defines how many seconds to wait between each message sent to the
-          monitoring-endpoint. Default: 60s
+          monitoring-endpoint. [default: 60]
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
           values: mainnet, gnosis, chiado, sepolia, holesky]
@@ -161,17 +164,17 @@ Options:
           the broad Ethereum community has elected to override the terminal
           difficulty. Incorrect use of this flag will cause your node to
           experience a consensus failure. Be extremely careful with this flag.
+      --validator-dir <VALIDATORS_DIR>
+          The directory which contains the validator keystores, deposit data for
+          each validator along with the common slashing protection database and
+          the validator_definitions.yml
       --validator-registration-batch-size <INTEGER>
           Defines the number of validators per validator/register_validator
           request sent to the BN. This value can be reduced to avoid timeouts
           from builders. [default: 500]
-      --validators-dir <VALIDATORS_DIR>
-          The directory which contains the validator keystores, deposit data for
-          each validator along with the common slashing protection database and
-          the validator_definitions.yml
       --web3-signer-keep-alive-timeout <MILLIS>
-          Keep-alive timeout for each web3signer connection. Set to 'null' to
-          never timeout [default: 20000]
+          Keep-alive timeout for each web3signer connection. Set to '0' to never
+          timeout. [default: 20000]
       --web3-signer-max-idle-connections <COUNT>
           Maximum number of idle connections to maintain per web3signer host.
           Default is unlimited.
@@ -199,7 +202,7 @@ Flags:
           attestation, sync committee subscriptions and proposer preparation
           messages to all beacon nodes provided in the `--beacon-nodes flag`.
           This option changes that behaviour such that these api calls only go
-          out to the first available and synced beacon node
+          out to the first available and synced beacon node.
       --disable-slashing-protection-web3signer
           Disable Lighthouse's slashing protection for all web3signer keys. This
           can reduce the I/O burden on the VC but is only safe if slashing
@@ -273,6 +276,4 @@ Flags:
           If present, the validator client will use longer timeouts for requests
           made to the beacon node. This flag is generally not recommended,
           longer timeouts can cause missed duties when fallbacks are used.
-```
-
-<style> .content main {max-width:88%;} </style>
+```n<style> .content main {max-width:88%;} </style>
