@@ -184,7 +184,7 @@ impl<E: EthSpec> MetaData<E> {
                 seq_number: metadata.seq_number,
                 attnets: metadata.attnets.clone(),
                 syncnets: metadata.syncnets.clone(),
-                custody_subnet_count: 0,
+                custody_subnet_count: 1,
             }),
             md @ MetaData::V3(_) => md.clone(),
         }

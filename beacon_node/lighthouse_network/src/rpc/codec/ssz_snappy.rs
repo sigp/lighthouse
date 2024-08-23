@@ -998,14 +998,14 @@ mod tests {
         })
     }
 
-    fn metadata_v3() -> MetaData<Spec> {
-        MetaData::V3(MetaDataV3 {
-            seq_number: 1,
-            attnets: EnrAttestationBitfield::<Spec>::default(),
-            syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
-            custody_subnet_count: 1,
-        })
-    }
+    // fn metadata_v3() -> MetaData<Spec> {
+    //     MetaData::V3(MetaDataV3 {
+    //         seq_number: 1,
+    //         attnets: EnrAttestationBitfield::<Spec>::default(),
+    //         syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
+    //         custody_subnet_count: 1,
+    //     })
+    // }
 
     /// Encodes the given protocol response as bytes.
     fn encode_response(

@@ -1680,7 +1680,11 @@ mod tests {
             .write()
             .peer_info_mut(&peer0)
             .unwrap()
-            .set_meta_data(MetaData::V2(metadata));
+            .set_meta_data(
+                MetaData::V2(metadata),
+                None,
+                &peer_manager.network_globals.spec,
+            );
         peer_manager
             .network_globals
             .peers
@@ -1700,7 +1704,11 @@ mod tests {
             .write()
             .peer_info_mut(&peer2)
             .unwrap()
-            .set_meta_data(MetaData::V2(metadata));
+            .set_meta_data(
+                MetaData::V2(metadata),
+                None,
+                &peer_manager.network_globals.spec,
+            );
         peer_manager
             .network_globals
             .peers
@@ -1720,7 +1728,11 @@ mod tests {
             .write()
             .peer_info_mut(&peer4)
             .unwrap()
-            .set_meta_data(MetaData::V2(metadata));
+            .set_meta_data(
+                MetaData::V2(metadata),
+                None,
+                &peer_manager.network_globals.spec,
+            );
         peer_manager
             .network_globals
             .peers
@@ -1794,7 +1806,11 @@ mod tests {
                 .write()
                 .peer_info_mut(&peer)
                 .unwrap()
-                .set_meta_data(MetaData::V2(metadata));
+                .set_meta_data(
+                    MetaData::V2(metadata),
+                    None,
+                    &peer_manager.network_globals.spec,
+                );
             peer_manager
                 .network_globals
                 .peers
@@ -1918,7 +1934,11 @@ mod tests {
                 .write()
                 .peer_info_mut(&peer)
                 .unwrap()
-                .set_meta_data(MetaData::V2(metadata));
+                .set_meta_data(
+                    MetaData::V2(metadata),
+                    None,
+                    &peer_manager.network_globals.spec,
+                );
             let long_lived_subnets = peer_manager
                 .network_globals
                 .peers
@@ -2027,7 +2047,11 @@ mod tests {
                 .write()
                 .peer_info_mut(&peer)
                 .unwrap()
-                .set_meta_data(MetaData::V2(metadata));
+                .set_meta_data(
+                    MetaData::V2(metadata),
+                    None,
+                    &peer_manager.network_globals.spec,
+                );
             let long_lived_subnets = peer_manager
                 .network_globals
                 .peers
@@ -2193,7 +2217,11 @@ mod tests {
                 .write()
                 .peer_info_mut(&peer)
                 .unwrap()
-                .set_meta_data(MetaData::V2(metadata));
+                .set_meta_data(
+                    MetaData::V2(metadata),
+                    None,
+                    &peer_manager.network_globals.spec,
+                );
             let long_lived_subnets = peer_manager
                 .network_globals
                 .peers
@@ -2350,7 +2378,11 @@ mod tests {
 
                     let mut peer_db = peer_manager.network_globals.peers.write();
                     let peer_info = peer_db.peer_info_mut(&condition.peer_id).unwrap();
-                    peer_info.set_meta_data(MetaData::V2(metadata));
+                    peer_info.set_meta_data(
+                        MetaData::V2(metadata),
+                        None,
+                        &peer_manager.network_globals.spec,
+                    );
                     peer_info.set_gossipsub_score(condition.gossipsub_score);
                     peer_info.add_to_score(condition.score);
 
