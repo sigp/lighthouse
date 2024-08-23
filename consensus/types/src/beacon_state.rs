@@ -487,11 +487,7 @@ where
     // Electra
     #[superstruct(only(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
-    #[serde(
-        with = "serde_utils::quoted_u64",
-    //TODO(electra) remove alias when ef tests are updated
-        alias = "deposit_receipts_start_index"
-    )]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_requests_start_index: u64,
     #[superstruct(only(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
@@ -898,6 +894,8 @@ impl<E: EthSpec> BeaconState<E> {
             return Err(Error::InsufficientValidators);
         }
 
+        let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
+
         let mut i = 0;
         loop {
             let shuffled_index = compute_shuffled_index(
@@ -913,9 +911,7 @@ impl<E: EthSpec> BeaconState<E> {
             let random_byte = Self::shuffling_random_byte(i, seed)?;
             let effective_balance = self.get_effective_balance(candidate_index)?;
             if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
-                >= spec
-                    .max_effective_balance
-                    .safe_mul(u64::from(random_byte))?
+                >= max_effective_balance.safe_mul(u64::from(random_byte))?
             {
                 return Ok(candidate_index);
             }
@@ -1096,6 +1092,7 @@ impl<E: EthSpec> BeaconState<E> {
         let active_validator_count = active_validator_indices.len();
 
         let seed = self.get_seed(epoch, Domain::SyncCommittee, spec)?;
+        let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
 
         let mut i = 0;
         let mut sync_committee_indices = Vec::with_capacity(E::SyncCommitteeSize::to_usize());
@@ -1113,9 +1110,7 @@ impl<E: EthSpec> BeaconState<E> {
             let random_byte = Self::shuffling_random_byte(i, seed.as_slice())?;
             let effective_balance = self.get_validator(candidate_index)?.effective_balance;
             if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
-                >= spec
-                    .max_effective_balance
-                    .safe_mul(u64::from(random_byte))?
+                >= max_effective_balance.safe_mul(u64::from(random_byte))?
             {
                 sync_committee_indices.push(candidate_index);
             }

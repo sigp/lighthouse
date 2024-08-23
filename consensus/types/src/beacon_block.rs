@@ -670,7 +670,6 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
                 graffiti: Graffiti::default(),
                 execution_payload: Payload::Electra::default(),
                 blob_kzg_commitments: VariableList::empty(),
-                consolidations: VariableList::empty(),
             },
         }
     }
@@ -701,7 +700,6 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockElec
                 execution_payload: Payload::Electra::default(),
                 bls_to_execution_changes: VariableList::empty(),
                 blob_kzg_commitments: VariableList::empty(),
-                consolidations: VariableList::empty(),
             },
         }
     }

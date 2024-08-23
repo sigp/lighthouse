@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{Consolidation, Signature};
+use crate::{Address, PublicKeyBytes};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -19,14 +19,17 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
-pub struct SignedConsolidation {
-    pub message: Consolidation,
-    pub signature: Signature,
+pub struct WithdrawalRequest {
+    #[serde(with = "serde_utils::address_hex")]
+    pub source_address: Address,
+    pub validator_pubkey: PublicKeyBytes,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub amount: u64,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    ssz_and_tree_hash_tests!(SignedConsolidation);
+    ssz_and_tree_hash_tests!(WithdrawalRequest);
 }

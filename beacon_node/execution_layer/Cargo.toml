@@ -17,7 +17,7 @@ ethereum_serde_utils = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
 warp = { workspace = true }
-jsonwebtoken = "8"
+jsonwebtoken = "9"
 bytes = { workspace = true }
 task_executor = { workspace = true }
 hex = { workspace = true }

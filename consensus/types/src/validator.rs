@@ -219,6 +219,7 @@ impl Validator {
         }
     }
 
+    /// TODO(electra): refactor these functions and make it simpler.. this is a mess
     /// Returns `true` if the validator is partially withdrawable.
     fn is_partially_withdrawable_validator_capella(&self, balance: u64, spec: &ChainSpec) -> bool {
         self.has_eth1_withdrawal_credential(spec)
