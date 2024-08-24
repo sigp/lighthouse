@@ -16,8 +16,9 @@ use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
+use logging::crit;
 use logging::TimeLatch;
-use slog::{crit, debug, error, trace, warn, Logger};
+use slog::Logger;
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -29,6 +30,7 @@ use strum::AsRefStr;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
+use tracing::{debug, error, trace, warn};
 use types::{EthSpec, Hash256, Slot};
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
@@ -364,11 +366,7 @@ pub fn spawn_reprocess_scheduler<S: SlotClock + 'static>(
                 queue.handle_message(msg, &log);
             }
 
-            debug!(
-                log,
-                "Re-process queue stopped";
-                "msg" => "shutting down"
-            );
+            debug!(msg = "shutting down", "Re-process queue stopped");
         },
         TASK_NAME,
     );
@@ -425,10 +423,9 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     if self.queued_gossip_block_roots.len() >= MAXIMUM_QUEUED_BLOCKS {
                         if self.early_block_debounce.elapsed() {
                             warn!(
-                                log,
-                                "Early blocks queue is full";
-                                "queue_size" => MAXIMUM_QUEUED_BLOCKS,
-                                "msg" => "check system clock"
+                                queue_size = MAXIMUM_QUEUED_BLOCKS,
+                                msg = "check system clock",
+                                "Early blocks queue is full"
                             );
                         }
                         // Drop the block.
@@ -460,10 +457,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                                 .try_send(ReadyWork::Block(early_block))
                                 .is_err()
                         {
-                            error!(
-                                log,
-                                "Failed to send block";
-                            );
+                            error!("Failed to send block");
                         }
                     }
                 }
@@ -477,10 +471,9 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 if self.rpc_block_delay_queue.len() >= MAXIMUM_QUEUED_BLOCKS {
                     if self.rpc_block_debounce.elapsed() {
                         warn!(
-                            log,
-                            "RPC blocks queue is full";
-                            "queue_size" => MAXIMUM_QUEUED_BLOCKS,
-                            "msg" => "check system clock"
+                            queue_size = MAXIMUM_QUEUED_BLOCKS,
+                            msg = "check system clock",
+                            "RPC blocks queue is full"
                         );
                     }
                     // Return the block to the beacon processor signalling to
@@ -492,10 +485,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         }))
                         .is_err()
                     {
-                        error!(
-                            log,
-                            "Failed to send rpc block to beacon processor";
-                        );
+                        error!("Failed to send rpc block to beacon processor");
                     }
                     return;
                 }
@@ -506,29 +496,24 @@ impl<S: SlotClock> ReprocessQueue<S> {
             }
             InboundEvent::ReadyRpcBlock(queued_rpc_block) => {
                 debug!(
-                    log,
-                    "Sending rpc block for reprocessing";
-                    "block_root" => %queued_rpc_block.beacon_block_root
+                    %queued_rpc_block.beacon_block_root,
+                    "Sending rpc block for reprocessing"
                 );
                 if self
                     .ready_work_tx
                     .try_send(ReadyWork::RpcBlock(queued_rpc_block))
                     .is_err()
                 {
-                    error!(
-                        log,
-                        "Failed to send rpc block to beacon processor";
-                    );
+                    error!("Failed to send rpc block to beacon processor");
                 }
             }
             InboundEvent::Msg(UnknownBlockAggregate(queued_aggregate)) => {
                 if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
                     if self.attestation_delay_debounce.elapsed() {
                         error!(
-                            log,
-                            "Aggregate attestation delay queue is full";
-                            "queue_size" => MAXIMUM_QUEUED_ATTESTATIONS,
-                            "msg" => "check system clock"
+                            queue_size = MAXIMUM_QUEUED_ATTESTATIONS,
+                            msg = "check system clock",
+                            "Aggregate attestation delay queue is full"
                         );
                     }
                     // Drop the attestation.
@@ -558,10 +543,9 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
                     if self.attestation_delay_debounce.elapsed() {
                         error!(
-                            log,
-                            "Attestation delay queue is full";
-                            "queue_size" => MAXIMUM_QUEUED_ATTESTATIONS,
-                            "msg" => "check system clock"
+                            queue_size = MAXIMUM_QUEUED_ATTESTATIONS,
+                            msg = "check system clock",
+                            "Attestation delay queue is full"
                         );
                     }
                     // Drop the attestation.
@@ -593,10 +577,9 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 if self.lc_updates_delay_queue.len() >= MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES {
                     if self.lc_update_delay_debounce.elapsed() {
                         error!(
-                            log,
-                            "Light client updates delay queue is full";
-                            "queue_size" => MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES,
-                            "msg" => "check system clock"
+                            queue_size = MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES,
+                            msg = "check system clock",
+                            "Light client updates delay queue is full"
                         );
                     }
                     // Drop the light client update.
@@ -665,23 +648,21 @@ impl<S: SlotClock> ReprocessQueue<S> {
                             // There is a mismatch between the attestation ids registered for this
                             // root and the queued attestations. This should never happen.
                             error!(
-                                log,
-                                "Unknown queued attestation for block root";
-                                "block_root" => ?block_root,
-                                "att_id" => ?id,
+                                ?block_root,
+                                att_id = ?id,
+                                "Unknown queued attestation for block root"
                             );
                         }
                     }
 
                     if failed_to_send_count > 0 {
                         error!(
-                            log,
-                            "Ignored scheduled attestation(s) for block";
-                            "hint" => "system may be overloaded",
-                            "parent_root" => ?parent_root,
-                            "block_root" => ?block_root,
-                            "failed_count" => failed_to_send_count,
-                            "sent_count" => sent_count,
+                            hint = "system may be overloaded",
+                            ?parent_root,
+                            ?block_root,
+                            failed_count = failed_to_send_count,
+                            sent_count,
+                            "Ignored scheduled attestation(s) for block"
                         );
                     }
                 }
@@ -693,10 +674,9 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     .remove(&parent_root)
                 {
                     debug!(
-                        log,
-                        "Dequeuing light client optimistic updates";
-                        "parent_root" => %parent_root,
-                        "count" => queued_lc_id.len(),
+                        %parent_root,
+                        count = queued_lc_id.len(),
+                        "Dequeuing light client optimistic updates"
                     );
 
                     for lc_id in queued_lc_id {
@@ -716,23 +696,16 @@ impl<S: SlotClock> ReprocessQueue<S> {
 
                             // Send the work
                             match self.ready_work_tx.try_send(work) {
-                                Ok(_) => trace!(
-                                    log,
-                                    "reprocessing light client update sent";
-                                ),
-                                Err(_) => error!(
-                                    log,
-                                    "Failed to send scheduled light client update";
-                                ),
+                                Ok(_) => trace!("reprocessing light client update sent"),
+                                Err(_) => error!("Failed to send scheduled light client update"),
                             }
                         } else {
                             // There is a mismatch between the light client update ids registered for this
                             // root and the queued light client updates. This should never happen.
                             error!(
-                                log,
-                                "Unknown queued light client update for parent root";
-                                "parent_root" => ?parent_root,
-                                "lc_id" => ?lc_id,
+                                ?parent_root,
+                                ?lc_id,
+                                "Unknown queued light client update for parent root"
                             );
                         }
                     }
@@ -753,11 +726,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 if !self.queued_gossip_block_roots.remove(&block_root) {
                     // Log an error to alert that we've made a bad assumption about how this
                     // program works, but still process the block anyway.
-                    error!(
-                        log,
-                        "Unknown block in delay queue";
-                        "block_root" => ?block_root
-                    );
+                    error!(?block_root, "Unknown block in delay queue");
                 }
 
                 if self
@@ -765,10 +734,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     .try_send(ReadyWork::Block(ready_block))
                     .is_err()
                 {
-                    error!(
-                        log,
-                        "Failed to pop queued block";
-                    );
+                    error!("Failed to pop queued block");
                 }
             }
             InboundEvent::ReadyAttestation(queued_id) => {
@@ -799,10 +765,9 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 } {
                     if self.ready_work_tx.try_send(work).is_err() {
                         error!(
-                            log,
-                            "Ignored scheduled attestation";
-                            "hint" => "system may be overloaded",
-                            "beacon_block_root" => ?root
+                            hint = "system may be overloaded",
+                            beacon_block_root = ?root,
+                            "Ignored scheduled attestation"
                         );
                     }
 
@@ -827,10 +792,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     },
                 ) {
                     if self.ready_work_tx.try_send(work).is_err() {
-                        error!(
-                            log,
-                            "Failed to send scheduled light client optimistic update";
-                        );
+                        error!("Failed to send scheduled light client optimistic update");
                     }
 
                     if let Some(queued_lc_updates) = self
@@ -853,11 +815,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         duration.as_millis().to_string()
                     });
 
-                debug!(
-                    log,
-                    "Sending scheduled backfill work";
-                    "millis_from_slot_start" => millis_from_slot_start
-                );
+                debug!(?millis_from_slot_start, "Sending scheduled backfill work");
 
                 match self
                     .ready_work_tx
@@ -869,9 +827,8 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     Err(mpsc::error::TrySendError::Full(ReadyWork::BackfillSync(batch)))
                     | Err(mpsc::error::TrySendError::Closed(ReadyWork::BackfillSync(batch))) => {
                         error!(
-                            log,
-                            "Failed to send scheduled backfill work";
-                            "info" => "sending work back to queue"
+                            info = "sending work back to queue",
+                            "Failed to send scheduled backfill work"
                         );
                         self.queued_backfill_batches.insert(0, batch);
 
@@ -882,10 +839,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     }
                     // The message was not sent and we didn't get the correct
                     // return result. This is a logic error.
-                    _ => crit!(
-                        log,
-                        "Unexpected return from try_send error";
-                    ),
+                    _ => crit!("Unexpected return from try_send error"),
                 }
             }
         }

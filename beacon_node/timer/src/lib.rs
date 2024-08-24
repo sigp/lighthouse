@@ -3,7 +3,7 @@
 //! This service allows task execution on the beacon node for various functionality.
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use slog::{info, warn};
+use tracing::{info, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::time::sleep;
@@ -18,7 +18,7 @@ pub fn spawn_timer<T: BeaconChainTypes>(
         loop {
             let Some(duration_to_next_slot) = beacon_chain.slot_clock.duration_to_next_slot()
             else {
-                warn!(log, "Unable to determine duration to next slot");
+                warn!("Unable to determine duration to next slot");
                 return;
             };
 
@@ -28,7 +28,7 @@ pub fn spawn_timer<T: BeaconChainTypes>(
     };
 
     executor.spawn(timer_future, "timer");
-    info!(executor.log(), "Timer service started");
+    info!("Timer service started");
 
     Ok(())
 }

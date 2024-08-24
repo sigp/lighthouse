@@ -1,7 +1,7 @@
 //! Garbage collection process that runs at start-up to clean up the database.
 use crate::hot_cold_store::HotColdDB;
 use crate::{Error, LevelDB, StoreOp};
-use slog::debug;
+use tracing::debug;
 use types::EthSpec;
 
 impl<E> HotColdDB<E, LevelDB<E>, LevelDB<E>>
@@ -27,7 +27,6 @@ where
 
         if !delete_ops.is_empty() {
             debug!(
-                self.log,
                 "Garbage collecting {} temporary states",
                 delete_ops.len() / 2
             );

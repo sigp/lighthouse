@@ -11,6 +11,7 @@ types = { workspace = true }
 tokio = { workspace = true }
 slog = { workspace = true }
 logging = { workspace = true }
+tracing = {workspace = true}
 sensitive_url = { workspace = true }
 reqwest = { workspace = true }
 ethereum_serde_utils = { workspace = true }

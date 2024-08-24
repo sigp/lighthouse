@@ -32,6 +32,7 @@ safe_arith = { workspace = true }
 task_executor = { workspace = true }
 lru = { workspace = true }
 tree_hash = { workspace = true }
+tracing = {workspace = true}
 sysinfo = { workspace = true }
 system_health = { path = "../../common/system_health" }
 directory = { workspace = true }

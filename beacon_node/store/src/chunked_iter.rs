@@ -1,6 +1,6 @@
 use crate::chunked_vector::{chunk_key, Chunk, Field};
 use crate::{HotColdDB, ItemStore};
-use slog::error;
+use tracing::error;
 use types::{ChainSpec, EthSpec, Slot};
 
 /// Iterator over the values of a `BeaconState` vector field (like `block_roots`).
@@ -82,9 +82,8 @@ where
                 .cloned()
                 .or_else(|| {
                     error!(
-                        self.store.log,
-                        "Missing chunk value in forwards iterator";
-                        "vector index" => vindex
+                        vector_index = vindex,
+                        "Missing chunk value in forwards iterator"
                     );
                     None
                 })?;
@@ -100,19 +99,17 @@ where
             )
             .map_err(|e| {
                 error!(
-                    self.store.log,
-                    "Database error in forwards iterator";
-                    "chunk index" => self.next_cindex,
-                    "error" => format!("{:?}", e)
+                    chunk_index = self.next_cindex,
+                    error = format!("{:?}", e),
+                    "Database error in forwards iterator"
                 );
                 e
             })
             .ok()?
             .or_else(|| {
                 error!(
-                    self.store.log,
-                    "Missing chunk in forwards iterator";
-                    "chunk index" => self.next_cindex
+                    chunk_index = self.next_cindex,
+                    "Missing chunk in forwards iterator"
                 );
                 None
             })?;

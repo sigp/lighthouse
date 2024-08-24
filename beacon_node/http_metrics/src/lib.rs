@@ -6,12 +6,14 @@ mod metrics;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::prometheus_client::registry::Registry;
 use lighthouse_version::version_with_platform;
+use logging::crit;
 use serde::{Deserialize, Serialize};
-use slog::{crit, info, Logger};
+use slog::Logger;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
+use tracing::info;
 use warp::{http::Response, Filter};
 
 #[derive(Debug)]
@@ -103,7 +105,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // Sanity check.
     if !config.enabled {
-        crit!(log, "Cannot start disabled metrics HTTP server");
+        crit!("Cannot start disabled metrics HTTP server");
         return Err(Error::Other(
             "A disabled metrics server should not be started".to_string(),
         ));
@@ -144,9 +146,8 @@ pub fn serve<T: BeaconChainTypes>(
     )?;
 
     info!(
-        log,
-        "Metrics HTTP server started";
-        "listen_address" => listening_socket.to_string(),
+        listen_address = listening_socket.to_string(),
+        "Metrics HTTP server started"
     );
 
     Ok((listening_socket, server))

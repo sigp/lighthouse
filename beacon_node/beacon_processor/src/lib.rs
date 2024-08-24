@@ -44,12 +44,11 @@ use crate::work_reprocessing_queue::{
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
 use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
+use logging::crit;
 use logging::TimeLatch;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use slog::Logger;
-use tracing::{debug, error, trace, warn};
-use logging::crit;
 use slot_clock::SlotClock;
 use std::cmp;
 use std::collections::{HashSet, VecDeque};
@@ -62,6 +61,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
+use tracing::{debug, error, trace, warn};
 use types::{
     Attestation, BeaconState, ChainSpec, Hash256, RelativeEpoch, SignedAggregateAndProof, SubnetId,
 };
@@ -902,7 +902,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                         crit!(
                                                             message_type = other.as_ref(),
                                                             "Unexpected queue message type"
-                                                            
                                                         );
                                                         // This is an unhandled exception, drop the message.
                                                         continue;
@@ -923,10 +922,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     Some(InboundEvent::WorkEvent(event))
                     | Some(InboundEvent::ReprocessingWork(event)) => Some(event),
                     None => {
-                        debug!(
-                            msg = "stream ended",
-                            "Gossip processor stopped"
-                        );
+                        debug!(msg = "stream ended", "Gossip processor stopped");
                         break;
                     }
                 };
@@ -1087,9 +1083,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                     process_batch_opt = Some(process_batch);
                                                 }
                                             }
-                                            _ => error!(
-                                                "Invalid item in attestation queue"
-                                            ),
+                                            _ => error!("Invalid item in attestation queue"),
                                         }
                                     }
                                 }
@@ -1225,10 +1219,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipAggregate { .. } => aggregate_queue.push(work),
                             // Aggregate batches are formed internally within the `BeaconProcessor`,
                             // they are not sent from external services.
-                            Work::GossipAggregateBatch { .. } => crit!(
-                                r#type = "GossipAggregateBatch",
-                                "Unsupported inbound event"
-                            ),
+                            Work::GossipAggregateBatch { .. } => {
+                                crit!(r#type = "GossipAggregateBatch", "Unsupported inbound event")
+                            }
                             Work::GossipBlock { .. } => {
                                 gossip_block_queue.push(work, work_id, &self.log)
                             }

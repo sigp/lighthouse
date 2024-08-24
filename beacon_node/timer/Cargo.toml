@@ -10,3 +10,4 @@ slot_clock = { workspace = true }
 tokio = { workspace = true }
 slog = { workspace = true }
 task_executor = { workspace = true }
+tracing = {workspace =  true}

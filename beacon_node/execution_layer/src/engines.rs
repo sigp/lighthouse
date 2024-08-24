@@ -6,7 +6,7 @@ use crate::engine_api::{
 };
 use crate::{ClientVersionV1, HttpJsonRpc};
 use lru::LruCache;
-use slog::{debug, error, info, warn, Logger};
+use slog::Logger;
 use std::future::Future;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -14,6 +14,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::{watch, Mutex, RwLock};
 use tokio_stream::wrappers::WatchStream;
+use tracing::{debug, error, info, warn};
 use types::non_zero_usize::new_non_zero_usize;
 use types::ExecutionBlockHash;
 
@@ -180,11 +181,7 @@ impl Engine {
             {
                 self.payload_id_cache.lock().await.put(key, payload_id);
             } else {
-                debug!(
-                    log,
-                    "Engine returned unexpected payload_id";
-                    "payload_id" => ?payload_id
-                );
+                debug!(?payload_id, "Engine returned unexpected payload_id");
             }
         }
 
@@ -205,33 +202,24 @@ impl Engine {
         if let Some(forkchoice_state) = latest_forkchoice_state {
             if forkchoice_state.head_block_hash == ExecutionBlockHash::zero() {
                 debug!(
-                    self.log,
-                    "No need to call forkchoiceUpdated";
-                    "msg" => "head does not have execution enabled",
+                    msg = "head does not have execution enabled",
+                    "No need to call forkchoiceUpdated"
                 );
                 return;
             }
 
-            info!(
-                self.log,
-                "Issuing forkchoiceUpdated";
-                "forkchoice_state" => ?forkchoice_state,
-            );
+            info!(?forkchoice_state, "Issuing forkchoiceUpdated");
 
             // For simplicity, payload attributes are never included in this call. It may be
             // reasonable to include them in the future.
             if let Err(e) = self.api.forkchoice_updated(forkchoice_state, None).await {
                 debug!(
-                    self.log,
-                    "Failed to issue latest head to engine";
-                    "error" => ?e,
+                    error = ?e,
+                    "Failed to issue latest head to engine"
                 );
             }
         } else {
-            debug!(
-                self.log,
-                "No head, not sending to engine";
-            );
+            debug!("No head, not sending to engine");
         }
     }
 
@@ -252,18 +240,12 @@ impl Engine {
             Ok(()) => {
                 let mut state = self.state.write().await;
                 if **state != EngineStateInternal::Synced {
-                    info!(
-                        self.log,
-                        "Execution engine online";
-                    );
+                    info!("Execution engine online");
 
                     // Send the node our latest forkchoice_state.
                     self.send_latest_forkchoice_state().await;
                 } else {
-                    debug!(
-                        self.log,
-                        "Execution engine online";
-                    );
+                    debug!("Execution engine online");
                 }
                 state.update(EngineStateInternal::Synced);
                 (**state, ResponseCacheAction::Update)
@@ -275,9 +257,8 @@ impl Engine {
             }
             Err(EngineApiError::Auth(err)) => {
                 error!(
-                    self.log,
-                    "Failed jwt authorization";
-                    "error" => ?err,
+                    error = ?err,
+                    "Failed jwt authorization"
                 );
 
                 let mut state = self.state.write().await;
@@ -286,9 +267,8 @@ impl Engine {
             }
             Err(e) => {
                 error!(
-                    self.log,
-                    "Error during execution engine upcheck";
-                    "error" => ?e,
+                    error = ?e,
+                    "Error during execution engine upcheck"
                 );
 
                 let mut state = self.state.write().await;
@@ -308,9 +288,9 @@ impl Engine {
                     .get_engine_capabilities(Some(CACHED_RESPONSE_AGE_LIMIT))
                     .await
                 {
-                    warn!(self.log,
-                        "Error during exchange capabilities";
-                        "error" => ?e,
+                    warn!(
+                        error = ?e,
+                        "Error during exchange capabilities"
                     )
                 } else {
                     // no point in running this if there was an error fetching the capabilities
@@ -326,11 +306,7 @@ impl Engine {
             }
         }
 
-        debug!(
-            self.log,
-            "Execution engine upcheck complete";
-            "state" => ?state,
-        );
+        debug!(?state, "Execution engine upcheck complete");
     }
 
     /// Returns the execution engine capabilities resulting from a call to
@@ -395,11 +371,7 @@ impl Engine {
                 Ok(result)
             }
             Err(error) => {
-                warn!(
-                    self.log,
-                    "Execution engine call failed";
-                    "error" => ?error,
-                );
+                warn!(?error, "Execution engine call failed");
 
                 // The node just returned an error, run an upcheck so we can update the endpoint
                 // state.

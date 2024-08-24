@@ -13,7 +13,7 @@ pub use config::{get_config, get_data_dir, get_slots_per_restore_point, set_netw
 use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
 use slasher::{DatabaseBackendOverride, Slasher};
-use slog::{info, warn};
+use tracing::{info, warn};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use types::{ChainSpec, Epoch, EthSpec, ForkName};
@@ -65,20 +65,18 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
         if let Some(legacy_dir) = client_config.get_existing_legacy_data_dir() {
             warn!(
-                log,
-                "Legacy datadir location";
-                "msg" => "this occurs when using relative paths for a datadir location",
-                "location" => ?legacy_dir,
+                msg = "this occurs when using relative paths for a datadir location",
+                location = ?legacy_dir,
+                "Legacy datadir location"
             )
         }
 
         if let Err(misaligned_forks) = validator_fork_epochs(&spec) {
             warn!(
-                log,
-                "Fork boundaries are not well aligned / multiples of 256";
-                "info" => "This may cause issues as fork boundaries do not align with the \
-                    start of sync committee period.",
-                "misaligned_forks" => ?misaligned_forks,
+                info = "This may cause issues as fork boundaries do not align with the \
+                start of sync committee period.",
+           ?misaligned_forks,
+                "Fork boundaries are not well aligned / multiples of 256"
             );
         }
 
@@ -99,19 +97,17 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             match slasher_config.override_backend() {
                 DatabaseBackendOverride::Success(old_backend) => {
                     info!(
-                        log,
-                        "Slasher backend overridden";
-                        "reason" => "database exists",
-                        "configured_backend" => %old_backend,
-                        "override_backend" => %slasher_config.backend,
+                        reason = "database exists",
+                        configured_backend = %old_backend,
+                        override_backend = %slasher_config.backend,
+                        "Slasher backend overridden"
                     );
                 }
                 DatabaseBackendOverride::Failure(path) => {
                     warn!(
-                        log,
-                        "Slasher backend override failed";
-                        "advice" => "delete old MDBX database or enable MDBX backend",
-                        "path" => path.display()
+                        advice = "delete old MDBX database or enable MDBX backend",
+                        path = ?path.display(),
+                        "Slasher backend override failed"
                     );
                 }
                 _ => {}
@@ -142,26 +138,23 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .await?;
         let builder = if client_config.sync_eth1_chain && !client_config.dummy_eth1_backend {
             info!(
-                log,
-                "Block production enabled";
-                "endpoint" => format!("{:?}", &client_config.eth1.endpoint),
-                "method" => "json rpc via http"
+                endpoint = format!("{:?}", &client_config.eth1.endpoint),
+                method = "json rpc via http",
+                "Block production enabled"
             );
             builder
                 .caching_eth1_backend(client_config.eth1.clone())
                 .await?
         } else if client_config.dummy_eth1_backend {
             warn!(
-                log,
-                "Block production impaired";
-                "reason" => "dummy eth1 backend is enabled"
+                reason = "dummy eth1 backend is enabled",
+                "Block production impaired"
             );
             builder.dummy_eth1_backend()?
         } else {
             info!(
-                log,
-                "Block production disabled";
-                "reason" => "no eth1 backend configured"
+                reason = "no eth1 backend configured",
+                "Block production disabled"
             );
             builder.no_eth1_backend()?
         };

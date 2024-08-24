@@ -52,6 +52,7 @@ use eth2::types::{
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
+use logging::crit;
 use logging::SSELoggingComponents;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
 use operation_pool::ReceivedPreCapella;
@@ -60,7 +61,7 @@ pub use publish_blocks::{
     publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock,
 };
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, info, warn, Logger};
+use slog::Logger;
 use slot_clock::SlotClock;
 use ssz::Encode;
 pub use state_id::StateId;
@@ -80,6 +81,7 @@ use tokio_stream::{
     wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
     StreamExt,
 };
+use tracing::{debug, error, info, warn};
 use types::{
     fork_versioned_response::EmptyMetadata, Attestation, AttestationData, AttestationShufflingId,
     AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
@@ -203,22 +205,20 @@ pub fn slog_logging(
                     || status == StatusCode::PARTIAL_CONTENT =>
             {
                 debug!(
-                    log,
-                    "Processed HTTP API request";
-                    "elapsed" => format!("{:?}", info.elapsed()),
-                    "status" => status.to_string(),
-                    "path" => info.path(),
-                    "method" => info.method().to_string(),
+                    elapsed = format!("{:?}", info.elapsed()),
+                    status = status.to_string(),
+                    path = info.path(),
+                    method = info.method().to_string(),
+                    "Processed HTTP API request"
                 );
             }
             status => {
                 warn!(
-                    log,
-                    "Error processing HTTP API request";
-                    "elapsed" => format!("{:?}", info.elapsed()),
-                    "status" => status.to_string(),
-                    "path" => info.path(),
-                    "method" => info.method().to_string(),
+                    elapsed = format!("{:?}", info.elapsed()),
+                    status = status.to_string(),
+                    path = info.path(),
+                    method = info.method().to_string(),
+                    "Error processing HTTP API request"
                 );
             }
         };
@@ -341,7 +341,7 @@ pub fn serve<T: BeaconChainTypes>(
 
     // Sanity check.
     if !config.enabled {
-        crit!(log, "Cannot start disabled HTTP server");
+        crit!("Cannot start disabled HTTP server");
         return Err(Error::Other(
             "A disabled server should not be started".to_string(),
         ));
@@ -2147,11 +2147,12 @@ pub fn serve<T: BeaconChainTypes>(
                                     .to_execution_address;
 
                                 // New to P2P *and* op pool, gossip immediately if post-Capella.
-                                let received_pre_capella = if chain.current_slot_is_post_capella().unwrap_or(false) {
-                                    ReceivedPreCapella::No
-                                } else {
-                                    ReceivedPreCapella::Yes
-                                };
+                                let received_pre_capella =
+                                    if chain.current_slot_is_post_capella().unwrap_or(false) {
+                                        ReceivedPreCapella::No
+                                    } else {
+                                        ReceivedPreCapella::Yes
+                                    };
                                 if matches!(received_pre_capella, ReceivedPreCapella::No) {
                                     publish_pubsub_message(
                                         &network_tx,
@@ -2162,32 +2163,29 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
 
                                 // Import to op pool (may return `false` if there's a race).
-                                let imported =
-                                    chain.import_bls_to_execution_change(verified_address_change, received_pre_capella);
+                                let imported = chain.import_bls_to_execution_change(
+                                    verified_address_change,
+                                    received_pre_capella,
+                                );
 
                                 info!(
-                                    log,
-                                    "Processed BLS to execution change";
-                                    "validator_index" => validator_index,
-                                    "address" => ?address,
-                                    "published" => matches!(received_pre_capella, ReceivedPreCapella::No),
-                                    "imported" => imported,
+                                    ?validator_index,
+                                    ?address,
+                                    published =
+                                        matches!(received_pre_capella, ReceivedPreCapella::No),
+                                    imported,
+                                    "Processed BLS to execution change"
                                 );
                             }
                             Ok(ObservationOutcome::AlreadyKnown) => {
-                                debug!(
-                                    log,
-                                    "BLS to execution change already known";
-                                    "validator_index" => validator_index,
-                                );
+                                debug!(?validator_index, "BLS to execution change already known");
                             }
                             Err(e) => {
                                 warn!(
-                                    log,
-                                    "Invalid BLS to execution change";
-                                    "validator_index" => validator_index,
-                                    "reason" => ?e,
-                                    "source" => "HTTP",
+                                    ?validator_index,
+                                    reason = ?e,
+                                    source = "HTTP",
+                                    "Invalid BLS to execution change"
                                 );
                                 failures.push(api_types::Failure::new(
                                     index,
@@ -3206,11 +3204,7 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              log: Logger| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
-                    debug!(
-                        log,
-                        "Block production request from HTTP API";
-                        "slot" => slot
-                    );
+                    debug!(?slot, "Block production request from HTTP API");
 
                     not_synced_filter?;
 
@@ -3501,13 +3495,13 @@ pub fn serve<T: BeaconChainTypes>(
                             // aggregate has been successfully published by some other node.
                             Err(AttnError::AggregatorAlreadyKnown(_)) => continue,
                             Err(e) => {
-                                error!(log,
-                                    "Failure verifying aggregate and proofs";
-                                    "error" => format!("{:?}", e),
-                                    "request_index" => index,
-                                    "aggregator_index" => aggregate.message().aggregator_index(),
-                                    "attestation_index" => aggregate.message().aggregate().committee_index(),
-                                    "attestation_slot" => aggregate.message().aggregate().data().slot,
+                                error!(
+                                    error = format!("{:?}", e),
+                                    request_index = index,
+                                    aggregator_index = aggregate.message().aggregator_index(),
+                                    attestation_index = aggregate.message().aggregate().committee_index(),
+                                    attestation_slot = ?aggregate.message().aggregate().data().slot,
+                                    "Failure verifying aggregate and proofs"
                                 );
                                 failures.push(api_types::Failure::new(index, format!("Verification: {:?}", e)));
                             }
@@ -3522,22 +3516,21 @@ pub fn serve<T: BeaconChainTypes>(
                     // Import aggregate attestations
                     for (index, verified_aggregate) in verified_aggregates {
                         if let Err(e) = chain.apply_attestation_to_fork_choice(&verified_aggregate) {
-                            error!(log,
-                                    "Failure applying verified aggregate attestation to fork choice";
-                                    "error" => format!("{:?}", e),
-                                    "request_index" => index,
-                                    "aggregator_index" => verified_aggregate.aggregate().message().aggregator_index(),
-                                    "attestation_index" => verified_aggregate.attestation().committee_index(),
-                                    "attestation_slot" => verified_aggregate.attestation().data().slot,
+                            error!(
+                                error = format!("{:?}", e),
+                                request_index = index,
+                                aggregator_index = verified_aggregate.aggregate().message().aggregator_index(),
+                                attestation_index = verified_aggregate.attestation().committee_index(),
+                                attestation_slot = ?verified_aggregate.attestation().data().slot,
+                                    "Failure applying verified aggregate attestation to fork choice"
                                 );
                             failures.push(api_types::Failure::new(index, format!("Fork choice: {:?}", e)));
                         }
                         if let Err(e) = chain.add_to_block_inclusion_pool(verified_aggregate) {
                             warn!(
-                                log,
-                                "Could not add verified aggregate attestation to the inclusion pool";
-                                "error" => ?e,
-                                "request_index" => index,
+                                error = ?e,
+                                request_index = index,
+                                "Could not add verified aggregate attestation to the inclusion pool"
                             );
                             failures.push(api_types::Failure::new(index, format!("Op pool: {:?}", e)));
                         }
@@ -3620,10 +3613,9 @@ pub fn serve<T: BeaconChainTypes>(
                         ValidatorSubscriptionMessage::AttestationSubscribe { subscriptions };
                     if let Err(e) = validator_subscription_tx.try_send(message) {
                         warn!(
-                            log,
-                            "Unable to process committee subscriptions";
-                            "info" => "the host may be overloaded or resource-constrained",
-                            "error" => ?e,
+                            info = "the host may be overloaded or resource-constrained",
+                            error = ?e,
+                            "Unable to process committee subscriptions"
                         );
                         return Err(warp_utils::reject::custom_server_error(
                             "unable to queue subscription, host may be overloaded or shutting down"
@@ -3666,9 +3658,8 @@ pub fn serve<T: BeaconChainTypes>(
                     let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
                     debug!(
-                        log,
-                        "Received proposer preparation data";
-                        "count" => preparation_data.len(),
+                        count = preparation_data.len(),
+                        "Received proposer preparation data"
                     );
 
                     execution_layer
@@ -3721,9 +3712,8 @@ pub fn serve<T: BeaconChainTypes>(
                         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
                         debug!(
-                            log,
-                            "Received register validator request";
-                            "count" => register_val_data.len(),
+                            count = register_val_data.len(),
+                            "Received register validator request"
                         );
 
                         let head_snapshot = chain.head_snapshot();
@@ -3792,9 +3782,8 @@ pub fn serve<T: BeaconChainTypes>(
                             })?;
 
                         info!(
-                            log,
-                            "Forwarding register validator request to connected builder";
-                            "count" => filtered_registration_data.len(),
+                            count = filtered_registration_data.len(),
+                            "Forwarding register validator request to connected builder"
                         );
 
                         // It's a waste of a `BeaconProcessor` worker to just
@@ -3819,10 +3808,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 .map(|resp| warp::reply::json(&resp).into_response())
                                 .map_err(|e| {
                                     warn!(
-                                        log,
-                                        "Relay error when registering validator(s)";
-                                        "num_registrations" => filtered_registration_data.len(),
-                                        "error" => ?e
+                                        num_registrations = filtered_registration_data.len(),
+                                        error = ?e,
+                                        "Relay error when registering validator(s)"
                                     );
                                     // Forward the HTTP status code if we are able to, otherwise fall back
                                     // to a server error.
@@ -3896,10 +3884,9 @@ pub fn serve<T: BeaconChainTypes>(
                             };
                         if let Err(e) = validator_subscription_tx.try_send(message) {
                             warn!(
-                                log,
-                                "Unable to process sync subscriptions";
-                                "info" => "the host may be overloaded or resource-constrained",
-                                "error" => ?e
+                                info = "the host may be overloaded or resource-constrained",
+                                error = ?e,
+                                "Unable to process sync subscriptions"
                             );
                             return Err(warp_utils::reject::custom_server_error(
                                 "unable to queue subscription, host may be overloaded or shutting down".to_string(),
@@ -4745,7 +4732,7 @@ pub fn serve<T: BeaconChainTypes>(
                     shutdown.await;
                 })?;
 
-            info!(log, "HTTP API is being served over TLS";);
+            info!("HTTP API is being served over TLS");
 
             (socket, Box::pin(server))
         }
@@ -4759,9 +4746,8 @@ pub fn serve<T: BeaconChainTypes>(
     };
 
     info!(
-        log,
-        "HTTP API started";
-        "listen_address" => %http_server.0,
+        listen_address = %http_server.0,
+        "HTTP API started"
     );
 
     Ok(http_server)

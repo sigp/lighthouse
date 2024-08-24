@@ -2,7 +2,7 @@
 use crate::hot_cold_store::{HotColdDB, HotColdDBError};
 use crate::{Error, ItemStore};
 use itertools::{process_results, Itertools};
-use slog::info;
+use tracing::info;
 use state_processing::{
     per_block_processing, per_slot_processing, BlockSignatureStrategy, ConsensusContext,
     VerifyBlockRoot,
@@ -30,9 +30,8 @@ where
         }
 
         info!(
-            self.log,
-            "Beginning historic state reconstruction";
-            "start_slot" => anchor.state_lower_limit,
+            start_slot = ?anchor.state_lower_limit,
+            "Beginning historic state reconstruction"
         );
 
         let slots_per_restore_point = self.config.slots_per_restore_point;
@@ -113,10 +112,9 @@ where
                 // If the slot lies on an epoch boundary, commit the batch and update the anchor.
                 if slot % slots_per_restore_point == 0 || slot + 1 == upper_limit_slot {
                     info!(
-                        self.log,
-                        "State reconstruction in progress";
-                        "slot" => slot,
-                        "remaining" => upper_limit_slot - 1 - slot
+                        ?slot,
+                        remaining = ?(upper_limit_slot - 1 - slot),
+                        "State reconstruction in progress"
                     );
 
                     self.cold_db.do_atomically(std::mem::take(&mut io_batch))?;
