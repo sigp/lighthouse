@@ -215,10 +215,10 @@ async fn light_client_bootstrap_test() {
 
     let current_state = harness.get_current_state();
 
-    if ForkName::Electra == current_state.fork_name_unchecked() {
-        // TODO(electra) fix beacon state `compute_merkle_proof`
-        return;
-    }
+    // if ForkName::Electra == current_state.fork_name_unchecked() {
+    //     // TODO(electra) fix beacon state `compute_merkle_proof`
+    //     return;
+    // }
 
     // Advance to the next sync committee period
     for _i in 0..(E::slots_per_epoch() * u64::from(spec.epochs_per_sync_committee_period)) {
@@ -369,10 +369,10 @@ async fn light_client_updates_test() {
 
     let current_state = harness.get_current_state();
 
-    if ForkName::Electra == current_state.fork_name_unchecked() {
-        // TODO(electra) fix beacon state `compute_merkle_proof`
-        return;
-    }
+    // if ForkName::Electra == current_state.fork_name_unchecked() {
+    //     // TODO(electra) fix beacon state `compute_merkle_proof`
+    //     return;
+    // }
 
     // calculate the sync period from the previous slot
     let sync_period = (current_state.slot() - Slot::new(1))

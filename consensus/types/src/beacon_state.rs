@@ -2483,7 +2483,9 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn compute_merkle_proof(&self, generalized_index: usize) -> Result<Vec<Hash256>, Error> {
         // 1. Convert generalized index to field index.
         let field_index = match generalized_index {
-            light_client_update::CURRENT_SYNC_COMMITTEE_INDEX
+            light_client_update::CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
+            | light_client_update::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
+            | light_client_update::CURRENT_SYNC_COMMITTEE_INDEX
             | light_client_update::NEXT_SYNC_COMMITTEE_INDEX => {
                 // Sync committees are top-level fields, subtract off the generalized indices
                 // for the internal nodes. Result should be 22 or 23, the field offset of the committee
@@ -2493,12 +2495,14 @@ impl<E: EthSpec> BeaconState<E> {
                     .checked_sub(self.num_fields_pow2())
                     .ok_or(Error::IndexNotSupported(generalized_index))?
             }
-            light_client_update::FINALIZED_ROOT_INDEX => {
+            light_client_update::FINALIZED_ROOT_INDEX_ELECTRA
+            | light_client_update::FINALIZED_ROOT_INDEX => {
                 // Finalized root is the right child of `finalized_checkpoint`, divide by two to get
                 // the generalized index of `state.finalized_checkpoint`.
                 let finalized_checkpoint_generalized_index = generalized_index / 2;
-                // Subtract off the internal nodes. Result should be 105/2 - 32 = 20 which matches
-                // position of `finalized_checkpoint` in `BeaconState`.
+                // Subtract off the internal nodes. Result should be 105/2 - 32 = 20 pre-electra
+                // or 169/2 - 64 = 20 post-electra which matches the position of `finalized_checkpoint`
+                // in `BeaconState`.
                 finalized_checkpoint_generalized_index
                     .checked_sub(self.num_fields_pow2())
                     .ok_or(Error::IndexNotSupported(generalized_index))?

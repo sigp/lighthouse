@@ -12,8 +12,7 @@ use store::DBColumn;
 use store::KeyValueStore;
 use tree_hash::TreeHash;
 use types::light_client_update::{
-    FinalizedRootProofLen, NextSyncCommitteeProofLen, CURRENT_SYNC_COMMITTEE_INDEX,
-    FINALIZED_ROOT_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
+    FinalizedRootProofLen, NextSyncCommitteeProofLen, CURRENT_SYNC_COMMITTEE_INDEX, CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA, FINALIZED_ROOT_INDEX, FINALIZED_ROOT_INDEX_ELECTRA, NEXT_SYNC_COMMITTEE_INDEX, NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
 };
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
@@ -69,16 +68,14 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         block_post_state: &mut BeaconState<T::EthSpec>,
     ) -> Result<(), BeaconChainError> {
         let _timer = metrics::start_timer(&metrics::LIGHT_CLIENT_SERVER_CACHE_STATE_DATA_TIMES);
-
+        let fork_name = spec.fork_name_at_slot::<T::EthSpec>(block.slot());
         // Only post-altair
-        if spec.fork_name_at_slot::<T::EthSpec>(block.slot()) == ForkName::Base {
-            return Ok(());
+        if fork_name.altair_enabled() {
+            // Persist in memory cache for a descendent block
+            let cached_data = LightClientCachedData::from_state(block_post_state, fork_name)?;
+            self.prev_block_cache.lock().put(block_root, cached_data);
         }
 
-        // Persist in memory cache for a descendent block
-
-        let cached_data = LightClientCachedData::from_state(block_post_state)?;
-        self.prev_block_cache.lock().put(block_root, cached_data);
 
         Ok(())
     }
@@ -111,11 +108,14 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             )),
         )?;
 
+        let fork_name = chain_spec.fork_name_at_slot::<T::EthSpec>(block_slot);
+
         let cached_parts = self.get_or_compute_prev_block_cache(
             store.clone(),
             attested_block_root,
             &attested_block.state_root(),
             attested_block.slot(),
+            fork_name
         )?;
 
         let finalized_period = cached_parts
@@ -317,6 +317,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         block_root: &Hash256,
         block_state_root: &Hash256,
         block_slot: Slot,
+        fork_name: ForkName,
     ) -> Result<LightClientCachedData<T::EthSpec>, BeaconChainError> {
         // Attempt to get the value from the cache first.
         if let Some(cached_parts) = self.prev_block_cache.lock().get(block_root) {
@@ -330,7 +331,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(format!("Missing state {:?}", block_state_root))
             })?;
-        let new_value = LightClientCachedData::from_state(&mut state)?;
+        let new_value = LightClientCachedData::from_state(&mut state, fork_name)?;
 
         // Insert value and return owned
         self.prev_block_cache
@@ -429,19 +430,35 @@ struct LightClientCachedData<E: EthSpec> {
 }
 
 impl<E: EthSpec> LightClientCachedData<E> {
-    fn from_state(state: &mut BeaconState<E>) -> Result<Self, BeaconChainError> {
-        Ok(Self {
-            finalized_checkpoint: state.finalized_checkpoint(),
-            finality_branch: state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?.into(),
-            next_sync_committee: state.next_sync_committee()?.clone(),
-            current_sync_committee: state.current_sync_committee()?.clone(),
-            next_sync_committee_branch: state
-                .compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX)?
-                .into(),
-            current_sync_committee_branch: state
-                .compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?
-                .into(),
-            finalized_block_root: state.finalized_checkpoint().root,
-        })
+    fn from_state(state: &mut BeaconState<E>, fork_name: ForkName) -> Result<Self, BeaconChainError> {
+        if fork_name.electra_enabled() {
+            Ok(Self {
+                finalized_checkpoint: state.finalized_checkpoint(),
+                finality_branch: state.compute_merkle_proof(FINALIZED_ROOT_INDEX_ELECTRA)?.into(),
+                next_sync_committee: state.next_sync_committee()?.clone(),
+                current_sync_committee: state.current_sync_committee()?.clone(),
+                next_sync_committee_branch: state
+                    .compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX_ELECTRA)?
+                    .into(),
+                current_sync_committee_branch: state
+                    .compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA)?
+                    .into(),
+                finalized_block_root: state.finalized_checkpoint().root,
+            })
+        } else {
+            Ok(Self {
+                finalized_checkpoint: state.finalized_checkpoint(),
+                finality_branch: state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?.into(),
+                next_sync_committee: state.next_sync_committee()?.clone(),
+                current_sync_committee: state.current_sync_committee()?.clone(),
+                next_sync_committee_branch: state
+                    .compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX)?
+                    .into(),
+                current_sync_committee_branch: state
+                    .compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?
+                    .into(),
+                finalized_block_root: state.finalized_checkpoint().root,
+            })
+        }
     }
 }
