@@ -2,6 +2,7 @@ pub use clap::{Arg, ArgAction, Args, Command, FromArgMatches, Parser};
 use clap_utils::get_color_style;
 use clap_utils::FLAG_HEADER;
 use serde::{Deserialize, Serialize};
+use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use types::Address;
@@ -216,7 +217,7 @@ pub struct ValidatorClient {
                 transport-layer security like a HTTPS reverse-proxy or SSH tunnelling.",
         display_order = 0
     )]
-    pub http_address: Option<Ipv4Addr>,
+    pub http_address: Option<IpAddr>,
 
     #[clap(
         long,

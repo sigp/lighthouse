@@ -287,7 +287,7 @@ impl Config {
 
         if let Some(address) = validator_client_config.http_address {
             if validator_client_config.unencrypted_http_transport {
-                config.http_api.listen_addr = IpAddr::V4(address);
+                config.http_api.listen_addr = address;
             } else {
                 return Err(
                     "While using `--http-address`, you must also use `--unencrypted-http-transport`."

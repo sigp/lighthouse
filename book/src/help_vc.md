@@ -276,4 +276,6 @@ Flags:
           If present, the validator client will use longer timeouts for requests
           made to the beacon node. This flag is generally not recommended,
           longer timeouts can cause missed duties when fallbacks are used.
-```n<style> .content main {max-width:88%;} </style>
+```
+
+<style> .content main {max-width:88%;} </style>
