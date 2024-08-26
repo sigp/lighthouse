@@ -811,6 +811,7 @@ impl PendingBalanceDepositsContext {
             .deposit_balance_to_consume()?
             .safe_add(state.get_activation_exit_churn_limit(spec)?)?;
         let current_epoch = state.current_epoch();
+        let next_epoch = state.next_epoch()?;
         let mut processed_amount = 0;
         let mut next_deposit_index = 0;
         let mut validator_deposits_to_process = HashMap::new();
@@ -827,17 +828,20 @@ impl PendingBalanceDepositsContext {
             // does not happen until after this (but in the spec happens before). However it's not
             // hard to work out: we don't need to know exactly what value the `exit_epoch` will
             // take, just whether it is non-default. Nor do we need to know the value of
-            // `withdrawable_epoch`, because `current_epoch <= withdrawable_epoch` will evaluate to
+            // `withdrawable_epoch`, because `next_epoch <= withdrawable_epoch` will evaluate to
             // `true` both for the actual value & the default placeholder value (`FAR_FUTURE_EPOCH`).
             let validator = state.get_validator(deposit.index as usize)?;
             let already_exited = validator.exit_epoch < spec.far_future_epoch;
             // In the spec process_registry_updates is called before process_pending_balance_deposits
             // so we must account for process_registry_updates ejecting the validator for low balance
-            // and setting the exit_epoch to < far_future_epoch
+            // and setting the exit_epoch to < far_future_epoch. Note that in the spec the effective
+            // balance update does not happen until *after* the registry update, so we don't need to
+            // account for changes to the effective balance that would push it below the ejection
+            // balance here.
             let will_be_exited = validator.is_active_at(current_epoch)
                 && validator.effective_balance <= spec.ejection_balance;
             if already_exited || will_be_exited {
-                if state.current_epoch() <= validator.withdrawable_epoch {
+                if next_epoch <= validator.withdrawable_epoch {
                     deposits_to_postpone.push(deposit.clone());
                 } else {
                     // Deposited balance will never become active. Increase balance but do not
@@ -906,7 +910,7 @@ fn process_pending_consolidations<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let mut next_pending_consolidation: usize = 0;
-    let current_epoch = state.current_epoch();
+    let next_epoch = state.next_epoch()?;
     let pending_consolidations = state.pending_consolidations()?.clone();
 
     let mut affected_validators = BTreeSet::new();
@@ -919,7 +923,7 @@ fn process_pending_consolidations<E: EthSpec>(
             next_pending_consolidation.safe_add_assign(1)?;
             continue;
         }
-        if source_validator.withdrawable_epoch > current_epoch {
+        if source_validator.withdrawable_epoch > next_epoch {
             break;
         }
 
