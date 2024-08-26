@@ -250,7 +250,11 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
 
         match resp {
             Ok((mut resp_data_columns, seen_timestamp)) => {
-                debug!(self.log, "Sample download success"; "block_root" => %self.block_root, "column_indexes" => ?column_indexes, "count" => resp_data_columns.len());
+                let resp_column_indexes = resp_data_columns
+                    .iter()
+                    .map(|r| r.index)
+                    .collect::<Vec<_>>();
+                debug!(self.log, "Sample download success"; "block_root" => %self.block_root, "column_indexes" => ?resp_column_indexes, "count" => resp_data_columns.len());
                 metrics::inc_counter_vec(&metrics::SAMPLE_DOWNLOAD_RESULT, &[metrics::SUCCESS]);
 
                 // Filter the data received in the response using the requested column indexes.
