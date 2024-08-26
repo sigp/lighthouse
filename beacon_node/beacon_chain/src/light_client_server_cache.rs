@@ -294,7 +294,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                         "Error decoding sync committee bytes from the db";
                         "error" => ?e
                     );
-                    return false;
+                    false
                 }
             },
         );
