@@ -12,6 +12,7 @@ slog-term = { workspace = true }
 slog-async = { workspace = true }
 eth2 = { workspace = true }
 gossipsub = { workspace = true }
+bls = { workspace = true }
 
 [dependencies]
 async-channel = { workspace = true }

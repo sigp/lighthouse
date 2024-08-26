@@ -567,6 +567,14 @@ mod request {
             }
         }
 
+        #[cfg(test)]
+        pub(crate) fn is_no_peers(&self) -> bool {
+            match self.status {
+                Status::NoPeers => true,
+                _ => false,
+            }
+        }
+
         pub(crate) fn choose_peer<T: BeaconChainTypes>(
             &mut self,
             cx: &SyncNetworkContext<T>,
@@ -622,6 +630,260 @@ mod request {
                     "bad state on_sampling_success expected Sampling got {other:?}. column_index:{}",
                     self.column_index
                 ))),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::network_beacon_processor::NetworkBeaconProcessor;
+    use crate::sync::network_context::SyncNetworkContext;
+    use crate::sync::sampling::{ActiveSamplingRequest, DataColumnSidecarList, SamplingConfig};
+    use crate::NetworkMessage;
+    use beacon_chain::builder::Witness;
+    use beacon_chain::eth1_chain::CachingEth1Backend;
+    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+    use beacon_processor::{Work, WorkEvent as BeaconWorkEvent};
+    use bls::Signature;
+    use lighthouse_network::rpc::methods::DataColumnsByRootRequest;
+    use lighthouse_network::service::api_types::{
+        AppRequestId, DataColumnsByRootRequester, SamplingId, SamplingRequester, SyncRequestId,
+    };
+    use lighthouse_network::{NetworkGlobals, PeerId, Request};
+    use logging::test_logger;
+    use slog::{o, Logger};
+    use slot_clock::TestingSlotClock;
+    use ssz_types::FixedVector;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use store::MemoryStore;
+    use tokio::sync::mpsc;
+    use types::beacon_block_body::KzgCommitments;
+    use types::data_column_sidecar::DataColumn;
+    use types::{
+        BeaconBlockHeader, ColumnIndex, DataColumnSidecar, Hash256, KzgProofs, MinimalEthSpec as E,
+        SignedBeaconBlockHeader,
+    };
+
+    type TestBeaconChainType =
+        Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+
+    #[allow(unused)]
+    struct TestRig {
+        cx: SyncNetworkContext<TestBeaconChainType>,
+        beacon_processor_rx: mpsc::Receiver<BeaconWorkEvent<E>>,
+        network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+        log: Logger,
+    }
+
+    impl TestRig {
+        fn add_supernode(&mut self) -> PeerId {
+            self.cx
+                .network_globals()
+                .peers
+                .write()
+                .__add_connected_peer_testing_only(true, &self.cx.chain.spec)
+        }
+
+        fn grab_request(
+            &mut self,
+            expected_peer: &PeerId,
+        ) -> (SamplingId, DataColumnsByRootRequest) {
+            if let Ok(NetworkMessage::SendRequest {
+                peer_id,
+                request,
+                request_id,
+            }) = self.network_rx.try_recv()
+            {
+                assert_eq!(&peer_id, expected_peer);
+                let sampling_id = if let AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(
+                    _,
+                    DataColumnsByRootRequester::Sampling(sampling_id),
+                )) = request_id
+                {
+                    sampling_id
+                } else {
+                    panic!("Should have sent a SamplingId")
+                };
+                if let Request::DataColumnsByRoot(data_columns_by_root) = request {
+                    (sampling_id, data_columns_by_root)
+                } else {
+                    panic!("Should have sent a DataColumnsByRoot request")
+                }
+            } else {
+                panic!("Should have sent a request")
+            }
+        }
+
+        fn grab_beacon_processor_event(&mut self) {
+            if let Ok(BeaconWorkEvent {
+                drop_during_sync: _,
+                work: Work::RpcVerifyDataColumn(_),
+            }) = self.beacon_processor_rx.try_recv()
+            {
+            } else {
+                panic!("Should have sent a RpcVerifyDataColumn event");
+            }
+        }
+    }
+
+    fn active_sampling_request() -> (TestRig, ActiveSamplingRequest<TestBeaconChainType>) {
+        let log = test_logger();
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
+            .default_spec()
+            .logger(log.clone())
+            .deterministic_keypairs(1)
+            .fresh_ephemeral_store()
+            .build();
+        let chain = harness.chain;
+        let globals = Arc::new(NetworkGlobals::new_test_globals(
+            Vec::new(),
+            &log,
+            chain.spec.clone(),
+        ));
+        let (network_beacon_processor, beacon_processor_rx) =
+            NetworkBeaconProcessor::null_for_testing(
+                globals.clone(),
+                chain.clone(),
+                harness.runtime.task_executor.clone(),
+                log.clone(),
+            );
+        let (network_tx, network_rx) = mpsc::unbounded_channel();
+        let cx = SyncNetworkContext::new(
+            network_tx,
+            Arc::new(network_beacon_processor),
+            chain,
+            log.new(o!("component" => "network_context")),
+        );
+
+        let rig = TestRig {
+            cx,
+            beacon_processor_rx,
+            network_rx,
+            log,
+        };
+
+        let block_root = Hash256::random();
+        let id = SamplingRequester::ImportedBlock(block_root);
+        let sampling_config = SamplingConfig::Default;
+        let active_sampling_request = ActiveSamplingRequest::<TestBeaconChainType>::new(
+            block_root,
+            id,
+            &sampling_config,
+            rig.log.clone(),
+            &rig.cx.chain.spec,
+        );
+
+        (rig, active_sampling_request)
+    }
+
+    fn resp<'a, I: Iterator<Item = &'a ColumnIndex>>(
+        column_indexes: I,
+    ) -> (DataColumnSidecarList<E>, Duration) {
+        let mut list = DataColumnSidecarList::new();
+        for i in column_indexes {
+            list.push(Arc::new(DataColumnSidecar {
+                index: *i,
+                column: DataColumn::<E>::empty(),
+                kzg_commitments: KzgCommitments::<E>::empty(),
+                kzg_proofs: KzgProofs::<E>::empty(),
+                signed_block_header: SignedBeaconBlockHeader {
+                    message: BeaconBlockHeader::empty(),
+                    signature: Signature::empty(),
+                },
+                kzg_commitments_inclusion_proof: FixedVector::default(),
+            }));
+        }
+        (list, Duration::default())
+    }
+
+    #[test]
+    fn test_active_sampling_request() {
+        let (mut rig, mut active_sampling_request) = active_sampling_request();
+        let supernode = rig.add_supernode();
+
+        // -----------------------------------------------
+        // Send sampling request
+        // -----------------------------------------------
+        let result = active_sampling_request.continue_sampling(&mut rig.cx);
+        assert!(result.is_ok());
+
+        // Check to ensure that the request is batched and sent to the supernode.
+        let (sampling_id, request) = rig.grab_request(&supernode);
+        assert_eq!(
+            request.data_column_ids.len(),
+            active_sampling_request.required_successes[0]
+        );
+
+        // We copy and hold the column indexes that sent at this time, because requests are added to
+        // `ActiveSamplingRequest::column_requests` on each call of `ActiveSamplingRequest::continue_sampling()`.
+        // The `continue_sampling()` method is called via `on_sample_downloaded()` and `on_sample_verified`.
+        let column_indexes_to_check_status = active_sampling_request
+            .column_requests
+            .keys()
+            .map(|idx| *idx)
+            .collect::<Vec<_>>();
+
+        // Check the status of the `ActiveColumnSampleRequest`.
+        for idx in column_indexes_to_check_status.iter() {
+            assert!(
+                active_sampling_request
+                    .column_requests
+                    .get(idx)
+                    .unwrap()
+                    .is_ongoing(),
+                "status should be Sampling"
+            );
+        }
+
+        // -----------------------------------------------
+        // Handle downloaded columns
+        // -----------------------------------------------
+        let mut column_indexes = active_sampling_request.column_requests.keys();
+
+        // Take the first one to simulate the case where the supernode doesn't have the requested column.
+        let column_index_super_nodes_does_not_have = *column_indexes.next().unwrap();
+
+        let result = active_sampling_request.on_sample_downloaded(
+            supernode,
+            sampling_id.sampling_request_id,
+            Ok(resp(column_indexes)),
+            &mut rig.cx,
+        );
+        assert!(result.is_ok());
+
+        // Check to ensure that the `RpcVerifyDataColumn` event is sent to the beacon processor.
+        rig.grab_beacon_processor_event();
+
+        // Check the status of the `ActiveColumnSampleRequest`.
+        for idx in column_indexes_to_check_status.iter() {
+            let request = active_sampling_request.column_requests.get(idx).unwrap();
+            if *idx == column_index_super_nodes_does_not_have {
+                // This request should be NoPeers since the supernode, the only peer, doesn't have the column.
+                assert!(request.is_no_peers(), "status should be NoPeers");
+            } else {
+                assert!(request.is_ongoing(), "status should be Sampling");
+            }
+        }
+
+        // -----------------------------------------------
+        // Handle a column verification result
+        // -----------------------------------------------
+        let result = active_sampling_request.on_sample_verified(
+            sampling_id.sampling_request_id,
+            Ok(()),
+            &mut rig.cx,
+        );
+        assert!(result.is_ok());
+
+        // Check the status of the `ActiveColumnSampleRequest`.
+        for idx in column_indexes_to_check_status.iter() {
+            let request = active_sampling_request.column_requests.get(idx).unwrap();
+            if *idx == column_index_super_nodes_does_not_have {
+                assert!(request.is_no_peers(), "status should be NoPeers");
+            } else {
+                assert!(request.is_completed(), "status should be Verified");
             }
         }
     }
