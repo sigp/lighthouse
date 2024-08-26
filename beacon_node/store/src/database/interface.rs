@@ -3,7 +3,7 @@ use crate::database::leveldb_impl;
 #[cfg(feature = "redb")]
 use crate::database::redb_impl;
 use crate::{config::DatabaseBackend, KeyValueStoreOp, StoreConfig};
-use crate::{ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore};
+use crate::{metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore};
 use std::path::Path;
 use types::EthSpec;
 
@@ -182,6 +182,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
 
 impl<E: EthSpec> BeaconNodeBackend<E> {
     pub fn open(config: &StoreConfig, path: &Path) -> Result<Self, Error> {
+        metrics::inc_counter_vec(&metrics::DISK_DB_TYPE, &[&config.backend.to_string()]);
         match config.backend {
             #[cfg(feature = "leveldb")]
             DatabaseBackend::LevelDb => {

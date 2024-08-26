@@ -151,11 +151,19 @@ impl<E: EthSpec> LevelDB<E> {
         for op in ops_batch {
             match op {
                 KeyValueStoreOp::PutKeyValue(col, key, value) => {
+                    let _timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
+                    metrics::inc_counter_vec_by(
+                        &metrics::DISK_DB_WRITE_BYTES,
+                        &[&col],
+                        value.len() as u64,
+                    );
+                    metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[&col]);
                     let column_key = get_key_for_col(&col, &key);
                     leveldb_batch.put(BytesKey::from_vec(column_key), &value);
                 }
 
                 KeyValueStoreOp::DeleteKey(col, key) => {
+                    metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[&col]);
                     let column_key = get_key_for_col(&col, &key);
                     leveldb_batch.delete(BytesKey::from_vec(column_key));
                 }
@@ -218,6 +226,8 @@ impl<E: EthSpec> LevelDB<E> {
 
         Ok(Box::new(
             iter.take_while(move |(key, _)| {
+                let _timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
+                metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
                 let Some(trimmed_key) = key.remove_column_variable(column) else {
                     return false;
                 };
@@ -246,6 +256,8 @@ impl<E: EthSpec> LevelDB<E> {
         Ok(Box::new(
             iter.take_while(move |key| key.matches_column(column))
                 .map(move |bytes_key| {
+                    let _timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
+                    metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
                     let key = &bytes_key.key[column.as_bytes().len()..];
                     K::from_bytes(key)
                 }),
@@ -259,6 +271,8 @@ impl<E: EthSpec> LevelDB<E> {
 
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
         self.iter_column_from(column, &vec![0; column.key_size()], move |key, _| {
+            let _timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
+            metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
             BytesKey::from_vec(key.to_vec()).matches_column(column)
         })
     }

@@ -79,6 +79,13 @@ pub static DISK_DB_COMPACT_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(||
         "Time taken to run compaction on the DB.",
     )
 });
+pub static DISK_DB_TYPE: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "store_disk_db_type",
+        "The on-disk database type being used",
+        &["db_type"],
+    )
+});
 /*
  * Beacon State
  */

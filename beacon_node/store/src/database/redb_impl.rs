@@ -156,7 +156,6 @@ impl<E: EthSpec> Redb<E> {
         let open_db = self.db.read();
         let tx = open_db.begin_write()?;
         let mut table = tx.open_table(table_definition)?;
-
         metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[col]);
 
         table.remove(key).map(|_| ())?;
@@ -171,6 +170,13 @@ impl<E: EthSpec> Redb<E> {
         for op in ops_batch {
             match op {
                 KeyValueStoreOp::PutKeyValue(column, key, value) => {
+                    let _timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
+                    metrics::inc_counter_vec_by(
+                        &metrics::DISK_DB_WRITE_BYTES,
+                        &[column],
+                        value.len() as u64,
+                    );
+                    metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[column]);
                     let table_definition: TableDefinition<'_, &[u8], &[u8]> =
                         TableDefinition::new(&column);
 
@@ -180,6 +186,7 @@ impl<E: EthSpec> Redb<E> {
                 }
 
                 KeyValueStoreOp::DeleteKey(column, key) => {
+                    metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[column]);
                     let table_definition: TableDefinition<'_, &[u8], &[u8]> =
                         TableDefinition::new(&column);
 
@@ -211,6 +218,8 @@ impl<E: EthSpec> Redb<E> {
             let read_txn = open_db.begin_read()?;
             let table = read_txn.open_table(table_definition)?;
             table.range(from..)?.map(|res| {
+                let _timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
+                metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
                 let (k, _) = res?;
                 K::from_bytes(k.value())
             })
@@ -243,7 +252,11 @@ impl<E: EthSpec> Redb<E> {
             table
                 .range(from..)?
                 .take_while(move |res| match res.as_ref() {
-                    Ok((key, _)) => predicate(key.value(), prefix.as_slice()),
+                    Ok((key, _)) => {
+                        let _timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
+                        metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
+                        predicate(key.value(), prefix.as_slice())
+                    }
                     Err(_) => false,
                 })
                 .map(|res| {
