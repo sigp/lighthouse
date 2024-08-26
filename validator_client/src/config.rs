@@ -13,7 +13,6 @@ use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{info, warn, Logger};
 use std::fs;
-use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
@@ -317,7 +316,7 @@ impl Config {
         config.http_metrics.enabled = validator_client_config.metrics;
         config.enable_high_validator_count_metrics =
             validator_client_config.enable_high_validator_count_metrics;
-        config.http_metrics.listen_addr = IpAddr::V4(validator_client_config.metrics_address);
+        config.http_metrics.listen_addr = validator_client_config.metrics_address;
         config.http_metrics.listen_port = validator_client_config.metrics_port;
 
         if let Some(allow_origin) = validator_client_config.metrics_allow_origin.as_ref() {
