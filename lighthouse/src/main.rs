@@ -1,6 +1,7 @@
 mod cli;
 mod metrics;
 
+use account_utils::STDIN_INPUTS_FLAG;
 use beacon_node::ProductionBeaconNode;
 use clap::FromArgMatches;
 use clap::Subcommand;
@@ -104,6 +105,16 @@ fn main() {
         )
         .long_version(LONG_VERSION.as_str())
         .display_order(0)
+        .arg(
+            Arg::new(STDIN_INPUTS_FLAG)
+                .long(STDIN_INPUTS_FLAG)
+                .action(ArgAction::SetTrue)
+                .help("If present, read all user inputs from stdin instead of tty.")
+                .help_heading(FLAG_HEADER)
+                .hide(cfg!(windows))
+                .global(true)
+                .display_order(0),
+        )
         .arg(
             Arg::new("env_log")
                 .short('l')

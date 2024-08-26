@@ -53,12 +53,12 @@ Example Response Body:
 }
 ```
 
-> Note: The command provided in this documentation links to the API token file. In this documentation, it is assumed that the API token file is located in `/var/lib/lighthouse/validators/API-token.txt`. If your database is saved in another directory, modify the `DATADIR` accordingly. If you are having permission issue with accessing the API token file, you can modify the header to become `-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)"`.
+> Note: The command provided in this documentation links to the API token file. In this documentation, it is assumed that the API token file is located in `/var/lib/lighthouse/validators/api-token.txt`. If your database is saved in another directory, modify the `DATADIR` accordingly. If you are having permission issue with accessing the API token file, you can modify the header to become `-H "Authorization: Bearer $(sudo cat ${DATADIR}/validators/api-token.txt)"`.
 
-> As an alternative, you can also provide the API token directly, for example, `-H "Authorization: Bearer api-token-0x02dc2a13115cc8c83baf170f597f22b1eb2930542941ab902df3daadebcb8f8176`. In this case, you obtain the token from the file `API token.txt` and the command becomes:
+> As an alternative, you can also provide the API token directly, for example, `-H "Authorization: Bearer hGut6B8uEujufDXSmZsT0thnxvdvKFBvh`. In this case, you obtain the token from the file `api-token.txt` and the command becomes:
 
 ```bash
-curl -X GET "http://localhost:5062/lighthouse/version" -H "Authorization: Bearer api-token-0x02dc2a13115cc8c83baf170f597f22b1eb2930542941ab902df3daadebcb8f8176" | jq
+curl -X GET "http://localhost:5062/lighthouse/version" -H "Authorization: Bearer hGut6B8uEujufDXSmZsT0thnxvdvKFBvh" | jq
 ```
 
 ## `GET /lighthouse/health`

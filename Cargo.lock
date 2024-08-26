@@ -836,6 +836,7 @@ dependencies = [
 name = "beacon_node"
 version = "5.3.0"
 dependencies = [
+ "account_utils",
  "beacon_chain",
  "clap",
  "clap_utils",
@@ -2029,9 +2030,9 @@ dependencies = [
 
 [[package]]
 name = "diesel"
-version = "2.2.2"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf97ee7261bb708fa3402fa9c17a54b70e90e3cb98afb3dc8999d5512cb03f94"
+checksum = "65e13bab2796f412722112327f3e575601a3e9cdcbe426f0d30dbf43f3f5dc71"
 dependencies = [
  "bitflags 2.6.0",
  "byteorder",
@@ -2043,9 +2044,9 @@ dependencies = [
 
 [[package]]
 name = "diesel_derives"
-version = "2.2.2"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6ff2be1e7312c858b2ef974f5c7089833ae57b5311b334b30923af58e5718d8"
+checksum = "e7f2c3de51e2ba6bf2a648285696137aaf0f5f487bcbea93972fe8a364e131a4"
 dependencies = [
  "diesel_table_macro_syntax",
  "dsl_auto_type",
@@ -4333,13 +4334,14 @@ dependencies = [
 
 [[package]]
 name = "jsonwebtoken"
-version = "8.3.0"
+version = "9.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6971da4d9c3aa03c3d8f3ff0f4155b534aad021292003895a469716b2a230378"
+checksum = "b9ae10193d25051e74945f1ea2d0b42e03cc3b890f7e4cc5faa44997d808193f"
 dependencies = [
  "base64 0.21.7",
- "pem 1.1.1",
- "ring 0.16.20",
+ "js-sys",
+ "pem",
+ "ring 0.17.8",
  "serde",
  "serde_json",
  "simple_asn1",
@@ -6122,15 +6124,6 @@ dependencies = [
 
 [[package]]
 name = "pem"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8835c273a76a90455d7344889b0964598e3316e2a79ede8e36f16bdcf2228b8"
-dependencies = [
- "base64 0.13.1",
-]
-
-[[package]]
-name = "pem"
 version = "3.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e459365e590736a54c3fa561947c84837534b8e9af6fc5bf781307e82658fae"
@@ -6784,7 +6777,7 @@ version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52c4f3084aa3bc7dfbba4eff4fab2a54db4324965d8872ab933565e6fbd83bc6"
 dependencies = [
- "pem 3.0.4",
+ "pem",
  "ring 0.16.20",
  "time",
  "yasna",

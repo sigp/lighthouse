@@ -44,3 +44,4 @@ sensitive_url = { workspace = true }
 http_api = { workspace = true }
 unused_port = { workspace = true }
 strum = { workspace = true }
+account_utils = { workspace = true }
