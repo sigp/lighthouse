@@ -1736,8 +1736,12 @@ pub fn serve<T: BeaconChainTypes>(
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
                     let indices = indices_res?;
-                    let blob_sidecar_list_filtered =
-                        block_id.blob_sidecar_list_filtered(indices, &chain)?;
+                    let (block, blob_sidecar_list_filtered, execution_optimistic, finalized) =
+                        block_id.get_blinded_block_and_blob_list_filtered(indices, &chain)?;
+                    let fork_name = block
+                        .fork_name(&chain.spec)
+                        .map_err(inconsistent_fork_rejection)?;
+
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
@@ -1749,11 +1753,19 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => Ok(warp::reply::json(&api_types::GenericResponse::from(
-                            blob_sidecar_list_filtered,
-                        ))
-                        .into_response()),
+                        _ => {
+                            // Post as a V2 endpoint so we return the fork version.
+                            let res = execution_optimistic_finalized_fork_versioned_response(
+                                V2,
+                                fork_name,
+                                execution_optimistic,
+                                finalized,
+                                &blob_sidecar_list_filtered,
+                            )?;
+                            Ok(warp::reply::json(&res).into_response())
+                        }
                     }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
             },
         );

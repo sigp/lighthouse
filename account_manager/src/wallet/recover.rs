@@ -1,6 +1,6 @@
-use crate::wallet::create::{create_wallet_from_mnemonic, STDIN_INPUTS_FLAG};
+use crate::wallet::create::create_wallet_from_mnemonic;
 use crate::wallet::create::{HD_TYPE, NAME_FLAG, PASSWORD_FLAG, TYPE_FLAG};
-use account_utils::read_mnemonic_from_cli;
+use account_utils::{read_mnemonic_from_cli, STDIN_INPUTS_FLAG};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use std::path::PathBuf;
 
@@ -54,14 +54,6 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::Set)
                 .value_parser([HD_TYPE])
                 .default_value(HD_TYPE)
-                .display_order(0),
-        )
-        .arg(
-            Arg::new(STDIN_INPUTS_FLAG)
-                .action(ArgAction::SetTrue)
-                .hide(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty.")
                 .display_order(0),
         )
 }
