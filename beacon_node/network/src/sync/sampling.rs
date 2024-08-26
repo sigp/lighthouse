@@ -573,10 +573,7 @@ mod request {
 
         #[cfg(test)]
         pub(crate) fn is_no_peers(&self) -> bool {
-            match self.status {
-                Status::NoPeers => true,
-                _ => false,
-            }
+            matches!(self.status, Status::NoPeers)
         }
 
         pub(crate) fn choose_peer<T: BeaconChainTypes>(
@@ -701,15 +698,15 @@ mod tests {
             }) = self.network_rx.try_recv()
             {
                 assert_eq!(&peer_id, expected_peer);
-                let sampling_id = if let AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(
+
+                let AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(
                     _,
                     DataColumnsByRootRequester::Sampling(sampling_id),
                 )) = request_id
-                {
-                    sampling_id
-                } else {
+                else {
                     panic!("Should have sent a SamplingId")
                 };
+
                 if let Request::DataColumnsByRoot(data_columns_by_root) = request {
                     (sampling_id, data_columns_by_root)
                 } else {
@@ -826,7 +823,7 @@ mod tests {
         let column_indexes_to_check_status = active_sampling_request
             .column_requests
             .keys()
-            .map(|idx| *idx)
+            .copied()
             .collect::<Vec<_>>();
 
         // Check the status of the `ActiveColumnSampleRequest`.
