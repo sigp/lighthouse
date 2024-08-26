@@ -189,7 +189,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04c309895995eaa4bfcc345f5515a39c7df9447798645cc8bf462b6c5bf1dc96"
 dependencies = [
  "alloy-eips",
- "alloy-primitives",
+ "alloy-primitives 0.7.7",
  "alloy-rlp",
  "c-kzg",
 ]
@@ -200,7 +200,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9431c99a3b3fe606ede4b3d4043bdfbcb780c45b8d8d226c3804e2b75cfbe68"
 dependencies = [
- "alloy-primitives",
+ "alloy-primitives 0.7.7",
  "alloy-rlp",
  "c-kzg",
  "once_cell",
@@ -215,13 +215,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ccb3ead547f4532bc8af961649942f0b9c16ee9226e26caa3f38420651cc0bf4"
 dependencies = [
  "alloy-rlp",
+ "bytes",
+ "cfg-if",
+ "const-hex",
+ "derive_more",
+ "hex-literal",
+ "itoa",
+ "k256 0.13.3",
+ "keccak-asm",
+ "proptest",
+ "rand",
+ "ruint",
+ "serde",
+ "tiny-keccak",
+]
+
+[[package]]
+name = "alloy-primitives"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a767e59c86900dd7c3ce3ecef04f3ace5ac9631ee150beb8b7d22f7fa3bbb2d7"
+dependencies = [
+ "alloy-rlp",
  "arbitrary",
  "bytes",
  "cfg-if",
  "const-hex",
  "derive_arbitrary",
  "derive_more",
- "ethereum_ssz 0.5.4",
  "getrandom",
  "hex-literal",
  "itoa",
@@ -254,7 +275,7 @@ checksum = "4d0f2d905ebd295e7effec65e5f6868d153936130ae718352771de3e7d03c75c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -523,7 +544,7 @@ checksum = "965c2d33e53cb6b267e148a4cb0760bc01f4904c1cd4bb4002a085bb016d1490"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
  "synstructure",
 ]
 
@@ -535,7 +556,7 @@ checksum = "7b18050c2cd6fe86c3a76584ef5e0baf286d038cda203eb6223df2cc413565f7"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -593,7 +614,7 @@ checksum = "6e0c28dcc82d7c8ead5cb13beb15405b57b8546e93215673ff8ca0349a028107"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -663,7 +684,7 @@ checksum = "3c87f3f15e7794432337fc718554eaa4dc8f04c9677a950ffe366f20a162ae42"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -788,7 +809,7 @@ checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 name = "beacon_chain"
 version = "0.2.0"
 dependencies = [
- "alloy-primitives",
+ "alloy-primitives 0.8.0",
  "bitvec 1.0.1",
  "bls",
  "derivative",
@@ -797,7 +818,7 @@ dependencies = [
  "eth2_network_config",
  "ethereum_hashing 0.6.0",
  "ethereum_serde_utils",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "ethereum_ssz_derive",
  "execution_layer",
  "fork_choice",
@@ -924,7 +945,7 @@ dependencies = [
  "regex",
  "rustc-hash 1.1.0",
  "shlex",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -1016,12 +1037,12 @@ checksum = "8d696c370c750c948ada61c69a0ee2cbbb9c50b1019ddb86d9317157a99c2cae"
 name = "bls"
 version = "0.2.0"
 dependencies = [
- "alloy-primitives",
+ "alloy-primitives 0.8.0",
  "arbitrary",
  "blst",
  "ethereum_hashing 0.6.0",
  "ethereum_serde_utils",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "hex",
  "rand",
  "safe_arith",
@@ -1076,7 +1097,7 @@ dependencies = [
  "clap",
  "clap_utils",
  "eth2_network_config",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "hex",
  "lighthouse_network",
  "log",
@@ -1374,7 +1395,7 @@ dependencies = [
  "heck 0.5.0",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -1387,11 +1408,11 @@ checksum = "1462739cb27611015575c0c11df5df7601141071f07518d56fcc1be504cbec97"
 name = "clap_utils"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives",
+ "alloy-primitives 0.8.0",
  "clap",
  "dirs",
  "eth2_network_config",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "hex",
  "serde",
  "serde_json",
@@ -1412,7 +1433,7 @@ dependencies = [
  "eth1",
  "eth2",
  "eth2_config",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "execution_layer",
  "futures",
  "genesis",
@@ -1791,7 +1812,7 @@ checksum = "f46882e17999c6cc590af592290432be3bce0428cb0d5f8b6715e4dc7b383eb3"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -1839,7 +1860,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "strsim 0.11.1",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -1861,7 +1882,7 @@ checksum = "d336a2a514f6ccccaa3e09b02d41d35330c07ddf03a62165fcec10bb561c7806"
 dependencies = [
  "darling_core 0.20.10",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -1954,7 +1975,7 @@ name = "deposit_contract"
 version = "0.2.0"
 dependencies = [
  "ethabi 16.0.0",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "hex",
  "reqwest",
  "serde_json",
@@ -2026,7 +2047,7 @@ checksum = "67e77553c4162a157adbf834ebae5b415acbecbeafc7a74b0e886657506a7611"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -2039,7 +2060,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustc_version 0.4.0",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -2066,7 +2087,7 @@ dependencies = [
  "dsl_auto_type",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -2086,7 +2107,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "209c735641a413bc68c4923a9d6ad4bcb3ca306b794edaa7eb0b3228a99ffb25"
 dependencies = [
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -2199,7 +2220,7 @@ checksum = "97369cbbc041bc366949bc74d34658d6cda5621039731c6310521892a3a20ae0"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -2213,7 +2234,7 @@ dependencies = [
  "heck 0.5.0",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -2283,14 +2304,14 @@ dependencies = [
 name = "ef_tests"
 version = "0.2.0"
 dependencies = [
- "alloy-primitives",
+ "alloy-primitives 0.8.0",
  "beacon_chain",
  "bls",
  "compare_fields",
  "compare_fields_derive",
  "derivative",
  "eth2_network_config",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "ethereum_ssz_derive",
  "execution_layer",
  "fork_choice",
@@ -2393,7 +2414,7 @@ dependencies = [
  "heck 0.4.1",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -2482,7 +2503,7 @@ dependencies = [
  "environment",
  "eth1_test_rig",
  "eth2",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "ethereum_ssz_derive",
  "execution_layer",
  "futures",
@@ -2526,7 +2547,7 @@ dependencies = [
  "bytes",
  "eth2_keystore",
  "ethereum_serde_utils",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "ethereum_ssz_derive",
  "futures",
  "futures-util",
@@ -2611,7 +2632,7 @@ dependencies = [
  "bytes",
  "discv5",
  "eth2_config",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "logging",
  "pretty_reqwest_error",
  "reqwest",
@@ -2766,11 +2787,11 @@ dependencies = [
 
 [[package]]
 name = "ethereum_serde_utils"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c228a90f44b159ccc0c16da6c56da42d0a521b0388cca87e89919d1af1889b2"
+checksum = "70cbccfccf81d67bff0ab36e591fa536c8a935b078a7b0e58c1d00d418332fc9"
 dependencies = [
- "alloy-primitives",
+ "alloy-primitives 0.8.0",
  "hex",
  "serde",
  "serde_derive",
@@ -2779,36 +2800,25 @@ dependencies = [
 
 [[package]]
 name = "ethereum_ssz"
-version = "0.5.4"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d3627f83d8b87b432a5fad9934b4565260722a141a2c40f371f8080adec9425"
+checksum = "1e999563461faea0ab9bc0024e5e66adcee35881f3d5062f52f31a4070fe1522"
 dependencies = [
- "ethereum-types 0.14.1",
- "itertools 0.10.5",
- "smallvec",
-]
-
-[[package]]
-name = "ethereum_ssz"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "654bbebe60af1f6554e0e1216b8e336bc1a5ec483b7774d904e25e6e65a655c6"
-dependencies = [
- "alloy-primitives",
+ "alloy-primitives 0.8.0",
  "itertools 0.13.0",
  "smallvec",
 ]
 
 [[package]]
 name = "ethereum_ssz_derive"
-version = "0.6.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c21b5706b8763f5cbae4fbc407dacb8ce574ff619b98ff9d9c15adda2384681b"
+checksum = "f3deae99c8e74829a00ba7a92d49055732b3c1f093f2ccfa3cbc621679b6fa91"
 dependencies = [
  "darling 0.20.10",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -2989,7 +2999,7 @@ name = "execution_layer"
 version = "0.1.0"
 dependencies = [
  "alloy-consensus",
- "alloy-primitives",
+ "alloy-primitives 0.8.0",
  "alloy-rlp",
  "arc-swap",
  "builder_client",
@@ -2997,7 +3007,7 @@ dependencies = [
  "eth2",
  "eth2_network_config",
  "ethereum_serde_utils",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "ethers-core",
  "fork_choice",
  "hash-db",
@@ -3059,9 +3069,9 @@ checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
 
 [[package]]
 name = "fastrand"
-version = "2.1.0"
+version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9fc0510504f03c51ada170672ac806f1f105a88aa97a5281117e1ddc3368e51a"
+checksum = "e8c02a5121d4ea3eb16a80748c74f5549a5665e4c21333c6098f283870fbdea6"
 
 [[package]]
 name = "fastrlp"
@@ -3153,7 +3163,6 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "835c052cb0c08c1acf6ffd71c022172e18723949c8282f2b9f27efbc51e64534"
 dependencies = [
- "arbitrary",
  "byteorder",
  "rand",
  "rustc-hex",
@@ -3162,9 +3171,9 @@ dependencies = [
 
 [[package]]
 name = "flate2"
-version = "1.0.32"
+version = "1.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c0596c1eac1f9e04ed902702e9878208b336edc9d6fddc8a48387349bab3666"
+checksum = "324a1be68054ef05ad64b861cc9eaf1d623d2d8cb25b4bf2cb9cdd902b4bf253"
 dependencies = [
  "crc32fast",
  "libz-sys",
@@ -3197,7 +3206,7 @@ name = "fork_choice"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "ethereum_ssz_derive",
  "lighthouse_metrics",
  "proto_array",
@@ -3316,7 +3325,7 @@ checksum = "87750cf4b7a4c0625b1529e4c543c2182106e4dedc60a2a6455e00d212c489ac"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -3405,7 +3414,7 @@ dependencies = [
  "eth1",
  "eth1_test_rig",
  "ethereum_hashing 0.6.0",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "futures",
  "int_to_bytes",
  "merkle_proof",
@@ -3474,7 +3483,7 @@ checksum = "53010ccb100b96a67bc32c0175f0ed1426b31b655d562898e57325f81c023ac0"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -3877,7 +3886,7 @@ dependencies = [
  "eth1",
  "eth2",
  "ethereum_serde_utils",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "execution_layer",
  "futures",
  "genesis",
@@ -4462,7 +4471,7 @@ dependencies = [
  "eth2_network_config",
  "ethereum_hashing 0.6.0",
  "ethereum_serde_utils",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "ethereum_ssz_derive",
  "hex",
  "rust_eth_kzg",
@@ -4502,7 +4511,7 @@ dependencies = [
  "eth2_network_config",
  "eth2_wallet",
  "ethereum_hashing 0.6.0",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "execution_layer",
  "hex",
  "lighthouse_network",
@@ -4908,7 +4917,7 @@ dependencies = [
  "heck 0.5.0",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -5049,9 +5058,9 @@ dependencies = [
 
 [[package]]
 name = "libz-sys"
-version = "1.1.19"
+version = "1.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fdc53a7799a7496ebc9fd29f31f7df80e83c9bda5299768af5f9e59eeea74647"
+checksum = "d2d16453e800a8cf6dd2fc3eb4bc99b786a9b90c663b8559a5b1a041bf89e472"
 dependencies = [
  "cc",
  "pkg-config",
@@ -5110,7 +5119,7 @@ dependencies = [
 name = "lighthouse_network"
 version = "0.2.0"
 dependencies = [
- "alloy-primitives",
+ "alloy-primitives 0.8.0",
  "async-channel",
  "bytes",
  "delay_map",
@@ -5119,7 +5128,7 @@ dependencies = [
  "discv5",
  "either",
  "error-chain",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "ethereum_ssz_derive",
  "fnv",
  "futures",
@@ -5379,7 +5388,7 @@ dependencies = [
 name = "merkle_proof"
 version = "0.2.0"
 dependencies = [
- "alloy-primitives",
+ "alloy-primitives 0.8.0",
  "ethereum_hashing 0.6.0",
  "quickcheck",
  "quickcheck_macros",
@@ -5432,15 +5441,15 @@ dependencies = [
 
 [[package]]
 name = "milhouse"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a06165374fe4b2c85c910450877c57b690d508e855d3c18e4c82629fd681d211"
+checksum = "f68e33f98199224d1073f7c1468ea6abfea30736306fb79c7181a881e97ea32f"
 dependencies = [
- "alloy-primitives",
+ "alloy-primitives 0.8.0",
  "arbitrary",
  "derivative",
  "ethereum_hashing 0.7.0",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "ethereum_ssz_derive",
  "itertools 0.13.0",
  "parking_lot 0.12.3",
@@ -5676,7 +5685,7 @@ dependencies = [
 name = "network"
 version = "0.2.0"
 dependencies = [
- "alloy-primitives",
+ "alloy-primitives 0.8.0",
  "anyhow",
  "async-channel",
  "beacon_chain",
@@ -5685,7 +5694,7 @@ dependencies = [
  "derivative",
  "error-chain",
  "eth2",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "execution_layer",
  "fnv",
  "futures",
@@ -5957,7 +5966,7 @@ checksum = "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -5995,7 +6004,7 @@ dependencies = [
  "beacon_chain",
  "bitvec 1.0.1",
  "derivative",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "ethereum_ssz_derive",
  "itertools 0.10.5",
  "lighthouse_metrics",
@@ -6262,7 +6271,7 @@ checksum = "2f38a4412a78282e09a2cf38d195ea5420d15ba0602cb375210efbc877243965"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -6562,7 +6571,7 @@ checksum = "440f724eba9f6996b75d63681b0a92b06947f1457076d503a4d2e2c8f56442b8"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -6587,20 +6596,20 @@ dependencies = [
 
 [[package]]
 name = "proptest-derive"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9cf16337405ca084e9c78985114633b6827711d22b9e6ef6c6c0d665eb3f0b6e"
+checksum = "6ff7ff745a347b87471d859a377a9a404361e7efc2a971d73424a6d183c0fc77"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.76",
 ]
 
 [[package]]
 name = "proto_array"
 version = "0.2.0"
 dependencies = [
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "ethereum_ssz_derive",
  "safe_arith",
  "serde",
@@ -7568,9 +7577,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.208"
+version = "1.0.209"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cff085d2cb684faa248efb494c39b68e522822ac0de72ccf08109abde717cfb2"
+checksum = "99fce0ffe7310761ca6bf9faf5115afbc19688edd00171d81b1bb1b116c63e09"
 dependencies = [
  "serde_derive",
 ]
@@ -7587,20 +7596,20 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.208"
+version = "1.0.209"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24008e81ff7613ed8e5ba0cfaf24e2c2f1e5b8a0495711e44fcd4882fca62bcf"
+checksum = "a5831b979fd7b5439637af1752d535ff49f4860c0f341d1baeb6faf0f4242170"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
 name = "serde_json"
-version = "1.0.126"
+version = "1.0.127"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3b863381a05ffefbc82571a2d893edf47b27fb0ebedbf582c39640e51abebef"
+checksum = "8043c06d9f82bd7271361ed64f415fe5e12a77fdb52e573e7f06a516dea329ad"
 dependencies = [
  "itoa",
  "memchr",
@@ -7626,7 +7635,7 @@ checksum = "6c64451ba24fc7a6a2d60fc75dd9c83c90903b19028d4eff35e88fc1e86564e9"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -7848,7 +7857,7 @@ dependencies = [
  "bincode",
  "byteorder",
  "derivative",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "ethereum_ssz_derive",
  "filesystem",
  "flate2",
@@ -8105,14 +8114,14 @@ dependencies = [
 
 [[package]]
 name = "ssz_types"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e202ef3c07d9abc7b110a81206064e462758074242e8d176e3cb07415f01a3ad"
+checksum = "35e0719d2b86ac738a55ae71a8429f52aa2741da988f1fd0975b4cc610fd1e08"
 dependencies = [
  "arbitrary",
  "derivative",
  "ethereum_serde_utils",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "itertools 0.13.0",
  "serde",
  "serde_derive",
@@ -8137,7 +8146,7 @@ dependencies = [
  "derivative",
  "env_logger 0.9.3",
  "ethereum_hashing 0.6.0",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "ethereum_ssz_derive",
  "int_to_bytes",
  "integer-sqrt",
@@ -8160,7 +8169,7 @@ name = "state_transition_vectors"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "state_processing",
  "tokio",
  "types",
@@ -8179,7 +8188,7 @@ dependencies = [
  "beacon_chain",
  "db-key",
  "directory",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "ethereum_ssz_derive",
  "itertools 0.10.5",
  "leveldb",
@@ -8264,7 +8273,7 @@ dependencies = [
 name = "swap_or_not_shuffle"
 version = "0.2.0"
 dependencies = [
- "alloy-primitives",
+ "alloy-primitives 0.8.0",
  "criterion",
  "ethereum_hashing 0.6.0",
 ]
@@ -8282,9 +8291,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.75"
+version = "2.0.76"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6af063034fc1935ede7be0122941bafa9bacb949334d090b77ca98b5817c7d9"
+checksum = "578e081a14e0cefc3279b0472138c513f37b41a08d5a3cca9b6e4e8ceb6cd525"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8311,7 +8320,7 @@ checksum = "c8af7666ab7b6390ab78131fb5b0fce11d6b7a6951602017c35fa82800708971"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -8492,7 +8501,7 @@ checksum = "a4558b58466b9ad7ca0f102865eccc95938dca1a74a856f2b57b6629050da261"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -8644,7 +8653,7 @@ checksum = "693d596312e88961bc67d7f1f97af8a70227d9f90c31bba5806eec004978d752"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -8856,7 +8865,7 @@ checksum = "34704c8d6ebcbc939824180af020566b01a7c01f80641264eba0999f6c2b6be7"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -8929,25 +8938,25 @@ dependencies = [
 
 [[package]]
 name = "tree_hash"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f113108f55d589941862727b5a74f75276a54c157060983611d99f7f7fa6368"
+checksum = "373495c23db675a5192de8b610395e1bec324d596f9e6111192ce903dc11403a"
 dependencies = [
- "alloy-primitives",
+ "alloy-primitives 0.8.0",
  "ethereum_hashing 0.7.0",
  "smallvec",
 ]
 
 [[package]]
 name = "tree_hash_derive"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b623b16740c2ff75b04a705e726f436abab04eecb60a27b39eea55ec5e81e543"
+checksum = "b0857056ca4eb5de8c417309be42bcff6017b47e86fbaddde609b4633f66061e"
 dependencies = [
  "darling 0.20.10",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -8986,7 +8995,7 @@ checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
 name = "types"
 version = "0.2.1"
 dependencies = [
- "alloy-primitives",
+ "alloy-primitives 0.8.0",
  "alloy-rlp",
  "arbitrary",
  "beacon_chain",
@@ -8998,7 +9007,7 @@ dependencies = [
  "eth2_interop_keypairs",
  "ethereum_hashing 0.6.0",
  "ethereum_serde_utils",
- "ethereum_ssz 0.6.0",
+ "ethereum_ssz",
  "ethereum_ssz_derive",
  "hex",
  "int_to_bytes",
@@ -9046,7 +9055,6 @@ version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76f64bba2c53b04fcab63c01a7d7427eadc821e3bc48c34dc9ba29c501164b52"
 dependencies = [
- "arbitrary",
  "byteorder",
  "crunchy",
  "hex",
@@ -9436,7 +9444,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
  "wasm-bindgen-shared",
 ]
 
@@ -9470,7 +9478,7 @@ checksum = "afc340c74d9005395cf9dd098506f7f44e38f2b4a21c6aaacf9a105ea5e1e836"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
  "wasm-bindgen-backend",
  "wasm-bindgen-shared",
 ]
@@ -10078,7 +10086,7 @@ checksum = "fa4f8080344d4671fb4e831a13ad1e68092748387dfc4f55e356242fae12ce3e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
@@ -10098,7 +10106,7 @@ checksum = "ce36e65b0d2999d2aafac989fb249189a141aee1f53c612c1f37d72631959f69"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.75",
+ "syn 2.0.76",
 ]
 
 [[package]]
