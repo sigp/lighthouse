@@ -1400,6 +1400,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             sync_committee_period,
             count,
             &self.spec,
+            self.log.clone(),
         )
     }
 
