@@ -41,11 +41,14 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
     info!(log, "Upgrading from v21 to v22");
 
-    let anchor = db.get_anchor_info().ok_or(Error::NoAnchorInfo)?;
+    let anchor = db.get_anchor_info();
     let split_slot = db.get_split_slot();
     let genesis_state_root = genesis_state_root.ok_or(Error::GenesisStateUnknown)?;
 
-    if !db.get_config().allow_tree_states_migration && !anchor.no_historic_states_stored(split_slot)
+    if !db.get_config().allow_tree_states_migration
+        && anchor
+            .as_ref()
+            .map_or(true, |anchor| !anchor.no_historic_states_stored(split_slot))
     {
         error!(
             log,
@@ -61,7 +64,8 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
 
     let mut ops = vec![];
 
-    rewrite_block_roots::<T>(&db, anchor.oldest_block_slot, split_slot, &mut ops, &log)?;
+    let oldest_block_slot = anchor.map_or(Slot::new(0), |a| a.oldest_block_slot);
+    rewrite_block_roots::<T>(&db, oldest_block_slot, split_slot, &mut ops, &log)?;
 
     let mut genesis_state = load_old_schema_frozen_state::<T>(&db, genesis_state_root)?
         .ok_or(Error::MissingGenesisState)?;
