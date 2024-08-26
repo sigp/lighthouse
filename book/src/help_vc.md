@@ -164,14 +164,14 @@ Options:
           the broad Ethereum community has elected to override the terminal
           difficulty. Incorrect use of this flag will cause your node to
           experience a consensus failure. Be extremely careful with this flag.
-      --validator-dir <VALIDATORS_DIR>
-          The directory which contains the validator keystores, deposit data for
-          each validator along with the common slashing protection database and
-          the validator_definitions.yml
       --validator-registration-batch-size <INTEGER>
           Defines the number of validators per validator/register_validator
           request sent to the BN. This value can be reduced to avoid timeouts
           from builders. [default: 500]
+      --validators-dir <VALIDATORS_DIR>
+          The directory which contains the validator keystores, deposit data for
+          each validator along with the common slashing protection database and
+          the validator_definitions.yml
       --web3-signer-keep-alive-timeout <MILLIS>
           Keep-alive timeout for each web3signer connection. Set to '0' to never
           timeout. [default: 20000]
@@ -251,6 +251,9 @@ Flags:
           database will have been initialized when you imported your validator
           keys. If you misplace your database and then run with this flag you
           risk being slashed.
+      --latency-measurement-service
+          Disables the service that periodically attempts to measure latency to
+          BNs.
       --log-color
           Force outputting colors when emitting logs to the terminal.
       --logfile-compress
