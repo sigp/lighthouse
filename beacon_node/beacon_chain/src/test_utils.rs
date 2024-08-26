@@ -507,7 +507,8 @@ where
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
-        let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone()).unwrap();
+
+        let kzg = KZG.clone();
 
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
 
