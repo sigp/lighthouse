@@ -285,12 +285,12 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "ADDRESS",
-        default_value_t = Ipv4Addr::LOCALHOST,
+        default_value_t = IpAddr::V4(Ipv4Addr::LOCALHOST),
         help = "Set the listen address for the Prometheus metrics HTTP server.",
         display_order = 0
 
     )]
-    pub metrics_address: Ipv4Addr,
+    pub metrics_address: IpAddr,
 
     #[clap(
         long,
