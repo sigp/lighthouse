@@ -171,6 +171,7 @@ impl<E: EthSpec> LevelDB<E> {
 
     /// Compact all values in the states and states flag columns.
     pub fn compact(&self) -> Result<(), Error> {
+        let _timer = metrics::start_timer(&metrics::DISK_DB_COMPACT_TIMES);
         let endpoints = |column: DBColumn| {
             (
                 BytesKey::from_vec(get_key_for_col(column.as_str(), Hash256::zero().as_bytes())),

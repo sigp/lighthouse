@@ -164,7 +164,6 @@ impl<E: EthSpec> Redb<E> {
         tx.commit().map_err(Into::into)
     }
 
-    // TODO we need some way to fetch the correct table
     pub fn do_atomically(&self, ops_batch: Vec<KeyValueStoreOp>) -> Result<(), Error> {
         let open_db = self.db.read();
         let mut tx = open_db.begin_write()?;
@@ -197,6 +196,7 @@ impl<E: EthSpec> Redb<E> {
 
     /// Compact all values in the states and states flag columns.
     pub fn compact(&self) -> Result<(), Error> {
+        let _timer = metrics::start_timer(&metrics::DISK_DB_COMPACT_TIMES);
         let mut open_db = self.db.write();
         let mut_db = open_db.borrow_mut();
         mut_db.compact().map_err(Into::into).map(|_| ())

@@ -73,6 +73,12 @@ pub static DISK_DB_DELETE_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new
         &["col"],
     )
 });
+pub static DISK_DB_COMPACT_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "store_disk_db_compact_seconds",
+        "Time taken to run compaction on the DB.",
+    )
+});
 /*
  * Beacon State
  */
