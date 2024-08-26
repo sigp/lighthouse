@@ -87,7 +87,7 @@ pub struct ValidatorClient {
                 and the validator_definitions.yml",
         display_order = 0
     )]
-    pub validator_dir: Option<PathBuf>,
+    pub validators_dir: Option<PathBuf>,
 
     #[clap(
         long,

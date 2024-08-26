@@ -159,7 +159,7 @@ impl Config {
             secrets_dir = Some(base_dir.join(DEFAULT_SECRET_DIR));
         }
 
-        if let Some(validator_dir_path) = validator_client_config.validator_dir.as_ref() {
+        if let Some(validator_dir_path) = validator_client_config.validators_dir.as_ref() {
             validator_dir = Some(validator_dir_path.clone());
         }
         if let Some(secrets_dir_path) = validator_client_config.secrets_dir.as_ref() {
