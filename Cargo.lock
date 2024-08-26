@@ -2030,9 +2030,9 @@ dependencies = [
 
 [[package]]
 name = "diesel"
-version = "2.2.2"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf97ee7261bb708fa3402fa9c17a54b70e90e3cb98afb3dc8999d5512cb03f94"
+checksum = "65e13bab2796f412722112327f3e575601a3e9cdcbe426f0d30dbf43f3f5dc71"
 dependencies = [
  "bitflags 2.6.0",
  "byteorder",
@@ -2044,9 +2044,9 @@ dependencies = [
 
 [[package]]
 name = "diesel_derives"
-version = "2.2.2"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6ff2be1e7312c858b2ef974f5c7089833ae57b5311b334b30923af58e5718d8"
+checksum = "e7f2c3de51e2ba6bf2a648285696137aaf0f5f487bcbea93972fe8a364e131a4"
 dependencies = [
  "diesel_table_macro_syntax",
  "dsl_auto_type",
