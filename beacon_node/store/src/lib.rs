@@ -179,7 +179,11 @@ pub fn parse_data_column_key(data: Vec<u8>) -> Result<(Hash256, ColumnIndex), Er
 #[must_use]
 #[derive(Clone)]
 pub enum KeyValueStoreOp {
+    // Indicate that a PUT operation should be made
+    // to the db store for a (Column, Key, Value)
     PutKeyValue(String, Vec<u8>, Vec<u8>),
+    // Indicate that a DELETE operation should be made
+    // to the db store for a (Column, Key)
     DeleteKey(String, Vec<u8>),
 }
 
