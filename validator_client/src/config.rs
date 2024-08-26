@@ -366,6 +366,15 @@ impl Config {
         config.builder_boost_factor = validator_client_config.builder_boost_factor;
         config.enable_latency_measurement_service =
             !validator_client_config.disable_latency_measurement_service;
+
+        if validator_client_config.latency_measurement_service {
+            warn!(
+                log,
+                "latency-measurement-service flag";
+                "note" => "deprecated flag has no effect and should be removed"
+            );
+        }
+
         config.validator_registration_batch_size =
             validator_client_config.validator_registration_batch_size;
 

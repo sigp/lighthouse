@@ -407,6 +407,15 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        value_name = "BOOLEAN",
+        help = "Disables the service that periodically attempts to measure latency to BNs.",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub latency_measurement_service: bool,
+
+    #[clap(
+        long,
         value_name = "INTEGER",
         default_value_t = 500,
         help = "Defines the number of validators per \
