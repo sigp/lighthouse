@@ -599,7 +599,7 @@ fn disable_latency_measurement_service() {
 fn latency_measurement_service() {
     // This flag is DEPRECATED so has no effect, but should still be accepted.
     CommandLineTest::new()
-        .flag("latency-measurement-service", Some("false"))
+        .flag("latency-measurement-service", None)
         .run()
         .with_config(|config| {
             assert!(config.enable_latency_measurement_service);
