@@ -15,7 +15,7 @@ pub fn build_block_contents<E: EthSpec>(
             ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => Ok(
                 ProduceBlockV3Response::Full(FullBlockContents::Block(block.block)),
             ),
-            ForkName::Deneb | ForkName::Electra => {
+            ForkName::Deneb | ForkName::Electra | ForkName::EIP7732 => {
                 let BeaconBlockResponse {
                     block,
                     state: _,

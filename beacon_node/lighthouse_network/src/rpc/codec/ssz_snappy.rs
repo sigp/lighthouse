@@ -20,7 +20,7 @@ use types::{
     LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,
     RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
     SignedBeaconBlockBellatrix, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
-    SignedBeaconBlockElectra,
+    SignedBeaconBlockEIP7732, SignedBeaconBlockElectra,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -403,6 +403,9 @@ fn context_bytes<E: EthSpec>(
                     return match **ref_box_block {
                         // NOTE: If you are adding another fork type here, be sure to modify the
                         //       `fork_context.to_context_bytes()` function to support it as well!
+                        SignedBeaconBlock::EIP7732 { .. } => {
+                            fork_context.to_context_bytes(ForkName::EIP7732)
+                        }
                         SignedBeaconBlock::Electra { .. } => {
                             fork_context.to_context_bytes(ForkName::Electra)
                         }
@@ -763,6 +766,11 @@ fn handle_rpc_response<E: EthSpec>(
                     decoded_buffer,
                 )?),
             )))),
+            Some(ForkName::EIP7732) => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                SignedBeaconBlock::EIP7732(SignedBeaconBlockEIP7732::from_ssz_bytes(
+                    decoded_buffer,
+                )?),
+            )))),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
                 format!(
@@ -793,6 +801,11 @@ fn handle_rpc_response<E: EthSpec>(
             )))),
             Some(ForkName::Electra) => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
                 SignedBeaconBlock::Electra(SignedBeaconBlockElectra::from_ssz_bytes(
+                    decoded_buffer,
+                )?),
+            )))),
+            Some(ForkName::EIP7732) => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
+                SignedBeaconBlock::EIP7732(SignedBeaconBlockEIP7732::from_ssz_bytes(
                     decoded_buffer,
                 )?),
             )))),
@@ -847,12 +860,14 @@ mod tests {
         let capella_fork_epoch = Epoch::new(3);
         let deneb_fork_epoch = Epoch::new(4);
         let electra_fork_epoch = Epoch::new(5);
+        let eip7732_fork_epoch = Epoch::new(6);
 
         chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
         chain_spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
         chain_spec.capella_fork_epoch = Some(capella_fork_epoch);
         chain_spec.deneb_fork_epoch = Some(deneb_fork_epoch);
         chain_spec.electra_fork_epoch = Some(electra_fork_epoch);
+        chain_spec.eip7732_fork_epoch = Some(eip7732_fork_epoch);
 
         let current_slot = match fork_name {
             ForkName::Base => Slot::new(0),
@@ -861,6 +876,7 @@ mod tests {
             ForkName::Capella => capella_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Deneb => deneb_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Electra => electra_fork_epoch.start_slot(Spec::slots_per_epoch()),
+            ForkName::EIP7732 => eip7732_fork_epoch.start_slot(Spec::slots_per_epoch()),
         };
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), &chain_spec)
     }

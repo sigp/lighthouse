@@ -363,7 +363,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     }
                 }
                 // EIP-7044
-                ForkName::Deneb | ForkName::Electra => SigningContext {
+                ForkName::Deneb | ForkName::Electra | ForkName::EIP7732 => SigningContext {
                     domain,
                     epoch: signing_epoch,
                     fork: Fork {

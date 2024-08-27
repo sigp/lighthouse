@@ -445,7 +445,8 @@ pub fn gossipsub_config(
             | ForkName::Bellatrix
             | ForkName::Capella
             | ForkName::Deneb
-            | ForkName::Electra => {
+            | ForkName::Electra
+            | ForkName::EIP7732 => {
                 let topic_len_bytes = topic_bytes.len().to_le_bytes();
                 let mut vec = Vec::with_capacity(
                     prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),

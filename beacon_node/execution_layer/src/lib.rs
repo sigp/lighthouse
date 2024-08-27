@@ -46,13 +46,11 @@ use types::beacon_block_body::KzgCommitments;
 use types::builder_bid::BuilderBid;
 use types::non_zero_usize::new_non_zero_usize;
 use types::payload::BlockProductionVersion;
-use types::{
-    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, KzgProofs, SignedBlindedBeaconBlock,
-};
+use types::{AbstractExecPayload, BlobsList, KzgProofs, SignedBlindedBeaconBlock};
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadElectra, FullPayload, ProposerPreparationData,
-    PublicKeyBytes, Signature, Slot,
+    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadEIP7732,
+    ExecutionPayloadElectra, FullPayload, ProposerPreparationData, PublicKeyBytes, Signature, Slot,
 };
 
 mod block_hash;
@@ -1817,6 +1815,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 ForkName::Base | ForkName::Altair => {
                     return Err(Error::InvalidForkForPayload);
                 }
+                ForkName::EIP7732 => {
+                    return Err(Error::InvalidForkForPayload);
+                }
             };
             return Ok(Some(payload));
         }
@@ -1883,6 +1884,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 ForkName::Capella => Ok(Some(ExecutionPayloadCapella::default().into())),
                 ForkName::Deneb => Ok(Some(ExecutionPayloadDeneb::default().into())),
                 ForkName::Electra => Ok(Some(ExecutionPayloadElectra::default().into())),
+                ForkName::EIP7732 => Ok(Some(ExecutionPayloadEIP7732::default().into())),
                 ForkName::Base | ForkName::Altair => Err(ApiError::UnsupportedForkVariant(
                     format!("called get_payload_by_hash_from_engine with {}", fork),
                 )),
@@ -2034,6 +2036,63 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     withdrawals,
                     blob_gas_used: electra_block.blob_gas_used,
                     excess_blob_gas: electra_block.excess_blob_gas,
+                    deposit_requests,
+                    withdrawal_requests,
+                    consolidation_requests,
+                })
+            }
+            ExecutionBlockWithTransactions::EIP7732(eip7732_block) => {
+                let withdrawals = VariableList::new(
+                    eip7732_block
+                        .withdrawals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
+                .map_err(ApiError::DeserializeWithdrawals)?;
+                let deposit_requests = VariableList::new(
+                    eip7732_block
+                        .deposit_requests
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
+                .map_err(ApiError::DeserializeDepositRequests)?;
+                let withdrawal_requests = VariableList::new(
+                    eip7732_block
+                        .withdrawal_requests
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
+                .map_err(ApiError::DeserializeWithdrawalRequests)?;
+                let n_consolidations = eip7732_block.consolidation_requests.len();
+                let consolidation_requests = VariableList::new(
+                    eip7732_block
+                        .consolidation_requests
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+                .map_err(|_| ApiError::TooManyConsolidationRequests(n_consolidations))?;
+                ExecutionPayload::EIP7732(ExecutionPayloadEIP7732 {
+                    parent_hash: eip7732_block.parent_hash,
+                    fee_recipient: eip7732_block.fee_recipient,
+                    state_root: eip7732_block.state_root,
+                    receipts_root: eip7732_block.receipts_root,
+                    logs_bloom: eip7732_block.logs_bloom,
+                    prev_randao: eip7732_block.prev_randao,
+                    block_number: eip7732_block.block_number,
+                    gas_limit: eip7732_block.gas_limit,
+                    gas_used: eip7732_block.gas_used,
+                    timestamp: eip7732_block.timestamp,
+                    extra_data: eip7732_block.extra_data,
+                    base_fee_per_gas: eip7732_block.base_fee_per_gas,
+                    block_hash: eip7732_block.block_hash,
+                    transactions: convert_transactions(eip7732_block.transactions)?,
+                    withdrawals,
+                    blob_gas_used: eip7732_block.blob_gas_used,
+                    excess_blob_gas: eip7732_block.excess_blob_gas,
                     deposit_requests,
                     withdrawal_requests,
                     consolidation_requests,

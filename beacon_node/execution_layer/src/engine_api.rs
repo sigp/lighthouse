@@ -162,7 +162,7 @@ pub struct ExecutionBlock {
 
 /// Representation of an execution block with enough detail to reconstruct a payload.
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra),
+    variants(Bellatrix, Capella, Deneb, Electra, EIP7732),
     variant_attributes(
         derive(Clone, Debug, PartialEq, Serialize, Deserialize,),
         serde(bound = "E: EthSpec", rename_all = "camelCase"),
@@ -196,20 +196,21 @@ pub struct ExecutionBlockWithTransactions<E: EthSpec> {
     #[serde(rename = "hash")]
     pub block_hash: ExecutionBlockHash,
     pub transactions: Vec<Transaction>,
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(only(Capella, Deneb, Electra, EIP7732))]
     pub withdrawals: Vec<JsonWithdrawal>,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(only(Deneb, Electra, EIP7732))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra))]
+    #[superstruct(only(Deneb, Electra, EIP7732))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, EIP7732))]
     pub deposit_requests: Vec<JsonDepositRequest>,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, EIP7732))]
     pub withdrawal_requests: Vec<JsonWithdrawalRequest>,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, EIP7732))]
     pub consolidation_requests: Vec<JsonConsolidationRequest>,
+    // TODO(EIP7732): fill in the rest of EIP7732 fields
 }
 
 impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for ExecutionBlockWithTransactions<E> {
@@ -293,6 +294,49 @@ impl<E: EthSpec> TryFrom<ExecutionPayload<E>> for ExecutionBlockWithTransactions
             }),
             ExecutionPayload::Electra(block) => {
                 Self::Electra(ExecutionBlockWithTransactionsElectra {
+                    parent_hash: block.parent_hash,
+                    fee_recipient: block.fee_recipient,
+                    state_root: block.state_root,
+                    receipts_root: block.receipts_root,
+                    logs_bloom: block.logs_bloom,
+                    prev_randao: block.prev_randao,
+                    block_number: block.block_number,
+                    gas_limit: block.gas_limit,
+                    gas_used: block.gas_used,
+                    timestamp: block.timestamp,
+                    extra_data: block.extra_data,
+                    base_fee_per_gas: block.base_fee_per_gas,
+                    block_hash: block.block_hash,
+                    transactions: block
+                        .transactions
+                        .iter()
+                        .map(|tx| Transaction::decode(&Rlp::new(tx)))
+                        .collect::<Result<Vec<_>, _>>()?,
+                    withdrawals: Vec::from(block.withdrawals)
+                        .into_iter()
+                        .map(|withdrawal| withdrawal.into())
+                        .collect(),
+                    blob_gas_used: block.blob_gas_used,
+                    excess_blob_gas: block.excess_blob_gas,
+                    deposit_requests: block
+                        .deposit_requests
+                        .into_iter()
+                        .map(|deposit| deposit.into())
+                        .collect(),
+                    withdrawal_requests: block
+                        .withdrawal_requests
+                        .into_iter()
+                        .map(|withdrawal| withdrawal.into())
+                        .collect(),
+                    consolidation_requests: block
+                        .consolidation_requests
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                })
+            }
+            ExecutionPayload::EIP7732(block) => {
+                Self::EIP7732(ExecutionBlockWithTransactionsEIP7732 {
                     parent_hash: block.parent_hash,
                     fee_recipient: block.fee_recipient,
                     state_root: block.state_root,

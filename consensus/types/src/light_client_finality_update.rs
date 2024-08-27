@@ -130,6 +130,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 sync_aggregate,
                 signature_slot,
             }),
+            ForkName::EIP7732 => todo!("EIP-7732 light client not implemented"),
 
             ForkName::Base => return Err(Error::AltairForkNotActive),
         };
@@ -173,6 +174,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                     "LightClientFinalityUpdate decoding for {fork_name} not implemented"
                 )))
             }
+            ForkName::EIP7732 => todo!("EIP-7732 light client not implemented"),
         };
 
         Ok(finality_update)
@@ -188,6 +190,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
             ForkName::Capella => <LightClientFinalityUpdateCapella<E> as Encode>::ssz_fixed_len(),
             ForkName::Deneb => <LightClientFinalityUpdateDeneb<E> as Encode>::ssz_fixed_len(),
             ForkName::Electra => <LightClientFinalityUpdateElectra<E> as Encode>::ssz_fixed_len(),
+            ForkName::EIP7732 => todo!("EIP-7732 light client not implemented"),
         };
         // `2 *` because there are two headers in the update
         fixed_size + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)

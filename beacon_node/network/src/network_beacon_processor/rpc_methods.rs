@@ -496,7 +496,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .epoch()
                 .map_or(self.chain.spec.max_request_blocks, |epoch| {
                     match self.chain.spec.fork_name_at_epoch(epoch) {
-                        ForkName::Deneb | ForkName::Electra => {
+                        ForkName::Deneb | ForkName::Electra | ForkName::EIP7732 => {
                             self.chain.spec.max_request_blocks_deneb
                         }
                         ForkName::Base

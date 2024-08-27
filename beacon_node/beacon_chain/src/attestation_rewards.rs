@@ -57,7 +57,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => self.compute_attestation_rewards_altair(state, validators),
+            | BeaconState::Electra(_)
+            | BeaconState::EIP7732(_) => self.compute_attestation_rewards_altair(state, validators),
         }
     }
 

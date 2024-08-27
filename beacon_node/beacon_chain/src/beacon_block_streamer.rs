@@ -10,8 +10,8 @@ use tokio::sync::{
 };
 use tokio_stream::{wrappers::UnboundedReceiverStream, Stream};
 use types::{
-    ChainSpec, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256, SignedBeaconBlock,
-    SignedBlindedBeaconBlock, Slot,
+    ChainSpec, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayloadEIP7732, ForkName,
+    Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot,
 };
 use types::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadElectra,
@@ -99,6 +99,7 @@ fn reconstruct_default_header_block<E: EthSpec>(
         ForkName::Capella => ExecutionPayloadCapella::default().into(),
         ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
         ForkName::Electra => ExecutionPayloadElectra::default().into(),
+        ForkName::EIP7732 => ExecutionPayloadEIP7732::default().into(),
         ForkName::Base | ForkName::Altair => {
             return Err(Error::PayloadReconstruction(format!(
                 "Block with fork variant {} has execution payload",

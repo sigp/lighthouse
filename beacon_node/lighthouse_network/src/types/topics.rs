@@ -61,6 +61,7 @@ pub fn fork_core_topics<E: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> V
             deneb_topics
         }
         ForkName::Electra => vec![],
+        ForkName::EIP7732 => todo!("EIP-7732 core topics"),
     }
 }
 

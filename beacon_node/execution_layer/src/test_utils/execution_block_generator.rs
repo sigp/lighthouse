@@ -670,7 +670,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
 
         match execution_payload.fork_name() {
             ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {}
-            ForkName::Deneb | ForkName::Electra => {
+            ForkName::Deneb | ForkName::Electra | ForkName::EIP7732 => {
                 // get random number between 0 and Max Blobs
                 let mut rng = self.rng.lock();
                 let num_blobs = rng.gen::<usize>() % (E::max_blobs_per_block() + 1);
@@ -814,6 +814,8 @@ pub fn generate_genesis_header<E: EthSpec>(
             *header.transactions_root_mut() = empty_transactions_root;
             Some(header)
         }
+        // TODO(EIP-7732): need to look into this
+        ForkName::EIP7732 => None,
     }
 }
 

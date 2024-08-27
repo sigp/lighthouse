@@ -92,6 +92,7 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Electra => LightClientHeader::Electra(
                 LightClientHeaderElectra::block_to_light_client_header(block)?,
             ),
+            ForkName::EIP7732 => todo!("EIP-7732 light client not implemented"),
         };
         Ok(header)
     }
@@ -115,6 +116,7 @@ impl<E: EthSpec> LightClientHeader<E> {
                     "LightClientHeader decoding for {fork_name} not implemented"
                 )))
             }
+            ForkName::EIP7732 => todo!("EIP-7732 light client not implemented"),
         };
 
         Ok(header)
@@ -134,6 +136,7 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
                 ExecutionPayloadHeader::<E>::ssz_max_var_len_for_fork(fork_name)
             }
+            ForkName::EIP7732 => 0,
         }
     }
 }
@@ -302,6 +305,7 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientHeader<E> {
             ForkName::Electra => serde_json::from_value(value)
                 .map(|light_client_header| Self::Electra(light_client_header))
                 .map_err(serde::de::Error::custom),
+            ForkName::EIP7732 => todo!("EIP-7732 light client not implemented"),
             ForkName::Base => Err(serde::de::Error::custom(format!(
                 "LightClientHeader deserialization for {fork_name} not implemented"
             ))),

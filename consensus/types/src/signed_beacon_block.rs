@@ -37,7 +37,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, EIP7732),
     variant_attributes(
         derive(
             Debug,
@@ -80,6 +80,8 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     pub message: BeaconBlockDeneb<E, Payload>,
     #[superstruct(only(Electra), partial_getter(rename = "message_electra"))]
     pub message: BeaconBlockElectra<E, Payload>,
+    #[superstruct(only(EIP7732), partial_getter(rename = "message_eip7732"))]
+    pub message: BeaconBlockEIP7732<E, Payload>,
     pub signature: Signature,
 }
 
@@ -161,6 +163,9 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             }
             BeaconBlock::Electra(message) => {
                 SignedBeaconBlock::Electra(SignedBeaconBlockElectra { message, signature })
+            }
+            BeaconBlock::EIP7732(message) => {
+                SignedBeaconBlock::EIP7732(SignedBeaconBlockEIP7732 { message, signature })
             }
         }
     }
@@ -528,6 +533,19 @@ impl<E: EthSpec> SignedBeaconBlockElectra<E, BlindedPayload<E>> {
     }
 }
 
+// We can convert post-EIP7732 blocks without payloads into blocks "with" payloads.
+impl<E: EthSpec> From<SignedBeaconBlockEIP7732<E, BlindedPayload<E>>>
+    for SignedBeaconBlockEIP7732<E, FullPayload<E>>
+{
+    fn from(signed_block: SignedBeaconBlockEIP7732<E, BlindedPayload<E>>) -> Self {
+        let SignedBeaconBlockEIP7732 { message, signature } = signed_block;
+        SignedBeaconBlockEIP7732 {
+            message: message.into(),
+            signature,
+        }
+    }
+}
+
 impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
     pub fn try_into_full_block(
         self,
@@ -548,6 +566,7 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
             (SignedBeaconBlock::Electra(block), Some(ExecutionPayload::Electra(payload))) => {
                 SignedBeaconBlock::Electra(block.into_full_block(payload))
             }
+            (SignedBeaconBlock::EIP7732(block), _) => SignedBeaconBlock::EIP7732(block.into()),
             // avoid wildcard matching forks so that compiler will
             // direct us here when a new fork has been added
             (SignedBeaconBlock::Bellatrix(_), _) => return None,
@@ -699,6 +718,9 @@ pub mod ssz_tagged_signed_beacon_block {
                 ForkName::Electra => Ok(SignedBeaconBlock::Electra(
                     SignedBeaconBlockElectra::from_ssz_bytes(body)?,
                 )),
+                ForkName::EIP7732 => Ok(SignedBeaconBlock::EIP7732(
+                    SignedBeaconBlockEIP7732::from_ssz_bytes(body)?,
+                )),
             }
         }
     }
@@ -799,6 +821,10 @@ mod test {
             ),
             SignedBeaconBlock::from_block(
                 BeaconBlock::Electra(BeaconBlockElectra::empty(spec)),
+                sig,
+            ),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::EIP7732(BeaconBlockEIP7732::empty(spec)),
                 sig,
             ),
         ];

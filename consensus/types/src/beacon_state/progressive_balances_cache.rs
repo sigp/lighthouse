@@ -291,6 +291,7 @@ pub fn is_progressive_balances_enabled<E: EthSpec>(state: &BeaconState<E>) -> bo
         | BeaconState::Bellatrix(_)
         | BeaconState::Capella(_)
         | BeaconState::Deneb(_)
-        | BeaconState::Electra(_) => true,
+        | BeaconState::Electra(_)
+        | BeaconState::EIP7732(_) => true,
     }
 }

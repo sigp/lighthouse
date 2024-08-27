@@ -13,8 +13,9 @@ use types::{
     ProposerSlashing, SignedAggregateAndProof, SignedAggregateAndProofBase,
     SignedAggregateAndProofElectra, SignedBeaconBlock, SignedBeaconBlockAltair,
     SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
-    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    SignedBeaconBlockDeneb, SignedBeaconBlockEIP7732, SignedBeaconBlockElectra,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -242,6 +243,10 @@ impl<E: EthSpec> PubsubMessage<E> {
                                     SignedBeaconBlockElectra::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
+                                Some(ForkName::EIP7732) => SignedBeaconBlock::<E>::EIP7732(
+                                    SignedBeaconBlockEIP7732::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
                                 None => {
                                     return Err(format!(
                                         "Unknown gossipsub fork digest: {:?}",
@@ -253,7 +258,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                     }
                     GossipKind::BlobSidecar(blob_index) => {
                         match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                            Some(ForkName::Deneb | ForkName::Electra) => {
+                            Some(ForkName::Deneb | ForkName::Electra | ForkName::EIP7732) => {
                                 let blob_sidecar = Arc::new(
                                     BlobSidecar::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,

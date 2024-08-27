@@ -46,7 +46,9 @@ impl VoluntaryExit {
                 spec.fork_version_for_name(fork_name)
             }
             // EIP-7044
-            ForkName::Deneb | ForkName::Electra => spec.fork_version_for_name(ForkName::Capella),
+            ForkName::Deneb | ForkName::Electra | ForkName::EIP7732 => {
+                spec.fork_version_for_name(ForkName::Capella)
+            }
         };
         let domain =
             spec.compute_domain(Domain::VoluntaryExit, fork_version, genesis_validators_root);

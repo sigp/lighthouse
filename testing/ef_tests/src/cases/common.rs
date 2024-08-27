@@ -2,7 +2,6 @@ use serde::Deserialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::fmt::Debug;
-use types::ForkName;
 
 /// Macro to wrap U128 and U256 so they deserialize correctly.
 macro_rules! uint_wrapper {
@@ -55,18 +54,6 @@ pub trait SszStaticType:
 impl<T> SszStaticType for T where
     T: serde::de::DeserializeOwned + Encode + Clone + PartialEq + Debug + Sync
 {
-}
-
-/// Return the fork immediately prior to a fork.
-pub fn previous_fork(fork_name: ForkName) -> ForkName {
-    match fork_name {
-        ForkName::Base => ForkName::Base,
-        ForkName::Altair => ForkName::Base,
-        ForkName::Bellatrix => ForkName::Altair,
-        ForkName::Capella => ForkName::Bellatrix,
-        ForkName::Deneb => ForkName::Capella,
-        ForkName::Electra => ForkName::Deneb,
-    }
 }
 
 #[macro_export]
