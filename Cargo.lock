@@ -817,7 +817,7 @@ dependencies = [
  "eth1",
  "eth2",
  "eth2_network_config",
- "ethereum_hashing 0.6.0",
+ "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethereum_ssz_derive",
@@ -1041,7 +1041,7 @@ dependencies = [
  "alloy-primitives 0.8.0",
  "arbitrary",
  "blst",
- "ethereum_hashing 0.6.0",
+ "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "hex",
@@ -2585,7 +2585,7 @@ version = "0.2.0"
 dependencies = [
  "base64 0.13.1",
  "bls",
- "ethereum_hashing 0.6.0",
+ "ethereum_hashing",
  "hex",
  "num-bigint",
  "serde",
@@ -2761,18 +2761,6 @@ dependencies = [
  "primitive-types 0.12.2",
  "scale-info",
  "uint",
-]
-
-[[package]]
-name = "ethereum_hashing"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ea7b408432c13f71af01197b1d3d0069c48a27bfcfbe72a81fc346e47f6defb"
-dependencies = [
- "cpufeatures",
- "lazy_static",
- "ring 0.17.8",
- "sha2 0.10.8",
 ]
 
 [[package]]
@@ -3414,7 +3402,7 @@ dependencies = [
  "environment",
  "eth1",
  "eth1_test_rig",
- "ethereum_hashing 0.6.0",
+ "ethereum_hashing",
  "ethereum_ssz",
  "futures",
  "int_to_bytes",
@@ -4471,7 +4459,7 @@ dependencies = [
  "criterion",
  "derivative",
  "eth2_network_config",
- "ethereum_hashing 0.6.0",
+ "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethereum_ssz_derive",
@@ -4512,7 +4500,7 @@ dependencies = [
  "eth2",
  "eth2_network_config",
  "eth2_wallet",
- "ethereum_hashing 0.6.0",
+ "ethereum_hashing",
  "ethereum_ssz",
  "execution_layer",
  "hex",
@@ -5087,7 +5075,7 @@ dependencies = [
  "eth1",
  "eth2",
  "eth2_network_config",
- "ethereum_hashing 0.6.0",
+ "ethereum_hashing",
  "futures",
  "lighthouse_metrics",
  "lighthouse_network",
@@ -5391,7 +5379,7 @@ name = "merkle_proof"
 version = "0.2.0"
 dependencies = [
  "alloy-primitives 0.8.0",
- "ethereum_hashing 0.6.0",
+ "ethereum_hashing",
  "quickcheck",
  "quickcheck_macros",
  "safe_arith",
@@ -5450,7 +5438,7 @@ dependencies = [
  "alloy-primitives 0.8.0",
  "arbitrary",
  "derivative",
- "ethereum_hashing 0.7.0",
+ "ethereum_hashing",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "itertools 0.13.0",
@@ -8147,7 +8135,7 @@ dependencies = [
  "bls",
  "derivative",
  "env_logger 0.9.3",
- "ethereum_hashing 0.6.0",
+ "ethereum_hashing",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "int_to_bytes",
@@ -8277,7 +8265,7 @@ version = "0.2.0"
 dependencies = [
  "alloy-primitives 0.8.0",
  "criterion",
- "ethereum_hashing 0.6.0",
+ "ethereum_hashing",
 ]
 
 [[package]]
@@ -8945,7 +8933,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "373495c23db675a5192de8b610395e1bec324d596f9e6111192ce903dc11403a"
 dependencies = [
  "alloy-primitives 0.8.0",
- "ethereum_hashing 0.7.0",
+ "ethereum_hashing",
  "smallvec",
 ]
 
@@ -9007,7 +8995,7 @@ dependencies = [
  "criterion",
  "derivative",
  "eth2_interop_keypairs",
- "ethereum_hashing 0.6.0",
+ "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethereum_ssz_derive",

@@ -118,7 +118,7 @@ rust_eth_kzg = "0.3.4"
 discv5 = { version = "0.4.1", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"
-ethereum_hashing = "0.6.0"
+ethereum_hashing = "0.7.0"
 ethereum_serde_utils = "0.7"
 ethereum_ssz = "0.7"
 ethereum_ssz_derive = "0.7"
