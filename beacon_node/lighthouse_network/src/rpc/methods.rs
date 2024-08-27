@@ -173,18 +173,19 @@ impl<E: EthSpec> MetaData<E> {
     }
 
     /// Returns a V3 MetaData response from self by filling unavailable fields with default.
-    pub fn metadata_v3(&self) -> Self {
+    pub fn metadata_v3(&self, spec: &ChainSpec) -> Self {
         match self {
-            MetaData::V1(metadata) => MetaData::V2(MetaDataV2 {
+            MetaData::V1(metadata) => MetaData::V3(MetaDataV3 {
                 seq_number: metadata.seq_number,
                 attnets: metadata.attnets.clone(),
                 syncnets: Default::default(),
+                custody_subnet_count: spec.custody_requirement,
             }),
             MetaData::V2(metadata) => MetaData::V3(MetaDataV3 {
                 seq_number: metadata.seq_number,
                 attnets: metadata.attnets.clone(),
                 syncnets: metadata.syncnets.clone(),
-                custody_subnet_count: 1,
+                custody_subnet_count: spec.custody_requirement,
             }),
             md @ MetaData::V3(_) => md.clone(),
         }

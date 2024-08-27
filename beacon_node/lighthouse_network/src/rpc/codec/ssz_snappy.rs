@@ -83,7 +83,9 @@ impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
                     match self.protocol.versioned_protocol {
                         SupportedProtocol::MetaDataV1 => res.metadata_v1().as_ssz_bytes(),
                         SupportedProtocol::MetaDataV2 => res.metadata_v2().as_ssz_bytes(),
-                        SupportedProtocol::MetaDataV3 => res.metadata_v3().as_ssz_bytes(),
+                        SupportedProtocol::MetaDataV3 => {
+                            res.metadata_v3(&self.fork_context.spec).as_ssz_bytes()
+                        }
                         _ => unreachable!(
                             "We only send metadata responses on negotiating metadata requests"
                         ),
@@ -998,14 +1000,14 @@ mod tests {
         })
     }
 
-    // fn metadata_v3() -> MetaData<Spec> {
-    //     MetaData::V3(MetaDataV3 {
-    //         seq_number: 1,
-    //         attnets: EnrAttestationBitfield::<Spec>::default(),
-    //         syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
-    //         custody_subnet_count: 1,
-    //     })
-    // }
+    fn metadata_v3() -> MetaData<Spec> {
+        MetaData::V3(MetaDataV3 {
+            seq_number: 1,
+            attnets: EnrAttestationBitfield::<Spec>::default(),
+            syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
+            custody_subnet_count: 1,
+        })
+    }
 
     /// Encodes the given protocol response as bytes.
     fn encode_response(
@@ -1238,6 +1240,17 @@ mod tests {
                 &chain_spec,
             ),
             Ok(Some(RPCResponse::MetaData(metadata()))),
+        );
+
+        // A MetaDataV3 still encodes as a MetaDataV2 since version is Version::V2
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::MetaDataV2,
+                RPCCodedResponse::Success(RPCResponse::MetaData(metadata_v3())),
+                ForkName::Base,
+                &chain_spec,
+            ),
+            Ok(Some(RPCResponse::MetaData(metadata_v2()))),
         );
 
         assert_eq!(

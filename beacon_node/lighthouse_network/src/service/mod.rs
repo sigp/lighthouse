@@ -1155,16 +1155,12 @@ impl<E: EthSpec> Network<E> {
     /// Sends a METADATA response to a peer.
     fn send_meta_data_response(
         &mut self,
-        req: MetadataRequest<E>,
+        _req: MetadataRequest<E>,
         id: PeerRequestId,
         peer_id: PeerId,
     ) {
         let metadata = self.network_globals.local_metadata.read().clone();
-        let metadata = match req {
-            MetadataRequest::V1(_) => metadata.metadata_v1(),
-            MetadataRequest::V2(_) => metadata.metadata_v2(),
-            MetadataRequest::V3(_) => metadata.metadata_v3(),
-        };
+        // The encoder is responsible for sending the negotiated version of the metadata
         let event = RPCCodedResponse::Success(RPCResponse::MetaData(metadata));
         self.eth2_rpc_mut().send_response(peer_id, id, event);
     }
