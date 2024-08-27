@@ -10,10 +10,13 @@ use std::sync::LazyLock;
 use types::Blob;
 
 static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
-    let trusted_setup: TrustedSetup =
-        serde_json::from_reader(TRUSTED_SETUP_BYTES).expect("failed to initialize kzg");
+    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+        .map_err(|e| Error::InternalError(format!("Failed to initialize trusted setup: {:?}", e)))
+        .expect("failed to initialize trusted setup");
     // TODO(das): need to enable these tests when rayon issues in rust_eth_kzg are fixed
-    let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("failed to initialize kzg");
+    let kzg = Kzg::new_from_trusted_setup(trusted_setup)
+        .map_err(|e| Error::InternalError(format!("Failed to initialize kzg: {:?}", e)))
+        .expect("failed to initialize kzg");
     Arc::new(kzg)
 });
 
