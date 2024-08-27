@@ -2,7 +2,8 @@ use super::common::ResponseType;
 use super::{BlockComponent, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS};
 use crate::sync::block_lookups::common::RequestState;
 use crate::sync::network_context::{
-    LookupRequestResult, ReqId, RpcRequestSendError, SendErrorProcessor, SyncNetworkContext,
+    LookupRequestResult, PeerGroup, ReqId, RpcRequestSendError, SendErrorProcessor,
+    SyncNetworkContext,
 };
 use beacon_chain::BeaconChainTypes;
 use derivative::Derivative;
@@ -124,8 +125,8 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 .block_request_state
                 .state
                 .insert_verified_response(block),
-            BlockComponent::Blob(_) => {
-                // For now ignore single blobs, as the blob request state assumes all blobs are
+            BlockComponent::Blob(_) | BlockComponent::DataColumn(_) => {
+                // For now ignore single blobs and columns, as the blob request state assumes all blobs are
                 // attributed to the same peer = the peer serving the remaining blobs. Ignoring this
                 // block component has a minor effect, causing the node to re-request this blob
                 // once the parent chain is successfully resolved
@@ -292,24 +293,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
     }
 }
 
-/// The state of the block request component of a `SingleBlockLookup`.
-#[derive(Derivative)]
-#[derivative(Debug)]
-pub struct BlockRequestState<E: EthSpec> {
-    #[derivative(Debug = "ignore")]
-    pub requested_block_root: Hash256,
-    pub state: SingleLookupRequestState<Arc<SignedBeaconBlock<E>>>,
-}
-
-impl<E: EthSpec> BlockRequestState<E> {
-    pub fn new(block_root: Hash256) -> Self {
-        Self {
-            requested_block_root: block_root,
-            state: SingleLookupRequestState::new(),
-        }
-    }
-}
-
 /// The state of the blob request component of a `SingleBlockLookup`.
 #[derive(Derivative)]
 #[derivative(Debug)]
@@ -346,15 +329,33 @@ impl<E: EthSpec> CustodyRequestState<E> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+/// The state of the block request component of a `SingleBlockLookup`.
+#[derive(Derivative)]
+#[derivative(Debug)]
+pub struct BlockRequestState<E: EthSpec> {
+    #[derivative(Debug = "ignore")]
+    pub requested_block_root: Hash256,
+    pub state: SingleLookupRequestState<Arc<SignedBeaconBlock<E>>>,
+}
+
+impl<E: EthSpec> BlockRequestState<E> {
+    pub fn new(block_root: Hash256) -> Self {
+        Self {
+            requested_block_root: block_root,
+            state: SingleLookupRequestState::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct DownloadResult<T: Clone> {
     pub value: T,
     pub block_root: Hash256,
     pub seen_timestamp: Duration,
-    pub peer_id: PeerId,
+    pub peer_group: PeerGroup,
 }
 
-#[derive(PartialEq, Eq, IntoStaticStr)]
+#[derive(IntoStaticStr)]
 pub enum State<T: Clone> {
     AwaitingDownload(&'static str),
     Downloading(ReqId),
@@ -366,8 +367,7 @@ pub enum State<T: Clone> {
 }
 
 /// Object representing the state of a single block or blob lookup request.
-#[derive(PartialEq, Eq, Derivative)]
-#[derivative(Debug)]
+#[derive(Debug)]
 pub struct SingleLookupRequestState<T: Clone> {
     /// State of this request.
     state: State<T>,
@@ -537,13 +537,13 @@ impl<T: Clone> SingleLookupRequestState<T> {
     }
 
     /// Registers a failure in processing a block.
-    pub fn on_processing_failure(&mut self) -> Result<PeerId, LookupRequestError> {
+    pub fn on_processing_failure(&mut self) -> Result<PeerGroup, LookupRequestError> {
         match &self.state {
             State::Processing(result) => {
-                let peer_id = result.peer_id;
+                let peers_source = result.peer_group.clone();
                 self.failed_processing = self.failed_processing.saturating_add(1);
                 self.state = State::AwaitingDownload("not started");
-                Ok(peer_id)
+                Ok(peers_source)
             }
             other => Err(LookupRequestError::BadState(format!(
                 "Bad state on_processing_failure expected Processing got {other}"
@@ -600,8 +600,8 @@ impl<T: Clone> std::fmt::Debug for State<T> {
         match self {
             Self::AwaitingDownload(status) => write!(f, "AwaitingDownload({:?})", status),
             Self::Downloading(req_id) => write!(f, "Downloading({:?})", req_id),
-            Self::AwaitingProcess(d) => write!(f, "AwaitingProcess({:?})", d.peer_id),
-            Self::Processing(d) => write!(f, "Processing({:?})", d.peer_id),
+            Self::AwaitingProcess(d) => write!(f, "AwaitingProcess({:?})", d.peer_group),
+            Self::Processing(d) => write!(f, "Processing({:?})", d.peer_group),
             Self::Processed { .. } => write!(f, "Processed"),
         }
     }

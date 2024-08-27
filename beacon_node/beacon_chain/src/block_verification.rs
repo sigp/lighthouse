@@ -49,17 +49,20 @@
 #![allow(clippy::result_large_err)]
 
 use crate::beacon_snapshot::PreProcessingSnapshot;
-use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
+use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob, GossipVerifiedBlobList};
 use crate::block_verification_types::{
     AsBlock, BlockContentsError, BlockImportData, GossipVerifiedBlockContents, RpcBlock,
 };
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
-use crate::data_column_verification::GossipDataColumnError;
+use crate::data_column_verification::{
+    GossipDataColumnError, GossipVerifiedDataColumn, GossipVerifiedDataColumnList,
+};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
     AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
 };
+use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -94,10 +97,12 @@ use std::io::Write;
 use std::sync::Arc;
 use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
+use types::data_column_sidecar::DataColumnSidecarError;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ExecutionBlockHash,
-    Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSubnetId, Epoch,
+    EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs, PublicKey,
+    PublicKeyBytes, RelativeEpoch, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader,
+    Slot,
 };
 use types::{BlobSidecar, ExecPayload};
 
@@ -306,6 +311,14 @@ pub enum BlockError<E: EthSpec> {
     /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
     /// https://github.com/sigp/lighthouse/issues/4546
     AvailabilityCheck(AvailabilityCheckError),
+    /// A Blob with a slot after PeerDAS is received and is not required to be imported.
+    /// This can happen because we stay subscribed to the blob subnet after 2 epochs, as we could
+    /// still receive valid blobs from a Deneb epoch after PeerDAS is activated.
+    ///
+    /// ## Peer scoring
+    ///
+    /// This indicates the peer is sending an unexpected gossip blob and should be penalised.
+    BlobNotRequired(Slot),
     /// An internal error has occurred when processing the block or sidecars.
     ///
     /// ## Peer scoring
@@ -722,32 +735,93 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for PublishBlockReq
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError<T::EthSpec>> {
         let (block, blobs) = self.deconstruct();
+        let peer_das_enabled = chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
 
-        let gossip_verified_blobs = blobs
-            .map(|(kzg_proofs, blobs)| {
-                let mut gossip_verified_blobs = vec![];
-                for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
-                    let _timer =
-                        metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION);
-                    let blob = BlobSidecar::new(i, blob, &block, *kzg_proof)
-                        .map_err(BlockContentsError::SidecarError)?;
-                    drop(_timer);
-                    let gossip_verified_blob =
-                        GossipVerifiedBlob::new(Arc::new(blob), i as u64, chain)?;
-                    gossip_verified_blobs.push(gossip_verified_blob);
-                }
-                let gossip_verified_blobs = VariableList::from(gossip_verified_blobs);
-                Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_blobs)
-            })
-            .transpose()?;
+        let (gossip_verified_blobs, gossip_verified_data_columns) = if peer_das_enabled {
+            let gossip_verified_data_columns =
+                build_gossip_verified_data_columns(chain, &block, blobs.map(|(_, blobs)| blobs))?;
+            (None, gossip_verified_data_columns)
+        } else {
+            let gossip_verified_blobs = build_gossip_verified_blobs(chain, &block, blobs)?;
+            (gossip_verified_blobs, None)
+        };
+
         let gossip_verified_block = GossipVerifiedBlock::new(block, chain)?;
 
-        Ok((gossip_verified_block, gossip_verified_blobs))
+        Ok((
+            gossip_verified_block,
+            gossip_verified_blobs,
+            gossip_verified_data_columns,
+        ))
     }
 
     fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec> {
         self.signed_block()
     }
+}
+
+#[allow(clippy::type_complexity)]
+fn build_gossip_verified_blobs<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    block: &Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
+    blobs: Option<(KzgProofs<T::EthSpec>, BlobsList<T::EthSpec>)>,
+) -> Result<Option<GossipVerifiedBlobList<T>>, BlockContentsError<T::EthSpec>> {
+    blobs
+        .map(|(kzg_proofs, blobs)| {
+            let mut gossip_verified_blobs = vec![];
+            for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
+                let _timer =
+                    metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION);
+                let blob = BlobSidecar::new(i, blob, block, *kzg_proof)
+                    .map_err(BlockContentsError::BlobSidecarError)?;
+                drop(_timer);
+                let gossip_verified_blob =
+                    GossipVerifiedBlob::new(Arc::new(blob), i as u64, chain)?;
+                gossip_verified_blobs.push(gossip_verified_blob);
+            }
+            let gossip_verified_blobs = VariableList::from(gossip_verified_blobs);
+            Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_blobs)
+        })
+        .transpose()
+}
+
+fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    block: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
+    blobs: Option<BlobsList<T::EthSpec>>,
+) -> Result<Option<GossipVerifiedDataColumnList<T>>, BlockContentsError<T::EthSpec>> {
+    blobs
+        // Only attempt to build data columns if blobs is non empty to avoid skewing the metrics.
+        .filter(|b| !b.is_empty())
+        .map(|blobs| {
+            // NOTE: we expect KZG to be initialized if the blobs are present
+            let kzg = chain
+                .kzg
+                .as_ref()
+                .ok_or(BlockContentsError::DataColumnError(
+                    GossipDataColumnError::KzgNotInitialized,
+                ))?;
+
+            let timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_COMPUTATION);
+            let sidecars = blobs_to_data_column_sidecars(&blobs, block, kzg, &chain.spec)?;
+            drop(timer);
+            let mut gossip_verified_data_columns = vec![];
+            for sidecar in sidecars {
+                let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
+                    sidecar.index as usize,
+                    &chain.spec,
+                );
+                let column = GossipVerifiedDataColumn::new(sidecar, subnet.into(), chain)?;
+                gossip_verified_data_columns.push(column);
+            }
+            let gossip_verified_data_columns = RuntimeVariableList::new(
+                gossip_verified_data_columns,
+                chain.spec.number_of_columns,
+            )
+            .map_err(DataColumnSidecarError::SszError)?;
+            Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_data_columns)
+        })
+        .transpose()
 }
 
 /// Implemented on types that can be converted into a `ExecutionPendingBlock`.
@@ -1168,6 +1242,10 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
     pub fn block_root(&self) -> Hash256 {
         self.block_root
+    }
+
+    pub fn slot(&self) -> Slot {
+        self.block.slot()
     }
 }
 

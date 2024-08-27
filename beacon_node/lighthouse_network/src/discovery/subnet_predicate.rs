@@ -17,6 +17,7 @@ where
     E: EthSpec,
 {
     let log_clone = log.clone();
+    let spec_clone = spec.clone();
 
     move |enr: &Enr| {
         let attestation_bitfield: EnrAttestationBitfield<E> = match enr.attestation_bitfield::<E>()
@@ -30,8 +31,7 @@ where
         let sync_committee_bitfield: Result<EnrSyncCommitteeBitfield<E>, _> =
             enr.sync_committee_bitfield::<E>();
 
-        // TODO(das): compute from enr
-        let custody_subnet_count = spec.custody_requirement;
+        let custody_subnet_count = enr.custody_subnet_count::<E>(&spec_clone);
 
         let predicate = subnets.iter().any(|subnet| match subnet {
             Subnet::Attestation(s) => attestation_bitfield

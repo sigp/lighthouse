@@ -1,5 +1,4 @@
 //! Mapping from types to canonical string identifiers used in testing.
-use types::blob_sidecar::BlobIdentifier;
 use types::historical_summary::HistoricalSummary;
 use types::*;
 
@@ -58,7 +57,9 @@ type_name_generic!(BeaconBlockBodyElectra, "BeaconBlockBody");
 type_name!(BeaconBlockHeader);
 type_name_generic!(BeaconState);
 type_name!(BlobIdentifier);
+type_name!(DataColumnIdentifier);
 type_name_generic!(BlobSidecar);
+type_name_generic!(DataColumnSidecar);
 type_name!(Checkpoint);
 type_name!(ConsolidationRequest);
 type_name_generic!(ContributionAndProof);
