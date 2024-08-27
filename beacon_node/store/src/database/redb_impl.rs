@@ -173,10 +173,10 @@ impl<E: EthSpec> Redb<E> {
                     let _timer = metrics::start_timer(&metrics::DISK_DB_WRITE_TIMES);
                     metrics::inc_counter_vec_by(
                         &metrics::DISK_DB_WRITE_BYTES,
-                        &[column],
+                        &[&column],
                         value.len() as u64,
                     );
-                    metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[column]);
+                    metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[&column]);
                     let table_definition: TableDefinition<'_, &[u8], &[u8]> =
                         TableDefinition::new(&column);
 
@@ -186,7 +186,7 @@ impl<E: EthSpec> Redb<E> {
                 }
 
                 KeyValueStoreOp::DeleteKey(column, key) => {
-                    metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[column]);
+                    metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[&column]);
                     let table_definition: TableDefinition<'_, &[u8], &[u8]> =
                         TableDefinition::new(&column);
 
@@ -217,7 +217,7 @@ impl<E: EthSpec> Redb<E> {
             let open_db = self.db.read();
             let read_txn = open_db.begin_read()?;
             let table = read_txn.open_table(table_definition)?;
-            table.range(from..)?.map(|res| {
+            table.range(from..)?.map(move |res| {
                 metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
                 let (k, _) = res?;
                 K::from_bytes(k.value())
