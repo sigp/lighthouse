@@ -807,8 +807,8 @@ impl ChainSpec {
              * DAS params
              */
             eip7594_fork_epoch: None,
-            custody_requirement: 1,
-            data_column_sidecar_subnet_count: 32,
+            custody_requirement: 4,
+            data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
 
             /*
@@ -1129,8 +1129,8 @@ impl ChainSpec {
              * DAS params
              */
             eip7594_fork_epoch: None,
-            custody_requirement: 1,
-            data_column_sidecar_subnet_count: 32,
+            custody_requirement: 4,
+            data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
             /*
              * Network specific
@@ -2122,7 +2122,7 @@ mod yaml_tests {
         DEPOSIT_NETWORK_ID: 1
         DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
         CUSTODY_REQUIREMENT: 1
-        DATA_COLUMN_SIDECAR_SUBNET_COUNT: 32
+        DATA_COLUMN_SIDECAR_SUBNET_COUNT: 128
         NUMBER_OF_COLUMNS: 128
         "#;
 
