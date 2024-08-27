@@ -398,6 +398,7 @@ impl SupportedProtocol {
         ];
         if fork_context.spec.is_peer_das_scheduled() {
             supported.extend_from_slice(&[
+                // V3 variants have higher preference for protocol negotation
                 ProtocolId::new(Self::MetaDataV3, Encoding::SSZSnappy),
                 ProtocolId::new(Self::MetaDataV2, Encoding::SSZSnappy),
                 ProtocolId::new(Self::MetaDataV1, Encoding::SSZSnappy),

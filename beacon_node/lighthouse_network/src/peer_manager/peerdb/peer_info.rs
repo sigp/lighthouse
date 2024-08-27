@@ -91,7 +91,7 @@ impl<E: EthSpec> PeerInfo<E> {
 
     /// Returns if the peer is subscribed to a given `Subnet` from the metadata attnets/syncnets field.
     /// Also returns true if
-    pub fn on_subnet_metadata(&self, subnet: &Subnet, spec: &ChainSpec) -> bool {
+    pub fn on_subnet_metadata(&self, subnet: &Subnet) -> bool {
         if let Some(meta_data) = &self.meta_data {
             match subnet {
                 Subnet::Attestation(id) => {
@@ -102,17 +102,7 @@ impl<E: EthSpec> PeerInfo<E> {
                         .syncnets()
                         .map_or(false, |s| s.get(**id as usize).unwrap_or(false))
                 }
-                Subnet::DataColumn(column) => {
-                    let Ok(custody_subnet_count) = meta_data.custody_subnet_count() else {
-                        return false;
-                    };
-                    // Supernode will be subscribed to all subnets
-                    if *custody_subnet_count == spec.data_column_sidecar_subnet_count {
-                        true
-                    } else {
-                        self.custody_subnets.contains(column)
-                    };
-                }
+                Subnet::DataColumn(column) => return self.custody_subnets.contains(column),
             }
         }
         false
@@ -385,7 +375,7 @@ impl<E: EthSpec> PeerInfo<E> {
             if let Ok(custody_subnet_count) = meta_data.custody_subnet_count() {
                 let custody_subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
                     node_id.raw().into(),
-                    *custody_subnet_count,
+                    std::cmp::min(*custody_subnet_count, spec.data_column_sidecar_subnet_count),
                     spec,
                 )
                 .collect::<HashSet<_>>();

@@ -290,7 +290,6 @@ pub(crate) fn save_metadata_to_disk<E: EthSpec>(
     // custody_subnet_count parameter doesn't need to be persisted across runs.
     // custody_subnet_count is what the user sets it for the current run.
     // This is to prevent ugly branching logic when reading the metadata from disk.
-    // TODO(pawan): check if this is unnecessaarily convoluted.
     let metadata_bytes = metadata.metadata_v2().as_ssz_bytes();
     match File::create(dir.join(METADATA_FILENAME)).and_then(|mut f| f.write_all(&metadata_bytes)) {
         Ok(_) => {

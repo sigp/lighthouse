@@ -172,7 +172,7 @@ impl<E: EthSpec> MetaData<E> {
         }
     }
 
-    /// Returns a V2 MetaData response from self by filling setting 0 custody.
+    /// Returns a V3 MetaData response from self by filling unavailable fields with default.
     pub fn metadata_v3(&self) -> Self {
         match self {
             MetaData::V1(metadata) => MetaData::V2(MetaDataV2 {
