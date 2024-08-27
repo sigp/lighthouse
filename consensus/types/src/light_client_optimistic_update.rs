@@ -102,6 +102,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
                 sync_aggregate,
                 signature_slot,
             }),
+            ForkName::EIP7732 => todo!("EIP-7732 light client not implemented"),
             ForkName::Base => return Err(Error::AltairForkNotActive),
         };
 
@@ -160,6 +161,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
                     "LightClientOptimisticUpdate decoding for {fork_name} not implemented"
                 )))
             }
+            ForkName::EIP7732 => todo!("EIP-7732 light client not implemented"),
         };
 
         Ok(optimistic_update)
@@ -175,6 +177,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             ForkName::Capella => <LightClientOptimisticUpdateCapella<E> as Encode>::ssz_fixed_len(),
             ForkName::Deneb => <LightClientOptimisticUpdateDeneb<E> as Encode>::ssz_fixed_len(),
             ForkName::Electra => <LightClientOptimisticUpdateElectra<E> as Encode>::ssz_fixed_len(),
+            ForkName::EIP7732 => todo!("EIP-7732 light client not implemented"),
         };
         fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }

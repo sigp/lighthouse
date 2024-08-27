@@ -187,6 +187,8 @@ impl<'a, E: EthSpec> TryFrom<BeaconBlockRef<'a, E>> for NewPayloadRequest<'a, E>
                 parent_beacon_block_root: block_ref.parent_root,
                 execution_requests_list: &block_ref.body.execution_requests,
             })),
+            //TODO(EIP7732): Need new method of constructing NewPayloadRequest
+            BeaconBlockRef::EIP7732(_) => Err(Self::Error::IncorrectStateVariant),
         }
     }
 }
@@ -206,6 +208,8 @@ impl<'a, E: EthSpec> TryFrom<ExecutionPayloadRef<'a, E>> for NewPayloadRequest<'
             })),
             ExecutionPayloadRef::Deneb(_) => Err(Self::Error::IncorrectStateVariant),
             ExecutionPayloadRef::Electra(_) => Err(Self::Error::IncorrectStateVariant),
+            //TODO(EIP7732): Probably time to just get rid of this
+            ExecutionPayloadRef::EIP7732(_) => Err(Self::Error::IncorrectStateVariant),
         }
     }
 }

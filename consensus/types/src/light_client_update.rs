@@ -251,8 +251,9 @@ impl<E: EthSpec> LightClientUpdate<E> {
                     signature_slot: block_slot,
                 })
             } // To add a new fork, just append the new fork variant on the latest fork. Forks that
-              // have a distinct execution header will need a new LightClientUpdate variant only
-              // if you need to test or support lightclient usages
+            // have a distinct execution header will need a new LightClientUpdate variant only
+            // if you need to test or support lightclient usages
+            ForkName::EIP7732 => todo!("EIP-7732 light client not implemented"),
         };
 
         Ok(light_client_update)
@@ -271,6 +272,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
                     "LightClientUpdate decoding for {fork_name} not implemented"
                 )))
             }
+            ForkName::EIP7732 => todo!("EIP-7732 light client not implemented"),
         };
 
         Ok(update)

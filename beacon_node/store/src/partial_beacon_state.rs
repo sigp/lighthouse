@@ -14,7 +14,7 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, EIP7732),
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
@@ -66,9 +66,9 @@ where
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, EIP7732))]
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, EIP7732))]
     pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
@@ -78,13 +78,13 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, EIP7732))]
     pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, EIP7732))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, EIP7732))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
     // Execution
@@ -108,37 +108,39 @@ where
         partial_getter(rename = "latest_execution_payload_header_electra")
     )]
     pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<E>,
+    #[superstruct(only(EIP7732), partial_getter(rename = "latest_execution_bid_eip7732"))]
+    pub latest_execution_bid: ExecutionBid,
 
     // Capella
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(only(Capella, Deneb, Electra, EIP7732))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(only(Capella, Deneb, Electra, EIP7732))]
     pub next_withdrawal_validator_index: u64,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(only(Capella, Deneb, Electra, EIP7732))]
     pub historical_summaries: Option<List<HistoricalSummary, E::HistoricalRootsLimit>>,
 
     // Electra
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, EIP7732))]
     pub deposit_requests_start_index: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, EIP7732))]
     pub deposit_balance_to_consume: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, EIP7732))]
     pub exit_balance_to_consume: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, EIP7732))]
     pub earliest_exit_epoch: Epoch,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, EIP7732))]
     pub consolidation_balance_to_consume: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, EIP7732))]
     pub earliest_consolidation_epoch: Epoch,
 
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, EIP7732))]
     pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, EIP7732))]
     pub pending_partial_withdrawals:
         List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, EIP7732))]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
 }
 
@@ -282,6 +284,32 @@ impl<E: EthSpec> PartialBeaconState<E> {
                     next_sync_committee,
                     inactivity_scores,
                     latest_execution_payload_header,
+                    next_withdrawal_index,
+                    next_withdrawal_validator_index,
+                    deposit_requests_start_index,
+                    deposit_balance_to_consume,
+                    exit_balance_to_consume,
+                    earliest_exit_epoch,
+                    consolidation_balance_to_consume,
+                    earliest_consolidation_epoch,
+                    pending_balance_deposits,
+                    pending_partial_withdrawals,
+                    pending_consolidations
+                ],
+                [historical_summaries]
+            ),
+            BeaconState::EIP7732(s) => impl_from_state_forgetful!(
+                s,
+                outer,
+                EIP7732,
+                PartialBeaconStateEIP7732,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_bid,
                     next_withdrawal_index,
                     next_withdrawal_validator_index,
                     deposit_requests_start_index,
@@ -555,6 +583,31 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     next_sync_committee,
                     inactivity_scores,
                     latest_execution_payload_header,
+                    next_withdrawal_index,
+                    next_withdrawal_validator_index,
+                    deposit_requests_start_index,
+                    deposit_balance_to_consume,
+                    exit_balance_to_consume,
+                    earliest_exit_epoch,
+                    consolidation_balance_to_consume,
+                    earliest_consolidation_epoch,
+                    pending_balance_deposits,
+                    pending_partial_withdrawals,
+                    pending_consolidations
+                ],
+                [historical_summaries]
+            ),
+            PartialBeaconState::EIP7732(inner) => impl_try_into_beacon_state!(
+                inner,
+                EIP7732,
+                BeaconStateEIP7732,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_bid,
                     next_withdrawal_index,
                     next_withdrawal_validator_index,
                     deposit_requests_start_index,

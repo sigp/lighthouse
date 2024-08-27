@@ -305,6 +305,7 @@ impl<E: EthSpec> FullPayload<E> {
             ForkName::Capella => Ok(FullPayloadCapella::default().into()),
             ForkName::Deneb => Ok(FullPayloadDeneb::default().into()),
             ForkName::Electra => Ok(FullPayloadElectra::default().into()),
+            ForkName::EIP7732 => Err(Error::IncorrectStateVariant),
         }
     }
 }

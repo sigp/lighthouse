@@ -47,7 +47,8 @@ pub fn process_epoch<E: EthSpec>(
         | BeaconState::Bellatrix(_)
         | BeaconState::Capella(_)
         | BeaconState::Deneb(_)
-        | BeaconState::Electra(_) => altair::process_epoch(state, spec),
+        | BeaconState::Electra(_)
+        | BeaconState::EIP7732(_) => altair::process_epoch(state, spec),
     }
 }
 

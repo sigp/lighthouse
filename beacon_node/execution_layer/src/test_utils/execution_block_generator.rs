@@ -800,6 +800,8 @@ pub fn generate_genesis_header<E: EthSpec>(
             *header.transactions_root_mut() = empty_transactions_root;
             Some(header)
         }
+        // TODO(EIP-7732): need to look into this
+        ForkName::EIP7732 => None,
     }
 }
 

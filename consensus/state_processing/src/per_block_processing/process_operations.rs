@@ -308,6 +308,9 @@ pub fn process_attestations<E: EthSpec, Payload: AbstractExecPayload<E>>(
                 spec,
             )?;
         }
+        BeaconBlockBodyRef::EIP7732(_) => {
+            todo!("EIP-7732 implement process_operations()");
+        }
     }
     Ok(())
 }

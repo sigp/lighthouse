@@ -410,15 +410,18 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     let latest_execution_payload_header_block_hash =
         state.latest_execution_payload_header()?.block_hash();
     let withdrawals = match state {
-        &BeaconState::Capella(_) | &BeaconState::Deneb(_) | &BeaconState::Electra(_) => {
-            Some(get_expected_withdrawals(state, spec)?.0.into())
-        }
+        &BeaconState::Capella(_)
+        | &BeaconState::Deneb(_)
+        | &BeaconState::Electra(_)
+        | &BeaconState::EIP7732(_) => Some(get_expected_withdrawals(state, spec)?.0.into()),
         &BeaconState::Bellatrix(_) => None,
         // These shouldn't happen but they're here to make the pattern irrefutable
         &BeaconState::Base(_) | &BeaconState::Altair(_) => None,
     };
     let parent_beacon_block_root = match state {
-        BeaconState::Deneb(_) | BeaconState::Electra(_) => Some(parent_block_root),
+        BeaconState::Deneb(_) | BeaconState::Electra(_) | BeaconState::EIP7732(_) => {
+            Some(parent_block_root)
+        }
         BeaconState::Bellatrix(_) | BeaconState::Capella(_) => None,
         // These shouldn't happen but they're here to make the pattern irrefutable
         BeaconState::Base(_) | BeaconState::Altair(_) => None,

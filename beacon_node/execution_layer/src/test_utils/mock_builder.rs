@@ -348,6 +348,9 @@ pub fn serve<E: EthSpec>(
                         SignedBlindedBeaconBlock::Electra(block) => {
                             block.message.body.execution_payload.tree_hash_root()
                         }
+                        SignedBlindedBeaconBlock::EIP7732(_) => {
+                            return Err(reject("invalid fork EIP7732"));
+                        }
                     };
                     let payload = builder
                         .el
@@ -498,6 +501,9 @@ pub fn serve<E: EthSpec>(
                     // first to avoid polluting the execution block generator with invalid payload attributes
                     // NOTE: this was part of an effort to add payload attribute uniqueness checks,
                     // which was abandoned because it broke too many tests in subtle ways.
+                    ForkName::EIP7732 => {
+                        return Err(reject("invalid fork"));
+                    }
                     ForkName::Bellatrix | ForkName::Capella => PayloadAttributes::new(
                         timestamp,
                         *prev_randao,
@@ -551,6 +557,9 @@ pub fn serve<E: EthSpec>(
                         ) = payload_response.into();
 
                         match fork {
+                            ForkName::EIP7732 => {
+                                return Err(reject("invalid fork"));
+                            }
                             ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
                                 header: payload
                                     .as_electra()
@@ -603,6 +612,9 @@ pub fn serve<E: EthSpec>(
                             Option<ExecutionRequests<E>>,
                         ) = payload_response.into();
                         match fork {
+                            ForkName::EIP7732 => {
+                                return Err(reject("invalid fork"));
+                            }
                             ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
                                 header: payload
                                     .as_electra()

@@ -1078,6 +1078,10 @@ impl ForkVersionDeserialize for SsePayloadAttributes {
             ForkName::Electra => serde_json::from_value(value)
                 .map(Self::V3)
                 .map_err(serde::de::Error::custom),
+            // TODO(EIP7732): check this
+            ForkName::EIP7732 => serde_json::from_value(value)
+                .map(Self::V3)
+                .map_err(serde::de::Error::custom),
             ForkName::Base | ForkName::Altair => Err(serde::de::Error::custom(format!(
                 "SsePayloadAttributes deserialization for {fork_name} not implemented"
             ))),
@@ -1883,7 +1887,9 @@ impl<E: EthSpec> TryFrom<Arc<SignedBeaconBlock<E>>> for PublishBlockRequest<E> {
             | SignedBeaconBlock::Altair(_)
             | SignedBeaconBlock::Bellatrix(_)
             | SignedBeaconBlock::Capella(_) => Ok(PublishBlockRequest::Block(block)),
-            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => Err(
+            SignedBeaconBlock::Deneb(_)
+            | SignedBeaconBlock::Electra(_)
+            | SignedBeaconBlock::EIP7732(_) => Err(
                 "post-Deneb block contents cannot be fully constructed from just the signed block",
             ),
         }
@@ -1993,9 +1999,12 @@ impl<E: EthSpec> ForkVersionDeserialize for FullPayloadContents<E> {
             ForkName::Bellatrix | ForkName::Capella => serde_json::from_value(value)
                 .map(Self::Payload)
                 .map_err(serde::de::Error::custom),
-            ForkName::Deneb | ForkName::Electra => serde_json::from_value(value)
-                .map(Self::PayloadAndBlobs)
-                .map_err(serde::de::Error::custom),
+            // TODO(EIP7732): check this
+            ForkName::Deneb | ForkName::Electra | ForkName::EIP7732 => {
+                serde_json::from_value(value)
+                    .map(Self::PayloadAndBlobs)
+                    .map_err(serde::de::Error::custom)
+            }
             ForkName::Base | ForkName::Altair => Err(serde::de::Error::custom(format!(
                 "FullPayloadContents deserialization for {fork_name} not implemented"
             ))),

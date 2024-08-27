@@ -85,7 +85,8 @@ impl<E: EthSpec> ForkVersionDeserialize for BuilderBid<E> {
             ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Deneb => Self::Deneb(serde_json::from_value(value).map_err(convert_err)?),
             ForkName::Electra => Self::Electra(serde_json::from_value(value).map_err(convert_err)?),
-            ForkName::Base | ForkName::Altair => {
+            // FIXME(EIP-7732): Check this
+            ForkName::Base | ForkName::Altair | ForkName::EIP7732 => {
                 return Err(serde::de::Error::custom(format!(
                     "BuilderBid failed to deserialize: unsupported fork '{}'",
                     fork_name

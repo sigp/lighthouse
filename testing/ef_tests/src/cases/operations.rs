@@ -24,9 +24,9 @@ use state_processing::{
 use std::fmt::Debug;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
-    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState,
-    BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload, FullPayload,
-    ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit, SyncAggregate,
+    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyEIP7732, BeaconBlockBodyElectra,
+    BeaconState, BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload,
+    FullPayload, ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit, SyncAggregate,
     WithdrawalRequest,
 };
 
@@ -110,7 +110,8 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
             | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => {
+            | BeaconState::Electra(_)
+            | BeaconState::EIP7732(_) => {
                 initialize_progressive_balances_cache(state, spec)?;
                 altair_deneb::process_attestation(
                     state,
@@ -137,7 +138,7 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
             | ForkName::Bellatrix
             | ForkName::Capella
             | ForkName::Deneb => Self::Base(ssz_decode_file(path)?),
-            ForkName::Electra => Self::Electra(ssz_decode_file(path)?),
+            ForkName::Electra | ForkName::EIP7732 => Self::Electra(ssz_decode_file(path)?),
         })
     }
 
@@ -308,6 +309,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, FullPayload<E>> {
                 ForkName::Capella => BeaconBlockBody::Capella(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Deneb => BeaconBlockBody::Deneb(<_>::from_ssz_bytes(bytes)?),
                 ForkName::Electra => BeaconBlockBody::Electra(<_>::from_ssz_bytes(bytes)?),
+                ForkName::EIP7732 => BeaconBlockBody::EIP7732(<_>::from_ssz_bytes(bytes)?),
                 _ => panic!(),
             })
         })
@@ -362,6 +364,10 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
                 ForkName::Electra => {
                     let inner = <BeaconBlockBodyElectra<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
                     BeaconBlockBody::Electra(inner.clone_as_blinded())
+                }
+                ForkName::EIP7732 => {
+                    let inner = <BeaconBlockBodyEIP7732<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::EIP7732(inner.clone_as_blinded())
                 }
                 _ => panic!(),
             })

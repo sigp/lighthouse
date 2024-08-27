@@ -398,11 +398,12 @@ where
             state.genesis_validators_root(),
         ),
         // EIP-7044
-        BeaconState::Deneb(_) | BeaconState::Electra(_) => spec.compute_domain(
-            Domain::VoluntaryExit,
-            spec.capella_fork_version,
-            state.genesis_validators_root(),
-        ),
+        BeaconState::Deneb(_) | BeaconState::Electra(_) | BeaconState::EIP7732(_) => spec
+            .compute_domain(
+                Domain::VoluntaryExit,
+                spec.capella_fork_version,
+                state.genesis_validators_root(),
+            ),
     };
 
     let message = exit.signing_root(domain);

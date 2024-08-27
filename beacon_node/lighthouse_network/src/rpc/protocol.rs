@@ -187,6 +187,11 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
             *SIGNED_BEACON_BLOCK_ELECTRA_MAX, // Electra block is larger than Deneb block
         ),
+        // TODO(EIP7732): check this
+        ForkName::EIP7732 => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
+            *SIGNED_BEACON_BLOCK_ELECTRA_MAX, // Electra block is larger than EIP7732 block
+        ),
     }
 }
 
@@ -205,6 +210,10 @@ fn rpc_light_client_finality_update_limits_by_fork(current_fork: ForkName) -> Rp
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_DENEB_MAX)
         }
         ForkName::Electra => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_ELECTRA_MAX)
+        }
+        // TODO(EIP7732): check this
+        ForkName::EIP7732 => {
             RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_FINALITY_UPDATE_ELECTRA_MAX)
         }
     }
@@ -229,6 +238,11 @@ fn rpc_light_client_optimistic_update_limits_by_fork(current_fork: ForkName) -> 
             altair_fixed_len,
             *LIGHT_CLIENT_OPTIMISTIC_UPDATE_ELECTRA_MAX,
         ),
+        // TODO(EIP7732): check this
+        ForkName::EIP7732 => RpcLimits::new(
+            altair_fixed_len,
+            *LIGHT_CLIENT_OPTIMISTIC_UPDATE_ELECTRA_MAX,
+        ),
     }
 }
 
@@ -243,6 +257,8 @@ fn rpc_light_client_bootstrap_limits_by_fork(current_fork: ForkName) -> RpcLimit
         ForkName::Capella => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_CAPELLA_MAX),
         ForkName::Deneb => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX),
         ForkName::Electra => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX),
+        // TODO(EIP7732): check this
+        ForkName::EIP7732 => RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX),
     }
 }
 

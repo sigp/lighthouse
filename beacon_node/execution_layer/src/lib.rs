@@ -48,13 +48,12 @@ use types::builder_bid::BuilderBid;
 use types::non_zero_usize::new_non_zero_usize;
 use types::payload::BlockProductionVersion;
 use types::{
-    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests, KzgProofs,
-    SignedBlindedBeaconBlock,
+    AbstractExecPayload, BlobsList, ExecutionRequests, KzgProofs, SignedBlindedBeaconBlock,
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadElectra, FullPayload, ProposerPreparationData,
-    PublicKeyBytes, Signature, Slot,
+    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, FullPayload,
+    ProposerPreparationData, PublicKeyBytes, Signature, Slot,
 };
 
 mod block_hash;
@@ -1830,6 +1829,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
                 ForkName::Electra => ExecutionPayloadElectra::default().into(),
                 ForkName::Base | ForkName::Altair => {
+                    return Err(Error::InvalidForkForPayload);
+                }
+                ForkName::EIP7732 => {
                     return Err(Error::InvalidForkForPayload);
                 }
             };

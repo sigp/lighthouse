@@ -219,6 +219,9 @@ impl<E: EthSpec> From<ExecutionPayload<E>> for JsonExecutionPayload<E> {
             ExecutionPayload::Capella(payload) => JsonExecutionPayload::V2(payload.into()),
             ExecutionPayload::Deneb(payload) => JsonExecutionPayload::V3(payload.into()),
             ExecutionPayload::Electra(payload) => JsonExecutionPayload::V4(payload.into()),
+            ExecutionPayload::EIP7732(_payload) => {
+                todo!("EIP-7732 Engine API: JsonExecutionPayload conversion")
+            }
         }
     }
 }

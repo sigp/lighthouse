@@ -5208,7 +5208,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_)
-            | BeaconState::Electra(_) => {
+            | BeaconState::Electra(_)
+            | BeaconState::EIP7732(_) => {
                 let prepare_payload_handle = get_execution_payload(
                     self.clone(),
                     &state,
@@ -5637,6 +5638,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     execution_payload_value,
                 )
             }
+            BeaconState::EIP7732(_) => todo!("EIP-7732 block production"),
         };
 
         let block = SignedBeaconBlock::from_block(
@@ -5955,7 +5957,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_attributes
         } else {
             let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
-
             let withdrawals = if prepare_slot_fork.capella_enabled() {
                 let chain = self.clone();
                 self.spawn_blocking_handle(

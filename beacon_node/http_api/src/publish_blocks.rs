@@ -141,7 +141,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 crate::publish_pubsub_messages(&sender, pubsub_messages)
                     .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
             }
-            SignedBeaconBlock::Deneb(_) | SignedBeaconBlock::Electra(_) => {
+            SignedBeaconBlock::Deneb(_)
+            | SignedBeaconBlock::Electra(_)
+            | SignedBeaconBlock::EIP7732(_) => {
                 for blob in blob_sidecars.into_iter() {
                     pubsub_messages.push(PubsubMessage::BlobSidecar(Box::new((blob.index, blob))));
                 }

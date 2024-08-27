@@ -61,7 +61,8 @@ pub fn slash_validator<E: EthSpec>(
         | BeaconState::Bellatrix(_)
         | BeaconState::Capella(_)
         | BeaconState::Deneb(_)
-        | BeaconState::Electra(_) => whistleblower_reward
+        | BeaconState::Electra(_)
+        | BeaconState::EIP7732(_) => whistleblower_reward
             .safe_mul(PROPOSER_WEIGHT)?
             .safe_div(WEIGHT_DENOMINATOR)?,
     };

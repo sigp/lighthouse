@@ -46,7 +46,7 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
             );
         }
         // [Modified in Deneb:EIP7045]
-        BeaconState::Deneb(_) | BeaconState::Electra(_) => {}
+        BeaconState::Deneb(_) | BeaconState::Electra(_) | BeaconState::EIP7732(_) => {}
     }
 
     verify_attestation_for_state(state, attestation, ctxt, verify_signatures, spec)

@@ -199,6 +199,12 @@ pub struct ChainSpec {
     pub samples_per_slot: u64,
 
     /*
+     * EIP-7732 params
+     */
+    pub eip7732_fork_version: [u8; 4],
+    pub eip7732_fork_epoch: Option<Epoch>,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -313,17 +319,20 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.electra_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Electra,
-            _ => match self.deneb_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
-                _ => match self.capella_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
-                    _ => match self.bellatrix_fork_epoch {
-                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Bellatrix,
-                        _ => match self.altair_fork_epoch {
-                            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                            _ => ForkName::Base,
+        match self.eip7732_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::EIP7732,
+            _ => match self.electra_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Electra,
+                _ => match self.deneb_fork_epoch {
+                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
+                    _ => match self.capella_fork_epoch {
+                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
+                        _ => match self.bellatrix_fork_epoch {
+                            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Bellatrix,
+                            _ => match self.altair_fork_epoch {
+                                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                                _ => ForkName::Base,
+                            },
                         },
                     },
                 },
@@ -340,6 +349,7 @@ impl ChainSpec {
             ForkName::Capella => self.capella_fork_version,
             ForkName::Deneb => self.deneb_fork_version,
             ForkName::Electra => self.electra_fork_version,
+            ForkName::EIP7732 => self.eip7732_fork_version,
         }
     }
 
@@ -352,6 +362,7 @@ impl ChainSpec {
             ForkName::Capella => self.capella_fork_epoch,
             ForkName::Deneb => self.deneb_fork_epoch,
             ForkName::Electra => self.electra_fork_epoch,
+            ForkName::EIP7732 => self.eip7732_fork_epoch,
         }
     }
 
@@ -811,6 +822,12 @@ impl ChainSpec {
             samples_per_slot: 8,
 
             /*
+             * EIP-7732 params
+             */
+            eip7732_fork_version: [0x09, 0x00, 0x00, 0x00],
+            eip7732_fork_epoch: None,
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
@@ -923,6 +940,9 @@ impl ChainSpec {
             .expect("calculation does not overflow"),
             // PeerDAS
             eip7594_fork_epoch: None,
+            // EIP-7732
+            eip7732_fork_version: [0x09, 0x00, 0x00, 0x01],
+            eip7732_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -1130,6 +1150,13 @@ impl ChainSpec {
             data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
             samples_per_slot: 8,
+
+            /*
+             * EIP-7732 params
+             */
+            eip7732_fork_version: [0x09, 0x00, 0x00, 0x64],
+            eip7732_fork_epoch: None,
+
             /*
              * Network specific
              */
@@ -1268,6 +1295,14 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub eip7594_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    #[serde(default = "default_eip7732_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    eip7732_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub eip7732_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1401,6 +1436,11 @@ fn default_deneb_fork_version() -> [u8; 4] {
 }
 
 fn default_electra_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_eip7732_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
@@ -1685,6 +1725,11 @@ impl Config {
                 .eip7594_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
+            eip7732_fork_version: spec.eip7732_fork_version,
+            eip7732_fork_epoch: spec
+                .eip7732_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
+
             seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
@@ -1767,6 +1812,8 @@ impl Config {
             electra_fork_epoch,
             electra_fork_version,
             eip7594_fork_epoch,
+            eip7732_fork_epoch,
+            eip7732_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1832,6 +1879,8 @@ impl Config {
             electra_fork_epoch: electra_fork_epoch.map(|q| q.value),
             electra_fork_version,
             eip7594_fork_epoch: eip7594_fork_epoch.map(|q| q.value),
+            eip7732_fork_epoch: eip7732_fork_epoch.map(|q| q.value),
+            eip7732_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,

@@ -1,6 +1,5 @@
 use super::*;
 use crate::case_result::compare_beacon_state_results_without_caches;
-use crate::cases::common::previous_fork;
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
 use state_processing::upgrade::{
@@ -33,8 +32,11 @@ impl<E: EthSpec> LoadCase for ForkTest<E> {
         assert_eq!(metadata.fork_name(), fork_name);
 
         // Decode pre-state with previous fork.
-        let pre_spec = &previous_fork(fork_name).make_genesis_spec(E::default_spec());
-        let pre = ssz_decode_state(&path.join("pre.ssz_snappy"), pre_spec)?;
+        let pre_spec = fork_name
+            .previous_fork()
+            .unwrap_or(ForkName::Base)
+            .make_genesis_spec(E::default_spec());
+        let pre = ssz_decode_state(&path.join("pre.ssz_snappy"), &pre_spec)?;
 
         // Decode post-state with target fork.
         let post_spec = &fork_name.make_genesis_spec(E::default_spec());
@@ -69,6 +71,7 @@ impl<E: EthSpec> Case for ForkTest<E> {
             ForkName::Capella => upgrade_to_capella(&mut result_state, spec).map(|_| result_state),
             ForkName::Deneb => upgrade_to_deneb(&mut result_state, spec).map(|_| result_state),
             ForkName::Electra => upgrade_to_electra(&mut result_state, spec).map(|_| result_state),
+            ForkName::EIP7732 => todo!("upgrade_to_eip7732 not yet implemented"),
         };
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)

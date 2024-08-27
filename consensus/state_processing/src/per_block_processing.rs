@@ -462,6 +462,8 @@ pub fn is_merge_transition_complete<E: EthSpec>(state: &BeaconState<E>) -> bool 
             .unwrap_or(false),
         BeaconState::Electra(_) | BeaconState::Deneb(_) | BeaconState::Capella(_) => true,
         BeaconState::Base(_) | BeaconState::Altair(_) => false,
+        // TODO(EIP7732): check this cause potuz modified this function for god knows what reason
+        BeaconState::EIP7732(_) => true,
     }
 }
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_merge_transition_block
@@ -662,5 +664,6 @@ pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>(
         }
         // these shouldn't even be encountered but they're here for completeness
         BeaconState::Base(_) | BeaconState::Altair(_) | BeaconState::Bellatrix(_) => Ok(()),
+        BeaconState::EIP7732(_) => todo!("implement potuz' changes to process_withdrawals()"),
     }
 }
