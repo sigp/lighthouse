@@ -732,10 +732,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
             SyncMessage::SampleBlock(block_root, block_slot) => {
-                debug!(self.log, "Received SampleBlock message"; "block_root" => %block_root);
-                if let Some((requester, result)) =
-                    self.sampling
-                        .on_new_sample_request(block_root, block_slot, &mut self.network)
+                debug!(self.log, "Received SampleBlock message"; "block_root" => %block_root, "slot" => block_slot);
+                if let Some((requester, result)) = self
+                    .sampling
+                    .on_new_sample_request(block_root, &mut self.network)
                 {
                     self.on_sampling_result(requester, result)
                 }

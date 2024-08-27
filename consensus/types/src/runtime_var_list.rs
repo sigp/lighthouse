@@ -46,8 +46,8 @@ pub struct RuntimeVariableList<T> {
 }
 
 impl<T> RuntimeVariableList<T> {
-    /// Returns `Some` if the given `vec` equals the fixed length of `Self`. Otherwise returns
-    /// `None`.
+    /// Returns `Ok` if the given `vec` equals the fixed length of `Self`. Otherwise returns
+    /// `Err(OutOfBounds { .. })`.
     pub fn new(vec: Vec<T>, max_len: usize) -> Result<Self, Error> {
         if vec.len() <= max_len {
             Ok(Self { vec, max_len })

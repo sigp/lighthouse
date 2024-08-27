@@ -1619,13 +1619,6 @@ pub static BLOBS_SIDECAR_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> = Laz
         "Count of all blob sidecars submitted for processing",
     )
 });
-pub static BLOBS_COLUMN_SIDECAR_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> =
-    LazyLock::new(|| {
-        try_create_int_counter(
-            "beacon_blobs_column_sidecar_processing_requests_total",
-            "Count of all data column sidecars submitted for processing",
-        )
-    });
 pub static BLOBS_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_blobs_sidecar_processing_successes_total",

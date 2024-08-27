@@ -662,7 +662,6 @@ impl<E: EthSpec> AvailableBlock<E> {
         self.blobs.as_ref()
     }
 
-    #[allow(clippy::type_complexity)]
     pub fn blobs_available_timestamp(&self) -> Option<Duration> {
         self.blobs_available_timestamp
     }

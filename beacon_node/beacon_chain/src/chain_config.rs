@@ -84,7 +84,7 @@ pub struct ChainConfig {
     pub epochs_per_migration: u64,
     /// When set to true Light client server computes and caches state proofs for serving updates
     pub enable_light_client_server: bool,
-    /// Enable malicious PeerDAS mode where node withholds data columns when publishing a block
+    /// The number of data columns to withhold / exclude from publishing when proposing a block.
     pub malicious_withhold_count: usize,
     /// Enable peer sampling on blocks.
     pub enable_sampling: bool,

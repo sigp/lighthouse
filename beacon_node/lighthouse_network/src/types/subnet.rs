@@ -12,7 +12,7 @@ pub enum Subnet {
     Attestation(SubnetId),
     /// Represents a gossipsub sync committee subnet and the metadata `syncnets` field.
     SyncCommittee(SyncSubnetId),
-    /// Represents a gossipsub data column subnet and the metadata `blbcolnets` field.
+    /// Represents a gossipsub data column subnet.
     DataColumn(DataColumnSubnetId),
 }
 

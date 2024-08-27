@@ -1168,6 +1168,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
 
         // don't send batch requests until we have peers on custody subnets
+        // TODO(das): this is a workaround to avoid sending out excessive block requests because
+        // block and data column requests are currently coupled. This can be removed once we find a
+        // way to decouple the requests and do retries individually, see issue #6258.
         if !self.good_peers_on_custody_subnets(self.to_be_downloaded, network) {
             debug!(
                 self.log,

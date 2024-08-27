@@ -20,8 +20,6 @@ tests_dir_filename = sys.argv[2]
 # following regular expressions, we will assume they are to be ignored (i.e., we are purposefully
 # *not* running the spec tests).
 excluded_paths = [
-    # TODO(das): remove once electra tests are on unstable
-    "tests/.*/electra/",
     # TODO(das): ignore until new spec test release with column subnet count = 64.
     "tests/.*/.*/.*/get_custody_columns/",
     # Eth1Block and PowBlock
@@ -30,9 +28,9 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/Eth1Block/",
     "tests/.*/.*/ssz_static/PowBlock/",
     # light_client
-    # "tests/.*/.*/light_client",
     "tests/.*/.*/light_client/single_merkle_proof",
     "tests/.*/.*/light_client/sync",
+    "tests/.*/electra/light_client/update_ranking",
     # LightClientStore
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientSnapshot
@@ -42,7 +40,7 @@ excluded_paths = [
     # Unused kzg methods
     "tests/.*/.*/kzg/verify_cell_kzg_proof",
     # One of the EF researchers likes to pack the tarballs on a Mac
-    ".*/.DS_Store.*",
+    ".*\\.DS_Store.*",
     # More Mac weirdness.
     "tests/mainnet/bellatrix/operations/deposit/pyspec_tests/deposit_with_previous_fork_version__valid_ineffective/._meta.yaml",
     "tests/mainnet/eip7594/networking/get_custody_columns/pyspec_tests/get_custody_columns__short_node_id/._meta.yaml",
@@ -59,9 +57,7 @@ excluded_paths = [
     "tests/.*/electra/ssz_static/LightClientUpdate",
     "tests/.*/electra/ssz_static/LightClientFinalityUpdate",
     "tests/.*/electra/ssz_static/LightClientBootstrap",
-    # TODO(electra) re-enable as DepositRequest when EF tests are updated
-    "tests/.*/electra/operations/deposit_receipt",
-    "tests/.*/electra/ssz_static/DepositReceipt"
+    "tests/.*/electra/merkle_proof",
 ]
 
 

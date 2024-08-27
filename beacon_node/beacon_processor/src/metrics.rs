@@ -250,7 +250,7 @@ pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_SAMPLING_REQUESTS: LazyLo
     Result<IntCounter>,
 > = LazyLock::new(|| {
     try_create_int_counter(
-        "beacon_processor_reprocessing_queue_matches_sampling_requests",
+        "beacon_processor_reprocessing_queue_matched_sampling_requests",
         "Number of queued sampling requests where a matching block has been imported.",
     )
 });

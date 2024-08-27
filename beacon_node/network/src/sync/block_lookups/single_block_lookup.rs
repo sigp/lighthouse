@@ -362,7 +362,7 @@ pub enum State<T: Clone> {
     AwaitingProcess(DownloadResult<T>),
     /// Request is processing, sent by lookup sync
     Processing(DownloadResult<T>),
-    /// Request is processed:
+    /// Request is processed
     Processed,
 }
 
