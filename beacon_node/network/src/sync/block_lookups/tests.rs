@@ -300,7 +300,7 @@ impl TestRig {
     fn expect_no_active_sampling(&mut self) {
         assert_eq!(
             self.sync_manager.active_sampling_requests(),
-            vec![],
+            Vec::<Hash256>::new(),
             "expected no active sampling"
         );
     }
