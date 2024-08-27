@@ -567,6 +567,9 @@ fn handle_rpc_request<E: EthSpec>(
                 )?,
             })))
         }
+        SupportedProtocol::DataColumnsByRangeV1 => Ok(Some(InboundRequest::DataColumnsByRange(
+            DataColumnsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+        ))),
         SupportedProtocol::DataColumnsByRootV1 => Ok(Some(InboundRequest::DataColumnsByRoot(
             DataColumnsByRootRequest {
                 data_column_ids: RuntimeVariableList::from_ssz_bytes(
@@ -574,9 +577,6 @@ fn handle_rpc_request<E: EthSpec>(
                     spec.max_request_data_column_sidecars as usize,
                 )?,
             },
-        ))),
-        SupportedProtocol::DataColumnsByRangeV1 => Ok(Some(InboundRequest::DataColumnsByRange(
-            DataColumnsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
         SupportedProtocol::PingV1 => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,

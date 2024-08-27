@@ -742,6 +742,16 @@ impl std::fmt::Display for BlobsByRangeRequest {
     }
 }
 
+impl std::fmt::Display for DataColumnsByRootRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Request: DataColumnsByRoot: Number of Requested Data Column Ids: {}",
+            self.data_column_ids.len()
+        )
+    }
+}
+
 impl slog::KV for StatusMessage {
     fn serialize(
         &self,
