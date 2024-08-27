@@ -218,7 +218,6 @@ impl<E: EthSpec> Redb<E> {
             let read_txn = open_db.begin_read()?;
             let table = read_txn.open_table(table_definition)?;
             table.range(from..)?.map(|res| {
-                let _timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
                 metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
                 let (k, _) = res?;
                 K::from_bytes(k.value())
@@ -253,7 +252,6 @@ impl<E: EthSpec> Redb<E> {
                 .range(from..)?
                 .take_while(move |res| match res.as_ref() {
                     Ok((key, _)) => {
-                        let _timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
                         metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
                         predicate(key.value(), prefix.as_slice())
                     }
