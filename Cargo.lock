@@ -779,6 +779,7 @@ version = "0.2.0"
 dependencies = [
  "bitvec 1.0.1",
  "bls",
+ "criterion",
  "derivative",
  "eth1",
  "eth2",
@@ -3852,6 +3853,7 @@ dependencies = [
  "operation_pool",
  "parking_lot 0.12.3",
  "proto_array",
+ "rand",
  "safe_arith",
  "sensitive_url",
  "serde",

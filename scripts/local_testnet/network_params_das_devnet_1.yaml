@@ -1,0 +1,8 @@
+participants:
+  - cl_type: lighthouse
+    cl_image: lighthouse:local
+network_params:
+  network: peerdas-devnet-1
+global_log_level: debug
+additional_services:
+  - prometheus_grafana

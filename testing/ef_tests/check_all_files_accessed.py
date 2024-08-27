@@ -20,6 +20,8 @@ tests_dir_filename = sys.argv[2]
 # following regular expressions, we will assume they are to be ignored (i.e., we are purposefully
 # *not* running the spec tests).
 excluded_paths = [
+    # TODO(das): ignore until new spec test release with column subnet count = 64.
+    "tests/.*/.*/.*/get_custody_columns/",
     # Eth1Block and PowBlock
     #
     # Intentionally omitted, as per https://github.com/sigp/lighthouse/issues/1835
@@ -33,10 +35,15 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientSnapshot
     "tests/.*/.*/ssz_static/LightClientSnapshot",
+    # Unused container for das
+    "tests/.*/.*/ssz_static/MatrixEntry",
+    # Unused kzg methods
+    "tests/.*/.*/kzg/verify_cell_kzg_proof",
     # One of the EF researchers likes to pack the tarballs on a Mac
     ".*\\.DS_Store.*",
     # More Mac weirdness.
     "tests/mainnet/bellatrix/operations/deposit/pyspec_tests/deposit_with_previous_fork_version__valid_ineffective/._meta.yaml",
+    "tests/mainnet/eip7594/networking/get_custody_columns/pyspec_tests/get_custody_columns__short_node_id/._meta.yaml",
     # bls tests are moved to bls12-381-tests directory
     "tests/general/phase0/bls",
     # some bls tests are not included now
