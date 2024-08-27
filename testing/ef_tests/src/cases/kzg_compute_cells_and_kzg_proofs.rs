@@ -35,7 +35,7 @@ impl<E: EthSpec> Case for KZGComputeCellsAndKZGProofs<E> {
             let blob = blob.as_ref().try_into().map_err(|e| {
                 Error::InternalError(format!("Failed to convert blob to kzg blob: {e:?}"))
             })?;
-            let kzg = get_kzg()?;
+            let kzg = get_kzg();
             kzg.compute_cells_and_proofs(blob).map_err(|e| {
                 Error::InternalError(format!("Failed to compute cells and kzg proofs: {e:?}"))
             })

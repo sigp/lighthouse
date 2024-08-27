@@ -17,8 +17,8 @@ static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
     Arc::new(kzg)
 });
 
-pub fn get_kzg() -> Result<Arc<Kzg>, Error> {
-    Ok(Arc::clone(&KZG))
+pub fn get_kzg() -> Arc<Kzg> {
+    Arc::clone(&KZG)
 }
 
 pub fn parse_cells_and_proofs(
@@ -126,7 +126,7 @@ impl<E: EthSpec> Case for KZGVerifyBlobKZGProof<E> {
             Ok((blob, commitment, proof))
         };
 
-        let kzg = get_kzg()?;
+        let kzg = get_kzg();
         let result = parse_input(&self.input).and_then(|(blob, commitment, proof)| {
             match validate_blob::<E>(&kzg, &blob, commitment, proof) {
                 Ok(_) => Ok(true),
