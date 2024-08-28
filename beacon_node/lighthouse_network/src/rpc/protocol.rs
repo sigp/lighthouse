@@ -568,7 +568,7 @@ impl ProtocolId {
             ),
             Protocol::MetaData => RpcLimits::new(
                 <MetaDataV1<E> as Encode>::ssz_fixed_len(),
-                <MetaDataV2<E> as Encode>::ssz_fixed_len(),
+                <MetaDataV3<E> as Encode>::ssz_fixed_len(),
             ),
             Protocol::LightClientBootstrap => {
                 rpc_light_client_bootstrap_limits_by_fork(fork_context.current_fork())
