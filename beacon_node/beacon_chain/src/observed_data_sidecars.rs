@@ -6,20 +6,63 @@
 use crate::observed_block_producers::ProposalKey;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
-use types::{BlobSidecar, EthSpec, Slot};
+use types::{BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    /// The slot of the provided `BlobSidecar` is prior to finalization and should not have been provided
+    /// The slot of the provided `ObservableDataSidecar` is prior to finalization and should not have been provided
     /// to this function. This is an internal error.
-    FinalizedBlob { slot: Slot, finalized_slot: Slot },
-    /// The blob sidecar contains an invalid blob index, the blob sidecar is invalid.
-    /// Note: The invalid blob should have been caught and flagged as an error much before reaching
+    FinalizedDataSidecar { slot: Slot, finalized_slot: Slot },
+    /// The data sidecar contains an invalid index, the data sidecar is invalid.
+    /// Note: The invalid data should have been caught and flagged as an error much before reaching
     /// here.
-    InvalidBlobIndex(u64),
+    InvalidDataIndex(u64),
 }
 
-/// Maintains a cache of seen `BlobSidecar`s that are received over gossip
+pub trait ObservableDataSidecar {
+    fn slot(&self) -> Slot;
+    fn block_proposer_index(&self) -> u64;
+    fn index(&self) -> u64;
+    fn max_num_of_items(spec: &ChainSpec) -> usize;
+}
+
+impl<E: EthSpec> ObservableDataSidecar for BlobSidecar<E> {
+    fn slot(&self) -> Slot {
+        self.slot()
+    }
+
+    fn block_proposer_index(&self) -> u64 {
+        self.block_proposer_index()
+    }
+
+    fn index(&self) -> u64 {
+        self.index
+    }
+
+    fn max_num_of_items(_spec: &ChainSpec) -> usize {
+        E::max_blobs_per_block()
+    }
+}
+
+impl<E: EthSpec> ObservableDataSidecar for DataColumnSidecar<E> {
+    fn slot(&self) -> Slot {
+        self.slot()
+    }
+
+    fn block_proposer_index(&self) -> u64 {
+        self.block_proposer_index()
+    }
+
+    fn index(&self) -> u64 {
+        self.index
+    }
+
+    fn max_num_of_items(spec: &ChainSpec) -> usize {
+        spec.number_of_columns
+    }
+}
+
+/// Maintains a cache of seen `ObservableDataSidecar`s that are received over gossip
 /// and have been gossip verified.
 ///
 /// The cache supports pruning based upon the finalized epoch. It does not automatically prune, you
@@ -27,67 +70,65 @@ pub enum Error {
 ///
 /// Note: To prevent DoS attacks, this cache must include only items that have received some DoS resistance
 /// like checking the proposer signature.
-pub struct ObservedBlobSidecars<E: EthSpec> {
+pub struct ObservedDataSidecars<T: ObservableDataSidecar> {
     finalized_slot: Slot,
-    /// Stores all received blob indices for a given `(ValidatorIndex, Slot)` tuple.
+    /// Stores all received data indices for a given `(ValidatorIndex, Slot)` tuple.
     items: HashMap<ProposalKey, HashSet<u64>>,
-    _phantom: PhantomData<E>,
+    spec: ChainSpec,
+    _phantom: PhantomData<T>,
 }
 
-impl<E: EthSpec> Default for ObservedBlobSidecars<E> {
+impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
     /// Instantiates `Self` with `finalized_slot == 0`.
-    fn default() -> Self {
+    pub fn new(spec: ChainSpec) -> Self {
         Self {
             finalized_slot: Slot::new(0),
             items: HashMap::new(),
+            spec,
             _phantom: PhantomData,
         }
     }
-}
 
-impl<E: EthSpec> ObservedBlobSidecars<E> {
-    /// Observe the `blob_sidecar` at (`blob_sidecar.block_proposer_index, blob_sidecar.slot`).
-    /// This will update `self` so future calls to it indicate that this `blob_sidecar` is known.
+    /// Observe the `data_sidecar` at (`data_sidecar.block_proposer_index, data_sidecar.slot`).
+    /// This will update `self` so future calls to it indicate that this `data_sidecar` is known.
     ///
-    /// The supplied `blob_sidecar` **MUST** have completed proposer signature verification.
-    pub fn observe_sidecar(&mut self, blob_sidecar: &BlobSidecar<E>) -> Result<bool, Error> {
-        self.sanitize_blob_sidecar(blob_sidecar)?;
+    /// The supplied `data_sidecar` **MUST** have completed proposer signature verification.
+    pub fn observe_sidecar(&mut self, data_sidecar: &T) -> Result<bool, Error> {
+        self.sanitize_data_sidecar(data_sidecar)?;
 
-        let blob_indices = self
+        let data_indices = self
             .items
             .entry(ProposalKey {
-                slot: blob_sidecar.slot(),
-                proposer: blob_sidecar.block_proposer_index(),
+                slot: data_sidecar.slot(),
+                proposer: data_sidecar.block_proposer_index(),
             })
-            .or_insert_with(|| HashSet::with_capacity(E::max_blobs_per_block()));
-        let did_not_exist = blob_indices.insert(blob_sidecar.index);
+            .or_insert_with(|| HashSet::with_capacity(T::max_num_of_items(&self.spec)));
+        let did_not_exist = data_indices.insert(data_sidecar.index());
 
         Ok(!did_not_exist)
     }
 
-    /// Returns `true` if the `blob_sidecar` has already been observed in the cache within the prune window.
-    pub fn proposer_is_known(&self, blob_sidecar: &BlobSidecar<E>) -> Result<bool, Error> {
-        self.sanitize_blob_sidecar(blob_sidecar)?;
+    /// Returns `true` if the `data_sidecar` has already been observed in the cache within the prune window.
+    pub fn proposer_is_known(&self, data_sidecar: &T) -> Result<bool, Error> {
+        self.sanitize_data_sidecar(data_sidecar)?;
         let is_known = self
             .items
             .get(&ProposalKey {
-                slot: blob_sidecar.slot(),
-                proposer: blob_sidecar.block_proposer_index(),
+                slot: data_sidecar.slot(),
+                proposer: data_sidecar.block_proposer_index(),
             })
-            .map_or(false, |blob_indices| {
-                blob_indices.contains(&blob_sidecar.index)
-            });
+            .map_or(false, |indices| indices.contains(&data_sidecar.index()));
         Ok(is_known)
     }
 
-    fn sanitize_blob_sidecar(&self, blob_sidecar: &BlobSidecar<E>) -> Result<(), Error> {
-        if blob_sidecar.index >= E::max_blobs_per_block() as u64 {
-            return Err(Error::InvalidBlobIndex(blob_sidecar.index));
+    fn sanitize_data_sidecar(&self, data_sidecar: &T) -> Result<(), Error> {
+        if data_sidecar.index() >= T::max_num_of_items(&self.spec) as u64 {
+            return Err(Error::InvalidDataIndex(data_sidecar.index()));
         }
         let finalized_slot = self.finalized_slot;
-        if finalized_slot > 0 && blob_sidecar.slot() <= finalized_slot {
-            return Err(Error::FinalizedBlob {
-                slot: blob_sidecar.slot(),
+        if finalized_slot > 0 && data_sidecar.slot() <= finalized_slot {
+            return Err(Error::FinalizedDataSidecar {
+                slot: data_sidecar.slot(),
                 finalized_slot,
             });
         }
@@ -95,7 +136,7 @@ impl<E: EthSpec> ObservedBlobSidecars<E> {
         Ok(())
     }
 
-    /// Prune `blob_sidecar` observations for slots less than or equal to the given slot.
+    /// Prune `data_sidecar` observations for slots less than or equal to the given slot.
     pub fn prune(&mut self, finalized_slot: Slot) {
         if finalized_slot == 0 {
             return;
@@ -109,6 +150,7 @@ impl<E: EthSpec> ObservedBlobSidecars<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::test_spec;
     use bls::Hash256;
     use std::sync::Arc;
     use types::MainnetEthSpec;
@@ -125,7 +167,8 @@ mod tests {
 
     #[test]
     fn pruning() {
-        let mut cache = ObservedBlobSidecars::default();
+        let spec = test_spec::<E>();
+        let mut cache = ObservedDataSidecars::<BlobSidecar<E>>::new(spec);
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
         assert_eq!(cache.items.len(), 0, "no slots should be present");
@@ -200,7 +243,7 @@ mod tests {
 
         assert_eq!(
             cache.observe_sidecar(&block_b),
-            Err(Error::FinalizedBlob {
+            Err(Error::FinalizedDataSidecar {
                 slot: E::slots_per_epoch().into(),
                 finalized_slot: E::slots_per_epoch().into(),
             }),
@@ -263,7 +306,8 @@ mod tests {
 
     #[test]
     fn simple_observations() {
-        let mut cache = ObservedBlobSidecars::default();
+        let spec = test_spec::<E>();
+        let mut cache = ObservedDataSidecars::<BlobSidecar<E>>::new(spec);
 
         // Slot 0, index 0
         let proposer_index_a = 420;
@@ -423,7 +467,7 @@ mod tests {
         let sidecar_d = get_blob_sidecar(0, proposer_index_a, invalid_index);
         assert_eq!(
             cache.observe_sidecar(&sidecar_d),
-            Err(Error::InvalidBlobIndex(invalid_index)),
+            Err(Error::InvalidDataIndex(invalid_index)),
             "cannot add an index > MaxBlobsPerBlock"
         );
     }

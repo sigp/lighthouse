@@ -1,13 +1,11 @@
 use super::*;
+use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
 use strum::EnumString;
 use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobsList;
-use types::{
-    DepositRequest, ExecutionLayerWithdrawalRequest, FixedVector, PublicKeyBytes, Signature,
-    Unsigned,
-};
+use types::{DepositRequest, FixedVector, PublicKeyBytes, Signature, Unsigned, WithdrawalRequest};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -105,11 +103,13 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
     #[superstruct(only(V4))]
-    // TODO(electra): Field name should be changed post devnet-0. See https://github.com/ethereum/execution-apis/pull/544
     pub deposit_requests: VariableList<JsonDepositRequest, E::MaxDepositRequestsPerPayload>,
     #[superstruct(only(V4))]
     pub withdrawal_requests:
         VariableList<JsonWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>,
+    #[superstruct(only(V4))]
+    pub consolidation_requests:
+        VariableList<JsonConsolidationRequest, E::MaxConsolidationRequestsPerPayload>,
 }
 
 impl<E: EthSpec> From<ExecutionPayloadBellatrix<E>> for JsonExecutionPayloadV1<E> {
@@ -220,6 +220,12 @@ impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> 
                 .into(),
             withdrawal_requests: payload
                 .withdrawal_requests
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+            consolidation_requests: payload
+                .consolidation_requests
                 .into_iter()
                 .map(Into::into)
                 .collect::<Vec<_>>()
@@ -352,6 +358,12 @@ impl<E: EthSpec> From<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> 
                 .map(Into::into)
                 .collect::<Vec<_>>()
                 .into(),
+            consolidation_requests: payload
+                .consolidation_requests
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 }
@@ -460,6 +472,24 @@ impl From<JsonWithdrawal> for Withdrawal {
             validator_index: jw.validator_index,
             address: jw.address,
             amount: jw.amount,
+        }
+    }
+}
+#[derive(Debug, PartialEq, Clone, RlpEncodable)]
+pub struct EncodableJsonWithdrawal<'a> {
+    pub index: u64,
+    pub validator_index: u64,
+    pub address: &'a [u8],
+    pub amount: u64,
+}
+
+impl<'a> From<&'a JsonWithdrawal> for EncodableJsonWithdrawal<'a> {
+    fn from(json_withdrawal: &'a JsonWithdrawal) -> Self {
+        Self {
+            index: json_withdrawal.index,
+            validator_index: json_withdrawal.validator_index,
+            address: json_withdrawal.address.as_bytes(),
+            amount: json_withdrawal.amount,
         }
     }
 }
@@ -718,45 +748,71 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(bound = "E: EthSpec")]
-#[serde(rename_all = "camelCase")]
-pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(
+        derive(Clone, Debug, Serialize, Deserialize),
+        serde(bound = "E: EthSpec", rename_all = "camelCase"),
+    ),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
+#[derive(Clone, Debug, Serialize)]
+#[serde(bound = "E: EthSpec", rename_all = "camelCase", untagged)]
+pub struct JsonExecutionPayloadBody<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
     pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
+    #[superstruct(only(V2))]
     pub deposit_requests: Option<VariableList<JsonDepositRequest, E::MaxDepositRequestsPerPayload>>,
+    #[superstruct(only(V2))]
     pub withdrawal_requests:
         Option<VariableList<JsonWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>>,
+    #[superstruct(only(V2))]
+    pub consolidation_requests:
+        Option<VariableList<ConsolidationRequest, E::MaxConsolidationRequestsPerPayload>>,
 }
 
-impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
-    fn from(value: JsonExecutionPayloadBodyV1<E>) -> Self {
-        Self {
-            transactions: value.transactions,
-            withdrawals: value.withdrawals.map(|json_withdrawals| {
-                Withdrawals::<E>::from(
-                    json_withdrawals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect::<Vec<_>>(),
-                )
+impl<E: EthSpec> From<JsonExecutionPayloadBody<E>> for ExecutionPayloadBody<E> {
+    fn from(value: JsonExecutionPayloadBody<E>) -> Self {
+        match value {
+            JsonExecutionPayloadBody::V1(body_v1) => Self::V1(ExecutionPayloadBodyV1 {
+                transactions: body_v1.transactions,
+                withdrawals: body_v1.withdrawals.map(|json_withdrawals| {
+                    Withdrawals::<E>::from(
+                        json_withdrawals
+                            .into_iter()
+                            .map(Into::into)
+                            .collect::<Vec<_>>(),
+                    )
+                }),
             }),
-            deposit_requests: value.deposit_requests.map(|json_receipts| {
-                DepositRequests::<E>::from(
-                    json_receipts
-                        .into_iter()
-                        .map(Into::into)
-                        .collect::<Vec<_>>(),
-                )
-            }),
-            withdrawal_requests: value.withdrawal_requests.map(|json_withdrawal_requests| {
-                WithdrawalRequests::<E>::from(
-                    json_withdrawal_requests
-                        .into_iter()
-                        .map(Into::into)
-                        .collect::<Vec<_>>(),
-                )
+            JsonExecutionPayloadBody::V2(body_v2) => Self::V2(ExecutionPayloadBodyV2 {
+                transactions: body_v2.transactions,
+                withdrawals: body_v2.withdrawals.map(|json_withdrawals| {
+                    Withdrawals::<E>::from(
+                        json_withdrawals
+                            .into_iter()
+                            .map(Into::into)
+                            .collect::<Vec<_>>(),
+                    )
+                }),
+                deposit_requests: body_v2.deposit_requests.map(|json_receipts| {
+                    DepositRequests::<E>::from(
+                        json_receipts
+                            .into_iter()
+                            .map(Into::into)
+                            .collect::<Vec<_>>(),
+                    )
+                }),
+                withdrawal_requests: body_v2.withdrawal_requests.map(|json_withdrawal_requests| {
+                    WithdrawalRequests::<E>::from(
+                        json_withdrawal_requests
+                            .into_iter()
+                            .map(Into::into)
+                            .collect::<Vec<_>>(),
+                    )
+                }),
+                consolidation_requests: body_v2.consolidation_requests,
             }),
         }
     }
@@ -877,27 +933,55 @@ impl From<JsonDepositRequest> for DepositRequest {
 #[serde(rename_all = "camelCase")]
 pub struct JsonWithdrawalRequest {
     pub source_address: Address,
-    pub validator_public_key: PublicKeyBytes,
+    pub validator_pubkey: PublicKeyBytes,
     #[serde(with = "serde_utils::u64_hex_be")]
     pub amount: u64,
 }
 
-impl From<ExecutionLayerWithdrawalRequest> for JsonWithdrawalRequest {
-    fn from(withdrawal_request: ExecutionLayerWithdrawalRequest) -> Self {
+impl From<WithdrawalRequest> for JsonWithdrawalRequest {
+    fn from(withdrawal_request: WithdrawalRequest) -> Self {
         Self {
             source_address: withdrawal_request.source_address,
-            validator_public_key: withdrawal_request.validator_pubkey,
+            validator_pubkey: withdrawal_request.validator_pubkey,
             amount: withdrawal_request.amount,
         }
     }
 }
 
-impl From<JsonWithdrawalRequest> for ExecutionLayerWithdrawalRequest {
+impl From<JsonWithdrawalRequest> for WithdrawalRequest {
     fn from(json_withdrawal_request: JsonWithdrawalRequest) -> Self {
         Self {
             source_address: json_withdrawal_request.source_address,
-            validator_pubkey: json_withdrawal_request.validator_public_key,
+            validator_pubkey: json_withdrawal_request.validator_pubkey,
             amount: json_withdrawal_request.amount,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonConsolidationRequest {
+    pub source_address: Address,
+    pub source_pubkey: PublicKeyBytes,
+    pub target_pubkey: PublicKeyBytes,
+}
+
+impl From<ConsolidationRequest> for JsonConsolidationRequest {
+    fn from(consolidation_request: ConsolidationRequest) -> Self {
+        Self {
+            source_address: consolidation_request.source_address,
+            source_pubkey: consolidation_request.source_pubkey,
+            target_pubkey: consolidation_request.target_pubkey,
+        }
+    }
+}
+
+impl From<JsonConsolidationRequest> for ConsolidationRequest {
+    fn from(json_consolidation_request: JsonConsolidationRequest) -> Self {
+        Self {
+            source_address: json_consolidation_request.source_address,
+            source_pubkey: json_consolidation_request.source_pubkey,
+            target_pubkey: json_consolidation_request.target_pubkey,
         }
     }
 }

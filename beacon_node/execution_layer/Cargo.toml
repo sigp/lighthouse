@@ -6,17 +6,18 @@ edition = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+alloy-primitives = { workspace = true }
 types = { workspace = true }
 tokio = { workspace = true }
 slog = { workspace = true }
+logging = { workspace = true }
 sensitive_url = { workspace = true }
 reqwest = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
 warp = { workspace = true }
-jsonwebtoken = "8"
-environment = { workspace = true }
+jsonwebtoken = "9"
 bytes = { workspace = true }
 task_executor = { workspace = true }
 hex = { workspace = true }
@@ -35,7 +36,6 @@ tempfile = { workspace = true }
 rand = { workspace = true }
 zeroize = { workspace = true }
 lighthouse_metrics = { workspace = true }
-lazy_static = { workspace = true }
 ethers-core = { workspace = true }
 builder_client = { path = "../builder_client" }
 fork_choice = { workspace = true }
@@ -48,6 +48,6 @@ hash-db = "0.15.2"
 pretty_reqwest_error = { workspace = true }
 arc-swap = "1.6.0"
 eth2_network_config = { workspace = true }
-alloy-rlp = "0.3"
-alloy-consensus = { git = "https://github.com/alloy-rs/alloy.git", rev = "974d488bab5e21e9f17452a39a4bfa56677367b2" }
+alloy-rlp = { workspace = true }
+alloy-consensus = { workspace = true }
 lighthouse_version = { workspace = true }

@@ -43,7 +43,7 @@ Options:
           [possible values: DEFAULT, JSON]
       --logfile-max-number <COUNT>
           The maximum number of log files that will be stored. If set to 0,
-          background file logging is disabled. [default: 5]
+          background file logging is disabled. [default: 10]
       --logfile-max-size <SIZE>
           The maximum size (in MB) each log file can grow to before rotating. If
           set to 0, background file logging is disabled. [default: 200]
@@ -121,6 +121,8 @@ Flags:
           contain sensitive information about your validator and so this flag
           should be used with caution. For Windows users, the log file
           permissions will be inherited from the parent folder.
+      --stdin-inputs
+          If present, read all user inputs from stdin instead of tty.
 ```
 
 <style> .content main {max-width:88%;} </style>

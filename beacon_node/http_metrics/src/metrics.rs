@@ -17,7 +17,7 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
     // - Statically updated: things which are only updated at the time of the scrape (used where we
     // can avoid cluttering up code with metrics calls).
     //
-    // The `lighthouse_metrics` crate has a `DEFAULT_REGISTRY` global singleton (via `lazy_static`)
+    // The `lighthouse_metrics` crate has a `DEFAULT_REGISTRY` global singleton
     // which keeps the state of all the metrics. Dynamically updated things will already be
     // up-to-date in the registry (because they update themselves) however statically updated
     // things need to be "scraped".

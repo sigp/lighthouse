@@ -70,11 +70,11 @@ impl<E: EthSpec> DietAvailabilityPendingExecutedBlock<E> {
 pub struct StateLRUCache<T: BeaconChainTypes> {
     states: RwLock<LruCache<Hash256, BeaconState<T::EthSpec>>>,
     store: BeaconStore<T>,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
 }
 
 impl<T: BeaconChainTypes> StateLRUCache<T> {
-    pub fn new(store: BeaconStore<T>, spec: ChainSpec) -> Self {
+    pub fn new(store: BeaconStore<T>, spec: Arc<ChainSpec>) -> Self {
         Self {
             states: RwLock::new(LruCache::new(STATE_LRU_CAPACITY_NON_ZERO)),
             store,
@@ -114,38 +114,12 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
         &self,
         diet_executed_block: DietAvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<AvailabilityPendingExecutedBlock<T::EthSpec>, AvailabilityCheckError> {
-        let maybe_state = self.states.write().pop(&diet_executed_block.state_root);
-        if let Some(state) = maybe_state {
-            let block_root = diet_executed_block.block.canonical_root();
-            Ok(AvailabilityPendingExecutedBlock {
-                block: diet_executed_block.block,
-                import_data: BlockImportData {
-                    block_root,
-                    state,
-                    parent_block: diet_executed_block.parent_block,
-                    parent_eth1_finalization_data: diet_executed_block
-                        .parent_eth1_finalization_data,
-                    confirmed_state_roots: diet_executed_block.confirmed_state_roots,
-                    consensus_context: diet_executed_block
-                        .consensus_context
-                        .into_consensus_context(),
-                },
-                payload_verification_outcome: diet_executed_block.payload_verification_outcome,
-            })
+        let state = if let Some(state) = self.states.write().pop(&diet_executed_block.state_root) {
+            state
         } else {
-            self.reconstruct_pending_executed_block(diet_executed_block)
-        }
-    }
-
-    /// Reconstruct the `AvailabilityPendingExecutedBlock` by loading the parent
-    /// state from disk and replaying the block. This function does NOT check the
-    /// LRU cache.
-    pub fn reconstruct_pending_executed_block(
-        &self,
-        diet_executed_block: DietAvailabilityPendingExecutedBlock<T::EthSpec>,
-    ) -> Result<AvailabilityPendingExecutedBlock<T::EthSpec>, AvailabilityCheckError> {
+            self.reconstruct_state(&diet_executed_block)?
+        };
         let block_root = diet_executed_block.block.canonical_root();
-        let state = self.reconstruct_state(&diet_executed_block)?;
         Ok(AvailabilityPendingExecutedBlock {
             block: diet_executed_block.block,
             import_data: BlockImportData {
@@ -235,10 +209,10 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
 impl<E: EthSpec> From<AvailabilityPendingExecutedBlock<E>>
     for DietAvailabilityPendingExecutedBlock<E>
 {
-    fn from(value: AvailabilityPendingExecutedBlock<E>) -> Self {
+    fn from(mut value: AvailabilityPendingExecutedBlock<E>) -> Self {
         Self {
             block: value.block,
-            state_root: value.import_data.state.canonical_root(),
+            state_root: value.import_data.state.canonical_root().unwrap(),
             parent_block: value.import_data.parent_block,
             parent_eth1_finalization_data: value.import_data.parent_eth1_finalization_data,
             confirmed_state_roots: value.import_data.confirmed_state_roots,

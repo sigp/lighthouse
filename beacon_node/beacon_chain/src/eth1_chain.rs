@@ -546,12 +546,20 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
             state.eth1_data().deposit_count
         };
 
-        match deposit_index.cmp(&deposit_count) {
+        // [New in Electra:EIP6110]
+        let deposit_index_limit =
+            if let Ok(deposit_requests_start_index) = state.deposit_requests_start_index() {
+                std::cmp::min(deposit_count, deposit_requests_start_index)
+            } else {
+                deposit_count
+            };
+
+        match deposit_index.cmp(&deposit_index_limit) {
             Ordering::Greater => Err(Error::DepositIndexTooHigh),
             Ordering::Equal => Ok(vec![]),
             Ordering::Less => {
                 let next = deposit_index;
-                let last = std::cmp::min(deposit_count, next + E::MaxDeposits::to_u64());
+                let last = std::cmp::min(deposit_index_limit, next + E::MaxDeposits::to_u64());
 
                 self.core
                     .deposits()
@@ -677,7 +685,6 @@ fn is_candidate_block(block: &Eth1Block, period_start: u64, spec: &ChainSpec) ->
 #[cfg(test)]
 mod test {
     use super::*;
-    use environment::null_logger;
     use types::{DepositData, MinimalEthSpec, Signature};
 
     type E = MinimalEthSpec;
@@ -735,6 +742,7 @@ mod test {
     mod eth1_chain_json_backend {
         use super::*;
         use eth1::DepositLog;
+        use logging::test_logger;
         use types::{test_utils::generate_deterministic_keypair, MainnetEthSpec};
 
         fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E>, E> {
@@ -742,7 +750,7 @@ mod test {
                 ..Eth1Config::default()
             };
 
-            let log = null_logger().unwrap();
+            let log = test_logger();
             Eth1Chain::new(
                 CachingEth1Backend::new(eth1_config, log, MainnetEthSpec::default_spec()).unwrap(),
             )

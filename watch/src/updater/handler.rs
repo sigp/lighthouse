@@ -112,14 +112,14 @@ impl<E: EthSpec> UpdateHandler<E> {
 
     /// Performs a head update with the following steps:
     /// 1. Pull the latest header from the beacon node and the latest canonical slot from the
-    /// database.
+    ///    database.
     /// 2. Loop back through the beacon node and database to find the first matching slot -> root
-    /// pair.
+    ///    pair.
     /// 3. Go back `MAX_EXPECTED_REORG_LENGTH` slots through the database ensuring it is
-    /// consistent with the beacon node. If a re-org occurs beyond this range, we cannot recover.
+    ///    consistent with the beacon node. If a re-org occurs beyond this range, we cannot recover.
     /// 4. Remove any invalid slots from the database.
     /// 5. Sync all blocks between the first valid block of the database and the head of the beacon
-    /// chain.
+    ///    chain.
     ///
     /// In the event there are no slots present in the database, it will sync from the head block
     /// block back to the first slot of the epoch.

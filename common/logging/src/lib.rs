@@ -1,4 +1,3 @@
-use lazy_static::lazy_static;
 use lighthouse_metrics::{
     inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult,
 };
@@ -6,6 +5,7 @@ use slog::Logger;
 use slog_term::Decorator;
 use std::io::{Result, Write};
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
@@ -25,16 +25,14 @@ pub use tracing_metrics_layer::MetricsLayer;
 /// The minimum interval between log messages indicating that a queue is full.
 const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
 
-lazy_static! {
-    pub static ref INFOS_TOTAL: MetricsResult<IntCounter> =
-        try_create_int_counter("info_total", "Count of infos logged");
-    pub static ref WARNS_TOTAL: MetricsResult<IntCounter> =
-        try_create_int_counter("warn_total", "Count of warns logged");
-    pub static ref ERRORS_TOTAL: MetricsResult<IntCounter> =
-        try_create_int_counter("error_total", "Count of errors logged");
-    pub static ref CRITS_TOTAL: MetricsResult<IntCounter> =
-        try_create_int_counter("crit_total", "Count of crits logged");
-}
+pub static INFOS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
+    LazyLock::new(|| try_create_int_counter("info_total", "Count of infos logged"));
+pub static WARNS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
+    LazyLock::new(|| try_create_int_counter("warn_total", "Count of warns logged"));
+pub static ERRORS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
+    LazyLock::new(|| try_create_int_counter("error_total", "Count of errors logged"));
+pub static CRITS_TOTAL: LazyLock<MetricsResult<IntCounter>> =
+    LazyLock::new(|| try_create_int_counter("crit_total", "Count of crits logged"));
 
 pub struct AlignedTermDecorator<D: Decorator> {
     wrapped: D,
@@ -291,10 +289,10 @@ pub fn test_logger() -> Logger {
         sloggers::terminal::TerminalLoggerBuilder::new()
             .level(sloggers::types::Severity::Debug)
             .build()
-            .expect("Should build test_logger")
+            .expect("Should build TerminalLoggerBuilder")
     } else {
         sloggers::null::NullLoggerBuilder
             .build()
-            .expect("Should build null_logger")
+            .expect("Should build NullLoggerBuilder")
     }
 }

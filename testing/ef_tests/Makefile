@@ -1,4 +1,4 @@
-TESTS_TAG := v1.4.0-beta.6
+TESTS_TAG := v1.5.0-alpha.5
 TESTS = general minimal mainnet
 TARBALLS = $(patsubst %,%-$(TESTS_TAG).tar.gz,$(TESTS))
 

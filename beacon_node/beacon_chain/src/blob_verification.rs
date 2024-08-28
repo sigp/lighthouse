@@ -16,7 +16,9 @@ use ssz_types::VariableList;
 use std::time::Duration;
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
-use types::{BeaconStateError, BlobSidecar, EthSpec, Hash256, SignedBeaconBlockHeader, Slot};
+use types::{
+    BeaconStateError, BlobSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
+};
 
 /// An error occurred while validating a gossip blob.
 #[derive(Debug)]
@@ -223,6 +225,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
     pub fn slot(&self) -> Slot {
         self.blob.blob.slot()
     }
+    pub fn epoch(&self) -> Epoch {
+        self.blob.blob.epoch()
+    }
     pub fn index(&self) -> u64 {
         self.blob.blob.index
     }
@@ -334,16 +339,16 @@ impl<E: EthSpec> KzgVerifiedBlobList<E> {
         kzg: &Kzg,
         seen_timestamp: Duration,
     ) -> Result<Self, KzgError> {
-        let blobs = blob_list.into_iter().collect::<Vec<_>>();
-        verify_kzg_for_blob_list(blobs.iter(), kzg)?;
+        let blobs = blob_list
+            .into_iter()
+            .map(|blob| KzgVerifiedBlob {
+                blob,
+                seen_timestamp,
+            })
+            .collect::<Vec<_>>();
+        verify_kzg_for_blob_list(blobs.iter().map(|b| &b.blob), kzg)?;
         Ok(Self {
-            verified_blobs: blobs
-                .into_iter()
-                .map(|blob| KzgVerifiedBlob {
-                    blob,
-                    seen_timestamp,
-                })
-                .collect(),
+            verified_blobs: blobs,
         })
     }
 }
@@ -404,8 +409,8 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     // Verify that the blob_sidecar was received on the correct subnet.
     if blob_index != subnet {
         return Err(GossipBlobError::InvalidSubnet {
-            expected: blob_index,
-            received: subnet,
+            expected: subnet,
+            received: blob_index,
         });
     }
 
@@ -565,8 +570,9 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         .kzg
         .as_ref()
         .ok_or(GossipBlobError::KzgNotInitialized)?;
-    let kzg_verified_blob = KzgVerifiedBlob::new(blob_sidecar.clone(), kzg, seen_timestamp)
+    let kzg_verified_blob = KzgVerifiedBlob::new(blob_sidecar, kzg, seen_timestamp)
         .map_err(GossipBlobError::KzgError)?;
+    let blob_sidecar = &kzg_verified_blob.blob;
 
     chain
         .observed_slashable
@@ -592,7 +598,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     if chain
         .observed_blob_sidecars
         .write()
-        .observe_sidecar(&blob_sidecar)
+        .observe_sidecar(blob_sidecar)
         .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?
     {
         return Err(GossipBlobError::RepeatBlob {

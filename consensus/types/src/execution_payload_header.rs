@@ -90,9 +90,11 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
     #[superstruct(only(Electra), partial_getter(copy))]
-    pub deposit_receipts_root: Hash256,
+    pub deposit_requests_root: Hash256,
     #[superstruct(only(Electra), partial_getter(copy))]
     pub withdrawal_requests_root: Hash256,
+    #[superstruct(only(Electra), partial_getter(copy))]
+    pub consolidation_requests_root: Hash256,
 }
 
 impl<E: EthSpec> ExecutionPayloadHeader<E> {
@@ -127,6 +129,15 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
                 // Max size of variable length `extra_data` field
                 E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len()
             }
+        }
+    }
+
+    pub fn fork_name_unchecked(&self) -> ForkName {
+        match self {
+            ExecutionPayloadHeader::Bellatrix(_) => ForkName::Bellatrix,
+            ExecutionPayloadHeader::Capella(_) => ForkName::Capella,
+            ExecutionPayloadHeader::Deneb(_) => ForkName::Deneb,
+            ExecutionPayloadHeader::Electra(_) => ForkName::Electra,
         }
     }
 }
@@ -206,8 +217,9 @@ impl<E: EthSpec> ExecutionPayloadHeaderDeneb<E> {
             withdrawals_root: self.withdrawals_root,
             blob_gas_used: self.blob_gas_used,
             excess_blob_gas: self.excess_blob_gas,
-            deposit_receipts_root: Hash256::zero(),
+            deposit_requests_root: Hash256::zero(),
             withdrawal_requests_root: Hash256::zero(),
+            consolidation_requests_root: Hash256::zero(),
         }
     }
 }
@@ -299,8 +311,9 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadElectra<E>> for ExecutionPayloadHe
             withdrawals_root: payload.withdrawals.tree_hash_root(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-            deposit_receipts_root: payload.deposit_requests.tree_hash_root(),
+            deposit_requests_root: payload.deposit_requests.tree_hash_root(),
             withdrawal_requests_root: payload.withdrawal_requests.tree_hash_root(),
+            consolidation_requests_root: payload.consolidation_requests.tree_hash_root(),
         }
     }
 }

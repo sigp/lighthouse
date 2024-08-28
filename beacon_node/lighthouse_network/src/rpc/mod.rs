@@ -21,7 +21,9 @@ use std::time::Duration;
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::{HandlerErr, HandlerEvent};
-pub(crate) use methods::{MetaData, MetaDataV1, MetaDataV2, Ping, RPCCodedResponse, RPCResponse};
+pub(crate) use methods::{
+    MetaData, MetaDataV1, MetaDataV2, MetaDataV3, Ping, RPCCodedResponse, RPCResponse,
+};
 pub(crate) use protocol::InboundRequest;
 
 pub use handler::SubstreamId;
@@ -366,8 +368,10 @@ where
                                 protocol,
                                 Protocol::BlocksByRange
                                     | Protocol::BlobsByRange
+                                    | Protocol::DataColumnsByRange
                                     | Protocol::BlocksByRoot
                                     | Protocol::BlobsByRoot
+                                    | Protocol::DataColumnsByRoot
                             ) {
                                 debug!(self.log, "Request too large to process"; "request" => %req, "protocol" => %protocol);
                             } else {
@@ -471,6 +475,8 @@ where
                             ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,
                             ResponseTermination::BlobsByRange => Protocol::BlobsByRange,
                             ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
+                            ResponseTermination::DataColumnsByRoot => Protocol::DataColumnsByRoot,
+                            ResponseTermination::DataColumnsByRange => Protocol::DataColumnsByRange,
                         },
                     ),
                 };

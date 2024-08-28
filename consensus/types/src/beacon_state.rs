@@ -13,6 +13,10 @@ use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
+use ssz_types::{
+    typenum::{self, Unsigned},
+    BitVector,
+};
 use std::hash::Hash;
 use std::{fmt, mem, sync::Arc};
 use superstruct::superstruct;
@@ -121,7 +125,6 @@ pub enum Error {
         state: Slot,
     },
     TreeHashError(tree_hash::Error),
-    CachedTreeHashError(cached_tree_hash::Error),
     InvalidValidatorPubkey(ssz::DecodeError),
     ValidatorRegistryShrunk,
     TreeHashCacheInconsistent,
@@ -215,6 +218,15 @@ impl From<BeaconStateHash> for Hash256 {
 }
 
 /// The state of the `BeaconChain` at some slot.
+///
+/// Note: `BeaconState` does not implement `TreeHash` on the top-level type in order to
+/// encourage use of the `canonical_root`/`update_tree_hash_cache` methods which flush pending
+/// updates to the underlying persistent data structures. This is the safest option for now until
+/// we add internal mutability to `milhouse::{List, Vector}`. See:
+///
+/// https://github.com/sigp/milhouse/issues/43
+///
+/// This is overwritten with the Stable Container PoC.
 #[superstruct(
     variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
     variant_attributes(
@@ -384,6 +396,7 @@ where
     pub eth1_deposit_index: u64,
 
     // Registry
+    #[compare_fields(as_iter)]
     #[test_random(default)]
     pub validators: List<Validator, E::ValidatorRegistryLimit>,
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
@@ -409,8 +422,10 @@ where
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
+    #[compare_fields(as_iter)]
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     #[test_random(default)]
+    #[compare_fields(as_iter)]
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
     #[test_random(default)]
@@ -507,13 +522,16 @@ where
     #[superstruct(only(Electra), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     pub earliest_consolidation_epoch: Epoch,
+    #[compare_fields(as_iter)]
     #[test_random(default)]
     #[superstruct(only(Electra))]
     pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
+    #[compare_fields(as_iter)]
     #[test_random(default)]
     #[superstruct(only(Electra))]
     pub pending_partial_withdrawals:
         List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
+    #[compare_fields(as_iter)]
     #[test_random(default)]
     #[superstruct(only(Electra))]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
@@ -660,10 +678,9 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Returns the `tree_hash_root` of the state.
-    ///
-    /// Spec v0.12.1
-    pub fn canonical_root(&self) -> Hash256 {
-        Hash256::from_slice(&self.tree_hash_root()[..])
+    pub fn canonical_root(&mut self) -> Result<Hash256, Error> {
+        Ok(Hash256::from_slice(&self.tree_hash_root()[..]))
+        //self.update_tree_hash_cache()
     }
 
     pub fn historical_batch(&mut self) -> Result<HistoricalBatch<E>, Error> {
@@ -893,6 +910,8 @@ impl<E: EthSpec> BeaconState<E> {
             return Err(Error::InsufficientValidators);
         }
 
+        let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
+
         let mut i = 0;
         loop {
             let shuffled_index = compute_shuffled_index(
@@ -908,9 +927,7 @@ impl<E: EthSpec> BeaconState<E> {
             let random_byte = Self::shuffling_random_byte(i, seed)?;
             let effective_balance = self.get_effective_balance(candidate_index)?;
             if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
-                >= spec
-                    .max_effective_balance
-                    .safe_mul(u64::from(random_byte))?
+                >= max_effective_balance.safe_mul(u64::from(random_byte))?
             {
                 return Ok(candidate_index);
             }
@@ -1091,6 +1108,7 @@ impl<E: EthSpec> BeaconState<E> {
         let active_validator_count = active_validator_indices.len();
 
         let seed = self.get_seed(epoch, Domain::SyncCommittee, spec)?;
+        let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
 
         let mut i = 0;
         let mut sync_committee_indices = Vec::with_capacity(E::SyncCommitteeSize::to_usize());
@@ -1108,9 +1126,7 @@ impl<E: EthSpec> BeaconState<E> {
             let random_byte = Self::shuffling_random_byte(i, seed.as_bytes())?;
             let effective_balance = self.get_validator(candidate_index)?.effective_balance;
             if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
-                >= spec
-                    .max_effective_balance
-                    .safe_mul(u64::from(random_byte))?
+                >= max_effective_balance.safe_mul(u64::from(random_byte))?
             {
                 sync_committee_indices.push(candidate_index);
             }
@@ -2024,9 +2040,13 @@ impl<E: EthSpec> BeaconState<E> {
     /// Compute the tree hash root of the state using the tree hash cache.
     ///
     /// Initialize the tree hash cache if it isn't already initialized.
-    pub fn update_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
+    pub fn update_tree_hash_cache<'a>(&'a mut self) -> Result<Hash256, Error> {
         self.apply_pending_mutations()?;
-        Ok(self.tree_hash_root())
+        map_beacon_state_ref!(&'a _, self.to_ref(), |inner, cons| {
+            let root = inner.tree_hash_root();
+            cons(inner);
+            Ok(root)
+        })
     }
 
     /// Compute the tree hash root of the validators using the tree hash cache.
@@ -2564,12 +2584,6 @@ impl From<ssz_types::Error> for Error {
 impl From<bls::Error> for Error {
     fn from(e: bls::Error) -> Error {
         Error::BlsError(e)
-    }
-}
-
-impl From<cached_tree_hash::Error> for Error {
-    fn from(e: cached_tree_hash::Error) -> Error {
-        Error::CachedTreeHashError(e)
     }
 }
 
