@@ -7,9 +7,8 @@ use std::marker::PhantomData;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KZGVerifyCellKZGProofBatchInput {
-    pub row_commitments: Vec<String>,
-    pub row_indices: Vec<usize>,
-    pub column_indices: Vec<usize>,
+    pub commitments: Vec<String>,
+    pub cell_indices: Vec<u64>,
     pub cells: Vec<String>,
     pub proofs: Vec<String>,
 }
@@ -37,28 +36,13 @@ impl<E: EthSpec> Case for KZGVerifyCellKZGProofBatch<E> {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let parse_input = |input: &KZGVerifyCellKZGProofBatchInput| -> Result<_, Error> {
             let (cells, proofs) = parse_cells_and_proofs(&input.cells, &input.proofs)?;
-            // TODO: We are not pulling in the latest consensus-specs
-            // TODO: whereas the kzg libraries are using the new API, so
-            // TODO: we need to update this code to work for the new API.
-            let row_commitments = input
-                .row_commitments
+            let commitments = input
+                .commitments
                 .iter()
                 .map(|s| parse_commitment(s))
                 .collect::<Result<Vec<_>, _>>()?;
-            // The new API requires the duplicated commitments
-            let commitments: Vec<_> = input
-                .row_indices
-                .iter()
-                .filter_map(|row_index| row_commitments.get(*row_index).cloned())
-                .collect();
-            // The new API only requires the cell indices
-            let cell_indices = input
-                .column_indices
-                .iter()
-                .map(|&col| col as u64)
-                .collect::<Vec<_>>();
 
-            Ok((cells, proofs, cell_indices, commitments))
+            Ok((cells, proofs, input.cell_indices.clone(), commitments))
         };
 
         let result =
