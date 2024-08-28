@@ -265,7 +265,8 @@ impl<E: EthSpec> PeerDB<E> {
         self.peers
             .iter()
             .filter(move |(_, info)| {
-                let is_custody_subnet_peer = info.on_subnet_metadata(&Subnet::DataColumn(subnet));
+                // The custody_subnets hashset can be populated via enr or metadata
+                let is_custody_subnet_peer = info.is_assigned_to_custody_subnet(&subnet);
                 info.is_connected() && info.is_good_gossipsub_peer() && is_custody_subnet_peer
             })
             .map(|(peer_id, _)| peer_id)

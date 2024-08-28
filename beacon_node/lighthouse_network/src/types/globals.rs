@@ -1,6 +1,6 @@
 //! A collection of variables that are accessible outside of the network thread itself.
 use crate::peer_manager::peerdb::PeerDB;
-use crate::rpc::{MetaData, MetaDataV2};
+use crate::rpc::{MetaData, MetaDataV3};
 use crate::types::{BackFillState, SyncState};
 use crate::EnrExt;
 use crate::{Client, Eth2Enr};
@@ -162,10 +162,11 @@ impl<E: EthSpec> NetworkGlobals<E> {
         let enr = discv5::enr::Enr::builder().build(&enr_key).unwrap();
         NetworkGlobals::new(
             enr,
-            MetaData::V2(MetaDataV2 {
+            MetaData::V3(MetaDataV3 {
                 seq_number: 0,
                 attnets: Default::default(),
                 syncnets: Default::default(),
+                custody_subnet_count: spec.data_column_sidecar_subnet_count,
             }),
             trusted_peers,
             false,
