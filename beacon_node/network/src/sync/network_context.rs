@@ -766,7 +766,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .imported_custody_column_indexes(&block_root)
             .unwrap_or_default();
 
-        // TODO(das): figure out how to pass block.slot if we end up doing rotation
         let custody_indexes_duty = self.network_globals().custody_columns();
 
         // Include only the blob indexes not yet imported (received through gossip)
