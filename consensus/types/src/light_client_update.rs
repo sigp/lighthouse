@@ -31,16 +31,23 @@ pub const NEXT_SYNC_COMMITTEE_INDEX_ELECTRA: usize = 87;
 pub type FinalizedRootProofLen = U6;
 pub type CurrentSyncCommitteeProofLen = U5;
 pub type ExecutionPayloadProofLen = U4;
+pub type ExecutionPayloadProofLenElectra = U4;
 
 pub type NextSyncCommitteeProofLen = U5;
+pub type NextSyncCommitteeProofLenElectra = U6;
 
 pub const FINALIZED_ROOT_PROOF_LEN: usize = 6;
 pub const CURRENT_SYNC_COMMITTEE_PROOF_LEN: usize = 5;
 pub const NEXT_SYNC_COMMITTEE_PROOF_LEN: usize = 5;
 pub const EXECUTION_PAYLOAD_PROOF_LEN: usize = 4;
+pub const EXECUTION_PAYLOAD_PROOF_LEN_ELECTRA: usize = 5;
+
+pub const CURRENT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA: usize = 6;
 
 type FinalityBranch = FixedVector<Hash256, FinalizedRootProofLen>;
 type NextSyncCommitteeBranch = FixedVector<Hash256, NextSyncCommitteeProofLen>;
+
+type NextSyncCommitteeBranchElectra = FixedVector<Hash256, NextSyncCommitteeProofLenElectra>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -124,7 +131,10 @@ pub struct LightClientUpdate<E: EthSpec> {
     /// The `SyncCommittee` used in the next period.
     pub next_sync_committee: Arc<SyncCommittee<E>>,
     /// Merkle proof for next sync committee
+    // #[superstruct(only(Altair, Capella, Deneb), partial_getter(rename = "next_sync_committee_branch_altair"))]
     pub next_sync_committee_branch: NextSyncCommitteeBranch,
+    // #[superstruct(only(Electra), partial_getter(rename = "next_sync_committee_branch_electra"))]
+    // pub next_sync_committee_branch: NextSyncCommitteeBranchElectra,
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
     #[superstruct(only(Altair), partial_getter(rename = "finalized_header_altair"))]
     pub finalized_header: LightClientHeaderAltair<E>,
@@ -245,10 +255,11 @@ impl<E: EthSpec> LightClientUpdate<E> {
                     LightClientHeaderElectra::default()
                 };
 
+                // TODO(electra) fixed next_sync_committee_branch
                 Self::Electra(LightClientUpdateElectra {
                     attested_header,
                     next_sync_committee,
-                    next_sync_committee_branch,
+                    next_sync_committee_branch: vec![].into(),
                     finalized_header,
                     finality_branch,
                     sync_aggregate: sync_aggregate.clone(),
@@ -391,12 +402,24 @@ impl<E: EthSpec> LightClientUpdate<E> {
     }
 
     fn is_next_sync_committee_branch_empty(&self) -> bool {
-        for index in self.next_sync_committee_branch().iter() {
-            if *index != Hash256::default() {
-                return false;
+        match self {
+            LightClientUpdate::Electra(update) => {
+                for index in update.next_sync_committee_branch.iter() {
+                    if *index != Hash256::default() {
+                        return false;
+                    }
+                }
+                true
+            }
+            _ => {
+                for index in self.next_sync_committee_branch().iter() {
+                    if *index != Hash256::default() {
+                        return false;
+                    }
+                }
+                true
             }
         }
-        true
     }
 
     pub fn is_finality_branch_empty(&self) -> bool {

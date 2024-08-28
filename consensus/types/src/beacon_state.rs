@@ -2476,6 +2476,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     pub fn compute_merkle_proof(&self, generalized_index: usize) -> Result<Vec<Hash256>, Error> {
+        println!("generalized index {}", generalized_index);
         // 1. Convert generalized index to field index.
         let field_index = match generalized_index {
             light_client_update::CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
@@ -2542,13 +2543,23 @@ impl<E: EthSpec> BeaconState<E> {
         };
 
         // 3. Make deposit tree.
-        // Use the depth of the `BeaconState` fields (i.e. `log2(32) = 5`).
-        let depth = light_client_update::CURRENT_SYNC_COMMITTEE_PROOF_LEN;
+        let depth = if let BeaconState::Electra(_) = self {
+            // Use the depth of the `BeaconState` fields (i.e. `log2(64) = 6`).
+            light_client_update::CURRENT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA
+        } else {
+            // Use the depth of the `BeaconState` fields (i.e. `log2(32) = 5`).
+            light_client_update::CURRENT_SYNC_COMMITTEE_PROOF_LEN
+        };
+
         let tree = merkle_proof::MerkleTree::create(&leaves, depth);
         let (_, mut proof) = tree.generate_proof(field_index, depth)?;
 
         // 4. If we're proving the finalized root, patch in the finalized epoch to complete the proof.
         if generalized_index == light_client_update::FINALIZED_ROOT_INDEX {
+            proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
+        }
+
+        if generalized_index == light_client_update::FINALIZED_ROOT_INDEX_ELECTRA {
             proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
         }
 

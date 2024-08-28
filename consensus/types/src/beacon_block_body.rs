@@ -257,7 +257,11 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         };
 
         let leaves = self.body_merkle_leaves();
-        let depth = light_client_update::EXECUTION_PAYLOAD_PROOF_LEN;
+        let depth = match self {
+            BeaconBlockBodyRef::Electra(_) =>light_client_update::EXECUTION_PAYLOAD_PROOF_LEN_ELECTRA,
+            _ => light_client_update::EXECUTION_PAYLOAD_PROOF_LEN,
+            // BeaconBlockBodyRef::Electra(_) => light_client_update::EXECUTION_PAYLOAD_PROOF_LEN_ELECTRA,
+        };
         let tree = merkle_proof::MerkleTree::create(&leaves, depth);
         let (_, proof) = tree.generate_proof(field_index, depth)?;
 
