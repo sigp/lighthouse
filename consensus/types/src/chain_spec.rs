@@ -1807,6 +1807,14 @@ impl Config {
             return None;
         }
 
+        let u8_max = u8::MAX as u64;
+        if custody_requirement > u8_max
+            || data_column_sidecar_subnet_count > u8_max
+            || number_of_columns > u8_max
+        {
+            return None;
+        }
+
         Some(ChainSpec {
             config_name: config_name.clone(),
             min_genesis_active_validator_count,
@@ -2021,6 +2029,43 @@ mod yaml_tests {
     use paste::paste;
     use tempfile::NamedTempFile;
 
+    // Spec yaml string. Fields that serialize/deserialize with a default value are commented out.
+    pub const SPEC: &str = r#"
+    PRESET_BASE: 'mainnet'
+    #TERMINAL_TOTAL_DIFFICULTY: 115792089237316195423570985008687907853269984665640564039457584007913129638911
+    #TERMINAL_BLOCK_HASH: 0x0000000000000000000000000000000000000000000000000000000000000001
+    #TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551614
+    #SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY: 2
+    MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 16384
+    MIN_GENESIS_TIME: 1606824000
+    GENESIS_FORK_VERSION: 0x00000000
+    GENESIS_DELAY: 604800
+    ALTAIR_FORK_VERSION: 0x01000000
+    ALTAIR_FORK_EPOCH: 74240
+    #BELLATRIX_FORK_VERSION: 0x02000000
+    #BELLATRIX_FORK_EPOCH: 18446744073709551614
+    SHARDING_FORK_VERSION: 0x03000000
+    SHARDING_FORK_EPOCH: 18446744073709551615
+    SECONDS_PER_SLOT: 12
+    SECONDS_PER_ETH1_BLOCK: 14
+    MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
+    SHARD_COMMITTEE_PERIOD: 256
+    ETH1_FOLLOW_DISTANCE: 2048
+    INACTIVITY_SCORE_BIAS: 4
+    INACTIVITY_SCORE_RECOVERY_RATE: 16
+    EJECTION_BALANCE: 16000000000
+    MIN_PER_EPOCH_CHURN_LIMIT: 4
+    MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 8
+    CHURN_LIMIT_QUOTIENT: 65536
+    PROPOSER_SCORE_BOOST: 40
+    DEPOSIT_CHAIN_ID: 1
+    DEPOSIT_NETWORK_ID: 1
+    DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
+    CUSTODY_REQUIREMENT: 1
+    DATA_COLUMN_SIDECAR_SUBNET_COUNT: 128
+    NUMBER_OF_COLUMNS: 128
+    "#;
+
     #[test]
     fn minimal_round_trip() {
         // create temp file
@@ -2089,44 +2134,7 @@ mod yaml_tests {
 
     #[test]
     fn test_defaults() {
-        // Spec yaml string. Fields that serialize/deserialize with a default value are commented out.
-        let spec = r#"
-        PRESET_BASE: 'mainnet'
-        #TERMINAL_TOTAL_DIFFICULTY: 115792089237316195423570985008687907853269984665640564039457584007913129638911
-        #TERMINAL_BLOCK_HASH: 0x0000000000000000000000000000000000000000000000000000000000000001
-        #TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551614
-        #SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY: 2
-        MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 16384
-        MIN_GENESIS_TIME: 1606824000
-        GENESIS_FORK_VERSION: 0x00000000
-        GENESIS_DELAY: 604800
-        ALTAIR_FORK_VERSION: 0x01000000
-        ALTAIR_FORK_EPOCH: 74240
-        #BELLATRIX_FORK_VERSION: 0x02000000
-        #BELLATRIX_FORK_EPOCH: 18446744073709551614
-        SHARDING_FORK_VERSION: 0x03000000
-        SHARDING_FORK_EPOCH: 18446744073709551615
-        SECONDS_PER_SLOT: 12
-        SECONDS_PER_ETH1_BLOCK: 14
-        MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
-        SHARD_COMMITTEE_PERIOD: 256
-        ETH1_FOLLOW_DISTANCE: 2048
-        INACTIVITY_SCORE_BIAS: 4
-        INACTIVITY_SCORE_RECOVERY_RATE: 16
-        EJECTION_BALANCE: 16000000000
-        MIN_PER_EPOCH_CHURN_LIMIT: 4
-        MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 8
-        CHURN_LIMIT_QUOTIENT: 65536
-        PROPOSER_SCORE_BOOST: 40
-        DEPOSIT_CHAIN_ID: 1
-        DEPOSIT_NETWORK_ID: 1
-        DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
-        CUSTODY_REQUIREMENT: 1
-        DATA_COLUMN_SIDECAR_SUBNET_COUNT: 128
-        NUMBER_OF_COLUMNS: 128
-        "#;
-
-        let chain_spec: Config = serde_yaml::from_str(spec).unwrap();
+        let chain_spec: Config = serde_yaml::from_str(SPEC).unwrap();
 
         // Asserts that `chain_spec.$name` and `default_$name()` are equal.
         macro_rules! check_default {
@@ -2175,5 +2183,27 @@ mod yaml_tests {
             int_to_bytes4(ApplicationDomain::Builder.get_domain_constant()),
             [0, 0, 0, 1]
         );
+    }
+
+    #[test]
+    fn test_u8_limits() {
+        let mut config: Config = serde_yaml::from_str(SPEC).unwrap();
+        let spec = ChainSpec::mainnet();
+        config.data_column_sidecar_subnet_count = 256;
+        assert!(config
+            .apply_to_chain_spec::<MainnetEthSpec>(&spec)
+            .is_none());
+
+        config.data_column_sidecar_subnet_count = default_data_column_sidecar_subnet_count();
+        config.custody_requirement = 256;
+        assert!(config
+            .apply_to_chain_spec::<MainnetEthSpec>(&spec)
+            .is_none());
+
+        config.custody_requirement = default_custody_requirement();
+        config.number_of_columns = 256;
+        assert!(config
+            .apply_to_chain_spec::<MainnetEthSpec>(&spec)
+            .is_none());
     }
 }
