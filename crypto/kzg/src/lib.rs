@@ -73,6 +73,9 @@ impl Kzg {
         // json string.
         let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
 
+        // It's not recommended to change the config parameter for precomputation as storage
+        // grows exponentially, but the speedup is exponential - after a while the speedup
+        // starts to become sublinear.
         let context = DASContext::new(
             &peerdas_trusted_setup,
             rust_eth_kzg::UsePrecomp::Yes {
