@@ -155,7 +155,7 @@ test-network: $(patsubst %,test-network-%,$(FORKS))
 
 test-network-%:
 	env FORK_NAME=$* cargo nextest run --release \
-		--features "fork_from_env,$(TEST_FEATURES)" \
+		--features "fork_from_env,test_logger,$(TEST_FEATURES)" \
 		-p network
 
 # Run the tests in the `slasher` crate for all supported database backends.
