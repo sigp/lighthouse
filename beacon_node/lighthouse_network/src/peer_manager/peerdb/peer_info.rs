@@ -3,6 +3,7 @@ use super::score::{PeerAction, Score, ScoreState};
 use super::sync_status::SyncStatus;
 use crate::discovery::Eth2Enr;
 use crate::{rpc::MetaData, types::Subnet};
+use alloy_primitives::U256;
 use discv5::enr::NodeId;
 use discv5::Enr;
 use libp2p::core::multiaddr::{Multiaddr, Protocol};
@@ -374,7 +375,7 @@ impl<E: EthSpec> PeerInfo<E> {
         if self.custody_subnets.is_empty() {
             if let Ok(custody_subnet_count) = meta_data.custody_subnet_count() {
                 let custody_subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
-                    node_id.raw().into(),
+                    U256::from_be_slice(&node_id.raw()),
                     std::cmp::min(*custody_subnet_count, spec.data_column_sidecar_subnet_count),
                     spec,
                 )
