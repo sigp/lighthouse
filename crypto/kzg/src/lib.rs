@@ -72,12 +72,16 @@ impl Kzg {
         // Note: One can also use `from_json` to initialize it from the consensus-specs
         // json string.
         let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
-        // Set the number of threads to be used
-        //
-        // we set it to 1 to match the c-kzg performance
-        const NUM_THREADS: usize = 1;
 
-        let context = DASContext::with_threads(&peerdas_trusted_setup, NUM_THREADS);
+        // It's not recommended to change the config parameter for precomputation as storage
+        // grows exponentially, but the speedup is exponential - after a while the speedup
+        // starts to become sublinear.
+        let context = DASContext::new(
+            &peerdas_trusted_setup,
+            rust_eth_kzg::UsePrecomp::Yes {
+                width: rust_eth_kzg::constants::RECOMMENDED_PRECOMP_WIDTH,
+            },
+        );
 
         Ok(Self {
             trusted_setup: KzgSettings::load_trusted_setup(
@@ -244,7 +248,7 @@ impl Kzg {
     ) -> Result<CellsAndKzgProofs, Error> {
         let (cells, proofs) = self
             .context()?
-            .recover_cells_and_proofs(cell_ids.to_vec(), cells.to_vec())
+            .recover_cells_and_kzg_proofs(cell_ids.to_vec(), cells.to_vec())
             .map_err(Error::PeerDASKZG)?;
 
         // Convert the proof type to a c-kzg proof type
