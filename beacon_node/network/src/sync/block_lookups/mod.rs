@@ -29,7 +29,7 @@ use crate::metrics;
 use crate::sync::block_lookups::common::ResponseType;
 use crate::sync::block_lookups::parent_chain::find_oldest_fork_ancestor;
 use beacon_chain::block_verification_types::AsBlock;
-use beacon_chain::data_availability_checker::AvailabilityCheckErrorCategory;
+use beacon_chain::data_availability_checker::ErrorCategory;
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 pub use common::RequestState;
 use fnv::FnvHashMap;
@@ -551,11 +551,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
             BlockProcessingResult::Err(e) => {
                 match e {
-                    BlockError::BeaconChainError(e) => {
-                        // Internal error
-                        error!(self.log, "Beacon chain error processing lookup component"; "block_root" => %block_root, "error" => ?e);
-                        Action::Drop
-                    }
                     BlockError::ParentUnknown(block) => {
                         // Reverts the status of this request to `AwaitingProcessing` holding the
                         // downloaded data. A future call to `continue_requests` will re-submit it
@@ -567,48 +562,50 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             parent_root: block.parent_root(),
                         }
                     }
-                    ref e @ BlockError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
-                        // These errors indicate that the execution layer is offline
-                        // and failed to validate the execution payload. Do not downscore peer.
-                        debug!(
-                            self.log,
-                            "Single block lookup failed. Execution layer is offline / unsynced / misconfigured";
-                            "block_root" => ?block_root,
-                            "error" => ?e
-                        );
-                        Action::Drop
-                    }
-                    BlockError::AvailabilityCheck(e)
-                        if e.category() == AvailabilityCheckErrorCategory::Internal =>
-                    {
-                        // There errors indicate internal problems and should not downscore the  peer
-                        warn!(self.log, "Internal availability check failure"; "block_root" => ?block_root, "error" => ?e);
-
-                        // Here we choose *not* to call `on_processing_failure` because this could result in a bad
-                        // lookup state transition. This error invalidates both blob and block requests, and we don't know the
-                        // state of both requests. Blobs may have already successfullly processed for example.
-                        // We opt to drop the lookup instead.
-                        Action::Drop
-                    }
                     other => {
-                        debug!(self.log, "Invalid lookup component"; "block_root" => ?block_root, "component" => ?R::response_type(), "error" => ?other);
-                        let peer_group = request_state.on_processing_failure()?;
-                        // TOOD(das): only downscore peer subgroup that provided the invalid proof
-                        for peer in peer_group.all() {
-                            cx.report_peer(
-                                *peer,
-                                PeerAction::MidToleranceError,
-                                match R::response_type() {
-                                    ResponseType::Block => "lookup_block_processing_failure",
-                                    ResponseType::Blob => "lookup_blobs_processing_failure",
-                                    ResponseType::CustodyColumn => {
-                                        "lookup_custody_column_processing_failure"
-                                    }
-                                },
-                            );
-                        }
+                        let recoverable = match other.rpc_scoring() {
+                            ErrorCategory::Internal { recoverable } => {
+                                if matches!(other, BlockError::ExecutionPayloadError(_)) {
+                                    // These errors indicate that the execution layer is offline
+                                    // and failed to validate the execution payload. Do not downscore peer.
+                                    debug!(
+                                        self.log,
+                                        "Single block lookup failed. Execution layer is offline / unsynced / misconfigured";
+                                        "block_root" => ?block_root,
+                                        "error" => ?other
+                                    );
+                                } else {
+                                    error!(self.log, "Internal error processing lookup component"; "block_root" => %block_root, "error" => ?other);
+                                }
+                                recoverable
+                            }
+                            ErrorCategory::Malicious { recoverable, index } => {
+                                debug!(self.log, "Invalid lookup component"; "block_root" => ?block_root, "component" => ?R::response_type(), "error" => ?other);
+                                let peer_group = request_state.on_processing_failure()?;
+                                for peer in peer_group.of_index(index) {
+                                    cx.report_peer(
+                                        *peer,
+                                        PeerAction::MidToleranceError,
+                                        match R::response_type() {
+                                            ResponseType::Block => {
+                                                "lookup_block_processing_failure"
+                                            }
+                                            ResponseType::Blob => "lookup_blobs_processing_failure",
+                                            ResponseType::CustodyColumn => {
+                                                "lookup_custody_column_processing_failure"
+                                            }
+                                        },
+                                    );
+                                }
+                                recoverable
+                            }
+                        };
 
-                        Action::Retry
+                        if recoverable {
+                            Action::Retry
+                        } else {
+                            Action::Drop
+                        }
                     }
                 }
             }

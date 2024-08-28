@@ -53,7 +53,9 @@ use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob, GossipVerifi
 use crate::block_verification_types::{
     AsBlock, BlockContentsError, BlockImportData, GossipVerifiedBlockContents, RpcBlock,
 };
-use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
+use crate::data_availability_checker::{
+    AvailabilityCheckError, ErrorCategory, MaybeAvailableBlock,
+};
 use crate::data_column_verification::{
     GossipDataColumnError, GossipVerifiedDataColumn, GossipVerifiedDataColumnList,
 };
@@ -328,6 +330,48 @@ pub enum BlockError<E: EthSpec> {
     InternalError(String),
 }
 
+impl<E: EthSpec> BlockError<E> {
+    pub fn rpc_scoring(&self) -> ErrorCategory {
+        match self {
+            Self::ParentUnknown { .. } => ErrorCategory::internal_recoverable(),
+            Self::FutureSlot { .. } => ErrorCategory::internal_recoverable(),
+            Self::StateRootMismatch { .. } => ErrorCategory::malicious_non_recoverable(),
+            Self::GenesisBlock => ErrorCategory::internal_non_recoverable(),
+            Self::WouldRevertFinalizedSlot { .. } => ErrorCategory::internal_non_recoverable(),
+            Self::NotFinalizedDescendant { .. } => ErrorCategory::internal_non_recoverable(),
+            Self::BlockIsAlreadyKnown { .. } => ErrorCategory::internal_non_recoverable(),
+            Self::BlockSlotLimitReached => ErrorCategory::malicious_non_recoverable(),
+            Self::IncorrectBlockProposer { .. } => ErrorCategory::malicious_non_recoverable(),
+            Self::ProposalSignatureInvalid => ErrorCategory::malicious_recoverable(),
+            Self::UnknownValidator { .. } => ErrorCategory::malicious_non_recoverable(),
+            // TODO: Labeling as recoverable as it may be the proposer signature. We should check
+            // Which one is it and label as non recoverable if the proposer signature is correct.
+            Self::InvalidSignature => ErrorCategory::malicious_recoverable(),
+            Self::BlockIsNotLaterThanParent { .. } => ErrorCategory::malicious_non_recoverable(),
+            // TODO: Not clear what to set here
+            Self::NonLinearParentRoots => ErrorCategory::malicious_recoverable(),
+            Self::NonLinearSlots => ErrorCategory::malicious_recoverable(),
+            // TODO: Ensure the proposer signature is not part of this error set
+            Self::PerBlockProcessingError(_) => ErrorCategory::malicious_non_recoverable(),
+            // TODO: Are we sure all BeaconChainError are internal?
+            Self::BeaconChainError(_e) => ErrorCategory::internal_recoverable(),
+            Self::WeakSubjectivityConflict => ErrorCategory::malicious_non_recoverable(),
+            Self::InconsistentFork(_) => ErrorCategory::malicious_non_recoverable(),
+            Self::ExecutionPayloadError(e) => e.penalize_rpc_peer(),
+            Self::ParentExecutionPayloadInvalid { .. } => {
+                ErrorCategory::malicious_non_recoverable()
+            }
+            // TODO: Check if correct
+            Self::Slashable => ErrorCategory::malicious_non_recoverable(),
+            Self::AvailabilityCheck(e) => e.category(),
+            // unreachable, this error is only part of gossip
+            Self::BlobNotRequired(_) => ErrorCategory::malicious_recoverable(),
+            // TODO: All errors are non-recoverable?
+            Self::InternalError(_) => ErrorCategory::internal_non_recoverable(),
+        }
+    }
+}
+
 impl<E: EthSpec> From<AvailabilityCheckError> for BlockError<E> {
     fn from(e: AvailabilityCheckError) -> Self {
         Self::AvailabilityCheck(e)
@@ -399,7 +443,7 @@ pub enum ExecutionPayloadError {
 }
 
 impl ExecutionPayloadError {
-    pub fn penalize_peer(&self) -> bool {
+    pub fn penalize_gossip_peer(&self) -> bool {
         // This match statement should never have a default case so that we are
         // always forced to consider here whether or not to penalize a peer when
         // we add a new error condition.
@@ -426,6 +470,30 @@ impl ExecutionPayloadError {
             ExecutionPayloadError::InvalidTerminalBlockHash { .. } => false,
             // Do not penalize the peer since it's not their fault that *we're* optimistic.
             ExecutionPayloadError::UnverifiedNonOptimisticCandidate => false,
+        }
+    }
+
+    pub fn penalize_rpc_peer(&self) -> ErrorCategory {
+        // This match statement should never have a default case
+        match self {
+            // The peer has nothing to do with this error, do not penalize them.
+            ExecutionPayloadError::NoExecutionConnection => {
+                ErrorCategory::internal_non_recoverable()
+            }
+            // The peer has nothing to do with this error, do not penalize them.
+            ExecutionPayloadError::RequestFailed(_) => ErrorCategory::internal_recoverable(),
+            // Execution payload is invalid
+            ExecutionPayloadError::RejectedByExecutionEngine { .. }
+            | ExecutionPayloadError::InvalidPayloadTimestamp { .. }
+            | ExecutionPayloadError::InvalidTerminalPoWBlock { .. }
+            | ExecutionPayloadError::InvalidActivationEpoch { .. }
+            | ExecutionPayloadError::InvalidTerminalBlockHash { .. } => {
+                ErrorCategory::malicious_non_recoverable()
+            }
+            // Do not penalize the peer since it's not their fault that *we're* optimistic.
+            ExecutionPayloadError::UnverifiedNonOptimisticCandidate => {
+                ErrorCategory::internal_recoverable()
+            }
         }
     }
 }

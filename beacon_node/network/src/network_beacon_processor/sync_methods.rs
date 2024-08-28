@@ -778,7 +778,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 })
             }
             ref err @ BlockError::ExecutionPayloadError(ref epe) => {
-                if !epe.penalize_peer() {
+                if !epe.penalize_gossip_peer() {
                     // These errors indicate an issue with the EL and not the `ChainSegment`.
                     // Pause the syncing while the EL recovers
                     debug!(self.log,

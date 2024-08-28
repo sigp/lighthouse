@@ -136,6 +136,8 @@ impl<E: EthSpec> RpcBlock<E> {
             }
             for (blob, &block_commitment) in blobs.iter().zip(block_commitments.iter()) {
                 let blob_commitment = blob.kzg_commitment;
+                // This error should never happen. Inclusion proofs for blob and column
+                // sidecars are always checked.
                 if blob_commitment != block_commitment {
                     return Err(AvailabilityCheckError::KzgCommitmentMismatch {
                         block_commitment,

@@ -9,7 +9,7 @@ use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifi
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
-    data_availability_checker::AvailabilityCheckErrorCategory,
+    data_availability_checker::ErrorCategory,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     observed_operations::ObservationOutcome,
@@ -1285,7 +1285,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
-            Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
+            Err(ref e @ BlockError::ExecutionPayloadError(ref epe))
+                if !epe.penalize_gossip_peer() =>
+            {
                 debug!(self.log, "Could not verify block for gossip. Ignoring the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
@@ -1529,7 +1531,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "peer_id" => %peer_id
                 );
             }
-            Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
+            Err(ref e @ BlockError::ExecutionPayloadError(ref epe))
+                if !epe.penalize_gossip_peer() =>
+            {
                 debug!(
                     self.log,
                     "Failed to verify execution payload";
@@ -1538,14 +1542,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(BlockError::AvailabilityCheck(err)) => {
                 match err.category() {
-                    AvailabilityCheckErrorCategory::Internal => {
+                    ErrorCategory::Internal { .. } => {
                         warn!(
                             self.log,
                             "Internal availability check error";
                             "error" => ?err,
                         );
                     }
-                    AvailabilityCheckErrorCategory::Malicious => {
+                    ErrorCategory::Malicious { .. } => {
                         // Note: we cannot penalize the peer that sent us the block
                         // over gossip here because these errors imply either an issue
                         // with:
