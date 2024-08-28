@@ -7,9 +7,8 @@ use std::marker::PhantomData;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KZGVerifyCellKZGProofBatchInput {
-    pub row_commitments: Vec<String>,
-    pub row_indices: Vec<usize>,
-    pub column_indices: Vec<usize>,
+    pub commitments: Vec<String>,
+    pub cell_indices: Vec<u64>,
     pub cells: Vec<String>,
     pub proofs: Vec<String>,
 }
@@ -37,32 +36,22 @@ impl<E: EthSpec> Case for KZGVerifyCellKZGProofBatch<E> {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let parse_input = |input: &KZGVerifyCellKZGProofBatchInput| -> Result<_, Error> {
             let (cells, proofs) = parse_cells_and_proofs(&input.cells, &input.proofs)?;
-            let row_commitments = input
-                .row_commitments
+            let commitments = input
+                .commitments
                 .iter()
                 .map(|s| parse_commitment(s))
                 .collect::<Result<Vec<_>, _>>()?;
-            let coordinates = input
-                .row_indices
-                .iter()
-                .zip(&input.column_indices)
-                .map(|(&row, &col)| (row as u64, col as u64))
-                .collect::<Vec<_>>();
 
-            Ok((cells, proofs, coordinates, row_commitments))
+            Ok((cells, proofs, input.cell_indices.clone(), commitments))
         };
 
         let result =
-            parse_input(&self.input).and_then(|(cells, proofs, coordinates, commitments)| {
+            parse_input(&self.input).and_then(|(cells, proofs, cell_indices, commitments)| {
                 let proofs: Vec<Bytes48> = proofs.iter().map(|&proof| proof.into()).collect();
                 let commitments: Vec<Bytes48> = commitments.iter().map(|&c| c.into()).collect();
                 let cells = cells.iter().map(|c| c.as_ref()).collect::<Vec<_>>();
-                let column_indices = coordinates
-                    .into_iter()
-                    .map(|(_row, col)| col)
-                    .collect::<Vec<_>>();
                 let kzg = get_kzg();
-                match kzg.verify_cell_proof_batch(&cells, &proofs, column_indices, &commitments) {
+                match kzg.verify_cell_proof_batch(&cells, &proofs, cell_indices, &commitments) {
                     Ok(_) => Ok(true),
                     Err(KzgError::KzgVerificationFailed) => Ok(false),
                     Err(e) => Err(Error::InternalError(format!(
