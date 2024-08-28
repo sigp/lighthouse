@@ -332,6 +332,7 @@ pub enum SupportedProtocol {
     PingV1,
     MetaDataV1,
     MetaDataV2,
+    MetaDataV3,
     LightClientBootstrapV1,
     LightClientOptimisticUpdateV1,
     LightClientFinalityUpdateV1,
@@ -353,6 +354,7 @@ impl SupportedProtocol {
             SupportedProtocol::PingV1 => "1",
             SupportedProtocol::MetaDataV1 => "1",
             SupportedProtocol::MetaDataV2 => "2",
+            SupportedProtocol::MetaDataV3 => "3",
             SupportedProtocol::LightClientBootstrapV1 => "1",
             SupportedProtocol::LightClientOptimisticUpdateV1 => "1",
             SupportedProtocol::LightClientFinalityUpdateV1 => "1",
@@ -374,6 +376,7 @@ impl SupportedProtocol {
             SupportedProtocol::PingV1 => Protocol::Ping,
             SupportedProtocol::MetaDataV1 => Protocol::MetaData,
             SupportedProtocol::MetaDataV2 => Protocol::MetaData,
+            SupportedProtocol::MetaDataV3 => Protocol::MetaData,
             SupportedProtocol::LightClientBootstrapV1 => Protocol::LightClientBootstrap,
             SupportedProtocol::LightClientOptimisticUpdateV1 => {
                 Protocol::LightClientOptimisticUpdate
@@ -392,9 +395,20 @@ impl SupportedProtocol {
             ProtocolId::new(Self::BlocksByRootV2, Encoding::SSZSnappy),
             ProtocolId::new(Self::BlocksByRootV1, Encoding::SSZSnappy),
             ProtocolId::new(Self::PingV1, Encoding::SSZSnappy),
-            ProtocolId::new(Self::MetaDataV2, Encoding::SSZSnappy),
-            ProtocolId::new(Self::MetaDataV1, Encoding::SSZSnappy),
         ];
+        if fork_context.spec.is_peer_das_scheduled() {
+            supported.extend_from_slice(&[
+                // V3 variants have higher preference for protocol negotation
+                ProtocolId::new(Self::MetaDataV3, Encoding::SSZSnappy),
+                ProtocolId::new(Self::MetaDataV2, Encoding::SSZSnappy),
+                ProtocolId::new(Self::MetaDataV1, Encoding::SSZSnappy),
+            ]);
+        } else {
+            supported.extend_from_slice(&[
+                ProtocolId::new(Self::MetaDataV2, Encoding::SSZSnappy),
+                ProtocolId::new(Self::MetaDataV1, Encoding::SSZSnappy),
+            ]);
+        }
         if fork_context.fork_exists(ForkName::Deneb) {
             supported.extend_from_slice(&[
                 ProtocolId::new(SupportedProtocol::BlobsByRootV1, Encoding::SSZSnappy),
@@ -554,7 +568,7 @@ impl ProtocolId {
             ),
             Protocol::MetaData => RpcLimits::new(
                 <MetaDataV1<E> as Encode>::ssz_fixed_len(),
-                <MetaDataV2<E> as Encode>::ssz_fixed_len(),
+                <MetaDataV3<E> as Encode>::ssz_fixed_len(),
             ),
             Protocol::LightClientBootstrap => {
                 rpc_light_client_bootstrap_limits_by_fork(fork_context.current_fork())
@@ -587,6 +601,7 @@ impl ProtocolId {
             | SupportedProtocol::PingV1
             | SupportedProtocol::MetaDataV1
             | SupportedProtocol::MetaDataV2
+            | SupportedProtocol::MetaDataV3
             | SupportedProtocol::GoodbyeV1 => false,
         }
     }
@@ -668,6 +683,9 @@ where
                 }
                 SupportedProtocol::MetaDataV2 => {
                     Ok((InboundRequest::MetaData(MetadataRequest::new_v2()), socket))
+                }
+                SupportedProtocol::MetaDataV3 => {
+                    Ok((InboundRequest::MetaData(MetadataRequest::new_v3()), socket))
                 }
                 SupportedProtocol::LightClientOptimisticUpdateV1 => {
                     Ok((InboundRequest::LightClientOptimisticUpdate, socket))
@@ -755,6 +773,7 @@ impl<E: EthSpec> InboundRequest<E> {
             InboundRequest::MetaData(req) => match req {
                 MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
                 MetadataRequest::V2(_) => SupportedProtocol::MetaDataV2,
+                MetadataRequest::V3(_) => SupportedProtocol::MetaDataV3,
             },
             InboundRequest::LightClientBootstrap(_) => SupportedProtocol::LightClientBootstrapV1,
             InboundRequest::LightClientOptimisticUpdate => {

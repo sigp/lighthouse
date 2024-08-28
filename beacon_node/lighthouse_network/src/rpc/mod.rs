@@ -21,7 +21,9 @@ use std::time::Duration;
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::{HandlerErr, HandlerEvent};
-pub(crate) use methods::{MetaData, MetaDataV1, MetaDataV2, Ping, RPCCodedResponse, RPCResponse};
+pub(crate) use methods::{
+    MetaData, MetaDataV1, MetaDataV2, MetaDataV3, Ping, RPCCodedResponse, RPCResponse,
+};
 pub(crate) use protocol::InboundRequest;
 
 pub use handler::SubstreamId;
