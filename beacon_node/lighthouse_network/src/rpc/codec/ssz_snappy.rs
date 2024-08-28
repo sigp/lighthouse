@@ -422,8 +422,7 @@ fn context_bytes<E: EthSpec>(
                 RPCResponse::BlobsByRange(_) | RPCResponse::BlobsByRoot(_) => {
                     return fork_context.to_context_bytes(ForkName::Deneb);
                 }
-                RPCResponse::DataColumnsByRoot(data_column)
-                | RPCResponse::DataColumnsByRange(data_column) => {
+                RPCResponse::DataColumnsByRoot(_) | RPCResponse::DataColumnsByRange(_) => {
                     // TODO(das): Remove deneb fork after `peerdas-devnet-2`.
                     return if fork_context.spec.eip7594_fork_epoch
                         == fork_context.spec.deneb_fork_epoch
