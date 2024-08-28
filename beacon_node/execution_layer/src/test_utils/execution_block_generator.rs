@@ -659,8 +659,10 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     withdrawals: pa.withdrawals.clone().into(),
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
+                    // TODO(electra): consider how to test these fields below
                     deposit_requests: vec![].into(),
                     withdrawal_requests: vec![].into(),
+                    consolidation_requests: vec![].into(),
                 }),
                 _ => unreachable!(),
             },
@@ -867,8 +869,7 @@ pub fn generate_pow_block(
 #[cfg(test)]
 mod test {
     use super::*;
-    use eth2_network_config::TRUSTED_SETUP_BYTES;
-    use kzg::TrustedSetup;
+    use kzg::{trusted_setup::get_trusted_setup, TrustedSetup};
     use types::{MainnetEthSpec, MinimalEthSpec};
 
     #[test]
@@ -955,8 +956,9 @@ mod test {
     }
 
     fn load_kzg() -> Result<Kzg, String> {
-        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
-            .map_err(|e| format!("Unable to read trusted setup file: {e:?}"))?;
+        let trusted_setup: TrustedSetup =
+            serde_json::from_reader(get_trusted_setup().as_slice())
+                .map_err(|e| format!("Unable to read trusted setup file: {e:?}"))?;
         Kzg::new_from_trusted_setup(trusted_setup)
             .map_err(|e| format!("Failed to load trusted setup: {e:?}"))
     }

@@ -4,9 +4,9 @@ use beacon_chain::{
     eth1_chain::CachingEth1Backend,
     BeaconChain, Kzg, TrustedSetup,
 };
-use eth2_network_config::TRUSTED_SETUP_BYTES;
 use futures::prelude::*;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
+use kzg::trusted_setup::get_trusted_setup;
 use lighthouse_network::NetworkConfig;
 use slog::{o, Drain, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
@@ -46,7 +46,7 @@ impl TestBeaconChain {
         let store =
             HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone()).unwrap();
 
-        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+        let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
             .map_err(|e| format!("Unable to read trusted setup file: {}", e))
             .expect("should have trusted setup");
 

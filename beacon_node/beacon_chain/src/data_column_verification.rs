@@ -2,7 +2,7 @@ use crate::block_verification::{
     cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
     BlockSlashInfo,
 };
-use crate::kzg_utils::validate_data_columns;
+use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
 use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
 use derivative::Derivative;
 use fork_choice::ProtoBlock;
@@ -181,12 +181,25 @@ impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T> {
         }
     }
 
+    pub fn as_data_column(&self) -> &DataColumnSidecar<T::EthSpec> {
+        self.data_column.as_data_column()
+    }
+
+    /// This is cheap as we're calling clone on an Arc
+    pub fn clone_data_column(&self) -> Arc<DataColumnSidecar<T::EthSpec>> {
+        self.data_column.clone_data_column()
+    }
+
     pub fn block_root(&self) -> Hash256 {
         self.block_root
     }
 
     pub fn slot(&self) -> Slot {
         self.data_column.data.slot()
+    }
+
+    pub fn index(&self) -> ColumnIndex {
+        self.data_column.data.index
     }
 
     pub fn signed_block_header(&self) -> SignedBeaconBlockHeader {
@@ -226,6 +239,38 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     }
 }
 
+pub type CustodyDataColumnList<E> = RuntimeVariableList<CustodyDataColumn<E>>;
+
+/// Data column that we must custody
+#[derive(Debug, Derivative, Clone, Encode, Decode)]
+#[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[ssz(struct_behaviour = "transparent")]
+pub struct CustodyDataColumn<E: EthSpec> {
+    data: Arc<DataColumnSidecar<E>>,
+}
+
+impl<E: EthSpec> CustodyDataColumn<E> {
+    /// Mark a column as custody column. Caller must ensure that our current custody requirements
+    /// include this column
+    pub fn from_asserted_custody(data: Arc<DataColumnSidecar<E>>) -> Self {
+        Self { data }
+    }
+
+    pub fn into_inner(self) -> Arc<DataColumnSidecar<E>> {
+        self.data
+    }
+    pub fn as_data_column(&self) -> &Arc<DataColumnSidecar<E>> {
+        &self.data
+    }
+    /// This is cheap as we're calling clone on an Arc
+    pub fn clone_arc(&self) -> Arc<DataColumnSidecar<E>> {
+        self.data.clone()
+    }
+    pub fn index(&self) -> u64 {
+        self.data.index
+    }
+}
+
 /// Data column that we must custody and has completed kzg verification
 #[derive(Debug, Derivative, Clone, Encode, Decode)]
 #[derivative(PartialEq, Eq)]
@@ -243,8 +288,39 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
         }
     }
 
-    pub fn index(&self) -> ColumnIndex {
-        self.data.index
+    /// Verify a column already marked as custody column
+    pub fn new(data_column: CustodyDataColumn<E>, kzg: &Kzg) -> Result<Self, KzgError> {
+        verify_kzg_for_data_column(data_column.clone_arc(), kzg)?;
+        Ok(Self {
+            data: data_column.data,
+        })
+    }
+
+    pub fn reconstruct_columns(
+        kzg: &Kzg,
+        partial_set_of_columns: &[Self],
+        spec: &ChainSpec,
+    ) -> Result<Vec<Self>, KzgError> {
+        // Will only return an error if:
+        // - < 50% of columns
+        // - There are duplicates
+        let all_data_columns = reconstruct_data_columns(
+            kzg,
+            &partial_set_of_columns
+                .iter()
+                .map(|d| d.clone_arc())
+                .collect::<Vec<_>>(),
+            spec,
+        )?;
+
+        Ok(all_data_columns
+            .into_iter()
+            .map(|d| {
+                KzgVerifiedCustodyDataColumn::from_asserted_custody(KzgVerifiedDataColumn {
+                    data: d,
+                })
+            })
+            .collect::<Vec<_>>())
     }
 
     pub fn into_inner(self) -> Arc<DataColumnSidecar<E>> {
@@ -256,6 +332,9 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     }
     pub fn clone_arc(&self) -> Arc<DataColumnSidecar<E>> {
         self.data.clone()
+    }
+    pub fn index(&self) -> ColumnIndex {
+        self.data.index
     }
 }
 
@@ -347,9 +426,11 @@ fn verify_is_first_sidecar<T: BeaconChainTypes>(
 fn verify_column_inclusion_proof<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
 ) -> Result<(), GossipDataColumnError> {
+    let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_INCLUSION_PROOF_VERIFICATION);
     if !data_column.verify_inclusion_proof() {
         return Err(GossipDataColumnError::InvalidInclusionProof);
     }
+
     Ok(())
 }
 

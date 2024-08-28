@@ -7,6 +7,10 @@ use serde::{
 
 pub const TRUSTED_SETUP_BYTES: &[u8] = include_bytes!("../trusted_setup.json");
 
+pub fn get_trusted_setup() -> Vec<u8> {
+    TRUSTED_SETUP_BYTES.into()
+}
+
 /// Wrapper over a BLS G1 point's byte representation.
 #[derive(Debug, Clone, PartialEq)]
 struct G1Point([u8; BYTES_PER_G1_POINT]);
@@ -34,7 +38,7 @@ pub struct TrustedSetup {
 
 impl Default for TrustedSetup {
     fn default() -> Self {
-        if let Ok(trusted_setup) = serde_json::from_slice(TRUSTED_SETUP_BYTES) {
+        if let Ok(trusted_setup) = serde_json::from_slice(get_trusted_setup().as_slice()) {
             trusted_setup
         } else {
             Self {

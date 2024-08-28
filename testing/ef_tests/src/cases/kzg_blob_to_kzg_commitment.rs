@@ -31,9 +31,12 @@ impl<E: EthSpec> Case for KZGBlobToKZGCommitment<E> {
         fork_name == ForkName::Deneb
     }
 
-    fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
-        let kzg = get_kzg()?;
+    fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
+        feature_name != FeatureName::Eip7594
+    }
 
+    fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
+        let kzg = get_kzg();
         let commitment = parse_blob::<E>(&self.input.blob).and_then(|blob| {
             blob_to_kzg_commitment::<E>(&kzg, &blob).map_err(|e| {
                 Error::InternalError(format!("Failed to compute kzg commitment: {:?}", e))

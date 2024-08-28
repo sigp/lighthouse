@@ -3,7 +3,6 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
 };
-use environment::null_logger;
 use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
@@ -24,6 +23,7 @@ use http_api::{
     BlockId, StateId,
 };
 use lighthouse_network::{types::SyncState, Enr, EnrExt, PeerId};
+use logging::test_logger;
 use network::NetworkReceivers;
 use proto_array::ExecutionStatus;
 use sensitive_url::SensitiveUrl;
@@ -251,7 +251,7 @@ impl ApiTester {
             "precondition: justification"
         );
 
-        let log = null_logger().unwrap();
+        let log = test_logger();
 
         let ApiServer {
             ctx,
@@ -349,7 +349,7 @@ impl ApiTester {
 
         let chain = harness.chain.clone();
 
-        let log = null_logger().unwrap();
+        let log = test_logger();
 
         let ApiServer {
             ctx,
@@ -3431,7 +3431,7 @@ impl ApiTester {
                     .get_validator_aggregate_attestation_v2(
                         attestation.data().slot,
                         attestation.data().tree_hash_root(),
-                        attestation.committee_index().unwrap(),
+                        attestation.committee_index().expect("committee index"),
                     )
                     .await
                     .unwrap()

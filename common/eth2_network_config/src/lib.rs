@@ -14,6 +14,7 @@
 use bytes::Bytes;
 use discv5::enr::{CombinedKey, Enr};
 use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};
+use kzg::trusted_setup::get_trusted_setup;
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::{Client, Error};
 use sensitive_url::SensitiveUrl;
@@ -42,20 +43,6 @@ pub const BASE_CONFIG_FILE: &str = "config.yaml";
 instantiate_hardcoded_nets!(eth2_config);
 
 pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
-
-/// Contains the bytes from the trusted setup json.
-/// The mainnet trusted setup is also reused in testnets.
-///
-/// This is done to ensure that testnets also inherit the high security and
-/// randomness of the mainnet kzg trusted setup ceremony.
-///
-/// Note: The trusted setup for both mainnet and minimal presets are the same.
-pub const TRUSTED_SETUP_BYTES: &[u8] =
-    include_bytes!("../built_in_network_configs/trusted_setup.json");
-
-fn get_trusted_setup() -> Vec<u8> {
-    TRUSTED_SETUP_BYTES.into()
-}
 
 /// A simple slice-or-vec enum to avoid cloning the beacon state bytes in the
 /// binary whilst also supporting loading them from a file at runtime.

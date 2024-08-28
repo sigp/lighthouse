@@ -1,4 +1,5 @@
 use crate::block_verification_types::{AsBlock, RpcBlock};
+use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::BeaconBlockResponseWrapper;
@@ -17,7 +18,6 @@ use crate::{
 };
 use bls::get_withdrawal_credentials;
 use eth2::types::SignedBlockContentsTuple;
-use eth2_network_config::TRUSTED_SETUP_BYTES;
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     auth::JwtKey,
@@ -30,6 +30,7 @@ use execution_layer::{
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
+use kzg::trusted_setup::get_trusted_setup;
 use kzg::{Kzg, TrustedSetup};
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
@@ -75,10 +76,18 @@ pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
 
 pub static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
-    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
         .map_err(|e| format!("Unable to read trusted setup file: {}", e))
         .expect("should have trusted setup");
     let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
+    Arc::new(kzg)
+});
+
+pub static KZG_PEERDAS: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
+    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
+        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+        .expect("should have trusted setup");
+    let kzg = Kzg::new_from_trusted_setup_das_enabled(trusted_setup).expect("should create kzg");
     Arc::new(kzg)
 });
 
@@ -2689,4 +2698,21 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         });
     }
     (block, blob_sidecars)
+}
+
+#[allow(clippy::type_complexity)]
+pub fn generate_rand_block_and_data_columns<E: EthSpec>(
+    fork_name: ForkName,
+    num_blobs: NumBlobs,
+    rng: &mut impl Rng,
+    spec: &ChainSpec,
+) -> (
+    SignedBeaconBlock<E, FullPayload<E>>,
+    Vec<Arc<DataColumnSidecar<E>>>,
+) {
+    let (block, blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng);
+    let blob: BlobsList<E> = blobs.into_iter().map(|b| b.blob).collect::<Vec<_>>().into();
+    let data_columns = blobs_to_data_column_sidecars(&blob, &block, &KZG_PEERDAS, spec).unwrap();
+
+    (block, data_columns)
 }
