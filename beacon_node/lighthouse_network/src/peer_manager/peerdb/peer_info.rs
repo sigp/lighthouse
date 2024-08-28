@@ -90,7 +90,7 @@ impl<E: EthSpec> PeerInfo<E> {
     }
 
     /// Returns if the peer is subscribed to a given `Subnet` from the metadata attnets/syncnets field.
-    /// Also returns true if
+    /// Also returns true if the peer is assigned to custody a given data column `Subnet` computed from the metadata `custody_column_count` field or ENR `csc` field.
     pub fn on_subnet_metadata(&self, subnet: &Subnet) -> bool {
         if let Some(meta_data) = &self.meta_data {
             match subnet {
