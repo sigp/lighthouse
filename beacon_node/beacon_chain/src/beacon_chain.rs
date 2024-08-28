@@ -3122,8 +3122,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::BlockIsAlreadyKnown(block_root));
         }
 
-        // TODO(das): custody column SSE event
-
         let r = self
             .check_rpc_custody_columns_availability_and_import(slot, block_root, custody_columns)
             .await;
