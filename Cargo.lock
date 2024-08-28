@@ -781,7 +781,6 @@ dependencies = [
  "bls",
  "criterion",
  "derivative",
- "environment",
  "eth1",
  "eth2",
  "eth2_network_config",
@@ -836,8 +835,9 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "5.2.1"
+version = "5.3.0"
 dependencies = [
+ "account_utils",
  "beacon_chain",
  "clap",
  "clap_utils",
@@ -1058,7 +1058,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "5.2.1"
+version = "5.3.0"
 dependencies = [
  "beacon_node",
  "clap",
@@ -1532,9 +1532,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "crate_crypto_internal_peerdas_bls12_381"
-version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=55ae9e9011d792a2998d242c2a71d822ba909fa9#55ae9e9011d792a2998d242c2a71d822ba909fa9"
+name = "crate_crypto_internal_eth_kzg_bls12_381"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8761b04feb6031ffaf93933c955a0c91a2f3ce15dcac6b9586d2487fe55abf0b"
 dependencies = [
  "blst",
  "blstrs",
@@ -1545,29 +1546,32 @@ dependencies = [
 ]
 
 [[package]]
-name = "crate_crypto_internal_peerdas_erasure_codes"
-version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=55ae9e9011d792a2998d242c2a71d822ba909fa9#55ae9e9011d792a2998d242c2a71d822ba909fa9"
+name = "crate_crypto_internal_eth_kzg_erasure_codes"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eca410dff79524a2babe8a0d9ab5fdce21b16808f8189eb8b6da6159681f8de2"
 dependencies = [
- "crate_crypto_internal_peerdas_bls12_381",
- "crate_crypto_internal_peerdas_polynomial",
+ "crate_crypto_internal_eth_kzg_bls12_381",
+ "crate_crypto_internal_eth_kzg_polynomial",
 ]
 
 [[package]]
-name = "crate_crypto_internal_peerdas_polynomial"
-version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=55ae9e9011d792a2998d242c2a71d822ba909fa9#55ae9e9011d792a2998d242c2a71d822ba909fa9"
+name = "crate_crypto_internal_eth_kzg_polynomial"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68be1a5f16bc1c09254dec5209e22278d7d395284443576886a5890e7131234f"
 dependencies = [
- "crate_crypto_internal_peerdas_bls12_381",
+ "crate_crypto_internal_eth_kzg_bls12_381",
 ]
 
 [[package]]
 name = "crate_crypto_kzg_multi_open_fk20"
-version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=55ae9e9011d792a2998d242c2a71d822ba909fa9#55ae9e9011d792a2998d242c2a71d822ba909fa9"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "702fe5b687fe8c5a46851b8bc624ad49603a339dc93c920d4f7e61592c201ee8"
 dependencies = [
- "crate_crypto_internal_peerdas_bls12_381",
- "crate_crypto_internal_peerdas_polynomial",
+ "crate_crypto_internal_eth_kzg_bls12_381",
+ "crate_crypto_internal_eth_kzg_polynomial",
  "hex",
  "rayon",
  "sha2 0.10.8",
@@ -2027,9 +2031,9 @@ dependencies = [
 
 [[package]]
 name = "diesel"
-version = "2.2.2"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf97ee7261bb708fa3402fa9c17a54b70e90e3cb98afb3dc8999d5512cb03f94"
+checksum = "65e13bab2796f412722112327f3e575601a3e9cdcbe426f0d30dbf43f3f5dc71"
 dependencies = [
  "bitflags 2.6.0",
  "byteorder",
@@ -2041,9 +2045,9 @@ dependencies = [
 
 [[package]]
 name = "diesel_derives"
-version = "2.2.2"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6ff2be1e7312c858b2ef974f5c7089833ae57b5311b334b30923af58e5718d8"
+checksum = "e7f2c3de51e2ba6bf2a648285696137aaf0f5f487bcbea93972fe8a364e131a4"
 dependencies = [
  "diesel_table_macro_syntax",
  "dsl_auto_type",
@@ -2186,12 +2190,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "downcast"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
-
-[[package]]
 name = "dsl_auto_type"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2298,21 +2296,6 @@ dependencies = [
  "tree_hash",
  "tree_hash_derive",
  "types",
-]
-
-[[package]]
-name = "eip7594"
-version = "0.3.0"
-source = "git+https://github.com/crate-crypto/peerdas-kzg?rev=55ae9e9011d792a2998d242c2a71d822ba909fa9#55ae9e9011d792a2998d242c2a71d822ba909fa9"
-dependencies = [
- "crate_crypto_internal_peerdas_bls12_381",
- "crate_crypto_internal_peerdas_erasure_codes",
- "crate_crypto_kzg_multi_open_fk20",
- "hex",
- "rayon",
- "rust-embed",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -2491,6 +2474,7 @@ dependencies = [
  "execution_layer",
  "futures",
  "lighthouse_metrics",
+ "logging",
  "merkle_proof",
  "parking_lot 0.12.3",
  "sensitive_url",
@@ -2975,7 +2959,6 @@ dependencies = [
  "arc-swap",
  "builder_client",
  "bytes",
- "environment",
  "eth2",
  "eth2_network_config",
  "ethereum_serde_utils",
@@ -2990,6 +2973,7 @@ dependencies = [
  "kzg",
  "lighthouse_metrics",
  "lighthouse_version",
+ "logging",
  "lru",
  "parking_lot 0.12.3",
  "pretty_reqwest_error",
@@ -3180,6 +3164,7 @@ dependencies = [
  "beacon_chain",
  "ethereum_ssz",
  "ethereum_ssz_derive",
+ "lighthouse_metrics",
  "proto_array",
  "slog",
  "state_processing",
@@ -3196,12 +3181,6 @@ checksum = "e13624c2627564efccf4934284bdd98cbaa14e79b0b5a141218e507b3a823456"
 dependencies = [
  "percent-encoding",
 ]
-
-[[package]]
-name = "fragile"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c2141d6d6c8512188a7891b4b01590a45f6dac67afb4f255c4124dbb86d4eaa"
 
 [[package]]
 name = "fs2"
@@ -3857,7 +3836,6 @@ dependencies = [
  "bs58 0.4.0",
  "bytes",
  "directory",
- "environment",
  "eth1",
  "eth2",
  "ethereum_serde_utils",
@@ -3900,10 +3878,10 @@ name = "http_metrics"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
- "environment",
  "lighthouse_metrics",
  "lighthouse_network",
  "lighthouse_version",
+ "logging",
  "malloc_utils",
  "reqwest",
  "serde",
@@ -4173,40 +4151,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "include-flate"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2e11569346406931d20276cc460215ee2826e7cad43aa986999cb244dd7adb0"
-dependencies = [
- "include-flate-codegen-exports",
- "lazy_static",
- "libflate 1.4.0",
-]
-
-[[package]]
-name = "include-flate-codegen"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a7d6e1419fa3129eb0802b4c99603c0d425c79fb5d76191d5a20d0ab0d664e8"
-dependencies = [
- "libflate 1.4.0",
- "proc-macro-hack",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "include-flate-codegen-exports"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75657043ffe3d8280f1cb8aef0f505532b392ed7758e0baeac22edadcee31a03"
-dependencies = [
- "include-flate-codegen",
- "proc-macro-hack",
-]
-
-[[package]]
 name = "indenter"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4392,13 +4336,14 @@ dependencies = [
 
 [[package]]
 name = "jsonwebtoken"
-version = "8.3.0"
+version = "9.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6971da4d9c3aa03c3d8f3ff0f4155b534aad021292003895a469716b2a230378"
+checksum = "b9ae10193d25051e74945f1ea2d0b42e03cc3b890f7e4cc5faa44997d808193f"
 dependencies = [
  "base64 0.21.7",
- "pem 1.1.1",
- "ring 0.16.20",
+ "js-sys",
+ "pem",
+ "ring 0.17.8",
  "serde",
  "serde_json",
  "simple_asn1",
@@ -4468,14 +4413,13 @@ dependencies = [
  "c-kzg",
  "criterion",
  "derivative",
- "eip7594",
  "eth2_network_config",
  "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "hex",
- "mockall",
+ "rust_eth_kzg",
  "serde",
  "serde_json",
  "tree_hash",
@@ -4498,7 +4442,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "5.2.1"
+version = "5.3.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -4523,6 +4467,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sloggers",
  "snap",
  "state_processing",
  "store",
@@ -4562,17 +4507,6 @@ checksum = "97b3888a4aecf77e811145cadf6eef5901f4782c53886191b2f693f24761847c"
 
 [[package]]
 name = "libflate"
-version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ff4ae71b685bbad2f2f391fe74f6b7659a34871c08b210fdc039e43bee07d18"
-dependencies = [
- "adler32",
- "crc32fast",
- "libflate_lz77 1.2.0",
-]
-
-[[package]]
-name = "libflate"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "45d9dfdc14ea4ef0900c1cddbc8dcd553fbaacd8a4a282cf4018ae9dd04fb21e"
@@ -4581,16 +4515,7 @@ dependencies = [
  "core2",
  "crc32fast",
  "dary_heap",
- "libflate_lz77 2.1.0",
-]
-
-[[package]]
-name = "libflate_lz77"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a52d3a8bfc85f250440e4424db7d857e241a3aebbbe301f3eb606ab15c39acbf"
-dependencies = [
- "rle-decode-fast",
+ "libflate_lz77",
 ]
 
 [[package]]
@@ -5089,7 +5014,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "5.2.1"
+version = "5.3.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -5529,45 +5454,6 @@ name = "mock_instant"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9366861eb2a2c436c20b12c8dbec5f798cea6b47ad99216be0282942e2c81ea0"
-
-[[package]]
-name = "mockall"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43766c2b5203b10de348ffe19f7e54564b64f3d6018ff7648d1e2d6d3a0f0a48"
-dependencies = [
- "cfg-if",
- "downcast",
- "fragile",
- "lazy_static",
- "mockall_derive",
- "predicates",
- "predicates-tree",
-]
-
-[[package]]
-name = "mockall_derive"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af7cbce79ec385a1d4f54baa90a76401eb15d9cab93685f62e7e9f942aa00ae2"
-dependencies = [
- "cfg-if",
- "proc-macro2",
- "quote",
- "syn 2.0.72",
-]
-
-[[package]]
-name = "mockall_double"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1ca96e5ac35256ae3e13536edd39b172b88f41615e1d7b653c8ad24524113e8"
-dependencies = [
- "cfg-if",
- "proc-macro2",
- "quote",
- "syn 2.0.72",
-]
 
 [[package]]
 name = "monitoring_api"
@@ -6240,15 +6126,6 @@ dependencies = [
 
 [[package]]
 name = "pem"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8835c273a76a90455d7344889b0964598e3316e2a79ede8e36f16bdcf2228b8"
-dependencies = [
- "base64 0.13.1",
-]
-
-[[package]]
-name = "pem"
 version = "3.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e459365e590736a54c3fa561947c84837534b8e9af6fc5bf781307e82658fae"
@@ -6504,32 +6381,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "predicates"
-version = "3.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68b87bfd4605926cdfefc1c3b5f8fe560e3feca9d5552cf68c466d3d8236c7e8"
-dependencies = [
- "anstyle",
- "predicates-core",
-]
-
-[[package]]
-name = "predicates-core"
-version = "1.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b794032607612e7abeb4db69adb4e33590fa6cf1149e95fd7cb00e634b92f174"
-
-[[package]]
-name = "predicates-tree"
-version = "1.0.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "368ba315fb8c5052ab692e68a0eefec6ec57b23a36959c14496f0b0df2c0cecf"
-dependencies = [
- "predicates-core",
- "termtree",
-]
-
-[[package]]
 name = "pretty_reqwest_error"
 version = "0.1.0"
 dependencies = [
@@ -6591,12 +6442,6 @@ checksum = "6d37c51ca738a55da99dc0c4a34860fd675453b8b36209178c2249bb13651284"
 dependencies = [
  "toml_edit 0.21.1",
 ]
-
-[[package]]
-name = "proc-macro-hack"
-version = "0.5.20+deprecated"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc375e1527247fe1a97d8b7156678dfe7c1af2fc075c9a4db3690ecd2a148068"
 
 [[package]]
 name = "proc-macro2"
@@ -6727,8 +6572,7 @@ checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 [[package]]
 name = "quick-protobuf"
 version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d6da84cc204722a989e01ba2f6e1e276e190f22263d0cb6ce8526fcdb0d2e1f"
+source = "git+https://github.com/sigp/quick-protobuf.git?rev=681f413312404ab6e51f0b46f39b0075c6f4ebfd#681f413312404ab6e51f0b46f39b0075c6f4ebfd"
 dependencies = [
  "byteorder",
 ]
@@ -6935,7 +6779,7 @@ version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52c4f3084aa3bc7dfbba4eff4fab2a54db4324965d8872ab933565e6fbd83bc6"
 dependencies = [
- "pem 3.0.4",
+ "pem",
  "ring 0.16.20",
  "time",
  "yasna",
@@ -7245,38 +7089,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "rust-embed"
-version = "8.4.0"
+name = "rust_eth_kzg"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19549741604902eb99a7ed0ee177a0663ee1eda51a29f71401f166e47e77806a"
+checksum = "013a850c7e131a8f9651ffbb151dc33240234f21dd357b692bd5ff4cdc84bf9a"
 dependencies = [
- "include-flate",
- "rust-embed-impl",
- "rust-embed-utils",
- "walkdir",
-]
-
-[[package]]
-name = "rust-embed-impl"
-version = "8.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb9f96e283ec64401f30d3df8ee2aaeb2561f34c824381efa24a35f79bf40ee4"
-dependencies = [
- "proc-macro2",
- "quote",
- "rust-embed-utils",
- "syn 2.0.72",
- "walkdir",
-]
-
-[[package]]
-name = "rust-embed-utils"
-version = "8.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38c74a686185620830701348de757fd36bef4aa9680fd23c49fc539ddcc1af32"
-dependencies = [
- "sha2 0.10.8",
- "walkdir",
+ "crate_crypto_internal_eth_kzg_bls12_381",
+ "crate_crypto_internal_eth_kzg_erasure_codes",
+ "crate_crypto_kzg_multi_open_fk20",
+ "hex",
+ "rayon",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -8089,7 +7913,7 @@ checksum = "75062c2738b82cd45ae633623caae3393f43eb00aada1dc2d3ebe88db6b0db9b"
 dependencies = [
  "chrono",
  "libc",
- "libflate 2.1.0",
+ "libflate",
  "once_cell",
  "regex",
  "serde",
@@ -8535,12 +8359,6 @@ dependencies = [
  "rustix 0.38.34",
  "windows-sys 0.48.0",
 ]
-
-[[package]]
-name = "termtree"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3369f5ac52d5eb6ab48c6b4ffdc8efbcad6b89c765749064ba298f2c68a16a76"
 
 [[package]]
 name = "test-test_logger"
@@ -9095,7 +8913,6 @@ dependencies = [
  "criterion",
  "derivative",
  "eth2_interop_keypairs",
- "eth2_network_config",
  "ethereum-types 0.14.1",
  "ethereum_hashing",
  "ethereum_serde_utils",
@@ -9110,7 +8927,6 @@ dependencies = [
  "merkle_proof",
  "metastruct",
  "milhouse",
- "mockall_double",
  "parking_lot 0.12.3",
  "paste",
  "rand",
@@ -9674,6 +9490,7 @@ dependencies = [
  "eth2_keystore",
  "eth2_network_config",
  "futures",
+ "logging",
  "parking_lot 0.12.3",
  "reqwest",
  "serde",

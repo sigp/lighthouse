@@ -1,7 +1,6 @@
-use crate::RawKeyIter;
 use crate::{
     get_key_for_col, leveldb_store::BytesKey, ColumnIter, ColumnKeyIter, DBColumn, Error,
-    ItemStore, Key, KeyValueStore, KeyValueStoreOp,
+    ItemStore, Key, KeyValueStore, KeyValueStoreOp, RawKeyIter,
 };
 use parking_lot::{Mutex, MutexGuard, RwLock};
 use std::collections::BTreeMap;

@@ -17,8 +17,7 @@ ethereum_serde_utils = { workspace = true }
 hex = { workspace = true }
 ethereum_hashing = { workspace = true }
 c-kzg = { workspace = true }
-peerdas-kzg = { workspace = true }
-mockall = { workspace = true }
+rust_eth_kzg = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

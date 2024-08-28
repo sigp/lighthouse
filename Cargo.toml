@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "account_manager",
+
     "beacon_node",
     "beacon_node/beacon_chain",
     "beacon_node/beacon_processor",
@@ -15,7 +16,9 @@ members = [
     "beacon_node/network",
     "beacon_node/store",
     "beacon_node/timer",
+
     "boot_node",
+
     "common/account_utils",
     "common/clap_utils",
     "common/compare_fields",
@@ -45,6 +48,7 @@ members = [
     "common/validator_dir",
     "common/warp_utils",
     "common/monitoring_api",
+
     "database_manager",
 
     "consensus/int_to_bytes",
@@ -53,16 +57,21 @@ members = [
     "consensus/safe_arith",
     "consensus/state_processing",
     "consensus/swap_or_not_shuffle",
+
     "crypto/bls",
     "crypto/kzg",
     "crypto/eth2_key_derivation",
     "crypto/eth2_keystore",
     "crypto/eth2_wallet",
+
     "lcli",
+
     "lighthouse",
     "lighthouse/environment",
+
     "slasher",
     "slasher/service",
+
     "testing/ef_tests",
     "testing/eth1_test_rig",
     "testing/execution_engine_integration",
@@ -71,9 +80,12 @@ members = [
     "testing/test-test_logger",
     "testing/state_transition_vectors",
     "testing/web3signer_tests",
+
     "validator_client",
     "validator_client/slashing_protection",
+
     "validator_manager",
+
     "watch",
 ]
 resolver = "2"
@@ -95,14 +107,14 @@ bytes = "1"
 clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 # Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
 # feature ourselves when desired.
-c-kzg = { version = "1", default-features =  false }
+c-kzg = { version = "1", default-features = false }
 compare_fields_derive = { path = "common/compare_fields_derive" }
 criterion = "0.5"
 delay_map = "0.3"
 derivative = "2"
 dirs = "3"
 either = "1.9"
-peerdas-kzg = { git = "https://github.com/crate-crypto/peerdas-kzg", rev = "55ae9e9011d792a2998d242c2a71d822ba909fa9", package = "eip7594" }
+rust_eth_kzg = "0.3.4"
 discv5 = { version = "0.4.1", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"
@@ -126,8 +138,6 @@ log = "0.4"
 lru = "0.12"
 maplit = "1"
 milhouse = "0.1"
-mockall = "0.12"
-mockall_double = "0.3"
 num_cpus = "1"
 parking_lot = "0.12"
 paste = "1"
@@ -229,6 +239,9 @@ unused_port = { path = "common/unused_port" }
 validator_client = { path = "validator_client" }
 validator_dir = { path = "common/validator_dir" }
 warp_utils = { path = "common/warp_utils" }
+
+[patch.crates-io]
+quick-protobuf = { git = "https://github.com/sigp/quick-protobuf.git", rev = "681f413312404ab6e51f0b46f39b0075c6f4ebfd" }
 
 [profile.maxperf]
 inherits = "release"

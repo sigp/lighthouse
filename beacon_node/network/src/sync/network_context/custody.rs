@@ -2,7 +2,6 @@ use crate::sync::network_context::{
     DataColumnsByRootRequestId, DataColumnsByRootSingleBlockRequest,
 };
 
-use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
@@ -13,17 +12,16 @@ use slog::{debug, warn};
 use std::time::Duration;
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use types::EthSpec;
-use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Epoch, Hash256};
+use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Hash256};
 
 use super::{LookupRequestResult, PeerGroup, RpcResponseResult, SyncNetworkContext};
 
 const FAILED_PEERS_CACHE_EXPIRY_SECONDS: u64 = 5;
 
-type DataColumnSidecarVec<E> = Vec<Arc<DataColumnSidecar<E>>>;
+type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
 pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     block_root: Hash256,
-    block_epoch: Epoch,
     custody_id: CustodyId,
     /// List of column indices this request needs to download to complete successfully
     column_requests: FnvHashMap<ColumnIndex, ColumnRequest<T::EthSpec>>,
@@ -58,7 +56,7 @@ struct ActiveBatchColumnsRequest {
     indices: Vec<ColumnIndex>,
 }
 
-type CustodyRequestResult<E> = Result<Option<(Vec<CustodyDataColumn<E>>, PeerGroup)>, Error>;
+type CustodyRequestResult<E> = Result<Option<(DataColumnSidecarList<E>, PeerGroup)>, Error>;
 
 impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     pub(crate) fn new(
@@ -69,8 +67,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     ) -> Self {
         Self {
             block_root,
-            // TODO(das): use actual epoch if there's rotation
-            block_epoch: Epoch::new(0),
             custody_id,
             column_requests: HashMap::from_iter(
                 column_indices
@@ -96,7 +92,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         &mut self,
         peer_id: PeerId,
         req_id: DataColumnsByRootRequestId,
-        resp: RpcResponseResult<DataColumnSidecarVec<T::EthSpec>>,
+        resp: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> CustodyRequestResult<T::EthSpec> {
         // TODO(das): Should downscore peers for verify errors here
@@ -138,12 +134,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         .ok_or(Error::BadState("unknown column_index".to_owned()))?;
 
                     if let Some(data_column) = data_columns.remove(column_index) {
-                        column_request.on_download_success(
-                            req_id,
-                            peer_id,
-                            // Safe to cast, self.column_requests only contains indexes for columns we must custody
-                            CustodyDataColumn::from_asserted_custody(data_column),
-                        )?;
+                        column_request.on_download_success(req_id, peer_id, data_column)?;
                     } else {
                         // Peer does not have the requested data.
                         // TODO(das) do not consider this case a success. We know for sure the block has
@@ -213,7 +204,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     peers
                         .entry(peer)
                         .or_default()
-                        .push(data_column.as_data_column().index as usize);
+                        .push(data_column.index as usize);
                     Ok(data_column)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -237,7 +228,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
 
                 // TODO: When is a fork and only a subset of your peers know about a block, we should only
                 // query the peers on that fork. Should this case be handled? How to handle it?
-                let custodial_peers = cx.get_custodial_peers(self.block_epoch, *column_index);
+                let custodial_peers = cx.get_custodial_peers(*column_index);
 
                 // TODO(das): cache this computation in a OneCell or similar to prevent having to
                 // run it every loop
@@ -326,7 +317,7 @@ struct ColumnRequest<E: EthSpec> {
 enum Status<E: EthSpec> {
     NotStarted,
     Downloading(DataColumnsByRootRequestId),
-    Downloaded(PeerId, CustodyDataColumn<E>),
+    Downloaded(PeerId, Arc<DataColumnSidecar<E>>),
 }
 
 impl<E: EthSpec> ColumnRequest<E> {
@@ -394,7 +385,7 @@ impl<E: EthSpec> ColumnRequest<E> {
         &mut self,
         req_id: DataColumnsByRootRequestId,
         peer_id: PeerId,
-        data_column: CustodyDataColumn<E>,
+        data_column: Arc<DataColumnSidecar<E>>,
     ) -> Result<(), Error> {
         match &self.status {
             Status::Downloading(expected_req_id) => {
@@ -413,7 +404,7 @@ impl<E: EthSpec> ColumnRequest<E> {
         }
     }
 
-    fn complete(self) -> Result<(PeerId, CustodyDataColumn<E>), Error> {
+    fn complete(self) -> Result<(PeerId, Arc<DataColumnSidecar<E>>), Error> {
         match self.status {
             Status::Downloaded(peer_id, data_column) => Ok((peer_id, data_column)),
             other => Err(Error::BadState(format!(

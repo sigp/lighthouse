@@ -92,10 +92,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(0);
         }
 
-        let n_blobs_lists_to_import = blocks_to_import
+        // Blobs are stored per block, and data columns are each stored individually
+        let n_blob_ops_per_block = if self.spec.is_peer_das_scheduled() {
+            self.data_availability_checker.get_custody_columns_count()
+        } else {
+            1
+        };
+
+        let blob_batch_size = blocks_to_import
             .iter()
             .filter(|available_block| available_block.blobs().is_some())
-            .count();
+            .count()
+            .saturating_mul(n_blob_ops_per_block);
 
         let mut expected_block_root = anchor_info.oldest_block_parent;
         let mut prev_block_slot = anchor_info.oldest_block_slot;
@@ -104,7 +112,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
         let mut new_oldest_data_column_slot = data_column_info.oldest_data_column_slot;
 
-        let mut blob_batch = Vec::with_capacity(n_blobs_lists_to_import);
+        let mut blob_batch = Vec::with_capacity(blob_batch_size);
         let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
         let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
         let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
@@ -214,7 +222,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store.hot_db.do_atomically(hot_batch)?;
         self.store.cold_db.do_atomically(cold_batch)?;
 
-        let mut anchor_and_blob_batch = Vec::with_capacity(2);
+        let mut anchor_and_blob_batch = Vec::with_capacity(3);
 
         // Update the blob info.
         if new_oldest_blob_slot != blob_info.oldest_blob_slot {

@@ -2,7 +2,6 @@ use crate::sync::manager::BlockProcessType;
 use crate::sync::SamplingId;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend, BeaconChain};
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{
@@ -483,7 +482,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_rpc_custody_columns(
         self: &Arc<Self>,
         block_root: Hash256,
-        custody_columns: Vec<CustodyDataColumn<T::EthSpec>>,
+        custody_columns: DataColumnSidecarList<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
@@ -675,15 +674,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: DataColumnsByRootRequest,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let reprocess_tx = processor.reprocess_tx.clone();
-        let process_fn = move || {
-            processor.handle_data_columns_by_root_request(
-                peer_id,
-                request_id,
-                request,
-                Some(reprocess_tx),
-            )
-        };
+        let process_fn =
+            move || processor.handle_data_columns_by_root_request(peer_id, request_id, request);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,

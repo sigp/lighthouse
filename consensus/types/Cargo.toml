@@ -57,11 +57,9 @@ rpds = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 beacon_chain = { workspace = true }
-eth2_network_config = { workspace = true }
 state_processing = { workspace = true }
 tokio = { workspace = true }
 paste = { workspace = true }
-mockall_double = { workspace = true }
 
 [features]
 default = ["sqlite", "legacy-arith"]

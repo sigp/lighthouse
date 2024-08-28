@@ -1771,10 +1771,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
     pub async fn get_payload_bodies_by_hash(
         &self,
         hashes: Vec<ExecutionBlockHash>,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
         self.engine()
             .request(|engine: &Engine| async move {
-                engine.api.get_payload_bodies_by_hash_v1(hashes).await
+                engine.api.get_payload_bodies_by_hash(hashes).await
             })
             .await
             .map_err(Box::new)
@@ -1785,14 +1785,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         start: u64,
         count: u64,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
         let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE);
         self.engine()
             .request(|engine: &Engine| async move {
-                engine
-                    .api
-                    .get_payload_bodies_by_range_v1(start, count)
-                    .await
+                engine.api.get_payload_bodies_by_range(start, count).await
             })
             .await
             .map_err(Box::new)
@@ -2010,6 +2007,15 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         .collect(),
                 )
                 .map_err(ApiError::DeserializeWithdrawalRequests)?;
+                let n_consolidations = electra_block.consolidation_requests.len();
+                let consolidation_requests = VariableList::new(
+                    electra_block
+                        .consolidation_requests
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+                .map_err(|_| ApiError::TooManyConsolidationRequests(n_consolidations))?;
                 ExecutionPayload::Electra(ExecutionPayloadElectra {
                     parent_hash: electra_block.parent_hash,
                     fee_recipient: electra_block.fee_recipient,
@@ -2030,6 +2036,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     excess_blob_gas: electra_block.excess_blob_gas,
                     deposit_requests,
                     withdrawal_requests,
+                    consolidation_requests,
                 })
             }
         };

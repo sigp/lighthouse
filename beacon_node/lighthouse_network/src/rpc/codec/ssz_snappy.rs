@@ -428,7 +428,8 @@ fn context_bytes<E: EthSpec>(
                 | RPCResponse::BlobsByRoot(_)
                 | RPCResponse::DataColumnsByRoot(_)
                 | RPCResponse::DataColumnsByRange(_) => {
-                    // TODO(electra)
+                    // TODO(das): If DataColumnSidecar is defined as an Electra type, update the
+                    // context bytes to point to ForkName::Electra
                     return fork_context.to_context_bytes(ForkName::Deneb);
                 }
                 RPCResponse::LightClientBootstrap(lc_bootstrap) => {
@@ -635,15 +636,22 @@ fn handle_rpc_response<E: EthSpec>(
                 ),
             )),
         },
-        SupportedProtocol::DataColumnsByRangeV1 => match fork_name {
-            // TODO(das): update fork name
-            Some(ForkName::Deneb) => Ok(Some(RPCResponse::DataColumnsByRange(Arc::new(
-                DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
-            )))),
-            Some(_) => Err(RPCError::ErrorResponse(
-                RPCResponseErrorCode::InvalidRequest,
-                "Invalid fork name for data columns by range".to_string(),
-            )),
+        SupportedProtocol::DataColumnsByRootV1 => match fork_name {
+            Some(fork_name) => {
+                // TODO(das): PeerDAS is currently supported for both deneb and electra. This check
+                // does not advertise the topic on deneb, simply allows it to decode it. Advertise
+                // logic is in `SupportedTopic::currently_supported`.
+                if fork_name.deneb_enabled() {
+                    Ok(Some(RPCResponse::DataColumnsByRoot(Arc::new(
+                        DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RPCResponseErrorCode::InvalidRequest,
+                        "Invalid fork name for data columns by root".to_string(),
+                    ))
+                }
+            }
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
                 format!(
@@ -652,15 +660,19 @@ fn handle_rpc_response<E: EthSpec>(
                 ),
             )),
         },
-        SupportedProtocol::DataColumnsByRootV1 => match fork_name {
-            // TODO(das): update fork name
-            Some(ForkName::Deneb) => Ok(Some(RPCResponse::DataColumnsByRoot(Arc::new(
-                DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
-            )))),
-            Some(_) => Err(RPCError::ErrorResponse(
-                RPCResponseErrorCode::InvalidRequest,
-                "Invalid fork name for data columns by root".to_string(),
-            )),
+        SupportedProtocol::DataColumnsByRangeV1 => match fork_name {
+            Some(fork_name) => {
+                if fork_name.deneb_enabled() {
+                    Ok(Some(RPCResponse::DataColumnsByRange(Arc::new(
+                        DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RPCResponseErrorCode::InvalidRequest,
+                        "Invalid fork name for data columns by range".to_string(),
+                    ))
+                }
+            }
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
                 format!(
@@ -1103,11 +1115,11 @@ mod tests {
             OutboundRequest::BlobsByRoot(bbroot) => {
                 assert_eq!(decoded, InboundRequest::BlobsByRoot(bbroot))
             }
-            OutboundRequest::DataColumnsByRange(value) => {
-                assert_eq!(decoded, InboundRequest::DataColumnsByRange(value))
-            }
             OutboundRequest::DataColumnsByRoot(dcbroot) => {
                 assert_eq!(decoded, InboundRequest::DataColumnsByRoot(dcbroot))
+            }
+            OutboundRequest::DataColumnsByRange(dcbrange) => {
+                assert_eq!(decoded, InboundRequest::DataColumnsByRange(dcbrange))
             }
             OutboundRequest::Ping(ping) => {
                 assert_eq!(decoded, InboundRequest::Ping(ping))

@@ -12,7 +12,6 @@ AARCH64_TAG = "aarch64-unknown-linux-gnu"
 BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 
 PINNED_NIGHTLY ?= nightly
-CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
 # List of features to use when cross-compiling. Can be overridden via the environment.
 CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,jemalloc
@@ -62,16 +61,10 @@ install-lcli:
 #
 # The resulting binaries will be created in the `target/` directory.
 #
-# The *-portable options compile the blst library *without* the use of some
-# optimized CPU functions that may not be available on some systems. This
-# results in a more portable binary with ~20% slower BLS verification.
+# The *-portable options is the default feature.
 build-x86_64:
-	cross build --bin lighthouse --target x86_64-unknown-linux-gnu --features "modern,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
-build-x86_64-portable:
 	cross build --bin lighthouse --target x86_64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 build-aarch64:
-	cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
-build-aarch64-portable:
 	cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 
 build-lcli-x86_64:
@@ -96,12 +89,8 @@ build-release-tarballs:
 	[ -d $(BIN_DIR) ] || mkdir -p $(BIN_DIR)
 	$(MAKE) build-x86_64
 	$(call tarball_release_binary,$(BUILD_PATH_X86_64),$(X86_64_TAG),"")
-	$(MAKE) build-x86_64-portable
-	$(call tarball_release_binary,$(BUILD_PATH_X86_64),$(X86_64_TAG),"-portable")
 	$(MAKE) build-aarch64
 	$(call tarball_release_binary,$(BUILD_PATH_AARCH64),$(AARCH64_TAG),"")
-	$(MAKE) build-aarch64-portable
-	$(call tarball_release_binary,$(BUILD_PATH_AARCH64),$(AARCH64_TAG),"-portable")
 
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
@@ -231,13 +220,6 @@ lint:
 # Lints the code using Clippy and automatically fix some simple compiler warnings.
 lint-fix:
 	EXTRA_CLIPPY_OPTS="--fix --allow-staged --allow-dirty" $(MAKE) lint
-
-nightly-lint:
-	cp .github/custom/clippy.toml .
-	cargo +$(CLIPPY_PINNED_NIGHTLY) clippy --workspace --tests --release -- \
-		-A clippy::all \
-		-D clippy::disallowed_from_async
-	rm clippy.toml
 
 # Runs the makefile in the `ef_tests` repo.
 #

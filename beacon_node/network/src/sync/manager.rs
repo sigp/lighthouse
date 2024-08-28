@@ -382,7 +382,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 self.on_single_blob_response(id, peer_id, RpcEvent::RPCError(error))
             }
             SyncRequestId::DataColumnsByRoot(req_id, requester) => self
-                .on_single_data_column_response(
+                .on_data_columns_by_root_response(
                     req_id,
                     requester,
                     peer_id,
@@ -732,10 +732,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
             SyncMessage::SampleBlock(block_root, block_slot) => {
-                debug!(self.log, "Received SampleBlock message"; "block_root" => %block_root);
-                if let Some((requester, result)) =
-                    self.sampling
-                        .on_new_sample_request(block_root, block_slot, &mut self.network)
+                debug!(self.log, "Received SampleBlock message"; "block_root" => %block_root, "slot" => block_slot);
+                if let Some((requester, result)) = self
+                    .sampling
+                    .on_new_sample_request(block_root, &mut self.network)
                 {
                     self.on_sampling_result(requester, result)
                 }
@@ -935,8 +935,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::RangeBlockAndBlobs { id } => {
                 self.range_block_and_blobs_response(id, peer_id, block.into())
             }
-            other => {
-                crit!(self.log, "Single block received on incorrect request"; "request_id" => ?other);
+            _ => {
+                crit!(self.log, "bad request id for block"; "peer_id" => %peer_id  );
             }
         }
     }
@@ -978,8 +978,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::RangeBlockAndBlobs { id } => {
                 self.range_block_and_blobs_response(id, peer_id, blob.into())
             }
-            other => {
-                crit!(self.log, "Single blob received on incorrect request"; "request_id" => ?other);
+            _ => {
+                crit!(self.log, "bad request id for blob"; "peer_id" => %peer_id);
             }
         }
     }
@@ -992,11 +992,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         seen_timestamp: Duration,
     ) {
         match request_id {
-            SyncRequestId::SingleBlock { .. } | SyncRequestId::SingleBlob { .. } => {
-                crit!(self.log, "bad request id for data_column"; "peer_id" => %peer_id  );
-            }
             SyncRequestId::DataColumnsByRoot(req_id, requester) => {
-                self.on_single_data_column_response(
+                self.on_data_columns_by_root_response(
                     req_id,
                     requester,
                     peer_id,
@@ -1012,6 +1009,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     peer_id,
                     BlockOrBlob::CustodyColumns(data_column),
                 );
+            }
+            _ => {
+                crit!(self.log, "bad request id for data_column"; "peer_id" => %peer_id);
             }
         }
     }
@@ -1034,7 +1034,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn on_single_data_column_response(
+    fn on_data_columns_by_root_response(
         &mut self,
         req_id: DataColumnsByRootRequestId,
         requester: DataColumnsByRootRequester,
@@ -1161,6 +1161,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         RangeBlockComponentsRequest::new(
                             resp.expects_blobs,
                             resp.expects_custody_columns,
+                            None,
                             vec![],
                         ),
                     );

@@ -26,7 +26,7 @@ participants:
 network_params:
   eip7594_fork_epoch: 0
   eip7594_fork_version: "0x50000038"
-  data_column_sidecar_subnet_count: 64
+  data_column_sidecar_subnet_count: 128
   samples_per_slot: 16
   custody_requirement: 4
 snooper_enabled: false

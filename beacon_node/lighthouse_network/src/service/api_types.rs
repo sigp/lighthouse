@@ -3,7 +3,7 @@ use std::sync::Arc;
 use libp2p::swarm::ConnectionId;
 use strum::IntoStaticStr;
 use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, EthSpec, Hash256, LightClientBootstrap,
+    BlobSidecar, DataColumnSidecar, EthSpec, Hash256, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, SignedBeaconBlock,
 };
 
@@ -30,6 +30,11 @@ pub struct SingleLookupReqId {
     pub req_id: Id,
 }
 
+/// Request ID for data_columns_by_root requests. Block lookup do not issue this requests directly.
+/// Wrapping this particular req_id, ensures not mixing this requests with a custody req_id.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct DataColumnsByRootRequestId(pub Id);
+
 /// Id of rpc requests sent by sync to the network.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum SyncRequestId {
@@ -43,17 +48,6 @@ pub enum SyncRequestId {
     RangeBlockAndBlobs { id: Id },
 }
 
-/// Request ID for data_columns_by_root requests. Block lookup do not issue this requests directly.
-/// Wrapping this particular req_id, ensures not mixing this requests with a custody req_id.
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct DataColumnsByRootRequestId(pub Id);
-
-impl std::fmt::Display for DataColumnsByRootRequestId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum DataColumnsByRootRequester {
     Sampling(SamplingId),
@@ -63,13 +57,17 @@ pub enum DataColumnsByRootRequester {
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct SamplingId {
     pub id: SamplingRequester,
-    pub column_index: ColumnIndex,
+    pub sampling_request_id: SamplingRequestId,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum SamplingRequester {
     ImportedBlock(Hash256),
 }
+
+/// Identifier of sampling requests.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct SamplingRequestId(pub usize);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct CustodyId {
@@ -152,8 +150,8 @@ impl<E: EthSpec> std::convert::From<Request> for OutboundRequest<E> {
             }
             Request::BlobsByRange(r) => OutboundRequest::BlobsByRange(r),
             Request::BlobsByRoot(r) => OutboundRequest::BlobsByRoot(r),
-            Request::DataColumnsByRange(r) => OutboundRequest::DataColumnsByRange(r),
             Request::DataColumnsByRoot(r) => OutboundRequest::DataColumnsByRoot(r),
+            Request::DataColumnsByRange(r) => OutboundRequest::DataColumnsByRange(r),
             Request::Status(s) => OutboundRequest::Status(s),
         }
     }
@@ -245,5 +243,11 @@ impl slog::Value for RequestId {
                 slog::Value::serialize(&format_args!("{:?}", id), record, key, serializer)
             }
         }
+    }
+}
+
+impl std::fmt::Display for DataColumnsByRootRequestId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }

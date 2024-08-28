@@ -2,6 +2,7 @@ mod kzg_commitment;
 mod kzg_proof;
 mod trusted_setup;
 
+use rust_eth_kzg::{CellIndex, DASContext};
 use std::fmt::Debug;
 
 pub use crate::{
@@ -9,17 +10,16 @@ pub use crate::{
     kzg_proof::KzgProof,
     trusted_setup::TrustedSetup,
 };
+
 pub use c_kzg::{
     Blob, Bytes32, Bytes48, KzgSettings, BYTES_PER_BLOB, BYTES_PER_COMMITMENT,
     BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF, FIELD_ELEMENTS_PER_BLOB,
 };
-use mockall::automock;
 
-pub use peerdas_kzg::{
+pub use rust_eth_kzg::{
     constants::{BYTES_PER_CELL, CELLS_PER_EXT_BLOB},
     Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
 };
-use peerdas_kzg::{prover::ProverError, verifier::VerifierError, PeerDASContext};
 
 pub type CellsAndKzgProofs = ([Cell; CELLS_PER_EXT_BLOB], [KzgProof; CELLS_PER_EXT_BLOB]);
 
@@ -29,14 +29,16 @@ pub type KzgBlobRef<'a> = &'a [u8; BYTES_PER_BLOB];
 pub enum Error {
     /// An error from the underlying kzg library.
     Kzg(c_kzg::Error),
-    /// A prover error from the PeerdasKZG library
-    ProverKZG(ProverError),
-    /// A verifier error from the PeerdasKZG library
-    VerifierKZG(VerifierError),
+    /// A prover/verifier error from the rust-eth-kzg library.
+    PeerDASKZG(rust_eth_kzg::Error),
     /// The kzg verification failed
     KzgVerificationFailed,
     /// Misc indexing error
     InconsistentArrayLength(String),
+    /// Error reconstructing data columns.
+    ReconstructFailed(String),
+    /// Kzg was not initialized with PeerDAS enabled.
+    DASContextUninitialized,
 }
 
 impl From<c_kzg::Error> for Error {
@@ -49,32 +51,45 @@ impl From<c_kzg::Error> for Error {
 #[derive(Debug)]
 pub struct Kzg {
     trusted_setup: KzgSettings,
-    context: PeerDASContext,
+    context: Option<DASContext>,
 }
 
-#[automock]
 impl Kzg {
     /// Load the kzg trusted setup parameters from a vec of G1 and G2 points.
     pub fn new_from_trusted_setup(trusted_setup: TrustedSetup) -> Result<Self, Error> {
+        Ok(Self {
+            trusted_setup: KzgSettings::load_trusted_setup(
+                &trusted_setup.g1_points(),
+                &trusted_setup.g2_points(),
+            )?,
+            context: None,
+        })
+    }
+
+    pub fn new_from_trusted_setup_das_enabled(trusted_setup: TrustedSetup) -> Result<Self, Error> {
         // Initialize the trusted setup using default parameters
         //
         // Note: One can also use `from_json` to initialize it from the consensus-specs
         // json string.
-        let peerdas_trusted_setup = PeerDASTrustedSetup::default();
+        let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
         // Set the number of threads to be used
         //
         // we set it to 1 to match the c-kzg performance
         const NUM_THREADS: usize = 1;
 
-        let context = PeerDASContext::with_threads(&peerdas_trusted_setup, NUM_THREADS);
+        let context = DASContext::with_threads(&peerdas_trusted_setup, NUM_THREADS);
 
         Ok(Self {
             trusted_setup: KzgSettings::load_trusted_setup(
                 &trusted_setup.g1_points(),
                 &trusted_setup.g2_points(),
             )?,
-            context,
+            context: Some(context),
         })
+    }
+
+    fn context(&self) -> Result<&DASContext, Error> {
+        self.context.as_ref().ok_or(Error::DASContextUninitialized)
     }
 
     /// Compute the kzg proof given a blob and its kzg commitment.
@@ -176,15 +191,14 @@ impl Kzg {
     }
 
     /// Computes the cells and associated proofs for a given `blob` at index `index`.
-    #[allow(clippy::needless_lifetimes)]
-    pub fn compute_cells_and_proofs<'a>(
+    pub fn compute_cells_and_proofs(
         &self,
-        blob: KzgBlobRef<'a>,
+        blob: KzgBlobRef<'_>,
     ) -> Result<CellsAndKzgProofs, Error> {
         let (cells, proofs) = self
-            .context
+            .context()?
             .compute_cells_and_kzg_proofs(blob)
-            .map_err(Error::ProverKZG)?;
+            .map_err(Error::PeerDASKZG)?;
 
         // Convert the proof type to a c-kzg proof type
         let c_kzg_proof = proofs.map(KzgProof);
@@ -196,26 +210,20 @@ impl Kzg {
     /// Here, `coordinates` correspond to the (row, col) coordinate of the cell in the extended
     /// blob "matrix". In the 1D extension, row corresponds to the blob index, and col corresponds
     /// to the data column index.
-    #[allow(clippy::needless_lifetimes)]
-    pub fn verify_cell_proof_batch<'a>(
+    pub fn verify_cell_proof_batch(
         &self,
-        cells: &[CellRef<'a>],
+        cells: &[CellRef<'_>],
         kzg_proofs: &[Bytes48],
-        coordinates: &[(u64, u64)],
+        columns: Vec<CellIndex>,
         kzg_commitments: &[Bytes48],
     ) -> Result<(), Error> {
-        let (rows, columns): (Vec<u64>, Vec<u64>) = coordinates.iter().cloned().unzip();
-        // The result of this is either an Ok indicating the proof passed, or an Err indicating
-        // the proof failed or something else went wrong.
-
         let proofs: Vec<_> = kzg_proofs.iter().map(|proof| proof.as_ref()).collect();
         let commitments: Vec<_> = kzg_commitments
             .iter()
             .map(|commitment| commitment.as_ref())
             .collect();
-        let verification_result = self.context.verify_cell_kzg_proof_batch(
+        let verification_result = self.context()?.verify_cell_kzg_proof_batch(
             commitments.to_vec(),
-            rows,
             columns,
             cells.to_vec(),
             proofs.to_vec(),
@@ -224,45 +232,23 @@ impl Kzg {
         // Modify the result so it matches roughly what the previous method was doing.
         match verification_result {
             Ok(_) => Ok(()),
-            Err(VerifierError::InvalidProof) => Err(Error::KzgVerificationFailed),
-            Err(e) => Err(Error::VerifierKZG(e)),
+            Err(e) if e.invalid_proof() => Err(Error::KzgVerificationFailed),
+            Err(e) => Err(Error::PeerDASKZG(e)),
         }
     }
 
-    #[allow(clippy::needless_lifetimes)]
-    pub fn recover_cells_and_compute_kzg_proofs<'a>(
+    pub fn recover_cells_and_compute_kzg_proofs(
         &self,
         cell_ids: &[u64],
-        cells: &[CellRef<'a>],
+        cells: &[CellRef<'_>],
     ) -> Result<CellsAndKzgProofs, Error> {
         let (cells, proofs) = self
-            .context
+            .context()?
             .recover_cells_and_proofs(cell_ids.to_vec(), cells.to_vec())
-            .map_err(Error::ProverKZG)?;
+            .map_err(Error::PeerDASKZG)?;
 
         // Convert the proof type to a c-kzg proof type
         let c_kzg_proof = proofs.map(KzgProof);
         Ok((cells, c_kzg_proof))
-    }
-}
-
-pub mod mock {
-    use crate::{Cell, CellsAndKzgProofs, KzgBlobRef, BYTES_PER_CELL, CELLS_PER_EXT_BLOB};
-    use crate::{Error, KzgProof};
-
-    #[allow(clippy::type_complexity)]
-    pub fn compute_cells_and_proofs(_blob: KzgBlobRef) -> Result<CellsAndKzgProofs, Error> {
-        let empty_cells = vec![Cell::new([0; BYTES_PER_CELL]); CELLS_PER_EXT_BLOB]
-            .try_into()
-            .expect("expected {CELLS_PER_EXT_BLOB} number of items");
-        Ok((empty_cells, [KzgProof::empty(); CELLS_PER_EXT_BLOB]))
-    }
-}
-
-impl TryFrom<TrustedSetup> for Kzg {
-    type Error = Error;
-
-    fn try_from(trusted_setup: TrustedSetup) -> Result<Self, Self::Error> {
-        Kzg::new_from_trusted_setup(trusted_setup)
     }
 }

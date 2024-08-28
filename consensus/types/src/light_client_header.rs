@@ -4,7 +4,7 @@ use crate::ForkVersionDeserialize;
 use crate::{light_client_update::*, BeaconBlockBody};
 use crate::{
     test_utils::TestRandom, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
-    ExecutionPayloadHeaderElectra, FixedVector, Hash256, SignedBeaconBlock,
+    ExecutionPayloadHeaderElectra, FixedVector, Hash256, SignedBlindedBeaconBlock,
 };
 use crate::{BeaconBlockHeader, ExecutionPayloadHeader};
 use derivative::Derivative;
@@ -72,7 +72,7 @@ pub struct LightClientHeader<E: EthSpec> {
 
 impl<E: EthSpec> LightClientHeader<E> {
     pub fn block_to_light_client_header(
-        block: &SignedBeaconBlock<E>,
+        block: &SignedBlindedBeaconBlock<E>,
         chain_spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let header = match block
@@ -139,7 +139,9 @@ impl<E: EthSpec> LightClientHeader<E> {
 }
 
 impl<E: EthSpec> LightClientHeaderAltair<E> {
-    pub fn block_to_light_client_header(block: &SignedBeaconBlock<E>) -> Result<Self, Error> {
+    pub fn block_to_light_client_header(
+        block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<Self, Error> {
         Ok(LightClientHeaderAltair {
             beacon: block.message().block_header(),
             _phantom_data: PhantomData,
@@ -147,8 +149,19 @@ impl<E: EthSpec> LightClientHeaderAltair<E> {
     }
 }
 
+impl<E: EthSpec> Default for LightClientHeaderAltair<E> {
+    fn default() -> Self {
+        Self {
+            beacon: BeaconBlockHeader::empty(),
+            _phantom_data: PhantomData,
+        }
+    }
+}
+
 impl<E: EthSpec> LightClientHeaderCapella<E> {
-    pub fn block_to_light_client_header(block: &SignedBeaconBlock<E>) -> Result<Self, Error> {
+    pub fn block_to_light_client_header(
+        block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<Self, Error> {
         let payload = block
             .message()
             .execution_payload()?
@@ -163,8 +176,9 @@ impl<E: EthSpec> LightClientHeaderCapella<E> {
                 .to_owned(),
         );
 
-        let execution_branch =
-            beacon_block_body.block_body_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
+        let execution_branch = beacon_block_body
+            .to_ref()
+            .block_body_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
 
         return Ok(LightClientHeaderCapella {
             beacon: block.message().block_header(),
@@ -175,14 +189,27 @@ impl<E: EthSpec> LightClientHeaderCapella<E> {
     }
 }
 
+impl<E: EthSpec> Default for LightClientHeaderCapella<E> {
+    fn default() -> Self {
+        Self {
+            beacon: BeaconBlockHeader::empty(),
+            execution: ExecutionPayloadHeaderCapella::default(),
+            execution_branch: FixedVector::default(),
+            _phantom_data: PhantomData,
+        }
+    }
+}
+
 impl<E: EthSpec> LightClientHeaderDeneb<E> {
-    pub fn block_to_light_client_header(block: &SignedBeaconBlock<E>) -> Result<Self, Error> {
-        let payload = block
+    pub fn block_to_light_client_header(
+        block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<Self, Error> {
+        let header = block
             .message()
             .execution_payload()?
-            .execution_payload_deneb()?;
+            .execution_payload_deneb()?
+            .clone();
 
-        let header = ExecutionPayloadHeaderDeneb::from(payload);
         let beacon_block_body = BeaconBlockBody::from(
             block
                 .message()
@@ -191,8 +218,9 @@ impl<E: EthSpec> LightClientHeaderDeneb<E> {
                 .to_owned(),
         );
 
-        let execution_branch =
-            beacon_block_body.block_body_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
+        let execution_branch = beacon_block_body
+            .to_ref()
+            .block_body_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
 
         Ok(LightClientHeaderDeneb {
             beacon: block.message().block_header(),
@@ -203,8 +231,21 @@ impl<E: EthSpec> LightClientHeaderDeneb<E> {
     }
 }
 
+impl<E: EthSpec> Default for LightClientHeaderDeneb<E> {
+    fn default() -> Self {
+        Self {
+            beacon: BeaconBlockHeader::empty(),
+            execution: ExecutionPayloadHeaderDeneb::default(),
+            execution_branch: FixedVector::default(),
+            _phantom_data: PhantomData,
+        }
+    }
+}
+
 impl<E: EthSpec> LightClientHeaderElectra<E> {
-    pub fn block_to_light_client_header(block: &SignedBeaconBlock<E>) -> Result<Self, Error> {
+    pub fn block_to_light_client_header(
+        block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<Self, Error> {
         let payload = block
             .message()
             .execution_payload()?
@@ -219,8 +260,9 @@ impl<E: EthSpec> LightClientHeaderElectra<E> {
                 .to_owned(),
         );
 
-        let execution_branch =
-            beacon_block_body.block_body_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
+        let execution_branch = beacon_block_body
+            .to_ref()
+            .block_body_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
 
         Ok(LightClientHeaderElectra {
             beacon: block.message().block_header(),
@@ -228,6 +270,17 @@ impl<E: EthSpec> LightClientHeaderElectra<E> {
             execution_branch: FixedVector::new(execution_branch)?,
             _phantom_data: PhantomData,
         })
+    }
+}
+
+impl<E: EthSpec> Default for LightClientHeaderElectra<E> {
+    fn default() -> Self {
+        Self {
+            beacon: BeaconBlockHeader::empty(),
+            execution: ExecutionPayloadHeaderElectra::default(),
+            execution_branch: FixedVector::default(),
+            _phantom_data: PhantomData,
+        }
     }
 }
 

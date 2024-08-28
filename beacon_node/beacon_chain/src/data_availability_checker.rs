@@ -15,8 +15,8 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarVec, Epoch, EthSpec, Hash256,
-    RuntimeVariableList, SignedBeaconBlock,
+    BlobSidecarList, ChainSpec, DataColumnIdentifier, DataColumnSidecar, DataColumnSidecarList,
+    Epoch, EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock, Slot,
 };
 
 mod error;
@@ -25,10 +25,9 @@ mod state_lru_cache;
 
 use crate::data_column_verification::{
     verify_kzg_for_data_column_list, CustodyDataColumn, GossipVerifiedDataColumn,
-    KzgVerifiedCustodyDataColumn,
+    KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
 };
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
-use types::data_column_sidecar::DataColumnIdentifier;
 use types::non_zero_usize::new_non_zero_usize;
 
 pub use self::overflow_lru_cache::DataColumnsToPublish;
@@ -113,21 +112,20 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let custody_column_count =
             custody_subnet_count.saturating_mul(spec.data_columns_per_subnet());
 
-        let overflow_cache = DataAvailabilityCheckerInner::new(
+        let inner = DataAvailabilityCheckerInner::new(
             OVERFLOW_LRU_CAPACITY,
             store,
             custody_column_count,
             spec.clone(),
         )?;
         Ok(Self {
-            availability_cache: Arc::new(overflow_cache),
+            availability_cache: Arc::new(inner),
             slot_clock,
             kzg,
             spec,
         })
     }
 
-    /// Total count of columns in custody
     pub fn get_custody_columns_count(&self) -> usize {
         self.availability_cache
             .custody_subnet_count()
@@ -215,7 +213,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn put_rpc_custody_columns(
         &self,
         block_root: Hash256,
-        custody_columns: Vec<CustodyDataColumn<T::EthSpec>>,
+        epoch: Epoch,
+        custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
     {
         let Some(kzg) = self.kzg.as_ref() else {
@@ -226,12 +225,17 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         // TODO(das): batch KZG verification here
         let verified_custody_columns = custody_columns
             .into_iter()
-            .map(|c| KzgVerifiedCustodyDataColumn::new(c, kzg))
-            .collect::<Result<Vec<_>, _>>()?;
+            .map(|column| {
+                Ok(KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                    KzgVerifiedDataColumn::new(column, kzg).map_err(AvailabilityCheckError::Kzg)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, AvailabilityCheckError>>()?;
 
         self.availability_cache.put_kzg_verified_data_columns(
             kzg,
             block_root,
+            epoch,
             verified_custody_columns,
         )
     }
@@ -260,24 +264,27 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     #[allow(clippy::type_complexity)]
     pub fn put_gossip_data_columns(
         &self,
+        slot: Slot,
+        block_root: Hash256,
         gossip_data_columns: Vec<GossipVerifiedDataColumn<T>>,
     ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
     {
         let Some(kzg) = self.kzg.as_ref() else {
             return Err(AvailabilityCheckError::KzgNotInitialized);
         };
-        let block_root = gossip_data_columns
-            .first()
-            .ok_or(AvailabilityCheckError::MissingCustodyColumns)?
-            .block_root();
+        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
 
         let custody_columns = gossip_data_columns
             .into_iter()
             .map(|c| KzgVerifiedCustodyDataColumn::from_asserted_custody(c.into_inner()))
             .collect::<Vec<_>>();
 
-        self.availability_cache
-            .put_kzg_verified_data_columns(kzg, block_root, custody_columns)
+        self.availability_cache.put_kzg_verified_data_columns(
+            kzg,
+            block_root,
+            epoch,
+            custody_columns,
+        )
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
@@ -437,10 +444,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         block_root,
                         block,
                         blobs: None,
-                        blobs_available_timestamp: None,
                         data_columns: data_columns.map(|data_columns| {
                             data_columns.into_iter().map(|d| d.into_inner()).collect()
                         }),
+                        blobs_available_timestamp: None,
                         spec: self.spec.clone(),
                     })
                 } else {
@@ -451,8 +458,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     block_root,
                     block,
                     blobs: None,
-                    blobs_available_timestamp: None,
                     data_columns: None,
+                    blobs_available_timestamp: None,
                     spec: self.spec.clone(),
                 })
             };
@@ -622,9 +629,9 @@ pub struct AvailableBlock<E: EthSpec> {
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<E>>,
     blobs: Option<BlobSidecarList<E>>,
+    data_columns: Option<DataColumnSidecarList<E>>,
     /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
     blobs_available_timestamp: Option<Duration>,
-    data_columns: Option<DataColumnSidecarVec<E>>,
     pub spec: Arc<ChainSpec>,
 }
 
@@ -633,15 +640,15 @@ impl<E: EthSpec> AvailableBlock<E> {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
         blobs: Option<BlobSidecarList<E>>,
-        data_columns: Option<DataColumnSidecarVec<E>>,
+        data_columns: Option<DataColumnSidecarList<E>>,
         spec: Arc<ChainSpec>,
     ) -> Self {
         Self {
             block_root,
             block,
             blobs,
-            blobs_available_timestamp: None,
             data_columns,
+            blobs_available_timestamp: None,
             spec,
         }
     }
@@ -657,12 +664,11 @@ impl<E: EthSpec> AvailableBlock<E> {
         self.blobs.as_ref()
     }
 
-    #[allow(clippy::type_complexity)]
     pub fn blobs_available_timestamp(&self) -> Option<Duration> {
         self.blobs_available_timestamp
     }
 
-    pub fn data_columns(&self) -> Option<&DataColumnSidecarVec<E>> {
+    pub fn data_columns(&self) -> Option<&DataColumnSidecarList<E>> {
         self.data_columns.as_ref()
     }
 
@@ -673,14 +679,14 @@ impl<E: EthSpec> AvailableBlock<E> {
         Hash256,
         Arc<SignedBeaconBlock<E>>,
         Option<BlobSidecarList<E>>,
-        Option<DataColumnSidecarVec<E>>,
+        Option<DataColumnSidecarList<E>>,
     ) {
         let AvailableBlock {
             block_root,
             block,
             blobs,
-            blobs_available_timestamp: _,
             data_columns,
+            blobs_available_timestamp: _,
             ..
         } = self;
         (block_root, block, blobs, data_columns)

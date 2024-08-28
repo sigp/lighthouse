@@ -6,10 +6,10 @@ use crate::engine_api::{
 };
 use crate::json_structures::JsonClientVersionV1;
 use bytes::Bytes;
-use environment::null_logger;
 use execution_block_generator::PoWBlock;
 use handle_rpc::handle_rpc;
 use kzg::Kzg;
+use logging::test_logger;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -47,7 +47,9 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     forkchoice_updated_v2: true,
     forkchoice_updated_v3: true,
     get_payload_bodies_by_hash_v1: true,
+    get_payload_bodies_by_hash_v2: true,
     get_payload_bodies_by_range_v1: true,
+    get_payload_bodies_by_range_v2: true,
     get_payload_v1: true,
     get_payload_v2: true,
     get_payload_v3: true,
@@ -149,7 +151,7 @@ impl<E: EthSpec> MockServer<E> {
         let ctx: Arc<Context<E>> = Arc::new(Context {
             config: server_config,
             jwt_key,
-            log: null_logger().unwrap(),
+            log: test_logger(),
             last_echo_request: last_echo_request.clone(),
             execution_block_generator: RwLock::new(execution_block_generator),
             previous_request: <_>::default(),

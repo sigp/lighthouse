@@ -3,7 +3,6 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
 };
-use environment::null_logger;
 use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
@@ -24,6 +23,7 @@ use http_api::{
     BlockId, StateId,
 };
 use lighthouse_network::{types::SyncState, Enr, EnrExt, PeerId};
+use logging::test_logger;
 use network::NetworkReceivers;
 use proto_array::ExecutionStatus;
 use sensitive_url::SensitiveUrl;
@@ -251,7 +251,7 @@ impl ApiTester {
             "precondition: justification"
         );
 
-        let log = null_logger().unwrap();
+        let log = test_logger();
 
         let ApiServer {
             ctx,
@@ -349,7 +349,7 @@ impl ApiTester {
 
         let chain = harness.chain.clone();
 
-        let log = null_logger().unwrap();
+        let log = test_logger();
 
         let ApiServer {
             ctx,
@@ -1810,6 +1810,36 @@ impl ApiTester {
             "if some attestations are valid, we should send them to the network"
         );
 
+        self
+    }
+
+    pub async fn test_get_beacon_light_client_updates(self) -> Self {
+        let current_epoch = self.chain.epoch().unwrap();
+        let current_sync_committee_period = current_epoch
+            .sync_committee_period(&self.chain.spec)
+            .unwrap();
+
+        let result = match self
+            .client
+            .get_beacon_light_client_updates::<E>(current_sync_committee_period as u64, 1)
+            .await
+        {
+            Ok(result) => result,
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        let expected = self
+            .chain
+            .light_client_server_cache
+            .get_light_client_updates(
+                &self.chain.store,
+                current_sync_committee_period as u64,
+                1,
+                &self.chain.spec,
+            )
+            .unwrap();
+
+        assert_eq!(result.clone().unwrap().len(), expected.len());
         self
     }
 
@@ -3401,7 +3431,7 @@ impl ApiTester {
                     .get_validator_aggregate_attestation_v2(
                         attestation.data().slot,
                         attestation.data().tree_hash_root(),
-                        attestation.committee_index().unwrap(),
+                        attestation.committee_index().expect("committee index"),
                     )
                     .await
                     .unwrap()
@@ -6168,6 +6198,18 @@ async fn node_get() {
         .test_get_node_peers()
         .await
         .test_get_node_peer_count()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_light_client_updates() {
+    let config = ApiTesterConfig {
+        spec: ForkName::Altair.make_genesis_spec(E::default_spec()),
+        ..<_>::default()
+    };
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_beacon_light_client_updates()
         .await;
 }
 

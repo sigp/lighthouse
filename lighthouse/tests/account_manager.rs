@@ -15,7 +15,7 @@ use account_manager::{
 use account_utils::{
     eth2_keystore::KeystoreBuilder,
     validator_definitions::{SigningDefinition, ValidatorDefinition, ValidatorDefinitions},
-    ZeroizeString,
+    ZeroizeString, STDIN_INPUTS_FLAG,
 };
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::env;

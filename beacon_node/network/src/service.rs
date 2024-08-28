@@ -737,49 +737,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
 
-                if self.subscribe_all_data_column_subnets {
-                    for column_subnet in 0..self.fork_context.spec.data_column_sidecar_subnet_count
-                    {
-                        for fork_digest in self.required_gossip_fork_digests() {
-                            let gossip_kind =
-                                Subnet::DataColumn(DataColumnSubnetId::new(column_subnet)).into();
-                            let topic = GossipTopic::new(
-                                gossip_kind,
-                                GossipEncoding::default(),
-                                fork_digest,
-                            );
-                            if self.libp2p.subscribe(topic.clone()) {
-                                subscribed_topics.push(topic);
-                            } else {
-                                warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                            }
-                        }
-                    }
-                } else {
-                    // TODO(das): subscribe after `EIP7594_FORK_EPOCH`
-                    for column_subnet in DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
-                        self.network_globals.local_enr().node_id().raw().into(),
-                        self.network_globals
-                            .local_enr()
-                            .custody_subnet_count::<<T as BeaconChainTypes>::EthSpec>(
-                                &self.fork_context.spec,
-                            ),
-                        &self.fork_context.spec,
-                    ) {
-                        for fork_digest in self.required_gossip_fork_digests() {
-                            let gossip_kind = Subnet::DataColumn(column_subnet).into();
-                            let topic = GossipTopic::new(
-                                gossip_kind,
-                                GossipEncoding::default(),
-                                fork_digest,
-                            );
-                            if self.libp2p.subscribe(topic.clone()) {
-                                subscribed_topics.push(topic);
-                            } else {
-                                warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
-                            }
-                        }
-                    }
+                // TODO(das): This is added here for the purpose of testing, *without* having to
+                // activate Electra. This should happen as part of the Electra upgrade and we should
+                // move the subscription logic once it's ready to rebase PeerDAS on Electra, or if
+                // we decide to activate via the soft fork route:
+                // https://github.com/sigp/lighthouse/pull/5899
+                if self.fork_context.spec.is_peer_das_scheduled() {
+                    self.subscribe_to_peer_das_topics(&mut subscribed_topics);
                 }
 
                 // If we are to subscribe to all subnets we do it here
@@ -823,6 +787,45 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         "Subscribed to topics";
                         "topics" => ?subscribed_topics.into_iter().map(|topic| format!("{}", topic)).collect::<Vec<_>>()
                     );
+                }
+            }
+        }
+    }
+
+    fn subscribe_to_peer_das_topics(&mut self, subscribed_topics: &mut Vec<GossipTopic>) {
+        if self.subscribe_all_data_column_subnets {
+            for column_subnet in 0..self.fork_context.spec.data_column_sidecar_subnet_count {
+                for fork_digest in self.required_gossip_fork_digests() {
+                    let gossip_kind =
+                        Subnet::DataColumn(DataColumnSubnetId::new(column_subnet)).into();
+                    let topic =
+                        GossipTopic::new(gossip_kind, GossipEncoding::default(), fork_digest);
+                    if self.libp2p.subscribe(topic.clone()) {
+                        subscribed_topics.push(topic);
+                    } else {
+                        warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
+                    }
+                }
+            }
+        } else {
+            for column_subnet in DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
+                self.network_globals.local_enr().node_id().raw().into(),
+                self.network_globals
+                    .local_enr()
+                    .custody_subnet_count::<<T as BeaconChainTypes>::EthSpec>(
+                        &self.fork_context.spec,
+                    ),
+                &self.fork_context.spec,
+            ) {
+                for fork_digest in self.required_gossip_fork_digests() {
+                    let gossip_kind = Subnet::DataColumn(column_subnet).into();
+                    let topic =
+                        GossipTopic::new(gossip_kind, GossipEncoding::default(), fork_digest);
+                    if self.libp2p.subscribe(topic.clone()) {
+                        subscribed_topics.push(topic);
+                    } else {
+                        warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
+                    }
                 }
             }
         }

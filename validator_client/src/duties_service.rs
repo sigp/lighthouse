@@ -86,7 +86,8 @@ const _: () = assert!({
 /// This number is based upon `MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD` value in the
 /// `beacon_node::network::attestation_service` crate. It is not imported directly to avoid
 /// bringing in the entire crate.
-const _: () = assert!(ATTESTATION_SUBSCRIPTION_OFFSETS[0] > 2);
+const MIN_ATTESTATION_SUBSCRIPTION_LOOKAHEAD: u64 = 2;
+const _: () = assert!(ATTESTATION_SUBSCRIPTION_OFFSETS[0] > MIN_ATTESTATION_SUBSCRIPTION_LOOKAHEAD);
 
 // The info in the enum variants is displayed in logging, clippy thinks it's dead code.
 #[derive(Debug)]
@@ -121,6 +122,8 @@ pub struct DutyAndProof {
 pub struct SubscriptionSlots {
     /// Pairs of `(slot, already_sent)` in slot-descending order.
     slots: Vec<(Slot, AtomicBool)>,
+    /// The slot of the duty itself.
+    duty_slot: Slot,
 }
 
 /// Create a selection proof for `duty`.
@@ -172,18 +175,20 @@ impl SubscriptionSlots {
             .filter(|scheduled_slot| *scheduled_slot > current_slot)
             .map(|scheduled_slot| (scheduled_slot, AtomicBool::new(false)))
             .collect();
-        Arc::new(Self { slots })
+        Arc::new(Self { slots, duty_slot })
     }
 
     /// Return `true` if we should send a subscription at `slot`.
     fn should_send_subscription_at(&self, slot: Slot) -> bool {
         // Iterate slots from smallest to largest looking for one that hasn't been completed yet.
-        self.slots
-            .iter()
-            .rev()
-            .any(|(scheduled_slot, already_sent)| {
-                slot >= *scheduled_slot && !already_sent.load(Ordering::Relaxed)
-            })
+        slot + MIN_ATTESTATION_SUBSCRIPTION_LOOKAHEAD <= self.duty_slot
+            && self
+                .slots
+                .iter()
+                .rev()
+                .any(|(scheduled_slot, already_sent)| {
+                    slot >= *scheduled_slot && !already_sent.load(Ordering::Relaxed)
+                })
     }
 
     /// Update our record of subscribed slots to account for successful subscription at `slot`.
@@ -737,7 +742,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     // If there are any subscriptions, push them out to beacon nodes
     if !subscriptions.is_empty() {
         let subscriptions_ref = &subscriptions;
-        if let Err(e) = duties_service
+        let subscription_result = duties_service
             .beacon_nodes
             .request(
                 RequireSynced::No,
@@ -753,15 +758,8 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
                         .await
                 },
             )
-            .await
-        {
-            error!(
-                log,
-                "Failed to subscribe validators";
-                "error" => %e
-            )
-        } else {
-            // Record that subscriptions were successfully sent.
+            .await;
+        if subscription_result.as_ref().is_ok() {
             debug!(
                 log,
                 "Broadcast attestation subscriptions";
@@ -769,6 +767,25 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
             );
             for subscription_slots in subscription_slots_to_confirm {
                 subscription_slots.record_successful_subscription_at(current_slot);
+            }
+        } else if let Err(e) = subscription_result {
+            if e.num_errors() < duties_service.beacon_nodes.num_total() {
+                warn!(
+                    log,
+                    "Some subscriptions failed";
+                    "error" => %e,
+                );
+                // If subscriptions were sent to at least one node, regard that as a success.
+                // There is some redundancy built into the subscription schedule to handle failures.
+                for subscription_slots in subscription_slots_to_confirm {
+                    subscription_slots.record_successful_subscription_at(current_slot);
+                }
+            } else {
+                error!(
+                    log,
+                    "All subscriptions failed";
+                    "error" => %e
+                );
             }
         }
     }

@@ -569,19 +569,20 @@ pub static FORK_CHOICE_AFTER_FINALIZATION_TIMES: LazyLock<Result<Histogram>> =
             exponential_buckets(1e-3, 2.0, 10),
         )
     });
-pub static FORK_CHOICE_PROCESS_BLOCK_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "beacon_fork_choice_process_block_seconds",
-        "Time taken to add a block and all attestations to fork choice",
+pub static FORK_CHOICE_READ_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_read_lock_aquire_seconds",
+        "Time taken to aquire the fork-choice read lock",
+        exponential_buckets(1e-4, 4.0, 7),
     )
 });
-pub static FORK_CHOICE_PROCESS_ATTESTATION_TIMES: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-            "beacon_fork_choice_process_attestation_seconds",
-            "Time taken to add an attestation to fork choice",
-        )
-    });
+pub static FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_write_lock_aquire_seconds",
+        "Time taken to aquire the fork-choice write lock",
+        exponential_buckets(1e-3, 4.0, 7),
+    )
+});
 pub static FORK_CHOICE_SET_HEAD_LAG_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_fork_choice_set_head_lag_times",
@@ -1618,13 +1619,6 @@ pub static BLOBS_SIDECAR_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> = Laz
         "Count of all blob sidecars submitted for processing",
     )
 });
-pub static BLOBS_COLUMN_SIDECAR_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> =
-    LazyLock::new(|| {
-        try_create_int_counter(
-            "beacon_blobs_column_sidecar_processing_requests_total",
-            "Count of all data column sidecars submitted for processing",
-        )
-    });
 pub static BLOBS_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_blobs_sidecar_processing_successes_total",
@@ -1653,9 +1647,10 @@ pub static BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION: LazyLock<Result<Histogram>>
         )
     });
 pub static DATA_COLUMN_SIDECAR_COMPUTATION: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
+    try_create_histogram_with_buckets(
         "data_column_sidecar_computation_seconds",
         "Time taken to compute data column sidecar, including cells, proofs and inclusion proof",
+        Ok(vec![0.04, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0]),
     )
 });
 pub static DATA_COLUMN_SIDECAR_INCLUSION_PROOF_VERIFICATION: LazyLock<Result<Histogram>> =
@@ -1814,16 +1809,22 @@ pub static KZG_VERIFICATION_BATCH_TIMES: LazyLock<Result<Histogram>> = LazyLock:
 });
 pub static KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
-        try_create_histogram(
+        try_create_histogram_with_buckets(
             "kzg_verification_data_column_single_seconds",
             "Runtime of single data column kzg verification",
+            Ok(vec![
+                0.0005, 0.001, 0.0015, 0.002, 0.003, 0.004, 0.005, 0.007, 0.01, 0.02, 0.05,
+            ]),
         )
     });
 pub static KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
-        try_create_histogram(
+        try_create_histogram_with_buckets(
             "kzg_verification_data_column_batch_seconds",
             "Runtime of batched data column kzg verification",
+            Ok(vec![
+                0.002, 0.004, 0.006, 0.008, 0.01, 0.012, 0.015, 0.02, 0.03, 0.05, 0.07,
+            ]),
         )
     });
 
@@ -1988,6 +1989,11 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
         .validator_monitor
         .read()
         .scrape_metrics(&beacon_chain.slot_clock, &beacon_chain.spec);
+
+    beacon_chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .scrape_for_metrics();
 }
 
 /// Scrape the given `state` assuming it's the head state, updating the `DEFAULT_REGISTRY`.

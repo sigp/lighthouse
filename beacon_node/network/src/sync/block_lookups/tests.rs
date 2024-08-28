@@ -132,7 +132,11 @@ impl TestRig {
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         // TODO(das): make the generation of the ENR use the deterministic rng to have consistent
         // column assignments
-        let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
+        let globals = Arc::new(NetworkGlobals::new_test_globals(
+            Vec::new(),
+            &log,
+            chain.spec.clone(),
+        ));
         let (beacon_processor, beacon_processor_rx) = NetworkBeaconProcessor::null_for_testing(
             globals,
             chain.clone(),
@@ -385,21 +389,17 @@ impl TestRig {
     }
 
     fn new_connected_peer(&mut self) -> PeerId {
-        let peer_id = PeerId::random();
         self.network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(&peer_id, false, &self.harness.spec);
-        peer_id
+            .__add_connected_peer_testing_only(false, &self.harness.spec)
     }
 
     fn new_connected_supernode_peer(&mut self) -> PeerId {
-        let peer_id = PeerId::random();
         self.network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(&peer_id, true, &self.harness.spec);
-        peer_id
+            .__add_connected_peer_testing_only(true, &self.harness.spec)
     }
 
     fn new_connected_peers_for_peerdas(&mut self) {
@@ -716,7 +716,13 @@ impl TestRig {
     ) {
         let first_dc = data_columns.first().unwrap();
         let block_root = first_dc.block_root();
-        let column_index = first_dc.index;
+        let sampling_request_id = match id.0 {
+            SyncRequestId::DataColumnsByRoot(
+                _,
+                _requester @ DataColumnsByRootRequester::Sampling(sampling_id),
+            ) => sampling_id.sampling_request_id,
+            _ => unreachable!(),
+        };
         self.complete_data_columns_by_root_request(id, data_columns);
 
         // Expect work event
@@ -727,7 +733,7 @@ impl TestRig {
         self.send_sync_message(SyncMessage::SampleVerified {
             id: SamplingId {
                 id: SamplingRequester::ImportedBlock(block_root),
-                column_index,
+                sampling_request_id,
             },
             result: Ok(()),
         })
@@ -972,8 +978,8 @@ impl TestRig {
         .unwrap_or_else(|e| panic!("Expected blob parent request for {for_block:?}: {e}"))
     }
 
-    /// Retrieves an unknown number of requests for data columns of `block_root`. Because peer enrs
-    /// are random, and peer selection is random the total number of batches requests in unknown.
+    /// Retrieves an unknown number of requests for data columns of `block_root`. Because peer ENRs
+    /// are random, and peer selection is random, the total number of batched requests is unknown.
     fn expect_data_columns_by_root_requests(
         &mut self,
         block_root: Hash256,

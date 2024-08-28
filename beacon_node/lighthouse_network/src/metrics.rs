@@ -77,6 +77,12 @@ pub static DISCOVERY_SESSIONS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
         "The number of active discovery sessions with peers",
     )
 });
+pub static DISCOVERY_NO_USEFUL_ENRS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "discovery_no_useful_enrs_found",
+        "Total number of counts a query returned no useful ENRs to dial",
+    )
+});
 
 pub static PEERS_PER_CLIENT: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
     try_create_int_gauge_vec(

@@ -172,6 +172,7 @@ impl<E: EthSpec> Network<E> {
                 trusted_peers,
                 config.disable_peer_scoring,
                 &log,
+                ctx.chain_spec.clone(),
             );
             Arc::new(globals)
         };
@@ -260,7 +261,7 @@ impl<E: EthSpec> Network<E> {
                 ),
                 // during a fork we subscribe to both the old and new topics
                 max_subscribed_topics: max_topics * 4,
-                // 209 in theory = (64 attestation + 4 sync committee + 7 core topics + 6 blob topics + 64 column topics) * 2
+                // 418 in theory = (64 attestation + 4 sync committee + 7 core topics + 6 blob topics + 128 column topics) * 2
                 max_subscriptions_per_request: max_topics * 2,
             };
 

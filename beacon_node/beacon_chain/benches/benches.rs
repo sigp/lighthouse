@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, reconstruct_data_columns};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use bls::Signature;
@@ -7,7 +8,7 @@ use eth2_network_config::TRUSTED_SETUP_BYTES;
 use kzg::{Kzg, KzgCommitment, TrustedSetup};
 use types::{
     beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockDeneb, Blob, BlobsList, ChainSpec,
-    DataColumnSidecar, EmptyBlock, EthSpec, MainnetEthSpec, SignedBeaconBlock,
+    EmptyBlock, EthSpec, MainnetEthSpec, SignedBeaconBlock,
 };
 
 fn create_test_block_and_blobs<E: EthSpec>(
@@ -44,14 +45,14 @@ fn all_benches(c: &mut Criterion) {
         let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(blob_count, &spec);
 
         let column_sidecars =
-            DataColumnSidecar::build_sidecars(&blob_sidecars, &signed_block, &kzg.clone(), &spec)
+            blobs_to_data_column_sidecars(&blob_sidecars, &signed_block, &kzg.clone(), &spec)
                 .unwrap();
 
         let spec = spec.clone();
 
         c.bench_function(&format!("reconstruct_{}", blob_count), |b| {
             b.iter(|| {
-                black_box(DataColumnSidecar::reconstruct(
+                black_box(reconstruct_data_columns(
                     &kzg,
                     &column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2],
                     spec.as_ref(),
