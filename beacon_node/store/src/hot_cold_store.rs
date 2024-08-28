@@ -2965,6 +2965,8 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         .into());
     }
 
+    // finalized_state.slot() must be at an epoch boundary
+    // else we may introduce bugs to the migration/pruning logic
     if finalized_state.slot() % E::slots_per_epoch() != 0 {
         return Err(HotColdDBError::FreezeSlotUnaligned(finalized_state.slot()).into());
     }
@@ -3057,7 +3059,11 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 
     // Prune sync committee branch data for all non checkpoint block roots.
     // Note that `non_checkpoint_block_roots` should only contain non checkpoint block roots
-    // as long as `finalized_state.slot()` is at an epoch boundary.
+    // as long as `finalized_state.slot()` is at an epoch boundary. If this were not the case
+    // we risk the chance of pruning a `sync_committee_branch` for a checkpoint block root.
+    // E.g. if `current_split_slot` = (Epoch A slot 0) and `finalized_state.slot()` = (Epoch C slot 31)
+    // and (Epoch D slot 0) is a skipped slot, we will have pruned a `sync_committee_branch`
+    // for a checkpoint block root.
     non_checkpoint_block_roots
         .into_iter()
         .for_each(|block_root| {
