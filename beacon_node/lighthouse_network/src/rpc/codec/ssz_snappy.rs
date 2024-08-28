@@ -419,13 +419,19 @@ fn context_bytes<E: EthSpec>(
                         }
                     };
                 }
-                RPCResponse::BlobsByRange(_)
-                | RPCResponse::BlobsByRoot(_)
-                | RPCResponse::DataColumnsByRoot(_)
-                | RPCResponse::DataColumnsByRange(_) => {
-                    // TODO(das): If DataColumnSidecar is defined as an Electra type, update the
-                    // context bytes to point to ForkName::Electra
+                RPCResponse::BlobsByRange(_) | RPCResponse::BlobsByRoot(_) => {
                     return fork_context.to_context_bytes(ForkName::Deneb);
+                }
+                RPCResponse::DataColumnsByRoot(data_column)
+                | RPCResponse::DataColumnsByRange(data_column) => {
+                    // TODO(das): Remove deneb fork after `peerdas-devnet-2`.
+                    return if fork_context.spec.eip7594_fork_epoch
+                        == fork_context.spec.deneb_fork_epoch
+                    {
+                        fork_context.to_context_bytes(ForkName::Deneb)
+                    } else {
+                        fork_context.to_context_bytes(ForkName::Electra)
+                    };
                 }
                 RPCResponse::LightClientBootstrap(lc_bootstrap) => {
                     return lc_bootstrap
