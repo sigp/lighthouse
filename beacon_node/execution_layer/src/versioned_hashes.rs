@@ -71,9 +71,8 @@ pub fn beacon_tx_to_tx_envelope<N: Unsigned>(
 mod test {
     use super::*;
     use crate::test_utils::static_valid_tx;
-    // TODO(alloy) uncomment once https://github.com/alloy-rs/alloy/pull/1167 is merged
-    // use alloy_consensus::TxLegacy;
-    // use alloy_primitives::TxKind;
+    use alloy_consensus::TxLegacy;
+    use alloy_primitives::TxKind;
 
     type E = types::MainnetEthSpec;
 
@@ -81,21 +80,20 @@ mod test {
     fn test_decode_static_transaction() {
         let valid_tx = static_valid_tx::<E>().expect("should give me known valid transaction");
         let tx_envelope = beacon_tx_to_tx_envelope(&valid_tx).expect("should decode tx");
-        let TxEnvelope::Legacy(_) = tx_envelope else {
+        let TxEnvelope::Legacy(signed_tx) = tx_envelope else {
             panic!("should decode to legacy transaction");
         };
 
-        // TODO(alloy) uncomment once https://github.com/alloy-rs/alloy/pull/1167 is merged
-        // assert!(matches!(
-        //     signed_tx.tx(),
-        //     TxLegacy {
-        //         chain_id: Some(0x01),
-        //         nonce: 0x15,
-        //         gas_price: 0x4a817c800,
-        //         to: TxKind::Call(..),
-        //         ..
-        //     }
-        // ));
+        assert!(matches!(
+            signed_tx.tx(),
+            TxLegacy {
+                chain_id: Some(0x01),
+                nonce: 0x15,
+                gas_price: 0x4a817c800,
+                to: TxKind::Call(..),
+                ..
+            }
+        ));
     }
 
     #[test]
