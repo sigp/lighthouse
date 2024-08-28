@@ -247,7 +247,10 @@ pub fn build_enr<E: EthSpec>(
         } else {
             spec.custody_requirement
         };
-        builder.add_value(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY, &custody_subnet_count);
+        let csc: u8 = custody_subnet_count
+            .try_into()
+            .map_err(|_| "custody_subnet_count cannot exceed u8::MAX".to_string())?;
+        builder.add_value(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY, &csc);
     }
 
     builder
