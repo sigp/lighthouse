@@ -166,7 +166,10 @@ impl<E: EthSpec> NetworkGlobals<E> {
                 seq_number: 0,
                 attnets: Default::default(),
                 syncnets: Default::default(),
-                custody_subnet_count: spec.data_column_sidecar_subnet_count,
+                custody_subnet_count: spec
+                    .data_column_sidecar_subnet_count
+                    .try_into()
+                    .expect("config value should fit within a u8"),
             }),
             trusted_peers,
             false,

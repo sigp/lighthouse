@@ -225,7 +225,9 @@ pub fn load_or_build_metadata<E: EthSpec>(
             attnets: meta_data.attnets,
             seq_number: meta_data.seq_number,
             syncnets: meta_data.syncnets,
-            custody_subnet_count: custody_count,
+            custody_subnet_count: custody_count
+                .try_into()
+                .expect("config value must fit in a u8"),
         })
     } else {
         MetaData::V2(meta_data)
