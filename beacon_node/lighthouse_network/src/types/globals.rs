@@ -1,6 +1,6 @@
 //! A collection of variables that are accessible outside of the network thread itself.
 use crate::peer_manager::peerdb::PeerDB;
-use crate::rpc::{MetaData, MetaDataV2};
+use crate::rpc::{MetaData, MetaDataV3};
 use crate::types::{BackFillState, SyncState};
 use crate::EnrExt;
 use crate::{Client, Eth2Enr};
@@ -27,7 +27,7 @@ pub struct NetworkGlobals<E: EthSpec> {
     pub sync_state: RwLock<SyncState>,
     /// The current state of the backfill sync.
     pub backfill_state: RwLock<BackFillState>,
-    spec: ChainSpec,
+    pub spec: ChainSpec,
 }
 
 impl<E: EthSpec> NetworkGlobals<E> {
@@ -138,10 +138,8 @@ impl<E: EthSpec> NetworkGlobals<E> {
 
     /// Returns a connected peer that:
     /// 1. is connected
-    /// 2. assigned to custody the column based on it's `custody_subnet_count` from ENR or metadata (WIP)
+    /// 2. assigned to custody the column based on it's `custody_subnet_count` from ENR or metadata
     /// 3. has a good score
-    /// 4. subscribed to the specified column - this condition can be removed later, so we can
-    ///    identify and penalise peers that are supposed to custody the column.
     pub fn custody_peers_for_column(&self, column_index: ColumnIndex) -> Vec<PeerId> {
         self.peers
             .read()
@@ -165,10 +163,11 @@ impl<E: EthSpec> NetworkGlobals<E> {
         let enr = discv5::enr::Enr::builder().build(&enr_key).unwrap();
         NetworkGlobals::new(
             enr,
-            MetaData::V2(MetaDataV2 {
+            MetaData::V3(MetaDataV3 {
                 seq_number: 0,
                 attnets: Default::default(),
                 syncnets: Default::default(),
+                custody_subnet_count: spec.data_column_sidecar_subnet_count,
             }),
             trusted_peers,
             false,

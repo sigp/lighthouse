@@ -50,7 +50,7 @@ impl<E: EthSpec> Case for KZGComputeKZGProof<E> {
             Ok((blob, z))
         };
 
-        let kzg = get_kzg()?;
+        let kzg = get_kzg();
         let proof = parse_input(&self.input).and_then(|(blob, z)| {
             compute_kzg_proof::<E>(&kzg, &blob, z)
                 .map_err(|e| Error::InternalError(format!("Failed to compute kzg proof: {:?}", e)))
