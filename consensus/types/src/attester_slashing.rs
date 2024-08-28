@@ -5,6 +5,7 @@ use crate::{test_utils::TestRandom, EthSpec};
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_types::{BitVector, typenum::{self, Unsigned}};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -28,10 +29,10 @@ use tree_hash_derive::TreeHash;
         serde(bound = "E: EthSpec"),
         arbitrary(bound = "E: EthSpec")
     ),
-    specific_variant_attributes(tree_hash(
+    specific_variant_attributes(Electra(tree_hash(
         struct_behaviour = "profile",
         max_fields = "typenum::U8"
-    )),
+    ))),
     ref_attributes(derive(Debug))
 )]
 #[derive(
@@ -44,10 +45,8 @@ use tree_hash_derive::TreeHash;
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct AttesterSlashing<E: EthSpec> {
     #[superstruct(flatten)]
-    #[tree_hash(stable_index = 0)]
     pub attestation_1: IndexedAttestation<E>,
     #[superstruct(flatten)]
-    #[tree_hash(stable_index = 1)]
     pub attestation_2: IndexedAttestation<E>,
 }
 

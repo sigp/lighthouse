@@ -5,7 +5,7 @@ use derivative::Derivative;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use ssz_types::BitVector;
+use ssz_types::{BitVector, typenum::{self, Unsigned}};
 use std::hash::{Hash, Hasher};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
@@ -45,10 +45,8 @@ pub enum Error {
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
     ),
-    specific_variant_attributes(tree_hash(
-        struct_behaviour = "profile",
-        max_fields = "typenum::U8"
-    )),
+    specific_variant_attributes(Electra(tree_hash(struct_behaviour = "profile",
+        max_fields = "typenum::U8"))),
     ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent")),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
@@ -71,17 +69,12 @@ pub enum Error {
 #[arbitrary(bound = "E: EthSpec")]
 pub struct Attestation<E: EthSpec> {
     #[superstruct(only(Base), partial_getter(rename = "aggregation_bits_base"))]
-    #[tree_hash(stable_index = 0)]
     pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
     #[superstruct(only(Electra), partial_getter(rename = "aggregation_bits_electra"))]
-    #[tree_hash(stable_index = 0)]
     pub aggregation_bits: BitList<E::MaxValidatorsPerSlot>,
-    #[tree_hash(stable_index = 1)]
     pub data: AttestationData,
-    #[tree_hash(stable_index = 2)]
     pub signature: AggregateSignature,
     #[superstruct(only(Electra))]
-    #[tree_hash(stable_index = 3)]
     pub committee_bits: BitVector<E::MaxCommitteesPerSlot>,
 }
 
