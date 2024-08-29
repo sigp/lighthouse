@@ -29,3 +29,6 @@ slog = { workspace = true }
 logging = { workspace = true }
 bytes = { workspace = true }
 kzg = { workspace = true }
+
+[package.metadata.cargo-udeps.ignore]
+normal = ["kzg"]
