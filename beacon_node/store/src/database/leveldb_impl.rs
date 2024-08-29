@@ -163,6 +163,7 @@ impl<E: EthSpec> LevelDB<E> {
                 }
 
                 KeyValueStoreOp::DeleteKey(col, key) => {
+                    let _timer = metrics::start_timer(&metrics::DISK_DB_DELETE_TIMES);
                     metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[&col]);
                     let column_key = get_key_for_col(&col, &key);
                     leveldb_batch.delete(BytesKey::from_vec(column_key));
@@ -226,7 +227,6 @@ impl<E: EthSpec> LevelDB<E> {
 
         Ok(Box::new(
             iter.take_while(move |(key, _)| {
-                metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
                 let Some(trimmed_key) = key.remove_column_variable(column) else {
                     return false;
                 };
@@ -236,6 +236,12 @@ impl<E: EthSpec> LevelDB<E> {
                 key.matches_column(column) && predicate(trimmed_key, trimmed_start_key)
             })
             .map(move |(bytes_key, value)| {
+                metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
+                metrics::inc_counter_vec_by(
+                    &metrics::DISK_DB_READ_BYTES,
+                    &[column.into()],
+                    value.len() as u64,
+                );
                 let key = bytes_key.remove_column_variable(column).ok_or_else(|| {
                     HotColdDBError::IterationError {
                         unexpected_key: bytes_key.clone(),
@@ -255,7 +261,12 @@ impl<E: EthSpec> LevelDB<E> {
         Ok(Box::new(
             iter.take_while(move |key| key.matches_column(column))
                 .map(move |bytes_key| {
-                    metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
+                    metrics::inc_counter_vec(&metrics::DISK_DB_KEY_READ_COUNT, &[column.into()]);
+                    metrics::inc_counter_vec_by(
+                        &metrics::DISK_DB_KEY_READ_BYTES,
+                        &[column.into()],
+                        bytes_key.key.len() as u64,
+                    );
                     let key = &bytes_key.key[column.as_bytes().len()..];
                     K::from_bytes(key)
                 }),
