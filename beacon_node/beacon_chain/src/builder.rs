@@ -1199,7 +1199,7 @@ mod test {
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let runtime = TestRuntime::default();
 
-        let kzg = if spec.deneb_fork_epoch {
+        let kzg = if spec.deneb_fork_epoch.is_some() {
             KZG.clone()
         } else {
             KZG_NO_PRECOMP.clone()
