@@ -802,11 +802,8 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
                     GossipDataColumnError::KzgNotInitialized,
                 ))?;
 
-            let timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_COMPUTATION);
-
             let blob_refs = blobs.iter().collect::<Vec<_>>();
             let sidecars = blobs_to_data_column_sidecars(&blob_refs, block, kzg, &chain.spec)?;
-            drop(timer);
             let mut gossip_verified_data_columns = vec![];
             for sidecar in sidecars {
                 let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
