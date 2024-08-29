@@ -226,7 +226,7 @@ impl<E: EthSpec> Redb<E> {
                     &[column.into()],
                     key.value().len() as u64,
                 );
-                K::from_bytes(k.value())
+                K::from_bytes(key.value())
             })
         };
 
@@ -260,7 +260,7 @@ impl<E: EthSpec> Redb<E> {
                     Ok((key, _)) => predicate(key.value(), prefix.as_slice()),
                     Err(_) => false,
                 })
-                .map(|res| {
+                .map(move |res| {
                     let (key, value) = res?;
                     metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
                     metrics::inc_counter_vec_by(
