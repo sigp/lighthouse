@@ -165,6 +165,14 @@ impl Debug for RateLimiterConfig {
             .field("blocks_by_root", fmt_q!(&self.blocks_by_root_quota))
             .field("blobs_by_range", fmt_q!(&self.blobs_by_range_quota))
             .field("blobs_by_root", fmt_q!(&self.blobs_by_root_quota))
+            .field(
+                "data_columns_by_range",
+                fmt_q!(&self.data_columns_by_range_quota),
+            )
+            .field(
+                "data_columns_by_root",
+                fmt_q!(&self.data_columns_by_root_quota),
+            )
             .finish()
     }
 }

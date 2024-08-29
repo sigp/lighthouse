@@ -1,4 +1,4 @@
-# Full configuration reference [here](https://github.com/kurtosis-tech/ethereum-package?tab=readme-ov-file#configuration).
+# Full configuration reference [here](https://github.com/ethpandaops/ethereum-package?tab=readme-ov-file#configuration).
 participants:
   - el_type: geth
     el_image: ethereum/client-go:latest

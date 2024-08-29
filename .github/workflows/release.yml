@@ -78,13 +78,13 @@ jobs:
               if:   matrix.arch == 'aarch64-unknown-linux-gnu'
               run:  |
                 cargo install cross
-                env CROSS_PROFILE=${{ matrix.profile }} make build-aarch64-portable
+                env CROSS_PROFILE=${{ matrix.profile }} make build-aarch64
 
             - name: Build Lighthouse for x86_64-unknown-linux-gnu
               if:   matrix.arch == 'x86_64-unknown-linux-gnu'
               run:  |
                 cargo install cross
-                env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64-portable
+                env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64
 
             - name: Move cross-compiled binary
               if:  contains(matrix.arch, 'unknown-linux-gnu')
@@ -113,7 +113,7 @@ jobs:
                   echo "$GPG_PASSPHRASE" | gpg --passphrase-fd 0 --pinentry-mode loopback --batch -ab lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
                   for ext in "tar.gz" "tar.gz.asc";\
                   do for f in *.$ext;\
-                    do cp $f "../${f%.$ext}-portable.$ext";\
+                    do cp $f "../${f%.$ext}.$ext";\
                     done;\
                   done
                   mv *tar.gz* ..
@@ -144,27 +144,11 @@ jobs:
                   path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
                   compression-level: 0
 
-            - name: Upload artifact (copy)
-              if: startsWith(matrix.arch, 'x86_64-windows') != true
-              uses: actions/upload-artifact@v4
-              with:
-                  name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}-portable.tar.gz
-                  path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}-portable.tar.gz
-                  compression-level: 0
-
             - name: Upload signature
               uses: actions/upload-artifact@v4
               with:
                   name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
                   path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
-                  compression-level: 0
-
-            - name: Upload signature (copy)
-              if: startsWith(matrix.arch, 'x86_64-windows') != true
-              uses: actions/upload-artifact@v4
-              with:
-                  name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}-portable.tar.gz.asc
-                  path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}-portable.tar.gz.asc
                   compression-level: 0
 
     draft-release:

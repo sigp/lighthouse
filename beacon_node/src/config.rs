@@ -204,6 +204,10 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.shuffling_cache_size = cache_size;
     }
 
+    if cli_args.get_flag("enable-sampling") {
+        client_config.chain.enable_sampling = true;
+    }
+
     /*
      * Prometheus metrics HTTP server
      */
@@ -475,6 +479,12 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_optional(cli_args, "blob-prune-margin-epochs")?
     {
         client_config.store.blob_prune_margin_epochs = blob_prune_margin_epochs;
+    }
+
+    if let Some(malicious_withhold_count) =
+        clap_utils::parse_optional(cli_args, "malicious-withhold-count")?
+    {
+        client_config.chain.malicious_withhold_count = malicious_withhold_count;
     }
 
     /*

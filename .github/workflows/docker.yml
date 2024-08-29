@@ -80,7 +80,7 @@ jobs:
             - name: Set `make` command for lighthouse
               if: startsWith(matrix.binary, 'lighthouse')
               run: |
-                echo "MAKE_CMD=build-${{ matrix.cpu_arch }}-portable" >> $GITHUB_ENV
+                echo "MAKE_CMD=build-${{ matrix.cpu_arch }}" >> $GITHUB_ENV
 
             - name: Set `make` command for lcli
               if: startsWith(matrix.binary, 'lcli')

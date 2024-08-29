@@ -409,8 +409,8 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     // Verify that the blob_sidecar was received on the correct subnet.
     if blob_index != subnet {
         return Err(GossipBlobError::InvalidSubnet {
-            expected: blob_index,
-            received: subnet,
+            expected: subnet,
+            received: blob_index,
         });
     }
 

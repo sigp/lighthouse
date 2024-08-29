@@ -60,8 +60,6 @@ install-lcli:
 # - The current user is in the `docker` group.
 #
 # The resulting binaries will be created in the `target/` directory.
-#
-# The *-portable options is the default feature.
 build-x86_64:
 	cross build --bin lighthouse --target x86_64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 build-aarch64:

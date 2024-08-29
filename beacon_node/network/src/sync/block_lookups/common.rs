@@ -4,6 +4,7 @@ use crate::sync::block_lookups::single_block_lookup::{
 use crate::sync::block_lookups::{
     BlobRequestState, BlockRequestState, CustodyRequestState, PeerId,
 };
+use crate::sync::manager::BlockProcessType;
 use crate::sync::network_context::{LookupRequestResult, SyncNetworkContext};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
@@ -92,7 +93,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlockRequestState<T::EthSpec> {
             value,
             block_root,
             seen_timestamp,
-            peer_id: _,
+            ..
         } = download_result;
         cx.send_block_for_processing(
             id,
@@ -140,7 +141,7 @@ impl<T: BeaconChainTypes> RequestState<T> for BlobRequestState<T::EthSpec> {
             value,
             block_root,
             seen_timestamp,
-            peer_id: _,
+            ..
         } = download_result;
         cx.send_blobs_for_processing(id, block_root, value, seen_timestamp)
             .map_err(LookupRequestError::SendFailedProcessor)
@@ -186,8 +187,14 @@ impl<T: BeaconChainTypes> RequestState<T> for CustodyRequestState<T::EthSpec> {
             seen_timestamp,
             ..
         } = download_result;
-        cx.send_custody_columns_for_processing(id, block_root, value, seen_timestamp)
-            .map_err(LookupRequestError::SendFailedProcessor)
+        cx.send_custody_columns_for_processing(
+            id,
+            block_root,
+            value,
+            seen_timestamp,
+            BlockProcessType::SingleCustodyColumn(id),
+        )
+        .map_err(LookupRequestError::SendFailedProcessor)
     }
 
     fn response_type() -> ResponseType {

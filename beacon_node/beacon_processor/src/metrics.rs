@@ -133,6 +133,30 @@ pub static BEACON_PROCESSOR_RPC_BLOB_QUEUE_TOTAL: LazyLock<Result<IntGauge>> =
             "Count of blobs from the rpc waiting to be verified.",
         )
     });
+// Rpc custody data columns.
+pub static BEACON_PROCESSOR_RPC_CUSTODY_COLUMN_QUEUE_TOTAL: LazyLock<Result<IntGauge>> =
+    LazyLock::new(|| {
+        try_create_int_gauge(
+            "beacon_processor_rpc_custody_column_queue_total",
+            "Count of custody columns from the rpc waiting to be imported.",
+        )
+    });
+// Rpc verify data columns
+pub static BEACON_PROCESSOR_RPC_VERIFY_DATA_COLUMN_QUEUE_TOTAL: LazyLock<Result<IntGauge>> =
+    LazyLock::new(|| {
+        try_create_int_gauge(
+            "beacon_processor_rpc_verify_data_column_queue_total",
+            "Count of data columns from the rpc waiting to be verified.",
+        )
+    });
+// Sampling result
+pub static BEACON_PROCESSOR_SAMPLING_RESULT_QUEUE_TOTAL: LazyLock<Result<IntGauge>> =
+    LazyLock::new(|| {
+        try_create_int_gauge(
+            "beacon_processor_sampling_result_queue_total",
+            "Count of sampling results waiting to be processed.",
+        )
+    });
 // Chain segments.
 pub static BEACON_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL: LazyLock<Result<IntGauge>> =
     LazyLock::new(|| {
@@ -221,6 +245,15 @@ pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS: LazyLock<Re
             "Number of queued attestations where as matching block has been imported.",
         )
     });
+// TODO: This should be labeled instead of N single metrics
+pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_SAMPLING_REQUESTS: LazyLock<
+    Result<IntCounter>,
+> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_processor_reprocessing_queue_matched_sampling_requests",
+        "Number of queued sampling requests where a matching block has been imported.",
+    )
+});
 
 /*
  * Light client update reprocessing queue metrics.
@@ -238,7 +271,7 @@ pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_OPTIMISTIC_UPDATES: LazyL
 > = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_processor_reprocessing_queue_matched_optimistic_updates",
-        "Number of queued light client optimistic updates where as matching block has been imported."
+        "Number of queued light client optimistic updates where a matching block has been imported."
     )
 });
 

@@ -1,6 +1,5 @@
-use lighthouse_network::{
-    rpc::methods::DataColumnsByRootRequest, service::api_types::SingleLookupReqId, PeerId,
-};
+use lighthouse_network::service::api_types::DataColumnsByRootRequester;
+use lighthouse_network::{rpc::methods::DataColumnsByRootRequest, PeerId};
 use std::sync::Arc;
 use types::{ChainSpec, DataColumnIdentifier, DataColumnSidecar, EthSpec, Hash256};
 
@@ -32,14 +31,14 @@ pub struct ActiveDataColumnsByRootRequest<E: EthSpec> {
     items: Vec<Arc<DataColumnSidecar<E>>>,
     resolved: bool,
     pub(crate) peer_id: PeerId,
-    pub(crate) requester: SingleLookupReqId,
+    pub(crate) requester: DataColumnsByRootRequester,
 }
 
 impl<E: EthSpec> ActiveDataColumnsByRootRequest<E> {
     pub fn new(
         request: DataColumnsByRootSingleBlockRequest,
         peer_id: PeerId,
-        requester: SingleLookupReqId,
+        requester: DataColumnsByRootRequester,
     ) -> Self {
         Self {
             request,

@@ -1,10 +1,11 @@
 pub use case_result::CaseResult;
 pub use cases::WithdrawalsPayload;
 pub use cases::{
-    Case, EffectiveBalanceUpdates, Eth1DataReset, HistoricalRootsUpdate, HistoricalSummariesUpdate,
-    InactivityUpdates, JustificationAndFinalization, ParticipationFlagUpdates,
-    ParticipationRecordUpdates, PendingBalanceDeposits, PendingConsolidations, RandaoMixesReset,
-    RegistryUpdates, RewardsAndPenalties, Slashings, SlashingsReset, SyncCommitteeUpdates,
+    Case, EffectiveBalanceUpdates, Eth1DataReset, FeatureName, HistoricalRootsUpdate,
+    HistoricalSummariesUpdate, InactivityUpdates, JustificationAndFinalization,
+    ParticipationFlagUpdates, ParticipationRecordUpdates, PendingBalanceDeposits,
+    PendingConsolidations, RandaoMixesReset, RegistryUpdates, RewardsAndPenalties, Slashings,
+    SlashingsReset, SyncCommitteeUpdates,
 };
 pub use decode::log_file_access;
 pub use error::Error;

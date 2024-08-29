@@ -1232,6 +1232,7 @@ mod tests {
             vec![],
             false,
             &log,
+            spec.clone(),
         );
         let keypair = keypair.into();
         Discovery::new(keypair, &config, Arc::new(globals), &log, &spec)

@@ -3,7 +3,8 @@ use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
 use tree_hash::Hash256;
 use types::{
-    BeaconBlockBody, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState, FullPayload,
+    BeaconBlockBody, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState, FixedVector,
+    FullPayload, Unsigned,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -81,12 +82,18 @@ impl<E: EthSpec> Case for MerkleProofValidity<E> {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
+#[derive(Debug, Clone)]
 pub struct KzgInclusionMerkleProofValidity<E: EthSpec> {
     pub metadata: Option<Metadata>,
     pub block: BeaconBlockBody<E>,
     pub merkle_proof: MerkleProof,
+    pub proof_type: KzgInclusionProofType,
+}
+
+#[derive(Debug, Clone)]
+pub enum KzgInclusionProofType {
+    Single,
+    List,
 }
 
 impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
@@ -115,21 +122,33 @@ impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
             None
         };
 
+        let file_name = path
+            .file_name()
+            .and_then(|file_name| file_name.to_str())
+            .ok_or(Error::InternalError(
+                "failed to read file name from path".to_string(),
+            ))?;
+
+        let proof_type = if file_name.starts_with("blob_kzg_commitments") {
+            KzgInclusionProofType::List
+        } else {
+            KzgInclusionProofType::Single
+        };
+
         Ok(Self {
             metadata,
             block,
             merkle_proof,
+            proof_type,
         })
     }
 }
 
-impl<E: EthSpec> Case for KzgInclusionMerkleProofValidity<E> {
-    fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
-        let Ok(proof) = self.block.to_ref().kzg_commitment_merkle_proof(0) else {
-            return Err(Error::FailedToParseTest(
-                "Could not retrieve merkle proof".to_string(),
-            ));
-        };
+impl<E: EthSpec> KzgInclusionMerkleProofValidity<E> {
+    fn verify_kzg_inclusion_proof<N: Unsigned>(
+        &self,
+        proof: FixedVector<Hash256, N>,
+    ) -> Result<(), Error> {
         let proof_len = proof.len();
         let branch_len = self.merkle_proof.branch.len();
         if proof_len != branch_len {
@@ -151,5 +170,31 @@ impl<E: EthSpec> Case for KzgInclusionMerkleProofValidity<E> {
         }
 
         Ok(())
+    }
+}
+impl<E: EthSpec> Case for KzgInclusionMerkleProofValidity<E> {
+    fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
+        match self.proof_type {
+            KzgInclusionProofType::Single => {
+                let proof = self
+                    .block
+                    .to_ref()
+                    .kzg_commitment_merkle_proof(0)
+                    .map_err(|e| {
+                        Error::FailedToParseTest(format!("Could not retrieve merkle proof: {e:?}"))
+                    })?;
+                self.verify_kzg_inclusion_proof(proof)
+            }
+            KzgInclusionProofType::List => {
+                let proof = self
+                    .block
+                    .to_ref()
+                    .kzg_commitments_merkle_proof()
+                    .map_err(|e| {
+                        Error::FailedToParseTest(format!("Could not retrieve merkle proof: {e:?}"))
+                    })?;
+                self.verify_kzg_inclusion_proof(proof)
+            }
+        }
     }
 }
