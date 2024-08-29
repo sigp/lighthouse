@@ -226,7 +226,6 @@ impl<E: EthSpec> LevelDB<E> {
 
         Ok(Box::new(
             iter.take_while(move |(key, _)| {
-                let _timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
                 metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
                 let Some(trimmed_key) = key.remove_column_variable(column) else {
                     return false;
@@ -256,7 +255,6 @@ impl<E: EthSpec> LevelDB<E> {
         Ok(Box::new(
             iter.take_while(move |key| key.matches_column(column))
                 .map(move |bytes_key| {
-                    let _timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
                     metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
                     let key = &bytes_key.key[column.as_bytes().len()..];
                     K::from_bytes(key)
@@ -271,7 +269,6 @@ impl<E: EthSpec> LevelDB<E> {
 
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
         self.iter_column_from(column, &vec![0; column.key_size()], move |key, _| {
-            let _timer = metrics::start_timer(&metrics::DISK_DB_READ_TIMES);
             metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
             BytesKey::from_vec(key.to_vec()).matches_column(column)
         })

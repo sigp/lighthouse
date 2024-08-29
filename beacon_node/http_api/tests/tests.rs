@@ -1836,6 +1836,7 @@ impl ApiTester {
                 current_sync_committee_period as u64,
                 1,
                 &self.chain.spec,
+                test_logger(),
             )
             .unwrap();
 
