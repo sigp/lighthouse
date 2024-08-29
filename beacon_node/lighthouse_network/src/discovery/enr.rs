@@ -360,7 +360,7 @@ mod test {
         let config = NetworkConfig::default();
         let spec = make_eip7594_spec();
         let (mut enr, enr_key) = build_enr_with_config(config, &spec);
-        let invalid_subnet_count = 99u64;
+        let invalid_subnet_count = 999u64;
 
         enr.insert(
             PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY,

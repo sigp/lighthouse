@@ -1440,14 +1440,12 @@ fn check_shuffling_compatible(
                 head_state.current_epoch(),
                 |committee_cache, _| {
                     let state_cache = head_state.committee_cache(RelativeEpoch::Current).unwrap();
+                    // We used to check for false negatives here, but had to remove that check
+                    // because `shuffling_is_compatible` does not guarantee their absence.
+                    //
+                    // See: https://github.com/sigp/lighthouse/issues/6269
                     if current_epoch_shuffling_is_compatible {
                         assert_eq!(
-                            committee_cache,
-                            state_cache.as_ref(),
-                            "block at slot {slot}"
-                        );
-                    } else {
-                        assert_ne!(
                             committee_cache,
                             state_cache.as_ref(),
                             "block at slot {slot}"
@@ -1482,8 +1480,6 @@ fn check_shuffling_compatible(
                     let state_cache = head_state.committee_cache(RelativeEpoch::Previous).unwrap();
                     if previous_epoch_shuffling_is_compatible {
                         assert_eq!(committee_cache, state_cache.as_ref());
-                    } else {
-                        assert_ne!(committee_cache, state_cache.as_ref());
                     }
                     Ok(())
                 },
@@ -2799,7 +2795,13 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         let (block_root, block, blobs, data_columns) = available_blocks[0].clone().deconstruct();
         let mut corrupt_block = (*block).clone();
         *corrupt_block.signature_mut() = Signature::empty();
-        AvailableBlock::__new_for_testing(block_root, Arc::new(corrupt_block), blobs, data_columns)
+        AvailableBlock::__new_for_testing(
+            block_root,
+            Arc::new(corrupt_block),
+            blobs,
+            data_columns,
+            Arc::new(spec),
+        )
     };
 
     // Importing the invalid batch should error.

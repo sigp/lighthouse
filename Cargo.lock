@@ -779,6 +779,7 @@ version = "0.2.0"
 dependencies = [
  "bitvec 1.0.1",
  "bls",
+ "criterion",
  "derivative",
  "eth1",
  "eth2",
@@ -1532,47 +1533,53 @@ dependencies = [
 
 [[package]]
 name = "crate_crypto_internal_eth_kzg_bls12_381"
-version = "0.3.4"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8761b04feb6031ffaf93933c955a0c91a2f3ce15dcac6b9586d2487fe55abf0b"
+checksum = "a23be5253f1bd7fd411721a58712308c4747d0a41d040bbf8ebb78d52909a480"
 dependencies = [
  "blst",
  "blstrs",
  "ff 0.13.0",
  "group 0.13.0",
  "pairing",
- "rayon",
+ "subtle",
 ]
 
 [[package]]
 name = "crate_crypto_internal_eth_kzg_erasure_codes"
-version = "0.3.4"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eca410dff79524a2babe8a0d9ab5fdce21b16808f8189eb8b6da6159681f8de2"
+checksum = "f2067ce20ef380ff33a93ce0af62bea22d35531b7f3586224d8d5176ec6cf578"
 dependencies = [
  "crate_crypto_internal_eth_kzg_bls12_381",
  "crate_crypto_internal_eth_kzg_polynomial",
 ]
 
 [[package]]
-name = "crate_crypto_internal_eth_kzg_polynomial"
-version = "0.3.4"
+name = "crate_crypto_internal_eth_kzg_maybe_rayon"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68be1a5f16bc1c09254dec5209e22278d7d395284443576886a5890e7131234f"
+checksum = "558f50324ff016e5fe93113c78a72776d790d52f244ae9602a8013a67a189b66"
+
+[[package]]
+name = "crate_crypto_internal_eth_kzg_polynomial"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e051c4f5aa5696bd7c504930485436ec62bf14f30a4c2d78504f3f8ec6a3daf"
 dependencies = [
  "crate_crypto_internal_eth_kzg_bls12_381",
 ]
 
 [[package]]
 name = "crate_crypto_kzg_multi_open_fk20"
-version = "0.3.4"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "702fe5b687fe8c5a46851b8bc624ad49603a339dc93c920d4f7e61592c201ee8"
+checksum = "66ed6bf8993d9f3b361da4ed38f067503e08c0b948af0d6f4bb941dd647c0f2c"
 dependencies = [
  "crate_crypto_internal_eth_kzg_bls12_381",
+ "crate_crypto_internal_eth_kzg_maybe_rayon",
  "crate_crypto_internal_eth_kzg_polynomial",
  "hex",
- "rayon",
  "sha2 0.10.8",
 ]
 
@@ -2030,9 +2037,9 @@ dependencies = [
 
 [[package]]
 name = "diesel"
-version = "2.2.2"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf97ee7261bb708fa3402fa9c17a54b70e90e3cb98afb3dc8999d5512cb03f94"
+checksum = "65e13bab2796f412722112327f3e575601a3e9cdcbe426f0d30dbf43f3f5dc71"
 dependencies = [
  "bitflags 2.6.0",
  "byteorder",
@@ -2044,9 +2051,9 @@ dependencies = [
 
 [[package]]
 name = "diesel_derives"
-version = "2.2.2"
+version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6ff2be1e7312c858b2ef974f5c7089833ae57b5311b334b30923af58e5718d8"
+checksum = "e7f2c3de51e2ba6bf2a648285696137aaf0f5f487bcbea93972fe8a364e131a4"
 dependencies = [
  "diesel_table_macro_syntax",
  "dsl_auto_type",
@@ -3852,6 +3859,7 @@ dependencies = [
  "operation_pool",
  "parking_lot 0.12.3",
  "proto_array",
+ "rand",
  "safe_arith",
  "sensitive_url",
  "serde",
@@ -4334,13 +4342,14 @@ dependencies = [
 
 [[package]]
 name = "jsonwebtoken"
-version = "8.3.0"
+version = "9.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6971da4d9c3aa03c3d8f3ff0f4155b534aad021292003895a469716b2a230378"
+checksum = "b9ae10193d25051e74945f1ea2d0b42e03cc3b890f7e4cc5faa44997d808193f"
 dependencies = [
  "base64 0.21.7",
- "pem 1.1.1",
- "ring 0.16.20",
+ "js-sys",
+ "pem",
+ "ring 0.17.8",
  "serde",
  "serde_json",
  "simple_asn1",
@@ -6124,15 +6133,6 @@ dependencies = [
 
 [[package]]
 name = "pem"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8835c273a76a90455d7344889b0964598e3316e2a79ede8e36f16bdcf2228b8"
-dependencies = [
- "base64 0.13.1",
-]
-
-[[package]]
-name = "pem"
 version = "3.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e459365e590736a54c3fa561947c84837534b8e9af6fc5bf781307e82658fae"
@@ -6786,7 +6786,7 @@ version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52c4f3084aa3bc7dfbba4eff4fab2a54db4324965d8872ab933565e6fbd83bc6"
 dependencies = [
- "pem 3.0.4",
+ "pem",
  "ring 0.16.20",
  "time",
  "yasna",
@@ -7097,15 +7097,14 @@ dependencies = [
 
 [[package]]
 name = "rust_eth_kzg"
-version = "0.3.4"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "013a850c7e131a8f9651ffbb151dc33240234f21dd357b692bd5ff4cdc84bf9a"
+checksum = "3291fd0d9c629a56537d74bbc1e7bcaf5be610f2f7b55af85c4fea843c6aeca3"
 dependencies = [
  "crate_crypto_internal_eth_kzg_bls12_381",
  "crate_crypto_internal_eth_kzg_erasure_codes",
  "crate_crypto_kzg_multi_open_fk20",
  "hex",
- "rayon",
  "serde",
  "serde_json",
 ]
