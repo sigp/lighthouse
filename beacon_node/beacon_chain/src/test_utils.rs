@@ -525,7 +525,11 @@ where
             .validator_keypairs
             .expect("cannot build without validator keypairs");
 
-        let kzg = KZG.clone();
+        let kzg = if spec.deneb_fork_epoch.is_some() {
+            KZG.clone()
+        } else {
+            KZG_NO_PRECOMP.clone()
+        };
 
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
 

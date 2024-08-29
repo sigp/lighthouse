@@ -2,11 +2,11 @@ use super::*;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
-    BeaconChain, Kzg, TrustedSetup,
+    test_utils::{KZG, KZG_NO_PRECOMP},
+    BeaconChain,
 };
 use futures::prelude::*;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
-use kzg::trusted_setup::get_trusted_setup;
 use lighthouse_network::NetworkConfig;
 use slog::{o, Drain, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
@@ -46,11 +46,11 @@ impl TestBeaconChain {
         let store =
             HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone()).unwrap();
 
-        let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
-            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-            .expect("should have trusted setup");
-
-        let kzg = Arc::new(Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg"));
+        let kzg = if spec.deneb_fork_epoch.is_some() {
+            KZG.clone()
+        } else {
+            KZG_NO_PRECOMP.clone()
+        };
 
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
 

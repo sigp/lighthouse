@@ -1152,13 +1152,11 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::EphemeralHarnessType;
+    use crate::test_utils::{EphemeralHarnessType, KZG, KZG_NO_PRECOMP};
     use ethereum_hashing::hash;
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
     };
-    use kzg::trusted_setup::get_trusted_setup;
-    use kzg::TrustedSetup;
     use sloggers::{null::NullLoggerBuilder, Build};
     use ssz::Encode;
     use std::time::Duration;
@@ -1201,13 +1199,11 @@ mod test {
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let runtime = TestRuntime::default();
 
-        let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
-            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-            .expect("should have trusted setup");
-
-        let kzg = Arc::new(
-            Kzg::new_from_trusted_setup_no_precomp(trusted_setup).expect("should create kzg"),
-        );
+        let kzg = if spec.deneb_fork_epoch {
+            KZG.clone()
+        } else {
+            KZG_NO_PRECOMP.clone()
+        };
 
         let chain = Builder::new(MinimalEthSpec, kzg)
             .logger(log.clone())
