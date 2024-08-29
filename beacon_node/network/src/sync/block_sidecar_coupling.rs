@@ -8,7 +8,8 @@ use std::{
     sync::Arc,
 };
 use types::{
-    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, EthSpec, Hash256, RuntimeVariableList,
+    SignedBeaconBlock,
 };
 
 #[derive(Debug)]
@@ -31,6 +32,7 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
     num_custody_column_requests: Option<usize>,
     /// The peers the request was made to.
     pub(crate) peer_ids: Vec<PeerId>,
+    max_blobs_per_block: usize,
 }
 
 impl<E: EthSpec> RangeBlockComponentsRequest<E> {
@@ -39,6 +41,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         expects_custody_columns: Option<Vec<ColumnIndex>>,
         num_custody_column_requests: Option<usize>,
         peer_ids: Vec<PeerId>,
+        max_blobs_per_block: usize,
     ) -> Self {
         Self {
             blocks: <_>::default(),
@@ -51,6 +54,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             expects_custody_columns,
             num_custody_column_requests,
             peer_ids,
+            max_blobs_per_block,
         }
     }
 
@@ -100,7 +104,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         let mut responses = Vec::with_capacity(blocks.len());
         let mut blob_iter = blobs.into_iter().peekable();
         for block in blocks.into_iter() {
-            let mut blob_list = Vec::with_capacity(E::max_blobs_per_block());
+            let mut blob_list = Vec::with_capacity(self.max_blobs_per_block);
             while {
                 let pair_next_blob = blob_iter
                     .peek()
@@ -111,7 +115,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 blob_list.push(blob_iter.next().ok_or("Missing next blob".to_string())?);
             }
 
-            let mut blobs_buffer = vec![None; E::max_blobs_per_block()];
+            let mut blobs_buffer = vec![None; self.max_blobs_per_block];
             for blob in blob_list {
                 let blob_index = blob.index as usize;
                 let Some(blob_opt) = blobs_buffer.get_mut(blob_index) else {
@@ -123,7 +127,11 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     *blob_opt = Some(blob);
                 }
             }
-            let blobs = VariableList::from(blobs_buffer.into_iter().flatten().collect::<Vec<_>>());
+            let blobs = RuntimeVariableList::new(
+                blobs_buffer.into_iter().flatten().collect::<Vec<_>>(),
+                self.max_blobs_per_block,
+            )
+            .map_err(|_| "Blobs returned exceeds max length".to_string())?;
             responses.push(RpcBlock::new(None, block, Some(blobs)).map_err(|e| format!("{e:?}"))?)
         }
 

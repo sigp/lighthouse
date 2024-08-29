@@ -181,23 +181,6 @@ impl<E: EthSpec> RpcBlock<E> {
         })
     }
 
-    pub fn new_from_fixed(
-        block_root: Hash256,
-        block: Arc<SignedBeaconBlock<E>>,
-        blobs: FixedBlobSidecarList<E>,
-    ) -> Result<Self, AvailabilityCheckError> {
-        let filtered = blobs
-            .into_iter()
-            .filter_map(|b| b.clone())
-            .collect::<Vec<_>>();
-        let blobs = if filtered.is_empty() {
-            None
-        } else {
-            Some(VariableList::from(filtered))
-        };
-        Self::new(Some(block_root), block, blobs)
-    }
-
     #[allow(clippy::type_complexity)]
     pub fn deconstruct(
         self,

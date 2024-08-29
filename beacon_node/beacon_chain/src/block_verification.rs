@@ -779,7 +779,9 @@ fn build_gossip_verified_blobs<T: BeaconChainTypes>(
                     GossipVerifiedBlob::new(Arc::new(blob), i as u64, chain)?;
                 gossip_verified_blobs.push(gossip_verified_blob);
             }
-            let gossip_verified_blobs = VariableList::from(gossip_verified_blobs);
+            let max_len = chain.spec.max_blobs_per_block(block.epoch()) as usize;
+            let gossip_verified_blobs =
+                RuntimeVariableList::from_vec(gossip_verified_blobs, max_len);
             Ok::<_, BlockContentsError<T::EthSpec>>(gossip_verified_blobs)
         })
         .transpose()

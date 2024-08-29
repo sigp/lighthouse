@@ -352,10 +352,11 @@ where
                 let anchor_block = SignedBeaconBlock::from_ssz_bytes(&anchor_block_bytes, &spec)
                     .map_err(|e| format!("Unable to parse weak subj block SSZ: {:?}", e))?;
                 let anchor_blobs = if anchor_block.message().body().has_blobs() {
+                    let max_blobs_len = spec.max_blobs_per_block(anchor_block.epoch()) as usize;
                     let anchor_blobs_bytes = anchor_blobs_bytes
                         .ok_or("Blobs for checkpoint must be provided using --checkpoint-blobs")?;
                     Some(
-                        BlobSidecarList::from_ssz_bytes(&anchor_blobs_bytes)
+                        BlobSidecarList::from_ssz_bytes(&anchor_blobs_bytes, max_blobs_len)
                             .map_err(|e| format!("Unable to parse weak subj blobs SSZ: {e:?}"))?,
                     )
                 } else {

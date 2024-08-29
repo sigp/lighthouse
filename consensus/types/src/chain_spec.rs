@@ -230,6 +230,7 @@ pub struct ChainSpec {
     pub max_request_data_column_sidecars: u64,
     pub min_epochs_for_blob_sidecars_requests: u64,
     pub blob_sidecar_subnet_count: u64,
+    max_blobs_per_block: u64,
 
     /*
      * Networking Derived
@@ -607,6 +608,16 @@ impl ChainSpec {
         }
     }
 
+    /// Returns the deneb preset value if peerdas epoch hasn't hit.
+    /// Otherwise, returns the value obtained from the config.yaml.
+    pub fn max_blobs_per_block(&self, epoch: Epoch) -> u64 {
+        if self.is_peer_das_enabled_for_epoch(epoch) {
+            self.max_blobs_per_block
+        } else {
+            default_max_blobs_per_block()
+        }
+    }
+
     pub fn data_columns_per_subnet(&self) -> usize {
         self.number_of_columns
             .safe_div(self.data_column_sidecar_subnet_count as usize)
@@ -843,6 +854,7 @@ impl ChainSpec {
             max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
             min_epochs_for_blob_sidecars_requests: default_min_epochs_for_blob_sidecars_requests(),
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
+            max_blobs_per_block: default_max_blobs_per_block(),
 
             /*
              * Derived Deneb Specific
@@ -1164,6 +1176,8 @@ impl ChainSpec {
             max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
             min_epochs_for_blob_sidecars_requests: 16384,
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
+            // TODO(pawan): check if gnosis preset values match
+            max_blobs_per_block: default_max_blobs_per_block(),
 
             /*
              * Derived Deneb Specific
@@ -1364,6 +1378,9 @@ pub struct Config {
     #[serde(default = "default_blob_sidecar_subnet_count")]
     #[serde(with = "serde_utils::quoted_u64")]
     blob_sidecar_subnet_count: u64,
+    #[serde(default = "default_max_blobs_per_block")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    max_blobs_per_block: u64,
 
     #[serde(default = "default_min_per_epoch_churn_limit_electra")]
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1496,6 +1513,12 @@ const fn default_min_epochs_for_blob_sidecars_requests() -> u64 {
 }
 
 const fn default_blob_sidecar_subnet_count() -> u64 {
+    6
+}
+
+/// Its important to keep this consistent with the deneb preset value for
+/// `MAX_BLOBS_PER_BLOCK` else we might run into consensus issues.
+const fn default_max_blobs_per_block() -> u64 {
     6
 }
 
@@ -1718,6 +1741,7 @@ impl Config {
             max_request_data_column_sidecars: spec.max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests: spec.min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count: spec.blob_sidecar_subnet_count,
+            max_blobs_per_block: spec.max_blobs_per_block,
 
             min_per_epoch_churn_limit_electra: spec.min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit: spec
@@ -1795,6 +1819,7 @@ impl Config {
             max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count,
+            max_blobs_per_block,
 
             min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit,
@@ -1863,6 +1888,7 @@ impl Config {
             max_request_data_column_sidecars,
             min_epochs_for_blob_sidecars_requests,
             blob_sidecar_subnet_count,
+            max_blobs_per_block,
 
             min_per_epoch_churn_limit_electra,
             max_per_epoch_activation_exit_churn_limit,

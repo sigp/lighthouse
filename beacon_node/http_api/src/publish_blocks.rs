@@ -22,7 +22,8 @@ use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlobSidecarList, BlockImportSource, DataColumnSidecarList,
     DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
-    FullPayloadBellatrix, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, VariableList,
+    FullPayloadBellatrix, Hash256, RuntimeVariableList, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, VariableList,
 };
 use warp::http::StatusCode;
 use warp::{reply::Response, Rejection, Reply};
@@ -198,7 +199,10 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             .into_iter()
             .map(|b| b.clone_blob())
             .collect::<Vec<_>>();
-        VariableList::from(blobs)
+        RuntimeVariableList::from_vec(
+            blobs,
+            chain.spec.max_blobs_per_block(block.epoch()) as usize,
+        )
     });
     let data_cols_opt = gossip_verified_data_columns
         .as_ref()

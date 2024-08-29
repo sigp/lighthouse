@@ -200,7 +200,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .ok_or(AvailabilityCheckError::SlotClockError)?;
 
         let verified_blobs =
-            KzgVerifiedBlobList::new(Vec::from(blobs).into_iter().flatten(), kzg, seen_timestamp)
+            KzgVerifiedBlobList::new(blobs.into_vec().into_iter().flatten(), kzg, seen_timestamp)
                 .map_err(AvailabilityCheckError::Kzg)?;
 
         self.availability_cache
@@ -384,14 +384,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<Vec<MaybeAvailableBlock<T::EthSpec>>, AvailabilityCheckError> {
         let mut results = Vec::with_capacity(blocks.len());
-        let all_blobs: BlobSidecarList<T::EthSpec> = blocks
+        let all_blobs = blocks
             .iter()
             .filter(|block| self.blobs_required_for_block(block.as_block()))
             // this clone is cheap as it's cloning an Arc
             .filter_map(|block| block.blobs().cloned())
             .flatten()
-            .collect::<Vec<_>>()
-            .into();
+            .collect::<Vec<_>>();
 
         // verify kzg for all blobs at once
         if !all_blobs.is_empty() {

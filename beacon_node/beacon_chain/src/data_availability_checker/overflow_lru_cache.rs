@@ -16,9 +16,10 @@ use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use types::blob_sidecar::BlobIdentifier;
+use types::runtime_var_list::RuntimeFixedList;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock,
+    DataColumnSidecarList, Epoch, EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock,
 };
 
 pub type DataColumnsToPublish<E> = Option<DataColumnSidecarList<E>>;
@@ -32,7 +33,7 @@ pub type DataColumnsToPublish<E> = Option<DataColumnSidecarList<E>>;
 #[derive(Clone)]
 pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
-    pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
+    pub verified_blobs: RuntimeFixedList<Option<KzgVerifiedBlob<E>>>,
     pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
     pub reconstruction_started: bool,
@@ -50,9 +51,7 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Returns an immutable reference to the fixed vector of cached blobs.
-    pub fn get_cached_blobs(
-        &self,
-    ) -> &FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock> {
+    pub fn get_cached_blobs(&self) -> &RuntimeFixedList<Option<KzgVerifiedBlob<E>>> {
         &self.verified_blobs
     }
 
@@ -73,9 +72,7 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Returns a mutable reference to the fixed vector of cached blobs.
-    pub fn get_cached_blobs_mut(
-        &mut self,
-    ) -> &mut FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock> {
+    pub fn get_cached_blobs_mut(&mut self) -> &mut RuntimeFixedList<Option<KzgVerifiedBlob<E>>> {
         &mut self.verified_blobs
     }
 
@@ -147,10 +144,7 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Blobs are only inserted if:
     /// 1. The blob entry at the index is empty and no block exists.
     /// 2. The block exists and its commitment matches the blob's commitment.
-    pub fn merge_blobs(
-        &mut self,
-        blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
-    ) {
+    pub fn merge_blobs(&mut self, blobs: RuntimeFixedList<Option<KzgVerifiedBlob<E>>>) {
         for (index, blob) in blobs.iter().cloned().enumerate() {
             let Some(blob) = blob else { continue };
             self.merge_single_blob(index, blob);
@@ -194,7 +188,7 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Blobs that don't match the new block's commitments are evicted.
     pub fn merge_block(&mut self, block: DietAvailabilityPendingExecutedBlock<E>) {
         self.insert_block(block);
-        let reinsert = std::mem::take(self.get_cached_blobs_mut());
+        let reinsert = self.get_cached_blobs_mut().take();
         self.merge_blobs(reinsert);
     }
 
@@ -223,10 +217,11 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Returns an empty `PendingComponents` object with the given block root.
-    pub fn empty(block_root: Hash256) -> Self {
+    pub fn empty(block_root: Hash256, max_len: usize) -> Self {
         Self {
             block_root,
-            verified_blobs: FixedVector::default(),
+            // TODO(pawan): just make this a vec potentially
+            verified_blobs: RuntimeFixedList::new(vec![None; max_len]),
             verified_data_columns: vec![],
             executed_block: None,
             reconstruction_started: false,
@@ -280,7 +275,12 @@ impl<E: EthSpec> PendingComponents<E> {
                 else {
                     return Err(AvailabilityCheckError::Unexpected);
                 };
-                (Some(VariableList::new(verified_blobs)?), None)
+                let max_len =
+                    spec.max_blobs_per_block(diet_executed_block.as_block().epoch()) as usize;
+                (
+                    Some(RuntimeVariableList::new(verified_blobs, max_len)?),
+                    None,
+                )
             }
             BlockImportRequirement::CustodyColumns(_) => {
                 let verified_data_columns = verified_data_columns
@@ -477,7 +477,8 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         epoch: Epoch,
         kzg_verified_blobs: I,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let mut fixed_blobs = FixedVector::default();
+        let mut fixed_blobs =
+            RuntimeFixedList::new(vec![None; self.spec.max_blobs_per_block(epoch) as usize]);
 
         for blob in kzg_verified_blobs {
             if let Some(blob_opt) = fixed_blobs.get_mut(blob.blob_index() as usize) {
@@ -491,7 +492,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let mut pending_components = write_lock
             .pop_entry(&block_root)
             .map(|(_, v)| v)
-            .unwrap_or_else(|| PendingComponents::empty(block_root));
+            .unwrap_or_else(|| {
+                PendingComponents::empty(block_root, self.spec.max_blobs_per_block(epoch) as usize)
+            });
 
         // Merge in the blobs.
         pending_components.merge_blobs(fixed_blobs);
@@ -527,7 +530,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let mut pending_components = write_lock
             .pop_entry(&block_root)
             .map(|(_, v)| v)
-            .unwrap_or_else(|| PendingComponents::empty(block_root));
+            .unwrap_or_else(|| {
+                PendingComponents::empty(block_root, self.spec.max_blobs_per_block(epoch) as usize)
+            });
 
         // Merge in the data columns.
         pending_components.merge_data_columns(kzg_verified_data_columns)?;
@@ -614,7 +619,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let mut pending_components = write_lock
             .pop_entry(&block_root)
             .map(|(_, v)| v)
-            .unwrap_or_else(|| PendingComponents::empty(block_root));
+            .unwrap_or_else(|| {
+                PendingComponents::empty(block_root, self.spec.max_blobs_per_block(epoch) as usize)
+            });
 
         // Merge in the block.
         pending_components.merge_block(diet_executed_block);

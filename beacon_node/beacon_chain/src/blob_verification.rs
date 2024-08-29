@@ -17,7 +17,8 @@ use std::time::Duration;
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BeaconStateError, BlobSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlockHeader, Slot,
+    BeaconStateError, BlobSidecar, Epoch, EthSpec, Hash256, RuntimeVariableList,
+    SignedBeaconBlockHeader, Slot,
 };
 
 /// An error occurred while validating a gossip blob.
@@ -172,10 +173,7 @@ impl<E: EthSpec> From<BeaconStateError> for GossipBlobError<E> {
     }
 }
 
-pub type GossipVerifiedBlobList<T> = VariableList<
-    GossipVerifiedBlob<T>,
-    <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
->;
+pub type GossipVerifiedBlobList<T> = RuntimeVariableList<GossipVerifiedBlob<T>>;
 
 /// A wrapper around a `BlobSidecar` that indicates it has been approved for re-gossiping on
 /// the p2p network.
@@ -399,7 +397,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     // since we only subscribe to `MaxBlobsPerBlock` subnets over gossip network.
     // We include this check only for completeness.
     // Getting this error would imply something very wrong with our networking decoding logic.
-    if blob_index >= T::EthSpec::max_blobs_per_block() as u64 {
+    if blob_index >= chain.spec.max_blobs_per_block(blob_epoch) {
         return Err(GossipBlobError::InvalidSubnet {
             expected: subnet,
             received: blob_index,

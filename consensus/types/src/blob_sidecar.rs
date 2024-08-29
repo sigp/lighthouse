@@ -1,10 +1,13 @@
 use crate::test_utils::TestRandom;
-use crate::ForkName;
 use crate::{
     beacon_block_body::BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, BeaconStateError, Blob,
     Epoch, EthSpec, FixedVector, Hash256, SignedBeaconBlockHeader, Slot, VariableList,
 };
-use crate::{ForkVersionDeserialize, KzgProofs, SignedBeaconBlock};
+use crate::{
+    runtime_var_list::RuntimeFixedList, ForkVersionDeserialize, KzgProofs, RuntimeVariableList,
+    SignedBeaconBlock,
+};
+use crate::{ChainSpec, ForkName};
 use bls::Signature;
 use derivative::Derivative;
 use kzg::{Blob as KzgBlob, Kzg, KzgCommitment, KzgProof, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT};
@@ -28,19 +31,6 @@ use tree_hash_derive::TreeHash;
 pub struct BlobIdentifier {
     pub block_root: Hash256,
     pub index: u64,
-}
-
-impl BlobIdentifier {
-    pub fn get_all_blob_ids<E: EthSpec>(block_root: Hash256) -> Vec<BlobIdentifier> {
-        let mut blob_ids = Vec::with_capacity(E::max_blobs_per_block());
-        for i in 0..E::max_blobs_per_block() {
-            blob_ids.push(BlobIdentifier {
-                block_root,
-                index: i as u64,
-            });
-        }
-        blob_ids
-    }
 }
 
 impl PartialOrd for BlobIdentifier {
@@ -260,19 +250,24 @@ impl<E: EthSpec> BlobSidecar<E> {
         blobs: BlobsList<E>,
         block: &SignedBeaconBlock<E>,
         kzg_proofs: KzgProofs<E>,
+        spec: &ChainSpec,
     ) -> Result<BlobSidecarList<E>, BlobSidecarError> {
         let mut blob_sidecars = vec![];
         for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
             let blob_sidecar = BlobSidecar::new(i, blob, block, *kzg_proof)?;
             blob_sidecars.push(Arc::new(blob_sidecar));
         }
-        Ok(VariableList::from(blob_sidecars))
+        Ok(RuntimeVariableList::from_vec(
+            blob_sidecars,
+            spec.max_blobs_per_block(block.epoch()) as usize,
+        ))
     }
 }
 
-pub type BlobSidecarList<E> = VariableList<Arc<BlobSidecar<E>>, <E as EthSpec>::MaxBlobsPerBlock>;
-pub type FixedBlobSidecarList<E> =
-    FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>;
+pub type BlobSidecarList<E> = RuntimeVariableList<Arc<BlobSidecar<E>>>;
+/// Alias for a non length-constrained list of `BlobSidecar`s. 
+pub type BlobSidecarVec<E> = Vec<Arc<BlobSidecar<E>>>;
+pub type FixedBlobSidecarList<E> = RuntimeFixedList<Option<Arc<BlobSidecar<E>>>>;
 pub type BlobsList<E> = VariableList<Blob<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 impl<E: EthSpec> ForkVersionDeserialize for BlobSidecarList<E> {

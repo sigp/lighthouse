@@ -36,8 +36,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256,
-    SignedBeaconBlock, Slot,
+    chain_spec, BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList,
+    EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 pub mod custody;
@@ -59,6 +59,15 @@ pub enum RangeRequestId {
     BackfillSync {
         batch_id: BatchId,
     },
+}
+
+impl RangeRequestId {
+    pub fn batch_id(&self) -> BatchId {
+        match self {
+            RangeRequestId::RangeSync { batch_id, .. } => *batch_id,
+            RangeRequestId::BackfillSync { batch_id, .. } => *batch_id,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -422,11 +431,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 (None, None)
             };
 
+        // TODO(pawan): this would break if a batch contains multiple epochs
+        let max_blobs_len = self.chain.spec.max_blobs_per_block(epoch);
         let info = RangeBlockComponentsRequest::new(
             expected_blobs,
             expects_custody_columns,
             num_of_custody_column_req,
             requested_peers,
+            max_blobs_len as usize,
         );
         self.range_block_components_requests
             .insert(id, (sender_id, info));
@@ -977,9 +989,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             RpcEvent::Response(blob, seen_timestamp) => {
                 let request = request.get_mut();
                 match request.add_response(blob) {
-                    Ok(Some(blobs)) => to_fixed_blob_sidecar_list(blobs)
-                        .map(|blobs| (blobs, seen_timestamp))
-                        .map_err(|e| (e.into(), request.resolve())),
+                    Ok(Some(blobs)) => {
+                        let max_len = if let Some(blob) = blobs.first() {
+                            self.chain.spec.max_blobs_per_block(blob.epoch()) as usize
+                        } else {
+                            6
+                        };
+                        to_fixed_blob_sidecar_list(blobs, max_len)
+                            .map(|blobs| (blobs, seen_timestamp))
+                            .map_err(|e| (e.into(), request.resolve()))
+                    }
                     Ok(None) => return None,
                     Err(e) => Err((e.into(), request.resolve())),
                 }
@@ -1218,8 +1237,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
 fn to_fixed_blob_sidecar_list<E: EthSpec>(
     blobs: Vec<Arc<BlobSidecar<E>>>,
+    max_len: usize,
 ) -> Result<FixedBlobSidecarList<E>, LookupVerifyError> {
-    let mut fixed_list = FixedBlobSidecarList::default();
+    // TODO(pawan): have a method on fixed runtime vector that just initializes a raw vec with max_len = None
+    // to signify an empty fixed runtime vector
+    let mut fixed_list = FixedBlobSidecarList::new(vec![None; max_len]);
     for blob in blobs.into_iter() {
         let index = blob.index as usize;
         *fixed_list

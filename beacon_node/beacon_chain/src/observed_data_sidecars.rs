@@ -23,7 +23,7 @@ pub trait ObservableDataSidecar {
     fn slot(&self) -> Slot;
     fn block_proposer_index(&self) -> u64;
     fn index(&self) -> u64;
-    fn max_num_of_items(spec: &ChainSpec) -> usize;
+    fn max_num_of_items(spec: &ChainSpec, slot: Slot) -> usize;
 }
 
 impl<E: EthSpec> ObservableDataSidecar for BlobSidecar<E> {
@@ -39,8 +39,8 @@ impl<E: EthSpec> ObservableDataSidecar for BlobSidecar<E> {
         self.index
     }
 
-    fn max_num_of_items(_spec: &ChainSpec) -> usize {
-        E::max_blobs_per_block()
+    fn max_num_of_items(spec: &ChainSpec, slot: Slot) -> usize {
+        spec.max_blobs_per_block(slot.epoch(E::slots_per_epoch())) as usize
     }
 }
 
@@ -57,7 +57,7 @@ impl<E: EthSpec> ObservableDataSidecar for DataColumnSidecar<E> {
         self.index
     }
 
-    fn max_num_of_items(spec: &ChainSpec) -> usize {
+    fn max_num_of_items(spec: &ChainSpec, _slot: Slot) -> usize {
         spec.number_of_columns
     }
 }
@@ -102,7 +102,9 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
                 slot: data_sidecar.slot(),
                 proposer: data_sidecar.block_proposer_index(),
             })
-            .or_insert_with(|| HashSet::with_capacity(T::max_num_of_items(&self.spec)));
+            .or_insert_with(|| {
+                HashSet::with_capacity(T::max_num_of_items(&self.spec, data_sidecar.slot()))
+            });
         let did_not_exist = data_indices.insert(data_sidecar.index());
 
         Ok(!did_not_exist)
@@ -122,7 +124,7 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
     }
 
     fn sanitize_data_sidecar(&self, data_sidecar: &T) -> Result<(), Error> {
-        if data_sidecar.index() >= T::max_num_of_items(&self.spec) as u64 {
+        if data_sidecar.index() >= T::max_num_of_items(&self.spec, data_sidecar.slot()) as u64 {
             return Err(Error::InvalidDataIndex(data_sidecar.index()));
         }
         let finalized_slot = self.finalized_slot;
