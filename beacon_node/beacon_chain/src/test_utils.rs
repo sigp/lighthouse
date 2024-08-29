@@ -2710,8 +2710,9 @@ pub fn generate_rand_block_and_data_columns<E: EthSpec>(
     DataColumnSidecarList<E>,
 ) {
     let (block, blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng);
-    let blob: BlobsList<E> = blobs.into_iter().map(|b| b.blob).collect::<Vec<_>>().into();
-    let data_columns = blobs_to_data_column_sidecars(&blob, &block, &KZG_PEERDAS, spec).unwrap();
+    let blob_refs = blobs.iter().map(|b| &b.blob).collect::<Vec<_>>();
+    let data_columns =
+        blobs_to_data_column_sidecars(&blob_refs, &block, &KZG_PEERDAS, spec).unwrap();
 
     (block, data_columns)
 }

@@ -15,10 +15,7 @@ use slog::{debug, error, warn};
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{
-    BlobSidecar, DataColumnSidecarList, EthSpec, FullPayload, Hash256, SignedBeaconBlock,
-    VariableList,
-};
+use types::{BlobSidecar, DataColumnSidecarList, EthSpec, FullPayload, Hash256, SignedBeaconBlock};
 
 pub enum BlobsOrDataColumns<E: EthSpec> {
     Blobs(Vec<Arc<BlobSidecar<E>>>),
@@ -145,13 +142,11 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
             .task_executor
             .spawn_handle(
                 async move {
-                    // TODO(das): inefficient allocation
-                    let blob_vec = blobs_cloned.iter()
-                        .filter_map(|b| b.as_ref().map(|b| b.blob.clone()))
+                    let blob_refs = blobs_cloned.iter()
+                        .filter_map(|b| b.as_ref().map(|b| &b.blob))
                         .collect::<Vec<_>>();
-                    let blob_list = VariableList::from(blob_vec);
                     let data_columns_result =
-                        blobs_to_data_column_sidecars(&blob_list, &block_cloned, &kzg, &spec);
+                        blobs_to_data_column_sidecars(&blob_refs, &block_cloned, &kzg, &spec);
 
                     let all_data_columns = match data_columns_result {
                         Ok(d) => d,
