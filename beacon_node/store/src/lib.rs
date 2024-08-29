@@ -243,6 +243,7 @@ pub enum StoreOp<'a, E: EthSpec> {
 }
 
 /// A unique column identifier.
+// FIXME(sproul): new columns for frozen BeaconState and BeaconStateRoot
 #[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr, EnumString)]
 pub enum DBColumn {
     /// For data related to the database itself.
@@ -294,12 +295,20 @@ pub enum DBColumn {
     /// DEPRECATED. Can be removed once schema v22 is buried by a hard fork.
     #[strum(serialize = "brp")]
     BeaconRestorePoint,
-    /// Mapping from slot to beacon block root in the freezer DB.
-    #[strum(serialize = "bbr")]
-    BeaconBlockRoots,
     /// Mapping from slot to beacon state root in the freezer DB.
     #[strum(serialize = "bsr")]
     BeaconStateRoots,
+    /// Mapping from slot to beacon block root in the freezer DB.
+    ///
+    /// This new column was created to replace the previous `bbr` column. The replacement was
+    /// necessary to guarantee atomicity of the upgrade migration.
+    #[strum(serialize = "bbx")]
+    BeaconBlockRoots,
+    /// DEPRECATED. This is the previous column for beacon block roots stored by "chunk index".
+    ///
+    /// Can be removed once schema v22 is buried by a hard fork.
+    #[strum(serialize = "bbr")]
+    BeaconBlockRootsChunked,
     /// DEPRECATED. Can be removed once schema v22 is buried by a hard fork.
     #[strum(serialize = "bhr")]
     BeaconHistoricalRoots,
@@ -358,6 +367,7 @@ impl DBColumn {
             | Self::DhtEnrs
             | Self::OptimisticTransitionBlock => 32,
             Self::BeaconBlockRoots
+            | Self::BeaconBlockRootsChunked
             | Self::BeaconStateRoots
             | Self::BeaconHistoricalRoots
             | Self::BeaconHistoricalSummaries

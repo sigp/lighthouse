@@ -2633,7 +2633,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // This function works for both pre-tree-states and post-tree-states pruning. It deletes
         // everything related to historic states from either DB!
         let columns = [
-            DBColumn::BeaconState,
             DBColumn::BeaconStateSummary,
             DBColumn::BeaconStateSnapshot,
             DBColumn::BeaconStateDiff,

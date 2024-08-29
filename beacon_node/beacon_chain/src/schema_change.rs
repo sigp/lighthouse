@@ -55,9 +55,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             db.store_schema_version_atomically(to, ops)
         }
         (SchemaVersion(21), SchemaVersion(22)) => {
-            let ops =
-                migration_schema_v22::upgrade_to_v22::<T>(db.clone(), genesis_state_root, log)?;
-            db.store_schema_version_atomically(to, ops)
+            migration_schema_v22::upgrade_to_v22::<T>(db.clone(), genesis_state_root, log)
         }
         // FIXME(sproul): consider downgrade
         // Anything else is an error.

@@ -322,11 +322,11 @@ macro_rules! field {
 }
 
 field!(
-    BlockRoots,
+    BlockRootsChunked,
     FixedLengthField,
     Hash256,
     E::SlotsPerHistoricalRoot,
-    DBColumn::BeaconBlockRoots,
+    DBColumn::BeaconBlockRootsChunked,
     |_| OncePerNSlots {
         n: 1,
         activation_slot: Some(Slot::new(0)),
