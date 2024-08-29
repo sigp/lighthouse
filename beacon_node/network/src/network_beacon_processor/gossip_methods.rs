@@ -1516,6 +1516,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "block_root" => %block_root,
                 );
 
+                // Block is valid, we can now attempt fetching blobs from EL using version hashes
+                // derived from kzg commitments from the block, without having to wait for all blobs
+                // to be sent from the peers if we already have them.
                 self.fetch_engine_blobs_and_publish(block.clone(), *block_root)
                     .await;
             }

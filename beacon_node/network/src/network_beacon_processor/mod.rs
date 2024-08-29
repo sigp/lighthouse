@@ -771,20 +771,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     fn publish_blobs_or_data_column(&self, blobs_or_data_column: BlobsOrDataColumns<T::EthSpec>) {
         let messages = match blobs_or_data_column {
-            BlobsOrDataColumns::Blobs(blobs) => blobs
-                .into_iter()
-                .map(|blob| PubsubMessage::BlobSidecar(Box::new((blob.index, blob))))
-                .collect(),
-            BlobsOrDataColumns::DataColumns(columns) => columns
-                .into_iter()
-                .map(|column| {
+            BlobsOrDataColumns::Blobs(blobs) => {
+                debug!(self.log, "Publishing blobs from EL"; "count" => blobs.len());
+                blobs
+                    .into_iter()
+                    .map(|blob| PubsubMessage::BlobSidecar(Box::new((blob.index, blob))))
+                    .collect()
+            }
+            BlobsOrDataColumns::DataColumns(columns) => {
+                debug!(self.log, "Publishing data columns built from EL blobs"; "count" => columns.len());
+                columns.into_iter().map(|column| {
                     let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
                         column.index as usize,
                         &self.chain.spec,
                     );
                     PubsubMessage::DataColumnSidecar(Box::new((subnet, column)))
                 })
-                .collect(),
+            }
+            .collect(),
         };
         self.send_network_message(NetworkMessage::Publish { messages })
     }
@@ -795,16 +799,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
     ) {
         let self_cloned = self.clone();
-        let log_cloned = self.log.clone();
         let publish_fn = move |blobs_or_data_column| {
-            match &blobs_or_data_column {
-                BlobsOrDataColumns::Blobs(b) => {
-                    debug!(log_cloned, "Publishing blobs from EL"; "count" => b.len());
-                }
-                BlobsOrDataColumns::DataColumns(d) => {
-                    debug!(log_cloned, "Publishing data columns built from EL blobs"; "count" => d.len());
-                }
-            }
             self_cloned.publish_blobs_or_data_column(blobs_or_data_column)
         };
         if let Err(e) = fetch_and_process_engine_blobs(

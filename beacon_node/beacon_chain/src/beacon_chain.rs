@@ -3879,7 +3879,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .unwrap_or(BlockError::InternalError(err_msg.to_string())));
                 }
             }
-            // Non data columns present and compute data columns task was not spawned.
+            // No data columns present and compute data columns task was not spawned.
             // Could either be no blobs in the block or before PeerDAS activation.
             (None, None) => None,
         };

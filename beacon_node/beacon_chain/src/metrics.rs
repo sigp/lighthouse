@@ -1695,6 +1695,20 @@ pub static DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter
         )
     });
 
+pub static BLOBS_FROM_EL_HIT_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_blobs_from_el_hit_total",
+        "Number of blob batches fetched from the execution layer",
+    )
+});
+
+pub static BLOBS_FROM_EL_MISS_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_blobs_from_el_miss_total",
+        "Number of blob batches failed to fetch from the execution layer",
+    )
+});
+
 /*
  * Light server message verification
  */
