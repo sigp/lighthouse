@@ -55,11 +55,30 @@ pub struct Kzg {
 }
 
 impl Kzg {
+    pub fn new_from_trusted_setup_no_precomp(trusted_setup: TrustedSetup) -> Result<Self, Error> {
+        let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
+
+        let context = DASContext::new(&peerdas_trusted_setup, rust_eth_kzg::UsePrecomp::No);
+
+        Ok(Self {
+            trusted_setup: KzgSettings::load_trusted_setup(
+                &trusted_setup.g1_points(),
+                &trusted_setup.g2_points(),
+            )?,
+            context,
+        })
+    }
+
     /// Load the kzg trusted setup parameters from a vec of G1 and G2 points.
     pub fn new_from_trusted_setup(trusted_setup: TrustedSetup) -> Result<Self, Error> {
         let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
 
-        let context = DASContext::new(&peerdas_trusted_setup, rust_eth_kzg::UsePrecomp::No);
+        let context = DASContext::new(
+            &peerdas_trusted_setup,
+            rust_eth_kzg::UsePrecomp::Yes {
+                width: rust_eth_kzg::constants::RECOMMENDED_PRECOMP_WIDTH,
+            },
+        );
 
         Ok(Self {
             trusted_setup: KzgSettings::load_trusted_setup(

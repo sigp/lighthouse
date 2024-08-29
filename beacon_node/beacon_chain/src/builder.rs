@@ -1157,6 +1157,8 @@ mod test {
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
     };
+    use kzg::trusted_setup::get_trusted_setup;
+    use kzg::TrustedSetup;
     use sloggers::{null::NullLoggerBuilder, Build};
     use ssz::Encode;
     use std::time::Duration;
@@ -1199,7 +1201,15 @@ mod test {
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let runtime = TestRuntime::default();
 
-        let chain = Builder::new(MinimalEthSpec)
+        let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
+            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+            .expect("should have trusted setup");
+
+        let kzg = Arc::new(
+            Kzg::new_from_trusted_setup_no_precomp(trusted_setup).expect("should create kzg"),
+        );
+
+        let chain = Builder::new(MinimalEthSpec, kzg)
             .logger(log.clone())
             .store(Arc::new(store))
             .task_executor(runtime.task_executor.clone())

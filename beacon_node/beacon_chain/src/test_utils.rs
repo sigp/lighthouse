@@ -91,6 +91,14 @@ pub static KZG_PEERDAS: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
     Arc::new(kzg)
 });
 
+pub static KZG_NO_PRECOMP: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
+    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
+        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+        .expect("should have trusted setup");
+    let kzg = Kzg::new_from_trusted_setup_no_precomp(trusted_setup).expect("should create kzg");
+    Arc::new(kzg)
+});
+
 pub type BaseHarnessType<E, THotStore, TColdStore> =
     Witness<TestingSlotClock, CachingEth1Backend<E>, E, THotStore, TColdStore>;
 

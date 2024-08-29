@@ -4,6 +4,7 @@ use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, reconstruct_data_co
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use bls::Signature;
+use kzg::trusted_setup::get_trusted_setup;
 use kzg::{Kzg, KzgCommitment, TrustedSetup};
 use types::{
     beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockDeneb, Blob, BlobsList, ChainSpec,
@@ -34,7 +35,7 @@ fn all_benches(c: &mut Criterion) {
     type E = MainnetEthSpec;
     let spec = Arc::new(E::default_spec());
 
-    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup())
+    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
         .map_err(|e| format!("Unable to read trusted setup file: {}", e))
         .expect("should have trusted setup");
     let kzg = Arc::new(Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg"));

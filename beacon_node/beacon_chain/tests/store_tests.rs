@@ -8,7 +8,7 @@ use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::test_utils::{
     mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
-    BlockStrategy, DiskHarnessType, KZG,
+    BlockStrategy, DiskHarnessType, KZG_NO_PRECOMP,
 };
 use beacon_chain::{
     data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
@@ -163,7 +163,7 @@ async fn light_client_updates_test() {
         .unwrap()
         .unwrap();
 
-    let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone());
+    let kzg = KZG_NO_PRECOMP.clone();
 
     let mock =
         mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
@@ -188,7 +188,7 @@ async fn light_client_updates_test() {
 
     let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
 
-    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec)
+    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, kzg)
         .store(store.clone())
         .custom_spec(test_spec::<E>())
         .task_executor(harness.chain.task_executor.clone())
@@ -211,7 +211,6 @@ async fn light_client_updates_test() {
             1,
         )))
         .execution_layer(Some(mock.el))
-        .kzg(kzg)
         .build()
         .expect("should build");
 
@@ -2639,7 +2638,8 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
     let seconds_per_slot = spec.seconds_per_slot;
-    let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone());
+
+    let kzg = KZG_NO_PRECOMP.clone();
 
     let mock =
         mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
@@ -2653,7 +2653,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     );
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
-    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec)
+    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, kzg)
         .store(store.clone())
         .custom_spec(test_spec::<E>())
         .task_executor(harness.chain.task_executor.clone())
@@ -2676,7 +2676,6 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             1,
         )))
         .execution_layer(Some(mock.el))
-        .kzg(kzg)
         .build()
         .expect("should build");
 

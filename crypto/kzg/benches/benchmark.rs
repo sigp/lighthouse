@@ -4,7 +4,7 @@ use kzg::{trusted_setup::get_trusted_setup, TrustedSetup};
 use rust_eth_kzg::{DASContext, TrustedSetup as PeerDASTrustedSetup};
 
 pub fn bench_init_context(c: &mut Criterion) {
-    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup())
+    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
         .map_err(|e| format!("Unable to read trusted setup file: {}", e))
         .expect("should have trusted setup");
 
@@ -21,9 +21,10 @@ pub fn bench_init_context(c: &mut Criterion) {
     });
     c.bench_function(&format!("Initialize context c-kzg (4844)"), |b| {
         b.iter(|| {
-            let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup())
-                .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-                .expect("should have trusted setup");
+            let trusted_setup: TrustedSetup =
+                serde_json::from_reader(get_trusted_setup().as_slice())
+                    .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+                    .expect("should have trusted setup");
             KzgSettings::load_trusted_setup(&trusted_setup.g1_points(), &trusted_setup.g2_points())
                 .unwrap()
         })
