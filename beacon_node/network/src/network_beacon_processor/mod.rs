@@ -2,6 +2,7 @@ use crate::sync::manager::BlockProcessType;
 use crate::sync::SamplingId;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::fetch_blobs::{fetch_and_process_engine_blobs, BlobsOrDataColumns};
 use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend, BeaconChain};
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{
@@ -14,9 +15,9 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
-    Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
+    Client, MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage,
 };
-use slog::{debug, Logger};
+use slog::{debug, error, Logger};
 use slot_clock::ManualSlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -766,6 +767,56 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             debug!(self.log, "Could not send message to the network service. Likely shutdown";
                 "error" => %e)
         });
+    }
+
+    fn publish_blobs_or_data_column(&self, blobs_or_data_column: BlobsOrDataColumns<T::EthSpec>) {
+        let messages = match blobs_or_data_column {
+            BlobsOrDataColumns::Blobs(blobs) => blobs
+                .into_iter()
+                .map(|blob| PubsubMessage::BlobSidecar(Box::new((blob.index, blob))))
+                .collect(),
+            BlobsOrDataColumns::DataColumns(columns) => columns
+                .into_iter()
+                .map(|column| {
+                    let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
+                        column.index as usize,
+                        &self.chain.spec,
+                    );
+                    PubsubMessage::DataColumnSidecar(Box::new((subnet, column)))
+                })
+                .collect(),
+        };
+        self.send_network_message(NetworkMessage::Publish { messages })
+    }
+
+    pub async fn fetch_engine_blobs_and_publish(
+        self: &Arc<Self>,
+        block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
+        block_root: Hash256,
+    ) {
+        let self_cloned = self.clone();
+        let log_cloned = self.log.clone();
+        let publish_fn = move |blobs_or_data_column| {
+            match &blobs_or_data_column {
+                BlobsOrDataColumns::Blobs(b) => {
+                    debug!(log_cloned, "Publishing blobs from EL"; "count" => b.len());
+                }
+                BlobsOrDataColumns::DataColumns(d) => {
+                    debug!(log_cloned, "Publishing data columns built from EL blobs"; "count" => d.len());
+                }
+            }
+            self_cloned.publish_blobs_or_data_column(blobs_or_data_column)
+        };
+        if let Err(e) = fetch_and_process_engine_blobs(
+            self.chain.clone(),
+            block_root,
+            block.clone(),
+            publish_fn,
+        )
+        .await
+        {
+            error!(self.log, "Error fetching or processing blobs from EL"; "error" => ?e);
+        }
     }
 }
 

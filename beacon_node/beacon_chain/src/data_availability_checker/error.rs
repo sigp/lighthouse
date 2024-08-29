@@ -1,4 +1,5 @@
 use kzg::{Error as KzgError, KzgCommitment};
+use types::data_column_sidecar::DataColumnSidecarError;
 use types::{BeaconStateError, Hash256};
 
 #[derive(Debug)]
@@ -23,6 +24,7 @@ pub enum Error {
     BlockReplayError(state_processing::BlockReplayError),
     RebuildingStateCaches(BeaconStateError),
     SlotClockError,
+    DataColumnSidecarError(DataColumnSidecarError),
 }
 
 #[derive(PartialEq, Eq)]
@@ -47,7 +49,8 @@ impl Error {
             | Error::BlockReplayError(_)
             | Error::UnableToDetermineImportRequirement
             | Error::RebuildingStateCaches(_)
-            | Error::SlotClockError => ErrorCategory::Internal,
+            | Error::SlotClockError
+            | Error::DataColumnSidecarError(_) => ErrorCategory::Internal,
             Error::Kzg(_)
             | Error::BlobIndexInvalid(_)
             | Error::DataColumnIndexInvalid(_)

@@ -2700,7 +2700,6 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
     (block, blob_sidecars)
 }
 
-#[allow(clippy::type_complexity)]
 pub fn generate_rand_block_and_data_columns<E: EthSpec>(
     fork_name: ForkName,
     num_blobs: NumBlobs,
@@ -2708,7 +2707,7 @@ pub fn generate_rand_block_and_data_columns<E: EthSpec>(
     spec: &ChainSpec,
 ) -> (
     SignedBeaconBlock<E, FullPayload<E>>,
-    Vec<Arc<DataColumnSidecar<E>>>,
+    DataColumnSidecarList<E>,
 ) {
     let (block, blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng);
     let blob: BlobsList<E> = blobs.into_iter().map(|b| b.blob).collect::<Vec<_>>().into();

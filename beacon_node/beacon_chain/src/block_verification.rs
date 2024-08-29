@@ -688,7 +688,7 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
     consensus_context: ConsensusContext<T::EthSpec>,
 }
 
-/// Used to await the result of executing payload with a remote EE.
+/// Used to await the result of executing payload with an EE.
 type PayloadVerificationHandle<E> =
     JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError<E>>>>;
 
@@ -803,6 +803,7 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
                 ))?;
 
             let timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_COMPUTATION);
+
             let sidecars = blobs_to_data_column_sidecars(&blobs, block, kzg, &chain.spec)?;
             drop(timer);
             let mut gossip_verified_data_columns = vec![];
@@ -1410,7 +1411,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         /*
          *  Perform cursory checks to see if the block is even worth processing.
          */
-
         check_block_relevancy(block.as_block(), block_root, chain)?;
 
         // Define a future that will verify the execution payload with an execution engine.

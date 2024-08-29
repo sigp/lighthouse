@@ -110,6 +110,12 @@ pub static BLOCK_PROCESSING_POST_EXEC_PROCESSING: LazyLock<Result<Histogram>> =
             linear_buckets(5e-3, 5e-3, 10),
         )
     });
+pub static BLOCK_PROCESSING_DATA_COLUMNS_WAIT: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_block_processing_data_columns_wait_seconds",
+        "Time spent waiting for data columns to be computed before starting database write",
+    )
+});
 pub static BLOCK_PROCESSING_DB_WRITE: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_block_processing_db_write_seconds",
