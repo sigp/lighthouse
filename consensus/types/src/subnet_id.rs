@@ -88,14 +88,10 @@ impl SubnetId {
         let shuffling_prefix_bits = spec.attestation_subnet_shuffling_prefix_bits as u64;
 
         // calculate the prefixes used to compute the subnet and shuffling
-        let node_id_prefix = (node_id >> (256 - prefix_bits))
-            .to_be_bytes::<32>()
-            .as_ref()
-            .get_u64();
+        let node_id_prefix = (node_id >> (256 - prefix_bits)).as_le_slice().get_u64_le();
         let shuffling_prefix = (node_id >> (256 - (prefix_bits + shuffling_prefix_bits)))
-            .to_be_bytes::<32>()
-            .as_ref()
-            .get_u64();
+            .as_le_slice()
+            .get_u64_le();
 
         // number of groups the shuffling creates
         let shuffling_groups = 1 << shuffling_prefix_bits;
