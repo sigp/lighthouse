@@ -10,8 +10,6 @@ use beacon_chain::graffiti_calculator::start_engine_version_cache_refresh_servic
 use beacon_chain::otb_verification_service::start_otb_verification_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
-use beacon_chain::test_utils::{KZG, KZG_NO_PRECOMP};
-use beacon_chain::LightClientProducerEvent;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
@@ -20,6 +18,7 @@ use beacon_chain::{
     store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig, ServerSentEventHandler,
 };
+use beacon_chain::{Kzg, LightClientProducerEvent};
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
 use environment::RuntimeContext;
@@ -196,13 +195,17 @@ where
             None
         };
 
-        let kzg = if spec.deneb_fork_epoch.is_some() {
-            KZG.clone()
+        let kzg_err_msg = |e| format!("Failed to load trusted setup: {:?}", e);
+        let trusted_setup = config.trusted_setup.clone();
+        let kzg = if spec.is_peer_das_scheduled() {
+            Kzg::new_from_trusted_setup_das_enabled(trusted_setup).map_err(kzg_err_msg)?
+        } else if spec.deneb_fork_epoch.is_some() {
+            Kzg::new_from_trusted_setup(trusted_setup).map_err(kzg_err_msg)?
         } else {
-            KZG_NO_PRECOMP.clone()
+            Kzg::new_from_trusted_setup_no_precomp(trusted_setup).map_err(kzg_err_msg)?
         };
 
-        let builder = BeaconChainBuilder::new(eth_spec_instance, kzg.clone())
+        let builder = BeaconChainBuilder::new(eth_spec_instance, Arc::new(kzg))
             .logger(context.log().clone())
             .store(store)
             .task_executor(context.executor.clone())
