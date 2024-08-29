@@ -243,8 +243,7 @@ fn build_blob_sidecars<E: EthSpec>(
     response: Vec<Option<BlobAndProofV1<E>>>,
     signed_block_header: SignedBeaconBlockHeader,
     kzg_commitments_proof: &FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
-) -> Result<FixedVector<Option<Arc<BlobSidecar<E>>>, E::MaxBlobsPerBlock>, FetchEngineBlobError<E>>
-{
+) -> Result<FixedBlobSidecarList<E>, FetchEngineBlobError<E>> {
     let mut fixed_blob_sidecar_list = FixedBlobSidecarList::default();
     for (i, blob_and_proof) in response
         .into_iter()
