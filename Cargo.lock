@@ -4428,7 +4428,6 @@ dependencies = [
  "c-kzg",
  "criterion",
  "derivative",
- "eth2_network_config",
  "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
