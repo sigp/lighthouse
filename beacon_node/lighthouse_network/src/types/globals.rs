@@ -169,43 +169,70 @@ impl<E: EthSpec> NetworkGlobals<E> {
         log: &slog::Logger,
         spec: ChainSpec,
     ) -> NetworkGlobals<E> {
+        let metadata = MetaData::V3(MetaDataV3 {
+            seq_number: 0,
+            attnets: Default::default(),
+            syncnets: Default::default(),
+            custody_subnet_count: spec.data_column_sidecar_subnet_count,
+        });
+        Self::new_test_globals_with_metadata(trusted_peers, metadata, log, spec)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_test_globals_with_metadata(
+        trusted_peers: Vec<PeerId>,
+        metadata: MetaData<E>,
+        log: &slog::Logger,
+        spec: ChainSpec,
+    ) -> NetworkGlobals<E> {
         use crate::CombinedKeyExt;
         let keypair = libp2p::identity::secp256k1::Keypair::generate();
         let enr_key: discv5::enr::CombinedKey = discv5::enr::CombinedKey::from_secp256k1(&keypair);
         let enr = discv5::enr::Enr::builder().build(&enr_key).unwrap();
-        NetworkGlobals::new(
-            enr,
-            MetaData::V3(MetaDataV3 {
-                seq_number: 0,
-                attnets: Default::default(),
-                syncnets: Default::default(),
-                custody_subnet_count: spec.data_column_sidecar_subnet_count,
-            }),
-            trusted_peers,
-            false,
-            log,
-            spec,
-        )
+        NetworkGlobals::new(enr, metadata, trusted_peers, false, log, spec)
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::{EthSpec, MainnetEthSpec as E};
+    use types::{Epoch, EthSpec, MainnetEthSpec as E};
 
     #[test]
-    fn test_custody_count_default() {
-        let spec = E::default_spec();
+    fn test_custody_subnets() {
         let log = logging::test_logger();
-        let default_custody_requirement_column_count = spec.number_of_columns as u64
-            / spec.data_column_sidecar_subnet_count
-            * spec.custody_requirement;
-        let globals = NetworkGlobals::<E>::new_test_globals(vec![], &log, spec.clone());
-        let columns = globals.custody_columns;
-        assert_eq!(
-            columns.len(),
-            default_custody_requirement_column_count as usize
-        );
+        let mut spec = E::default_spec();
+        spec.eip7594_fork_epoch = Some(Epoch::new(0));
+
+        let custody_subnet_count = spec.data_column_sidecar_subnet_count / 2;
+        let metadata = get_metadata(custody_subnet_count);
+
+        let globals =
+            NetworkGlobals::<E>::new_test_globals_with_metadata(vec![], metadata, &log, spec);
+        assert_eq!(globals.custody_subnets.len(), custody_subnet_count as usize);
+    }
+
+    #[test]
+    fn test_custody_columns() {
+        let log = logging::test_logger();
+        let mut spec = E::default_spec();
+        spec.eip7594_fork_epoch = Some(Epoch::new(0));
+
+        let custody_subnet_count = spec.data_column_sidecar_subnet_count / 2;
+        let custody_columns_count = spec.number_of_columns / 2;
+        let metadata = get_metadata(custody_subnet_count);
+
+        let globals =
+            NetworkGlobals::<E>::new_test_globals_with_metadata(vec![], metadata, &log, spec);
+        assert_eq!(globals.custody_columns.len(), custody_columns_count);
+    }
+
+    fn get_metadata(custody_subnet_count: u64) -> MetaData<E> {
+        MetaData::V3(MetaDataV3 {
+            seq_number: 0,
+            attnets: Default::default(),
+            syncnets: Default::default(),
+            custody_subnet_count,
+        })
     }
 }
