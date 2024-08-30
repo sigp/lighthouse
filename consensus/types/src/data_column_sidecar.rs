@@ -1,7 +1,7 @@
 use crate::beacon_block_body::{KzgCommitments, BLOB_KZG_COMMITMENTS_INDEX};
 use crate::test_utils::TestRandom;
-use crate::{BeaconBlockHeader, Epoch, EthSpec, Hash256, KzgProofs, SignedBeaconBlockHeader, Slot};
-use crate::{BeaconStateError, ChainSpec};
+use crate::BeaconStateError;
+use crate::{BeaconBlockHeader, EthSpec, Hash256, KzgProofs, SignedBeaconBlockHeader, Slot};
 use bls::Signature;
 use derivative::Derivative;
 use kzg::Error as KzgError;
@@ -11,7 +11,6 @@ use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::typenum::Unsigned;
 use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
 use std::hash::Hash;

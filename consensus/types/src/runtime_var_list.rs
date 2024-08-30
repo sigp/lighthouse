@@ -2,7 +2,7 @@ use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
 use ssz_types::Error;
-use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::ops::{Deref, Index, IndexMut};
 use std::slice::SliceIndex;
 
 /// Emulates a SSZ `List`.
@@ -41,8 +41,10 @@ use std::slice::SliceIndex;
 #[serde(transparent)]
 pub struct RuntimeVariableList<T> {
     vec: Vec<T>,
+    /// A `None` here indicates an uninitialized `Self`.
+    /// No mutating operation will be allowed until `max_len` is Some
     #[serde(skip)]
-    max_len: usize,
+    max_len: Option<usize>,
 }
 
 impl<T> RuntimeVariableList<T> {
@@ -50,7 +52,10 @@ impl<T> RuntimeVariableList<T> {
     /// `Err(OutOfBounds { .. })`.
     pub fn new(vec: Vec<T>, max_len: usize) -> Result<Self, Error> {
         if vec.len() <= max_len {
-            Ok(Self { vec, max_len })
+            Ok(Self {
+                vec,
+                max_len: Some(max_len),
+            })
         } else {
             Err(Error::OutOfBounds {
                 i: vec.len(),
@@ -62,19 +67,44 @@ impl<T> RuntimeVariableList<T> {
     pub fn from_vec(mut vec: Vec<T>, max_len: usize) -> Self {
         vec.truncate(max_len);
 
-        Self { vec, max_len }
+        Self {
+            vec,
+            max_len: Some(max_len),
+        }
     }
 
     /// Create an empty list.
     pub fn empty(max_len: usize) -> Self {
         Self {
             vec: vec![],
-            max_len,
+            max_len: Some(max_len),
         }
     }
 
     pub fn as_slice(&self) -> &[T] {
         self.vec.as_slice()
+    }
+
+    pub fn as_mut_slice(&mut self) -> Option<&mut [T]> {
+        if self.max_len.is_none() {
+            return None;
+        };
+        Some(self.vec.as_mut_slice())
+    }
+
+    /// Returns an instance of `Self` with max_len = None.
+    ///
+    /// No mutating operation can be performed on an uninitialized instance
+    /// without first setting max_len.
+    pub fn empty_uninitialized() -> Self {
+        Self {
+            vec: vec![],
+            max_len: None,
+        }
+    }
+
+    pub fn set_max_len(&mut self, max_len: usize) {
+        self.max_len = Some(max_len);
     }
 
     /// Returns the number of values presently in `self`.
@@ -88,7 +118,9 @@ impl<T> RuntimeVariableList<T> {
     }
 
     /// Returns the type-level maximum length.
-    pub fn max_len(&self) -> usize {
+    ///
+    /// Returns `None` if self is uninitialized with a max_len.
+    pub fn max_len(&self) -> Option<usize> {
         self.max_len
     }
 
@@ -96,13 +128,17 @@ impl<T> RuntimeVariableList<T> {
     ///
     /// Returns `Err(())` when appending `value` would exceed the maximum length.
     pub fn push(&mut self, value: T) -> Result<(), Error> {
-        if self.vec.len() < self.max_len {
+        let Some(max_len) = self.max_len else {
+            // TODO(pawan): set a better error
+            return Err(Error::MissingLengthInformation);
+        };
+        if self.vec.len() < max_len {
             self.vec.push(value);
             Ok(())
         } else {
             Err(Error::OutOfBounds {
                 i: self.vec.len().saturating_add(1),
-                len: self.max_len,
+                len: max_len,
             })
         }
     }
@@ -135,7 +171,10 @@ impl<T: Decode> RuntimeVariableList<T> {
         } else {
             ssz::decode_list_of_variable_length_items(bytes, Some(max_len))?
         };
-        Ok(Self { vec, max_len })
+        Ok(Self {
+            vec,
+            max_len: Some(max_len),
+        })
     }
 }
 
@@ -166,12 +205,6 @@ impl<T> Deref for RuntimeVariableList<T> {
 
     fn deref(&self) -> &[T] {
         &self.vec[..]
-    }
-}
-
-impl<T> DerefMut for RuntimeVariableList<T> {
-    fn deref_mut(&mut self) -> &mut [T] {
-        &mut self.vec[..]
     }
 }
 
@@ -221,7 +254,6 @@ pub struct RuntimeFixedList<T> {
 }
 
 impl<T: Clone> RuntimeFixedList<T> {
-    // TODO(pawan): no need to take len
     pub fn new(vec: Vec<T>) -> Self {
         let len = vec.len();
         Self { vec, len }
@@ -280,6 +312,7 @@ mod test {
     use super::*;
     use ssz::*;
     use std::fmt::Debug;
+    use tree_hash::TreeHash;
 
     #[test]
     fn new() {
@@ -357,5 +390,13 @@ mod test {
     fn u16_len_8() {
         round_trip::<u16>(RuntimeVariableList::from_vec(vec![42; 8], 8));
         round_trip::<u16>(RuntimeVariableList::from_vec(vec![0; 8], 8));
+    }
+
+    #[test]
+    fn test_empty_list_encoding() {
+        use ssz_types::{typenum::U16, VariableList};
+
+        let a: RuntimeVariableList<u64> = RuntimeVariableList::from_vec(vec![], 16);
+        dbg!(a.tree_hash_root());
     }
 }
