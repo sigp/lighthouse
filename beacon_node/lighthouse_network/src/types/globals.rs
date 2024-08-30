@@ -173,12 +173,11 @@ impl<E: EthSpec> NetworkGlobals<E> {
             seq_number: 0,
             attnets: Default::default(),
             syncnets: Default::default(),
-            custody_subnet_count: spec.data_column_sidecar_subnet_count,
+            custody_subnet_count: spec.custody_requirement,
         });
         Self::new_test_globals_with_metadata(trusted_peers, metadata, log, spec)
     }
 
-    #[cfg(test)]
     pub(crate) fn new_test_globals_with_metadata(
         trusted_peers: Vec<PeerId>,
         metadata: MetaData<E>,
