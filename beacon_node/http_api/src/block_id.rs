@@ -279,15 +279,21 @@ impl BlockId {
             .get_blobs(&root)
             .map_err(warp_utils::reject::beacon_chain_error)?;
 
-        let max_len = blob_sidecar_list.max_len();
         let blob_sidecar_list_filtered = match indices.indices {
             Some(vec) => {
-                let list = blob_sidecar_list
+                let list: Vec<_> = blob_sidecar_list
                     .into_iter()
                     .filter(|blob_sidecar| vec.contains(&blob_sidecar.index))
                     .collect();
-                BlobSidecarList::new(list, max_len)
-                    .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?
+                if let Some(max_len) = list
+                    .first()
+                    .map(|sidecar| chain.spec.max_blobs_per_block(sidecar.epoch()))
+                {
+                    BlobSidecarList::new(list, max_len as usize)
+                        .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?
+                } else {
+                    BlobSidecarList::empty_uninitialized()
+                }
             }
             None => blob_sidecar_list,
         };

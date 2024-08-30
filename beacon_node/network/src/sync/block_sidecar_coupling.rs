@@ -2,7 +2,6 @@ use beacon_chain::{
     block_verification_types::RpcBlock, data_column_verification::CustodyDataColumn, get_block_root,
 };
 use lighthouse_network::PeerId;
-use ssz_types::VariableList;
 use std::{
     collections::{HashMap, VecDeque},
     sync::Arc,

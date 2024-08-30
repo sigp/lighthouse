@@ -11,7 +11,6 @@ use crate::BeaconChainTypes;
 use kzg::Kzg;
 use lru::LruCache;
 use parking_lot::RwLock;
-use ssz_types::{FixedVector, VariableList};
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;

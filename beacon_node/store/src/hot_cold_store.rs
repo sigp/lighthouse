@@ -1673,19 +1673,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 // a plain vec since we don't know the length limit of the list without
                 // knowing the slot.
                 // The encoding of a VariableList is same as a regular vec.
-                let blobs = BlobSidecarVec::from_ssz_bytes(blobs_bytes)?;
-                let max_blobs_per_block = blobs
+                let blobs: Vec<Arc<BlobSidecar<E>>> = Vec::<_>::from_ssz_bytes(blobs_bytes)?;
+                let blobs = if let Some(max_blobs_per_block) = blobs
                     .first()
-                    .map(|blob| {
-                        self.spec
-                            .max_blobs_per_block(blob.slot().epoch(E::slots_per_epoch()))
-                    })
-                    // This is the case where we have no blobs for the slot, doesn't matter what value we keep for max here
-                    // TODO(pawan): double check that this is the case
-                    // we could also potentially deal with just vecs in the db since we only add length validated sidecar
-                    // lists to the db
-                    .unwrap_or(6);
-                let blobs = BlobSidecarList::from_vec(blobs, max_blobs_per_block as usize);
+                    .map(|blob| self.spec.max_blobs_per_block(blob.epoch()))
+                {
+                    BlobSidecarList::from_vec(blobs, max_blobs_per_block as usize)
+                } else {
+                    // This always implies that there were no blobs for this block_root
+                    BlobSidecarList::empty_uninitialized()
+                };
                 self.block_cache
                     .lock()
                     .put_blobs(*block_root, blobs.clone());

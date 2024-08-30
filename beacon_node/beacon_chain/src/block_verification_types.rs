@@ -8,11 +8,10 @@ use crate::data_column_verification::{
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::{get_block_root, GossipVerifiedBlock, PayloadVerificationOutcome};
 use derivative::Derivative;
-use ssz_types::VariableList;
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
-use types::blob_sidecar::{self, BlobIdentifier, FixedBlobSidecarList};
+use types::blob_sidecar::{self, BlobIdentifier};
 use types::data_column_sidecar::{self};
 use types::{
     BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, ChainSpec, Epoch, EthSpec,
