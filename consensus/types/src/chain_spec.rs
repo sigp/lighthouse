@@ -1176,7 +1176,6 @@ impl ChainSpec {
             max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
             min_epochs_for_blob_sidecars_requests: 16384,
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
-            // TODO(pawan): check if gnosis preset values match
             max_blobs_per_block: default_max_blobs_per_block(),
 
             /*

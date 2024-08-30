@@ -1239,8 +1239,6 @@ fn to_fixed_blob_sidecar_list<E: EthSpec>(
     blobs: Vec<Arc<BlobSidecar<E>>>,
     max_len: usize,
 ) -> Result<FixedBlobSidecarList<E>, LookupVerifyError> {
-    // TODO(pawan): have a method on fixed runtime vector that just initializes a raw vec with max_len = None
-    // to signify an empty fixed runtime vector
     let mut fixed_list = FixedBlobSidecarList::new(vec![None; max_len]);
     for blob in blobs.into_iter() {
         let index = blob.index as usize;
