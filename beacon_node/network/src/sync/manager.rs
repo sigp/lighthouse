@@ -68,9 +68,10 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot,
-};
+use types::{BlobSidecar, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
+
+#[cfg(test)]
+use types::ColumnIndex;
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
