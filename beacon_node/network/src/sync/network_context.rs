@@ -145,8 +145,9 @@ pub enum LookupRequestResult<I = ReqId> {
     /// A request is sent. Sync MUST receive an event from the network in the future for either:
     /// completed response or failed request
     RequestSent(I),
-    /// No request is sent, and no further action is necessary to consider this request completed
-    NoRequestNeeded,
+    /// No request is sent, and no further action is necessary to consider this request completed.
+    /// Includes a reason why this request is not needed.
+    NoRequestNeeded(&'static str),
     /// No request is sent, but the request is not completed. Sync MUST receive some future event
     /// that makes progress on the request. For example: request is processing from a different
     /// source (i.e. block received from gossip) and sync MUST receive an event with that processing
@@ -543,7 +544,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // Block is fully validated. If it's not yet imported it's waiting for missing block
             // components. Consider this request completed and do nothing.
             BlockProcessStatus::ExecutionValidated { .. } => {
-                return Ok(LookupRequestResult::NoRequestNeeded)
+                return Ok(LookupRequestResult::NoRequestNeeded(
+                    "block execution validated",
+                ))
             }
         }
 
@@ -623,7 +626,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         // Check if we are in deneb, before peerdas and inside da window
         if !self.chain.should_fetch_blobs(block_epoch) {
-            return Ok(LookupRequestResult::NoRequestNeeded);
+            return Ok(LookupRequestResult::NoRequestNeeded("blobs not required"));
+        }
+
+        // No data required for this block
+        if expected_blobs == 0 {
+            return Ok(LookupRequestResult::NoRequestNeeded("no data"));
         }
 
         let imported_blob_indexes = self
@@ -638,7 +646,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         if indices.is_empty() {
             // No blobs required, do not issue any request
-            return Ok(LookupRequestResult::NoRequestNeeded);
+            return Ok(LookupRequestResult::NoRequestNeeded("no indices to fetch"));
         }
 
         let req_id = self.next_id();
@@ -736,12 +744,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         // Check if we are into peerdas and inside da window
         if !self.chain.should_fetch_custody_columns(block_epoch) {
-            return Ok(LookupRequestResult::NoRequestNeeded);
+            return Ok(LookupRequestResult::NoRequestNeeded("columns not required"));
         }
 
         // No data required for this block
         if expected_blobs == 0 {
-            return Ok(LookupRequestResult::NoRequestNeeded);
+            return Ok(LookupRequestResult::NoRequestNeeded("no data"));
         }
 
         let custody_indexes_imported = self
@@ -760,7 +768,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         if custody_indexes_to_fetch.is_empty() {
             // No indexes required, do not issue any request
-            return Ok(LookupRequestResult::NoRequestNeeded);
+            return Ok(LookupRequestResult::NoRequestNeeded("no indices to fetch"));
         }
 
         let req_id = self.next_id();
