@@ -42,6 +42,7 @@ pub mod eth_spec;
 pub mod execution_bid;
 pub mod execution_block_hash;
 pub mod execution_payload;
+pub mod execution_payload_envelope;
 pub mod execution_payload_header;
 pub mod fork;
 pub mod fork_data;
@@ -51,10 +52,15 @@ pub mod graffiti;
 pub mod historical_batch;
 pub mod historical_summary;
 pub mod indexed_attestation;
+pub mod indexed_payload_attestation;
 pub mod light_client_bootstrap;
 pub mod light_client_finality_update;
 pub mod light_client_optimistic_update;
 pub mod light_client_update;
+pub mod payload;
+pub mod payload_attestation;
+pub mod payload_attestation_data;
+pub mod payload_attestation_message;
 pub mod pending_attestation;
 pub mod pending_balance_deposit;
 pub mod pending_consolidation;
@@ -69,6 +75,8 @@ pub mod signed_beacon_block;
 pub mod signed_beacon_block_header;
 pub mod signed_bls_to_execution_change;
 pub mod signed_contribution_and_proof;
+pub mod signed_execution_bid;
+pub mod signed_execution_payload_envelope;
 pub mod signed_voluntary_exit;
 pub mod signing_data;
 pub mod sync_committee_subscription;
@@ -86,7 +94,6 @@ pub mod execution_block_header;
 pub mod execution_requests;
 pub mod fork_context;
 pub mod participation_flags;
-pub mod payload;
 pub mod preset;
 pub mod slot_epoch;
 pub mod subnet_id;
@@ -169,6 +176,9 @@ pub use crate::execution_payload::{
     ExecutionPayloadEIP7732, ExecutionPayloadElectra, ExecutionPayloadRef, Transaction,
     Transactions, Withdrawals,
 };
+pub use crate::execution_payload_envelope::{
+    ExecutionPayloadEnvelope, ExecutionPayloadEnvelopeEIP7732,
+};
 pub use crate::execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderRef,
@@ -185,6 +195,7 @@ pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::{
     IndexedAttestation, IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationRef,
 };
+pub use crate::indexed_payload_attestation::IndexedPayloadAttestation;
 pub use crate::light_client_bootstrap::{
     LightClientBootstrap, LightClientBootstrapAltair, LightClientBootstrapCapella,
     LightClientBootstrapDeneb, LightClientBootstrapElectra,
@@ -213,6 +224,9 @@ pub use crate::payload::{
     FullPayload, FullPayloadBellatrix, FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra,
     FullPayloadRef, OwnedExecPayload,
 };
+pub use crate::payload_attestation::PayloadAttestation;
+pub use crate::payload_attestation_data::PayloadAttestationData;
+pub use crate::payload_attestation_message::PayloadAttestationMessage;
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::pending_balance_deposit::PendingBalanceDeposit;
 pub use crate::pending_consolidation::PendingConsolidation;
@@ -238,6 +252,8 @@ pub use crate::signed_beacon_block::{
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
+pub use crate::signed_execution_bid::SignedExecutionBid;
+pub use crate::signed_execution_payload_envelope::SignedExecutionPayloadEnvelope;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_data::{SignedRoot, SigningData};
 pub use crate::slot_epoch::{Epoch, Slot};

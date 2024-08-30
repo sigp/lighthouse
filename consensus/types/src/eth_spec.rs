@@ -160,6 +160,11 @@ pub trait EthSpec:
     type MaxAttestationsElectra: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxWithdrawalRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
+    /*
+     * New in EIP-7736
+     */
+    type PTCSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+
     fn default_spec() -> ChainSpec;
 
     fn spec_name() -> EthSpecId;
@@ -438,6 +443,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxAttesterSlashingsElectra = U1;
     type MaxAttestationsElectra = U8;
     type MaxWithdrawalRequestsPerPayload = U16;
+    type PTCSize = U512;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -503,7 +509,8 @@ impl EthSpec for MinimalEthSpec {
         PendingBalanceDepositsLimit,
         MaxConsolidationRequestsPerPayload,
         MaxAttesterSlashingsElectra,
-        MaxAttestationsElectra
+        MaxAttestationsElectra,
+        PTCSize
     });
 
     fn default_spec() -> ChainSpec {
@@ -569,6 +576,7 @@ impl EthSpec for GnosisEthSpec {
     type FieldElementsPerExtBlob = U8192;
     type BytesPerCell = U2048;
     type KzgCommitmentsInclusionProofDepth = U4;
+    type PTCSize = U512;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()
