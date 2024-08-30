@@ -28,7 +28,6 @@ use rand::thread_rng;
 use requests::ActiveDataColumnsByRootRequest;
 pub use requests::LookupVerifyError;
 use slog::{debug, error, warn};
-use slot_clock::SlotClock;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -598,21 +597,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block_root: Hash256,
         downloaded_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
-        // Check if we are into deneb, and before peerdas
-        if !self
-            .chain
-            .data_availability_checker
-            .blobs_required_for_epoch(
-                // TODO(das): use the block's slot
-                self.chain
-                    .slot_clock
-                    .now_or_genesis()
-                    .ok_or(RpcRequestSendError::SlotClockError)?
-                    .epoch(T::EthSpec::slots_per_epoch()),
-            )
-        {
-            return Ok(LookupRequestResult::NoRequestNeeded("outside da window"));
-        }
         let Some(block) = downloaded_block.or_else(|| {
             // If the block is already being processed or fully validated, retrieve how many blobs
             // it expects. Consider any stage of the block. If the block root has been validated, we
@@ -640,7 +624,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let expected_blobs = block.num_expected_blobs();
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
 
-        // Check if we are into peerdas
+        // Check if we are in deneb, before peerdas and inside da window
         if !self.chain.should_fetch_blobs(block_epoch) {
             return Ok(LookupRequestResult::NoRequestNeeded("blobs not required"));
         }
@@ -758,7 +742,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let expected_blobs = block.num_expected_blobs();
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
 
-        // Check if we are into peerdas
+        // Check if we are into peerdas and inside da window
         if !self.chain.should_fetch_custody_columns(block_epoch) {
             return Ok(LookupRequestResult::NoRequestNeeded("columns not required"));
         }
@@ -774,7 +758,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .imported_custody_column_indexes(&block_root)
             .unwrap_or_default();
 
-        // TODO(das): figure out how to pass block.slot if we end up doing rotation
         let custody_indexes_duty = self.network_globals().custody_columns();
 
         // Include only the blob indexes not yet imported (received through gossip)
