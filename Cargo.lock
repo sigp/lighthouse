@@ -8917,6 +8917,7 @@ dependencies = [
  "compare_fields_derive",
  "criterion",
  "derivative",
+ "either",
  "eth2_interop_keypairs",
  "ethereum-types 0.14.1",
  "ethereum_hashing",

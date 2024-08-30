@@ -718,7 +718,13 @@ impl<E: EthSpec> PeerManager<E> {
                     "peer_id" => %peer_id, "new_seq_no" => meta_data.seq_number());
             }
             let node_id_opt = peer_id_to_node_id(peer_id).ok();
-            peer_info.set_meta_data(meta_data, node_id_opt, &self.network_globals.spec);
+            peer_info.set_meta_data(
+                meta_data,
+                node_id_opt,
+                peer_id,
+                &self.network_globals.spec,
+                &self.log,
+            );
         } else {
             error!(self.log, "Received METADATA from an unknown peer";
                 "peer_id" => %peer_id);
@@ -1683,7 +1689,9 @@ mod tests {
             .set_meta_data(
                 MetaData::V2(metadata),
                 None,
+                &peer0,
                 &peer_manager.network_globals.spec,
+                &peer_manager.log,
             );
         peer_manager
             .network_globals
@@ -1707,7 +1715,9 @@ mod tests {
             .set_meta_data(
                 MetaData::V2(metadata),
                 None,
+                &peer2,
                 &peer_manager.network_globals.spec,
+                &peer_manager.log,
             );
         peer_manager
             .network_globals
@@ -1731,7 +1741,9 @@ mod tests {
             .set_meta_data(
                 MetaData::V2(metadata),
                 None,
+                &peer4,
                 &peer_manager.network_globals.spec,
+                &peer_manager.log,
             );
         peer_manager
             .network_globals
@@ -1809,7 +1821,9 @@ mod tests {
                 .set_meta_data(
                     MetaData::V2(metadata),
                     None,
+                    &peer,
                     &peer_manager.network_globals.spec,
+                    &peer_manager.log,
                 );
             peer_manager
                 .network_globals
@@ -1937,7 +1951,9 @@ mod tests {
                 .set_meta_data(
                     MetaData::V2(metadata),
                     None,
+                    &peer,
                     &peer_manager.network_globals.spec,
+                    &peer_manager.log,
                 );
             let long_lived_subnets = peer_manager
                 .network_globals
@@ -2050,7 +2066,9 @@ mod tests {
                 .set_meta_data(
                     MetaData::V2(metadata),
                     None,
+                    &peer,
                     &peer_manager.network_globals.spec,
+                    &peer_manager.log,
                 );
             let long_lived_subnets = peer_manager
                 .network_globals
@@ -2220,7 +2238,9 @@ mod tests {
                 .set_meta_data(
                     MetaData::V2(metadata),
                     None,
+                    &peer,
                     &peer_manager.network_globals.spec,
+                    &peer_manager.log,
                 );
             let long_lived_subnets = peer_manager
                 .network_globals
@@ -2381,7 +2401,9 @@ mod tests {
                     peer_info.set_meta_data(
                         MetaData::V2(metadata),
                         None,
+                        &condition.peer_id,
                         &peer_manager.network_globals.spec,
+                        &peer_manager.log,
                     );
                     peer_info.set_gossipsub_score(condition.gossipsub_score);
                     peer_info.add_to_score(condition.score);

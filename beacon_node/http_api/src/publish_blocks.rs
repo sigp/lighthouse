@@ -273,7 +273,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     }
 
     if let Some(gossip_verified_data_columns) = gossip_verified_data_columns {
-        let custody_columns_indices = network_globals.custody_columns();
+        let custody_columns_indices = &network_globals.custody_columns;
 
         let custody_columns = gossip_verified_data_columns
             .into_iter()

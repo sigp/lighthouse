@@ -1,10 +1,12 @@
 //! Identifies each data column subnet by an integer identifier.
 use crate::data_column_sidecar::ColumnIndex;
 use crate::{ChainSpec, EthSpec};
+use either::Either;
 use ethereum_types::U256;
 use itertools::Itertools;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
+use slog::{error, Logger};
 use std::collections::HashSet;
 use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut};
@@ -41,9 +43,10 @@ impl DataColumnSubnetId {
         node_id: U256,
         custody_subnet_count: u64,
         spec: &ChainSpec,
-    ) -> impl Iterator<Item = DataColumnSubnetId> {
-        // TODO(das): we could perform check on `custody_subnet_count` here to ensure that it is a valid
-        // value, but here we assume it is valid.
+    ) -> Result<impl Iterator<Item = DataColumnSubnetId>, Error> {
+        if custody_subnet_count > spec.data_column_sidecar_subnet_count {
+            return Err(Error::InvalidCustodySubnetCount(custody_subnet_count));
+        }
 
         let mut subnets: HashSet<u64> = HashSet::new();
         let mut current_id = node_id;
@@ -66,17 +69,37 @@ impl DataColumnSubnetId {
             }
             current_id += U256::one()
         }
-        subnets.into_iter().map(DataColumnSubnetId::new)
+        Ok(subnets.into_iter().map(DataColumnSubnetId::new))
+    }
+
+    /// Compute the custody subnets for a given node id with the default `custody_requirement`.
+    /// This operation should be infallable, and empty iterator is returned if it fails unexpectedly.
+    pub fn compute_custody_requirement_subnets<E: EthSpec>(
+        node_id: U256,
+        spec: &ChainSpec,
+        log: &Logger,
+    ) -> impl Iterator<Item = DataColumnSubnetId> {
+        Self::compute_custody_subnets::<E>(node_id, spec.custody_requirement, spec)
+            .map(Either::Left)
+            .unwrap_or_else(|e| {
+                error!(
+                    log,
+                    "Failed to compute default custody subnets for node";
+                    "node_id" => %node_id,
+                    "info" => "This is a bug (unreachable case), please notify the devs",
+                    "error" => ?e
+                );
+                Either::Right(std::iter::empty())
+            })
     }
 
     pub fn compute_custody_columns<E: EthSpec>(
         node_id: U256,
         custody_subnet_count: u64,
         spec: &ChainSpec,
-    ) -> impl Iterator<Item = ColumnIndex> {
+    ) -> Result<impl Iterator<Item = ColumnIndex>, Error> {
         Self::compute_custody_subnets::<E>(node_id, custody_subnet_count, spec)
-            .flat_map(|subnet| subnet.columns::<E>(spec))
-            .sorted()
+            .map(|subnet| subnet.flat_map(|subnet| subnet.columns::<E>(spec)).sorted())
     }
 }
 
@@ -121,6 +144,7 @@ impl From<&DataColumnSubnetId> for u64 {
 #[derive(Debug)]
 pub enum Error {
     ArithError(ArithError),
+    InvalidCustodySubnetCount(u64),
 }
 
 impl From<ArithError> for Error {
@@ -162,7 +186,8 @@ mod test {
                 node_id,
                 custody_requirement,
                 &spec,
-            );
+            )
+            .unwrap();
             let computed_subnets: Vec<_> = computed_subnets.collect();
 
             // the number of subnets is equal to the custody requirement

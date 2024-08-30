@@ -6,7 +6,7 @@ use crate::{
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use rand::seq::SliceRandom;
 use score::{PeerAction, ReportSource, Score, ScoreState};
-use slog::{crit, debug, error, trace, warn};
+use slog::{crit, debug, error, trace, warn, Logger};
 use std::net::IpAddr;
 use std::time::Instant;
 use std::{cmp::Ordering, fmt::Display};
@@ -791,14 +791,8 @@ impl<E: EthSpec> PeerDB<E> {
             ) => {
                 // Update the ENR if one exists, and compute the custody subnets
                 if let Some(enr) = enr {
-                    let node_id = enr.node_id().raw().into();
-                    let custody_subnet_count = enr.custody_subnet_count::<E>(&self.spec);
-                    let custody_subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
-                        node_id,
-                        custody_subnet_count,
-                        &self.spec,
-                    )
-                    .collect::<HashSet<_>>();
+                    let custody_subnets =
+                        compute_custody_subnets_from_enr::<E>(&enr, peer_id, &self.spec, &self.log);
                     info.set_custody_subnets(custody_subnets);
                     info.set_enr(enr);
                 }
@@ -1164,6 +1158,47 @@ impl<E: EthSpec> PeerDB<E> {
             (ScoreState::Banned, ScoreState::Banned) => ScoreTransitionResult::NoAction,
         }
     }
+}
+
+fn compute_custody_subnets_from_enr<E: EthSpec>(
+    enr: &Enr,
+    peer_id: &PeerId,
+    spec: &ChainSpec,
+    log: &Logger,
+) -> HashSet<DataColumnSubnetId> {
+    let node_id = enr.node_id().raw().into();
+
+    // fallback to `custody_requirement` if `csc` is invalid
+    let custody_subnet_count = enr.custody_subnet_count::<E>().unwrap_or_else(|e| {
+        // This handles the scenario where `csc` is not found or not decodable.
+        // TODO(das): Should we penalise peer?
+        debug!(
+            log,
+            "No valid csc found in peer ENR";
+            "info" => "Falling back to default custody requirement",
+            "peer_id" => %peer_id,
+            "enr" => enr.to_base64(),
+            "error" => ?e
+        );
+        spec.custody_requirement
+    });
+
+    DataColumnSubnetId::compute_custody_subnets::<E>(node_id, custody_subnet_count, spec)
+        .map(|subnets| subnets.collect())
+        .unwrap_or_else(|e| {
+            // This handles the scenario where a peer supplies an invalid `csc` value, > `data_column_sidecar_subnet_count`.
+            // TODO(das): Should we penalise peer?
+            debug!(
+                log,
+                "Unable to compute peer custody subnets from ENR";
+                "info" => "Falling back to default custody requirement subnets",
+                "peer_id" => %peer_id,
+                "custody_subnet_count" => custody_subnet_count,
+                "error" => ?e
+            );
+            DataColumnSubnetId::compute_custody_requirement_subnets::<E>(node_id, spec, log)
+                .collect()
+        })
 }
 
 /// Internal enum for managing connection state transitions.
