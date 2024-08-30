@@ -214,6 +214,7 @@ async fn produces_missed_blocks() {
         ForkName::Capella => 11,
         ForkName::Deneb => 3,
         ForkName::Electra => 1,
+        ForkName::EIP7732 => 9,
     };
 
     let harness2 = get_harness(validator_count, vec![validator_index_to_monitor]);

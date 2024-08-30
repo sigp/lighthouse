@@ -821,7 +821,7 @@ mod test {
             ),
             SignedBeaconBlock::from_block(
                 BeaconBlock::Electra(BeaconBlockElectra::empty(spec)),
-                sig,
+                sig.clone(),
             ),
             SignedBeaconBlock::from_block(
                 BeaconBlock::EIP7732(BeaconBlockEIP7732::empty(spec)),
