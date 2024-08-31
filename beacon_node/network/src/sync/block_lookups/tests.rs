@@ -2083,7 +2083,7 @@ fn sampling_batch_requests_not_enough_responses_returned() {
     let data_columns_to_complete = data_columns
         .iter()
         .filter(|d| column_indexes_to_complete.contains(&d.index))
-        .map(|d| d.clone())
+        .cloned()
         .collect::<Vec<_>>();
     r.complete_data_columns_by_root_request(
         (sync_request_id, column_indexes.clone()),
