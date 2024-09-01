@@ -1,7 +1,7 @@
 use self::committee_cache::get_active_validator_indices;
-use crate::fixed_bytes::FixedBytesExtended;
 use crate::historical_summary::HistoricalSummary;
 use crate::test_utils::TestRandom;
+use crate::FixedBytesExtended;
 use crate::*;
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;

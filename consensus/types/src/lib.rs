@@ -41,7 +41,6 @@ pub mod eth_spec;
 pub mod execution_block_hash;
 pub mod execution_payload;
 pub mod execution_payload_header;
-pub mod fixed_bytes;
 pub mod fork;
 pub mod fork_data;
 pub mod fork_name;
@@ -170,7 +169,6 @@ pub use crate::execution_payload_header::{
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderRef,
     ExecutionPayloadHeaderRefMut,
 };
-pub use crate::fixed_bytes::FixedBytesExtended;
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
 pub use crate::fork_data::ForkData;
@@ -254,11 +252,12 @@ pub use crate::voluntary_exit::VoluntaryExit;
 pub use crate::withdrawal::Withdrawal;
 pub use crate::withdrawal_credentials::WithdrawalCredentials;
 pub use crate::withdrawal_request::WithdrawalRequest;
+pub use fixed_bytes::FixedBytesExtended;
 
 pub type CommitteeIndex = u64;
-pub type Hash256 = alloy_primitives::B256;
-pub type Uint256 = alloy_primitives::U256;
-pub type Address = alloy_primitives::Address;
+pub type Hash256 = fixed_bytes::Hash256;
+pub type Uint256 = fixed_bytes::Uint256;
+pub type Address = fixed_bytes::Address;
 pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
 pub type Blob<E> = FixedVector<u8, <E as EthSpec>::BytesPerBlob>;

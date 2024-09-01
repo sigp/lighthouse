@@ -17,6 +17,7 @@ arbitrary = { workspace = true }
 zeroize = { workspace = true }
 blst = { version = "0.3.3", optional = true }
 safe_arith = { workspace = true }
+fixed_bytes = { workspace = true }
 
 [features]
 arbitrary = []

@@ -1044,6 +1044,7 @@ dependencies = [
  "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
+ "fixed_bytes",
  "hex",
  "rand",
  "safe_arith",
@@ -3163,6 +3164,14 @@ dependencies = [
  "rand",
  "rustc-hex",
  "static_assertions",
+]
+
+[[package]]
+name = "fixed_bytes"
+version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "safe_arith",
 ]
 
 [[package]]
@@ -5387,6 +5396,7 @@ version = "0.2.0"
 dependencies = [
  "alloy-primitives",
  "ethereum_hashing",
+ "fixed_bytes",
  "quickcheck",
  "quickcheck_macros",
  "safe_arith",
@@ -8272,6 +8282,7 @@ dependencies = [
  "alloy-primitives",
  "criterion",
  "ethereum_hashing",
+ "fixed_bytes",
 ]
 
 [[package]]
@@ -8994,6 +9005,7 @@ dependencies = [
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethereum_ssz_derive",
+ "fixed_bytes",
  "hex",
  "int_to_bytes",
  "itertools 0.10.5",

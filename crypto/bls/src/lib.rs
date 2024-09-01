@@ -33,70 +33,19 @@ mod zeroize_hash;
 
 pub mod impls;
 
-use alloy_primitives::FixedBytes;
 pub use generic_public_key::{
     INFINITY_PUBLIC_KEY, PUBLIC_KEY_BYTES_LEN, PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN,
 };
 pub use generic_secret_key::SECRET_KEY_BYTES_LEN;
 pub use generic_signature::{INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN};
 pub use get_withdrawal_credentials::get_withdrawal_credentials;
-use safe_arith::SafeArith;
 pub use zeroize_hash::ZeroizeHash;
 
 #[cfg(feature = "supranational")]
 use blst::BLST_ERROR as BlstError;
 
-pub type Hash256 = alloy_primitives::B256;
-pub trait FixedBytesExtended {
-    fn from_low_u64_be(value: u64) -> Self;
-    fn from_low_u64_le(value: u64) -> Self;
-    fn zero() -> Self;
-}
-
-impl<const N: usize> FixedBytesExtended for FixedBytes<N> {
-    fn from_low_u64_be(value: u64) -> Self {
-        let value_bytes = value.to_be_bytes();
-        let mut buffer = [0x0; N];
-        let bytes_to_copy = value_bytes.len().min(buffer.len());
-        // Panic-free because bytes_to_copy <= buffer.len()
-        let start_index = buffer
-            .len()
-            .safe_sub(bytes_to_copy)
-            .expect("bytes_to_copy <= buffer.len()");
-        // Panic-free because start_index <= buffer.len()
-        // and bytes_to_copy <= value_bytes.len()
-        buffer
-            .get_mut(start_index..)
-            .expect("start_index <= buffer.len()")
-            .copy_from_slice(
-                value_bytes
-                    .get(..bytes_to_copy)
-                    .expect("bytes_to_copy <= value_byte.len()"),
-            );
-        Self::from(buffer)
-    }
-
-    fn from_low_u64_le(value: u64) -> Self {
-        let value_bytes = value.to_le_bytes();
-        let mut buffer = [0x0; N];
-        let bytes_to_copy = value_bytes.len().min(buffer.len());
-        // Panic-free because bytes_to_copy <= buffer.len(),
-        // and bytes_to_copy <= value_bytes.len()
-        buffer
-            .get_mut(..bytes_to_copy)
-            .expect("bytes_to_copy <= buffer.len()")
-            .copy_from_slice(
-                value_bytes
-                    .get(..bytes_to_copy)
-                    .expect("bytes_to_copy <= value_byte.len()"),
-            );
-        Self::from(buffer)
-    }
-
-    fn zero() -> Self {
-        Self::ZERO
-    }
-}
+pub type Hash256 = fixed_bytes::Hash256;
+pub use fixed_bytes::FixedBytesExtended;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {

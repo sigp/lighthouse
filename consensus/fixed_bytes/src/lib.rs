@@ -1,5 +1,10 @@
-use alloy_primitives::{Address, FixedBytes};
+use alloy_primitives::FixedBytes;
 use safe_arith::SafeArith;
+
+pub type Hash64 = alloy_primitives::B64;
+pub type Hash256 = alloy_primitives::B256;
+pub type Uint256 = alloy_primitives::U256;
+pub type Address = alloy_primitives::Address;
 
 pub trait FixedBytesExtended {
     fn from_low_u64_be(value: u64) -> Self;
@@ -16,7 +21,7 @@ impl<const N: usize> FixedBytesExtended for FixedBytes<N> {
         let start_index = buffer
             .len()
             .safe_sub(bytes_to_copy)
-            .expect("byte_to_copy <= buffer.len()");
+            .expect("bytes_to_copy <= buffer.len()");
         // Panic-free because start_index <= buffer.len()
         // and bytes_to_copy <= value_bytes.len()
         buffer
@@ -34,7 +39,7 @@ impl<const N: usize> FixedBytesExtended for FixedBytes<N> {
         let value_bytes = value.to_le_bytes();
         let mut buffer = [0x0; N];
         let bytes_to_copy = value_bytes.len().min(buffer.len());
-        // Panic-free because bytes_to_copy <= buffer.len()
+        // Panic-free because bytes_to_copy <= buffer.len(),
         // and bytes_to_copy <= value_bytes.len()
         buffer
             .get_mut(..bytes_to_copy)
@@ -52,7 +57,7 @@ impl<const N: usize> FixedBytesExtended for FixedBytes<N> {
     }
 }
 
-impl FixedBytesExtended for Address {
+impl FixedBytesExtended for alloy_primitives::Address {
     fn from_low_u64_be(value: u64) -> Self {
         FixedBytes::<20>::from_low_u64_be(value).into()
     }

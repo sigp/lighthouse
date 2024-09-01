@@ -52,6 +52,7 @@ maplit = { workspace = true }
 alloy-rlp = { version = "0.3.4", features = ["derive"] }
 milhouse = { workspace = true }
 rpds = { workspace = true }
+fixed_bytes = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

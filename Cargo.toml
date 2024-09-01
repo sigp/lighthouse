@@ -204,6 +204,7 @@ eth2_keystore = { path = "crypto/eth2_keystore" }
 eth2_network_config = { path = "common/eth2_network_config" }
 eth2_wallet = { path = "crypto/eth2_wallet" }
 execution_layer = { path = "beacon_node/execution_layer" }
+fixed_bytes = { path = "consensus/fixed_bytes" }
 filesystem = { path = "common/filesystem" }
 fork_choice = { path = "consensus/fork_choice" }
 genesis = { path = "beacon_node/genesis" }
