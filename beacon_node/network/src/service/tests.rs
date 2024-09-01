@@ -14,7 +14,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::Arc;
     use tokio::runtime::Runtime;
-    use types::{Epoch, EthSpec, ForkName, MinimalEthSpec, SubnetId, Uint256};
+    use types::{Epoch, EthSpec, ForkName, MinimalEthSpec, SubnetId};
 
     impl<T: BeaconChainTypes> NetworkService<T> {
         fn get_topic_params(&self, topic: GossipTopic) -> Option<&gossipsub::TopicScoreParams> {
@@ -176,7 +176,7 @@ mod tests {
         // Make sure the service is subscribed to the topics.
         let (old_topic1, old_topic2) = {
             let mut subnets = SubnetId::compute_subnets_for_epoch::<MinimalEthSpec>(
-                &network_globals.local_enr().node_id().raw(),
+                network_globals.local_enr().node_id().raw(),
                 beacon_chain.epoch().unwrap(),
                 &spec,
             )
