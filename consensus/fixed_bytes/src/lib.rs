@@ -13,6 +13,7 @@ pub trait UintExtended {
 pub trait FixedBytesExtended {
     fn from_low_u64_be(value: u64) -> Self;
     fn from_low_u64_le(value: u64) -> Self;
+    fn to_low_u64_le(&self) -> u64;
     fn zero() -> Self;
 }
 
@@ -59,6 +60,15 @@ impl<const N: usize> FixedBytesExtended for FixedBytes<N> {
     fn zero() -> Self {
         Self::ZERO
     }
+
+    /// Trims FixedBytes<N> to its first 8 bytes and converts to u64
+    fn to_low_u64_le(&self) -> u64 {
+        let mut result = [0u8; 8];
+        let bytes = self.as_slice();
+        // Panic-free because result.len() == bytes[0..8].len()
+        result.copy_from_slice(&bytes[0..8]);
+        u64::from_le_bytes(result)
+    }
 }
 
 impl FixedBytesExtended for alloy_primitives::Address {
@@ -73,10 +83,14 @@ impl FixedBytesExtended for alloy_primitives::Address {
     fn zero() -> Self {
         FixedBytes::<20>::zero().into()
     }
+
+    fn to_low_u64_le(&self) -> u64 {
+        FixedBytes::<20>::to_low_u64_le(&self)
+    }
 }
 
 impl UintExtended for Uint256 {
-    /// Trims the Uint256 to 8 bytes and converts it to i64
+    /// Trims the Uint256 to its first 8 bytes and converts to i64
     fn to_i64(self) -> i64 {
         let mut result = [0u8; 8];
         let bytes = self.to_le_bytes::<32>();
