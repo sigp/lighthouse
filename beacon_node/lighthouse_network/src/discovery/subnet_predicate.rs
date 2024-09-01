@@ -1,7 +1,6 @@
 //! The subnet predicate used for searching for a particular subnet.
 use super::*;
 use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
-use alloy_primitives::U256;
 use itertools::Itertools;
 use slog::trace;
 use std::ops::Deref;
@@ -42,7 +41,7 @@ where
                 .map_or(false, |b| b.get(*s.deref() as usize).unwrap_or(false)),
             Subnet::DataColumn(s) => {
                 let mut subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
-                    U256::from_le_slice(enr.node_id().raw().as_slice()),
+                    enr.node_id().raw(),
                     custody_subnet_count,
                     &spec,
                 );

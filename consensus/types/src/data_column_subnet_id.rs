@@ -38,7 +38,7 @@ impl DataColumnSubnetId {
     /// Compute required subnets to subscribe to given the node id.
     #[allow(clippy::arithmetic_side_effects)]
     pub fn compute_custody_subnets<E: EthSpec>(
-        node_id: U256,
+        raw_node_id: [u8; 32],
         custody_subnet_count: u64,
         spec: &ChainSpec,
     ) -> impl Iterator<Item = DataColumnSubnetId> {
@@ -46,7 +46,7 @@ impl DataColumnSubnetId {
         // value, but here we assume it is valid.
 
         let mut subnets: HashSet<u64> = HashSet::new();
-        let mut current_id = node_id;
+        let mut current_id = U256::from_be_slice(&raw_node_id);
         while (subnets.len() as u64) < custody_subnet_count {
             let mut node_id_bytes = [0u8; 32];
             node_id_bytes.copy_from_slice(current_id.as_le_slice());
@@ -70,11 +70,11 @@ impl DataColumnSubnetId {
     }
 
     pub fn compute_custody_columns<E: EthSpec>(
-        node_id: U256,
+        raw_node_id: [u8; 32],
         custody_subnet_count: u64,
         spec: &ChainSpec,
     ) -> impl Iterator<Item = ColumnIndex> {
-        Self::compute_custody_subnets::<E>(node_id, custody_subnet_count, spec)
+        Self::compute_custody_subnets::<E>(raw_node_id, custody_subnet_count, spec)
             .flat_map(|subnet| subnet.columns::<E>(spec))
             .sorted()
     }
@@ -131,11 +131,10 @@ impl From<ArithError> for Error {
 
 #[cfg(test)]
 mod test {
-    use alloy_primitives::U256;
-
     use crate::data_column_subnet_id::DataColumnSubnetId;
     use crate::EthSpec;
     use crate::MainnetEthSpec;
+    use crate::Uint256;
 
     type E = MainnetEthSpec;
 
@@ -155,7 +154,12 @@ mod test {
             "103822458477361691467064888613019442068586830412598673713899771287914656699997",
         ]
         .into_iter()
-        .map(|v| U256::from_str_radix(v, 10).unwrap())
+        .map(|v| {
+            let bytes = Uint256::from_str_radix(v, 10).unwrap().to_be_bytes::<32>();
+            let mut result = [0u8; 32];
+            result.copy_from_slice(&bytes);
+            result
+        })
         .collect::<Vec<_>>();
 
         let custody_requirement = 4;

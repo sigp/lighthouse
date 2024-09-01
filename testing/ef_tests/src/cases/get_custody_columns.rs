@@ -25,8 +25,10 @@ impl<E: EthSpec> Case for GetCustodyColumns<E> {
         let spec = E::default_spec();
         let node_id = U256::from_str_radix(&self.node_id, 10)
             .map_err(|e| Error::FailedToParseTest(format!("{e:?}")))?;
+        let mut raw_node_id = [0u8; 32];
+        raw_node_id.copy_from_slice(&node_id.to_be_bytes::<32>());
         let computed = DataColumnSubnetId::compute_custody_columns::<E>(
-            node_id,
+            raw_node_id,
             self.custody_subnet_count,
             &spec,
         )

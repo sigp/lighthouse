@@ -1,4 +1,4 @@
-use alloy_primitives::{FixedBytes, Uint};
+use alloy_primitives::FixedBytes;
 use safe_arith::SafeArith;
 
 pub type Hash64 = alloy_primitives::B64;
@@ -85,7 +85,7 @@ impl FixedBytesExtended for alloy_primitives::Address {
     }
 
     fn to_low_u64_le(&self) -> u64 {
-        FixedBytes::<20>::to_low_u64_le(&self)
+        FixedBytes::<20>::to_low_u64_le(self)
     }
 }
 

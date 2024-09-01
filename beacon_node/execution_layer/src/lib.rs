@@ -9,7 +9,6 @@ use arc_swap::ArcSwapOption;
 use auth::{strip_prefix, Auth, JwtKey};
 pub use block_hash::calculate_execution_block_hash;
 use builder_client::BuilderHttpClient;
-use bytes::Buf;
 pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
 pub use engine_api::*;

@@ -8,7 +8,6 @@ use crate::{
     subnet_service::{AttestationService, SubnetServiceMessage},
     NetworkConfig,
 };
-use alloy_primitives::U256;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend};
 use futures::channel::mpsc::Sender;
@@ -810,7 +809,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             }
         } else {
             for column_subnet in DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
-                U256::from_le_slice(self.network_globals.local_enr().node_id().raw().as_slice()),
+                self.network_globals.local_enr().node_id().raw(),
                 self.network_globals
                     .local_enr()
                     .custody_subnet_count::<<T as BeaconChainTypes>::EthSpec>(
