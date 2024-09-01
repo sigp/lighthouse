@@ -1,10 +1,14 @@
-use alloy_primitives::FixedBytes;
+use alloy_primitives::{FixedBytes, Uint};
 use safe_arith::SafeArith;
 
 pub type Hash64 = alloy_primitives::B64;
 pub type Hash256 = alloy_primitives::B256;
 pub type Uint256 = alloy_primitives::U256;
 pub type Address = alloy_primitives::Address;
+
+pub trait UintExtended {
+    fn to_i64(self) -> i64;
+}
 
 pub trait FixedBytesExtended {
     fn from_low_u64_be(value: u64) -> Self;
@@ -68,5 +72,16 @@ impl FixedBytesExtended for alloy_primitives::Address {
 
     fn zero() -> Self {
         FixedBytes::<20>::zero().into()
+    }
+}
+
+impl UintExtended for Uint256 {
+    /// Trims the Uint256 to 8 bytes and converts it to i64
+    fn to_i64(self) -> i64 {
+        let mut result = [0u8; 8];
+        let bytes = self.to_le_bytes::<32>();
+        // Panic-free because result.len() == bytes[0..8].len()
+        result.copy_from_slice(&bytes[0..8]);
+        i64::from_le_bytes(result)
     }
 }

@@ -3006,6 +3006,7 @@ dependencies = [
  "ethereum_serde_utils",
  "ethereum_ssz",
  "ethers-core",
+ "fixed_bytes",
  "fork_choice",
  "hash-db",
  "hash256-std-hasher",

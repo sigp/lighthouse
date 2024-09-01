@@ -19,6 +19,7 @@ pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::FullPayloadContents;
 use eth2::types::{builder_bid::SignedBuilderBid, BlobsBundle, ForkVersionedResponse};
 use ethers_core::types::Transaction as EthersTransaction;
+use fixed_bytes::UintExtended;
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
 use payload_status::process_payload_status;
@@ -2196,12 +2197,10 @@ fn verify_builder_bid<E: EthSpec>(
     let is_signature_valid = bid.data.verify_signature(spec);
     let header = &bid.data.message.header();
 
-    // Avoid logging values that we can't represent with our Prometheus library.
-    let payload_value_gwei = bid.data.message.value() / Uint256::from(1_000_000_000);
     metrics::set_gauge_vec(
         &metrics::EXECUTION_LAYER_PAYLOAD_BIDS,
         &[metrics::BUILDER],
-        payload_value_gwei.as_le_slice().get_i64(),
+        bid.data.message.value().to_i64(),
     );
 
     let expected_withdrawals_root = payload_attributes
