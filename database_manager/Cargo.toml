@@ -13,5 +13,6 @@ hex = { workspace = true }
 store = { workspace = true }
 types = { workspace = true }
 slog = { workspace = true }
+tracing = { workspace = true }
 strum = { workspace = true }
 serde = { workspace = true }
