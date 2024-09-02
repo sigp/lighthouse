@@ -336,7 +336,7 @@ field!(
 );
 
 field!(
-    StateRoots,
+    StateRootsChunked,
     FixedLengthField,
     Hash256,
     E::SlotsPerHistoricalRoot,
@@ -860,7 +860,7 @@ mod test {
             assert_eq!(F::is_fixed_length(), expected);
         }
         test_fixed_length(BlockRootsChunked, true);
-        test_fixed_length(StateRoots, true);
+        test_fixed_length(StateRootsChunked, true);
         test_fixed_length(HistoricalRoots, false);
         test_fixed_length(RandaoMixes, true);
     }
@@ -885,7 +885,7 @@ mod test {
 
     #[test]
     fn needs_genesis_value_state_roots() {
-        needs_genesis_value_once_per_slot(StateRoots);
+        needs_genesis_value_once_per_slot(StateRootsChunked);
     }
 
     #[test]

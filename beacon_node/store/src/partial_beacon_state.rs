@@ -1,6 +1,6 @@
 use crate::chunked_vector::{
     load_variable_list_from_db, load_vector_from_db, BlockRootsChunked, HistoricalRoots,
-    HistoricalSummaries, RandaoMixes, StateRoots,
+    HistoricalSummaries, RandaoMixes, StateRootsChunked,
 };
 use crate::{Error, KeyValueStore};
 use ssz::{Decode, DecodeError};
@@ -188,7 +188,7 @@ impl<E: EthSpec> PartialBeaconState<E> {
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         if self.state_roots().is_none() {
-            *self.state_roots_mut() = Some(load_vector_from_db::<StateRoots, E, _>(
+            *self.state_roots_mut() = Some(load_vector_from_db::<StateRootsChunked, E, _>(
                 store,
                 self.slot(),
                 spec,
