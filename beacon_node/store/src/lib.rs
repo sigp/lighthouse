@@ -243,7 +243,6 @@ pub enum StoreOp<'a, E: EthSpec> {
 }
 
 /// A unique column identifier.
-// FIXME(sproul): new columns for frozen BeaconState and BeaconStateRoot
 #[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr, EnumString)]
 pub enum DBColumn {
     /// For data related to the database itself.
