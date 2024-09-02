@@ -1,4 +1,5 @@
 use crate::sync::manager::BlockProcessType;
+use crate::sync::SamplingId;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend, BeaconChain};
@@ -496,6 +497,43 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     process_type,
                 )
                 .await;
+            })),
+        })
+    }
+
+    /// Create a new `Work` event for some sampling columns, and reports the verification result
+    /// back to sync.
+    pub fn send_rpc_validate_data_columns(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        data_columns: Vec<Arc<DataColumnSidecar<T::EthSpec>>>,
+        seen_timestamp: Duration,
+        id: SamplingId,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let s = self.clone();
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::RpcVerifyDataColumn(Box::pin(async move {
+                let result = s
+                    .clone()
+                    .validate_rpc_data_columns(block_root, data_columns, seen_timestamp)
+                    .await;
+                // Sync handles these results
+                s.send_sync_message(SyncMessage::SampleVerified { id, result });
+            })),
+        })
+    }
+
+    /// Create a new `Work` event with a block sampling completed result
+    pub fn send_sampling_completed(
+        self: &Arc<Self>,
+        block_root: Hash256,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let nbp = self.clone();
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::SamplingResult(Box::pin(async move {
+                nbp.process_sampling_completed(block_root).await;
             })),
         })
     }

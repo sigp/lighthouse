@@ -14,7 +14,9 @@ pub enum Error {
     Unexpected,
     SszTypes(ssz_types::Error),
     MissingBlobs,
+    MissingCustodyColumns,
     BlobIndexInvalid(u64),
+    DataColumnIndexInvalid(u64),
     StoreError(store::Error),
     DecodeError(ssz::DecodeError),
     ParentStateMissing(Hash256),
@@ -37,6 +39,7 @@ impl Error {
             Error::KzgNotInitialized
             | Error::SszTypes(_)
             | Error::MissingBlobs
+            | Error::MissingCustodyColumns
             | Error::StoreError(_)
             | Error::DecodeError(_)
             | Error::Unexpected
@@ -47,6 +50,7 @@ impl Error {
             | Error::SlotClockError => ErrorCategory::Internal,
             Error::Kzg(_)
             | Error::BlobIndexInvalid(_)
+            | Error::DataColumnIndexInvalid(_)
             | Error::KzgCommitmentMismatch { .. }
             | Error::KzgVerificationFailed => ErrorCategory::Malicious,
         }

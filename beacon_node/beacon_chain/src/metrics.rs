@@ -569,19 +569,20 @@ pub static FORK_CHOICE_AFTER_FINALIZATION_TIMES: LazyLock<Result<Histogram>> =
             exponential_buckets(1e-3, 2.0, 10),
         )
     });
-pub static FORK_CHOICE_PROCESS_BLOCK_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "beacon_fork_choice_process_block_seconds",
-        "Time taken to add a block and all attestations to fork choice",
+pub static FORK_CHOICE_READ_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_read_lock_aquire_seconds",
+        "Time taken to aquire the fork-choice read lock",
+        exponential_buckets(1e-4, 4.0, 7),
     )
 });
-pub static FORK_CHOICE_PROCESS_ATTESTATION_TIMES: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-            "beacon_fork_choice_process_attestation_seconds",
-            "Time taken to add an attestation to fork choice",
-        )
-    });
+pub static FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_write_lock_aquire_seconds",
+        "Time taken to aquire the fork-choice write lock",
+        exponential_buckets(1e-3, 4.0, 7),
+    )
+});
 pub static FORK_CHOICE_SET_HEAD_LAG_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_fork_choice_set_head_lag_times",
@@ -1652,6 +1653,13 @@ pub static DATA_COLUMN_SIDECAR_COMPUTATION: LazyLock<Result<Histogram>> = LazyLo
         Ok(vec![0.04, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0]),
     )
 });
+pub static DATA_COLUMN_SIDECAR_INCLUSION_PROOF_VERIFICATION: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "data_column_sidecar_inclusion_proof_verification_seconds",
+            "Time taken to verify data_column sidecar inclusion proof",
+        )
+    });
 pub static DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
@@ -1671,6 +1679,13 @@ pub static DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histog
         try_create_histogram(
             "beacon_data_column_sidecar_gossip_verification_seconds",
             "Full runtime of data column sidecars gossip verification",
+        )
+    });
+pub static DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_blobs_column_sidecar_processing_successes_total",
+            "Number of data column sidecars verified for gossip",
         )
     });
 
@@ -1855,6 +1870,20 @@ pub static DATA_AVAILABILITY_OVERFLOW_STORE_CACHE_SIZE: LazyLock<Result<IntGauge
             "Number of entries in the data availability overflow store cache.",
         )
     });
+pub static DATA_AVAILABILITY_RECONSTRUCTION_TIME: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "data_availability_reconstruction_time_seconds",
+            "Time taken to reconstruct columns",
+        )
+    });
+pub static DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "data_availability_reconstructed_columns_total",
+            "Total count of reconstructed columns",
+        )
+    });
 
 /*
  * light_client server metrics
@@ -1956,6 +1985,11 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
         .validator_monitor
         .read()
         .scrape_metrics(&beacon_chain.slot_clock, &beacon_chain.spec);
+
+    beacon_chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .scrape_for_metrics();
 }
 
 /// Scrape the given `state` assuming it's the head state, updating the `DEFAULT_REGISTRY`.
