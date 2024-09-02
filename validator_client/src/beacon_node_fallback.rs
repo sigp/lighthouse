@@ -547,57 +547,64 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
     /// Run `func` against each candidate in `self`, returning immediately if a result is found.
     /// Otherwise, return all the errors encountered along the way.
-    pub async fn first_success<'a, F, O, Err, R>(&'a self, func: F) -> Result<O, Errors<Err>>
+    pub async fn first_success<F, O, Err, R>(&self, func: F) -> Result<O, Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<O, Err>>,
         Err: Debug,
     {
-        let mut errors = vec![];
-        let log = &self.log.clone();
-
-        // Run `func` using a `candidate`, returning the value or capturing errors.
-        //
-        // We use a macro instead of a closure here since it is not trivial to move `func` into a
-        // closure.
-        macro_rules! try_func {
-            ($candidate: ident) => {{
-                inc_counter_vec(&ENDPOINT_REQUESTS, &[$candidate.beacon_node.as_ref()]);
-
-                // There exists a race condition where `func` may be called when the candidate is
-                // actually not ready. We deem this an acceptable inefficiency.
-                match func($candidate.beacon_node.clone()).await {
-                    Ok(val) => return Ok(val),
-                    Err(e) => {
-                        debug!(
-                            log,
-                            "Request to beacon node failed";
-                            "node" => $candidate.beacon_node.to_string(),
-                            "error" => ?e,
-                        );
-
-                        errors.push(($candidate.beacon_node.to_string(), Error::RequestFailed(e)));
-                        inc_counter_vec(&ENDPOINT_ERRORS, &[$candidate.beacon_node.as_ref()]);
-                    }
-                }
-            }};
-        }
-
         // First pass: try `func` on all candidates. Candidate order has already been set in
         // `update_all_candidates`. This ensures the most suitable node is always tried first.
         let candidates = self.candidates.read().await;
+        let mut errors = vec![];
         for candidate in candidates.iter() {
-            try_func!(candidate);
+            match Self::run_on_candidate(candidate, &func, &self.log).await {
+                Ok(val) => return Ok(val),
+                Err(e) => errors.push(e),
+            }
         }
 
-        //// Second pass. No candidates returned successfully. Try again with the same order.
-        //// This will duplicate errors.
+        // Second pass. No candidates returned successfully. Try again with the same order.
+        // This will duplicate errors.
         for candidate in candidates.iter() {
-            try_func!(candidate);
+            match Self::run_on_candidate(candidate, &func, &self.log).await {
+                Ok(val) => return Ok(val),
+                Err(e) => errors.push(e),
+            }
         }
 
         // No candidates returned successfully.
         Err(Errors(errors))
+    }
+
+    /// Run the future `func` on `candidate` while reporting metrics.
+    async fn run_on_candidate<F, R, Err, O>(
+        candidate: &CandidateBeaconNode<E>,
+        func: F,
+        log: &Logger,
+    ) -> Result<O, (String, Error<Err>)>
+    where
+        F: Fn(BeaconNodeHttpClient) -> R,
+        R: Future<Output = Result<O, Err>>,
+        Err: Debug,
+    {
+        inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.beacon_node.as_ref()]);
+
+        // There exists a race condition where `func` may be called when the candidate is
+        // actually not ready. We deem this an acceptable inefficiency.
+        match func(candidate.beacon_node.clone()).await {
+            Ok(val) => Ok(val),
+            Err(e) => {
+                debug!(
+                    log,
+                    "Request to beacon node failed";
+                    "node" => %candidate.beacon_node,
+                    "error" => ?e,
+                );
+                inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.beacon_node.as_ref()]);
+                Err((candidate.beacon_node.to_string(), Error::RequestFailed(e)))
+            }
+        }
     }
 
     /// Run `func` against all candidates in `self`, collecting the result of `func` against each
@@ -607,33 +614,19 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// It returns a list of errors along with the beacon node id that failed for `func`.
     /// Since this ignores the actual result of `func`, this function should only be used for beacon
     /// node calls whose results we do not care about, only that they completed successfully.
-    pub async fn broadcast<'a, F, O, Err, R>(&'a self, func: F) -> Result<(), Errors<Err>>
+    pub async fn broadcast<F, O, Err, R>(&self, func: F) -> Result<(), Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<O, Err>>,
+        Err: Debug,
     {
-        // Run `func` using a `candidate`, returning the value or capturing errors.
-        let run_on_candidate = |candidate: CandidateBeaconNode<E>| async {
-            //inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.beacon_node.as_ref()]);
-
-            // There exists a race condition where `func` may be called when the candidate is
-            // actually not ready. We deem this an acceptable inefficiency.
-            match func(candidate.beacon_node.clone()).await {
-                Ok(val) => Ok(val),
-                Err(e) => {
-                    //inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.beacon_node.as_ref()]);
-                    drop(candidate);
-                    Err(("Placeholder".to_string(), Error::RequestFailed(e)))
-                    //Err((candidate.beacon_node.to_string(), Error::RequestFailed(e)))
-                }
-            }
-        };
-
         // Run `func` on all candidates.
+        let candidates = self.candidates.read().await;
         let mut futures = vec![];
-        let candidates = self.candidates.read().await.clone();
+
+        // Run `func` using a `candidate`, returning the value or capturing errors.
         for candidate in candidates.iter() {
-            futures.push(run_on_candidate(candidate.clone()));
+            futures.push(Self::run_on_candidate(candidate, &func, &self.log));
         }
         let results = future::join_all(futures).await;
 
@@ -648,11 +641,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
     /// Call `func` on first beacon node that returns success or on all beacon nodes
     /// depending on the `topic` and configuration.
-    pub async fn request<'a, F, Err, R>(
-        &'a self,
-        topic: ApiTopic,
-        func: F,
-    ) -> Result<(), Errors<Err>>
+    pub async fn request<F, Err, R>(&self, topic: ApiTopic, func: F) -> Result<(), Errors<Err>>
     where
         F: Fn(BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<(), Err>>,
