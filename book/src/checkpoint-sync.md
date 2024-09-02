@@ -160,7 +160,7 @@ curl -H "Accept: application/octet-stream" "http://localhost:5052/eth/v1/beacon/
 
 where `$SLOT` is the slot number. A slot which is an epoch boundary slot (i.e., first slot of an epoch) should always be used for manual checkpoint sync.
 
-If the block contains blobs, all state, block and blobs must be provided and the state **must** match the block. The
+If the block contains blobs, all state, block and blobs must be provided and must point to the same slot. The
 state may be from the same slot as the block (unadvanced), or advanced to an epoch boundary,
 in which case it will be assumed to be finalized at that epoch.
 
