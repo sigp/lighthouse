@@ -16,13 +16,15 @@ use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODE
 use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
 use lighthouse_version::VERSION;
+use logging::crit;
 use malloc_utils::configure_memory_allocator;
-use slog::{crit, info};
 use std::backtrace::Backtrace;
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
+use tracing::{info, level_filters::LevelFilter};
+use tracing_subscriber::EnvFilter;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
@@ -506,6 +508,7 @@ fn run<E: EthSpec>(
     matches: &ArgMatches,
     eth2_network_config: Eth2NetworkConfig,
 ) -> Result<(), String> {
+    tracing_init();
     if std::mem::size_of::<usize>() != 8 {
         return Err(format!(
             "{}-bit architecture is not supported (64-bit only).",
@@ -613,15 +616,14 @@ fn run<E: EthSpec>(
 
     // Log panics properly.
     {
-        let log = log.clone();
+        //let log = log.clone();
         std::panic::set_hook(Box::new(move |info| {
             crit!(
-                log,
-                "Task panic. This is a bug!";
-                "location" => info.location().map(ToString::to_string),
-                "message" => info.payload().downcast_ref::<String>(),
-                "backtrace" => %Backtrace::capture(),
-                "advice" => "Please check above for a backtrace and notify the developers",
+                location = info.location().map(ToString::to_string),
+                message = info.payload().downcast_ref::<String>(),
+                backtrace = %Backtrace::capture(),
+                advice = "Please check above for a backtrace and notify the developers",
+                "Task panic. This is a bug!"
             );
         }));
     }
@@ -648,10 +650,9 @@ fn run<E: EthSpec>(
 
     #[cfg(all(feature = "modern", target_arch = "x86_64"))]
     if !std::is_x86_feature_detected!("adx") {
-        slog::warn!(
-            log,
-            "CPU seems incompatible with optimized Lighthouse build";
-            "advice" => "If you get a SIGILL, please try Lighthouse portable build"
+        tracing::warn!(
+            advice = "If you get a SIGILL, please try Lighthouse portable build",
+            "CPU seems incompatible with optimized Lighthouse build"
         );
     }
 
@@ -696,22 +697,17 @@ fn run<E: EthSpec>(
     if let Ok(LighthouseSubcommands::DatabaseManager(db_manager_config)) =
         LighthouseSubcommands::from_arg_matches(matches)
     {
-        info!(log, "Running database manager for {} network", network_name);
+        info!(network_name, "Running database manager network");
         database_manager::run(matches, &db_manager_config, environment)?;
         return Ok(());
     };
 
-    info!(log, "Lighthouse started"; "version" => VERSION);
-    info!(
-        log,
-        "Configured for network";
-        "name" => &network_name
-    );
+    info!(version = VERSION, "Lighthouse started");
+    info!(network_name, "Configured network");
 
     match matches.subcommand() {
         Some(("beacon_node", matches)) => {
             let context = environment.core_context();
-            let log = context.log().clone();
             let executor = context.executor.clone();
             let mut config = beacon_node::get_config::<E>(matches, &context)?;
             config.logger_config = logger_config;
@@ -720,14 +716,14 @@ fn run<E: EthSpec>(
 
             let shutdown_flag = matches.get_flag("immediate-shutdown");
             if shutdown_flag {
-                info!(log, "Beacon node immediate shutdown triggered.");
+                info!("Beacon node immediate shutdown triggered.");
                 return Ok(());
             }
 
             executor.clone().spawn(
                 async move {
                     if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
-                        crit!(log, "Failed to start beacon node"; "reason" => e);
+                        crit!(reason = ?e ,"Failed to start beacon node");
                         // Ignore the error since it always occurs during normal operation when
                         // shutting down.
                         let _ = executor
@@ -740,7 +736,6 @@ fn run<E: EthSpec>(
         }
         Some(("validator_client", matches)) => {
             let context = environment.core_context();
-            let log = context.log().clone();
             let executor = context.executor.clone();
             let config = validator_client::Config::from_cli(matches, context.log())
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
@@ -749,7 +744,7 @@ fn run<E: EthSpec>(
 
             let shutdown_flag = matches.get_flag("immediate-shutdown");
             if shutdown_flag {
-                info!(log, "Validator client immediate shutdown triggered.");
+                info!("Validator client immediate shutdown triggered.");
                 return Ok(());
             }
 
@@ -759,7 +754,7 @@ fn run<E: EthSpec>(
                         .and_then(|mut vc| async move { vc.start_service().await })
                         .await
                     {
-                        crit!(log, "Failed to start validator client"; "reason" => e);
+                        crit!(reason = ?e,"Failed to start validator client");
                         // Ignore the error since it always occurs during normal operation when
                         // shutting down.
                         let _ = executor
@@ -771,14 +766,14 @@ fn run<E: EthSpec>(
             );
         }
         _ => {
-            crit!(log, "No subcommand supplied. See --help .");
+            crit!("No subcommand supplied. See --help .");
             return Err("No subcommand supplied.".into());
         }
     };
 
     // Block this thread until we get a ctrl-c or a task sends a shutdown signal.
     let shutdown_reason = environment.block_until_shutdown_requested()?;
-    info!(log, "Shutting down.."; "reason" => ?shutdown_reason);
+    info!(reason=?shutdown_reason,"Shutting down..");
 
     environment.fire_signal();
 
@@ -788,5 +783,16 @@ fn run<E: EthSpec>(
     match shutdown_reason {
         ShutdownReason::Success(_) => Ok(()),
         ShutdownReason::Failure(msg) => Err(msg.to_string()),
+    }
+}
+fn tracing_init() {
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy();
+    if let Err(e) = tracing_subscriber::fmt()
+        .with_env_filter(env_filter)
+        .try_init()
+    {
+        eprintln!("Failed to initialize logging {e}");
     }
 }

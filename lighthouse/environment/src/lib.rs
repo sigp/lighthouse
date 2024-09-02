@@ -14,7 +14,7 @@ use futures::{future, StreamExt};
 
 use logging::{test_logger, SSELoggingComponents};
 use serde::{Deserialize, Serialize};
-use slog::{error, info, o, warn, Drain, Duplicate, Level, Logger};
+use slog::{o, Drain, Duplicate, Level, Logger};
 use sloggers::{file::FileLoggerBuilder, types::Format, types::Severity, Build};
 use std::fs::create_dir_all;
 use std::io::{Result as IOResult, Write};
@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
+use tracing::{error, info, warn};
 use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 
 #[cfg(target_family = "unix")]
@@ -272,9 +273,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                     Err(e) => {
                         let log = stdout_logger;
                         warn!(
-                            log,
-                            "Background file logging is disabled";
-                            "error" => e);
+                            error = ?e,
+                            "Background file logging is disabled");
                         self.log = Some(log);
                         return Ok(self);
                     }
@@ -308,11 +308,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
         let mut log = Logger::root(Duplicate::new(stdout_logger, file_logger).fuse(), o!());
 
-        info!(
-            log,
-            "Logging to file";
-            "path" => format!("{:?}", path)
-        );
+        info!(path = format!("{:?}", path), "Logging to file");
 
         // If the http API is enabled, we may need to send logs to be consumed by subscribers.
         if config.sse_logging {
@@ -441,7 +437,7 @@ impl<E: EthSpec> Environment<E> {
                     let terminate = SignalFuture::new(terminate_stream, "Received SIGTERM");
                     handles.push(terminate);
                 }
-                Err(e) => error!(self.log, "Could not register SIGTERM handler"; "error" => e),
+                Err(e) => error!(error = ?e, "Could not register SIGTERM handler"),
             };
 
             // setup for handling SIGINT
@@ -450,7 +446,7 @@ impl<E: EthSpec> Environment<E> {
                     let interrupt = SignalFuture::new(interrupt_stream, "Received SIGINT");
                     handles.push(interrupt);
                 }
-                Err(e) => error!(self.log, "Could not register SIGINT handler"; "error" => e),
+                Err(e) => error!(error = ?e, "Could not register SIGINT handler"),
             }
 
             // setup for handling a SIGHUP
@@ -459,7 +455,7 @@ impl<E: EthSpec> Environment<E> {
                     let hup = SignalFuture::new(hup_stream, "Received SIGHUP");
                     handles.push(hup);
                 }
-                Err(e) => error!(self.log, "Could not register SIGHUP handler"; "error" => e),
+                Err(e) => error!(error = ?e, "Could not register SIGHUP handler"),
             }
 
             future::select(inner_shutdown, future::select_all(handles.into_iter())).await
@@ -467,7 +463,7 @@ impl<E: EthSpec> Environment<E> {
 
         match self.runtime().block_on(register_handlers) {
             future::Either::Left((Ok(reason), _)) => {
-                info!(self.log, "Internal shutdown received"; "reason" => reason.message());
+                info!("Internal shutdown received");
                 Ok(reason)
             }
             future::Either::Left((Err(e), _)) => Err(e.into()),
@@ -499,9 +495,8 @@ impl<E: EthSpec> Environment<E> {
             if let Some(ctrlc_send) = ctrlc_send_c.try_borrow_mut().unwrap().take() {
                 if let Err(e) = ctrlc_send.send(()) {
                     error!(
-                        log,
-                        "Error sending ctrl-c message";
-                        "error" => e
+                        error = ?e,
+                        "Error sending ctrl-c message"
                     );
                 }
             }
@@ -514,7 +509,7 @@ impl<E: EthSpec> Environment<E> {
             .block_on(future::select(inner_shutdown, ctrlc_oneshot))
         {
             future::Either::Left((Ok(reason), _)) => {
-                info!(self.log, "Internal shutdown received"; "reason" => reason.message());
+                info!(reason = reason.message(), "Internal shutdown received");
                 Ok(reason)
             }
             future::Either::Left((Err(e), _)) => Err(e.into()),
@@ -531,9 +526,8 @@ impl<E: EthSpec> Environment<E> {
                 runtime.shutdown_timeout(std::time::Duration::from_secs(MAXIMUM_SHUTDOWN_TIME))
             }
             Err(e) => warn!(
-                self.log,
-                "Failed to obtain runtime access to shutdown gracefully";
-                "error" => ?e
+                error = ?e,
+                "Failed to obtain runtime access to shutdown gracefully"
             ),
         }
     }
