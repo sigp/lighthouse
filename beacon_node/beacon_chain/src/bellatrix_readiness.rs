@@ -6,6 +6,7 @@ use execution_layer::BlockByNumberQuery;
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt;
 use std::fmt::Write;
+use tracing::debug;
 use types::*;
 
 /// The time before the Bellatrix fork when we will start issuing warnings about preparation.

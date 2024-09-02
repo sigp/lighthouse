@@ -690,11 +690,12 @@ mod test {
     };
     use fork_choice::PayloadVerificationStatus;
     use logging::test_logger;
-    use slog::{info, Logger};
+    use slog::Logger;
     use state_processing::ConsensusContext;
     use std::collections::VecDeque;
     use store::{HotColdDB, ItemStore, LevelDB, StoreConfig};
     use tempfile::{tempdir, TempDir};
+    use tracing::info;
     use types::non_zero_usize::new_non_zero_usize;
     use types::{ExecPayload, MinimalEthSpec};
 
@@ -817,7 +818,7 @@ mod test {
         );
 
         // log kzg commitments
-        info!(log, "printing kzg commitments");
+        info!("printing kzg commitments");
         for comm in Vec::from(
             block
                 .message()
@@ -826,9 +827,9 @@ mod test {
                 .expect("should be deneb fork")
                 .clone(),
         ) {
-            info!(log, "kzg commitment"; "commitment" => ?comm);
+            info!(commitment = ?comm,"kzg commitment");
         }
-        info!(log, "done printing kzg commitments");
+        info!("done printing kzg commitments");
 
         let gossip_verified_blobs = if let Some((kzg_proofs, blobs)) = maybe_blobs {
             let sidecars = BlobSidecar::build_sidecars(blobs, &block, kzg_proofs).unwrap();

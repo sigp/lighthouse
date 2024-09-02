@@ -1,7 +1,8 @@
 pub use eth2::types::{EventKind, SseBlock, SseFinalizedCheckpoint, SseHead};
-use slog::{trace, Logger};
+use slog::Logger;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::{error::SendError, Receiver, Sender};
+use tracing::trace;
 use types::EthSpec;
 
 const DEFAULT_CHANNEL_CAPACITY: usize = 16;
@@ -79,10 +80,9 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
     pub fn register(&self, kind: EventKind<E>) {
         let log_count = |name, count| {
             trace!(
-                self.log,
-                "Registering server-sent event";
-                "kind" => name,
-                "receiver_count" => count
+                kind = name,
+                receiver_count = count,
+                "Registering server-sent event"
             );
         };
         let result = match &kind {
@@ -156,7 +156,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .map(|count| log_count("block gossip", count)),
         };
         if let Err(SendError(event)) = result {
-            trace!(self.log, "No receivers registered to listen for event"; "event" => ?event);
+            trace!(?event, "No receivers registered to listen for event");
         }
     }
 

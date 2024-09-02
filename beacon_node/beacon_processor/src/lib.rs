@@ -44,10 +44,11 @@ use crate::work_reprocessing_queue::{
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
 use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
+use logging::crit;
 use logging::TimeLatch;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, trace, warn, Logger};
+use slog::Logger;
 use slot_clock::SlotClock;
 use std::cmp;
 use std::collections::{HashSet, VecDeque};
@@ -61,6 +62,7 @@ use strum::IntoStaticStr;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
+use tracing::{debug, error, trace, warn};
 use types::{
     Attestation, BeaconState, ChainSpec, Hash256, RelativeEpoch, SignedAggregateAndProof, SubnetId,
 };
@@ -295,11 +297,10 @@ impl<T> FifoQueue<T> {
     pub fn push(&mut self, item: T, item_desc: &str, log: &Logger) {
         if self.queue.len() == self.max_length {
             error!(
-                log,
-                "Work queue is full";
-                "msg" => "the system has insufficient resources for load",
-                "queue_len" => self.max_length,
-                "queue" => item_desc,
+                msg = "the system has insufficient resources for load",
+                queue_len = self.max_length,
+                queue = item_desc,
+                "Work queue is full"
             )
         } else {
             self.queue.push_back(item);
@@ -935,9 +936,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 {
                                     Err(e) => {
                                         warn!(
-                                            self.log,
-                                            "Unable to queue backfill work event. Will try to process now.";
-                                            "error" => %e
+                                            error = %e,
+                                            "Unable to queue backfill work event. Will try to process now."
                                         );
                                         match e {
                                             TrySendError::Full(reprocess_queue_message)
@@ -948,9 +948,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                     ) => Some(backfill_batch.into()),
                                                     other => {
                                                         crit!(
-                                                            self.log,
-                                                            "Unexpected queue message type";
-                                                            "message_type" => other.as_ref()
+                                                            message_type = other.as_ref(),
+                                                            "Unexpected queue message type"
                                                         );
                                                         // This is an unhandled exception, drop the message.
                                                         continue;
@@ -971,11 +970,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     Some(InboundEvent::WorkEvent(event))
                     | Some(InboundEvent::ReprocessingWork(event)) => Some(event),
                     None => {
-                        debug!(
-                            self.log,
-                            "Gossip processor stopped";
-                            "msg" => "stream ended"
-                        );
+                        debug!(msg = "stream ended", "Gossip processor stopped");
                         break;
                     }
                 };
@@ -1084,7 +1079,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                 }
                                             }
                                             _ => {
-                                                error!(self.log, "Invalid item in aggregate queue");
+                                                error!("Invalid item in aggregate queue");
                                             }
                                         }
                                     }
@@ -1102,7 +1097,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     // Since we only form batches when multiple
                                     // work items exist, we should always have a
                                     // work closure at this point.
-                                    crit!(self.log, "Missing aggregate work");
+                                    crit!("Missing aggregate work");
                                     None
                                 }
                             }
@@ -1139,10 +1134,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                     process_batch_opt = Some(process_batch);
                                                 }
                                             }
-                                            _ => error!(
-                                                self.log,
-                                                "Invalid item in attestation queue"
-                                            ),
+                                            _ => error!("Invalid item in attestation queue"),
                                         }
                                     }
                                 }
@@ -1159,7 +1151,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     // Since we only form batches when multiple
                                     // work items exist, we should always have a
                                     // work closure at this point.
-                                    crit!(self.log, "Missing attestations work");
+                                    crit!("Missing attestations work");
                                     None
                                 }
                             }
@@ -1251,9 +1243,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     // I cannot see any good reason why this would happen.
                     None => {
                         warn!(
-                            self.log,
-                            "Unexpected gossip processor condition";
-                            "msg" => "no new work and cannot spawn worker"
+                            msg = "no new work and cannot spawn worker",
+                            "Unexpected gossip processor condition"
                         );
                         None
                     }
@@ -1268,10 +1259,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             &[work_id],
                         );
                         trace!(
-                            self.log,
-                            "Gossip processor skipping work";
-                            "msg" => "chain is syncing",
-                            "work_id" => work_id
+                            msg = "chain is syncing",
+                            work_id = work_id,
+                            "Gossip processor skipping work"
                         );
                         None
                     }
@@ -1287,18 +1277,15 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             // Attestation batches are formed internally within the
                             // `BeaconProcessor`, they are not sent from external services.
                             Work::GossipAttestationBatch { .. } => crit!(
-                                    self.log,
-                                    "Unsupported inbound event";
-                                    "type" => "GossipAttestationBatch"
+                                r#type = "GossipAttestationBatch",
+                                "Unsupported inbound event"
                             ),
                             Work::GossipAggregate { .. } => aggregate_queue.push(work),
                             // Aggregate batches are formed internally within the `BeaconProcessor`,
                             // they are not sent from external services.
-                            Work::GossipAggregateBatch { .. } => crit!(
-                                    self.log,
-                                    "Unsupported inbound event";
-                                    "type" => "GossipAggregateBatch"
-                            ),
+                            Work::GossipAggregateBatch { .. } => {
+                                crit!(r#type = "GossipAggregateBatch", "Unsupported inbound event")
+                            }
                             Work::GossipBlock { .. } => {
                                 gossip_block_queue.push(work, work_id, &self.log)
                             }
@@ -1471,19 +1458,17 @@ impl<E: EthSpec> BeaconProcessor<E> {
 
                 if aggregate_queue.is_full() && aggregate_debounce.elapsed() {
                     error!(
-                        self.log,
-                        "Aggregate attestation queue full";
-                        "msg" => "the system has insufficient resources for load",
-                        "queue_len" => aggregate_queue.max_length,
+                        msg = "the system has insufficient resources for load",
+                        queue_len = aggregate_queue.max_length,
+                        "Aggregate attestation queue full"
                     )
                 }
 
                 if attestation_queue.is_full() && attestation_debounce.elapsed() {
                     error!(
-                        self.log,
-                        "Attestation queue full";
-                        "msg" => "the system has insufficient resources for load",
-                        "queue_len" => attestation_queue.max_length,
+                        msg = "the system has insufficient resources for load",
+                        queue_len = attestation_queue.max_length,
+                        "Attestation queue full"
                     )
                 }
             }
@@ -1523,10 +1508,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let executor = self.executor.clone();
 
         trace!(
-            self.log,
-            "Spawning beacon processor worker";
-            "work" => work_id,
-            "worker" => worker_id,
+            work = work_id,
+            worker = worker_id,
+            "Spawning beacon processor worker"
         );
 
         let task_spawner = TaskSpawner {
@@ -1678,10 +1662,9 @@ impl Drop for SendOnDrop {
     fn drop(&mut self) {
         if let Err(e) = self.tx.try_send(()) {
             warn!(
-                self.log,
-                "Unable to free worker";
-                "msg" => "did not free worker, shutdown may be underway",
-                "error" => %e
+                msg = "did not free worker, shutdown may be underway",
+                error = %e,
+                "Unable to free worker"
             )
         }
     }

@@ -16,8 +16,10 @@ lighthouse_network = { workspace = true }
 slot_clock = { workspace = true }
 lighthouse_metrics = { workspace = true }
 lighthouse_version = { workspace = true }
+logging = {workspace = true}
 warp_utils = { workspace = true }
 malloc_utils = { workspace = true }
+tracing = {workspace = true}
 
 [dev-dependencies]
 tokio = { workspace = true }

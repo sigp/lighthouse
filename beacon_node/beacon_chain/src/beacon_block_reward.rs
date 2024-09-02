@@ -19,6 +19,7 @@ use store::{
     consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
     RelativeEpoch,
 };
+use tracing::error;
 use types::{AbstractExecPayload, BeaconBlockRef, BeaconState, BeaconStateError, EthSpec};
 
 type BeaconBlockSubRewardValue = u64;
@@ -56,9 +57,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .compute_beacon_block_proposer_slashing_reward(block, state)
             .map_err(|e| {
                 error!(
-                self.log,
-                "Error calculating proposer slashing reward";
-                "error" => ?e
+                error = ?e,
+                "Error calculating proposer slashing reward"
                 );
                 BeaconChainError::BlockRewardError
             })?;
@@ -67,9 +67,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .compute_beacon_block_attester_slashing_reward(block, state)
             .map_err(|e| {
                 error!(
-                self.log,
-                "Error calculating attester slashing reward";
-                "error" => ?e
+                    error = ?e,
+                "Error calculating attester slashing reward"
                 );
                 BeaconChainError::BlockRewardError
             })?;
@@ -78,9 +77,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.compute_beacon_block_attestation_reward_base(block, state)
                 .map_err(|e| {
                     error!(
-                        self.log,
-                        "Error calculating base block attestation reward";
-                        "error" => ?e
+                        error = ?e,
+                        "Error calculating base block attestation reward"
                     );
                     BeaconChainError::BlockRewardAttestationError
                 })?
@@ -88,9 +86,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.compute_beacon_block_attestation_reward_altair_deneb(block, state)
                 .map_err(|e| {
                     error!(
-                        self.log,
-                        "Error calculating altair block attestation reward";
-                        "error" => ?e
+                        error = ?e,
+                        "Error calculating altair block attestation reward"
                     );
                     BeaconChainError::BlockRewardAttestationError
                 })?

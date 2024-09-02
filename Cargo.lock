@@ -826,6 +826,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
+ "tracing",
  "tree_hash",
  "tree_hash_derive",
  "types",
@@ -859,6 +860,7 @@ dependencies = [
  "store",
  "strum",
  "task_executor",
+ "tracing",
  "types",
  "unused_port",
 ]
@@ -882,6 +884,7 @@ dependencies = [
  "task_executor",
  "tokio",
  "tokio-util",
+ "tracing",
  "types",
 ]
 
@@ -1410,6 +1413,7 @@ dependencies = [
  "http_metrics",
  "lighthouse_metrics",
  "lighthouse_network",
+ "logging",
  "monitoring_api",
  "network",
  "operation_pool",
@@ -1426,6 +1430,8 @@ dependencies = [
  "time",
  "timer",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "types",
 ]
 
@@ -2508,6 +2514,7 @@ dependencies = [
  "superstruct",
  "task_executor",
  "tokio",
+ "tracing",
  "tree_hash",
  "types",
 ]
@@ -3014,6 +3021,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
+ "tracing",
  "tree_hash",
  "tree_hash_derive",
  "triehash",
@@ -3408,6 +3416,7 @@ dependencies = [
  "slog",
  "state_processing",
  "tokio",
+ "tracing",
  "tree_hash",
  "types",
 ]
@@ -3889,6 +3898,7 @@ dependencies = [
  "task_executor",
  "tokio",
  "tokio-stream",
+ "tracing",
  "tree_hash",
  "types",
  "warp",
@@ -3911,6 +3921,7 @@ dependencies = [
  "slot_clock",
  "store",
  "tokio",
+ "tracing",
  "types",
  "warp",
  "warp_utils",
@@ -5670,6 +5681,7 @@ dependencies = [
  "task_executor",
  "tokio",
  "tokio-stream",
+ "tracing",
  "types",
 ]
 
@@ -8122,6 +8134,8 @@ dependencies = [
  "state_processing",
  "strum",
  "tempfile",
+ "tracing",
+ "tracing-subscriber",
  "types",
 ]
 
@@ -8516,6 +8530,7 @@ dependencies = [
  "slot_clock",
  "task_executor",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

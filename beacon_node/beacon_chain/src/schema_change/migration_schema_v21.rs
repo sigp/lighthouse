@@ -1,11 +1,12 @@
 use crate::beacon_chain::BeaconChainTypes;
 use crate::validator_pubkey_cache::DatabasePubkey;
-use slog::{info, Logger};
+use slog::Logger;
 use ssz::{Decode, Encode};
 use std::sync::Arc;
 use store::{
     get_key_for_col, DBColumn, Error, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem,
 };
+use tracing::info;
 use types::{Hash256, PublicKey};
 
 const LOG_EVERY: usize = 200_000;
@@ -14,7 +15,7 @@ pub fn upgrade_to_v21<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
-    info!(log, "Upgrading from v20 to v21");
+    info!("Upgrading from v20 to v21");
 
     let mut ops = vec![];
 
@@ -31,13 +32,12 @@ pub fn upgrade_to_v21<T: BeaconChainTypes>(
 
         if i > 0 && i % LOG_EVERY == 0 {
             info!(
-                log,
-                "Public key decompression in progress";
-                "keys_decompressed" => i
+                keys_decompressed = i,
+                "Public key decompression in progress"
             );
         }
     }
-    info!(log, "Public key decompression complete");
+    info!("Public key decompression complete");
 
     Ok(ops)
 }
@@ -46,7 +46,7 @@ pub fn downgrade_from_v21<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
-    info!(log, "Downgrading from v21 to v20");
+    info!("Downgrading from v21 to v20");
 
     let mut ops = vec![];
 
@@ -69,15 +69,11 @@ pub fn downgrade_from_v21<T: BeaconChainTypes>(
         ));
 
         if i > 0 && i % LOG_EVERY == 0 {
-            info!(
-                log,
-                "Public key compression in progress";
-                "keys_compressed" => i
-            );
+            info!(keys_compressed = i, "Public key compression in progress");
         }
     }
 
-    info!(log, "Public key compression complete");
+    info!("Public key compression complete");
 
     Ok(ops)
 }

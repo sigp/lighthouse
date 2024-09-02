@@ -3,13 +3,14 @@ use crate::{metrics, BeaconChainTypes, BeaconStore};
 use eth2::types::light_client_update::CurrentSyncCommitteeProofLen;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
-use slog::{debug, Logger};
+use slog::Logger;
 use ssz::Decode;
 use ssz_types::FixedVector;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use store::DBColumn;
 use store::KeyValueStore;
+use tracing::debug;
 use tree_hash::TreeHash;
 use types::light_client_update::{
     FinalizedRootProofLen, NextSyncCommitteeProofLen, CURRENT_SYNC_COMMITTEE_INDEX,
@@ -178,9 +179,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                 )?);
             } else {
                 debug!(
-                    log,
-                    "Finalized block not available in store for light_client server";
-                    "finalized_block_root" => format!("{}", cached_parts.finalized_block_root),
+                    finalized_block_root = format!("{}", cached_parts.finalized_block_root),
+                    "Finalized block not available in store for light_client server"
                 );
             }
         }

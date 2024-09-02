@@ -47,16 +47,17 @@ use fork_choice::{
     ResetPayloadStatuses,
 };
 use itertools::process_results;
+use logging::crit;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use slog::{crit, debug, error, info, warn, Logger};
+use slog::Logger;
 use slot_clock::SlotClock;
 use state_processing::AllCaches;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{iter::StateRootsIterator, KeyValueStoreOp, StoreItem};
 use task_executor::{JoinHandle, ShutdownReason};
+use tracing::{debug, error, info, warn};
 use types::*;
-
 /// Simple wrapper around `RwLock` that uses private visibility to prevent any other modules from
 /// accessing the contained lock without it being explicitly noted in this module.
 pub struct CanonicalHeadRwLock<T>(RwLock<T>);
@@ -475,9 +476,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match self.slot() {
             Ok(current_slot) => self.recompute_head_at_slot(current_slot).await,
             Err(e) => error!(
-                self.log,
-                "No slot when recomputing head";
-                "error" => ?e
+                error = ?e,
+                "No slot when recomputing head"
             ),
         }
     }
@@ -515,18 +515,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(Some(())) => (),
                 // The async task did not complete successfully since the runtime is shutting down.
                 Ok(None) => {
-                    debug!(
-                        self.log,
-                        "Did not update EL fork choice";
-                        "info" => "shutting down"
-                    );
+                    debug!(info = "shutting down", "Did not update EL fork choice");
                 }
                 // The async task did not complete successfully, tokio returned an error.
                 Err(e) => {
                     error!(
-                        self.log,
-                        "Did not update EL fork choice";
-                        "error" => ?e
+                        error = ?e,
+                        "Did not update EL fork choice"
                     );
                 }
             },
@@ -534,17 +529,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(Err(e)) => {
                 metrics::inc_counter(&metrics::FORK_CHOICE_ERRORS);
                 error!(
-                    self.log,
-                    "Error whist recomputing head";
-                    "error" => ?e
+                    error = ?e,
+                    "Error whist recomputing head"
                 );
             }
             // There was an error spawning the task.
             Err(e) => {
                 error!(
-                    self.log,
-                    "Failed to spawn recompute head task";
-                    "error" => ?e
+                    error = ?e,
+                    "Failed to spawn recompute head task"
                 );
             }
         }
@@ -627,9 +620,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // nothing to do.
         if new_view == old_view {
             debug!(
-                self.log,
-                "No change in canonical head";
-                "head" => ?new_view.head_block_root
+                head = ?new_view.head_block_root,
+                "No change in canonical head"
             );
             return Ok(None);
         }
@@ -732,9 +724,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.after_new_head(&old_cached_head, &new_cached_head, new_head_proto_block)
             {
                 crit!(
-                    self.log,
-                    "Error updating canonical head";
-                    "error" => ?e
+                    error = ?e,
+                    "Error updating canonical head"
                 );
             }
         }
@@ -751,9 +742,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.after_finalization(&new_cached_head, new_view, finalized_proto_block)
             {
                 crit!(
-                    self.log,
-                    "Error updating finalization";
-                    "error" => ?e
+                    error = ?e,
+                    "Error updating finalization"
                 );
             }
         }
@@ -824,10 +814,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .update_head_shuffling_ids(head_shuffling_ids),
             Err(e) => {
                 error!(
-                    self.log,
-                    "Failed to get head shuffling ids";
-                    "error" => ?e,
-                    "head_block_root" => ?new_snapshot.beacon_block_root
+                    error = ?e,
+                    head_block_root = ?new_snapshot.beacon_block_root,
+                    "Failed to get head shuffling ids"
                 );
             }
         }
@@ -872,9 +861,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
                 (Err(e), _) | (_, Err(e)) => {
                     warn!(
-                        self.log,
-                        "Unable to find dependent roots, cannot register head event";
-                        "error" => ?e
+                        error = ?e,
+                        "Unable to find dependent roots, cannot register head event"
                     );
                 }
             }
@@ -1037,11 +1025,10 @@ fn check_finalized_payload_validity<T: BeaconChainTypes>(
 ) -> Result<(), Error> {
     if let ExecutionStatus::Invalid(block_hash) = finalized_proto_block.execution_status {
         crit!(
-            chain.log,
-            "Finalized block has an invalid payload";
-            "msg" => "You must use the `--purge-db` flag to clear the database and restart sync. \
+            ?block_hash,
+            msg = "You must use the `--purge-db` flag to clear the database and restart sync. \
             You may be on a hostile network.",
-            "block_hash" => ?block_hash
+            "Finalized block has an invalid payload"
         );
         let mut shutdown_sender = chain.shutdown_sender();
         shutdown_sender
@@ -1087,34 +1074,31 @@ fn perform_debug_logging<T: BeaconChainTypes>(
 ) {
     if new_view.head_block_root != old_view.head_block_root {
         debug!(
-            log,
-            "Fork choice updated head";
-            "new_head_weight" => ?fork_choice
-                .get_block_weight(&new_view.head_block_root),
-            "new_head" => ?new_view.head_block_root,
-            "old_head_weight" => ?fork_choice
-                .get_block_weight(&old_view.head_block_root),
-            "old_head" => ?old_view.head_block_root,
+            new_head_weight = ?fork_choice
+            .get_block_weight(&new_view.head_block_root),
+        new_head =?new_view.head_block_root,
+        old_head_weight =?fork_choice
+            .get_block_weight(&old_view.head_block_root),
+        old_head = ?old_view.head_block_root,
+            "Fork choice updated head"
         )
     }
     if new_view.justified_checkpoint != old_view.justified_checkpoint {
         debug!(
-            log,
-            "Fork choice justified";
-            "new_root" => ?new_view.justified_checkpoint.root,
-            "new_epoch" => new_view.justified_checkpoint.epoch,
-            "old_root" => ?old_view.justified_checkpoint.root,
-            "old_epoch" => old_view.justified_checkpoint.epoch,
+            new_root = ?new_view.justified_checkpoint.root,
+            new_epoch = ?new_view.justified_checkpoint.epoch,
+            old_root = ?old_view.justified_checkpoint.root,
+            old_epoch = ?old_view.justified_checkpoint.epoch,
+            "Fork choice justified"
         )
     }
     if new_view.finalized_checkpoint != old_view.finalized_checkpoint {
         debug!(
-            log,
-            "Fork choice finalized";
-            "new_root" => ?new_view.finalized_checkpoint.root,
-            "new_epoch" => new_view.finalized_checkpoint.epoch,
-            "old_root" => ?old_view.finalized_checkpoint.root,
-            "old_epoch" => old_view.finalized_checkpoint.epoch,
+            new_root = ?new_view.finalized_checkpoint.root,
+            new_epoch = ?new_view.finalized_checkpoint.epoch,
+            old_root = ?old_view.finalized_checkpoint.root,
+            old_epoch = ?old_view.finalized_checkpoint.epoch,
+            "Fork choice finalized"
         )
     }
 }
@@ -1149,9 +1133,8 @@ fn spawn_execution_layer_updates<T: BeaconChainTypes>(
                     .await
                 {
                     crit!(
-                        chain.log,
-                        "Failed to update execution head";
-                        "error" => ?e
+                        error = ?e,
+                        "Failed to update execution head"
                     );
                 }
 
@@ -1165,9 +1148,8 @@ fn spawn_execution_layer_updates<T: BeaconChainTypes>(
                 // know.
                 if let Err(e) = chain.prepare_beacon_proposer(current_slot).await {
                     crit!(
-                        chain.log,
-                        "Failed to prepare proposers after fork choice";
-                        "error" => ?e
+                        error = ?e,
+                        "Failed to prepare proposers after fork choice"
                     );
                 }
             },
@@ -1199,11 +1181,7 @@ fn detect_reorg<E: EthSpec>(
             match find_reorg_slot(old_state, old_block_root, new_state, new_block_root, spec) {
                 Ok(slot) => old_state.slot().saturating_sub(slot),
                 Err(e) => {
-                    warn!(
-                        log,
-                        "Could not find re-org depth";
-                        "error" => format!("{:?}", e),
-                    );
+                    warn!(error = format!("{:?}", e), "Could not find re-org depth");
                     return None;
                 }
             };
@@ -1215,13 +1193,12 @@ fn detect_reorg<E: EthSpec>(
             reorg_distance.as_u64() as i64,
         );
         info!(
-            log,
-            "Beacon chain re-org";
-            "previous_head" => ?old_block_root,
-            "previous_slot" => old_state.slot(),
-            "new_head" => ?new_block_root,
-            "new_slot" => new_state.slot(),
-            "reorg_distance" => reorg_distance,
+            previous_head = ?old_block_root,
+            previous_slot = %old_state.slot(),
+            new_head = ?new_block_root,
+            new_slot = ?new_state.slot(),
+            ?reorg_distance,
+            "Beacon chain re-org"
         );
 
         Some(reorg_distance)
@@ -1438,37 +1415,35 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
         if late_head {
             metrics::inc_counter(&metrics::BEACON_BLOCK_DELAY_HEAD_SLOT_START_EXCEEDED_TOTAL);
             debug!(
-                log,
-                "Delayed head block";
-                "block_root" => ?head_block_root,
-                "proposer_index" => head_block_proposer_index,
-                "slot" => head_block_slot,
-                "total_delay_ms" => block_delay_total.as_millis(),
-                "observed_delay_ms" => format_delay(&block_delays.observed),
-                "blob_delay_ms" => format_delay(&block_delays.all_blobs_observed),
-                "consensus_time_ms" => format_delay(&block_delays.consensus_verification_time),
-                "execution_time_ms" => format_delay(&block_delays.execution_time),
-                "available_delay_ms" => format_delay(&block_delays.available),
-                "attestable_delay_ms" => format_delay(&block_delays.attestable),
-                "imported_time_ms" => format_delay(&block_delays.imported),
-                "set_as_head_time_ms" => format_delay(&block_delays.set_as_head),
+                block_root = ?head_block_root,
+                proposer_index =head_block_proposer_index,
+                slot = ?head_block_slot,
+                total_delay_ms = block_delay_total.as_millis(),
+                observed_delay_ms = format_delay(&block_delays.observed),
+                blob_delay_ms = format_delay(&block_delays.all_blobs_observed),
+                consensus_time_ms = format_delay(&block_delays.consensus_verification_time),
+                execution_time_ms = format_delay(&block_delays.execution_time),
+                available_delay_ms = format_delay(&block_delays.available),
+                attestable_delay_ms = format_delay(&block_delays.attestable),
+                imported_time_ms = format_delay(&block_delays.imported),
+                set_as_head_time_ms = format_delay(&block_delays.set_as_head),
+                "Delayed head block"
             );
         } else {
             debug!(
-                log,
-                "On-time head block";
-                "block_root" => ?head_block_root,
-                "proposer_index" => head_block_proposer_index,
-                "slot" => head_block_slot,
-                "total_delay_ms" => block_delay_total.as_millis(),
-                "observed_delay_ms" => format_delay(&block_delays.observed),
-                "blob_delay_ms" => format_delay(&block_delays.all_blobs_observed),
-                "consensus_time_ms" => format_delay(&block_delays.consensus_verification_time),
-                "execution_time_ms" => format_delay(&block_delays.execution_time),
-                "available_delay_ms" => format_delay(&block_delays.available),
-                "attestable_delay_ms" => format_delay(&block_delays.attestable),
-                "imported_time_ms" => format_delay(&block_delays.imported),
-                "set_as_head_time_ms" => format_delay(&block_delays.set_as_head),
+                block_root = ?head_block_root,
+                proposer_index=head_block_proposer_index,
+                slot = ?head_block_slot,
+                total_delay_ms = block_delay_total.as_millis(),
+                observed_delay_ms = format_delay(&block_delays.observed),
+                blob_delay_ms = format_delay(&block_delays.all_blobs_observed),
+                consensus_time_ms =format_delay(&block_delays.consensus_verification_time),
+                execution_time_ms= format_delay(&block_delays.execution_time),
+                available_delay_ms = format_delay(&block_delays.available),
+                attestable_delay_ms = format_delay(&block_delays.attestable),
+                imported_time_ms = format_delay(&block_delays.imported),
+                set_as_head_time_ms = format_delay(&block_delays.set_as_head),
+                "On-time head block"
             );
         }
     }

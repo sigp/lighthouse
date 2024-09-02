@@ -12,12 +12,13 @@ use execution_layer::ProvenancedPayload;
 use lighthouse_network::{NetworkGlobals, PubsubMessage};
 use network::NetworkMessage;
 use rand::seq::SliceRandom;
-use slog::{debug, error, info, warn, Logger};
+use slog::Logger;
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
+use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlobSidecarList, BlockImportSource, DataColumnSidecarList,
@@ -70,7 +71,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     };
     let block = block_contents.inner_block().clone();
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
-    debug!(log, "Signed block received in HTTP API"; "slot" => block.slot());
+    debug!( slot = ?block.slot(),"Signed block received in HTTP API");
     let malicious_withhold_count = chain.config.malicious_withhold_count;
     let chain_cloned = chain.clone();
 
@@ -93,10 +94,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
         );
 
         info!(
-            log,
-            "Signed block published to network via HTTP API";
-            "slot" => block.slot(),
-            "publish_delay_ms" => publish_delay.as_millis()
+            slot = ?block.slot(),
+            publish_delay_ms = publish_delay.as_millis(),
+            "Signed block published to network via HTTP API"
         );
 
         match block.as_ref() {
@@ -177,10 +177,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             }
             Err(e) => {
                 warn!(
-                    log,
-                    "Not publishing block - not gossip verified";
-                    "slot" => slot,
-                    "error" => %e
+                    ?slot,
+                    error = %e,
+                    "Not publishing block - not gossip verified"
                 );
                 return Err(warp_utils::reject::custom_bad_request(e.to_string()));
             }
@@ -261,11 +260,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                 return if let BroadcastValidation::Gossip = validation_level {
                     Err(warp_utils::reject::broadcast_without_import(msg))
                 } else {
-                    error!(
-                        log,
-                        "Invalid blob provided to HTTP API";
-                        "reason" => &msg
-                    );
+                    error!(reason = &msg, "Invalid blob provided to HTTP API");
                     Err(warp_utils::reject::custom_bad_request(msg))
                 };
             }
@@ -285,11 +280,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             return if let BroadcastValidation::Gossip = validation_level {
                 Err(warp_utils::reject::broadcast_without_import(msg))
             } else {
-                error!(
-                    log,
-                    "Invalid blob provided to HTTP API";
-                    "reason" => &msg
-                );
+                error!(reason = &msg, "Invalid blob provided to HTTP API");
                 Err(warp_utils::reject::custom_bad_request(msg))
             };
         }
@@ -306,12 +297,11 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     {
         Ok(AvailabilityProcessingStatus::Imported(root)) => {
             info!(
-                log,
-                "Valid block from HTTP API";
-                "block_delay" => ?delay,
-                "root" => format!("{}", root),
-                "proposer_index" => proposer_index,
-                "slot" =>slot,
+                block_delay = ?delay,
+                root = format!("{}", root),
+                proposer_index,
+                ?slot,
+                "Valid block from HTTP API"
             );
 
             // Notify the validator monitor.
@@ -339,11 +329,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             if let BroadcastValidation::Gossip = validation_level {
                 Err(warp_utils::reject::broadcast_without_import(msg))
             } else {
-                error!(
-                    log,
-                    "Invalid block provided to HTTP API";
-                    "reason" => &msg
-                );
+                error!(reason = &msg, "Invalid block provided to HTTP API");
                 Err(warp_utils::reject::custom_bad_request(msg))
             }
         }
@@ -360,11 +346,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                 Err(warp_utils::reject::broadcast_without_import(format!("{e}")))
             } else {
                 let msg = format!("{:?}", e);
-                error!(
-                    log,
-                    "Invalid block provided to HTTP API";
-                    "reason" => &msg
-                );
+                error!(reason = &msg, "Invalid block provided to HTTP API");
                 Err(warp_utils::reject::custom_bad_request(format!(
                     "Invalid block: {e}"
                 )))
@@ -431,7 +413,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
         } else if let Some(cached_payload) =
             el.get_payload_by_root(&payload_header.tree_hash_root())
         {
-            info!(log, "Reconstructing a full block using a local payload"; "block_hash" => ?cached_payload.block_hash());
+            info!(block_hash = ?cached_payload.block_hash(), "Reconstructing a full block using a local payload");
             ProvenancedPayload::Local(cached_payload)
         // Otherwise, this means we are attempting a blind block proposal.
         } else {
@@ -458,7 +440,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
                         e
                     ))
                 })?;
-            info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash());
+            info!(block_hash = ?full_payload.block_hash(), "Successfully published a block to the builder network");
             ProvenancedPayload::Builder(full_payload)
         };
 
@@ -516,23 +498,21 @@ fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
     let delayed_threshold = too_late_threshold / 2;
     if delay >= too_late_threshold {
         error!(
-            log,
-            "Block was broadcast too late";
-            "msg" => "system may be overloaded, block likely to be orphaned",
-            "provenance" => provenance,
-            "delay_ms" => delay.as_millis(),
-            "slot" => block.slot(),
-            "root" => ?root,
+            msg = "system may be overloaded, block likely to be orphaned",
+            provenance,
+            delay_ms = delay.as_millis(),
+            slot = ?block.slot(),
+            ?root,
+            "Block was broadcast too late"
         )
     } else if delay >= delayed_threshold {
         error!(
-            log,
-            "Block broadcast was delayed";
-            "msg" => "system may be overloaded, block may be orphaned",
-            "provenance" => provenance,
-            "delay_ms" => delay.as_millis(),
-            "slot" => block.slot(),
-            "root" => ?root,
+            msg = "system may be overloaded, block may be orphaned",
+            provenance,
+            delay_ms = delay.as_millis(),
+            slot = ?block.slot(),
+            ?root,
+            "Block broadcast was delayed"
         )
     }
 }
@@ -553,9 +533,8 @@ fn check_slashable<T: BeaconChainTypes>(
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?
             {
                 warn!(
-                    log_clone,
-                    "Not publishing equivocating blob";
-                    "slot" => block_clone.slot()
+                    slot = ?block_clone.slot(),
+                    "Not publishing equivocating blob"
                 );
                 return Err(BlockError::Slashable);
             }
@@ -571,9 +550,8 @@ fn check_slashable<T: BeaconChainTypes>(
         .map_err(|e| BlockError::BeaconChainError(e.into()))?
     {
         warn!(
-            log_clone,
-            "Not publishing equivocating block";
-            "slot" => block_clone.slot()
+            slot = ?block_clone.slot(),
+            "Not publishing equivocating block"
         );
         return Err(BlockError::Slashable);
     }

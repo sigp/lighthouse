@@ -26,11 +26,12 @@ use execution_layer::ExecutionLayer;
 use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use kzg::Kzg;
+use logging::crit;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use slasher::Slasher;
-use slog::{crit, debug, error, info, o, Logger};
+use slog::{o, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::{per_slot_processing, AllCaches};
 use std::marker::PhantomData;
@@ -38,11 +39,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
+use tracing::{debug, error, info};
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch, EthSpec,
     FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
 };
-
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
 pub struct Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>(
@@ -262,11 +263,7 @@ where
     pub fn resume_from_db(mut self) -> Result<Self, String> {
         let log = self.log.as_ref().ok_or("resume_from_db requires a log")?;
 
-        info!(
-            log,
-            "Starting beacon chain";
-            "method" => "resume"
-        );
+        info!(method = "resume", "Starting beacon chain");
 
         let store = self
             .store
@@ -455,10 +452,9 @@ where
         let slots_per_epoch = E::slots_per_epoch();
         if weak_subj_state.slot() % slots_per_epoch != 0 {
             debug!(
-                log,
-                "Advancing checkpoint state to boundary";
-                "state_slot" => weak_subj_state.slot(),
-                "block_slot" => weak_subj_block.slot(),
+                state_slot = %weak_subj_state.slot(),
+                block_slot = %weak_subj_block.slot(),
+                "Advancing checkpoint state to boundary"
             );
             while weak_subj_state.slot() % slots_per_epoch != 0 {
                 per_slot_processing(&mut weak_subj_state, None, &self.spec)
@@ -755,12 +751,11 @@ where
                 Ok(None) => return Err("Head block not found in store".into()),
                 Err(StoreError::SszDecodeError(_)) => {
                     error!(
-                        log,
-                        "Error decoding head block";
-                        "message" => "This node has likely missed a hard fork. \
-                                      It will try to revert the invalid blocks and keep running, \
-                                      but any stray blocks and states will not be deleted. \
-                                      Long-term you should consider re-syncing this node."
+                        message = "This node has likely missed a hard fork. \
+                        It will try to revert the invalid blocks and keep running, \
+                        but any stray blocks and states will not be deleted. \
+                        Long-term you should consider re-syncing this node.",
+                        "Error decoding head block"
                     );
                     let (block_root, block) = revert_to_fork_boundary(
                         current_slot,
@@ -1015,25 +1010,23 @@ where
                 &head.beacon_state,
             ) {
                 crit!(
-                    log,
-                    "Weak subjectivity checkpoint verification failed on startup!";
-                    "head_block_root" => format!("{}", head.beacon_block_root),
-                    "head_slot" => format!("{}", head.beacon_block.slot()),
-                    "finalized_epoch" => format!("{}", head.beacon_state.finalized_checkpoint().epoch),
-                    "wss_checkpoint_epoch" => format!("{}", wss_checkpoint.epoch),
-                    "error" => format!("{:?}", e),
+                    head_block_root = format!("{}", head.beacon_block_root),
+                    head_slot = format!("{}", head.beacon_block.slot()),
+                    finalized_epoch = format!("{}", head.beacon_state.finalized_checkpoint().epoch),
+                    wss_checkpoint_epoch = format!("{}", wss_checkpoint.epoch),
+                    error = format!("{:?}", e),
+                    "Weak subjectivity checkpoint verification failed on startup!"
                 );
-                crit!(log, "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
+                crit!("You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
                 return Err(format!("Weak subjectivity verification failed: {:?}", e));
             }
         }
 
         info!(
-            log,
-            "Beacon chain initialized";
-            "head_state" => format!("{}", head.beacon_state_root()),
-            "head_block" => format!("{}", head.beacon_block_root),
-            "head_slot" => format!("{}", head.beacon_block.slot()),
+            head_state = format!("{}", head.beacon_state_root()),
+            head_block = format!("{}", head.beacon_block_root),
+            head_slot = format!("{}", head.beacon_block.slot()),
+            "Beacon chain initialized"
         );
 
         // Check for states to reconstruct (in the background).
@@ -1048,7 +1041,7 @@ where
             beacon_chain.task_executor.spawn_blocking(
                 move || {
                     if let Err(e) = store.try_prune_execution_payloads(false) {
-                        error!(log, "Error pruning payloads in background"; "error" => ?e);
+                        error!( error = ?e,"Error pruning payloads in background");
                     }
                 },
                 "prune_payloads_background",

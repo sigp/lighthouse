@@ -43,13 +43,14 @@ use beacon_processor::work_reprocessing_queue::{QueuedUnaggregate, ReprocessQueu
 use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{debug, error, warn, Logger};
+use slog::Logger;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{
     mpsc::{Sender, UnboundedSender},
     oneshot,
 };
+use tracing::{debug, error, warn};
 use types::Attestation;
 
 // Error variants are only used in `Debug` and considered `dead_code` by the compiler.
@@ -107,16 +108,14 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
 
     if let Err(e) = &fc_result {
         warn!(
-            log,
-            "Attestation invalid for fork choice";
-            "err" => ?e,
+            err = ?e,
+            "Attestation invalid for fork choice"
         );
     }
     if let Err(e) = &naive_aggregation_result {
         warn!(
-            log,
-            "Attestation invalid for aggregation";
-            "err" => ?e
+            err = ?e,
+            "Attestation invalid for aggregation"
         );
     }
 
@@ -230,10 +229,9 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
     for (i, reprocess_result) in reprocess_indices.into_iter().zip(reprocess_results) {
         let Some(result_entry) = prelim_results.get_mut(i) else {
             error!(
-                log,
-                "Unreachable case in attestation publishing";
-                "case" => "prelim out of bounds",
-                "request_index" => i,
+                case = "prelim out of bounds",
+                request_index = i,
+                "Unreachable case in attestation publishing"
             );
             continue;
         };
@@ -261,39 +259,35 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
             Some(PublishAttestationResult::Failure(e)) => {
                 if let Some((slot, committee_index)) = attestation_metadata.get(index) {
                     error!(
-                        log,
-                        "Failure verifying attestation for gossip";
-                        "error" => ?e,
-                        "request_index" => index,
-                        "committee_index" => committee_index,
-                        "attestation_slot" => slot,
+                        error = ?e,
+                        request_index = index,
+                        ?committee_index,
+                        attestation_slot = ?slot,
+                        "Failure verifying attestation for gossip"
                     );
                     failures.push(Failure::new(index, format!("{e:?}")));
                 } else {
                     error!(
-                        log,
-                        "Unreachable case in attestation publishing";
-                        "case" => "out of bounds",
-                        "request_index" => index
+                        case = "out of bounds",
+                        request_index = index,
+                        "Unreachable case in attestation publishing"
                     );
                     failures.push(Failure::new(index, "metadata logic error".into()));
                 }
             }
             Some(PublishAttestationResult::Reprocessing(_)) => {
                 error!(
-                    log,
-                    "Unreachable case in attestation publishing";
-                    "case" => "reprocessing",
-                    "request_index" => index
+                    case = "reprocessing",
+                    request_index = index,
+                    "Unreachable case in attestation publishing"
                 );
                 failures.push(Failure::new(index, "reprocess logic error".into()));
             }
             None => {
                 error!(
-                    log,
-                    "Unreachable case in attestation publishing";
-                    "case" => "result is None",
-                    "request_index" => index
+                    case = "result is None",
+                    request_index = index,
+                    "Unreachable case in attestation publishing"
                 );
                 failures.push(Failure::new(index, "result logic error".into()));
             }
@@ -302,9 +296,8 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
 
     if num_already_known > 0 {
         debug!(
-            log,
-            "Some unagg attestations already known";
-            "count" => num_already_known
+            count = num_already_known,
+            "Some unagg attestations already known"
         );
     }
 

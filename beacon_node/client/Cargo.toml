@@ -21,7 +21,10 @@ eth2_config = { workspace = true }
 slot_clock = { workspace = true }
 serde = { workspace = true }
 error-chain = { workspace = true }
+logging = {workspace = true}
 slog = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 dirs = { workspace = true }

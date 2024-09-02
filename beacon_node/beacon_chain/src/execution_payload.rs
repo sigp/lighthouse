@@ -18,7 +18,6 @@ use execution_layer::{
 };
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
-use slog::{debug, warn};
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::{
     compute_timestamp_at_slot, get_expected_withdrawals, is_execution_enabled,
@@ -26,6 +25,7 @@ use state_processing::per_block_processing::{
 };
 use std::sync::Arc;
 use tokio::task::JoinHandle;
+use tracing::{debug, warn};
 use tree_hash::TreeHash;
 use types::payload::BlockProductionVersion;
 use types::*;
@@ -86,11 +86,10 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                         block_message.try_into()?;
                     if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
                         warn!(
-                            chain.log,
-                            "Falling back to slow block hash verification";
-                            "block_number" => ?block_message.execution_payload().map(|payload| payload.block_number()),
-                            "info" => "you can silence this warning with --disable-optimistic-finalized-sync",
-                            "error" => ?e,
+                            block_number = ?block_message.execution_payload().map(|payload| payload.block_number()),
+                            info = "you can silence this warning with --disable-optimistic-finalized-sync",
+                            error = ?e,
+                            "Falling back to slow block hash verification"
                         );
                         None
                     } else {
@@ -151,16 +150,15 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
                 ref validation_error,
             } => {
                 warn!(
-                    chain.log,
-                    "Invalid execution payload";
-                    "validation_error" => ?validation_error,
-                    "latest_valid_hash" => ?latest_valid_hash,
-                    "execution_block_hash" => ?execution_block_hash,
-                    "root" => ?block.tree_hash_root(),
-                    "graffiti" => block.body().graffiti().as_utf8_lossy(),
-                    "proposer_index" => block.proposer_index(),
-                    "slot" => block.slot(),
-                    "method" => "new_payload",
+                    ?validation_error,
+                    ?latest_valid_hash,
+                    ?execution_block_hash,
+                    root = ?block.tree_hash_root(),
+                    graffiti = block.body().graffiti().as_utf8_lossy(),
+                    proposer_index = block.proposer_index(),
+                    slot = ?block.slot(),
+                    method = "new_payload",
+                    "Invalid execution payload"
                 );
 
                 // Only trigger payload invalidation in fork choice if the
@@ -198,15 +196,14 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
                 ref validation_error,
             } => {
                 warn!(
-                    chain.log,
-                    "Invalid execution payload block hash";
-                    "validation_error" => ?validation_error,
-                    "execution_block_hash" => ?execution_block_hash,
-                    "root" => ?block.tree_hash_root(),
-                    "graffiti" => block.body().graffiti().as_utf8_lossy(),
-                    "proposer_index" => block.proposer_index(),
-                    "slot" => block.slot(),
-                    "method" => "new_payload",
+                    ?validation_error,
+                    ?execution_block_hash,
+                    root = ?block.tree_hash_root(),
+                    graffiti =block.body().graffiti().as_utf8_lossy(),
+                    proposer_index = block.proposer_index(),
+                    slot = ?block.slot(),
+                    method = "new_payload",
+                    "Invalid execution payload block hash"
                 );
 
                 // Returning an error here should be sufficient to invalidate the block. We have no
@@ -281,10 +278,9 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
                 && is_optimistic_candidate_block(chain, block.slot(), block.parent_root()).await?
             {
                 debug!(
-                    chain.log,
-                    "Optimistically importing merge transition block";
-                    "block_hash" => ?execution_payload.parent_hash(),
-                    "msg" => "the terminal block/parent was unavailable"
+                    block_hash = ?execution_payload.parent_hash(),
+                    msg = "the terminal block/parent was unavailable",
+                    "Optimistically importing merge transition block"
                 );
                 // Store Optimistic Transition Block in Database for later Verification
                 OptimisticTransitionBlock::from_block(block)

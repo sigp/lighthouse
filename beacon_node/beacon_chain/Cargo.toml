@@ -76,6 +76,7 @@ tokio-stream = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 types = { workspace = true }
+tracing = { workspace = true }
 
 [[test]]
 name = "beacon_chain_tests"

@@ -18,7 +18,7 @@ use http_api::TlsConfig;
 use lighthouse_network::ListenAddress;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
-use slog::{info, warn, Logger};
+use slog::Logger;
 use std::cmp::max;
 use std::fmt::Debug;
 use std::fs;
@@ -29,6 +29,7 @@ use std::num::NonZeroU16;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
+use tracing::{error, info, warn};
 use types::graffiti::GraffitiString;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes};
 
@@ -64,12 +65,10 @@ pub fn get_config<E: EthSpec>(
             let stdin_inputs = cfg!(windows) || cli_args.get_flag(STDIN_INPUTS_FLAG);
             if std::io::stdin().is_terminal() || stdin_inputs {
                 info!(
-                    log,
                     "You are about to delete the chain database. This is irreversable \
                     and you will need to resync the chain."
                 );
                 info!(
-                    log,
                     "Type 'confirm' to delete the database. Any other input will leave \
                     the database intact and Lighthouse will exit."
                 );
@@ -80,14 +79,13 @@ pub fn get_config<E: EthSpec>(
                     let freezer_db = client_config.get_freezer_db_path();
                     let blobs_db = client_config.get_blobs_db_path();
                     purge_db(chain_db, freezer_db, blobs_db)?;
-                    info!(log, "Database was deleted.");
+                    info!("Database was deleted.");
                 } else {
-                    info!(log, "Database was not deleted. Lighthouse will now close.");
+                    info!("Database was not deleted. Lighthouse will now close.");
                     std::process::exit(1);
                 }
             } else {
                 warn!(
-                    log,
                     "The `--purge-db` flag was passed, but Lighthouse is not running \
                     interactively. The database was not purged. Use `--purge-db-force` \
                     to purge the database without requiring confirmation."
@@ -104,7 +102,7 @@ pub fn get_config<E: EthSpec>(
     let mut log_dir = client_config.data_dir().clone();
     // remove /beacon from the end
     log_dir.pop();
-    info!(log, "Data directory initialised"; "datadir" => log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"));
+    info!(datadir = ?log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"), "Data directory initialised");
 
     /*
      * Networking
@@ -154,9 +152,8 @@ pub fn get_config<E: EthSpec>(
 
         if cli_args.get_one::<String>("http-spec-fork").is_some() {
             warn!(
-                log,
-                "Ignoring --http-spec-fork";
-                "info" => "this flag is deprecated and will be removed"
+                info = "this flag is deprecated and will be removed",
+                "Ignoring --http-spec-fork"
             );
         }
 
@@ -177,9 +174,8 @@ pub fn get_config<E: EthSpec>(
 
         if cli_args.get_flag("http-allow-sync-stalled") {
             warn!(
-                log,
-                "Ignoring --http-allow-sync-stalled";
-                "info" => "this flag is deprecated and will be removed"
+                info = "this flag is deprecated and will be removed",
+                "Ignoring --http-allow-sync-stalled"
             );
         }
 
@@ -256,8 +252,8 @@ pub fn get_config<E: EthSpec>(
     // (e.g. using the --staking flag).
     if cli_args.get_flag("staking") {
         warn!(
-            log,
-            "Running HTTP server on port {}", client_config.http_api.listen_port
+            "Running HTTP server on port {}",
+            client_config.http_api.listen_port
         );
     }
 
@@ -364,9 +360,8 @@ pub fn get_config<E: EthSpec>(
 
         if cli_args.get_flag("always-prefer-builder-payload") {
             warn!(
-                log,
-                "Ignoring --always-prefer-builder-payload";
-                "info" => "this flag is deprecated and will be removed"
+                info = "this flag is deprecated and will be removed",
+                "Ignoring --always-prefer-builder-payload"
             );
         }
 
@@ -521,10 +516,9 @@ pub fn get_config<E: EthSpec>(
     client_config.eth1.set_block_cache_truncation::<E>(spec);
 
     info!(
-        log,
-        "Deposit contract";
-        "deploy_block" => client_config.eth1.deposit_contract_deploy_block,
-        "address" => &client_config.eth1.deposit_contract_address
+        deploy_block = client_config.eth1.deposit_contract_deploy_block,
+        address = &client_config.eth1.deposit_contract_address,
+        "Deposit contract"
     );
 
     // Only append network config bootnodes if discovery is not disabled
@@ -787,9 +781,8 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.get_flag("disable-lock-timeouts") {
         warn!(
-            log,
-            "Ignoring --disable-lock-timeouts";
-            "info" => "this flag is deprecated and will be removed"
+            info = "this flag is deprecated and will be removed",
+            "Ignoring --disable-lock-timeouts"
         );
     }
 
@@ -894,9 +887,8 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.get_one::<String>("progressive-balances").is_some() {
         warn!(
-            log,
-            "Progressive balances mode is deprecated";
-            "info" => "please remove --progressive-balances"
+            info = "please remove --progressive-balances",
+            "Progressive balances mode is deprecated"
         );
     }
 
@@ -1021,7 +1013,7 @@ pub fn parse_listening_addresses(
         (None, Some(ipv6)) => {
             // A single ipv6 address was provided. Set the ports
             if cli_args.value_source("port6") == Some(ValueSource::CommandLine) {
-                warn!(log, "When listening only over IPv6, use the --port flag. The value of --port6 will be ignored.");
+                warn!("When listening only over IPv6, use the --port flag. The value of --port6 will be ignored.");
             }
 
             // use zero ports if required. If not, use the given port.
@@ -1031,11 +1023,11 @@ pub fn parse_listening_addresses(
                 .unwrap_or(port);
 
             if maybe_disc6_port.is_some() {
-                warn!(log, "When listening only over IPv6, use the --discovery-port flag. The value of --discovery-port6 will be ignored.")
+                warn!("When listening only over IPv6, use the --discovery-port flag. The value of --discovery-port6 will be ignored.")
             }
 
             if maybe_quic6_port.is_some() {
-                warn!(log, "When listening only over IPv6, use the --quic-port flag. The value of --quic-port6 will be ignored.")
+                warn!("When listening only over IPv6, use the --quic-port flag. The value of --quic-port6 will be ignored.")
             }
 
             // use zero ports if required. If not, use the specific udp port. If none given, use
@@ -1207,10 +1199,10 @@ pub fn set_network_config(
                         .parse()
                         .map_err(|_| format!("Not valid as ENR nor Multiaddr: {}", addr))?;
                     if !multi.iter().any(|proto| matches!(proto, Protocol::Udp(_))) {
-                        slog::error!(log, "Missing UDP in Multiaddr {}", multi.to_string());
+                        error!(multiaddr = multi.to_string(), "Missing UDP in Multiaddr");
                     }
                     if !multi.iter().any(|proto| matches!(proto, Protocol::P2p(_))) {
-                        slog::error!(log, "Missing P2P in Multiaddr {}", multi.to_string());
+                        error!(multiaddr = multi.to_string(), "Missing P2P in Multiaddr");
                     }
                     multiaddrs.push(multi);
                 }
@@ -1245,7 +1237,7 @@ pub fn set_network_config(
             })
             .collect::<Result<Vec<PeerIdSerialized>, _>>()?;
         if config.trusted_peers.len() >= config.target_peers {
-            slog::warn!(log, "More trusted peers than the target peer limit. This will prevent efficient peer selection criteria."; "target_peers" => config.target_peers, "trusted_peers" => config.trusted_peers.len());
+            warn!( target_peers = config.target_peers, trusted_peers = config.trusted_peers.len(),"More trusted peers than the target peer limit. This will prevent efficient peer selection criteria.");
         }
     }
 
@@ -1345,14 +1337,14 @@ pub fn set_network_config(
             match addr.parse::<IpAddr>() {
                 Ok(IpAddr::V4(v4_addr)) => {
                     if let Some(used) = enr_ip4.as_ref() {
-                        warn!(log, "More than one Ipv4 ENR address provided"; "used" => %used, "ignored" => %v4_addr)
+                        warn!(used = %used, ignored = %v4_addr, "More than one Ipv4 ENR address provided")
                     } else {
                         enr_ip4 = Some(v4_addr)
                     }
                 }
                 Ok(IpAddr::V6(v6_addr)) => {
                     if let Some(used) = enr_ip6.as_ref() {
-                        warn!(log, "More than one Ipv6 ENR address provided"; "used" => %used, "ignored" => %v6_addr)
+                        warn!(used = %used, ignored = %v6_addr,"More than one Ipv6 ENR address provided")
                     } else {
                         enr_ip6 = Some(v6_addr)
                     }
@@ -1418,13 +1410,13 @@ pub fn set_network_config(
     }
 
     if parse_flag(cli_args, "disable-packet-filter") {
-        warn!(log, "Discv5 packet filter is disabled");
+        warn!("Discv5 packet filter is disabled");
         config.discv5_config.enable_packet_filter = false;
     }
 
     if parse_flag(cli_args, "disable-discovery") {
         config.disable_discovery = true;
-        warn!(log, "Discovery is disabled. New peers will not be found");
+        warn!("Discovery is disabled. New peers will not be found");
     }
 
     if parse_flag(cli_args, "disable-quic") {
@@ -1471,7 +1463,10 @@ pub fn set_network_config(
             config.target_peers = 15;
         }
         config.proposer_only = true;
-        warn!(log, "Proposer-only mode enabled"; "info"=> "Do not connect a validator client to this node unless via the --proposer-nodes flag");
+        warn!(
+            info = "Proposer-only mode enabled",
+            "Do not connect a validator client to this node unless via the --proposer-nodes flag"
+        );
     }
     // The inbound rate limiter is enabled by default unless `disabled` via the
     // `disable-inbound-rate-limiter` flag.
@@ -1546,11 +1541,10 @@ where
 
     if values.len() > 1 {
         warn!(
-            log,
-            "Multiple values provided";
-            "info" => "multiple values are deprecated, only the first value will be used",
-            "count" => values.len(),
-            "flag" => flag_name
+            info = "Multiple values provided",
+            count = values.len(),
+            flag = flag_name,
+            "multiple values are deprecated, only the first value will be used"
         );
     }
 

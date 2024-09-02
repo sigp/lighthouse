@@ -5,9 +5,10 @@
 use crate::beacon_proposer_cache::{BeaconProposerCache, TYPICAL_SLOTS_PER_EPOCH};
 use crate::metrics;
 use itertools::Itertools;
+use logging::crit;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, info, warn, Logger};
+use slog::Logger;
 use slot_clock::SlotClock;
 use smallvec::SmallVec;
 use state_processing::common::get_attestation_participation_flag_indices;
@@ -21,6 +22,7 @@ use std::str::Utf8Error;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::AbstractExecPayload;
+use tracing::{debug, error, info, warn};
 use types::consts::altair::{
     TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX,
 };
@@ -30,7 +32,6 @@ use types::{
     IndexedAttestationRef, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof,
     SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
 };
-
 /// Used for Prometheus labels.
 ///
 /// We've used `total` for this value to align with Nimbus, as per:
@@ -452,9 +453,8 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         let log = self.log.clone();
         self.validators.entry(pubkey).or_insert_with(|| {
             info!(
-                log,
-                "Started monitoring validator";
-                "pubkey" => %pubkey,
+                %pubkey,
+                "Started monitoring validator"
             );
             MonitoredValidator::new(pubkey, index_opt)
         });
@@ -661,28 +661,25 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                                             );
                                         });
                                         error!(
-                                            self.log,
-                                            "Validator missed a block";
-                                            "index" => i,
-                                            "slot" => slot,
-                                            "parent block root" => ?prev_block_root,
+                                            index = i,
+                                            ?slot,
+                                            ?prev_block_root,
+                                            "Validator missed a block"
                                         );
                                     }
                                 }
                             } else {
                                 warn!(
-                                    self.log,
-                                    "Missing validator index";
-                                    "info" => "potentially inconsistency in the validator manager",
-                                    "index" => i,
+                                    info = "potentially inconsistency in the validator manager",
+                                    index = i,
+                                    "Missing validator index"
                                 )
                             }
                         } else {
                             debug!(
-                                self.log,
-                                "Could not get proposers from cache";
-                                "epoch" => ?slot_epoch,
-                                "decision_root" => ?shuffling_decision_block,
+                                epoch = ?slot_epoch,
+                                decision_root = ?shuffling_decision_block,
+                                "Could not get proposers from cache"
                             );
                         }
                     }
@@ -753,18 +750,16 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                     }
                     Err(err) => {
                         error!(
-                            self.log,
-                            "Failed to get attestation participation flag indices";
-                            "error" => ?err,
-                            "unaggregated_attestation" => ?unaggregated_attestation,
+                            error = ?err,
+                            ?unaggregated_attestation,
+                            "Failed to get attestation participation flag indices"
                         );
                     }
                 }
             } else {
                 error!(
-                    self.log,
-                    "Failed to remove unaggregated attestation from the hashmap";
-                    "slot" => ?slot,
+                    ?slot,
+                    "Failed to remove unaggregated attestation from the hashmap"
                 );
             }
         }
@@ -867,13 +862,12 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                     attestation_success.push(id);
                     if self.individual_tracking() {
                         debug!(
-                            self.log,
-                            "Previous epoch attestation success";
-                            "matched_source" => previous_epoch_matched_source,
-                            "matched_target" => previous_epoch_matched_target,
-                            "matched_head" => previous_epoch_matched_head,
-                            "epoch" => prev_epoch,
-                            "validator" => id,
+                            matched_source = previous_epoch_matched_source,
+                            matched_target = previous_epoch_matched_target,
+                            matched_head = previous_epoch_matched_head,
+                            epoch = ?prev_epoch,
+                            validator = id,
+                            "Previous epoch attestation success"
                         )
                     }
                 } else {
@@ -886,10 +880,9 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                     attestation_miss.push(id);
                     if self.individual_tracking() {
                         debug!(
-                            self.log,
-                            "Previous epoch attestation missing";
-                            "epoch" => prev_epoch,
-                            "validator" => id,
+                            epoch = ?prev_epoch,
+                            validator = id,
+                            "Previous epoch attestation missing"
                         )
                     }
                 }
@@ -912,10 +905,9 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                     head_miss.push(id);
                     if self.individual_tracking() {
                         debug!(
-                            self.log,
-                            "Attestation failed to match head";
-                            "epoch" => prev_epoch,
-                            "validator" => id,
+                            epoch = ?prev_epoch,
+                            validator = id,
+                            "Attestation failed to match head"
                         );
                     }
                 }
@@ -938,10 +930,9 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                     target_miss.push(id);
                     if self.individual_tracking() {
                         debug!(
-                            self.log,
-                            "Attestation failed to match target";
-                            "epoch" => prev_epoch,
-                            "validator" => id,
+                            epoch = ?prev_epoch,
+                            validator = id,
+                            "Attestation failed to match target"
                         );
                     }
                 }
@@ -960,12 +951,11 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                         suboptimal_inclusion.push(id);
                         if self.individual_tracking() {
                             debug!(
-                                self.log,
-                                "Potential sub-optimal inclusion delay";
-                                "optimal" => spec.min_attestation_inclusion_delay,
-                                "delay" => inclusion_delay,
-                                "epoch" => prev_epoch,
-                                "validator" => id,
+                                optimal = spec.min_attestation_inclusion_delay,
+                                delay = inclusion_delay,
+                                epoch = ?prev_epoch,
+                                validator = id,
+                                "Potential sub-optimal inclusion delay"
                             );
                         }
                     }
@@ -1003,12 +993,11 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                             // logs that can be generated is capped by the size
                             // of the sync committee.
                             info!(
-                                self.log,
-                                "Current epoch sync signatures";
-                                "included" => summary.sync_signature_block_inclusions,
-                                "expected" => E::slots_per_epoch(),
-                                "epoch" => current_epoch,
-                                "validator" => id,
+                                included = summary.sync_signature_block_inclusions,
+                                expected = E::slots_per_epoch(),
+                                epoch = ?current_epoch,
+                                validator = id,
+                                "Current epoch sync signatures"
                             );
                         }
                     } else if self.individual_tracking() {
@@ -1018,10 +1007,9 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                             0,
                         );
                         debug!(
-                            self.log,
-                            "Validator isn't part of the current sync committee";
-                            "epoch" => current_epoch,
-                            "validator" => id,
+                            epoch = ?current_epoch,
+                            validator = id,
+                            "Validator isn't part of the current sync committee"
                         );
                     }
                 }
@@ -1032,45 +1020,40 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         // for all validators managed by the validator monitor.
         if !attestation_success.is_empty() {
             info!(
-                self.log,
-                "Previous epoch attestation(s) success";
-                "epoch" => prev_epoch,
-                "validators" => ?attestation_success,
+                epoch = ?prev_epoch,
+                validators = ?attestation_success,
+                "Previous epoch attestation(s) success"
             );
         }
         if !attestation_miss.is_empty() {
             info!(
-                self.log,
-                "Previous epoch attestation(s) missing";
-                "epoch" => prev_epoch,
-                "validators" => ?attestation_miss,
+                epoch = ?prev_epoch,
+                validators = ?attestation_miss,
+                "Previous epoch attestation(s) missing"
             );
         }
 
         if !head_miss.is_empty() {
             info!(
-                self.log,
-                "Previous epoch attestation(s) failed to match head";
-                "epoch" => prev_epoch,
-                "validators" => ?head_miss,
+                epoch = ?prev_epoch,
+                validators = ?head_miss,
+                "Previous epoch attestation(s) failed to match head"
             );
         }
 
         if !target_miss.is_empty() {
             info!(
-                self.log,
-                "Previous epoch attestation(s) failed to match target";
-                "epoch" => prev_epoch,
-                "validators" => ?target_miss,
+                epoch = ?prev_epoch,
+                validators = ?target_miss,
+                "Previous epoch attestation(s) failed to match target"
             );
         }
 
         if !suboptimal_inclusion.is_empty() {
             info!(
-                self.log,
-                "Previous epoch attestation(s) had sub-optimal inclusion delay";
-                "epoch" => prev_epoch,
-                "validators" => ?suboptimal_inclusion,
+                epoch = ?prev_epoch,
+                validators = ?suboptimal_inclusion,
+                "Previous epoch attestation(s) had sub-optimal inclusion delay"
             );
         }
 
@@ -1122,10 +1105,9 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         if let Some(pubkey) = self.indices.get(&validator_index) {
             if !self.validators.contains_key(pubkey) {
                 info!(
-                    self.log,
-                    "Started monitoring validator";
-                    "pubkey" => %pubkey,
-                    "validator" => %validator_index,
+                    %pubkey,
+                    validator = %validator_index,
+                    "Started monitoring validator"
                 );
 
                 self.validators.insert(
@@ -1184,13 +1166,12 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             });
 
             info!(
-                self.log,
-                "Block from monitored validator";
-                "root" => ?block_root,
-                "delay" => %delay.as_millis(),
-                "slot" => %block.slot(),
-                "src" => src,
-                "validator" => %id,
+                ?block_root,
+                delay = %delay.as_millis(),
+                slot = %block.slot(),
+                src,
+                validator = %id,
+                "Block from API"
             );
 
             validator.with_epoch_summary(epoch, |summary| summary.register_block(delay));
@@ -1261,15 +1242,14 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
                 if self.individual_tracking() {
                     info!(
-                        self.log,
-                        "Unaggregated attestation";
-                        "head" => ?data.beacon_block_root,
-                        "index" => %data.index,
-                        "delay_ms" => %delay.as_millis(),
-                        "epoch" => %epoch,
-                        "slot" => %data.slot,
-                        "src" => src,
-                        "validator" => %id,
+                        head = ?data.beacon_block_root,
+                        index = %data.index,
+                        delay_ms = %delay.as_millis(),
+                        %epoch,
+                        slot = %data.slot,
+                        src,
+                        validator = %id,
+                        "Unaggregated attestation"
                     );
                 }
 
@@ -1349,15 +1329,14 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
             if self.individual_tracking() {
                 info!(
-                    self.log,
-                    "Aggregated attestation";
-                    "head" => ?data.beacon_block_root,
-                    "index" => %data.index,
-                    "delay_ms" => %delay.as_millis(),
-                    "epoch" => %epoch,
-                    "slot" => %data.slot,
-                    "src" => src,
-                    "validator" => %id,
+                    head = ?data.beacon_block_root,
+                    index = %data.index,
+                    delay_ms = %delay.as_millis(),
+                    %epoch,
+                    slot = %data.slot,
+                    src,
+                    validator = %id,
+                    "Aggregated attestation"
                 );
             }
 
@@ -1396,28 +1375,26 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
                     if is_first_inclusion_aggregate {
                         info!(
-                            self.log,
-                            "Attestation included in aggregate";
-                            "head" => ?data.beacon_block_root,
-                            "index" => %data.index,
-                            "delay_ms" => %delay.as_millis(),
-                            "epoch" => %epoch,
-                            "slot" => %data.slot,
-                            "src" => src,
-                            "validator" => %id,
+                            head = ?data.beacon_block_root,
+                            index = %data.index,
+                            delay_ms = %delay.as_millis(),
+                            %epoch,
+                            slot = %data.slot,
+                            src,
+                            validator = %id,
+                            "Attestation included in aggregate"
                         );
                     } else {
                         // Downgrade to Debug for second and onwards of logging to reduce verbosity
                         debug!(
-                            self.log,
-                            "Attestation included in aggregate";
-                            "head" => ?data.beacon_block_root,
-                            "index" => %data.index,
-                            "delay_ms" => %delay.as_millis(),
-                            "epoch" => %epoch,
-                            "slot" => %data.slot,
-                            "src" => src,
-                            "validator" => %id,
+                            head = ?data.beacon_block_root,
+                            index = %data.index,
+                            delay_ms = %delay.as_millis(),
+                            %epoch,
+                            slot = %data.slot,
+                            src,
+                            validator = %id,
+                            "Attestation included in aggregate"
                         )
                     };
                 }
@@ -1480,26 +1457,24 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
                     if is_first_inclusion_block {
                         info!(
-                            self.log,
-                            "Attestation included in block";
-                            "head" => ?data.beacon_block_root,
-                            "index" => %data.index,
-                            "inclusion_lag" => format!("{} slot(s)", delay),
-                            "epoch" => %epoch,
-                            "slot" => %data.slot,
-                            "validator" => %id,
+                            head = ?data.beacon_block_root,
+                            index = %data.index,
+                            inclusion_lag = format!("{} slot(s)", delay),
+                            %epoch,
+                            slot = %data.slot,
+                            validator = %id,
+                            "Attestation included in block"
                         );
                     } else {
                         // Downgrade to Debug for second and onwards of logging to reduce verbosity
                         debug!(
-                            self.log,
-                            "Attestation included in block";
-                            "head" => ?data.beacon_block_root,
-                            "index" => %data.index,
-                            "inclusion_lag" => format!("{} slot(s)", delay),
-                            "epoch" => %epoch,
-                            "slot" => %data.slot,
-                            "validator" => %id,
+                            head = ?data.beacon_block_root,
+                            index = %data.index,
+                            inclusion_lag = format!("{} slot(s)", delay),
+                            %epoch,
+                            slot = %data.slot,
+                            validator = %id,
+                            "Attestation included in block"
                         );
                     }
                 }
@@ -1574,14 +1549,13 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
             if self.individual_tracking() {
                 info!(
-                    self.log,
-                    "Sync committee message";
-                    "head" => %sync_committee_message.beacon_block_root,
-                    "delay_ms" => %delay.as_millis(),
-                    "epoch" => %epoch,
-                    "slot" => %sync_committee_message.slot,
-                    "src" => src,
-                    "validator" => %id,
+                    head = %sync_committee_message.beacon_block_root,
+                    delay_ms = %delay.as_millis(),
+                    %epoch,
+                    slot = %sync_committee_message.slot,
+                    src,
+                    validator = %id,
+                    "Sync committee message"
                 );
             }
 
@@ -1662,14 +1636,13 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
             if self.individual_tracking() {
                 info!(
-                    self.log,
-                    "Sync contribution";
-                    "head" => %beacon_block_root,
-                    "delay_ms" => %delay.as_millis(),
-                    "epoch" => %epoch,
-                    "slot" => %slot,
-                    "src" => src,
-                    "validator" => %id,
+                    head = %beacon_block_root,
+                    delay_ms = %delay.as_millis(),
+                    %epoch,
+                    %slot,
+                    src,
+                    validator = %id,
+                    "Sync contribution"
                 );
             }
 
@@ -1691,14 +1664,13 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
                 if self.individual_tracking() {
                     info!(
-                        self.log,
-                        "Sync signature included in contribution";
-                        "head" => %beacon_block_root,
-                        "delay_ms" => %delay.as_millis(),
-                        "epoch" => %epoch,
-                        "slot" => %slot,
-                        "src" => src,
-                        "validator" => %id,
+                        head = %beacon_block_root,
+                        delay_ms = %delay.as_millis(),
+                        %epoch,
+                        %slot,
+                        src,
+                        validator = %id,
+                        "Sync signature included in contribution"
                     );
                 }
 
@@ -1731,12 +1703,11 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
                 if self.individual_tracking() {
                     info!(
-                        self.log,
-                        "Sync signature included in block";
-                        "head" => %beacon_block_root,
-                        "epoch" => %epoch,
-                        "slot" => %slot,
-                        "validator" => %id,
+                        head = %beacon_block_root,
+                        %epoch,
+                        %slot,
+                        validator = %id,
+                        "Sync signature included in block"
                     );
                 }
 
@@ -1774,11 +1745,10 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             // Not gated behind `self.individual_tracking()` since it's an
             // infrequent and interesting message.
             info!(
-                self.log,
-                "Voluntary exit";
-                "epoch" => %epoch,
-                "validator" => %id,
-                "src" => src,
+                %epoch,
+                validator = %id,
+                src,
+                "Voluntary exit"
             );
 
             validator.with_epoch_summary(epoch, |summary| summary.register_exit());
@@ -1820,13 +1790,12 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             // Not gated behind `self.individual_tracking()` since it's an
             // infrequent and interesting message.
             crit!(
-                self.log,
-                "Proposer slashing";
-                "root_2" => %root_2,
-                "root_1" => %root_1,
-                "slot" => %slot,
-                "validator" => %id,
-                "src" => src,
+                %root_2,
+                %root_1,
+                %slot,
+                validator = %id,
+                src,
+                "Proposer slashing"
             );
 
             validator.with_epoch_summary(epoch, |summary| summary.register_proposer_slashing());
@@ -1875,12 +1844,11 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 // Not gated behind `self.individual_tracking()` since it's an
                 // infrequent and interesting message.
                 crit!(
-                    self.log,
-                    "Attester slashing";
-                    "epoch" => %epoch,
-                    "slot" => %data.slot,
-                    "validator" => %id,
-                    "src" => src,
+                    %epoch,
+                    slot = %data.slot,
+                    validator = %id,
+                    src,
+                    "Attester slashing"
                 );
 
                 validator.with_epoch_summary(epoch, |summary| summary.register_attester_slashing());
@@ -2097,15 +2065,14 @@ fn register_simulated_attestation(
     }
 
     debug!(
-        log,
-        "Simulated attestation evaluated";
-        "attestation_source" => ?data.source.root,
-        "attestation_target" => ?data.target.root,
-        "attestation_head" => ?data.beacon_block_root,
-        "attestation_slot" => ?data.slot,
-        "source_hit" => source_hit,
-        "target_hit" => target_hit,
-        "head_hit" => head_hit,
+        attestation_source = ?data.source.root,
+        attestation_target = ?data.target.root,
+        attestation_head = ?data.beacon_block_root,
+        attestation_slot = ?data.slot,
+        source_hit,
+        target_hit,
+        head_hit,
+        "Simulated attestation evaluated"
     );
 }
 

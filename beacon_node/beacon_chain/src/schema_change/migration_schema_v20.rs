@@ -2,16 +2,17 @@ use crate::beacon_chain::{BeaconChainTypes, OP_POOL_DB_KEY};
 use operation_pool::{
     PersistedOperationPool, PersistedOperationPoolV15, PersistedOperationPoolV20,
 };
-use slog::{debug, info, Logger};
+use slog::Logger;
 use std::sync::Arc;
 use store::{Error, HotColdDB, KeyValueStoreOp, StoreItem};
+use tracing::{debug, info};
 use types::Attestation;
 
 pub fn upgrade_to_v20<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
-    info!(log, "Upgrading from v19 to v20");
+    info!("Upgrading from v19 to v20");
 
     // Load a V15 op pool and transform it to V20.
     let Some(PersistedOperationPoolV15::<T::EthSpec> {
@@ -24,7 +25,7 @@ pub fn upgrade_to_v20<T: BeaconChainTypes>(
         capella_bls_change_broadcast_indices,
     }) = db.get_item(&OP_POOL_DB_KEY)?
     else {
-        debug!(log, "Nothing to do, no operation pool stored");
+        debug!("Nothing to do, no operation pool stored");
         return Ok(vec![]);
     };
 
@@ -54,7 +55,7 @@ pub fn downgrade_from_v20<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
-    info!(log, "Downgrading from v20 to v19");
+    info!("Downgrading from v20 to v19");
 
     // Load a V20 op pool and transform it to V15.
     let Some(PersistedOperationPoolV20::<T::EthSpec> {
@@ -67,7 +68,7 @@ pub fn downgrade_from_v20<T: BeaconChainTypes>(
         capella_bls_change_broadcast_indices,
     }) = db.get_item(&OP_POOL_DB_KEY)?
     else {
-        debug!(log, "Nothing to do, no operation pool stored");
+        debug!("Nothing to do, no operation pool stored");
         return Ok(vec![]);
     };
 
@@ -77,7 +78,10 @@ pub fn downgrade_from_v20<T: BeaconChainTypes>(
             if let Attestation::Base(attestation) = attestation.into() {
                 Some((attestation, indices))
             } else {
-                info!(log, "Dropping attestation during downgrade"; "reason" => "not a base attestation");
+                info!(
+                    reason = "not a base attestation",
+                    "Dropping attestation during downgrade"
+                );
                 None
             }
         })
@@ -88,7 +92,10 @@ pub fn downgrade_from_v20<T: BeaconChainTypes>(
         .filter_map(|slashing| match slashing.try_into() {
             Ok(slashing) => Some(slashing),
             Err(_) => {
-                info!(log, "Dropping attester slashing during downgrade"; "reason" => "not a base attester slashing");
+                info!(
+                    reason = "not a base attester slashing",
+                    "Dropping attester slashing during downgrade"
+                );
                 None
             }
         })

@@ -43,7 +43,6 @@ use crate::{
 use bls::verify_signature_sets;
 use itertools::Itertools;
 use proto_array::Block as ProtoBlock;
-use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::{
     common::{
@@ -58,6 +57,7 @@ use state_processing::{
 };
 use std::borrow::Cow;
 use strum::AsRefStr;
+use tracing::debug;
 use tree_hash::TreeHash;
 use types::{
     Attestation, AttestationRef, BeaconCommittee, BeaconStateError::NoCommitteeFound, ChainSpec,
@@ -409,10 +409,9 @@ fn process_slash_info<T: BeaconChainTypes>(
                     Ok((indexed, _)) => (indexed, true, err),
                     Err(e) => {
                         debug!(
-                            chain.log,
-                            "Unable to obtain indexed form of attestation for slasher";
-                            "attestation_root" => format!("{:?}", attestation.tree_hash_root()),
-                            "error" => format!("{:?}", e)
+                            attestation_root = format!("{:?}", attestation.tree_hash_root()),
+                            error = format!("{:?}", e),
+                            "Unable to obtain indexed form of attestation for slasher"
                         );
                         return err;
                     }
@@ -426,9 +425,8 @@ fn process_slash_info<T: BeaconChainTypes>(
         if check_signature {
             if let Err(e) = verify_attestation_signature(chain, &indexed_attestation) {
                 debug!(
-                    chain.log,
-                    "Signature verification for slasher failed";
-                    "error" => format!("{:?}", e),
+                    error = format!("{:?}", e),
+                    "Signature verification for slasher failed"
                 );
                 return err;
             }

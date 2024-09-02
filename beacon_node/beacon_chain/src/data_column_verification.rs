@@ -9,11 +9,11 @@ use fork_choice::ProtoBlock;
 use kzg::{Error as KzgError, Kzg};
 use proto_array::Block;
 use slasher::test_utils::E;
-use slog::debug;
 use slot_clock::SlotClock;
 use ssz_derive::{Decode, Encode};
 use std::iter;
 use std::sync::Arc;
+use tracing::debug;
 use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier};
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
@@ -504,10 +504,9 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
         (proposer.index, proposer.fork)
     } else {
         debug!(
-            chain.log,
-            "Proposer shuffling cache miss for column verification";
-            "block_root" => %block_root,
-            "index" => %column_index,
+            %block_root,
+            index = %column_index,
+            "Proposer shuffling cache miss for column verification"
         );
         let (parent_state_root, mut parent_state) = chain
             .store
