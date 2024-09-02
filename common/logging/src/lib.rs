@@ -1,20 +1,21 @@
 use lighthouse_metrics::{
     inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult,
 };
-use slog::Logger;
+use slog::{Key, Logger};
 use slog_term::Decorator;
 use std::io::{Result, Write};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
+use tracing::Value;
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_logging_layer::LoggingLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
 pub const MAX_MESSAGE_WIDTH: usize = 40;
 
 pub mod async_record;
+pub mod macros;
 mod sse_logging_components;
 mod tracing_logging_layer;
 mod tracing_metrics_layer;

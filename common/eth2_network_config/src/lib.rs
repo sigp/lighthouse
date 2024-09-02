@@ -18,12 +18,13 @@ use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::{Client, Error};
 use sensitive_url::SensitiveUrl;
 use sha2::{Digest, Sha256};
-use slog::{info, warn, Logger};
+use slog::Logger;
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
+use tracing::{info, warn};
 use types::{BeaconState, ChainSpec, Config, Epoch, EthSpec, EthSpecId, Hash256};
 use url::Url;
 
@@ -399,11 +400,10 @@ async fn download_genesis_state(
             .unwrap_or_else(|_| "<REDACTED>".to_string());
 
         info!(
-            log,
-            "Downloading genesis state";
-            "server" => &redacted_url,
-            "timeout" => ?timeout,
-            "info" => "this may take some time on testnets with large validator counts"
+            server = &redacted_url,
+            timeout = ?timeout,
+            info = "this may take some time on testnets with large validator counts",
+            "Downloading genesis state"
         );
 
         let client = Client::new();
@@ -416,10 +416,9 @@ async fn download_genesis_state(
                     return Ok(bytes.into());
                 } else {
                     warn!(
-                        log,
-                        "Genesis state download failed";
-                        "server" => &redacted_url,
-                        "timeout" => ?timeout,
+                        server = &redacted_url,
+                        timeout = ?timeout,
+                        "Genesis state download failed"
                     );
                     errors.push(format!(
                         "Response from {} did not match local checksum",

@@ -18,6 +18,7 @@ ethereum_ssz = { workspace = true }
 [dependencies]
 serde_yaml = { workspace = true }
 types = { workspace = true }
+tracing = { workspace = true }
 eth2_config = { workspace = true }
 discv5 = { workspace = true }
 reqwest = { workspace = true }

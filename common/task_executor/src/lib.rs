@@ -3,9 +3,10 @@ pub mod test_utils;
 
 use futures::channel::mpsc::Sender;
 use futures::prelude::*;
-use slog::{debug, o, trace};
+use slog::o;
 use std::sync::Weak;
 use tokio::runtime::{Handle, Runtime};
+use tracing::{debug, trace};
 
 pub use tokio::task::JoinHandle;
 
@@ -150,10 +151,7 @@ impl TaskExecutor {
                 drop(timer);
             });
         } else {
-            debug!(
-                self.log,
-                "Couldn't spawn monitor task. Runtime shutting down"
-            )
+            debug!("Couldn't spawn monitor task. Runtime shutting down")
         }
     }
 
@@ -197,7 +195,7 @@ impl TaskExecutor {
             if let Some(handle) = self.handle() {
                 handle.spawn(future);
             } else {
-                debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+                debug!("Couldn't spawn task. Runtime shutting down");
             }
         }
     }
@@ -235,11 +233,11 @@ impl TaskExecutor {
                     futures::pin_mut!(exit);
                     let result = match future::select(Box::pin(task), exit).await {
                         future::Either::Left((value, _)) => {
-                            trace!(log, "Async task completed"; "task" => name);
+                            trace!(task = name, "Async task completed");
                             Some(value)
                         }
                         future::Either::Right(_) => {
-                            debug!(log, "Async task shutdown, exit received"; "task" => name);
+                            debug!(task = name, "Async task shutdown, exit received");
                             None
                         }
                     };
@@ -247,7 +245,7 @@ impl TaskExecutor {
                     result
                 }))
             } else {
-                debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+                debug!("Couldn't spawn task. Runtime shutting down");
                 None
             }
         } else {
@@ -278,18 +276,18 @@ impl TaskExecutor {
         let join_handle = if let Some(handle) = self.handle() {
             handle.spawn_blocking(task)
         } else {
-            debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+            debug!("Couldn't spawn task. Runtime shutting down");
             return None;
         };
 
         let future = async move {
             let result = match join_handle.await {
                 Ok(result) => {
-                    trace!(log, "Blocking task completed"; "task" => name);
+                    trace!(task = name, "Blocking task completed");
                     Ok(result)
                 }
                 Err(e) => {
-                    debug!(log, "Blocking task ended unexpectedly"; "error" => %e);
+                    debug!(error = %e, "Blocking task ended unexpectedly");
                     Err(e)
                 }
             };
@@ -325,27 +323,21 @@ impl TaskExecutor {
         let handle = self.handle()?;
         let exit = self.exit();
 
-        debug!(
-            log,
-            "Starting block_on task";
-            "name" => name
-        );
+        debug!(name, "Starting block_on task");
 
         handle.block_on(async {
             let output = tokio::select! {
                 output = future => {
                     debug!(
-                        log,
-                        "Completed block_on task";
-                        "name" => name
+                        name,
+                        "Completed block_on task"
                     );
                     Some(output)
                 },
                 _ = exit => {
                     debug!(
-                        log,
-                        "Cancelled block_on task";
-                        "name" => name,
+                        name,
+                        "Cancelled block_on task"
                     );
                     None
                 }
