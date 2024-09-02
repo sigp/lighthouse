@@ -9,9 +9,10 @@ use crate::{
     IndexedAttestationId, ProposerSlashingStatus, RwTransaction, SimpleBatch, SlasherDB,
 };
 use parking_lot::Mutex;
-use slog::{debug, error, info, Logger};
+use slog::Logger;
 use std::collections::HashSet;
 use std::sync::Arc;
+use tracing::{debug, error, info};
 use types::{
     AttesterSlashing, ChainSpec, Epoch, EthSpec, IndexedAttestation, ProposerSlashing,
     SignedBeaconBlockHeader,
@@ -126,11 +127,7 @@ impl<E: EthSpec> Slasher<E> {
 
         let num_slashings = slashings.len();
         if !slashings.is_empty() {
-            info!(
-                self.log,
-                "Found {} new proposer slashings!",
-                slashings.len(),
-            );
+            info!("Found {} new proposer slashings!", slashings.len());
             self.proposer_slashings.lock().extend(slashings);
         }
 
@@ -156,11 +153,8 @@ impl<E: EthSpec> Slasher<E> {
         self.attestation_queue.requeue(deferred);
 
         debug!(
-            self.log,
-            "Pre-processing attestations for slasher";
-            "num_valid" => num_valid,
-            "num_deferred" => num_deferred,
-            "num_dropped" => num_dropped,
+            ?num_valid,
+            num_deferred, num_dropped, "Pre-processing attestations for slasher"
         );
         metrics::set_gauge(&SLASHER_NUM_ATTESTATIONS_VALID, num_valid as i64);
         metrics::set_gauge(&SLASHER_NUM_ATTESTATIONS_DEFERRED, num_deferred as i64);
@@ -194,12 +188,7 @@ impl<E: EthSpec> Slasher<E> {
             }
         }
 
-        debug!(
-            self.log,
-            "Stored attestations in slasher DB";
-            "num_stored" => num_stored,
-            "num_valid" => num_valid,
-        );
+        debug!(num_stored, ?num_valid, "Stored attestations in slasher DB");
         metrics::set_gauge(
             &SLASHER_NUM_ATTESTATIONS_STORED_PER_BATCH,
             num_stored as i64,
@@ -239,19 +228,14 @@ impl<E: EthSpec> Slasher<E> {
             ) {
                 Ok(slashings) => {
                     if !slashings.is_empty() {
-                        info!(
-                            self.log,
-                            "Found {} new double-vote slashings!",
-                            slashings.len()
-                        );
+                        info!("Found {} new double-vote slashings!", slashings.len());
                     }
                     self.attester_slashings.lock().extend(slashings);
                 }
                 Err(e) => {
                     error!(
-                        self.log,
-                        "Error checking for double votes";
-                        "error" => format!("{:?}", e)
+                        error = format!("{:?}", e),
+                        "Error checking for double votes"
                     );
                     return Err(e);
                 }
@@ -269,20 +253,12 @@ impl<E: EthSpec> Slasher<E> {
         ) {
             Ok(slashings) => {
                 if !slashings.is_empty() {
-                    info!(
-                        self.log,
-                        "Found {} new surround slashings!",
-                        slashings.len()
-                    );
+                    info!("Found {} new surround slashings!", slashings.len());
                 }
                 self.attester_slashings.lock().extend(slashings);
             }
             Err(e) => {
-                error!(
-                    self.log,
-                    "Error processing array update";
-                    "error" => format!("{:?}", e),
-                );
+                error!(error = format!("{:?}", e), "Error processing array update");
                 return Err(e);
             }
         }
@@ -315,10 +291,9 @@ impl<E: EthSpec> Slasher<E> {
 
             if let Some(slashing) = slashing_status.into_slashing(attestation) {
                 debug!(
-                    self.log,
-                    "Found double-vote slashing";
-                    "validator_index" => validator_index,
-                    "epoch" => slashing.attestation_1().data().target.epoch,
+                    validator_index,
+                    epoch = ?slashing.attestation_1().data().target.epoch,
+                    "Found double-vote slashing"
                 );
                 slashings.insert(slashing);
             }

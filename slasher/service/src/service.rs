@@ -8,7 +8,7 @@ use slasher::{
     metrics::{self, SLASHER_DATABASE_SIZE, SLASHER_RUN_TIME},
     Slasher,
 };
-use slog::{debug, error, info, trace, warn, Logger};
+use slog::Logger;
 use slot_clock::SlotClock;
 use state_processing::{
     per_block_processing::errors::{
@@ -21,6 +21,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::{interval_at, Duration, Instant};
+use tracing::{debug, error, info, trace, warn};
 use types::{AttesterSlashing, Epoch, EthSpec, ProposerSlashing};
 
 pub struct SlasherService<T: BeaconChainTypes> {
@@ -49,7 +50,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
             .ok_or("No slasher is configured")?;
         let log = slasher.log().clone();
 
-        info!(log, "Starting slasher"; "broadcast" => slasher.config().broadcast);
+        info!(broadcast = slasher.config().broadcast, "Starting slasher");
 
         // Buffer just a single message in the channel. If the receiver is still processing, we
         // don't need to burden them with more work (we can wait).
@@ -91,7 +92,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
             if let Some(duration_to_next_slot) = beacon_chain.slot_clock.duration_to_next_slot() {
                 Instant::now() + duration_to_next_slot + slot_offset
             } else {
-                error!(log, "Error aligning slasher to slot clock");
+                error!("Error aligning slasher to slot clock");
                 Instant::now()
             };
         let mut interval = interval_at(start_instant, Duration::from_secs(update_period));
@@ -104,7 +105,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
                     break;
                 }
             } else {
-                trace!(log, "Slasher has nothing to do: we are pre-genesis");
+                trace!("Slasher has nothing to do: we are pre-genesis");
             }
         }
     }
@@ -125,10 +126,9 @@ impl<T: BeaconChainTypes> SlasherService<T> {
                 Ok(stats) => Some(stats),
                 Err(e) => {
                     error!(
-                        log,
-                        "Error during scheduled slasher processing";
-                        "epoch" => current_epoch,
-                        "error" => ?e,
+                        epoch = ?current_epoch,
+                        error = ?e,
+                        "Error during scheduled slasher processing"
                     );
                     None
                 }
@@ -139,10 +139,9 @@ impl<T: BeaconChainTypes> SlasherService<T> {
             // If the database is full then pruning could help to free it up.
             if let Err(e) = slasher.prune_database(current_epoch) {
                 error!(
-                    log,
-                    "Error during slasher database pruning";
-                    "epoch" => current_epoch,
-                    "error" => ?e,
+                    epoch = ?current_epoch,
+                    error = ?e,
+                    "Error during slasher database pruning"
                 );
                 continue;
             };
@@ -155,12 +154,11 @@ impl<T: BeaconChainTypes> SlasherService<T> {
 
             if let Some(stats) = stats {
                 debug!(
-                    log,
-                    "Completed slasher update";
-                    "epoch" => current_epoch,
-                    "time_taken" => format!("{}ms", t.elapsed().as_millis()),
-                    "num_attestations" => stats.attestation_stats.num_processed,
-                    "num_blocks" => stats.block_stats.num_processed,
+                    epoch = ?current_epoch,
+                    time_taken = format!("{}ms", t.elapsed().as_millis()),
+                    num_attestations = stats.attestation_stats.num_processed,
+                    num_blocks = stats.block_stats.num_processed,
+                    "Completed slasher update"
                 );
             }
         }
@@ -198,18 +196,16 @@ impl<T: BeaconChainTypes> SlasherService<T> {
                     BlockOperationError::Invalid(AttesterSlashingInvalid::NoSlashableIndices),
                 )) => {
                     debug!(
-                        log,
-                        "Skipping attester slashing for slashed validators";
-                        "slashing" => ?slashing,
+                        ?slashing,
+                        "Skipping attester slashing for slashed validators"
                     );
                     continue;
                 }
                 Err(e) => {
                     warn!(
-                        log,
-                        "Attester slashing produced is invalid";
-                        "error" => ?e,
-                        "slashing" => ?slashing,
+                        error = ?e,
+                        ?slashing,
+                        "Attester slashing produced is invalid"
                     );
                     continue;
                 }
@@ -224,9 +220,8 @@ impl<T: BeaconChainTypes> SlasherService<T> {
                     Self::publish_attester_slashing(beacon_chain, network_sender, slashing)
                 {
                     debug!(
-                        log,
-                        "Unable to publish attester slashing";
-                        "error" => e,
+                        error = ?e,
+                        "Unable to publish attester slashing"
                     );
                 }
             }
@@ -254,18 +249,16 @@ impl<T: BeaconChainTypes> SlasherService<T> {
                     )),
                 )) => {
                     debug!(
-                        log,
-                        "Skipping proposer slashing for slashed validator";
-                        "validator_index" => index,
+                        validator_index = index,
+                        "Skipping proposer slashing for slashed validator"
                     );
                     continue;
                 }
                 Err(e) => {
                     error!(
-                        log,
-                        "Proposer slashing produced is invalid";
-                        "error" => ?e,
-                        "slashing" => ?slashing,
+                        error = ?e,
+                        ?slashing,
+                        "Proposer slashing produced is invalid"
                     );
                     continue;
                 }
@@ -277,9 +270,8 @@ impl<T: BeaconChainTypes> SlasherService<T> {
                     Self::publish_proposer_slashing(beacon_chain, network_sender, slashing)
                 {
                     debug!(
-                        log,
-                        "Unable to publish proposer slashing";
-                        "error" => e,
+                        error = ?e,
+                        "Unable to publish proposer slashing"
                     );
                 }
             }

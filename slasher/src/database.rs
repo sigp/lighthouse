@@ -12,12 +12,13 @@ use interface::{Environment, OpenDatabases, RwTransaction};
 use lru::LruCache;
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
-use slog::{info, Logger};
+use slog::Logger;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::borrow::{Borrow, Cow};
 use std::marker::PhantomData;
 use std::sync::Arc;
+use tracing::info;
 use tree_hash::TreeHash;
 use types::{
     AggregateSignature, AttestationData, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
@@ -288,7 +289,7 @@ fn ssz_decode<T: Decode>(bytes: Cow<[u8]>) -> Result<T, Error> {
 
 impl<E: EthSpec> SlasherDB<E> {
     pub fn open(config: Arc<Config>, spec: Arc<ChainSpec>, log: Logger) -> Result<Self, Error> {
-        info!(log, "Opening slasher database"; "backend" => %config.backend);
+        info!(backend = %config.backend, "Opening slasher database");
 
         std::fs::create_dir_all(&config.database_path)?;
 
