@@ -154,12 +154,7 @@ mod test {
             "103822458477361691467064888613019442068586830412598673713899771287914656699997",
         ]
         .into_iter()
-        .map(|v| {
-            let bytes = Uint256::from_str_radix(v, 10).unwrap().to_be_bytes::<32>();
-            let mut result = [0u8; 32];
-            result.copy_from_slice(&bytes);
-            result
-        })
+        .map(|v| Uint256::from_str_radix(v, 10).unwrap().to_be_bytes::<32>())
         .collect::<Vec<_>>();
 
         let custody_requirement = 4;
