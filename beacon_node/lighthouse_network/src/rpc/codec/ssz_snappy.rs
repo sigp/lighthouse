@@ -122,7 +122,11 @@ impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
         // Write compressed bytes to `dst`
         dst.extend_from_slice(writer.get_ref());
         if let RPCCodedResponse::Success(resp) = &item {
-            metrics::inc_counter_vec_by(&metrics::TOTAL_RPC_RESPONSES_BYTES_SENT, &[resp.clone().into()], dst.len() as u64);
+            metrics::inc_counter_vec_by(
+                &metrics::TOTAL_RPC_RESPONSES_BYTES_SENT,
+                &[resp.clone().into()],
+                dst.len() as u64,
+            );
         }
         Ok(())
     }
@@ -255,7 +259,11 @@ impl<E: EthSpec> Encoder<OutboundRequest<E>> for SSZSnappyOutboundCodec<E> {
 
         // Write compressed bytes to `dst`
         dst.extend_from_slice(writer.get_ref());
-        metrics::inc_counter_vec_by(&metrics::TOTAL_RPC_REQUESTS_BYTES_SENT, &[item.into()], dst.len() as u64);
+        metrics::inc_counter_vec_by(
+            &metrics::TOTAL_RPC_REQUESTS_BYTES_SENT,
+            &[item.into()],
+            dst.len() as u64,
+        );
         Ok(())
     }
 }
@@ -489,11 +497,15 @@ fn handle_rpc_request<E: EthSpec>(
 ) -> Result<Option<InboundRequest<E>>, RPCError> {
     match versioned_protocol {
         SupportedProtocol::StatusV1 => {
-            metrics::inc_counter_vec_by(&metrics::TOTAL_RPC_REQUESTS_BYTES_RECEIVED, &["status"], decoded_buffer.len() as u64);
-            Ok(Some(InboundRequest::Status(
-                StatusMessage::from_ssz_bytes(decoded_buffer)?,
-            )))
-        },
+            metrics::inc_counter_vec_by(
+                &metrics::TOTAL_RPC_REQUESTS_BYTES_RECEIVED,
+                &["status"],
+                decoded_buffer.len() as u64,
+            );
+            Ok(Some(InboundRequest::Status(StatusMessage::from_ssz_bytes(
+                decoded_buffer,
+            )?)))
+        }
         SupportedProtocol::GoodbyeV1 => Ok(Some(InboundRequest::Goodbye(
             GoodbyeReason::from_ssz_bytes(decoded_buffer)?,
         ))),
@@ -589,11 +601,15 @@ fn handle_rpc_response<E: EthSpec>(
 ) -> Result<Option<RPCResponse<E>>, RPCError> {
     match versioned_protocol {
         SupportedProtocol::StatusV1 => {
-            metrics::inc_counter_vec_by(&metrics::TOTAL_RPC_RESPONSES_BYTES_RECEIVED, &["status"], decoded_buffer.len() as u64);
-            Ok(Some(RPCResponse::Status(
-                StatusMessage::from_ssz_bytes(decoded_buffer)?,
-            )))
-        },
+            metrics::inc_counter_vec_by(
+                &metrics::TOTAL_RPC_RESPONSES_BYTES_RECEIVED,
+                &["status"],
+                decoded_buffer.len() as u64,
+            );
+            Ok(Some(RPCResponse::Status(StatusMessage::from_ssz_bytes(
+                decoded_buffer,
+            )?)))
+        }
         // This case should be unreachable as `Goodbye` has no response.
         SupportedProtocol::GoodbyeV1 => Err(RPCError::InvalidData(
             "Goodbye RPC message has no valid response".to_string(),

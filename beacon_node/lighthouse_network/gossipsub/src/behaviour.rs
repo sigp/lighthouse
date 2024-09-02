@@ -19,7 +19,13 @@
 // DEALINGS IN THE SOFTWARE.
 
 use std::{
-    cmp::{max, Ordering}, collections::{BTreeSet, HashMap, HashSet, VecDeque}, fmt, io::Read, net::IpAddr, task::{Context, Poll}, time::Duration
+    cmp::{max, Ordering},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
+    fmt,
+    io::Read,
+    net::IpAddr,
+    task::{Context, Poll},
+    time::Duration,
 };
 
 use futures::StreamExt;

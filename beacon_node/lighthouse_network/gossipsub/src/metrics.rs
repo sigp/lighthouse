@@ -554,9 +554,7 @@ impl Metrics {
     /// Register that a message was received (and was not a duplicate).
     pub(crate) fn msg_recvd(&mut self, topic: &TopicHash, bytes: usize) {
         if self.register_topic(topic).is_ok() {
-            self.topic_msg_recv_counts
-                .get_or_create(topic)
-                .inc();
+            self.topic_msg_recv_counts.get_or_create(topic).inc();
             self.topic_msg_recv_bytes
                 .get_or_create(topic)
                 .inc_by(bytes as u64);
