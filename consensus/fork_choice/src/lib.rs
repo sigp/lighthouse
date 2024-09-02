@@ -1,5 +1,6 @@
 mod fork_choice;
 mod fork_choice_store;
+mod metrics;
 
 pub use crate::fork_choice::{
     AttestationFromBlock, Error, ForkChoice, ForkChoiceView, ForkchoiceUpdateParameters,

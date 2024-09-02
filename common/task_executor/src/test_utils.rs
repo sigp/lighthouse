@@ -1,7 +1,6 @@
 use crate::TaskExecutor;
-use logging::test_logger;
+pub use logging::test_logger;
 use slog::Logger;
-use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
 use tokio::runtime;
 
@@ -66,11 +65,4 @@ impl TestRuntime {
         self.log = log.clone();
         self.task_executor.log = log;
     }
-}
-
-pub fn null_logger() -> Result<Logger, String> {
-    let log_builder = NullLoggerBuilder;
-    log_builder
-        .build()
-        .map_err(|e| format!("Failed to start null logger: {:?}", e))
 }

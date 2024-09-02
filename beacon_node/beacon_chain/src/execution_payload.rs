@@ -505,7 +505,7 @@ where
             return Ok(BlockProposalContentsType::Full(
                 BlockProposalContents::Payload {
                     payload: FullPayload::default_at_fork(fork)?,
-                    block_value: Uint256::zero(),
+                    block_value: Uint256::ZERO,
                 },
             ));
         }
@@ -523,7 +523,7 @@ where
             return Ok(BlockProposalContentsType::Full(
                 BlockProposalContents::Payload {
                     payload: FullPayload::default_at_fork(fork)?,
-                    block_value: Uint256::zero(),
+                    block_value: Uint256::ZERO,
                 },
             ));
         }

@@ -16,10 +16,11 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
-    BlobSidecar, ChainSpec, EthSpec, ForkContext, ForkName, Hash256, LightClientBootstrap,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, RuntimeVariableList, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
+    BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, ForkContext, ForkName, Hash256,
+    LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
+    SignedBeaconBlockBellatrix, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
+    SignedBeaconBlockElectra,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -70,6 +71,8 @@ impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::BlobsByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlobsByRoot(res) => res.as_ssz_bytes(),
+                RPCResponse::DataColumnsByRoot(res) => res.as_ssz_bytes(),
+                RPCResponse::DataColumnsByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientOptimisticUpdate(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientFinalityUpdate(res) => res.as_ssz_bytes(),
@@ -79,9 +82,10 @@ impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
                 {
                     match self.protocol.versioned_protocol {
                         SupportedProtocol::MetaDataV1 => res.metadata_v1().as_ssz_bytes(),
-                        // We always send V2 metadata responses from the behaviour
-                        // No change required.
                         SupportedProtocol::MetaDataV2 => res.metadata_v2().as_ssz_bytes(),
+                        SupportedProtocol::MetaDataV3 => {
+                            res.metadata_v3(&self.fork_context.spec).as_ssz_bytes()
+                        }
                         _ => unreachable!(
                             "We only send metadata responses on negotiating metadata requests"
                         ),
@@ -132,6 +136,9 @@ impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
         }
         if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV2 {
             return Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v2())));
+        }
+        if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV3 {
+            return Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v3())));
         }
         let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
             return Ok(None);
@@ -224,6 +231,8 @@ impl<E: EthSpec> Encoder<OutboundRequest<E>> for SSZSnappyOutboundCodec<E> {
             },
             OutboundRequest::BlobsByRange(req) => req.as_ssz_bytes(),
             OutboundRequest::BlobsByRoot(req) => req.blob_ids.as_ssz_bytes(),
+            OutboundRequest::DataColumnsByRange(req) => req.as_ssz_bytes(),
+            OutboundRequest::DataColumnsByRoot(req) => req.data_column_ids.as_ssz_bytes(),
             OutboundRequest::Ping(req) => req.as_ssz_bytes(),
             OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
         };
@@ -417,6 +426,17 @@ fn context_bytes<E: EthSpec>(
                 RPCResponse::BlobsByRange(_) | RPCResponse::BlobsByRoot(_) => {
                     return fork_context.to_context_bytes(ForkName::Deneb);
                 }
+                RPCResponse::DataColumnsByRoot(d) | RPCResponse::DataColumnsByRange(d) => {
+                    // TODO(das): Remove deneb fork after `peerdas-devnet-2`.
+                    return if matches!(
+                        fork_context.spec.fork_name_at_slot::<E>(d.slot()),
+                        ForkName::Deneb
+                    ) {
+                        fork_context.to_context_bytes(ForkName::Deneb)
+                    } else {
+                        fork_context.to_context_bytes(ForkName::Electra)
+                    };
+                }
                 RPCResponse::LightClientBootstrap(lc_bootstrap) => {
                     return lc_bootstrap
                         .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
@@ -512,6 +532,17 @@ fn handle_rpc_request<E: EthSpec>(
                 )?,
             })))
         }
+        SupportedProtocol::DataColumnsByRangeV1 => Ok(Some(InboundRequest::DataColumnsByRange(
+            DataColumnsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+        ))),
+        SupportedProtocol::DataColumnsByRootV1 => Ok(Some(InboundRequest::DataColumnsByRoot(
+            DataColumnsByRootRequest {
+                data_column_ids: RuntimeVariableList::from_ssz_bytes(
+                    decoded_buffer,
+                    spec.max_request_data_column_sidecars as usize,
+                )?,
+            },
+        ))),
         SupportedProtocol::PingV1 => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -528,6 +559,15 @@ fn handle_rpc_request<E: EthSpec>(
         }
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
+        SupportedProtocol::MetaDataV3 => {
+            if !decoded_buffer.is_empty() {
+                Err(RPCError::InternalError(
+                    "Metadata requests shouldn't reach decoder",
+                ))
+            } else {
+                Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v3())))
+            }
+        }
         SupportedProtocol::MetaDataV2 => {
             if !decoded_buffer.is_empty() {
                 Err(RPCError::InternalError(
@@ -604,6 +644,51 @@ fn handle_rpc_response<E: EthSpec>(
                 ),
             )),
         },
+        SupportedProtocol::DataColumnsByRootV1 => match fork_name {
+            Some(fork_name) => {
+                // TODO(das): PeerDAS is currently supported for both deneb and electra. This check
+                // does not advertise the topic on deneb, simply allows it to decode it. Advertise
+                // logic is in `SupportedTopic::currently_supported`.
+                if fork_name.deneb_enabled() {
+                    Ok(Some(RPCResponse::DataColumnsByRoot(Arc::new(
+                        DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RPCResponseErrorCode::InvalidRequest,
+                        "Invalid fork name for data columns by root".to_string(),
+                    ))
+                }
+            }
+            None => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
+        SupportedProtocol::DataColumnsByRangeV1 => match fork_name {
+            Some(fork_name) => {
+                if fork_name.deneb_enabled() {
+                    Ok(Some(RPCResponse::DataColumnsByRange(Arc::new(
+                        DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RPCResponseErrorCode::InvalidRequest,
+                        "Invalid fork name for data columns by range".to_string(),
+                    ))
+                }
+            }
+            None => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
         SupportedProtocol::PingV1 => Ok(Some(RPCResponse::Pong(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -646,7 +731,10 @@ fn handle_rpc_response<E: EthSpec>(
                 ),
             )),
         },
-        // MetaData V2 responses have no context bytes, so behave similarly to V1 responses
+        // MetaData V2/V3 responses have no context bytes, so behave similarly to V1 responses
+        SupportedProtocol::MetaDataV3 => Ok(Some(RPCResponse::MetaData(MetaData::V3(
+            MetaDataV3::from_ssz_bytes(decoded_buffer)?,
+        )))),
         SupportedProtocol::MetaDataV2 => Ok(Some(RPCResponse::MetaData(MetaData::V2(
             MetaDataV2::from_ssz_bytes(decoded_buffer)?,
         )))),
@@ -747,7 +835,8 @@ mod tests {
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
     use types::{
         blob_sidecar::BlobIdentifier, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
-        BeaconBlockBellatrix, EmptyBlock, Epoch, FullPayload, Signature, Slot,
+        BeaconBlockBellatrix, DataColumnIdentifier, EmptyBlock, Epoch, FixedBytesExtended,
+        FullPayload, Signature, Slot,
     };
 
     type Spec = types::MainnetEthSpec;
@@ -794,6 +883,10 @@ mod tests {
         Arc::new(BlobSidecar::empty())
     }
 
+    fn empty_data_column_sidecar() -> Arc<DataColumnSidecar<Spec>> {
+        Arc::new(DataColumnSidecar::empty())
+    }
+
     /// Bellatrix block with length < max_rpc_size.
     fn bellatrix_block_small(
         fork_context: &ForkContext,
@@ -833,9 +926,9 @@ mod tests {
     fn status_message() -> StatusMessage {
         StatusMessage {
             fork_digest: [0; 4],
-            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
-            head_root: Hash256::from_low_u64_be(0),
+            head_root: Hash256::zero(),
             head_slot: Slot::new(1),
         }
     }
@@ -852,6 +945,27 @@ mod tests {
         BlobsByRangeRequest {
             start_slot: 0,
             count: 10,
+        }
+    }
+
+    fn dcbrange_request() -> DataColumnsByRangeRequest {
+        DataColumnsByRangeRequest {
+            start_slot: 0,
+            count: 10,
+            columns: vec![1, 2, 3],
+        }
+    }
+
+    fn dcbroot_request(spec: &ChainSpec) -> DataColumnsByRootRequest {
+        DataColumnsByRootRequest {
+            data_column_ids: RuntimeVariableList::new(
+                vec![DataColumnIdentifier {
+                    block_root: Hash256::zero(),
+                    index: 0,
+                }],
+                spec.max_request_data_column_sidecars as usize,
+            )
+            .unwrap(),
         }
     }
 
@@ -889,6 +1003,15 @@ mod tests {
             seq_number: 1,
             attnets: EnrAttestationBitfield::<Spec>::default(),
             syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
+        })
+    }
+
+    fn metadata_v3() -> MetaData<Spec> {
+        MetaData::V3(MetaDataV3 {
+            seq_number: 1,
+            attnets: EnrAttestationBitfield::<Spec>::default(),
+            syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
+            custody_subnet_count: 1,
         })
     }
 
@@ -1012,6 +1135,12 @@ mod tests {
             OutboundRequest::BlobsByRoot(bbroot) => {
                 assert_eq!(decoded, InboundRequest::BlobsByRoot(bbroot))
             }
+            OutboundRequest::DataColumnsByRoot(dcbroot) => {
+                assert_eq!(decoded, InboundRequest::DataColumnsByRoot(dcbroot))
+            }
+            OutboundRequest::DataColumnsByRange(dcbrange) => {
+                assert_eq!(decoded, InboundRequest::DataColumnsByRange(dcbrange))
+            }
             OutboundRequest::Ping(ping) => {
                 assert_eq!(decoded, InboundRequest::Ping(ping))
             }
@@ -1119,6 +1248,17 @@ mod tests {
             Ok(Some(RPCResponse::MetaData(metadata()))),
         );
 
+        // A MetaDataV3 still encodes as a MetaDataV2 since version is Version::V2
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::MetaDataV2,
+                RPCCodedResponse::Success(RPCResponse::MetaData(metadata_v3())),
+                ForkName::Base,
+                &chain_spec,
+            ),
+            Ok(Some(RPCResponse::MetaData(metadata_v2()))),
+        );
+
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::BlobsByRangeV1,
@@ -1137,6 +1277,34 @@ mod tests {
                 &chain_spec
             ),
             Ok(Some(RPCResponse::BlobsByRoot(empty_blob_sidecar()))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::DataColumnsByRangeV1,
+                RPCCodedResponse::Success(RPCResponse::DataColumnsByRange(
+                    empty_data_column_sidecar()
+                )),
+                ForkName::Deneb,
+                &chain_spec
+            ),
+            Ok(Some(RPCResponse::DataColumnsByRange(
+                empty_data_column_sidecar()
+            ))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::DataColumnsByRootV1,
+                RPCCodedResponse::Success(RPCResponse::DataColumnsByRoot(
+                    empty_data_column_sidecar()
+                )),
+                ForkName::Deneb,
+                &chain_spec
+            ),
+            Ok(Some(RPCResponse::DataColumnsByRoot(
+                empty_data_column_sidecar()
+            ))),
         );
     }
 
@@ -1491,6 +1659,8 @@ mod tests {
             OutboundRequest::MetaData(MetadataRequest::new_v1()),
             OutboundRequest::BlobsByRange(blbrange_request()),
             OutboundRequest::BlobsByRoot(blbroot_request(&chain_spec)),
+            OutboundRequest::DataColumnsByRange(dcbrange_request()),
+            OutboundRequest::DataColumnsByRoot(dcbroot_request(&chain_spec)),
             OutboundRequest::MetaData(MetadataRequest::new_v2()),
         ];
 
@@ -1517,9 +1687,9 @@ mod tests {
         // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
         let status_message_bytes = StatusMessage {
             fork_digest: [0; 4],
-            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
-            head_root: Hash256::from_low_u64_be(0),
+            head_root: Hash256::zero(),
             head_slot: Slot::new(1),
         }
         .as_ssz_bytes();
@@ -1640,9 +1810,9 @@ mod tests {
         // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
         let status_message_bytes = StatusMessage {
             fork_digest: [0; 4],
-            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
-            head_root: Hash256::from_low_u64_be(0),
+            head_root: Hash256::zero(),
             head_slot: Slot::new(1),
         }
         .as_ssz_bytes();

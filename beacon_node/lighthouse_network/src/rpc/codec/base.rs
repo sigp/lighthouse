@@ -176,7 +176,7 @@ mod tests {
     use crate::rpc::protocol::*;
 
     use std::sync::Arc;
-    use types::{Epoch, ForkContext, ForkName, Hash256, Slot};
+    use types::{Epoch, FixedBytesExtended, ForkContext, ForkName, Hash256, Slot};
     use unsigned_varint::codec::Uvi;
 
     type Spec = types::MainnetEthSpec;

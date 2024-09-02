@@ -2,7 +2,8 @@ use crate::block_verification::{
     cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
     BlockSlashInfo,
 };
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
+use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
 use derivative::Derivative;
 use fork_choice::ProtoBlock;
 use kzg::{Error as KzgError, Kzg};
@@ -11,6 +12,7 @@ use slasher::test_utils::E;
 use slog::debug;
 use slot_clock::SlotClock;
 use ssz_derive::{Decode, Encode};
+use std::iter;
 use std::sync::Arc;
 use types::data_column_sidecar::{ColumnIndex, DataColumnIdentifier};
 use types::{
@@ -175,8 +177,17 @@ impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T> {
     pub fn id(&self) -> DataColumnIdentifier {
         DataColumnIdentifier {
             block_root: self.block_root,
-            index: self.data_column.data_column_index(),
+            index: self.data_column.index(),
         }
+    }
+
+    pub fn as_data_column(&self) -> &DataColumnSidecar<T::EthSpec> {
+        self.data_column.as_data_column()
+    }
+
+    /// This is cheap as we're calling clone on an Arc
+    pub fn clone_data_column(&self) -> Arc<DataColumnSidecar<T::EthSpec>> {
+        self.data_column.clone_data_column()
     }
 
     pub fn block_root(&self) -> Hash256 {
@@ -187,8 +198,16 @@ impl<T: BeaconChainTypes> GossipVerifiedDataColumn<T> {
         self.data_column.data.slot()
     }
 
+    pub fn index(&self) -> ColumnIndex {
+        self.data_column.data.index
+    }
+
     pub fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         self.data_column.data.signed_block_header.clone()
+    }
+
+    pub fn into_inner(self) -> KzgVerifiedDataColumn<T::EthSpec> {
+        self.data_column
     }
 }
 
@@ -204,6 +223,9 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     pub fn new(data_column: Arc<DataColumnSidecar<E>>, kzg: &Kzg) -> Result<Self, KzgError> {
         verify_kzg_for_data_column(data_column, kzg)
     }
+    pub fn to_data_column(self) -> Arc<DataColumnSidecar<E>> {
+        self.data
+    }
     pub fn as_data_column(&self) -> &DataColumnSidecar<E> {
         &self.data
     }
@@ -212,7 +234,39 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         self.data.clone()
     }
 
-    pub fn data_column_index(&self) -> u64 {
+    pub fn index(&self) -> ColumnIndex {
+        self.data.index
+    }
+}
+
+pub type CustodyDataColumnList<E> = RuntimeVariableList<CustodyDataColumn<E>>;
+
+/// Data column that we must custody
+#[derive(Debug, Derivative, Clone, Encode, Decode)]
+#[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[ssz(struct_behaviour = "transparent")]
+pub struct CustodyDataColumn<E: EthSpec> {
+    data: Arc<DataColumnSidecar<E>>,
+}
+
+impl<E: EthSpec> CustodyDataColumn<E> {
+    /// Mark a column as custody column. Caller must ensure that our current custody requirements
+    /// include this column
+    pub fn from_asserted_custody(data: Arc<DataColumnSidecar<E>>) -> Self {
+        Self { data }
+    }
+
+    pub fn into_inner(self) -> Arc<DataColumnSidecar<E>> {
+        self.data
+    }
+    pub fn as_data_column(&self) -> &Arc<DataColumnSidecar<E>> {
+        &self.data
+    }
+    /// This is cheap as we're calling clone on an Arc
+    pub fn clone_arc(&self) -> Arc<DataColumnSidecar<E>> {
+        self.data.clone()
+    }
+    pub fn index(&self) -> u64 {
         self.data.index
     }
 }
@@ -226,6 +280,59 @@ pub struct KzgVerifiedCustodyDataColumn<E: EthSpec> {
 }
 
 impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
+    /// Mark a column as custody column. Caller must ensure that our current custody requirements
+    /// include this column
+    pub fn from_asserted_custody(kzg_verified: KzgVerifiedDataColumn<E>) -> Self {
+        Self {
+            data: kzg_verified.to_data_column(),
+        }
+    }
+
+    /// Verify a column already marked as custody column
+    pub fn new(data_column: CustodyDataColumn<E>, kzg: &Kzg) -> Result<Self, KzgError> {
+        verify_kzg_for_data_column(data_column.clone_arc(), kzg)?;
+        Ok(Self {
+            data: data_column.data,
+        })
+    }
+
+    pub fn reconstruct_columns(
+        kzg: &Kzg,
+        partial_set_of_columns: &[Self],
+        spec: &ChainSpec,
+    ) -> Result<Vec<Self>, KzgError> {
+        // Will only return an error if:
+        // - < 50% of columns
+        // - There are duplicates
+        let all_data_columns = reconstruct_data_columns(
+            kzg,
+            &partial_set_of_columns
+                .iter()
+                .map(|d| d.clone_arc())
+                .collect::<Vec<_>>(),
+            spec,
+        )?;
+
+        Ok(all_data_columns
+            .into_iter()
+            .map(|d| {
+                KzgVerifiedCustodyDataColumn::from_asserted_custody(KzgVerifiedDataColumn {
+                    data: d,
+                })
+            })
+            .collect::<Vec<_>>())
+    }
+
+    pub fn into_inner(self) -> Arc<DataColumnSidecar<E>> {
+        self.data
+    }
+
+    pub fn as_data_column(&self) -> &DataColumnSidecar<E> {
+        &self.data
+    }
+    pub fn clone_arc(&self) -> Arc<DataColumnSidecar<E>> {
+        self.data.clone()
+    }
     pub fn index(&self) -> ColumnIndex {
         self.data.index
     }
@@ -236,9 +343,10 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
 /// Returns an error if the kzg verification check fails.
 pub fn verify_kzg_for_data_column<E: EthSpec>(
     data_column: Arc<DataColumnSidecar<E>>,
-    _kzg: &Kzg,
+    kzg: &Kzg,
 ) -> Result<KzgVerifiedDataColumn<E>, KzgError> {
-    // TODO(das): KZG verification to be implemented
+    let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
+    validate_data_columns(kzg, iter::once(&data_column))?;
     Ok(KzgVerifiedDataColumn { data: data_column })
 }
 
@@ -248,13 +356,14 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
 /// Note: This function should be preferred over calling `verify_kzg_for_data_column`
 /// in a loop since this function kzg verifies a list of data columns more efficiently.
 pub fn verify_kzg_for_data_column_list<'a, E: EthSpec, I>(
-    _data_column_iter: I,
-    _kzg: &'a Kzg,
+    data_column_iter: I,
+    kzg: &'a Kzg,
 ) -> Result<(), KzgError>
 where
     I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
 {
-    // TODO(das): implement KZG verification
+    let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES);
+    validate_data_columns(kzg, data_column_iter)?;
     Ok(())
 }
 
@@ -273,6 +382,7 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
     let parent_block = verify_parent_block_and_finalized_descendant(data_column.clone(), chain)?;
     verify_slot_higher_than_parent(&parent_block, column_slot)?;
     verify_proposer_and_signature(&data_column, &parent_block, chain)?;
+
     let kzg = chain
         .kzg
         .clone()
@@ -320,9 +430,11 @@ fn verify_is_first_sidecar<T: BeaconChainTypes>(
 fn verify_column_inclusion_proof<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
 ) -> Result<(), GossipDataColumnError> {
+    let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_INCLUSION_PROOF_VERIFICATION);
     if !data_column.verify_inclusion_proof() {
         return Err(GossipDataColumnError::InvalidInclusionProof);
     }
+
     Ok(())
 }
 

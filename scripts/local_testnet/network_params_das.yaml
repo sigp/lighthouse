@@ -1,0 +1,21 @@
+participants:
+  - cl_type: lighthouse
+    cl_image: lighthouse:local
+    cl_extra_params:
+      - --subscribe-all-data-column-subnets
+      - --target-peers=3
+    count: 2
+  - cl_type: lighthouse
+    cl_image: lighthouse:local
+    cl_extra_params:
+      - --target-peers=3
+    count: 2
+network_params:
+  eip7594_fork_epoch: 0
+  seconds_per_slot: 6
+snooper_enabled: false
+global_log_level: debug
+additional_services:
+  - dora
+  - goomy_blob
+  - prometheus_grafana
