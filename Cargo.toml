@@ -52,6 +52,7 @@ members = [
     "database_manager",
 
     "consensus/int_to_bytes",
+    "consensus/fixed_bytes",
     "consensus/fork_choice",
     "consensus/proto_array",
     "consensus/safe_arith",

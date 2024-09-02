@@ -99,3 +99,62 @@ impl UintExtended for Uint256 {
         i64::from_le_bytes(result)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use alloy_primitives::bytes::Buf;
+
+    #[test]
+    fn from_low_u64_be() {
+        let values = [0, 1, 0xff, 1 << 16, u64::MAX, u64::MAX - 1];
+        for value in values {
+            assert_eq!(
+                (&Hash256::from_low_u64_be(value).as_slice()[24..]).get_u64(),
+                value
+            );
+        }
+    }
+
+    #[test]
+    fn from_low_u64_le() {
+        let values = [0, 1, 0xff, 1 << 16, u64::MAX, u64::MAX - 1];
+        for value in values {
+            assert_eq!(
+                u64::from_le_bytes(
+                    Hash256::from_low_u64_le(value).as_slice()[0..8]
+                        .try_into()
+                        .unwrap()
+                ),
+                value
+            );
+        }
+    }
+
+    #[test]
+    fn to_low_u64_le() {
+        let values = [0, 1, 0xff, 1 << 16, u64::MAX, u64::MAX - 1];
+        for value in values {
+            assert_eq!(Hash256::from_low_u64_le(value).to_low_u64_le(), value);
+        }
+    }
+
+    #[test]
+    fn to_i64_in_range() {
+        let values = [0, 1, 0xff, 1 << 16, i64::MAX, i64::MAX - 1];
+        for value in values {
+            assert_eq!(Uint256::from(value).to_i64(), value);
+        }
+    }
+
+    #[test]
+    fn to_i64_out_of_range() {
+        let values = [u128::MAX, 1 << 70, 1 << 80, i64::MAX as u128 + 1];
+        for value in values {
+            assert_eq!(
+                Uint256::from(value).to_i64(),
+                i64::from_le_bytes(value.to_le_bytes()[0..8].try_into().unwrap())
+            );
+        }
+    }
+}
