@@ -340,7 +340,7 @@ field!(
     FixedLengthField,
     Hash256,
     E::SlotsPerHistoricalRoot,
-    DBColumn::BeaconStateRoots,
+    DBColumn::BeaconStateRootsChunked,
     |_| OncePerNSlots {
         n: 1,
         activation_slot: Some(Slot::new(0)),

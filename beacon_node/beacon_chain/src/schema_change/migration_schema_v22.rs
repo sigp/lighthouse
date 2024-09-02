@@ -140,13 +140,16 @@ pub fn delete_old_schema_freezer_data<T: BeaconChainTypes>(
 
     let columns = [
         DBColumn::BeaconState,
+        // Cold state summaries indexed by state root were stored in this column.
         DBColumn::BeaconStateSummary,
+        // Mapping from restore point number to state root was stored in this column.
         DBColumn::BeaconRestorePoint,
+        // Chunked vector values were stored in these columns.
         DBColumn::BeaconHistoricalRoots,
         DBColumn::BeaconRandaoMixes,
         DBColumn::BeaconHistoricalSummaries,
         DBColumn::BeaconBlockRootsChunked,
-        DBColumn::BeaconStateRoots,
+        DBColumn::BeaconStateRootsChunked,
     ];
 
     for column in columns {

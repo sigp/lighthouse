@@ -2630,10 +2630,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // migrating to the tree-states schema (delete everything in the freezer then start afresh).
         let mut cold_ops = vec![];
 
+        // FIXME(sproul): update this to just work on tree-states DBs?
         // This function works for both pre-tree-states and post-tree-states pruning. It deletes
         // everything related to historic states from either DB!
         let columns = [
-            DBColumn::BeaconStateSummary,
+            DBColumn::BeaconColdStateSummary,
             DBColumn::BeaconStateSnapshot,
             DBColumn::BeaconStateDiff,
             DBColumn::BeaconRestorePoint,
@@ -2990,7 +2991,7 @@ pub(crate) struct ColdStateSummary {
 
 impl StoreItem for ColdStateSummary {
     fn db_column() -> DBColumn {
-        DBColumn::BeaconStateSummary
+        DBColumn::BeaconColdStateSummary
     }
 
     fn as_store_bytes(&self) -> Vec<u8> {

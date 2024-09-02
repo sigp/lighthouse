@@ -269,9 +269,15 @@ pub enum DBColumn {
     /// For compact `BeaconStateDiff`s in the freezer DB.
     #[strum(serialize = "bsd")]
     BeaconStateDiff,
-    /// For the mapping from state roots to their slots or summaries.
+    /// Mapping from state root to `HotStateSummary` in the hot DB.
+    ///
+    /// Previously this column also served a role in the freezer DB, mapping state roots to
+    /// `ColdStateSummary`. However that role is now filled by `BeaconColdStateSummary`.
     #[strum(serialize = "bss")]
     BeaconStateSummary,
+    /// Mapping from state root to `ColdStateSummary` in the cold DB.
+    #[strum(serialize = "bcs")]
+    BeaconColdStateSummary,
     /// For the list of temporary states stored during block import,
     /// and then made non-temporary by the deletion of their state root from this column.
     #[strum(serialize = "bst")]
@@ -296,8 +302,16 @@ pub enum DBColumn {
     #[strum(serialize = "brp")]
     BeaconRestorePoint,
     /// Mapping from slot to beacon state root in the freezer DB.
-    #[strum(serialize = "bsr")]
+    ///
+    /// This new column was created to replace the previous `bsr` column. The replacement was
+    /// necessary to guarantee atomicity of the upgrade migration.
+    #[strum(serialize = "bsx")]
     BeaconStateRoots,
+    /// DEPRECATED. This is the previous column for beacon state roots stored by "chunk index".
+    ///
+    /// Can be removed once schema v22 is buried by a hard fork.
+    #[strum(serialize = "bsr")]
+    BeaconStateRootsChunked,
     /// Mapping from slot to beacon block root in the freezer DB.
     ///
     /// This new column was created to replace the previous `bbr` column. The replacement was
@@ -356,6 +370,7 @@ impl DBColumn {
             | Self::BeaconState
             | Self::BeaconBlob
             | Self::BeaconStateSummary
+            | Self::BeaconColdStateSummary
             | Self::BeaconStateTemporary
             | Self::ExecPayload
             | Self::BeaconChain
@@ -369,6 +384,7 @@ impl DBColumn {
             Self::BeaconBlockRoots
             | Self::BeaconBlockRootsChunked
             | Self::BeaconStateRoots
+            | Self::BeaconStateRootsChunked
             | Self::BeaconHistoricalRoots
             | Self::BeaconHistoricalSummaries
             | Self::BeaconRandaoMixes
