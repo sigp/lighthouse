@@ -270,7 +270,8 @@ limit](https://github.com/ethereum/consensus-specs/blob/v1.3.0/specs/phase0/beac
 it will only allow the number of validators to increase (churn) by a certain
 amount. If a new validator isn't within the churn limit from the front of the queue,
 they will need to wait another epoch (6.4 minutes) for their next chance. This
-repeats until the queue is cleared. The churn limit for validators joining the beacon chain is capped at 8 per epoch or 1800 per day. If, for example, there are 9000 validators waiting to be activated, this means that the waiting time can take up to 5 days. 
+repeats until the queue is cleared. The churn limit for validators joining the beacon chain is capped at 8 per epoch or 1800 per day. If, for example, there are 9000 validators waiting to be activated, this means that the waiting time can take up to 5 days.
+
 Once a validator has been activated, congratulations! It's time to
 produce blocks and attestations!
 
