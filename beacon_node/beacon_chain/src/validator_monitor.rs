@@ -1171,7 +1171,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 slot = %block.slot(),
                 src,
                 validator = %id,
-                "Block from API"
+                "Block from monitored validator"
             );
 
             validator.with_epoch_summary(epoch, |summary| summary.register_block(delay));
