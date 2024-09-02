@@ -7,7 +7,7 @@ use ssz::Decode;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_block_processing::process_operations::{
-    process_consolidations, process_deposit_requests, process_execution_layer_withdrawal_requests,
+    process_consolidation_requests, process_deposit_requests, process_withdrawal_requests,
 };
 use state_processing::{
     per_block_processing::{
@@ -25,9 +25,9 @@ use std::fmt::Debug;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
     BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState,
-    BlindedPayload, Deposit, DepositRequest, ExecutionLayerWithdrawalRequest, ExecutionPayload,
-    FullPayload, ProposerSlashing, SignedBlsToExecutionChange, SignedConsolidation,
-    SignedVoluntaryExit, SyncAggregate,
+    BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload, FullPayload,
+    ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit, SyncAggregate,
+    WithdrawalRequest,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -445,9 +445,9 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
     }
 }
 
-impl<E: EthSpec> Operation<E> for ExecutionLayerWithdrawalRequest {
+impl<E: EthSpec> Operation<E> for WithdrawalRequest {
     fn handler_name() -> String {
-        "execution_layer_withdrawal_request".into()
+        "withdrawal_request".into()
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
@@ -464,7 +464,8 @@ impl<E: EthSpec> Operation<E> for ExecutionLayerWithdrawalRequest {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_execution_layer_withdrawal_requests(state, &[self.clone()], spec)
+        state.update_pubkey_cache()?;
+        process_withdrawal_requests(state, &[self.clone()], spec)
     }
 }
 
@@ -491,9 +492,9 @@ impl<E: EthSpec> Operation<E> for DepositRequest {
     }
 }
 
-impl<E: EthSpec> Operation<E> for SignedConsolidation {
+impl<E: EthSpec> Operation<E> for ConsolidationRequest {
     fn handler_name() -> String {
-        "consolidation".into()
+        "consolidation_request".into()
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
@@ -510,7 +511,8 @@ impl<E: EthSpec> Operation<E> for SignedConsolidation {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_consolidations(state, &[self.clone()], VerifySignatures::True, spec)
+        state.update_pubkey_cache()?;
+        process_consolidation_requests(state, &[self.clone()], spec)
     }
 }
 

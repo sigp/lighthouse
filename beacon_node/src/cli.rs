@@ -67,6 +67,25 @@ pub fn cli_app() -> Command {
                 .hide(true)
         )
         .arg(
+            // TODO(das): remove this before PeerDAS release
+            Arg::new("malicious-withhold-count")
+                .long("malicious-withhold-count")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .help("TESTING ONLY do not use this")
+                .hide(true)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("enable-sampling")
+                .long("enable-sampling")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .help("Enable peer sampling on data columns. Disabled by default.")
+                .hide(true)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("subscribe-all-subnets")
                 .long("subscribe-all-subnets")
                 .action(ArgAction::SetTrue)
@@ -933,7 +952,15 @@ pub fn cli_app() -> Command {
                 .long("purge-db")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
-                .help("If present, the chain database will be deleted. Use with caution.")
+                .help("If present, the chain database will be deleted. Requires manual confirmation.")
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("purge-db-force")
+                .long("purge-db-force")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .help("If present, the chain database will be deleted without confirmation. Use with caution.")
                 .display_order(0)
         )
         .arg(

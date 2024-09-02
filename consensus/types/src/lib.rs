@@ -27,7 +27,7 @@ pub mod bls_to_execution_change;
 pub mod builder_bid;
 pub mod chain_spec;
 pub mod checkpoint;
-pub mod consolidation;
+pub mod consolidation_request;
 pub mod consts;
 pub mod contribution_and_proof;
 pub mod deposit;
@@ -39,7 +39,6 @@ pub mod enr_fork_id;
 pub mod eth1_data;
 pub mod eth_spec;
 pub mod execution_block_hash;
-pub mod execution_layer_withdrawal_request;
 pub mod execution_payload;
 pub mod execution_payload_header;
 pub mod fork;
@@ -67,7 +66,6 @@ pub mod signed_aggregate_and_proof;
 pub mod signed_beacon_block;
 pub mod signed_beacon_block_header;
 pub mod signed_bls_to_execution_change;
-pub mod signed_consolidation;
 pub mod signed_contribution_and_proof;
 pub mod signed_voluntary_exit;
 pub mod signing_data;
@@ -77,6 +75,7 @@ pub mod validator;
 pub mod validator_subscription;
 pub mod voluntary_exit;
 pub mod withdrawal_credentials;
+pub mod withdrawal_request;
 #[macro_use]
 pub mod slot_epoch_macros;
 pub mod activation_queue;
@@ -139,14 +138,14 @@ pub use crate::beacon_block_body::{
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{Error as BeaconStateError, *};
-pub use crate::blob_sidecar::{BlobSidecar, BlobSidecarList, BlobsList};
+pub use crate::blob_sidecar::{BlobIdentifier, BlobSidecar, BlobSidecarList, BlobsList};
 pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
 pub use crate::config_and_preset::{
     ConfigAndPreset, ConfigAndPresetCapella, ConfigAndPresetDeneb, ConfigAndPresetElectra,
 };
-pub use crate::consolidation::Consolidation;
+pub use crate::consolidation_request::ConsolidationRequest;
 pub use crate::contribution_and_proof::ContributionAndProof;
 pub use crate::data_column_sidecar::{
     ColumnIndex, DataColumnIdentifier, DataColumnSidecar, DataColumnSidecarList,
@@ -163,7 +162,6 @@ pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
 pub use crate::execution_block_header::{EncodableExecutionBlockHeader, ExecutionBlockHeader};
-pub use crate::execution_layer_withdrawal_request::ExecutionLayerWithdrawalRequest;
 pub use crate::execution_payload::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadElectra, ExecutionPayloadRef, Transaction, Transactions, Withdrawals,
@@ -235,7 +233,6 @@ pub use crate::signed_beacon_block::{
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_bls_to_execution_change::SignedBlsToExecutionChange;
-pub use crate::signed_consolidation::SignedConsolidation;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_data::{SignedRoot, SigningData};
@@ -256,6 +253,7 @@ pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;
 pub use crate::withdrawal::Withdrawal;
 pub use crate::withdrawal_credentials::WithdrawalCredentials;
+pub use crate::withdrawal_request::WithdrawalRequest;
 
 pub type CommitteeIndex = u64;
 pub type Hash256 = H256;

@@ -160,8 +160,7 @@ FEATURES=gnosis,slasher-lmdb make
 Commonly used features include:
 
 - `gnosis`: support for the Gnosis Beacon Chain.
-- `portable`: support for legacy hardware.
-- `modern`: support for exclusively modern hardware.
+- `portable`: the default feature as Lighthouse now uses runtime detection of hardware CPU features.
 - `slasher-lmdb`: support for the LMDB slasher backend. Enabled by default.
 - `slasher-mdbx`: support for the MDBX slasher backend.
 - `jemalloc`: use [`jemalloc`][jemalloc] to allocate memory. Enabled by default on Linux and macOS.
