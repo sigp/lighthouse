@@ -38,8 +38,12 @@ pub type ConsolidationRequests<E> =
         ),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec", deny_unknown_fields),
-        arbitrary(bound = "E: EthSpec")
+        arbitrary(bound = "E: EthSpec"),
     ),
+    specific_variant_attributes(Electra(tree_hash(
+        struct_behaviour = "profile",
+        max_fields = "typenum::U64"
+    ))),
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     map_into(FullPayload, BlindedPayload),
@@ -52,7 +56,7 @@ pub type ConsolidationRequests<E> =
 #[serde(bound = "E: EthSpec", untagged)]
 #[arbitrary(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
-#[tree_hash(enum_behaviour = "transparent")]
+#[tree_hash(enum_behaviour = "transparent_stable")]
 pub struct ExecutionPayload<E: EthSpec> {
     #[superstruct(getter(copy))]
     pub parent_hash: ExecutionBlockHash,

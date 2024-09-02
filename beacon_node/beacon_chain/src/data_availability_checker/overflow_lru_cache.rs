@@ -272,7 +272,7 @@ impl<E: EthSpec> PendingComponents<E> {
             BlockImportRequirement::AllBlobs => {
                 let num_blobs_expected = diet_executed_block.num_blobs_expected();
                 let Some(verified_blobs) = verified_blobs
-                    .into_iter()
+                    .iter()
                     .cloned()
                     .map(|b| b.map(|b| b.to_blob()))
                     .take(num_blobs_expected)

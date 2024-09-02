@@ -57,7 +57,10 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
         Bellatrix(metastruct(mappings(beacon_block_body_bellatrix_fields(groups(fields))))),
         Capella(metastruct(mappings(beacon_block_body_capella_fields(groups(fields))))),
         Deneb(metastruct(mappings(beacon_block_body_deneb_fields(groups(fields))))),
-        Electra(metastruct(mappings(beacon_block_body_electra_fields(groups(fields))))),
+        Electra(
+            metastruct(mappings(beacon_block_body_electra_fields(groups(fields)))),
+            tree_hash(struct_behaviour = "profile", max_fields = "typenum::U64"),
+        ),
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")

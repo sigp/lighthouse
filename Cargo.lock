@@ -2762,8 +2762,7 @@ dependencies = [
 [[package]]
 name = "ethereum_ssz"
 version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d3627f83d8b87b432a5fad9934b4565260722a141a2c40f371f8080adec9425"
+source = "git+https://github.com/macladson/ethereum_ssz?branch=stable-container#2c85edeaa76bd78189a5eab1b8fbc50a325fc4aa"
 dependencies = [
  "ethereum-types 0.14.1",
  "itertools 0.10.5",
@@ -2773,12 +2772,12 @@ dependencies = [
 [[package]]
 name = "ethereum_ssz_derive"
 version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8eccd5378ec34a07edd3d9b48088cbc63309d0367d14ba10b0cdb1d1791080ea"
+source = "git+https://github.com/macladson/ethereum_ssz?branch=stable-container#2c85edeaa76bd78189a5eab1b8fbc50a325fc4aa"
 dependencies = [
  "darling 0.13.4",
  "proc-macro2",
  "quote",
+ "ssz_types",
  "syn 1.0.109",
 ]
 
@@ -5392,8 +5391,7 @@ dependencies = [
 [[package]]
 name = "milhouse"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3826d3602a3674b07e080ce1982350e454ec253d73f156bd927ac1b652293f4d"
+source = "git+https://github.com/macladson/milhouse?branch=stable-container#31a44cccd2bddf4a026a715c09b2c12dca279697"
 dependencies = [
  "arbitrary",
  "derivative",
@@ -8030,8 +8028,7 @@ dependencies = [
 [[package]]
 name = "ssz_types"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "625b20de2d4b3891e6972f4ce5061cb11bd52b3479270c4b177c134b571194a9"
+source = "git+https://github.com/macladson/ssz_types?branch=stable-container#0e10833105369f265e1ab6b2b2b5775904592a6d"
 dependencies = [
  "arbitrary",
  "derivative",
@@ -8853,8 +8850,7 @@ dependencies = [
 [[package]]
 name = "tree_hash"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "134d6b24a5b829f30b5ee7de05ba7384557f5f6b00e29409cdf2392f93201bfa"
+source = "git+https://github.com/macladson/tree_hash?branch=stable-container#a7a21200be47993f52479783cb13333e5dd5b0d9"
 dependencies = [
  "ethereum-types 0.14.1",
  "ethereum_hashing",
@@ -8864,11 +8860,12 @@ dependencies = [
 [[package]]
 name = "tree_hash_derive"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ce7bccc538359a213436af7bc95804bdbf1c2a21d80e22953cbe9e096837ff1"
+source = "git+https://github.com/macladson/tree_hash?branch=stable-container#a7a21200be47993f52479783cb13333e5dd5b0d9"
 dependencies = [
  "darling 0.13.4",
+ "proc-macro2",
  "quote",
+ "ssz_types",
  "syn 1.0.109",
 ]
 

@@ -3446,7 +3446,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             let mut slashable_cache = self.observed_slashable.write();
             for header in blobs
-                .into_iter()
+                .iter()
                 .filter_map(|b| b.as_ref().map(|b| b.signed_block_header.clone()))
                 .unique()
             {

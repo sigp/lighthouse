@@ -13,6 +13,10 @@ use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
+use ssz_types::{
+    typenum::{self, Unsigned},
+    BitVector,
+};
 use std::hash::Hash;
 use std::{fmt, mem, sync::Arc};
 use superstruct::superstruct;
@@ -221,6 +225,8 @@ impl From<BeaconStateHash> for Hash256 {
 /// we add internal mutability to `milhouse::{List, Vector}`. See:
 ///
 /// https://github.com/sigp/milhouse/issues/43
+///
+/// This is overwritten with the Stable Container PoC.
 #[superstruct(
     variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
     variant_attributes(
@@ -312,29 +318,39 @@ impl From<BeaconStateHash> for Hash256 {
             )),
             num_fields(all()),
         )),
-        Electra(metastruct(
-            mappings(
-                map_beacon_state_electra_fields(),
-                map_beacon_state_electra_tree_list_fields(mutable, fallible, groups(tree_lists)),
-                map_beacon_state_electra_tree_list_fields_immutable(groups(tree_lists)),
+        Electra(
+            metastruct(
+                mappings(
+                    map_beacon_state_electra_fields(),
+                    map_beacon_state_electra_tree_list_fields(
+                        mutable,
+                        fallible,
+                        groups(tree_lists)
+                    ),
+                    map_beacon_state_electra_tree_list_fields_immutable(groups(tree_lists)),
+                ),
+                bimappings(bimap_beacon_state_electra_tree_list_fields(
+                    other_type = "BeaconStateElectra",
+                    self_mutable,
+                    fallible,
+                    groups(tree_lists)
+                )),
+                num_fields(all()),
             ),
-            bimappings(bimap_beacon_state_electra_tree_list_fields(
-                other_type = "BeaconStateElectra",
-                self_mutable,
-                fallible,
-                groups(tree_lists)
-            )),
-            num_fields(all()),
-        ))
+            tree_hash(struct_behaviour = "profile", max_fields = "typenum::U128")
+        ),
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     map_ref_mut_into(BeaconStateRef)
 )]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, arbitrary::Arbitrary)]
+#[derive(
+    Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash, arbitrary::Arbitrary,
+)]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[arbitrary(bound = "E: EthSpec")]
+#[tree_hash(enum_behaviour = "transparent_stable")]
 #[ssz(enum_behaviour = "transparent")]
 pub struct BeaconState<E>
 where
@@ -663,7 +679,8 @@ impl<E: EthSpec> BeaconState<E> {
 
     /// Returns the `tree_hash_root` of the state.
     pub fn canonical_root(&mut self) -> Result<Hash256, Error> {
-        self.update_tree_hash_cache()
+        Ok(Hash256::from_slice(&self.tree_hash_root()[..]))
+        //self.update_tree_hash_cache()
     }
 
     pub fn historical_batch(&mut self) -> Result<HistoricalBatch<E>, Error> {

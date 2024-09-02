@@ -6,6 +6,10 @@ use derivative::Derivative;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_types::{
+    typenum::{self, Unsigned},
+    BitVector,
+};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -29,6 +33,10 @@ use tree_hash_derive::TreeHash;
         serde(bound = "E: EthSpec"),
         arbitrary(bound = "E: EthSpec")
     ),
+    specific_variant_attributes(Electra(tree_hash(
+        struct_behaviour = "profile",
+        max_fields = "typenum::U8"
+    ))),
     ref_attributes(derive(Debug))
 )]
 #[derive(

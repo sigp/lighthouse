@@ -5,7 +5,10 @@ use derivative::Derivative;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use ssz_types::BitVector;
+use ssz_types::{
+    typenum::{self, Unsigned},
+    BitVector,
+};
 use std::hash::{Hash, Hasher};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
@@ -51,6 +54,10 @@ impl From<ssz_types::Error> for Error {
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec"),
     ),
+    specific_variant_attributes(Electra(tree_hash(
+        struct_behaviour = "profile",
+        max_fields = "typenum::U8"
+    ))),
     ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent")),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
