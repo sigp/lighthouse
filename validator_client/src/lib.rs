@@ -47,7 +47,7 @@ use notifier::spawn_notifier;
 use parking_lot::RwLock;
 use preparation_service::{PreparationService, PreparationServiceBuilder};
 use reqwest::Certificate;
-use slog::{debug, error, info, warn, Logger};
+use slog::Logger;
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
 use std::fs::File;
@@ -62,6 +62,7 @@ use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
 };
+use tracing::{debug, error, info, warn};
 use types::{EthSpec, Hash256, PublicKeyBytes};
 use validator_store::ValidatorStore;
 
@@ -129,25 +130,20 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         match fdlimit::raise_fd_limit().map_err(|e| format!("Unable to raise fd limit: {}", e))? {
             fdlimit::Outcome::LimitRaised { from, to } => {
                 debug!(
-                    log,
-                    "Raised soft open file descriptor resource limit";
-                    "old_limit" => from,
-                    "new_limit" => to
+                    old_limit = from,
+                    new_limit = to,
+                    "Raised soft open file descriptor resource limit"
                 );
             }
             fdlimit::Outcome::Unsupported => {
-                debug!(
-                    log,
-                    "Raising soft open file descriptor resource limit is not supported"
-                );
+                debug!("Raising soft open file descriptor resource limit is not supported");
             }
         };
 
         info!(
-            log,
-            "Starting validator client";
-            "beacon_nodes" => format!("{:?}", &config.beacon_nodes),
-            "validator_dir" => format!("{:?}", config.validator_dir),
+            beacon_nodes = format!("{:?}", &config.beacon_nodes),
+            validator_dir = format!("{:?}", config.validator_dir),
+            "Starting validator client"
         );
 
         // Optionally start the metrics server.
@@ -176,7 +172,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
             Some(ctx)
         } else {
-            info!(log, "HTTP metrics server is disabled");
+            info!("HTTP metrics server is disabled");
             None
         };
 
@@ -204,11 +200,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                     e
                 )
             })?;
-            info!(
-                log,
-                "Completed validator discovery";
-                "new_validators" => new_validators,
-            );
+            info!(new_validators, "Completed validator discovery");
         }
 
         let validators = InitializedValidators::from_definitions(
@@ -232,17 +224,17 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let voting_pubkeys: Vec<_> = validators.iter_voting_pubkeys().collect();
 
         info!(
-            log,
-            "Initialized validators";
-            "disabled" => validators.num_total().saturating_sub(validators.num_enabled()),
-            "enabled" => validators.num_enabled(),
+            disabled = validators
+                .num_total()
+                .saturating_sub(validators.num_enabled()),
+            enabled = validators.num_enabled(),
+            "Initialized validators"
         );
 
         if voting_pubkeys.is_empty() {
             warn!(
-                log,
-                "No enabled validators";
-                "hint" => "create validators via the API, or the `lighthouse account` CLI command"
+                hint = "create validators via the API, or the `lighthouse account` CLI command",
+                "No enabled validators"
             );
         }
 
@@ -317,10 +309,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
             // Use quicker timeouts if a fallback beacon node exists.
             let timeouts = if i < last_beacon_node_index && !config.use_long_timeouts {
-                info!(
-                    log,
-                    "Fallback endpoints are available, using optimized timeouts.";
-                );
+                info!("Fallback endpoints are available, using optimized timeouts.");
                 Timeouts {
                     attestation: slot_duration / HTTP_ATTESTATION_TIMEOUT_QUOTIENT,
                     attester_duties: slot_duration / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
@@ -459,9 +448,8 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         validator_store.register_all_in_doppelganger_protection_if_enabled()?;
 
         info!(
-            log,
-            "Loaded validator keypair store";
-            "voting_validators" => validator_store.num_voting_validators()
+            voting_validators = validator_store.num_voting_validators(),
+            "Loaded validator keypair store"
         );
 
         // Perform pruning of the slashing protection database on start-up. In case the database is
@@ -588,7 +576,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
             Some(listen_addr)
         } else {
-            info!(log, "HTTP API server is disabled");
+            info!("HTTP API server is disabled");
             None
         };
 
@@ -628,7 +616,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             )
             .map_err(|e| format!("Unable to start doppelganger service: {}", e))?
         } else {
-            info!(log, "Doppelganger protection disabled.")
+            info!("Doppelganger protection disabled.")
         }
 
         spawn_notifier(self).map_err(|e| format!("Failed to start notifier: {}", e))?;
@@ -662,41 +650,37 @@ async fn init_from_beacon_node<E: EthSpec>(
 
         if proposer_total > 0 && proposer_available == 0 {
             warn!(
-                context.log(),
-                "Unable to connect to a proposer node";
-                "retry in" => format!("{} seconds", RETRY_DELAY.as_secs()),
-                "total_proposers" => proposer_total,
-                "available_proposers" => proposer_available,
-                "total_beacon_nodes" => num_total,
-                "available_beacon_nodes" => num_available,
+                retry_in = format!("{} seconds", RETRY_DELAY.as_secs()),
+                total_proposers = proposer_total,
+                available_proposers = proposer_available,
+                total_beacon_nodes = num_total,
+                available_beacon_nodes = num_available,
+                "Unable to connect to a proposer node"
             );
         }
 
         if num_available > 0 && proposer_available == 0 {
             info!(
-                context.log(),
-                "Initialized beacon node connections";
-                "total" => num_total,
-                "available" => num_available,
+                total = num_total,
+                available = num_available,
+                "Initialized beacon node connections"
             );
             break;
         } else if num_available > 0 {
             info!(
-                context.log(),
-                "Initialized beacon node connections";
-                "total" => num_total,
-                "available" => num_available,
-                "proposers_available" => proposer_available,
-                "proposers_total" => proposer_total,
+                total = num_total,
+                available = num_available,
+                proposer_available,
+                proposer_total,
+                "Initialized beacon node connections"
             );
             break;
         } else {
             warn!(
-                context.log(),
-                "Unable to connect to a beacon node";
-                "retry in" => format!("{} seconds", RETRY_DELAY.as_secs()),
-                "total" => num_total,
-                "available" => num_available,
+                retry_in = format!("{} seconds", RETRY_DELAY.as_secs()),
+                total = num_total,
+                available = num_available,
+                "Unable to connect to a beacon node"
             );
             sleep(RETRY_DELAY).await;
         }
@@ -721,15 +705,11 @@ async fn init_from_beacon_node<E: EthSpec>(
                     .filter_map(|(_, e)| e.request_failure())
                     .any(|e| e.status() == Some(StatusCode::NOT_FOUND))
                 {
-                    info!(
-                        context.log(),
-                        "Waiting for genesis";
-                    );
+                    info!("Waiting for genesis");
                 } else {
                     error!(
-                        context.log(),
-                        "Errors polling beacon node";
-                        "error" => %errors
+                        %errors,
+                        "Errors polling beacon node"
                     );
                 }
             }
@@ -758,9 +738,8 @@ async fn wait_for_genesis<E: EthSpec>(
     // the slot clock.
     if now < genesis_time {
         info!(
-            context.log(),
-            "Starting node prior to genesis";
-            "seconds_to_wait" => (genesis_time - now).as_secs()
+            seconds_to_wait = (genesis_time - now).as_secs(),
+            "Starting node prior to genesis"
         );
 
         // Start polling the node for pre-genesis information, cancelling the polling as soon as the
@@ -771,15 +750,13 @@ async fn wait_for_genesis<E: EthSpec>(
         };
 
         info!(
-            context.log(),
-            "Genesis has occurred";
-            "ms_since_genesis" => (genesis_time - now).as_millis()
+            ms_since_genesis = (genesis_time - now).as_millis(),
+            "Genesis has occurred"
         );
     } else {
         info!(
-            context.log(),
-            "Genesis has already occurred";
-            "seconds_ago" => (now - genesis_time).as_secs()
+            seconds_ago = (now - genesis_time).as_secs(),
+            "Genesis has already occurred"
         );
     }
 
@@ -809,19 +786,17 @@ async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
 
                 if !is_staking {
                     error!(
-                        log,
-                        "Staking is disabled for beacon node";
-                        "msg" => "this will caused missed duties",
-                        "info" => "see the --staking CLI flag on the beacon node"
+                        msg = "this will caused missed duties",
+                        info = "see the --staking CLI flag on the beacon node",
+                        "Staking is disabled for beacon node"
                     );
                 }
 
                 if now < genesis_time {
                     info!(
-                        log,
-                        "Waiting for genesis";
-                        "bn_staking_enabled" => is_staking,
-                        "seconds_to_wait" => (genesis_time - now).as_secs()
+                        bn_staking_enabled = is_staking,
+                        seconds_to_wait = (genesis_time - now).as_secs(),
+                        "Waiting for genesis"
                     );
                 } else {
                     break Ok(());
@@ -829,9 +804,8 @@ async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
             }
             Err(e) => {
                 error!(
-                    log,
-                    "Error polling beacon node";
-                    "error" => %e
+                    error = %e,
+                    "Error polling beacon node"
                 );
             }
         }
@@ -862,7 +836,7 @@ pub fn determine_graffiti(
         .and_then(|mut g| match g.load_graffiti(validator_pubkey) {
             Ok(g) => g,
             Err(e) => {
-                warn!(log, "Failed to read graffiti file"; "error" => ?e);
+                warn!(error = ?e,"Failed to read graffiti file");
                 None
             }
         })

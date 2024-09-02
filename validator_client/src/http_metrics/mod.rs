@@ -5,13 +5,15 @@ pub mod metrics;
 
 use crate::{DutiesService, ValidatorStore};
 use lighthouse_version::version_with_platform;
+use logging::crit;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use slog::{crit, info, Logger};
+use slog::Logger;
 use slot_clock::SystemTimeSlotClock;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use tracing::info;
 use types::EthSpec;
 use warp::{http::Response, Filter};
 
@@ -108,7 +110,7 @@ pub fn serve<E: EthSpec>(
 
     // Sanity check.
     if !config.enabled {
-        crit!(log, "Cannot start disabled metrics HTTP server");
+        crit!("Cannot start disabled metrics HTTP server");
         return Err(Error::Other(
             "A disabled metrics server should not be started".to_string(),
         ));
@@ -149,9 +151,8 @@ pub fn serve<E: EthSpec>(
     )?;
 
     info!(
-        log,
-        "Metrics HTTP server started";
-        "listen_address" => listening_socket.to_string(),
+        listen_address = listening_socket.to_string(),
+        "Metrics HTTP server started"
     );
 
     Ok((listening_socket, server))

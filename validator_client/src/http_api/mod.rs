@@ -28,10 +28,11 @@ use eth2::lighthouse_vc::{
     },
 };
 use lighthouse_version::version_with_platform;
+use logging::crit;
 use logging::SSELoggingComponents;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use slog::{crit, info, warn, Logger};
+use slog::Logger;
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::future::Future;
@@ -43,6 +44,7 @@ use sysinfo::{System, SystemExt};
 use system_health::observe_system_health_vc;
 use task_executor::TaskExecutor;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use tracing::{info, warn};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::{sse::Event, Filter};
@@ -148,7 +150,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     // Sanity check.
     if !config.enabled {
-        crit!(log, "Cannot start disabled metrics HTTP server");
+        crit!("Cannot start disabled metrics HTTP server");
         return Err(Error::Other(
             "A disabled metrics server should not be started".to_string(),
         ));
@@ -162,9 +164,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         Ok(abs_path) => api_token_path = abs_path,
         Err(e) => {
             warn!(
-                log,
-                "Error canonicalizing token path";
-                "error" => ?e,
+                error = ?e,
+                "Error canonicalizing token path"
             );
         }
     };
@@ -1301,10 +1302,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     )?;
 
     info!(
-        log,
-        "HTTP API started";
-        "listen_address" => listening_socket.to_string(),
-        "api_token_file" => ?api_token_path,
+        listen_address = listening_socket.to_string(),
+        ?api_token_path,
+        "HTTP API started"
     );
 
     Ok((listening_socket, server))

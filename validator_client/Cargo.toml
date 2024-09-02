@@ -25,6 +25,7 @@ serde_json = { workspace = true }
 slog = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
+tracing = {workspace = true}
 futures = { workspace = true }
 dirs = { workspace = true }
 directory = { workspace = true }

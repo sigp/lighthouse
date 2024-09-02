@@ -1,9 +1,10 @@
 use crate::validator_store::ValidatorStore;
 use bls::{PublicKey, PublicKeyBytes};
 use eth2::types::GenericResponse;
-use slog::{info, Logger};
+use slog::Logger;
 use slot_clock::SlotClock;
 use std::sync::Arc;
+use tracing::info;
 use types::{Epoch, EthSpec, SignedVoluntaryExit, VoluntaryExit};
 
 pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone, E: EthSpec>(
@@ -45,10 +46,9 @@ pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone, E: Eth
     };
 
     info!(
-        log,
-        "Signing voluntary exit";
-        "validator" => pubkey_bytes.as_hex_string(),
-        "epoch" => epoch
+        validator = pubkey_bytes.as_hex_string(),
+        ?epoch,
+        "Signing voluntary exit"
     );
 
     let signed_voluntary_exit = validator_store

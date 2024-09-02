@@ -1,9 +1,10 @@
 use crate::http_metrics;
 use crate::{DutiesService, ProductionValidatorClient};
 use lighthouse_metrics::set_gauge;
-use slog::{error, info, Logger};
+use slog::Logger;
 use slot_clock::SlotClock;
 use tokio::time::{sleep, Duration};
+use tracing::{error, info};
 use types::EthSpec;
 
 /// Spawns a notifier service which periodically logs information about the node.
@@ -22,7 +23,7 @@ pub fn spawn_notifier<E: EthSpec>(client: &ProductionValidatorClient<E>) -> Resu
                 sleep(duration_to_next_slot + slot_duration / 2).await;
                 notify(&duties_service, log).await;
             } else {
-                error!(log, "Failed to read slot clock");
+                error!("Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
                 sleep(slot_duration).await;
                 continue;
@@ -56,19 +57,17 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
     );
     if num_synced > 0 {
         info!(
-            log,
-            "Connected to beacon node(s)";
-            "total" => num_total,
-            "available" => num_available,
-            "synced" => num_synced,
+            total = num_total,
+            available = num_available,
+            synced = num_synced,
+            "Connected to beacon node(s)"
         )
     } else {
         error!(
-            log,
-            "No synced beacon nodes";
-            "total" => num_total,
-            "available" => num_available,
-            "synced" => num_synced,
+            total = num_total,
+            available = num_available,
+            synced = num_synced,
+            "No synced beacon nodes"
         )
     }
     let num_synced_fallback = duties_service.beacon_nodes.num_synced_fallback().await;
@@ -87,45 +86,44 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
         let doppelganger_detecting_validators = duties_service.doppelganger_detecting_count();
 
         if doppelganger_detecting_validators > 0 {
-            info!(log, "Listening for doppelgangers"; "doppelganger_detecting_validators" => doppelganger_detecting_validators)
+            info!(
+                doppelganger_detecting_validators,
+                "Listening for doppelgangers"
+            )
         }
 
         if total_validators == 0 {
             info!(
-                log,
-                "No validators present";
-                "msg" => "see `lighthouse vm create --help` or the HTTP API documentation"
+                msg = "see `lighthouse vm create --help` or the HTTP API documentation",
+                "No validators present"
             )
         } else if total_validators == attesting_validators {
             info!(
-                log,
-                "All validators active";
-                "current_epoch_proposers" => proposing_validators,
-                "active_validators" => attesting_validators,
-                "total_validators" => total_validators,
-                "epoch" => format!("{}", epoch),
-                "slot" => format!("{}", slot),
+                current_epoch_proposers = proposing_validators,
+                active_validators = attesting_validators,
+                total_validators = total_validators,
+                epoch = format!("{}", epoch),
+                slot = format!("{}", slot),
+                "All validators active"
             );
         } else if attesting_validators > 0 {
             info!(
-                log,
-                "Some validators active";
-                "current_epoch_proposers" => proposing_validators,
-                "active_validators" => attesting_validators,
-                "total_validators" => total_validators,
-                "epoch" => format!("{}", epoch),
-                "slot" => format!("{}", slot),
+                current_epoch_proposers = proposing_validators,
+                active_validators = attesting_validators,
+                total_validators = total_validators,
+                epoch = format!("{}", epoch),
+                slot = format!("{}", slot),
+                "Some validators active"
             );
         } else {
             info!(
-                log,
-                "Awaiting activation";
-                "validators" => total_validators,
-                "epoch" => format!("{}", epoch),
-                "slot" => format!("{}", slot),
+                validators = total_validators,
+                epoch = format!("{}", epoch),
+                slot = format!("{}", slot),
+                "Awaiting activation"
             );
         }
     } else {
-        error!(log, "Unable to read slot clock");
+        error!("Unable to read slot clock");
     }
 }

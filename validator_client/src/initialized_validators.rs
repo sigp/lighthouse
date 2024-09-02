@@ -20,13 +20,14 @@ use lighthouse_metrics::set_gauge;
 use lockfile::{Lockfile, LockfileError};
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 use reqwest::{Certificate, Client, Error as ReqwestError, Identity};
-use slog::{debug, error, info, warn, Logger};
+use slog::Logger;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::{debug, error, info, warn};
 use types::graffiti::GraffitiString;
 use types::{Address, Graffiti, Keypair, PublicKey, PublicKeyBytes};
 use url::{ParseError, Url};
@@ -1132,10 +1133,9 @@ impl InitializedValidators {
         for uuid in cache.uuids() {
             if !definitions_map.contains_key(uuid) {
                 debug!(
-                    self.log,
-                    "Resetting the key cache";
-                    "keystore_uuid" => %uuid,
-                    "reason" => "impossible to decrypt due to missing keystore",
+                    keystore_uuid = %uuid,
+                    reason = "impossible to decrypt due to missing keystore",
+                    "Resetting the key cache"
                 );
                 return Ok(KeyCache::new());
             }
@@ -1262,30 +1262,27 @@ impl InitializedValidators {
                                 self.validators
                                     .insert(init.voting_public_key().compress(), init);
                                 info!(
-                                    self.log,
-                                    "Enabled validator";
-                                    "signing_method" => "local_keystore",
-                                    "voting_pubkey" => format!("{:?}", def.voting_public_key),
+                                    signing_method = "local_keystore",
+                                    voting_pubkey = format!("{:?}", def.voting_public_key),
+                                    "Enabled validator"
                                 );
 
                                 if let Some(lockfile_path) = existing_lockfile_path {
                                     warn!(
-                                        self.log,
-                                        "Ignored stale lockfile";
-                                        "path" => lockfile_path.display(),
-                                        "cause" => "Ungraceful shutdown (harmless) OR \
+                                        path = ?lockfile_path.display(),
+                                        cause = "Ungraceful shutdown (harmless) OR \
                                                     non-Lighthouse client using this keystore \
-                                                    (risky)"
+                                                    (risky)",
+                                        "Ignored stale lockfile"
                                     );
                                 }
                             }
                             Err(e) => {
                                 error!(
-                                    self.log,
-                                    "Failed to initialize validator";
-                                    "error" => format!("{:?}", e),
-                                    "signing_method" => "local_keystore",
-                                    "validator" => format!("{:?}", def.voting_public_key)
+                                    error = format!("{:?}", e),
+                                    signing_method = "local_keystore",
+                                    validator = format!("{:?}", def.voting_public_key),
+                                    "Failed to initialize validator"
                                 );
 
                                 // Exit on an invalid validator.
@@ -1308,19 +1305,17 @@ impl InitializedValidators {
                                     .insert(init.voting_public_key().compress(), init);
 
                                 info!(
-                                    self.log,
-                                    "Enabled validator";
-                                    "signing_method" => "remote_signer",
-                                    "voting_pubkey" => format!("{:?}", def.voting_public_key),
+                                    signing_method = "remote_signer",
+                                    voting_pubkey = format!("{:?}", def.voting_public_key),
+                                    "Enabled validator"
                                 );
                             }
                             Err(e) => {
                                 error!(
-                                    self.log,
-                                    "Failed to initialize validator";
-                                    "error" => format!("{:?}", e),
-                                    "signing_method" => "remote_signer",
-                                    "validator" => format!("{:?}", def.voting_public_key)
+                                    error = format!("{:?}", e),
+                                    signing_method = "remote_signer",
+                                    validator = format!("{:?}", def.voting_public_key),
+                                    "Failed to initialize validator"
                                 );
 
                                 // Exit on an invalid validator.
@@ -1345,9 +1340,8 @@ impl InitializedValidators {
                 }
 
                 info!(
-                    self.log,
-                    "Disabled validator";
-                    "voting_pubkey" => format!("{:?}", def.voting_public_key)
+                    voting_pubkey = format!("{:?}", def.voting_public_key),
+                    "Disabled validator"
                 );
             }
         }
@@ -1363,19 +1357,15 @@ impl InitializedValidators {
         if has_local_definitions && key_cache.is_modified() {
             tokio::task::spawn_blocking(move || {
                 match key_cache.save(validators_dir) {
-                    Err(e) => warn!(
-                        log,
-                        "Error during saving of key_cache";
-                        "err" => format!("{:?}", e)
-                    ),
-                    Ok(true) => info!(log, "Modified key_cache saved successfully"),
+                    Err(e) => warn!(err = format!("{:?}", e), "Error during saving of key_cache"),
+                    Ok(true) => info!("Modified key_cache saved successfully"),
                     _ => {}
                 };
             })
             .await
             .map_err(Error::TokioJoin)?;
         } else {
-            debug!(log, "Key cache not modified");
+            debug!("Key cache not modified");
         }
 
         // Update the enabled and total validator counts

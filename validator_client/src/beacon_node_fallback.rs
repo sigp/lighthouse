@@ -8,7 +8,7 @@ use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
 use serde::{Deserialize, Serialize};
-use slog::{debug, error, info, warn, Logger};
+use slog::Logger;
 use slot_clock::SlotClock;
 use std::fmt;
 use std::fmt::Debug;
@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use strum::{EnumString, EnumVariantNames};
 use tokio::{sync::RwLock, time::sleep};
+use tracing::{debug, error, info, warn};
 use types::{ChainSpec, Config, EthSpec};
 
 /// Message emitted when the VC detects the BN is using a different spec.
@@ -224,20 +225,18 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
             Ok(version) => {
                 if was_offline {
                     info!(
-                        log,
-                        "Connected to beacon node";
-                        "version" => version,
-                        "endpoint" => %self.beacon_node,
+                        version,
+                        endpoint = %self.beacon_node,
+                        "Connected to beacon node"
                     );
                 }
                 Ok(())
             }
             Err(e) => {
                 warn!(
-                    log,
-                    "Offline beacon node";
-                    "error" => %e,
-                    "endpoint" => %self.beacon_node,
+                    error = %e,
+                    endpoint = %self.beacon_node,
+                    "Offline beacon node"
                 );
                 Err(CandidateError::Offline)
             }
@@ -252,10 +251,9 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
             .await
             .map_err(|e| {
                 error!(
-                    log,
-                    "Unable to read spec from beacon node";
-                    "error" => %e,
-                    "endpoint" => %self.beacon_node,
+                    error = %e,
+                    endpoint = %self.beacon_node,
+                    "Unable to read spec from beacon node"
                 );
                 CandidateError::Offline
             })?
@@ -263,62 +261,56 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 
         let beacon_node_spec = ChainSpec::from_config::<E>(&config).ok_or_else(|| {
             error!(
-                log,
+                endpoint = %self.beacon_node,
                 "The minimal/mainnet spec type of the beacon node does not match the validator \
-                client. See the --network command.";
-                "endpoint" => %self.beacon_node,
+                client. See the --network command."
+
             );
             CandidateError::Incompatible
         })?;
 
         if beacon_node_spec.genesis_fork_version != spec.genesis_fork_version {
             error!(
-                log,
-                "Beacon node is configured for a different network";
-                "endpoint" => %self.beacon_node,
-                "bn_genesis_fork" => ?beacon_node_spec.genesis_fork_version,
-                "our_genesis_fork" => ?spec.genesis_fork_version,
+                endpoint = %self.beacon_node,
+                bn_genesis_fork = ?beacon_node_spec.genesis_fork_version,
+                our_genesis_fork = ?spec.genesis_fork_version,
+                "Beacon node is configured for a different network"
             );
             return Err(CandidateError::Incompatible);
         } else if beacon_node_spec.altair_fork_epoch != spec.altair_fork_epoch {
             warn!(
-                log,
-                "Beacon node has mismatched Altair fork epoch";
-                "endpoint" => %self.beacon_node,
-                "endpoint_altair_fork_epoch" => ?beacon_node_spec.altair_fork_epoch,
-                "hint" => UPDATE_REQUIRED_LOG_HINT,
+                endpoint = %self.beacon_node,
+                endpoint_altair_fork_epoch = ?beacon_node_spec.altair_fork_epoch,
+                hint = UPDATE_REQUIRED_LOG_HINT,
+                "Beacon node has mismatched Altair fork epoch"
             );
         } else if beacon_node_spec.bellatrix_fork_epoch != spec.bellatrix_fork_epoch {
             warn!(
-                log,
-                "Beacon node has mismatched Bellatrix fork epoch";
-                "endpoint" => %self.beacon_node,
-                "endpoint_bellatrix_fork_epoch" => ?beacon_node_spec.bellatrix_fork_epoch,
-                "hint" => UPDATE_REQUIRED_LOG_HINT,
+                endpoint = %self.beacon_node,
+                endpoint_bellatrix_fork_epoch = ?beacon_node_spec.bellatrix_fork_epoch,
+                hint = UPDATE_REQUIRED_LOG_HINT,
+                "Beacon node has mismatched Bellatrix fork epoch"
             );
         } else if beacon_node_spec.capella_fork_epoch != spec.capella_fork_epoch {
             warn!(
-                log,
-                "Beacon node has mismatched Capella fork epoch";
-                "endpoint" => %self.beacon_node,
-                "endpoint_capella_fork_epoch" => ?beacon_node_spec.capella_fork_epoch,
-                "hint" => UPDATE_REQUIRED_LOG_HINT,
+                endpoint = %self.beacon_node,
+                endpoint_capella_fork_epoch = ?beacon_node_spec.capella_fork_epoch,
+                hint = UPDATE_REQUIRED_LOG_HINT,
+                "Beacon node has mismatched Capella fork epoch"
             );
         } else if beacon_node_spec.deneb_fork_epoch != spec.deneb_fork_epoch {
             warn!(
-                log,
-                "Beacon node has mismatched Deneb fork epoch";
-                "endpoint" => %self.beacon_node,
-                "endpoint_deneb_fork_epoch" => ?beacon_node_spec.deneb_fork_epoch,
-                "hint" => UPDATE_REQUIRED_LOG_HINT,
+                endpoint = %self.beacon_node,
+                endpoint_deneb_fork_epoch = ?beacon_node_spec.deneb_fork_epoch,
+                hint = UPDATE_REQUIRED_LOG_HINT,
+                "Beacon node has mismatched Deneb fork epoch"
             );
         } else if beacon_node_spec.electra_fork_epoch != spec.electra_fork_epoch {
             warn!(
-                log,
-                "Beacon node has mismatched Electra fork epoch";
-                "endpoint" => %self.beacon_node,
-                "endpoint_electra_fork_epoch" => ?beacon_node_spec.electra_fork_epoch,
-                "hint" => UPDATE_REQUIRED_LOG_HINT,
+                endpoint = %self.beacon_node,
+                endpoint_electra_fork_epoch = ?beacon_node_spec.electra_fork_epoch,
+                hint = UPDATE_REQUIRED_LOG_HINT,
+                "Beacon node has mismatched Electra fork epoch"
             );
         }
 
@@ -509,10 +501,9 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                     Ok(val) => return Ok(val),
                     Err(e) => {
                         debug!(
-                            log,
-                            "Request to beacon node failed";
-                            "node" => $candidate.beacon_node.to_string(),
-                            "error" => ?e,
+                            node = $candidate.beacon_node.to_string(),
+                            error = ?e,
+                            "Request to beacon node failed"
                         );
                         // If we have an error on this function, make the client as not-ready.
                         //

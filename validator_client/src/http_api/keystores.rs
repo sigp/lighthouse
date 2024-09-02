@@ -13,12 +13,13 @@ use eth2::lighthouse_vc::{
     types::{ExportKeystoresResponse, SingleExportKeystoresResponse},
 };
 use eth2_keystore::Keystore;
-use slog::{info, warn, Logger};
+use slog::Logger;
 use slot_clock::SlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::runtime::Handle;
+use tracing::{info, warn};
 use types::{EthSpec, PublicKeyBytes};
 use validator_dir::{keystore_password_path, Builder as ValidatorDirBuilder};
 use warp::Rejection;
@@ -76,9 +77,8 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     }
 
     info!(
-        log,
-        "Importing keystores via standard HTTP API";
-        "count" => request.keystores.len(),
+        count = request.keystores.len(),
+        "Importing keystores via standard HTTP API"
     );
 
     // Import slashing protection data before keystores, so that new keystores don't start signing
@@ -94,18 +94,14 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
                         .iter()
                         .any(|data| data.pubkey == pubkey_bytes)
                     {
-                        warn!(
-                            log,
-                            "Slashing protection data not provided";
-                            "public_key" => ?public_key,
-                        );
+                        warn!(?public_key, "Slashing protection data not provided");
                     }
                 }
             }
 
             validator_store.import_slashing_protection(slashing_protection)
         } else {
-            warn!(log, "No slashing protection data provided with keystores");
+            warn!("No slashing protection data provided with keystores");
             Ok(())
         };
 
@@ -139,10 +135,9 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
                 Ok(status) => Status::ok(status),
                 Err(e) => {
                     warn!(
-                        log,
-                        "Error importing keystore, skipped";
-                        "pubkey" => pubkey_str,
-                        "error" => ?e,
+                        pubkey = pubkey_str,
+                        error = ?e,
+                        "Error importing keystore, skipped"
                     );
                     Status::error(ImportKeystoreStatus::Error, e)
                 }
@@ -271,10 +266,9 @@ pub fn export<T: SlotClock + 'static, E: EthSpec>(
                 Ok(status) => status,
                 Err(error) => {
                     warn!(
-                        log,
-                        "Error deleting keystore";
-                        "pubkey" => ?pubkey_bytes,
-                        "error" => ?error,
+                        pubkey = ?pubkey_bytes,
+                        ?error,
+                        "Error deleting keystore"
                     );
                     SingleExportKeystoresResponse {
                         status: Status::error(DeleteKeystoreStatus::Error, error),

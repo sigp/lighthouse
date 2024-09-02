@@ -13,7 +13,8 @@ use bls::SignatureBytes;
 use environment::RuntimeContext;
 use eth2::types::{FullBlockContents, PublishBlockRequest};
 use eth2::{BeaconNodeHttpClient, StatusCode};
-use slog::{crit, debug, error, info, trace, warn, Logger};
+use logging::crit;
+use slog::Logger;
 use slot_clock::SlotClock;
 use std::fmt::Debug;
 use std::future::Future;
@@ -21,6 +22,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tracing::{debug, error, info, trace, warn};
 use types::{
     BlindedBeaconBlock, BlockType, EthSpec, Graffiti, PublicKeyBytes, SignedBlindedBeaconBlock,
     Slot,
@@ -252,7 +254,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     ) -> Result<(), String> {
         let log = self.context.log().clone();
 
-        info!(log, "Block production service started");
+        info!("Block production service started");
 
         let executor = self.inner.context.executor.clone();
 
@@ -261,7 +263,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 while let Some(notif) = notification_rx.recv().await {
                     self.do_update(notif).await.ok();
                 }
-                debug!(log, "Block service shutting down");
+                debug!("Block service shutting down");
             },
             "block_service",
         );
@@ -276,50 +278,42 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             metrics::start_timer_vec(&metrics::BLOCK_SERVICE_TIMES, &[metrics::FULL_UPDATE]);
 
         let slot = self.slot_clock.now().ok_or_else(move || {
-            crit!(log, "Duties manager failed to read slot clock");
+            crit!("Duties manager failed to read slot clock");
         })?;
 
         if notification.slot != slot {
             warn!(
-                log,
-                "Skipping block production for expired slot";
-                "current_slot" => slot.as_u64(),
-                "notification_slot" => notification.slot.as_u64(),
-                "info" => "Your machine could be overloaded"
+                current_slot = slot.as_u64(),
+                notification_slot = notification.slot.as_u64(),
+                info = "Your machine could be overloaded",
+                "Skipping block production for expired slot"
             );
             return Ok(());
         }
 
         if slot == self.context.eth2_config.spec.genesis_slot {
             debug!(
-                log,
-                "Not producing block at genesis slot";
-                "proposers" => format!("{:?}", notification.block_proposers),
+                proposers = format!("{:?}", notification.block_proposers),
+                "Not producing block at genesis slot"
             );
             return Ok(());
         }
 
-        trace!(
-            log,
-            "Block service update started";
-            "slot" => slot.as_u64()
-        );
+        trace!(slot = slot.as_u64(), "Block service update started");
 
         let proposers = notification.block_proposers;
 
         if proposers.is_empty() {
             trace!(
-                log,
-                "No local block proposers for this slot";
-                "slot" => slot.as_u64()
+                slot = slot.as_u64(),
+                "No local block proposers for this slot"
             )
         } else if proposers.len() > 1 {
             error!(
-                log,
-                "Multiple block proposers for this slot";
-                "action" => "producing blocks for all proposers",
-                "num_proposers" => proposers.len(),
-                "slot" => slot.as_u64(),
+                action = "producing blocks for all proposers",
+                num_proposers = proposers.len(),
+                slot = slot.as_u64(),
+                "Multiple block proposers for this slot"
             )
         }
 
@@ -337,11 +331,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         Ok(_) => {}
                         Err(BlockError::Recoverable(e)) | Err(BlockError::Irrecoverable(e)) => {
                             error!(
-                                log,
-                                "Error whilst producing block";
-                                "error" => ?e,
-                                "block_slot" => ?slot,
-                                "info" => "block v3 proposal failed, this error may or may not result in a missed block"
+                                error = ?e,
+                                block_slot = ?slot,
+                                info = "block v3 proposal failed, this error may or may not result in a missed block",
+                                "Error whilst producing block"
                             );
                         }
                     }
@@ -386,11 +379,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 // A pubkey can be missing when a validator was recently removed
                 // via the API.
                 warn!(
-                    log,
-                    "Missing pubkey for block";
-                    "info" => "a validator may have recently been removed from this VC",
-                    "pubkey" => ?pubkey,
-                    "slot" => ?slot
+                    info = "a validator may have recently been removed from this VC",
+                    ?pubkey,
+                    ?slot,
+                    "Missing pubkey for block"
                 );
                 return Ok(());
             }
@@ -406,10 +398,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             Duration::from_secs_f64(signing_timer.map_or(0.0, |t| t.stop_and_record())).as_millis();
 
         info!(
-            log,
-            "Publishing signed block";
-            "slot" => slot.as_u64(),
-            "signing_time_ms" => signing_time_ms,
+            slot = slot.as_u64(),
+            signing_time_ms, "Publishing signed block"
         );
 
         // Publish block with first available beacon node.
@@ -429,13 +419,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .await?;
 
         info!(
-            log,
-            "Successfully published block";
-            "block_type" => ?signed_block.block_type(),
-            "deposits" => signed_block.num_deposits(),
-            "attestations" => signed_block.num_attestations(),
-            "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
-            "slot" => signed_block.slot().as_u64(),
+            block_type = ?signed_block.block_type(),
+            deposits = signed_block.num_deposits(),
+            attestations = signed_block.num_attestations(),
+            graffiti = ?graffiti.map(|g| g.as_utf8_lossy()),
+            slot = signed_block.slot().as_u64(),
+            "Successfully published block"
         );
         Ok(())
     }
@@ -460,11 +449,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 // A pubkey can be missing when a validator was recently removed
                 // via the API.
                 warn!(
-                    log,
-                    "Missing pubkey for block randao";
-                    "info" => "a validator may have recently been removed from this VC",
-                    "pubkey" => ?pubkey,
-                    "slot" => ?slot
+                    info = "a validator may have recently been removed from this VC",
+                    ?pubkey,
+                    ?slot,
+                    "Missing pubkey for block randao"
                 );
                 return Ok(());
             }
@@ -492,11 +480,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             proposer_nodes: self.proposer_nodes.clone(),
         };
 
-        info!(
-            log,
-            "Requesting unsigned block";
-            "slot" => slot.as_u64(),
-        );
+        info!(slot = slot.as_u64(), "Requesting unsigned block");
 
         // Request block from first responsive beacon node.
         //
@@ -605,11 +589,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             eth2::types::ProduceBlockV3Response::Blinded(block) => UnsignedBlock::Blinded(block),
         };
 
-        info!(
-            log,
-            "Received unsigned block";
-            "slot" => slot.as_u64(),
-        );
+        info!(slot = slot.as_u64(), "Received unsigned block");
         if proposer_index != Some(unsigned_block.proposer_index()) {
             return Err(BlockError::Recoverable(
                 "Proposer index does not match block proposer. Beacon chain re-orged".to_string(),
@@ -702,18 +682,16 @@ fn handle_block_post_error(err: eth2::Error, slot: Slot, log: &Logger) -> Result
     if let Some(status) = err.status() {
         if status == StatusCode::ACCEPTED {
             info!(
-                log,
-                "Block is already known to BN or might be invalid";
-                "slot" => slot,
-                "status_code" => status.as_u16(),
+                ?slot,
+                status_code = status.as_u16(),
+                "Block is already known to BN or might be invalid"
             );
             return Ok(());
         } else if status.is_success() {
             debug!(
-                log,
-                "Block published with non-standard success code";
-                "slot" => slot,
-                "status_code" => status.as_u16(),
+                ?slot,
+                status_code = status.as_u16(),
+                "Block published with non-standard success code"
             );
             return Ok(());
         }

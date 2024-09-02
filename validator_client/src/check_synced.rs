@@ -1,7 +1,8 @@
 use crate::beacon_node_fallback::CandidateError;
 use eth2::BeaconNodeHttpClient;
-use slog::{debug, error, warn, Logger};
+use slog::Logger;
 use slot_clock::SlotClock;
+use tracing::{debug, error, warn};
 
 /// A distance in slots.
 const SYNC_TOLERANCE: u64 = 4;
@@ -26,9 +27,8 @@ pub async fn check_synced<T: SlotClock>(
         Err(e) => {
             if let Some(log) = log_opt {
                 warn!(
-                    log,
-                    "Unable connect to beacon node";
-                    "error" => %e
+                    error = %e,
+                    "Unable connect to beacon node"
                 )
             }
 
@@ -41,19 +41,14 @@ pub async fn check_synced<T: SlotClock>(
 
     if let Some(log) = log_opt {
         if !is_synced {
-            debug!(
-                log,
-                "Beacon node sync status";
-                "status" => format!("{:?}", resp),
-            );
+            debug!(status = format!("{:?}", resp), "Beacon node sync status");
 
             warn!(
-                log,
-                "Beacon node is not synced";
-                "sync_distance" => resp.data.sync_distance.as_u64(),
-                "head_slot" => resp.data.head_slot.as_u64(),
-                "endpoint" => %beacon_node,
-                "el_offline" => resp.data.el_offline,
+                sync_distance = resp.data.sync_distance.as_u64(),
+                head_slot = resp.data.head_slot.as_u64(),
+                endpoint = %beacon_node,
+                el_offline = resp.data.el_offline,
+                "Beacon node is not synced"
             );
         }
 
@@ -61,12 +56,11 @@ pub async fn check_synced<T: SlotClock>(
             let remote_slot = resp.data.head_slot + resp.data.sync_distance;
             if remote_slot + 1 < local_slot || local_slot + 1 < remote_slot {
                 error!(
-                    log,
-                    "Time discrepancy with beacon node";
-                    "msg" => "check the system time on this host and the beacon node",
-                    "beacon_node_slot" => remote_slot,
-                    "local_slot" => local_slot,
-                    "endpoint" => %beacon_node,
+                    msg = "check the system time on this host and the beacon node",
+                    beacon_node_slot = ?remote_slot,
+                    local_slot = ?local_slot,
+                    endpoint = %beacon_node,
+                    "Time discrepancy with beacon node"
                 );
             }
         }
