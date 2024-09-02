@@ -143,7 +143,7 @@ const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 ///
 /// - The block is malformed/invalid (indicated by all results other than `BeaconChainError`.
 /// - We encountered an error whilst trying to verify the block (a `BeaconChainError`).
-#[derive(Debug, strum::Display)]
+#[derive(Debug)]
 pub enum BlockError {
     /// The parent block was unknown.
     ///
@@ -445,6 +445,12 @@ impl From<ExecutionPayloadError> for BlockError {
 impl From<InconsistentFork> for BlockError {
     fn from(e: InconsistentFork) -> Self {
         BlockError::InconsistentFork(e)
+    }
+}
+
+impl std::fmt::Display for BlockError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
     }
 }
 

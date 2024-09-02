@@ -21,7 +21,7 @@ use types::{
 };
 
 /// An error occurred while validating a gossip blob.
-#[derive(Debug, strum::Display)]
+#[derive(Debug)]
 pub enum GossipBlobError {
     /// The blob sidecar is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).
@@ -143,6 +143,12 @@ pub enum GossipBlobError {
     /// It's unclear if this block is valid, but it conflicts with finality and shouldn't be
     /// imported.
     NotFinalizedDescendant { block_parent_root: Hash256 },
+}
+
+impl std::fmt::Display for GossipBlobError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 impl From<BeaconChainError> for GossipBlobError {
