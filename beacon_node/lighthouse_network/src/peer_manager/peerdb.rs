@@ -791,10 +791,9 @@ impl<E: EthSpec> PeerDB<E> {
             ) => {
                 // Update the ENR if one exists, and compute the custody subnets
                 if let Some(enr) = enr {
-                    let node_id = enr.node_id().raw().into();
                     let custody_subnet_count = enr.custody_subnet_count::<E>(&self.spec);
                     let custody_subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
-                        node_id,
+                        enr.node_id().raw(),
                         custody_subnet_count,
                         &self.spec,
                     )

@@ -406,7 +406,7 @@ mod tests {
     use std::collections::HashSet;
     use store::MemoryStore;
     use tokio::sync::mpsc;
-    use types::{ForkName, MinimalEthSpec as E};
+    use types::{FixedBytesExtended, ForkName, MinimalEthSpec as E};
 
     #[derive(Debug)]
     struct FakeStorage {

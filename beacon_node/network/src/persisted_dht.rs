@@ -4,7 +4,7 @@ use store::{DBColumn, Error as StoreError, HotColdDB, ItemStore, StoreItem};
 use types::{EthSpec, Hash256};
 
 /// 32-byte key for accessing the `DhtEnrs`. All zero because `DhtEnrs` has its own column.
-pub const DHT_DB_KEY: Hash256 = Hash256::zero();
+pub const DHT_DB_KEY: Hash256 = Hash256::ZERO;
 
 pub fn load_dht<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     store: Arc<HotColdDB<E, Hot, Cold>>,
