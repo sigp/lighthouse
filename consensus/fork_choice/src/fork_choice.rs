@@ -1,10 +1,11 @@
 use crate::metrics::{self, scrape_for_metrics};
 use crate::{ForkChoiceStore, InvalidationOperation};
+use logging::crit;
 use proto_array::{
     Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, ProposerHeadError,
     ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
-use slog::{crit, debug, warn, Logger};
+use slog::Logger;
 use ssz_derive::{Decode, Encode};
 use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
@@ -13,6 +14,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
+use tracing::{debug, warn};
 use types::{
     consts::bellatrix::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
     AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
@@ -1415,10 +1417,8 @@ where
         let contains_invalid_payloads = proto_array.contains_invalid_payloads();
 
         debug!(
-            log,
-            "Restoring fork choice from persisted";
-            "reset_payload_statuses" => ?reset_payload_statuses,
-            "contains_invalid_payloads" => contains_invalid_payloads,
+            ?reset_payload_statuses,
+            contains_invalid_payloads, "Restoring fork choice from persisted"
         );
 
         // Exit early if there are no "invalid" payloads, if requested.
@@ -1437,18 +1437,14 @@ where
             // back to a proto-array which does not have the reset applied. This indicates a
             // significant error in Lighthouse and warrants detailed investigation.
             crit!(
-                log,
-                "Failed to reset payload statuses";
-                "error" => e,
-                "info" => "please report this error",
+                error = ?e,
+                info = "please report this error",
+                "Failed to reset payload statuses"
             );
             ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
                 .map_err(Error::InvalidProtoArrayBytes)
         } else {
-            debug!(
-                log,
-                "Successfully reset all payload statuses";
-            );
+            debug!("Successfully reset all payload statuses");
             Ok(proto_array)
         }
     }
@@ -1487,10 +1483,9 @@ where
         // an optimistic status so that we can have a head to start from.
         if let Err(e) = fork_choice.get_head(current_slot, spec) {
             warn!(
-                log,
-                "Could not find head on persisted FC";
-                "info" => "resetting all payload statuses and retrying",
-                "error" => ?e
+                info = "resetting all payload statuses and retrying",
+                error = ?e,
+                "Could not find head on persisted FC"
             );
             // Although we may have already made this call whilst loading `proto_array`, try it
             // again since we may have mutated the `proto_array` during `get_head` and therefore may

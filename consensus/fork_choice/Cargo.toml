@@ -13,7 +13,9 @@ proto_array = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 lighthouse_metrics = { workspace = true }
+logging = { workspace = true }
 slog = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 beacon_chain = { workspace = true }
