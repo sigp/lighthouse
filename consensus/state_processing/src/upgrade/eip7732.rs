@@ -79,7 +79,7 @@ pub fn upgrade_to_eip7732<E: EthSpec>(
         // EIP-7732
         latest_block_hash: pre.latest_execution_payload_header.block_hash,
         latest_full_slot: pre.slot,
-        latest_withdrawals_root: Hash256::zero(),
+        latest_withdrawals_root: Hash256::default(),
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),

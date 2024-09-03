@@ -26,6 +26,8 @@ pub enum Domain {
     SyncCommittee,
     ContributionAndProof,
     SyncCommitteeSelectionProof,
+    BeaconBuilder,
+    PTCAttester,
     ApplicationMask(ApplicationDomain),
 }
 
@@ -110,6 +112,8 @@ pub struct ChainSpec {
     pub(crate) domain_voluntary_exit: u32,
     pub(crate) domain_selection_proof: u32,
     pub(crate) domain_aggregate_and_proof: u32,
+    pub(crate) domain_beacon_builder: u32,
+    pub(crate) domain_ptc_attester: u32,
 
     /*
      * Fork choice
@@ -488,6 +492,8 @@ impl ChainSpec {
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
             Domain::ApplicationMask(application_domain) => application_domain.get_domain_constant(),
             Domain::BlsToExecutionChange => self.domain_bls_to_execution_change,
+            Domain::BeaconBuilder => self.domain_beacon_builder,
+            Domain::PTCAttester => self.domain_ptc_attester,
         }
     }
 
@@ -712,6 +718,8 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
+            domain_beacon_builder: 0x1B,
+            domain_ptc_attester: 0x0C,
 
             /*
              * Fork choice
@@ -1042,6 +1050,8 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
+            domain_beacon_builder: 0x1B,
+            domain_ptc_attester: 0x0C,
 
             /*
              * Fork choice
@@ -2003,6 +2013,8 @@ mod tests {
             &spec,
         );
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
+        test_domain(Domain::BeaconBuilder, spec.domain_beacon_builder, &spec);
+        test_domain(Domain::PTCAttester, spec.domain_ptc_attester, &spec);
 
         // The builder domain index is zero
         let builder_domain_pre_mask = [0; 4];
