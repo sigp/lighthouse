@@ -509,8 +509,6 @@ impl<E: EthSpec> PeerInfo<E> {
         spec: &ChainSpec,
         log: &Logger,
     ) -> HashSet<DataColumnSubnetId> {
-        let node_id = node_id.raw().into();
-
         // fallback to `custody_requirement` if `csc` is invalid
         let custody_subnet_count = match metadata.custody_subnet_count() {
             Ok(csc) => *csc,
@@ -526,7 +524,7 @@ impl<E: EthSpec> PeerInfo<E> {
             }
         };
 
-        DataColumnSubnetId::compute_custody_subnets::<E>(node_id, custody_subnet_count, spec)
+        DataColumnSubnetId::compute_custody_subnets::<E>(node_id.raw(), custody_subnet_count, spec)
             .map(|subnets| subnets.collect())
             .unwrap_or_else(|e| {
                 // This handles the scenario where a peer supplies an invalid `csc` value,
@@ -540,7 +538,7 @@ impl<E: EthSpec> PeerInfo<E> {
                     "custody_subnet_count" => custody_subnet_count,
                     "error" => ?e
                 );
-                DataColumnSubnetId::compute_custody_requirement_subnets::<E>(node_id, spec, log)
+                DataColumnSubnetId::compute_custody_requirement_subnets::<E>(node_id.raw(), spec)
                     .collect()
             })
     }

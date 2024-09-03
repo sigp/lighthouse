@@ -1,6 +1,7 @@
 use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use bls::FixedBytesExtended;
 pub use lighthouse_metrics::*;
 use slot_clock::SlotClock;
 use std::sync::LazyLock;

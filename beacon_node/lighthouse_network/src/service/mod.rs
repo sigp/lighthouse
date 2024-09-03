@@ -1661,7 +1661,11 @@ impl<E: EthSpec> Network<E> {
     /// Handle an identify event.
     fn inject_identify_event(&mut self, event: identify::Event) -> Option<NetworkEvent<E>> {
         match event {
-            identify::Event::Received { peer_id, mut info } => {
+            identify::Event::Received {
+                peer_id,
+                mut info,
+                connection_id: _,
+            } => {
                 if info.listen_addrs.len() > MAX_IDENTIFY_ADDRESSES {
                     debug!(
                         self.log,

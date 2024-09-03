@@ -6,6 +6,7 @@
 
 use futures::future::FutureExt;
 use handler::RPCHandler;
+use libp2p::core::transport::PortUse;
 use libp2p::swarm::{
     handler::ConnectionHandler, CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler,
     ToSwarm,
@@ -259,6 +260,7 @@ where
         peer_id: PeerId,
         _addr: &libp2p::Multiaddr,
         _role_override: libp2p::core::Endpoint,
+        _port_use: PortUse,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         let protocol = SubstreamProtocol::new(
             RPCProtocol {

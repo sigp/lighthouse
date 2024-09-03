@@ -1,5 +1,5 @@
 use super::*;
-use ethereum_types::U256;
+use alloy_primitives::U256;
 use serde::Deserialize;
 use std::marker::PhantomData;
 use types::DataColumnSubnetId;
@@ -23,10 +23,11 @@ impl<E: EthSpec> LoadCase for GetCustodyColumns<E> {
 impl<E: EthSpec> Case for GetCustodyColumns<E> {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let spec = E::default_spec();
-        let node_id = U256::from_dec_str(&self.node_id)
+        let node_id = U256::from_str_radix(&self.node_id, 10)
             .map_err(|e| Error::FailedToParseTest(format!("{e:?}")))?;
+        let raw_node_id = node_id.to_be_bytes::<32>();
         let computed = DataColumnSubnetId::compute_custody_columns::<E>(
-            node_id,
+            raw_node_id,
             self.custody_subnet_count,
             &spec,
         )

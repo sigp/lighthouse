@@ -174,7 +174,7 @@ impl IndexedAttestationIdKey {
         let mut data = [0; INDEXED_ATTESTATION_ID_KEY_SIZE];
         data[0..8].copy_from_slice(&target_epoch.as_u64().to_be_bytes());
         data[8..INDEXED_ATTESTATION_ID_KEY_SIZE]
-            .copy_from_slice(indexed_attestation_root.as_bytes());
+            .copy_from_slice(indexed_attestation_root.as_slice());
         Self {
             target_and_root: data,
         }

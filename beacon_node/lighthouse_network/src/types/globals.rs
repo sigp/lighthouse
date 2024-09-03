@@ -42,15 +42,13 @@ impl<E: EthSpec> NetworkGlobals<E> {
         log: &slog::Logger,
         spec: ChainSpec,
     ) -> Self {
-        let node_id = enr.node_id().raw().into();
-
         let (custody_subnets, custody_columns) = if spec.is_peer_das_scheduled() {
             let custody_subnet_count = local_metadata
                 .custody_subnet_count()
                 .copied()
                 .expect("custody subnet count must be set if PeerDAS is scheduled");
             let custody_subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
-                node_id,
+                enr.node_id().raw(),
                 custody_subnet_count,
                 &spec,
             )

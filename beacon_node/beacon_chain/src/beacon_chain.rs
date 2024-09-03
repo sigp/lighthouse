@@ -134,10 +134,10 @@ pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 type HashBlockTuple<E> = (Hash256, RpcBlock<E>);
 
 // These keys are all zero because they get stored in different columns, see `DBColumn` type.
-pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::zero();
-pub const OP_POOL_DB_KEY: Hash256 = Hash256::zero();
-pub const ETH1_CACHE_DB_KEY: Hash256 = Hash256::zero();
-pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::zero();
+pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::ZERO;
+pub const OP_POOL_DB_KEY: Hash256 = Hash256::ZERO;
+pub const ETH1_CACHE_DB_KEY: Hash256 = Hash256::ZERO;
+pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::ZERO;
 
 /// Defines how old a block can be before it's no longer a candidate for the early attester cache.
 const EARLY_ATTESTER_CACHE_HISTORIC_SLOTS: u64 = 4;
@@ -528,7 +528,7 @@ impl<E: EthSpec> BeaconBlockResponseWrapper<E> {
     }
 
     pub fn consensus_block_value_wei(&self) -> Uint256 {
-        Uint256::from(self.consensus_block_value_gwei()) * 1_000_000_000
+        Uint256::from(self.consensus_block_value_gwei()) * Uint256::from(1_000_000_000)
     }
 
     pub fn is_blinded(&self) -> bool {
@@ -3446,7 +3446,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             let mut slashable_cache = self.observed_slashable.write();
             for header in blobs
-                .into_iter()
+                .iter()
                 .filter_map(|b| b.as_ref().map(|b| b.signed_block_header.clone()))
                 .unique()
             {
@@ -5425,7 +5425,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     },
                 }),
                 None,
-                Uint256::zero(),
+                Uint256::ZERO,
             ),
             BeaconState::Altair(_) => (
                 BeaconBlock::Altair(BeaconBlockAltair {
@@ -5448,7 +5448,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     },
                 }),
                 None,
-                Uint256::zero(),
+                Uint256::ZERO,
             ),
             BeaconState::Bellatrix(_) => {
                 let block_proposal_contents =

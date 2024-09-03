@@ -20,4 +20,4 @@ mod shuffle_list;
 pub use compute_shuffled_index::compute_shuffled_index;
 pub use shuffle_list::shuffle_list;
 
-type Hash256 = ethereum_types::H256;
+type Hash256 = fixed_bytes::Hash256;

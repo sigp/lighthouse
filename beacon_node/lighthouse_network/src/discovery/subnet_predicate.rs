@@ -45,7 +45,7 @@ where
                     .unwrap_or(spec.custody_requirement);
 
                 DataColumnSubnetId::compute_custody_subnets::<E>(
-                    enr.node_id().raw().into(),
+                    enr.node_id().raw(),
                     custody_subnet_count,
                     &spec,
                 )

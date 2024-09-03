@@ -1166,8 +1166,6 @@ fn compute_custody_subnets_from_enr<E: EthSpec>(
     spec: &ChainSpec,
     log: &Logger,
 ) -> HashSet<DataColumnSubnetId> {
-    let node_id = enr.node_id().raw().into();
-
     // fallback to `custody_requirement` if `csc` is invalid
     let custody_subnet_count = enr.custody_subnet_count::<E>().unwrap_or_else(|e| {
         // This handles the scenario where `csc` is not found or not decodable.
@@ -1183,22 +1181,26 @@ fn compute_custody_subnets_from_enr<E: EthSpec>(
         spec.custody_requirement
     });
 
-    DataColumnSubnetId::compute_custody_subnets::<E>(node_id, custody_subnet_count, spec)
-        .map(|subnets| subnets.collect())
-        .unwrap_or_else(|e| {
-            // This handles the scenario where a peer supplies an invalid `csc` value, > `data_column_sidecar_subnet_count`.
-            // TODO(das): Should we penalise peer?
-            debug!(
-                log,
-                "Unable to compute peer custody subnets from ENR";
-                "info" => "Falling back to default custody requirement subnets",
-                "peer_id" => %peer_id,
-                "custody_subnet_count" => custody_subnet_count,
-                "error" => ?e
-            );
-            DataColumnSubnetId::compute_custody_requirement_subnets::<E>(node_id, spec, log)
-                .collect()
-        })
+    DataColumnSubnetId::compute_custody_subnets::<E>(
+        enr.node_id().raw(),
+        custody_subnet_count,
+        spec,
+    )
+    .map(|subnets| subnets.collect())
+    .unwrap_or_else(|e| {
+        // This handles the scenario where a peer supplies an invalid `csc` value, > `data_column_sidecar_subnet_count`.
+        // TODO(das): Should we penalise peer?
+        debug!(
+            log,
+            "Unable to compute peer custody subnets from ENR";
+            "info" => "Falling back to default custody requirement subnets",
+            "peer_id" => %peer_id,
+            "custody_subnet_count" => custody_subnet_count,
+            "error" => ?e
+        );
+        DataColumnSubnetId::compute_custody_requirement_subnets::<E>(enr.node_id().raw(), spec)
+            .collect()
+    })
 }
 
 /// Internal enum for managing connection state transitions.

@@ -48,7 +48,7 @@ impl TreeHash for AttestationKey {
                 // Combine the hash of the data with the hash of the index
                 let mut hasher = MerkleHasher::with_leaves(2);
                 hasher
-                    .write(self.data_root.as_bytes())
+                    .write(self.data_root.as_slice())
                     .expect("should write data hash");
                 hasher
                     .write(&index.to_le_bytes())
@@ -582,7 +582,8 @@ mod tests {
     use tree_hash::TreeHash;
     use types::{
         test_utils::{generate_deterministic_keypair, test_random_instance},
-        Attestation, AttestationBase, AttestationElectra, Fork, Hash256, SyncCommitteeMessage,
+        Attestation, AttestationBase, AttestationElectra, FixedBytesExtended, Fork, Hash256,
+        SyncCommitteeMessage,
     };
 
     type E = types::MainnetEthSpec;
