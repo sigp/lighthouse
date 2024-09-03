@@ -1,8 +1,6 @@
-use crate::metrics;
 use kzg::{
     Blob as KzgBlob, Bytes48, CellRef as KzgCellRef, CellsAndKzgProofs, Error as KzgError, Kzg,
 };
-use lighthouse_metrics::TryExt;
 use rayon::prelude::*;
 use ssz_types::FixedVector;
 use std::sync::Arc;
@@ -152,22 +150,12 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
     if blobs.is_empty() {
         return Ok(vec![]);
     }
-
-    let mut timer = metrics::start_timer_vec(
-        &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
-        &[&blobs.len().to_string()],
-    );
-
     let kzg_commitments = block
         .message()
         .body()
         .blob_kzg_commitments()
         .map_err(|_err| DataColumnSidecarError::PreDeneb)?;
-    let kzg_commitments_inclusion_proof = block
-        .message()
-        .body()
-        .kzg_commitments_merkle_proof()
-        .discard_timer_on_break(&mut timer)?;
+    let kzg_commitments_inclusion_proof = block.message().body().kzg_commitments_merkle_proof()?;
     let signed_block_header = block.signed_block_header();
 
     // NOTE: assumes blob sidecars are ordered by index
@@ -180,8 +168,7 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
                 .expect("blob should have a guaranteed size due to FixedVector");
             kzg.compute_cells_and_proofs(blob)
         })
-        .collect::<Result<Vec<_>, KzgError>>()
-        .discard_timer_on_break(&mut timer)?;
+        .collect::<Result<Vec<_>, KzgError>>()?;
 
     build_data_column_sidecars(
         kzg_commitments.clone(),
@@ -190,7 +177,6 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
         blob_cells_and_proofs_vec,
         spec,
     )
-    .discard_timer_on_break(&mut timer)
     .map_err(DataColumnSidecarError::BuildSidecarFailed)
 }
 
