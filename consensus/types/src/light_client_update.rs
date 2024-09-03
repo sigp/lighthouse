@@ -31,7 +31,7 @@ pub const NEXT_SYNC_COMMITTEE_INDEX_ELECTRA: usize = 87;
 pub type FinalizedRootProofLen = U6;
 pub type CurrentSyncCommitteeProofLen = U5;
 pub type ExecutionPayloadProofLen = U4;
-pub type ExecutionPayloadProofLenElectra = U4;
+pub type ExecutionPayloadProofLenElectra = U5;
 
 pub type NextSyncCommitteeProofLen = U5;
 pub type NextSyncCommitteeProofLenElectra = U6;
@@ -131,10 +131,10 @@ pub struct LightClientUpdate<E: EthSpec> {
     /// The `SyncCommittee` used in the next period.
     pub next_sync_committee: Arc<SyncCommittee<E>>,
     /// Merkle proof for next sync committee
-    // #[superstruct(only(Altair, Capella, Deneb), partial_getter(rename = "next_sync_committee_branch_altair"))]
+    #[superstruct(only(Altair, Capella, Deneb), partial_getter(rename = "next_sync_committee_branch_altair"))]
     pub next_sync_committee_branch: NextSyncCommitteeBranch,
-    // #[superstruct(only(Electra), partial_getter(rename = "next_sync_committee_branch_electra"))]
-    // pub next_sync_committee_branch: NextSyncCommitteeBranchElectra,
+    #[superstruct(only(Electra), partial_getter(rename = "next_sync_committee_branch_electra"))]
+    pub next_sync_committee_branch: NextSyncCommitteeBranchElectra,
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
     #[superstruct(only(Altair), partial_getter(rename = "finalized_header_altair"))]
     pub finalized_header: LightClientHeaderAltair<E>,
@@ -412,7 +412,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
                 true
             }
             _ => {
-                for index in self.next_sync_committee_branch().iter() {
+                for index in self.next_sync_committee_branch_altair().unwrap().iter() {
                     if *index != Hash256::default() {
                         return false;
                     }
