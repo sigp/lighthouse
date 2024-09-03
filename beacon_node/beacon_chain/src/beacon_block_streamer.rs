@@ -715,7 +715,9 @@ mod tests {
     use std::sync::LazyLock;
     use std::time::Duration;
     use tokio::sync::mpsc;
-    use types::{ChainSpec, Epoch, EthSpec, Hash256, Keypair, MinimalEthSpec, Slot};
+    use types::{
+        ChainSpec, Epoch, EthSpec, FixedBytesExtended, Hash256, Keypair, MinimalEthSpec, Slot,
+    };
 
     const VALIDATOR_COUNT: usize = 48;
 

@@ -471,11 +471,12 @@ fn context_bytes<E: EthSpec>(
                 RPCResponse::BlobsByRange(_) | RPCResponse::BlobsByRoot(_) => {
                     return fork_context.to_context_bytes(ForkName::Deneb);
                 }
-                RPCResponse::DataColumnsByRoot(_) | RPCResponse::DataColumnsByRange(_) => {
+                RPCResponse::DataColumnsByRoot(d) | RPCResponse::DataColumnsByRange(d) => {
                     // TODO(das): Remove deneb fork after `peerdas-devnet-2`.
-                    return if fork_context.spec.eip7594_fork_epoch
-                        == fork_context.spec.deneb_fork_epoch
-                    {
+                    return if matches!(
+                        fork_context.spec.fork_name_at_slot::<E>(d.slot()),
+                        ForkName::Deneb
+                    ) {
                         fork_context.to_context_bytes(ForkName::Deneb)
                     } else {
                         fork_context.to_context_bytes(ForkName::Electra)
@@ -879,8 +880,8 @@ mod tests {
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
     use types::{
         blob_sidecar::BlobIdentifier, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
-        BeaconBlockBellatrix, DataColumnIdentifier, EmptyBlock, Epoch, FullPayload, Signature,
-        Slot,
+        BeaconBlockBellatrix, DataColumnIdentifier, EmptyBlock, Epoch, FixedBytesExtended,
+        FullPayload, Signature, Slot,
     };
 
     type Spec = types::MainnetEthSpec;
@@ -970,9 +971,9 @@ mod tests {
     fn status_message() -> StatusMessage {
         StatusMessage {
             fork_digest: [0; 4],
-            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
-            head_root: Hash256::from_low_u64_be(0),
+            head_root: Hash256::zero(),
             head_slot: Slot::new(1),
         }
     }
@@ -1731,9 +1732,9 @@ mod tests {
         // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
         let status_message_bytes = StatusMessage {
             fork_digest: [0; 4],
-            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
-            head_root: Hash256::from_low_u64_be(0),
+            head_root: Hash256::zero(),
             head_slot: Slot::new(1),
         }
         .as_ssz_bytes();
@@ -1854,9 +1855,9 @@ mod tests {
         // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
         let status_message_bytes = StatusMessage {
             fork_digest: [0; 4],
-            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
-            head_root: Hash256::from_low_u64_be(0),
+            head_root: Hash256::zero(),
             head_slot: Slot::new(1),
         }
         .as_ssz_bytes();
