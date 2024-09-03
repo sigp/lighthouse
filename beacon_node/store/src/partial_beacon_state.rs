@@ -142,6 +142,13 @@ where
         List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
     #[superstruct(only(Electra, EIP7732))]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
+
+    #[superstruct(only(EIP7732))]
+    pub latest_block_hash: ExecutionBlockHash,
+    #[superstruct(only(EIP7732))]
+    pub latest_full_slot: Slot,
+    #[superstruct(only(EIP7732))]
+    pub latest_withdrawals_root: Hash256,
 }
 
 /// Implement the conversion function from BeaconState -> PartialBeaconState.
@@ -320,7 +327,10 @@ impl<E: EthSpec> PartialBeaconState<E> {
                     earliest_consolidation_epoch,
                     pending_balance_deposits,
                     pending_partial_withdrawals,
-                    pending_consolidations
+                    pending_consolidations,
+                    latest_block_hash,
+                    latest_full_slot,
+                    latest_withdrawals_root
                 ],
                 [historical_summaries]
             ),
@@ -618,7 +628,10 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     earliest_consolidation_epoch,
                     pending_balance_deposits,
                     pending_partial_withdrawals,
-                    pending_consolidations
+                    pending_consolidations,
+                    latest_block_hash,
+                    latest_full_slot,
+                    latest_withdrawals_root
                 ],
                 [historical_summaries]
             ),
