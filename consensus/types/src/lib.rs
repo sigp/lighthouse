@@ -109,8 +109,6 @@ pub mod light_client_header;
 pub mod non_zero_usize;
 pub mod runtime_var_list;
 
-use ethereum_types::{H160, H256};
-
 pub use crate::activation_queue::ActivationQueue;
 pub use crate::aggregate_and_proof::{
     AggregateAndProof, AggregateAndProofBase, AggregateAndProofElectra, AggregateAndProofRef,
@@ -254,17 +252,18 @@ pub use crate::voluntary_exit::VoluntaryExit;
 pub use crate::withdrawal::Withdrawal;
 pub use crate::withdrawal_credentials::WithdrawalCredentials;
 pub use crate::withdrawal_request::WithdrawalRequest;
+pub use fixed_bytes::FixedBytesExtended;
 
 pub type CommitteeIndex = u64;
-pub type Hash256 = H256;
-pub type Uint256 = ethereum_types::U256;
-pub type Address = H160;
+pub type Hash256 = fixed_bytes::Hash256;
+pub type Uint256 = fixed_bytes::Uint256;
+pub type Address = fixed_bytes::Address;
 pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
 pub type Blob<E> = FixedVector<u8, <E as EthSpec>::BytesPerBlob>;
 pub type KzgProofs<E> = VariableList<KzgProof, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 pub type VersionedHash = Hash256;
-pub type Hash64 = ethereum_types::H64;
+pub type Hash64 = alloy_primitives::B64;
 
 pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,

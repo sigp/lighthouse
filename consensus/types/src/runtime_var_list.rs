@@ -298,6 +298,15 @@ impl<T> std::ops::DerefMut for RuntimeFixedList<T> {
     }
 }
 
+impl<T> IntoIterator for RuntimeFixedList<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.vec.into_iter()
+    }
+}
+
 impl<'a, T> IntoIterator for &'a RuntimeFixedList<T> {
     type Item = &'a T;
     type IntoIter = std::slice::Iter<'a, T>;

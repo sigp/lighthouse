@@ -13,8 +13,8 @@ use store::{SignedContributionAndProof, SyncCommitteeMessage};
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{
-    AggregateSignature, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, Slot,
-    SyncContributionData, SyncSelectionProof, SyncSubnetId, Unsigned,
+    AggregateSignature, Epoch, EthSpec, FixedBytesExtended, Hash256, Keypair, MainnetEthSpec,
+    SecretKey, Slot, SyncContributionData, SyncSelectionProof, SyncSubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;

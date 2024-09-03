@@ -41,7 +41,7 @@ where
                 .map_or(false, |b| b.get(*s.deref() as usize).unwrap_or(false)),
             Subnet::DataColumn(s) => {
                 let mut subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
-                    enr.node_id().raw().into(),
+                    enr.node_id().raw(),
                     custody_subnet_count,
                     &spec,
                 );

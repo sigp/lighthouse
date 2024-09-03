@@ -121,18 +121,24 @@ impl<E: EthSpec> NetworkGlobals<E> {
     /// Compute custody data columns the node is assigned to custody.
     pub fn custody_columns(&self) -> Vec<ColumnIndex> {
         let enr = self.local_enr();
-        let node_id = enr.node_id().raw().into();
         let custody_subnet_count = enr.custody_subnet_count::<E>(&self.spec);
-        DataColumnSubnetId::compute_custody_columns::<E>(node_id, custody_subnet_count, &self.spec)
-            .collect()
+        DataColumnSubnetId::compute_custody_columns::<E>(
+            enr.node_id().raw(),
+            custody_subnet_count,
+            &self.spec,
+        )
+        .collect()
     }
 
     /// Compute custody data column subnets the node is assigned to custody.
     pub fn custody_subnets(&self) -> impl Iterator<Item = DataColumnSubnetId> {
         let enr = self.local_enr();
-        let node_id = enr.node_id().raw().into();
         let custody_subnet_count = enr.custody_subnet_count::<E>(&self.spec);
-        DataColumnSubnetId::compute_custody_subnets::<E>(node_id, custody_subnet_count, &self.spec)
+        DataColumnSubnetId::compute_custody_subnets::<E>(
+            enr.node_id().raw(),
+            custody_subnet_count,
+            &self.spec,
+        )
     }
 
     /// Returns a connected peer that:

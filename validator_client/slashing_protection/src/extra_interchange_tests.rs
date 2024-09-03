@@ -3,6 +3,7 @@
 use crate::test_utils::pubkey;
 use crate::*;
 use tempfile::tempdir;
+use types::FixedBytesExtended;
 
 #[test]
 fn export_non_existent_key() {

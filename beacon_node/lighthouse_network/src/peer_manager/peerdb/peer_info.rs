@@ -374,7 +374,7 @@ impl<E: EthSpec> PeerInfo<E> {
         if self.custody_subnets.is_empty() {
             if let Ok(custody_subnet_count) = meta_data.custody_subnet_count() {
                 let custody_subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
-                    node_id.raw().into(),
+                    node_id.raw(),
                     std::cmp::min(*custody_subnet_count, spec.data_column_sidecar_subnet_count),
                     spec,
                 )
