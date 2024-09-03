@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::test_utils::*;
-use types::{BeaconBlockHeader, Slot};
+use types::{BeaconBlockHeader, FixedBytesExtended, Slot};
 
 pub fn block(slot: u64) -> BeaconBlockHeader {
     BeaconBlockHeader {

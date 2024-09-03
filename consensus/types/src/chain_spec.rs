@@ -544,7 +544,7 @@ impl ChainSpec {
         let mut result = [0; 4];
         let root = Self::compute_fork_data_root(current_version, genesis_validators_root);
         result.copy_from_slice(
-            root.as_bytes()
+            root.as_slice()
                 .get(0..4)
                 .expect("root hash is at least 4 bytes"),
         );
@@ -564,7 +564,7 @@ impl ChainSpec {
         domain[0..4].copy_from_slice(&int_to_bytes4(domain_constant));
         domain[4..].copy_from_slice(
             Self::compute_fork_data_root(fork_version, genesis_validators_root)
-                .as_bytes()
+                .as_slice()
                 .get(..28)
                 .expect("fork has is 32 bytes so first 28 bytes should exist"),
         );
@@ -754,7 +754,8 @@ impl ChainSpec {
             proportional_slashing_multiplier_bellatrix: 3,
             bellatrix_fork_version: [0x02, 0x00, 0x00, 0x00],
             bellatrix_fork_epoch: Some(Epoch::new(144896)),
-            terminal_total_difficulty: Uint256::from_dec_str("58750000000000000000000")
+            terminal_total_difficulty: "58750000000000000000000"
+                .parse()
                 .expect("terminal_total_difficulty is a valid integer"),
             terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
@@ -900,7 +901,7 @@ impl ChainSpec {
                 .expect("subtraction does not overflow")
                 // Add 1 since the spec declares `2**256 - 2**10` and we use
                 // `Uint256::MAX` which is `2*256- 1`.
-                .checked_add(Uint256::one())
+                .checked_add(Uint256::from(2u64.pow(0)))
                 .expect("addition does not overflow"),
             // Capella
             capella_fork_version: [0x03, 0x00, 0x00, 0x01],
@@ -1074,10 +1075,9 @@ impl ChainSpec {
             proportional_slashing_multiplier_bellatrix: 3,
             bellatrix_fork_version: [0x02, 0x00, 0x00, 0x64],
             bellatrix_fork_epoch: Some(Epoch::new(385536)),
-            terminal_total_difficulty: Uint256::from_dec_str(
-                "8626000000000000000000058750000000000000000000",
-            )
-            .expect("terminal_total_difficulty is a valid integer"),
+            terminal_total_difficulty: "8626000000000000000000058750000000000000000000"
+                .parse()
+                .expect("terminal_total_difficulty is a valid integer"),
             terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
             safe_slots_to_import_optimistically: 128u64,
@@ -1305,6 +1305,7 @@ pub struct Config {
     deposit_chain_id: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     deposit_network_id: u64,
+    #[serde(with = "serde_utils::address_hex")]
     deposit_contract_address: Address,
 
     #[serde(default = "default_gossip_max_size")]
@@ -1407,7 +1408,7 @@ fn default_electra_fork_version() -> [u8; 4] {
 ///
 /// Taken from https://github.com/ethereum/consensus-specs/blob/d5e4828aecafaf1c57ef67a5f23c4ae7b08c5137/configs/mainnet.yaml#L15-L16
 const fn default_terminal_total_difficulty() -> Uint256 {
-    ethereum_types::U256([
+    Uint256::from_limbs([
         18446744073709550592,
         18446744073709551615,
         18446744073709551615,
@@ -1925,7 +1926,7 @@ mod tests {
             let domain2 = spec.compute_domain(domain_type, version, genesis_validators_root);
 
             assert_eq!(domain1, domain2);
-            assert_eq!(&domain1.as_bytes()[0..4], &int_to_bytes4(raw_domain)[..]);
+            assert_eq!(&domain1.as_slice()[0..4], &int_to_bytes4(raw_domain)[..]);
         }
     }
 
@@ -2163,9 +2164,8 @@ mod yaml_tests {
     fn test_total_terminal_difficulty() {
         assert_eq!(
             Ok(default_terminal_total_difficulty()),
-            Uint256::from_dec_str(
-                "115792089237316195423570985008687907853269984665640564039457584007913129638912"
-            )
+            "115792089237316195423570985008687907853269984665640564039457584007913129638912"
+                .parse()
         );
     }
 

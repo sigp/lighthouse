@@ -809,7 +809,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             }
         } else {
             for column_subnet in DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
-                self.network_globals.local_enr().node_id().raw().into(),
+                self.network_globals.local_enr().node_id().raw(),
                 self.network_globals
                     .local_enr()
                     .custody_subnet_count::<<T as BeaconChainTypes>::EthSpec>(
