@@ -473,7 +473,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn on_processing_result(
         &mut self,
         process_type: BlockProcessType,
-        result: BlockProcessingResult<T::EthSpec>,
+        result: BlockProcessingResult,
         cx: &mut SyncNetworkContext<T>,
     ) {
         let lookup_result = match process_type {
@@ -493,7 +493,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn on_processing_result_inner<R: RequestState<T>>(
         &mut self,
         lookup_id: SingleLookupId,
-        result: BlockProcessingResult<T::EthSpec>,
+        result: BlockProcessingResult,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
         let Some(lookup) = self.single_block_lookups.get_mut(&lookup_id) else {
@@ -556,16 +556,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         error!(self.log, "Beacon chain error processing lookup component"; "block_root" => %block_root, "error" => ?e);
                         Action::Drop
                     }
-                    BlockError::ParentUnknown(block) => {
+                    BlockError::ParentUnknown { parent_root, .. } => {
                         // Reverts the status of this request to `AwaitingProcessing` holding the
                         // downloaded data. A future call to `continue_requests` will re-submit it
                         // once there are no pending parent requests.
                         // Note: `BlockError::ParentUnknown` is only returned when processing
                         // blocks, not blobs.
                         request_state.revert_to_awaiting_processing()?;
-                        Action::ParentUnknown {
-                            parent_root: block.parent_root(),
-                        }
+                        Action::ParentUnknown { parent_root }
                     }
                     ref e @ BlockError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
                         // These errors indicate that the execution layer is offline
