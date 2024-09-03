@@ -1,12 +1,10 @@
 use crate::discovery::enr::PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY;
 use crate::discovery::CombinedKey;
-use crate::{
-    metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Eth2Enr, Gossipsub, PeerId,
-};
+use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Gossipsub, PeerId};
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use rand::seq::SliceRandom;
 use score::{PeerAction, ReportSource, Score, ScoreState};
-use slog::{crit, debug, error, trace, warn, Logger};
+use slog::{crit, debug, error, trace, warn};
 use std::net::IpAddr;
 use std::time::Instant;
 use std::{cmp::Ordering, fmt::Display};
@@ -47,16 +45,10 @@ pub struct PeerDB<E: EthSpec> {
     disable_peer_scoring: bool,
     /// PeerDB's logger
     log: slog::Logger,
-    spec: ChainSpec,
 }
 
 impl<E: EthSpec> PeerDB<E> {
-    pub fn new(
-        trusted_peers: Vec<PeerId>,
-        disable_peer_scoring: bool,
-        log: &slog::Logger,
-        spec: ChainSpec,
-    ) -> Self {
+    pub fn new(trusted_peers: Vec<PeerId>, disable_peer_scoring: bool, log: &slog::Logger) -> Self {
         // Initialize the peers hashmap with trusted peers
         let peers = trusted_peers
             .into_iter()
@@ -68,7 +60,6 @@ impl<E: EthSpec> PeerDB<E> {
             banned_peers_count: BannedPeersCount::default(),
             disable_peer_scoring,
             peers,
-            spec,
         }
     }
 
@@ -791,9 +782,6 @@ impl<E: EthSpec> PeerDB<E> {
             ) => {
                 // Update the ENR if one exists, and compute the custody subnets
                 if let Some(enr) = enr {
-                    let custody_subnets =
-                        compute_custody_subnets_from_enr::<E>(&enr, peer_id, &self.spec, &self.log);
-                    info.set_custody_subnets(custody_subnets);
                     info.set_enr(enr);
                 }
 
@@ -1160,49 +1148,6 @@ impl<E: EthSpec> PeerDB<E> {
     }
 }
 
-fn compute_custody_subnets_from_enr<E: EthSpec>(
-    enr: &Enr,
-    peer_id: &PeerId,
-    spec: &ChainSpec,
-    log: &Logger,
-) -> HashSet<DataColumnSubnetId> {
-    // fallback to `custody_requirement` if `csc` is invalid
-    let custody_subnet_count = enr.custody_subnet_count::<E>().unwrap_or_else(|e| {
-        // This handles the scenario where `csc` is not found or not decodable.
-        // TODO(das): Should we penalise peer?
-        debug!(
-            log,
-            "No valid csc found in peer ENR";
-            "info" => "Falling back to default custody requirement",
-            "peer_id" => %peer_id,
-            "enr" => enr.to_base64(),
-            "error" => ?e
-        );
-        spec.custody_requirement
-    });
-
-    DataColumnSubnetId::compute_custody_subnets::<E>(
-        enr.node_id().raw(),
-        custody_subnet_count,
-        spec,
-    )
-    .map(|subnets| subnets.collect())
-    .unwrap_or_else(|e| {
-        // This handles the scenario where a peer supplies an invalid `csc` value, > `data_column_sidecar_subnet_count`.
-        // TODO(das): Should we penalise peer?
-        debug!(
-            log,
-            "Unable to compute peer custody subnets from ENR";
-            "info" => "Falling back to default custody requirement subnets",
-            "peer_id" => %peer_id,
-            "custody_subnet_count" => custody_subnet_count,
-            "error" => ?e
-        );
-        DataColumnSubnetId::compute_custody_requirement_subnets::<E>(enr.node_id().raw(), spec)
-            .collect()
-    })
-}
-
 /// Internal enum for managing connection state transitions.
 #[derive(Debug)]
 enum NewConnectionState {
@@ -1387,8 +1332,7 @@ mod tests {
 
     fn get_db() -> PeerDB<M> {
         let log = build_log(slog::Level::Debug, false);
-        let spec = M::default_spec();
-        PeerDB::new(vec![], false, &log, spec)
+        PeerDB::new(vec![], false, &log)
     }
 
     #[test]
@@ -2087,8 +2031,7 @@ mod tests {
     fn test_trusted_peers_score() {
         let trusted_peer = PeerId::random();
         let log = build_log(slog::Level::Debug, false);
-        let spec = M::default_spec();
-        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer], false, &log, spec);
+        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer], false, &log);
 
         pdb.connect_ingoing(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
@@ -2112,8 +2055,7 @@ mod tests {
     fn test_disable_peer_scoring() {
         let peer = PeerId::random();
         let log = build_log(slog::Level::Debug, false);
-        let spec = M::default_spec();
-        let mut pdb: PeerDB<M> = PeerDB::new(vec![], true, &log, spec);
+        let mut pdb: PeerDB<M> = PeerDB::new(vec![], true, &log);
 
         pdb.connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 

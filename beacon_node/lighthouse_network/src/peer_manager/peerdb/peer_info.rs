@@ -373,8 +373,7 @@ impl<E: EthSpec> PeerInfo<E> {
             return;
         };
 
-        // Already set by enr if custody_subnets is non empty
-        if self.custody_subnets.is_empty() && spec.is_peer_das_scheduled() {
+        if spec.is_peer_das_scheduled() {
             let custody_subnets =
                 self.compute_custody_subnets_from_metadata(node_id, peer_id, &meta_data, spec, log);
             self.set_custody_subnets(custody_subnets);
@@ -388,7 +387,7 @@ impl<E: EthSpec> PeerInfo<E> {
         self.connection_status = connection_status
     }
 
-    pub(super) fn set_custody_subnets(&mut self, custody_subnets: HashSet<DataColumnSubnetId>) {
+    fn set_custody_subnets(&mut self, custody_subnets: HashSet<DataColumnSubnetId>) {
         self.custody_subnets = custody_subnets
     }
 

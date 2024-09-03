@@ -69,12 +69,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
             peer_id: RwLock::new(enr.peer_id()),
             listen_multiaddrs: RwLock::new(Vec::new()),
             local_metadata: RwLock::new(local_metadata),
-            peers: RwLock::new(PeerDB::new(
-                trusted_peers,
-                disable_peer_scoring,
-                log,
-                spec.clone(),
-            )),
+            peers: RwLock::new(PeerDB::new(trusted_peers, disable_peer_scoring, log)),
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
             sync_state: RwLock::new(SyncState::Stalled),
             backfill_state: RwLock::new(BackFillState::NotRequired),

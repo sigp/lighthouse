@@ -37,20 +37,16 @@ where
                 .as_ref()
                 .map_or(false, |b| b.get(*s.deref() as usize).unwrap_or(false)),
             Subnet::DataColumn(s) => {
-                // If ENR does not contain a valid csc, we fall back to `custody_requirement` here.
-                let custody_subnet_count = enr
-                    .custody_subnet_count::<E>()
-                    .ok()
-                    .filter(|&csc| csc <= spec.data_column_sidecar_subnet_count)
-                    .unwrap_or(spec.custody_requirement);
-
-                DataColumnSubnetId::compute_custody_subnets::<E>(
-                    enr.node_id().raw(),
-                    custody_subnet_count,
-                    &spec,
-                )
-                // the filter above should ensure this is not infallible
-                .map_or(false, |mut subnets| subnets.contains(s))
+                if let Ok(custody_subnet_count) = enr.custody_subnet_count::<E>(&spec) {
+                    DataColumnSubnetId::compute_custody_subnets::<E>(
+                        enr.node_id().raw(),
+                        custody_subnet_count,
+                        &spec,
+                    )
+                    .map_or(false, |mut subnets| subnets.contains(s))
+                } else {
+                    false
+                }
             }
         });
 

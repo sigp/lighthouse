@@ -38,7 +38,7 @@ pub trait Eth2Enr {
     ) -> Result<EnrSyncCommitteeBitfield<E>, &'static str>;
 
     /// The peerdas custody subnet count associated with the ENR.
-    fn custody_subnet_count<E: EthSpec>(&self) -> Result<u64, &'static str>;
+    fn custody_subnet_count<E: EthSpec>(&self, spec: &ChainSpec) -> Result<u64, &'static str>;
 
     fn eth2(&self) -> Result<EnrForkId, &'static str>;
 }
@@ -64,11 +64,17 @@ impl Eth2Enr for Enr {
             .map_err(|_| "Could not decode the ENR syncnets bitfield")
     }
 
-    fn custody_subnet_count<E: EthSpec>(&self) -> Result<u64, &'static str> {
-        let decoded_result = self
+    fn custody_subnet_count<E: EthSpec>(&self, spec: &ChainSpec) -> Result<u64, &'static str> {
+        let csc = self
             .get_decodable::<u64>(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY)
-            .ok_or("ENR custody subnet count non-existent")?;
-        decoded_result.map_err(|_| "Could not decode the ENR custody subnet count")
+            .ok_or("ENR custody subnet count non-existent")?
+            .map_err(|_| "Could not decode the ENR custody subnet count")?;
+
+        if csc >= spec.custody_requirement && csc <= spec.data_column_sidecar_subnet_count {
+            Ok(csc)
+        } else {
+            Err("Invalid custody subnet count in ENR")
+        }
     }
 
     fn eth2(&self) -> Result<EnrForkId, &'static str> {
@@ -332,7 +338,7 @@ mod test {
         let enr = build_enr_with_config(config, &spec).0;
 
         assert_eq!(
-            enr.custody_subnet_count::<E>().unwrap(),
+            enr.custody_subnet_count::<E>(&spec).unwrap(),
             spec.custody_requirement,
         );
     }
@@ -347,7 +353,7 @@ mod test {
         let enr = build_enr_with_config(config, &spec).0;
 
         assert_eq!(
-            enr.custody_subnet_count::<E>().unwrap(),
+            enr.custody_subnet_count::<E>(&spec).unwrap(),
             spec.data_column_sidecar_subnet_count,
         );
     }
