@@ -10,7 +10,7 @@ use serde::{
     ser::{SerializeStruct, Serializer},
     Serialize,
 };
-use slog::{debug, Logger};
+use slog::{debug, error, Logger};
 use std::collections::HashSet;
 use std::net::IpAddr;
 use std::time::Instant;
@@ -374,7 +374,7 @@ impl<E: EthSpec> PeerInfo<E> {
         };
 
         // Already set by enr if custody_subnets is non empty
-        if self.custody_subnets.is_empty() {
+        if self.custody_subnets.is_empty() && spec.is_peer_das_scheduled() {
             let custody_subnets =
                 self.compute_custody_subnets_from_metadata(node_id, peer_id, &meta_data, spec, log);
             self.set_custody_subnets(custody_subnets);
@@ -509,20 +509,19 @@ impl<E: EthSpec> PeerInfo<E> {
         spec: &ChainSpec,
         log: &Logger,
     ) -> HashSet<DataColumnSubnetId> {
-        // fallback to `custody_requirement` if `csc` is invalid
-        let custody_subnet_count = match metadata.custody_subnet_count() {
-            Ok(csc) => *csc,
-            Err(_) => {
-                // TODO(das): Should we penalise peer?
-                debug!(
+        // fallback to `custody_requirement` if `MetaData` received isn't a V3 variant
+        let custody_subnet_count = metadata
+            .custody_subnet_count()
+            .copied()
+            .unwrap_or_else(|_| {
+                error!(
                     log,
-                    "No valid csc found in peer metadata";
+                    "Expected MetaDataV3 from peer but got V2";
                     "info" => "Falling back to default custody requirement",
                     "peer_id" => %peer_id,
                 );
                 spec.custody_requirement
-            }
-        };
+            });
 
         DataColumnSubnetId::compute_custody_subnets::<E>(node_id.raw(), custody_subnet_count, spec)
             .map(|subnets| subnets.collect())
