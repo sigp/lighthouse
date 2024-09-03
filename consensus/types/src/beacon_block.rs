@@ -680,7 +680,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
 }
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockEIP7732<E, Payload> {
-    /// Return a Electra block where the block has maximum size.
+    /// Return a EIP7732 block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> Self {
         let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full(spec);
         let indexed_attestation: IndexedAttestationElectra<E> = IndexedAttestationElectra {
@@ -724,6 +724,15 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockEIP7732<E, Payload>
             sync_committee_signature: AggregateSignature::empty(),
             sync_committee_bits: BitVector::default(),
         };
+        let payload_attestations = vec![
+            PayloadAttestation::<E> {
+                aggregation_bits: BitList::with_capacity(E::PTCSize::to_usize()).unwrap(),
+                slot: Slot::new(0),
+                payload_status: PayloadStatus::PayloadPresent,
+            };
+            E::max_payload_attestations()
+        ]
+        .into();
         BeaconBlockEIP7732 {
             slot: spec.genesis_slot,
             proposer_index: 0,
@@ -737,6 +746,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockEIP7732<E, Payload>
                 voluntary_exits: base_block.body.voluntary_exits,
                 bls_to_execution_changes,
                 signed_execution_bid: SignedExecutionBid::empty(),
+                payload_attestations,
                 sync_aggregate,
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
@@ -805,6 +815,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockEIP7
                 sync_aggregate: SyncAggregate::empty(),
                 bls_to_execution_changes: VariableList::empty(),
                 signed_execution_bid: SignedExecutionBid::empty(),
+                payload_attestations: VariableList::empty(),
                 _phantom: PhantomData,
             },
         }

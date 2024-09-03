@@ -161,9 +161,10 @@ pub trait EthSpec:
     type MaxWithdrawalRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     /*
-     * New in EIP-7736
+     * New in EIP-7732
      */
     type PTCSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxPayloadAttestations: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 
@@ -376,6 +377,11 @@ pub trait EthSpec:
         Self::MaxWithdrawalRequestsPerPayload::to_usize()
     }
 
+    /// Returns the `MaxPayloadAttestations` constant for this specification.
+    fn max_payload_attestations() -> usize {
+        Self::MaxPayloadAttestations::to_usize()
+    }
+
     fn kzg_commitments_inclusion_proof_depth() -> usize {
         Self::KzgCommitmentsInclusionProofDepth::to_usize()
     }
@@ -444,6 +450,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxAttestationsElectra = U8;
     type MaxWithdrawalRequestsPerPayload = U16;
     type PTCSize = U512;
+    type MaxPayloadAttestations = U4;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -510,7 +517,8 @@ impl EthSpec for MinimalEthSpec {
         MaxConsolidationRequestsPerPayload,
         MaxAttesterSlashingsElectra,
         MaxAttestationsElectra,
-        PTCSize
+        PTCSize,
+        MaxPayloadAttestations
     });
 
     fn default_spec() -> ChainSpec {
@@ -577,6 +585,7 @@ impl EthSpec for GnosisEthSpec {
     type BytesPerCell = U2048;
     type KzgCommitmentsInclusionProofDepth = U4;
     type PTCSize = U512;
+    type MaxPayloadAttestations = U4;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()
