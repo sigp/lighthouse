@@ -32,6 +32,10 @@ impl<E: EthSpec> Case for KZGComputeBlobKZGProof<E> {
         fork_name == ForkName::Deneb
     }
 
+    fn is_enabled_for_feature(feature_name: FeatureName) -> bool {
+        feature_name != FeatureName::Eip7594
+    }
+
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let parse_input = |input: &KZGComputeBlobKZGProofInput| -> Result<_, Error> {
             let blob = parse_blob::<E>(&input.blob)?;
@@ -39,7 +43,7 @@ impl<E: EthSpec> Case for KZGComputeBlobKZGProof<E> {
             Ok((blob, commitment))
         };
 
-        let kzg = get_kzg()?;
+        let kzg = get_kzg();
         let proof = parse_input(&self.input).and_then(|(blob, commitment)| {
             compute_blob_kzg_proof::<E>(&kzg, &blob, commitment)
                 .map_err(|e| Error::InternalError(format!("Failed to compute kzg proof: {:?}", e)))

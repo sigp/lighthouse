@@ -9,14 +9,13 @@ name = "benches"
 harness = false
 
 [dependencies]
-alloy-primitives = { workspace = true, features = ["rlp"] }
+alloy-primitives = { workspace = true, features = ["rlp", "getrandom"] }
 merkle_proof = { workspace = true }
 bls = { workspace = true, features = ["arbitrary"] }
 kzg = { workspace = true }
 compare_fields = { workspace = true }
 compare_fields_derive = { workspace = true }
 eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }
-ethereum-types = { workspace = true, features = ["arbitrary"] }
 ethereum_hashing = { workspace = true }
 hex = { workspace = true }
 int_to_bytes = { workspace = true }
@@ -31,7 +30,7 @@ ethereum_ssz_derive = { workspace = true }
 ssz_types = { workspace = true, features = ["arbitrary"] }
 swap_or_not_shuffle = { workspace = true, features = ["arbitrary"] }
 test_random_derive = { path = "../../common/test_random_derive" }
-tree_hash = { workspace = true, features = ["arbitrary"] }
+tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 rand_xorshift = "0.3.0"
 serde_yaml = { workspace = true }
@@ -53,6 +52,7 @@ maplit = { workspace = true }
 alloy-rlp = { version = "0.3.4", features = ["derive"] }
 milhouse = { workspace = true }
 rpds = { workspace = true }
+fixed_bytes = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

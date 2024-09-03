@@ -6,6 +6,7 @@ use serde::Serialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::U256, VariableList};
+use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -14,9 +15,9 @@ use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    blob_sidecar::BlobSidecar, ChainSpec, Epoch, EthSpec, Hash256, LightClientBootstrap,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, RuntimeVariableList, SignedBeaconBlock,
-    Slot,
+    blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
+    Epoch, EthSpec, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, RuntimeVariableList, SignedBeaconBlock, Slot,
 };
 
 /// Maximum length of error message.
@@ -88,7 +89,7 @@ pub struct Ping {
 
 /// The METADATA request structure.
 #[superstruct(
-    variants(V1, V2),
+    variants(V1, V2, V3),
     variant_attributes(derive(Clone, Debug, PartialEq, Serialize),)
 )]
 #[derive(Clone, Debug, PartialEq)]
@@ -108,11 +109,17 @@ impl<E: EthSpec> MetadataRequest<E> {
             _phantom_data: PhantomData,
         })
     }
+
+    pub fn new_v3() -> Self {
+        Self::V3(MetadataRequestV3 {
+            _phantom_data: PhantomData,
+        })
+    }
 }
 
 /// The METADATA response structure.
 #[superstruct(
-    variants(V1, V2),
+    variants(V1, V2, V3),
     variant_attributes(
         derive(Encode, Decode, Clone, Debug, PartialEq, Serialize),
         serde(bound = "E: EthSpec", deny_unknown_fields),
@@ -126,8 +133,10 @@ pub struct MetaData<E: EthSpec> {
     /// The persistent attestation subnet bitfield.
     pub attnets: EnrAttestationBitfield<E>,
     /// The persistent sync committee bitfield.
-    #[superstruct(only(V2))]
+    #[superstruct(only(V2, V3))]
     pub syncnets: EnrSyncCommitteeBitfield<E>,
+    #[superstruct(only(V3))]
+    pub custody_subnet_count: u64,
 }
 
 impl<E: EthSpec> MetaData<E> {
@@ -136,6 +145,10 @@ impl<E: EthSpec> MetaData<E> {
         match self {
             md @ MetaData::V1(_) => md.clone(),
             MetaData::V2(metadata) => MetaData::V1(MetaDataV1 {
+                seq_number: metadata.seq_number,
+                attnets: metadata.attnets.clone(),
+            }),
+            MetaData::V3(metadata) => MetaData::V1(MetaDataV1 {
                 seq_number: metadata.seq_number,
                 attnets: metadata.attnets.clone(),
             }),
@@ -151,6 +164,30 @@ impl<E: EthSpec> MetaData<E> {
                 syncnets: Default::default(),
             }),
             md @ MetaData::V2(_) => md.clone(),
+            MetaData::V3(metadata) => MetaData::V2(MetaDataV2 {
+                seq_number: metadata.seq_number,
+                attnets: metadata.attnets.clone(),
+                syncnets: metadata.syncnets.clone(),
+            }),
+        }
+    }
+
+    /// Returns a V3 MetaData response from self by filling unavailable fields with default.
+    pub fn metadata_v3(&self, spec: &ChainSpec) -> Self {
+        match self {
+            MetaData::V1(metadata) => MetaData::V3(MetaDataV3 {
+                seq_number: metadata.seq_number,
+                attnets: metadata.attnets.clone(),
+                syncnets: Default::default(),
+                custody_subnet_count: spec.custody_requirement,
+            }),
+            MetaData::V2(metadata) => MetaData::V3(MetaDataV3 {
+                seq_number: metadata.seq_number,
+                attnets: metadata.attnets.clone(),
+                syncnets: metadata.syncnets.clone(),
+                custody_subnet_count: spec.custody_requirement,
+            }),
+            md @ MetaData::V3(_) => md.clone(),
         }
     }
 
@@ -158,6 +195,7 @@ impl<E: EthSpec> MetaData<E> {
         match self {
             MetaData::V1(md) => md.as_ssz_bytes(),
             MetaData::V2(md) => md.as_ssz_bytes(),
+            MetaData::V3(md) => md.as_ssz_bytes(),
         }
     }
 }
@@ -293,6 +331,43 @@ impl BlobsByRangeRequest {
     }
 }
 
+/// Request a number of beacon data columns from a peer.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct DataColumnsByRangeRequest {
+    /// The starting slot to request data columns.
+    pub start_slot: u64,
+    /// The number of slots from the start slot.
+    pub count: u64,
+    /// The list column indices being requested.
+    pub columns: Vec<ColumnIndex>,
+}
+
+impl DataColumnsByRangeRequest {
+    pub fn max_requested<E: EthSpec>(&self) -> u64 {
+        self.count.saturating_mul(self.columns.len() as u64)
+    }
+
+    pub fn ssz_min_len() -> usize {
+        DataColumnsByRangeRequest {
+            start_slot: 0,
+            count: 0,
+            columns: vec![0],
+        }
+        .as_ssz_bytes()
+        .len()
+    }
+
+    pub fn ssz_max_len(spec: &ChainSpec) -> usize {
+        DataColumnsByRangeRequest {
+            start_slot: 0,
+            count: 0,
+            columns: vec![0; spec.number_of_columns],
+        }
+        .as_ssz_bytes()
+        .len()
+    }
+}
+
 /// Request a number of beacon block roots from a peer.
 #[superstruct(
     variants(V1, V2),
@@ -370,6 +445,38 @@ impl BlobsByRootRequest {
     }
 }
 
+/// Request a number of data columns from a peer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DataColumnsByRootRequest {
+    /// The list of beacon block roots and column indices being requested.
+    pub data_column_ids: RuntimeVariableList<DataColumnIdentifier>,
+}
+
+impl DataColumnsByRootRequest {
+    pub fn new(data_column_ids: Vec<DataColumnIdentifier>, spec: &ChainSpec) -> Self {
+        let data_column_ids = RuntimeVariableList::from_vec(
+            data_column_ids,
+            spec.max_request_data_column_sidecars as usize,
+        );
+        Self { data_column_ids }
+    }
+
+    pub fn new_single(block_root: Hash256, index: ColumnIndex, spec: &ChainSpec) -> Self {
+        Self::new(vec![DataColumnIdentifier { block_root, index }], spec)
+    }
+
+    pub fn group_by_ordered_block_root(&self) -> Vec<(Hash256, Vec<ColumnIndex>)> {
+        let mut column_indexes_by_block = BTreeMap::<Hash256, Vec<ColumnIndex>>::new();
+        for request_id in self.data_column_ids.as_slice() {
+            column_indexes_by_block
+                .entry(request_id.block_root)
+                .or_default()
+                .push(request_id.index);
+        }
+        column_indexes_by_block.into_iter().collect()
+    }
+}
+
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
@@ -400,6 +507,12 @@ pub enum RPCResponse<E: EthSpec> {
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Arc<BlobSidecar<E>>),
 
+    /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
+    DataColumnsByRoot(Arc<DataColumnSidecar<E>>),
+
+    /// A response to a get DATA_COLUMN_SIDECARS_BY_RANGE request.
+    DataColumnsByRange(Arc<DataColumnSidecar<E>>),
+
     /// A PONG response to a PING request.
     Pong(Ping),
 
@@ -421,6 +534,12 @@ pub enum ResponseTermination {
 
     /// Blobs by root stream termination.
     BlobsByRoot,
+
+    /// Data column sidecars by root stream termination.
+    DataColumnsByRoot,
+
+    /// Data column sidecars by range stream termination.
+    DataColumnsByRange,
 }
 
 /// The structured response containing a result/code indicating success or failure
@@ -511,6 +630,8 @@ impl<E: EthSpec> RPCResponse<E> {
             RPCResponse::BlocksByRoot(_) => Protocol::BlocksByRoot,
             RPCResponse::BlobsByRange(_) => Protocol::BlobsByRange,
             RPCResponse::BlobsByRoot(_) => Protocol::BlobsByRoot,
+            RPCResponse::DataColumnsByRoot(_) => Protocol::DataColumnsByRoot,
+            RPCResponse::DataColumnsByRange(_) => Protocol::DataColumnsByRange,
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
@@ -555,6 +676,16 @@ impl<E: EthSpec> std::fmt::Display for RPCResponse<E> {
             }
             RPCResponse::BlobsByRoot(sidecar) => {
                 write!(f, "BlobsByRoot: Blob slot: {}", sidecar.slot())
+            }
+            RPCResponse::DataColumnsByRoot(sidecar) => {
+                write!(f, "DataColumnsByRoot: Data column slot: {}", sidecar.slot())
+            }
+            RPCResponse::DataColumnsByRange(sidecar) => {
+                write!(
+                    f,
+                    "DataColumnsByRange: Data column slot: {}",
+                    sidecar.slot()
+                )
             }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
@@ -644,6 +775,16 @@ impl std::fmt::Display for BlobsByRangeRequest {
             f,
             "Request: BlobsByRange: Start Slot: {}, Count: {}",
             self.start_slot, self.count
+        )
+    }
+}
+
+impl std::fmt::Display for DataColumnsByRootRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Request: DataColumnsByRoot: Number of Requested Data Column Ids: {}",
+            self.data_column_ids.len()
         )
     }
 }

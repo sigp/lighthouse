@@ -3,7 +3,6 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
 };
-use environment::null_logger;
 use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
@@ -24,6 +23,7 @@ use http_api::{
     BlockId, StateId,
 };
 use lighthouse_network::{types::SyncState, Enr, EnrExt, PeerId};
+use logging::test_logger;
 use network::NetworkReceivers;
 use proto_array::ExecutionStatus;
 use sensitive_url::SensitiveUrl;
@@ -251,7 +251,7 @@ impl ApiTester {
             "precondition: justification"
         );
 
-        let log = null_logger().unwrap();
+        let log = test_logger();
 
         let ApiServer {
             ctx,
@@ -349,7 +349,7 @@ impl ApiTester {
 
         let chain = harness.chain.clone();
 
-        let log = null_logger().unwrap();
+        let log = test_logger();
 
         let ApiServer {
             ctx,
@@ -1667,6 +1667,93 @@ impl ApiTester {
         self
     }
 
+    /// Test fetching of blob sidecars that are not available in the database due to pruning.
+    ///
+    /// If `zero_blobs` is false, test a block with >0 blobs, which should be unavailable.
+    /// If `zero_blobs` is true, then test a block with 0 blobs, which should still be available.
+    pub async fn test_get_blob_sidecars_pruned(self, zero_blobs: bool) -> Self {
+        // Prune all blobs prior to the database's split epoch.
+        let store = &self.chain.store;
+        let split_epoch = store.get_split_slot().epoch(E::slots_per_epoch());
+        let force_prune = true;
+        self.chain
+            .store
+            .try_prune_blobs(force_prune, split_epoch)
+            .unwrap();
+
+        let oldest_blob_slot = store.get_blob_info().oldest_blob_slot.unwrap();
+
+        assert_ne!(
+            oldest_blob_slot, 0,
+            "blob pruning should have pruned some blobs"
+        );
+
+        // Find a block with either 0 blobs or 1+ depending on the value of `zero_blobs`.
+        let mut test_slot = None;
+        for slot in 0..oldest_blob_slot.as_u64() {
+            let block_id = BlockId(CoreBlockId::Slot(Slot::new(slot)));
+            let (block, _, _) = block_id.blinded_block(&self.chain).unwrap();
+            let num_blobs = block.num_expected_blobs();
+
+            if (zero_blobs && num_blobs == 0) || (!zero_blobs && num_blobs > 0) {
+                test_slot = Some(Slot::new(slot));
+                break;
+            }
+        }
+        let test_slot = test_slot.expect(&format!(
+            "should be able to find a block matching zero_blobs={zero_blobs}"
+        ));
+
+        match self
+            .client
+            .get_blobs::<E>(CoreBlockId::Slot(test_slot), None)
+            .await
+        {
+            Ok(result) => {
+                if zero_blobs {
+                    assert_eq!(
+                        &result.unwrap().data[..],
+                        &[],
+                        "empty blobs are always available"
+                    );
+                } else {
+                    assert_eq!(result, None, "blobs should have been pruned");
+                }
+            }
+            Err(e) => panic!("failed with non-404 status: {e:?}"),
+        }
+
+        self
+    }
+
+    pub async fn test_get_blob_sidecars_pre_deneb(self) -> Self {
+        let oldest_blob_slot = self.chain.store.get_blob_info().oldest_blob_slot.unwrap();
+        assert_ne!(
+            oldest_blob_slot, 0,
+            "oldest_blob_slot should be non-zero and post-Deneb"
+        );
+        let test_slot = oldest_blob_slot - 1;
+        assert!(
+            !self
+                .chain
+                .spec
+                .fork_name_at_slot::<E>(test_slot)
+                .deneb_enabled(),
+            "Deneb should not be enabled at {test_slot}"
+        );
+
+        match self
+            .client
+            .get_blobs::<E>(CoreBlockId::Slot(test_slot), None)
+            .await
+        {
+            Ok(result) => panic!("queries for pre-Deneb slots should fail. got: {result:?}"),
+            Err(e) => assert_eq!(e.status().unwrap(), 400),
+        }
+
+        self
+    }
+
     pub async fn test_beacon_blocks_attestations(self) -> Self {
         for block_id in self.interesting_block_ids() {
             let result = self
@@ -1810,6 +1897,36 @@ impl ApiTester {
             "if some attestations are valid, we should send them to the network"
         );
 
+        self
+    }
+
+    pub async fn test_get_beacon_light_client_updates(self) -> Self {
+        let current_epoch = self.chain.epoch().unwrap();
+        let current_sync_committee_period = current_epoch
+            .sync_committee_period(&self.chain.spec)
+            .unwrap();
+
+        let result = match self
+            .client
+            .get_beacon_light_client_updates::<E>(current_sync_committee_period as u64, 1)
+            .await
+        {
+            Ok(result) => result,
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        let expected = self
+            .chain
+            .light_client_server_cache
+            .get_light_client_updates(
+                &self.chain.store,
+                current_sync_committee_period as u64,
+                1,
+                &self.chain.spec,
+            )
+            .unwrap();
+
+        assert_eq!(result.clone().unwrap().len(), expected.len());
         self
     }
 
@@ -3401,7 +3518,7 @@ impl ApiTester {
                     .get_validator_aggregate_attestation_v2(
                         attestation.data().slot,
                         attestation.data().tree_hash_root(),
-                        attestation.committee_index().unwrap(),
+                        attestation.committee_index().expect("committee index"),
                     )
                     .await
                     .unwrap()
@@ -6172,6 +6289,18 @@ async fn node_get() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_light_client_updates() {
+    let config = ApiTesterConfig {
+        spec: ForkName::Altair.make_genesis_spec(E::default_spec()),
+        ..<_>::default()
+    };
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_beacon_light_client_updates()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_light_client_bootstrap() {
     let config = ApiTesterConfig {
         spec: ForkName::Altair.make_genesis_spec(E::default_spec()),
@@ -6801,6 +6930,36 @@ async fn get_blob_sidecars() {
         .test_get_blob_sidecars(false)
         .await
         .test_get_blob_sidecars(true)
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blob_sidecars_pruned() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_blob_sidecars_pruned(false)
+        .await
+        .test_get_blob_sidecars_pruned(true)
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blob_sidecars_pre_deneb() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(1));
+
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_blob_sidecars_pre_deneb()
         .await;
 }
 
