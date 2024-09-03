@@ -362,6 +362,8 @@ impl Config {
         config.builder_registration_timestamp_override =
             validator_client_config.builder_registration_timestamp_override;
 
+        config.prefer_builder_proposals = validator_client_config.prefer_builder_proposals;
+
         config.builder_boost_factor = validator_client_config.builder_boost_factor;
         config.enable_latency_measurement_service =
             !validator_client_config.disable_latency_measurement_service;

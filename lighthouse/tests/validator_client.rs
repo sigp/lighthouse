@@ -435,7 +435,7 @@ fn produce_block_v3_flag() {
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
-        .with_config(|config| assert!(config.gas_limit.is_none()));
+        .with_config(|config| assert!(config.gas_limit == Some(30_000_000)));
 }
 #[test]
 fn gas_limit_flag() {

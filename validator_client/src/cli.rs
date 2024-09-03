@@ -81,6 +81,7 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        alias = "validator-dir",
         value_name = "VALIDATORS_DIR",
         conflicts_with = "datadir",
         help = "The directory which contains the validator keystores, deposit data for \
