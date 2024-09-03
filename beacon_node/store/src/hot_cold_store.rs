@@ -1515,7 +1515,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(())
     }
 
-    pub fn load_cold_state_bytes_as_snapshot(&self, slot: Slot) -> Result<Option<Vec<u8>>, Error> {
+    fn load_cold_state_bytes_as_snapshot(&self, slot: Slot) -> Result<Option<Vec<u8>>, Error> {
         match self.cold_db.get_bytes(
             DBColumn::BeaconStateSnapshot.into(),
             &slot.as_u64().to_be_bytes(),
@@ -1535,7 +1535,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    pub fn load_cold_state_as_snapshot(&self, slot: Slot) -> Result<Option<BeaconState<E>>, Error> {
+    fn load_cold_state_as_snapshot(&self, slot: Slot) -> Result<Option<BeaconState<E>>, Error> {
         Ok(self
             .load_cold_state_bytes_as_snapshot(slot)?
             .map(|bytes| BeaconState::from_ssz_bytes(&bytes, &self.spec))
@@ -2631,19 +2631,30 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // migrating to the tree-states schema (delete everything in the freezer then start afresh).
         let mut cold_ops = vec![];
 
-        // This function works for both pre-tree-states and post-tree-states pruning. It deletes
-        // everything related to historic states from either DB!
-        let columns = [
-            DBColumn::BeaconState,
-            DBColumn::BeaconStateSummary,
+        let current_schema_columns = vec![
+            DBColumn::BeaconColdStateSummary,
             DBColumn::BeaconStateSnapshot,
             DBColumn::BeaconStateDiff,
-            DBColumn::BeaconRestorePoint,
             DBColumn::BeaconStateRoots,
+        ];
+
+        // This function is intended to be able to clean up leftover V21 freezer database stuff in
+        // the case where the V22 schema upgrade failed *after* commiting the version increment but
+        // *before* cleaning up the freezer DB.
+        //
+        // We can remove this once schema V21 has been gone for a while.
+        let previous_schema_columns = vec![
+            DBColumn::BeaconStateSummary,
+            DBColumn::BeaconBlockRootsChunked,
+            DBColumn::BeaconStateRootsChunked,
+            DBColumn::BeaconRestorePoint,
             DBColumn::BeaconHistoricalRoots,
             DBColumn::BeaconRandaoMixes,
             DBColumn::BeaconHistoricalSummaries,
         ];
+
+        let mut columns = current_schema_columns;
+        columns.extend(previous_schema_columns);
 
         for column in columns {
             for res in self.cold_db.iter_column_keys::<Vec<u8>>(column) {
@@ -2656,11 +2667,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
         let delete_ops = cold_ops.len();
 
-        // If we just deleted the the genesis state, re-store it using the *current* schema, which
-        // may be different from the schema of the genesis state we just deleted.
-        //
-        // During the tree-states migration this will re-store the genesis state as compressed
-        // beacon state SSZ, which is different from the previous `PartialBeaconState` format.
+        // If we just deleted the the genesis state, re-store it using the current* schema.
         if self.get_split_slot() > 0 {
             info!(
                 self.log,
@@ -2992,7 +2999,7 @@ pub(crate) struct ColdStateSummary {
 
 impl StoreItem for ColdStateSummary {
     fn db_column() -> DBColumn {
-        DBColumn::BeaconStateSummary
+        DBColumn::BeaconColdStateSummary
     }
 
     fn as_store_bytes(&self) -> Vec<u8> {
