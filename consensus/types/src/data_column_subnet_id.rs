@@ -143,9 +143,9 @@ impl From<ArithError> for Error {
 #[cfg(test)]
 mod test {
     use crate::data_column_subnet_id::DataColumnSubnetId;
-    use crate::EthSpec;
     use crate::MainnetEthSpec;
     use crate::Uint256;
+    use crate::{EthSpec, GnosisEthSpec, MinimalEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -193,6 +193,21 @@ mod test {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_compute_custody_requirement_subnets_never_panics() {
+        let node_id = [1u8; 32];
+        test_compute_custody_requirement_subnets_with_spec::<MainnetEthSpec>(node_id);
+        test_compute_custody_requirement_subnets_with_spec::<MinimalEthSpec>(node_id);
+        test_compute_custody_requirement_subnets_with_spec::<GnosisEthSpec>(node_id);
+    }
+
+    fn test_compute_custody_requirement_subnets_with_spec<E: EthSpec>(node_id: [u8; 32]) {
+        let _ = DataColumnSubnetId::compute_custody_requirement_subnets::<E>(
+            node_id,
+            &E::default_spec(),
+        );
     }
 
     #[test]
