@@ -537,6 +537,17 @@ where
     #[superstruct(only(Electra, EIP7732))]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
 
+    // EIP-7732
+    #[superstruct(only(EIP7732), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    pub latest_block_hash: ExecutionBlockHash,
+    #[superstruct(only(EIP7732), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    pub latest_full_slot: Slot,
+    #[superstruct(only(EIP7732), partial_getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
+    pub latest_withdrawals_root: Hash256,
+
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]

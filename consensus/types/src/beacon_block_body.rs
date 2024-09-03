@@ -121,6 +121,8 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
         VariableList<SignedBlsToExecutionChange, E::MaxBlsToExecutionChanges>,
     #[superstruct(only(Deneb, Electra))]
     pub blob_kzg_commitments: KzgCommitments<E>,
+    #[superstruct(only(EIP7732))]
+    pub signed_execution_bid: SignedExecutionBid,
     #[superstruct(only(Base, Altair, EIP7732))]
     #[metastruct(exclude_from(fields))]
     #[ssz(skip_serializing, skip_deserializing)]
@@ -727,6 +729,7 @@ impl<E: EthSpec> From<BeaconBlockBodyEIP7732<E, BlindedPayload<E>>>
             voluntary_exits,
             sync_aggregate,
             bls_to_execution_changes,
+            signed_execution_bid,
             _phantom,
         } = body;
 
@@ -741,6 +744,7 @@ impl<E: EthSpec> From<BeaconBlockBodyEIP7732<E, BlindedPayload<E>>>
             voluntary_exits,
             sync_aggregate,
             bls_to_execution_changes,
+            signed_execution_bid,
             _phantom: PhantomData,
         }
     }
@@ -764,6 +768,7 @@ impl<E: EthSpec> From<BeaconBlockBodyEIP7732<E, FullPayload<E>>>
             voluntary_exits,
             sync_aggregate,
             bls_to_execution_changes,
+            signed_execution_bid,
             _phantom,
         } = body;
 
@@ -779,6 +784,7 @@ impl<E: EthSpec> From<BeaconBlockBodyEIP7732<E, FullPayload<E>>>
                 voluntary_exits,
                 sync_aggregate,
                 bls_to_execution_changes,
+                signed_execution_bid,
                 _phantom: PhantomData,
             },
             None,

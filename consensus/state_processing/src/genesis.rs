@@ -5,6 +5,7 @@ use crate::common::DepositDataTree;
 use crate::upgrade::electra::upgrade_state_to_electra;
 use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
+    upgrade_to_eip7732,
 };
 use safe_arith::{ArithError, SafeArith};
 use std::sync::Arc;
@@ -138,6 +139,20 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         if let Some(ExecutionPayloadHeader::Electra(header)) = execution_payload_header {
             *state.latest_execution_payload_header_electra_mut()? = header.clone();
         }
+    }
+
+    // Upgrade to EIP-7732 if configured from genesis.
+    if spec
+        .eip7732_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == E::genesis_epoch())
+    {
+        upgrade_to_eip7732(&mut state, spec)?;
+
+        // Remove intermediate Electra fork from `state.fork`.
+        state.fork_mut().previous_version = spec.eip7732_fork_version;
+
+        // Here's where we *would* clone the header but there is no header here so..
+        // TODO(EIP7732): check this
     }
 
     // Now that we have our validators, initialize the caches (including the committees)

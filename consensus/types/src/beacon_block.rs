@@ -736,6 +736,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockEIP7732<E, Payload>
                 deposits: base_block.body.deposits,
                 voluntary_exits: base_block.body.voluntary_exits,
                 bls_to_execution_changes,
+                signed_execution_bid: SignedExecutionBid::empty(),
                 sync_aggregate,
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
@@ -803,6 +804,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockEIP7
                 voluntary_exits: VariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
                 bls_to_execution_changes: VariableList::empty(),
+                signed_execution_bid: SignedExecutionBid::empty(),
                 _phantom: PhantomData,
             },
         }

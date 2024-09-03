@@ -7,9 +7,9 @@ use tree_hash_derive::TreeHash;
 
 #[derive(
     arbitrary::Arbitrary,
+    Default,
     Debug,
     Clone,
-    PartialEq,
     Serialize,
     Encode,
     Decode,
@@ -18,6 +18,7 @@ use tree_hash_derive::TreeHash;
     Derivative,
     TestRandom,
 )]
+#[derivative(PartialEq, Hash)]
 // This is what Potuz' spec calls an `ExecutionPayload` even though it's clearly a bid.
 pub struct ExecutionBid {
     parent_block_hash: ExecutionBlockHash,
