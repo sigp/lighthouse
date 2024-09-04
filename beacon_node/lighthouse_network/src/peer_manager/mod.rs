@@ -1296,6 +1296,7 @@ impl<E: EthSpec> PeerManager<E> {
         let mut peers_connected = 0;
         let mut clients_per_peer = HashMap::new();
         let mut peers_connected_mutli: HashMap<(&str, &str), i32> = HashMap::new();
+        let mut peers_per_custody_subnet_count: HashMap<u64, i64> = HashMap::new();
 
         for (_, peer_info) in self.network_globals.peers.read().connected_peers() {
             peers_connected += 1;
@@ -1326,10 +1327,25 @@ impl<E: EthSpec> PeerManager<E> {
             *peers_connected_mutli
                 .entry((direction, transport))
                 .or_default() += 1;
+
+            if let Some(MetaData::V3(meta_data)) = peer_info.meta_data() {
+                *peers_per_custody_subnet_count
+                    .entry(meta_data.custody_subnet_count)
+                    .or_default() += 1;
+            }
         }
 
         // PEERS_CONNECTED
         metrics::set_gauge(&metrics::PEERS_CONNECTED, peers_connected);
+
+        // CUSTODY_SUBNET_COUNT
+        for (custody_subnet_count, peer_count) in peers_per_custody_subnet_count.into_iter() {
+            metrics::set_gauge_vec(
+                &metrics::PEERS_PER_CUSTODY_SUBNET_COUNT,
+                &[&custody_subnet_count.to_string()],
+                peer_count,
+            )
+        }
 
         // PEERS_PER_CLIENT
         for client_kind in ClientKind::iter() {
