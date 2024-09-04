@@ -252,12 +252,15 @@ mod tests {
 
     #[test]
     fn no_blobs_into_responses() {
+        let spec = test_spec::<E>();
         let peer_id = PeerId::random();
-        let mut info = RangeBlockComponentsRequest::<E>::new(false, None, None, vec![peer_id]);
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng).0)
             .collect::<Vec<_>>();
+        let max_len = spec.max_blobs_per_block(blocks.first().unwrap().epoch()) as usize;
+        let mut info =
+            RangeBlockComponentsRequest::<E>::new(false, None, None, vec![peer_id], max_len);
 
         // Send blocks and complete terminate response
         for block in blocks {
@@ -272,8 +275,8 @@ mod tests {
 
     #[test]
     fn empty_blobs_into_responses() {
+        let spec = test_spec::<E>();
         let peer_id = PeerId::random();
-        let mut info = RangeBlockComponentsRequest::<E>::new(true, None, None, vec![peer_id]);
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {
@@ -281,6 +284,9 @@ mod tests {
                 generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Number(3), &mut rng).0
             })
             .collect::<Vec<_>>();
+        let max_len = spec.max_blobs_per_block(blocks.first().unwrap().epoch()) as usize;
+        let mut info =
+            RangeBlockComponentsRequest::<E>::new(true, None, None, vec![peer_id], max_len);
 
         // Send blocks and complete terminate response
         for block in blocks {
@@ -301,12 +307,7 @@ mod tests {
     fn rpc_block_with_custody_columns() {
         let spec = test_spec::<E>();
         let expects_custody_columns = vec![1, 2, 3, 4];
-        let mut info = RangeBlockComponentsRequest::<E>::new(
-            false,
-            Some(expects_custody_columns.clone()),
-            Some(expects_custody_columns.len()),
-            vec![PeerId::random()],
-        );
+
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {
@@ -318,7 +319,14 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
-
+        let max_len = spec.max_blobs_per_block(blocks.first().unwrap().0.epoch()) as usize;
+        let mut info = RangeBlockComponentsRequest::<E>::new(
+            false,
+            Some(expects_custody_columns.clone()),
+            Some(expects_custody_columns.len()),
+            vec![PeerId::random()],
+            max_len,
+        );
         // Send blocks and complete terminate response
         for block in &blocks {
             info.add_block_response(Some(block.0.clone().into()));
@@ -362,12 +370,7 @@ mod tests {
         let spec = test_spec::<E>();
         let expects_custody_columns = vec![1, 2, 3, 4];
         let num_of_data_column_requests = 2;
-        let mut info = RangeBlockComponentsRequest::<E>::new(
-            false,
-            Some(expects_custody_columns.clone()),
-            Some(num_of_data_column_requests),
-            vec![PeerId::random()],
-        );
+
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {
@@ -379,7 +382,14 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
-
+        let max_len = spec.max_blobs_per_block(blocks.first().unwrap().0.epoch()) as usize;
+        let mut info = RangeBlockComponentsRequest::<E>::new(
+            false,
+            Some(expects_custody_columns.clone()),
+            Some(num_of_data_column_requests),
+            vec![PeerId::random()],
+            max_len,
+        );
         // Send blocks and complete terminate response
         for block in &blocks {
             info.add_block_response(Some(block.0.clone().into()));

@@ -39,7 +39,7 @@ use types::{
     test_utils::{SeedableRng, XorShiftRng},
     BlobSidecar, ForkName, MinimalEthSpec as E, SignedBeaconBlock, Slot,
 };
-use types::{BeaconState, BeaconStateBase};
+use types::{BeaconState, BeaconStateBase, ChainSpec};
 use types::{DataColumnSidecar, Epoch};
 
 type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
@@ -86,6 +86,7 @@ struct TestRig {
     /// `rng` for generating test blocks and blobs.
     rng: XorShiftRng,
     fork_name: ForkName,
+    spec: ChainSpec,
     log: Logger,
 }
 
@@ -153,6 +154,8 @@ impl TestRig {
             .network_globals
             .set_sync_state(SyncState::Synced);
 
+        let spec = chain.spec.clone();
+
         let rng = XorShiftRng::from_seed([42; 16]);
         TestRig {
             beacon_processor_rx,
@@ -174,6 +177,7 @@ impl TestRig {
             harness,
             fork_name,
             log,
+            spec,
         }
     }
 
@@ -2048,8 +2052,8 @@ mod deneb_only {
     use beacon_chain::{
         block_verification_types::RpcBlock, data_availability_checker::AvailabilityCheckError,
     };
-    use ssz_types::VariableList;
     use std::collections::VecDeque;
+    use types::RuntimeVariableList;
 
     struct DenebTester {
         rig: TestRig,
@@ -2407,12 +2411,15 @@ mod deneb_only {
         fn parent_block_unknown_parent(mut self) -> Self {
             self.rig.log("parent_block_unknown_parent");
             let block = self.unknown_parent_block.take().unwrap();
+            let max_len = self.rig.spec.max_blobs_per_block(block.epoch()) as usize;
             // Now this block is the one we expect requests from
             self.block = block.clone();
             let block = RpcBlock::new(
                 Some(block.canonical_root()),
                 block,
-                self.unknown_parent_blobs.take().map(VariableList::from),
+                self.unknown_parent_blobs
+                    .take()
+                    .map(|vec| RuntimeVariableList::from_vec(vec, max_len)),
             )
             .unwrap();
             self.rig.parent_block_processed(

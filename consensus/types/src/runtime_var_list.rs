@@ -292,6 +292,13 @@ impl<T: Clone + Default> RuntimeFixedList<T> {
         self.vec
     }
 
+    pub fn default(max_len: usize) -> Self {
+        Self {
+            vec: vec![T::default(); max_len],
+            len: max_len,
+        }
+    }
+
     pub fn take(&mut self) -> Self {
         let new = std::mem::take(&mut self.vec);
         *self = Self::new(vec![T::default(); self.len]);
@@ -339,7 +346,6 @@ mod test {
     use super::*;
     use ssz::*;
     use std::fmt::Debug;
-    use tree_hash::TreeHash;
 
     #[test]
     fn new() {
@@ -404,7 +410,7 @@ mod test {
     }
 
     fn round_trip<T: Encode + Decode + PartialEq + Debug>(item: RuntimeVariableList<T>) {
-        let max_len = item.max_len();
+        let max_len = item.max_len().unwrap();
         let encoded = &item.as_ssz_bytes();
         assert_eq!(item.ssz_bytes_len(), encoded.len());
         assert_eq!(
@@ -417,13 +423,5 @@ mod test {
     fn u16_len_8() {
         round_trip::<u16>(RuntimeVariableList::from_vec(vec![42; 8], 8));
         round_trip::<u16>(RuntimeVariableList::from_vec(vec![0; 8], 8));
-    }
-
-    #[test]
-    fn test_empty_list_encoding() {
-        use ssz_types::{typenum::U16, VariableList};
-
-        let a: RuntimeVariableList<u64> = RuntimeVariableList::from_vec(vec![], 16);
-        dbg!(a.tree_hash_root());
     }
 }

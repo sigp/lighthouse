@@ -155,7 +155,7 @@ mod tests {
     use crate::test_utils::test_spec;
     use bls::Hash256;
     use std::sync::Arc;
-    use types::MainnetEthSpec;
+    use types::{Epoch, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn simple_observations() {
         let spec = test_spec::<E>();
-        let mut cache = ObservedDataSidecars::<BlobSidecar<E>>::new(spec);
+        let mut cache = ObservedDataSidecars::<BlobSidecar<E>>::new(spec.clone());
 
         // Slot 0, index 0
         let proposer_index_a = 420;
@@ -465,7 +465,7 @@ mod tests {
         );
 
         // Try adding an out of bounds index
-        let invalid_index = E::max_blobs_per_block() as u64;
+        let invalid_index = spec.max_blobs_per_block(Epoch::new(0));
         let sidecar_d = get_blob_sidecar(0, proposer_index_a, invalid_index);
         assert_eq!(
             cache.observe_sidecar(&sidecar_d),
