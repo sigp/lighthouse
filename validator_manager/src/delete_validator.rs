@@ -89,9 +89,7 @@ pub async fn run<'a>(config: DeleteConfig) -> Result<(), String> {
         validator_to_delete,
     } = config;
 
-    let (http_client, _keystores) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
-
-    let validators = http_client.get_keystores().await.unwrap().data;
+    let (http_client, validators) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
 
     if !validators
         .iter()
