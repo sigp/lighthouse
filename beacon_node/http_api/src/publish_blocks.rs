@@ -544,7 +544,7 @@ fn check_slashable<T: BeaconChainTypes>(
     block_root: Hash256,
     block_clone: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
     log_clone: &Logger,
-) -> Result<(), BlockError<T::EthSpec>> {
+) -> Result<(), BlockError> {
     let slashable_cache = chain_clone.observed_slashable.read();
     if let Some(blobs) = blobs_opt.as_ref() {
         blobs.iter().try_for_each(|blob| {
