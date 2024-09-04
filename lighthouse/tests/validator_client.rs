@@ -377,6 +377,13 @@ fn metrics_port_flag() {
         .with_config(|config| assert_eq!(config.http_metrics.listen_port, 9090));
 }
 #[test]
+fn metrics_port_flag_default() {
+    CommandLineTest::new()
+        .flag("metrics", None)
+        .run()
+        .with_config(|config| assert_eq!(config.http_metrics.listen_port, 5064));
+}
+#[test]
 fn metrics_allow_origin_flag() {
     CommandLineTest::new()
         .flag("metrics", None)
