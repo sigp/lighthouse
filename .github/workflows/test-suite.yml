@@ -165,6 +165,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TEST_FEATURES: portable,ci_logger
+      CI_LOGGER_DIR: ${{ runner.temp }}/ci_logs
     steps:
     - uses: actions/checkout@v4
     - name: Get latest version of stable Rust
@@ -173,8 +175,16 @@ jobs:
         channel: stable
         cache-target: release
         bins: cargo-nextest
+    - name: Create CI logger dir
+      run: mkdir ${{ runner.temp }}/ci_logs
     - name: Run network tests for all known forks
       run: make test-network
+    - name: Upload logs
+      uses: actions/upload-artifact@v4
+      with:
+        name: ci_logs
+        path: ${{ runner.temp }}/ci_logs
+
   slasher-tests:
     name: slasher-tests
     needs: [check-labels]

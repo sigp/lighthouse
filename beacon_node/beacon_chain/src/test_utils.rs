@@ -43,13 +43,15 @@ use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slog::{o, Drain, Logger};
 use slog_async::Async;
-use slog_term::{FullFormat, TermDecorator};
+use slog_term::{FullFormat, PlainSyncDecorator, TermDecorator};
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::fs::{File, OpenOptions};
+use std::io::BufWriter;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
@@ -2601,15 +2603,52 @@ pub struct MakeAttestationOptions {
     pub fork: Fork,
 }
 
-pub fn build_log(level: slog::Level, enabled: bool) -> Logger {
-    let decorator = TermDecorator::new().build();
-    let drain = FullFormat::new(decorator).build().fuse();
-    let drain = Async::new(drain).build().fuse();
+pub enum LoggerType {
+    Test,
+    CI,
+    Null,
+}
 
-    if enabled {
-        Logger::root(drain.filter_level(level).fuse(), o!())
-    } else {
-        Logger::root(drain.filter(|_| false).fuse(), o!())
+fn test_decorator() -> TermDecorator {
+    TermDecorator::new().build()
+}
+
+fn ci_decorator() -> PlainSyncDecorator<BufWriter<File>> {
+    let log_dir = std::env::var("CI_LOGGER_DIR").unwrap_or_else(|e| {
+        panic!("CI_LOGGER_DIR env var must be defined when using ci_logger: {e:?}");
+    });
+    let test_name = std::thread::current().name().unwrap().to_string();
+    let log_path = format!("/{log_dir}/{test_name}.log");
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(true)
+        .open(log_path)
+        .unwrap();
+    let file = BufWriter::new(file);
+    PlainSyncDecorator::new(file)
+}
+
+pub fn build_log(level: slog::Level, logger_type: LoggerType) -> Logger {
+    match logger_type {
+        LoggerType::Test => {
+            let decorator = test_decorator();
+            let drain = FullFormat::new(decorator).build().fuse();
+            let drain = Async::new(drain).build().fuse();
+            Logger::root(drain.filter_level(level).fuse(), o!())
+        }
+        LoggerType::CI => {
+            let decorator = ci_decorator();
+            let drain = FullFormat::new(decorator).build().fuse();
+            let drain = Async::new(drain).build().fuse();
+            Logger::root(drain.filter_level(level).fuse(), o!())
+        }
+        LoggerType::Null => {
+            let decorator = test_decorator();
+            let drain = FullFormat::new(decorator).build().fuse();
+            let drain = Async::new(drain).build().fuse();
+            Logger::root(drain.filter(|_| false).fuse(), o!())
+        }
     }
 }
 
