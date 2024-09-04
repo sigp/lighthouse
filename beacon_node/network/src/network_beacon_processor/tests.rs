@@ -256,7 +256,7 @@ impl TestRig {
         assert!(beacon_processor.is_ok());
         let block = next_block_tuple.0;
         let blob_sidecars = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
-            Some(BlobSidecar::build_sidecars(blobs, &block, kzg_proofs).unwrap())
+            Some(BlobSidecar::build_sidecars(blobs, &block, kzg_proofs, &chain.spec).unwrap())
         } else {
             None
         };
@@ -341,7 +341,7 @@ impl TestRig {
     }
     pub fn enqueue_single_lookup_rpc_blobs(&self) {
         if let Some(blobs) = self.next_blobs.clone() {
-            let blobs = FixedBlobSidecarList::from(blobs.into_iter().map(Some).collect::<Vec<_>>());
+            let blobs = FixedBlobSidecarList::new(blobs.into_iter().map(Some).collect::<Vec<_>>());
             self.network_beacon_processor
                 .send_rpc_blobs(
                     self.next_block.canonical_root(),
@@ -1100,7 +1100,12 @@ async fn test_blobs_by_range() {
             .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
             .unwrap();
         blob_count += root
-            .map(|root| rig.chain.get_blobs(&root).unwrap_or_default().len())
+            .map(|root| {
+                rig.chain
+                    .get_blobs(&root)
+                    .map(|list| list.len())
+                    .unwrap_or(0)
+            })
             .unwrap_or(0);
     }
     let mut actual_count = 0;
