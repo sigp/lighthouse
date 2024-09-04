@@ -253,7 +253,7 @@ pub struct RuntimeFixedList<T> {
     len: usize,
 }
 
-impl<T: Clone> RuntimeFixedList<T> {
+impl<T: Clone + Default> RuntimeFixedList<T> {
     pub fn new(vec: Vec<T>) -> Self {
         let len = vec.len();
         Self { vec, len }
@@ -277,6 +277,7 @@ impl<T: Clone> RuntimeFixedList<T> {
 
     pub fn take(&mut self) -> Self {
         let new = std::mem::take(&mut self.vec);
+        *self = Self::new(vec![T::default(); self.len]);
         Self {
             vec: new,
             len: self.len,
