@@ -717,6 +717,14 @@ impl<E: EthSpec> PeerDB<E> {
             },
         );
 
+        if supernode {
+            let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
+            let all_subnets = (0..spec.data_column_sidecar_subnet_count)
+                .map(|csc| csc.into())
+                .collect();
+            peer_info.set_custody_subnets(all_subnets);
+        }
+
         peer_id
     }
 
