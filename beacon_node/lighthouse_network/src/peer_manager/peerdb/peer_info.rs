@@ -2,20 +2,18 @@ use super::client::Client;
 use super::score::{PeerAction, Score, ScoreState};
 use super::sync_status::SyncStatus;
 use crate::discovery::Eth2Enr;
-use crate::{rpc::MetaData, types::Subnet, PeerId};
-use discv5::enr::NodeId;
+use crate::{rpc::MetaData, types::Subnet};
 use discv5::Enr;
 use libp2p::core::multiaddr::{Multiaddr, Protocol};
 use serde::{
     ser::{SerializeStruct, Serializer},
     Serialize,
 };
-use slog::{debug, error, Logger};
 use std::collections::HashSet;
 use std::net::IpAddr;
 use std::time::Instant;
 use strum::AsRefStr;
-use types::{ChainSpec, DataColumnSubnetId, EthSpec};
+use types::{DataColumnSubnetId, EthSpec};
 use PeerConnectionStatus::*;
 
 /// Information about a given connected peer.
@@ -359,26 +357,7 @@ impl<E: EthSpec> PeerInfo<E> {
 
     /// Sets an explicit value for the meta data.
     // VISIBILITY: The peer manager is able to adjust the meta_data
-    pub(in crate::peer_manager) fn set_meta_data(
-        &mut self,
-        meta_data: MetaData<E>,
-        node_id_opt: Option<NodeId>,
-        peer_id: &PeerId,
-        spec: &ChainSpec,
-        log: &Logger,
-    ) {
-        // If we don't have a node id, we cannot compute the custody duties anyway
-        let Some(node_id) = node_id_opt else {
-            self.meta_data = Some(meta_data);
-            return;
-        };
-
-        if spec.is_peer_das_scheduled() {
-            let custody_subnets =
-                self.compute_custody_subnets_from_metadata(node_id, peer_id, &meta_data, spec, log);
-            self.set_custody_subnets(custody_subnets);
-        }
-
+    pub(in crate::peer_manager) fn set_meta_data(&mut self, meta_data: MetaData<E>) {
         self.meta_data = Some(meta_data);
     }
 
@@ -387,7 +366,10 @@ impl<E: EthSpec> PeerInfo<E> {
         self.connection_status = connection_status
     }
 
-    fn set_custody_subnets(&mut self, custody_subnets: HashSet<DataColumnSubnetId>) {
+    pub(in crate::peer_manager) fn set_custody_subnets(
+        &mut self,
+        custody_subnets: HashSet<DataColumnSubnetId>,
+    ) {
         self.custody_subnets = custody_subnets
     }
 
@@ -498,47 +480,6 @@ impl<E: EthSpec> PeerInfo<E> {
                 self.connection_direction = Some(ConnectionDirection::Outgoing);
             }
         }
-    }
-
-    fn compute_custody_subnets_from_metadata(
-        &mut self,
-        node_id: NodeId,
-        peer_id: &PeerId,
-        metadata: &MetaData<E>,
-        spec: &ChainSpec,
-        log: &Logger,
-    ) -> HashSet<DataColumnSubnetId> {
-        // fallback to `custody_requirement` if `MetaData` received isn't a V3 variant
-        let custody_subnet_count = metadata
-            .custody_subnet_count()
-            .copied()
-            .unwrap_or_else(|_| {
-                error!(
-                    log,
-                    "Expected MetaDataV3 from peer but got V2";
-                    "info" => "Falling back to default custody requirement",
-                    "peer_id" => %peer_id,
-                );
-                spec.custody_requirement
-            });
-
-        DataColumnSubnetId::compute_custody_subnets::<E>(node_id.raw(), custody_subnet_count, spec)
-            .map(|subnets| subnets.collect())
-            .unwrap_or_else(|e| {
-                // This handles the scenario where a peer supplies an invalid `csc` value,
-                // greater than `data_column_sidecar_subnet_count`.
-                // TODO(das): Should we penalise peer?
-                debug!(
-                    log,
-                    "Unable to compute peer custody subnets from metadata";
-                    "info" => "Falling back to default custody requirement subnets",
-                    "peer_id" => %peer_id,
-                    "custody_subnet_count" => custody_subnet_count,
-                    "error" => ?e
-                );
-                DataColumnSubnetId::compute_custody_requirement_subnets::<E>(node_id.raw(), spec)
-                    .collect()
-            })
     }
 
     #[cfg(test)]
