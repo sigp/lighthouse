@@ -68,7 +68,7 @@ pub async fn run<'a>(config: ListConfig) -> Result<String, String> {
         vc_token_path,
     } = config;
 
-    let (http_client, _keystores) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
+    let (_, validators) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
 
     let mut result = String::new();
 
