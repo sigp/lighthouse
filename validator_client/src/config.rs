@@ -236,10 +236,6 @@ impl Config {
             config.beacon_nodes_tls_certs = Some(tls_certs.iter().map(PathBuf::from).collect());
         }
 
-        if let Some(tls_certs) = parse_optional::<String>(cli_args, "beacon-nodes-tls-certs")? {
-            config.beacon_nodes_tls_certs = Some(tls_certs.split(',').map(PathBuf::from).collect());
-        }
-
         config.distributed = validator_client_config.distributed;
 
         if validator_client_config.disable_run_on_all {
@@ -348,6 +344,7 @@ impl Config {
         config.enable_doppelganger_protection =
             validator_client_config.enable_doppelganger_protection;
         config.builder_proposals = validator_client_config.builder_proposals;
+        config.prefer_builder_proposals = validator_client_config.prefer_builder_proposals;
 
         if validator_client_config.produce_block_v3 {
             warn!(
@@ -361,8 +358,6 @@ impl Config {
 
         config.builder_registration_timestamp_override =
             validator_client_config.builder_registration_timestamp_override;
-
-        config.prefer_builder_proposals = validator_client_config.prefer_builder_proposals;
 
         config.builder_boost_factor = validator_client_config.builder_boost_factor;
         config.enable_latency_measurement_service =
