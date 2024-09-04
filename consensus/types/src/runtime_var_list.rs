@@ -10,6 +10,11 @@ use std::slice::SliceIndex;
 /// An ordered, heap-allocated, variable-length, homogeneous collection of `T`, with no more than
 /// `max_len` values.
 ///
+/// In cases where the `max_length` of the container is unknown at time of initialization, we provide
+/// a `Self::empty_uninitialized` constructor that initializes a runtime list without setting the max_len.
+///
+/// To ensure there are no inconsistent states, we do not allow any mutating operation if `max_len` is not set.
+///
 /// ## Example
 ///
 /// ```
@@ -35,6 +40,16 @@ use std::slice::SliceIndex;
 ///
 /// // Push a value to if it _does_ exceed the maximum.
 /// assert!(long.push(6).is_err());
+///
+/// let mut uninit = RuntimeVariableList::empty_unitialized();
+/// assert!(uninit.push(5).is_err());
+///
+/// // Set max_len to allow mutation.
+/// uninit.set_max_len(5usize);
+///
+/// uninit.push(5).unwrap();
+/// assert_eq!(&uninit[..], &[5]);
+///
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
 #[derivative(PartialEq, Eq, Hash(bound = "T: std::hash::Hash"))]
@@ -73,7 +88,7 @@ impl<T> RuntimeVariableList<T> {
         }
     }
 
-    /// Create an empty list.
+    /// Create an empty list with the given `max_len`.
     pub fn empty(max_len: usize) -> Self {
         Self {
             vec: vec![],
@@ -95,7 +110,7 @@ impl<T> RuntimeVariableList<T> {
     /// Returns an instance of `Self` with max_len = None.
     ///
     /// No mutating operation can be performed on an uninitialized instance
-    /// without first setting max_len.
+    /// without first setting `max_len`.
     pub fn empty_uninitialized() -> Self {
         Self {
             vec: vec![],
@@ -129,7 +144,7 @@ impl<T> RuntimeVariableList<T> {
     /// Returns `Err(())` when appending `value` would exceed the maximum length.
     pub fn push(&mut self, value: T) -> Result<(), Error> {
         let Some(max_len) = self.max_len else {
-            // TODO(pawan): set a better error
+            // TODO(pawan): set a better error?
             return Err(Error::MissingLengthInformation);
         };
         if self.vec.len() < max_len {
@@ -247,6 +262,7 @@ where
     }
 }
 
+/// Emulates a SSZ `Vector`.
 #[derive(Clone, Debug)]
 pub struct RuntimeFixedList<T> {
     vec: Vec<T>,
@@ -267,6 +283,7 @@ impl<T: Clone + Default> RuntimeFixedList<T> {
         self.vec.as_slice()
     }
 
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.len
     }

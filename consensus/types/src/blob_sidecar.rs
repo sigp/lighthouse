@@ -265,7 +265,7 @@ impl<E: EthSpec> BlobSidecar<E> {
 }
 
 pub type BlobSidecarList<E> = RuntimeVariableList<Arc<BlobSidecar<E>>>;
-/// Alias for a non length-constrained list of `BlobSidecar`s. 
+/// Alias for a non length-constrained list of `BlobSidecar`s.
 pub type FixedBlobSidecarList<E> = RuntimeFixedList<Option<Arc<BlobSidecar<E>>>>;
 pub type BlobsList<E> = VariableList<Blob<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 

@@ -27,7 +27,7 @@ pub const MAX_ERROR_LEN: u64 = 256;
 /// The max number of blobs we expect in the configs to set for compile time params.
 /// Note: This value is an estimate that we should use only for rate limiting,
 /// bounds checking and other non-consensus critical operations.
-/// 
+///
 /// For exact value, we should always check the chainspec.
 pub const MAX_BLOBS_PER_BLOCK_CEILING: u64 = 16;
 
@@ -335,11 +335,11 @@ pub struct BlobsByRangeRequest {
 impl BlobsByRangeRequest {
     /// This function provides an upper bound on number of blobs expected in
     /// a certain slot range.
-    /// 
+    ///
     /// Note: **must not** use for anything consensus critical, only for
-    /// bounds checking and rate limiting. 
+    /// bounds checking and rate limiting.
     pub fn max_blobs_requested<E: EthSpec>(&self) -> u64 {
-        self.count.saturating_mul(MAX_BLOBS_PER_BLOCK_CEILING as u64)
+        self.count.saturating_mul(MAX_BLOBS_PER_BLOCK_CEILING)
     }
 }
 

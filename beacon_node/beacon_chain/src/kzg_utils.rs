@@ -188,8 +188,9 @@ fn build_data_column_sidecars<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<DataColumnSidecarList<E>, String> {
     let number_of_columns = spec.number_of_columns;
-    let max_blobs_per_block =
-        spec.max_blobs_per_block(signed_block_header.message.slot.epoch(E::slots_per_epoch())) as usize;
+    let max_blobs_per_block = spec
+        .max_blobs_per_block(signed_block_header.message.slot.epoch(E::slots_per_epoch()))
+        as usize;
     let mut columns = vec![Vec::with_capacity(max_blobs_per_block); number_of_columns];
     let mut column_kzg_proofs = vec![Vec::with_capacity(max_blobs_per_block); number_of_columns];
 
