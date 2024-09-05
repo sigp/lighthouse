@@ -244,7 +244,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
 
     pub fn block_body_merkle_proof(&self, generalized_index: usize) -> Result<Vec<Hash256>, Error> {
         let field_index = match generalized_index {
-            | light_client_update::EXECUTION_PAYLOAD_INDEX => {
+            light_client_update::EXECUTION_PAYLOAD_INDEX => {
                 // Execution payload is a top-level field, subtract off the generalized indices
                 // for the internal nodes. Result should be 9, the field offset of the execution
                 // payload in the `BeaconBlockBody`:
@@ -257,11 +257,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         };
 
         let leaves = self.body_merkle_leaves();
-        let depth = match self {
-            BeaconBlockBodyRef::Electra(_) =>light_client_update::EXECUTION_PAYLOAD_PROOF_LEN_ELECTRA,
-            _ => light_client_update::EXECUTION_PAYLOAD_PROOF_LEN,
-            // BeaconBlockBodyRef::Electra(_) => light_client_update::EXECUTION_PAYLOAD_PROOF_LEN_ELECTRA,
-        };
+        let depth = light_client_update::EXECUTION_PAYLOAD_PROOF_LEN;
         let tree = merkle_proof::MerkleTree::create(&leaves, depth);
         let (_, proof) = tree.generate_proof(field_index, depth)?;
 

@@ -60,10 +60,8 @@ pub struct LightClientHeader<E: EthSpec> {
     )]
     pub execution: ExecutionPayloadHeaderElectra<E>,
 
-    #[superstruct(only(Capella, Deneb),partial_getter(rename = "execution_branch_capella"))]
+    #[superstruct(only(Capella, Deneb, Electra))]
     pub execution_branch: FixedVector<Hash256, ExecutionPayloadProofLen>,
-    #[superstruct(only(Electra),partial_getter(rename = "execution_branch_electra"))]
-    pub execution_branch: FixedVector<Hash256, ExecutionPayloadProofLenElectra>,
 
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
