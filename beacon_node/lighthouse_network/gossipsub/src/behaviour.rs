@@ -2716,7 +2716,7 @@ where
             };
 
             // Only gossipsub 1.2 peers support IDONTWANT.
-            if peer.kind != PeerKind::Gossipsubv1_2_beta {
+            if peer.kind != PeerKind::Gossipsubv1_2 {
                 continue;
             }
 
