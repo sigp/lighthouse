@@ -1,6 +1,7 @@
 //! Implementation of Lighthouse's peer management system.
 
 use crate::discovery::enr_ext::EnrExt;
+use crate::discovery::peer_id_to_node_id;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::service::TARGET_SUBNET_PEERS;
 use crate::{error, metrics, Gossipsub};
@@ -530,7 +531,10 @@ impl<E: EthSpec> PeerManager<E> {
                 RPCResponseErrorCode::Unknown => PeerAction::HighToleranceError,
                 RPCResponseErrorCode::ResourceUnavailable => {
                     // Don't ban on this because we want to retry with a block by root request.
-                    if matches!(protocol, Protocol::BlobsByRoot) {
+                    if matches!(
+                        protocol,
+                        Protocol::BlobsByRoot | Protocol::DataColumnsByRoot
+                    ) {
                         return;
                     }
 
@@ -713,7 +717,8 @@ impl<E: EthSpec> PeerManager<E> {
                 debug!(self.log, "Obtained peer's metadata";
                     "peer_id" => %peer_id, "new_seq_no" => meta_data.seq_number());
             }
-            peer_info.set_meta_data(meta_data);
+            let node_id_opt = peer_id_to_node_id(peer_id).ok();
+            peer_info.set_meta_data(meta_data, node_id_opt, &self.network_globals.spec);
         } else {
             error!(self.log, "Received METADATA from an unknown peer";
                 "peer_id" => %peer_id);
@@ -1385,7 +1390,8 @@ mod tests {
             ..Default::default()
         };
         let log = build_log(slog::Level::Debug, false);
-        let globals = NetworkGlobals::new_test_globals(vec![], &log);
+        let spec = E::default_spec();
+        let globals = NetworkGlobals::new_test_globals(vec![], &log, spec);
         PeerManager::new(config, Arc::new(globals), &log).unwrap()
     }
 
@@ -1399,7 +1405,8 @@ mod tests {
             ..Default::default()
         };
         let log = build_log(slog::Level::Debug, false);
-        let globals = NetworkGlobals::new_test_globals(trusted_peers, &log);
+        let spec = E::default_spec();
+        let globals = NetworkGlobals::new_test_globals(trusted_peers, &log, spec);
         PeerManager::new(config, Arc::new(globals), &log).unwrap()
     }
 
@@ -1673,7 +1680,11 @@ mod tests {
             .write()
             .peer_info_mut(&peer0)
             .unwrap()
-            .set_meta_data(MetaData::V2(metadata));
+            .set_meta_data(
+                MetaData::V2(metadata),
+                None,
+                &peer_manager.network_globals.spec,
+            );
         peer_manager
             .network_globals
             .peers
@@ -1693,7 +1704,11 @@ mod tests {
             .write()
             .peer_info_mut(&peer2)
             .unwrap()
-            .set_meta_data(MetaData::V2(metadata));
+            .set_meta_data(
+                MetaData::V2(metadata),
+                None,
+                &peer_manager.network_globals.spec,
+            );
         peer_manager
             .network_globals
             .peers
@@ -1713,7 +1728,11 @@ mod tests {
             .write()
             .peer_info_mut(&peer4)
             .unwrap()
-            .set_meta_data(MetaData::V2(metadata));
+            .set_meta_data(
+                MetaData::V2(metadata),
+                None,
+                &peer_manager.network_globals.spec,
+            );
         peer_manager
             .network_globals
             .peers
@@ -1787,7 +1806,11 @@ mod tests {
                 .write()
                 .peer_info_mut(&peer)
                 .unwrap()
-                .set_meta_data(MetaData::V2(metadata));
+                .set_meta_data(
+                    MetaData::V2(metadata),
+                    None,
+                    &peer_manager.network_globals.spec,
+                );
             peer_manager
                 .network_globals
                 .peers
@@ -1911,7 +1934,11 @@ mod tests {
                 .write()
                 .peer_info_mut(&peer)
                 .unwrap()
-                .set_meta_data(MetaData::V2(metadata));
+                .set_meta_data(
+                    MetaData::V2(metadata),
+                    None,
+                    &peer_manager.network_globals.spec,
+                );
             let long_lived_subnets = peer_manager
                 .network_globals
                 .peers
@@ -2020,7 +2047,11 @@ mod tests {
                 .write()
                 .peer_info_mut(&peer)
                 .unwrap()
-                .set_meta_data(MetaData::V2(metadata));
+                .set_meta_data(
+                    MetaData::V2(metadata),
+                    None,
+                    &peer_manager.network_globals.spec,
+                );
             let long_lived_subnets = peer_manager
                 .network_globals
                 .peers
@@ -2186,7 +2217,11 @@ mod tests {
                 .write()
                 .peer_info_mut(&peer)
                 .unwrap()
-                .set_meta_data(MetaData::V2(metadata));
+                .set_meta_data(
+                    MetaData::V2(metadata),
+                    None,
+                    &peer_manager.network_globals.spec,
+                );
             let long_lived_subnets = peer_manager
                 .network_globals
                 .peers
@@ -2343,7 +2378,11 @@ mod tests {
 
                     let mut peer_db = peer_manager.network_globals.peers.write();
                     let peer_info = peer_db.peer_info_mut(&condition.peer_id).unwrap();
-                    peer_info.set_meta_data(MetaData::V2(metadata));
+                    peer_info.set_meta_data(
+                        MetaData::V2(metadata),
+                        None,
+                        &peer_manager.network_globals.spec,
+                    );
                     peer_info.set_gossipsub_score(condition.gossipsub_score);
                     peer_info.add_to_score(condition.score);
 

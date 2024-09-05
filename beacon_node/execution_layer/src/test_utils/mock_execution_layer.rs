@@ -4,10 +4,10 @@ use crate::{
     },
     *,
 };
-use keccak_hash::H256;
+use alloy_primitives::B256 as H256;
 use kzg::Kzg;
 use tempfile::NamedTempFile;
-use types::MainnetEthSpec;
+use types::{FixedBytesExtended, MainnetEthSpec};
 
 pub struct MockExecutionLayer<E: EthSpec> {
     pub server: MockServer<E>,
@@ -19,7 +19,7 @@ pub struct MockExecutionLayer<E: EthSpec> {
 impl<E: EthSpec> MockExecutionLayer<E> {
     pub fn default_params(executor: TaskExecutor) -> Self {
         let mut spec = MainnetEthSpec::default_spec();
-        spec.terminal_total_difficulty = DEFAULT_TERMINAL_DIFFICULTY.into();
+        spec.terminal_total_difficulty = Uint256::from(DEFAULT_TERMINAL_DIFFICULTY);
         spec.terminal_block_hash = ExecutionBlockHash::zero();
         spec.terminal_block_hash_activation_epoch = Epoch::new(0);
         Self::new(

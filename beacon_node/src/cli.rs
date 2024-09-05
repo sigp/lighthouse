@@ -4,6 +4,7 @@ use clap::{builder::ArgPredicate, crate_version, Arg, ArgAction, ArgGroup, Comma
 use clap_utils::{get_color_style, FLAG_HEADER};
 use strum::VariantNames;
 
+#[allow(clippy::large_stack_frames)]
 pub fn cli_app() -> Command {
     Command::new("beacon_node")
         .display_order(0)
@@ -65,6 +66,25 @@ pub fn cli_app() -> Command {
                         NOTE: this is an experimental flag and may change any time without notice!")
                 .display_order(0)
                 .hide(true)
+        )
+        .arg(
+            // TODO(das): remove this before PeerDAS release
+            Arg::new("malicious-withhold-count")
+                .long("malicious-withhold-count")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .help("TESTING ONLY do not use this")
+                .hide(true)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("enable-sampling")
+                .long("enable-sampling")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .help("Enable peer sampling on data columns. Disabled by default.")
+                .hide(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("subscribe-all-subnets")

@@ -1,6 +1,7 @@
 use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use bls::FixedBytesExtended;
 pub use lighthouse_metrics::*;
 use slot_clock::SlotClock;
 use std::sync::LazyLock;
@@ -1646,13 +1647,21 @@ pub static BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION: LazyLock<Result<Histogram>>
             "Time taken to compute blob sidecar inclusion proof",
         )
     });
-pub static DATA_COLUMN_SIDECAR_COMPUTATION: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram_with_buckets(
+pub static DATA_COLUMN_SIDECAR_COMPUTATION: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
+    try_create_histogram_vec_with_buckets(
         "data_column_sidecar_computation_seconds",
         "Time taken to compute data column sidecar, including cells, proofs and inclusion proof",
-        Ok(vec![0.04, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0]),
+        Ok(vec![0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+        &["blob_count"],
     )
 });
+pub static DATA_COLUMN_SIDECAR_INCLUSION_PROOF_VERIFICATION: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "data_column_sidecar_inclusion_proof_verification_seconds",
+            "Time taken to verify data_column sidecar inclusion proof",
+        )
+    });
 pub static DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
@@ -1672,6 +1681,13 @@ pub static DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histog
         try_create_histogram(
             "beacon_data_column_sidecar_gossip_verification_seconds",
             "Full runtime of data column sidecars gossip verification",
+        )
+    });
+pub static DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_blobs_column_sidecar_processing_successes_total",
+            "Number of data column sidecars verified for gossip",
         )
     });
 
@@ -1854,6 +1870,20 @@ pub static DATA_AVAILABILITY_OVERFLOW_STORE_CACHE_SIZE: LazyLock<Result<IntGauge
         try_create_int_gauge(
             "data_availability_overflow_store_cache_size",
             "Number of entries in the data availability overflow store cache.",
+        )
+    });
+pub static DATA_AVAILABILITY_RECONSTRUCTION_TIME: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "data_availability_reconstruction_time_seconds",
+            "Time taken to reconstruct columns",
+        )
+    });
+pub static DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "data_availability_reconstructed_columns_total",
+            "Total count of reconstructed columns",
         )
     });
 

@@ -82,9 +82,10 @@ impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
                 {
                     match self.protocol.versioned_protocol {
                         SupportedProtocol::MetaDataV1 => res.metadata_v1().as_ssz_bytes(),
-                        // We always send V2 metadata responses from the behaviour
-                        // No change required.
                         SupportedProtocol::MetaDataV2 => res.metadata_v2().as_ssz_bytes(),
+                        SupportedProtocol::MetaDataV3 => {
+                            res.metadata_v3(&self.fork_context.spec).as_ssz_bytes()
+                        }
                         _ => unreachable!(
                             "We only send metadata responses on negotiating metadata requests"
                         ),
@@ -135,6 +136,9 @@ impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
         }
         if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV2 {
             return Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v2())));
+        }
+        if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV3 {
+            return Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v3())));
         }
         let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
             return Ok(None);
@@ -419,13 +423,19 @@ fn context_bytes<E: EthSpec>(
                         }
                     };
                 }
-                RPCResponse::BlobsByRange(_)
-                | RPCResponse::BlobsByRoot(_)
-                | RPCResponse::DataColumnsByRoot(_)
-                | RPCResponse::DataColumnsByRange(_) => {
-                    // TODO(das): If DataColumnSidecar is defined as an Electra type, update the
-                    // context bytes to point to ForkName::Electra
+                RPCResponse::BlobsByRange(_) | RPCResponse::BlobsByRoot(_) => {
                     return fork_context.to_context_bytes(ForkName::Deneb);
+                }
+                RPCResponse::DataColumnsByRoot(d) | RPCResponse::DataColumnsByRange(d) => {
+                    // TODO(das): Remove deneb fork after `peerdas-devnet-2`.
+                    return if matches!(
+                        fork_context.spec.fork_name_at_slot::<E>(d.slot()),
+                        ForkName::Deneb
+                    ) {
+                        fork_context.to_context_bytes(ForkName::Deneb)
+                    } else {
+                        fork_context.to_context_bytes(ForkName::Electra)
+                    };
                 }
                 RPCResponse::LightClientBootstrap(lc_bootstrap) => {
                     return lc_bootstrap
@@ -522,6 +532,9 @@ fn handle_rpc_request<E: EthSpec>(
                 )?,
             })))
         }
+        SupportedProtocol::DataColumnsByRangeV1 => Ok(Some(InboundRequest::DataColumnsByRange(
+            DataColumnsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+        ))),
         SupportedProtocol::DataColumnsByRootV1 => Ok(Some(InboundRequest::DataColumnsByRoot(
             DataColumnsByRootRequest {
                 data_column_ids: RuntimeVariableList::from_ssz_bytes(
@@ -529,9 +542,6 @@ fn handle_rpc_request<E: EthSpec>(
                     spec.max_request_data_column_sidecars as usize,
                 )?,
             },
-        ))),
-        SupportedProtocol::DataColumnsByRangeV1 => Ok(Some(InboundRequest::DataColumnsByRange(
-            DataColumnsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
         SupportedProtocol::PingV1 => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
@@ -549,6 +559,15 @@ fn handle_rpc_request<E: EthSpec>(
         }
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
+        SupportedProtocol::MetaDataV3 => {
+            if !decoded_buffer.is_empty() {
+                Err(RPCError::InternalError(
+                    "Metadata requests shouldn't reach decoder",
+                ))
+            } else {
+                Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v3())))
+            }
+        }
         SupportedProtocol::MetaDataV2 => {
             if !decoded_buffer.is_empty() {
                 Err(RPCError::InternalError(
@@ -712,7 +731,10 @@ fn handle_rpc_response<E: EthSpec>(
                 ),
             )),
         },
-        // MetaData V2 responses have no context bytes, so behave similarly to V1 responses
+        // MetaData V2/V3 responses have no context bytes, so behave similarly to V1 responses
+        SupportedProtocol::MetaDataV3 => Ok(Some(RPCResponse::MetaData(MetaData::V3(
+            MetaDataV3::from_ssz_bytes(decoded_buffer)?,
+        )))),
         SupportedProtocol::MetaDataV2 => Ok(Some(RPCResponse::MetaData(MetaData::V2(
             MetaDataV2::from_ssz_bytes(decoded_buffer)?,
         )))),
@@ -813,8 +835,8 @@ mod tests {
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
     use types::{
         blob_sidecar::BlobIdentifier, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
-        BeaconBlockBellatrix, DataColumnIdentifier, EmptyBlock, Epoch, FullPayload, Signature,
-        Slot,
+        BeaconBlockBellatrix, DataColumnIdentifier, EmptyBlock, Epoch, FixedBytesExtended,
+        FullPayload, Signature, Slot,
     };
 
     type Spec = types::MainnetEthSpec;
@@ -904,9 +926,9 @@ mod tests {
     fn status_message() -> StatusMessage {
         StatusMessage {
             fork_digest: [0; 4],
-            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
-            head_root: Hash256::from_low_u64_be(0),
+            head_root: Hash256::zero(),
             head_slot: Slot::new(1),
         }
     }
@@ -981,6 +1003,15 @@ mod tests {
             seq_number: 1,
             attnets: EnrAttestationBitfield::<Spec>::default(),
             syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
+        })
+    }
+
+    fn metadata_v3() -> MetaData<Spec> {
+        MetaData::V3(MetaDataV3 {
+            seq_number: 1,
+            attnets: EnrAttestationBitfield::<Spec>::default(),
+            syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
+            custody_subnet_count: 1,
         })
     }
 
@@ -1215,6 +1246,17 @@ mod tests {
                 &chain_spec,
             ),
             Ok(Some(RPCResponse::MetaData(metadata()))),
+        );
+
+        // A MetaDataV3 still encodes as a MetaDataV2 since version is Version::V2
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::MetaDataV2,
+                RPCCodedResponse::Success(RPCResponse::MetaData(metadata_v3())),
+                ForkName::Base,
+                &chain_spec,
+            ),
+            Ok(Some(RPCResponse::MetaData(metadata_v2()))),
         );
 
         assert_eq!(
@@ -1645,9 +1687,9 @@ mod tests {
         // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
         let status_message_bytes = StatusMessage {
             fork_digest: [0; 4],
-            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
-            head_root: Hash256::from_low_u64_be(0),
+            head_root: Hash256::zero(),
             head_slot: Slot::new(1),
         }
         .as_ssz_bytes();
@@ -1768,9 +1810,9 @@ mod tests {
         // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
         let status_message_bytes = StatusMessage {
             fork_digest: [0; 4],
-            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
-            head_root: Hash256::from_low_u64_be(0),
+            head_root: Hash256::zero(),
             head_slot: Slot::new(1),
         }
         .as_ssz_bytes();

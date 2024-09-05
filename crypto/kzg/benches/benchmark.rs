@@ -11,9 +11,13 @@ pub fn bench_init_context(c: &mut Criterion) {
 
     c.bench_function(&format!("Initialize context rust_eth_kzg"), |b| {
         b.iter(|| {
-            const NUM_THREADS: usize = 1;
             let trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
-            DASContext::with_threads(&trusted_setup, NUM_THREADS)
+            DASContext::new(
+                &trusted_setup,
+                rust_eth_kzg::UsePrecomp::Yes {
+                    width: rust_eth_kzg::constants::RECOMMENDED_PRECOMP_WIDTH,
+                },
+            )
         })
     });
     c.bench_function(&format!("Initialize context c-kzg (4844)"), |b| {

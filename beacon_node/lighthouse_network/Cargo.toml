@@ -5,6 +5,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
 [dependencies]
+alloy-primitives = { workspace = true}
 discv5 = { workspace = true }
 gossipsub = { workspace = true }
 unsigned-varint = { version = "0.8", features = ["codec"] }
@@ -46,10 +47,10 @@ itertools = { workspace = true }
 
 # Local dependencies
 void = "1.0.2"
-libp2p-mplex = "0.41"
+libp2p-mplex = "0.42"
 
 [dependencies.libp2p]
-version = "0.53"
+version = "0.54"
 default-features = false
 features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "metrics", "quic", "upnp"]
 

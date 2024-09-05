@@ -1,5 +1,8 @@
+use crate::discovery::enr::PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY;
 use crate::discovery::CombinedKey;
-use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, Gossipsub, PeerId};
+use crate::{
+    metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Eth2Enr, Gossipsub, PeerId,
+};
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use rand::seq::SliceRandom;
 use score::{PeerAction, ReportSource, Score, ScoreState};
@@ -12,7 +15,7 @@ use std::{
     fmt::Formatter,
 };
 use sync_status::SyncStatus;
-use types::EthSpec;
+use types::{ChainSpec, DataColumnSubnetId, EthSpec};
 
 pub mod client;
 pub mod peer_info;
@@ -44,10 +47,16 @@ pub struct PeerDB<E: EthSpec> {
     disable_peer_scoring: bool,
     /// PeerDB's logger
     log: slog::Logger,
+    spec: ChainSpec,
 }
 
 impl<E: EthSpec> PeerDB<E> {
-    pub fn new(trusted_peers: Vec<PeerId>, disable_peer_scoring: bool, log: &slog::Logger) -> Self {
+    pub fn new(
+        trusted_peers: Vec<PeerId>,
+        disable_peer_scoring: bool,
+        log: &slog::Logger,
+        spec: ChainSpec,
+    ) -> Self {
         // Initialize the peers hashmap with trusted peers
         let peers = trusted_peers
             .into_iter()
@@ -59,6 +68,7 @@ impl<E: EthSpec> PeerDB<E> {
             banned_peers_count: BannedPeersCount::default(),
             disable_peer_scoring,
             peers,
+            spec,
         }
     }
 
@@ -242,6 +252,22 @@ impl<E: EthSpec> PeerDB<E> {
                     && info.on_subnet_metadata(&subnet)
                     && info.on_subnet_gossipsub(&subnet)
                     && info.is_good_gossipsub_peer()
+            })
+            .map(|(peer_id, _)| peer_id)
+    }
+
+    /// Returns an iterator of all good gossipsub peers that are supposed to be custodying
+    /// the given subnet id.
+    pub fn good_custody_subnet_peer(
+        &self,
+        subnet: DataColumnSubnetId,
+    ) -> impl Iterator<Item = &PeerId> {
+        self.peers
+            .iter()
+            .filter(move |(_, info)| {
+                // The custody_subnets hashset can be populated via enr or metadata
+                let is_custody_subnet_peer = info.is_assigned_to_custody_subnet(&subnet);
+                info.is_connected() && info.is_good_gossipsub_peer() && is_custody_subnet_peer
             })
             .map(|(peer_id, _)| peer_id)
     }
@@ -673,17 +699,34 @@ impl<E: EthSpec> PeerDB<E> {
     }
 
     /// Updates the connection state. MUST ONLY BE USED IN TESTS.
-    pub fn __add_connected_peer_testing_only(&mut self, peer_id: &PeerId) -> Option<BanOperation> {
+    pub fn __add_connected_peer_testing_only(
+        &mut self,
+        supernode: bool,
+        spec: &ChainSpec,
+    ) -> PeerId {
         let enr_key = CombinedKey::generate_secp256k1();
-        let enr = Enr::builder().build(&enr_key).unwrap();
+        let mut enr = Enr::builder().build(&enr_key).unwrap();
+        let peer_id = enr.peer_id();
+
+        if supernode {
+            enr.insert(
+                PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY,
+                &spec.data_column_sidecar_subnet_count,
+                &enr_key,
+            )
+            .expect("u64 can be encoded");
+        }
+
         self.update_connection_state(
-            peer_id,
+            &peer_id,
             NewConnectionState::Connected {
                 enr: Some(enr),
                 seen_address: Multiaddr::empty(),
                 direction: ConnectionDirection::Outgoing,
             },
-        )
+        );
+
+        peer_id
     }
 
     /// The connection state of the peer has been changed. Modify the peer in the db to ensure all
@@ -746,8 +789,16 @@ impl<E: EthSpec> PeerDB<E> {
                     seen_address,
                 },
             ) => {
-                // Update the ENR if one exists
+                // Update the ENR if one exists, and compute the custody subnets
                 if let Some(enr) = enr {
+                    let custody_subnet_count = enr.custody_subnet_count::<E>(&self.spec);
+                    let custody_subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
+                        enr.node_id().raw(),
+                        custody_subnet_count,
+                        &self.spec,
+                    )
+                    .collect::<HashSet<_>>();
+                    info.set_custody_subnets(custody_subnets);
                     info.set_enr(enr);
                 }
 
@@ -1298,7 +1349,8 @@ mod tests {
 
     fn get_db() -> PeerDB<M> {
         let log = build_log(slog::Level::Debug, false);
-        PeerDB::new(vec![], false, &log)
+        let spec = M::default_spec();
+        PeerDB::new(vec![], false, &log, spec)
     }
 
     #[test]
@@ -1997,7 +2049,8 @@ mod tests {
     fn test_trusted_peers_score() {
         let trusted_peer = PeerId::random();
         let log = build_log(slog::Level::Debug, false);
-        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer], false, &log);
+        let spec = M::default_spec();
+        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer], false, &log, spec);
 
         pdb.connect_ingoing(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
@@ -2021,7 +2074,8 @@ mod tests {
     fn test_disable_peer_scoring() {
         let peer = PeerId::random();
         let log = build_log(slog::Level::Debug, false);
-        let mut pdb: PeerDB<M> = PeerDB::new(vec![], true, &log);
+        let spec = M::default_spec();
+        let mut pdb: PeerDB<M> = PeerDB::new(vec![], true, &log, spec);
 
         pdb.connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 

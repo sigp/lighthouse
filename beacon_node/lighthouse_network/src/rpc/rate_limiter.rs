@@ -196,7 +196,6 @@ impl RPCRateLimiterBuilder {
         let blbrange_quota = self
             .blbrange_quota
             .ok_or("BlobsByRange quota not specified")?;
-
         let blbroots_quota = self
             .blbroot_quota
             .ok_or("BlobsByRoot quota not specified")?;
@@ -357,6 +356,8 @@ impl RPCRateLimiter {
         self.bbroots_rl.prune(time_since_start);
         self.blbrange_rl.prune(time_since_start);
         self.blbroot_rl.prune(time_since_start);
+        self.dcbrange_rl.prune(time_since_start);
+        self.dcbroot_rl.prune(time_since_start);
     }
 }
 
