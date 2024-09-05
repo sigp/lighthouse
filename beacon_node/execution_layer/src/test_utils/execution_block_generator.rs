@@ -954,6 +954,7 @@ mod test {
         let kzg = load_kzg()?;
         let (kzg_commitment, kzg_proof, blob) = load_test_blobs_bundle::<E>()?;
         let kzg_blob = kzg::Blob::from_bytes(blob.as_ref())
+            .map(Box::new)
             .map_err(|e| format!("Error converting blob to kzg blob: {e:?}"))?;
         kzg.verify_blob_kzg_proof(&kzg_blob, kzg_commitment, kzg_proof)
             .map_err(|e| format!("Invalid blobs bundle: {e:?}"))
