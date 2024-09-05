@@ -1179,7 +1179,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 StoreOp::DeleteSyncCommitteeBranch(block_root) => {
                     let key = get_key_for_col(
                         DBColumn::SyncCommitteeBranch.into(),
-                        block_root.as_bytes(),
+                        block_root.as_slice(),
                     );
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(key));
                 }
