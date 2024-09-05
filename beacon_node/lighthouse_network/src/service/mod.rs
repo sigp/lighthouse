@@ -1809,6 +1809,7 @@ impl<E: EthSpec> Network<E> {
                         self.inject_upnp_event(e);
                         None
                     }
+                    #[allow(unreachable_patterns)]
                     BehaviourEvent::ConnectionLimits(le) => void::unreachable(le),
                 },
                 SwarmEvent::ConnectionEstablished { .. } => None,
