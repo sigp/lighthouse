@@ -10,7 +10,10 @@ use sensitive_url::SensitiveUrl;
 use std::ops::Range;
 use std::time::Duration;
 use tree_hash::TreeHash;
-use types::{DepositData, EthSpec, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, Signature};
+use types::{
+    DepositData, EthSpec, FixedBytesExtended, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec,
+    Signature,
+};
 
 const DEPOSIT_CONTRACT_TREE_DEPTH: usize = 32;
 
