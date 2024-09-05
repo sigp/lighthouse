@@ -265,6 +265,8 @@ pub async fn convert_rejection<T: Reply>(res: Result<T, warp::Rejection>) -> Res
         Ok(response) => response.into_response(),
         Err(e) => match handle_rejection(e).await {
             Ok(reply) => reply.into_response(),
+            // We can simplify this once Rust 1.82 is MSRV
+            #[allow(unreachable_patterns)]
             Err(_) => warp::reply::with_status(
                 warp::reply::json(&"unhandled error"),
                 eth2::StatusCode::INTERNAL_SERVER_ERROR,
