@@ -19,6 +19,7 @@ pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::FullPayloadContents;
 use eth2::types::{builder_bid::SignedBuilderBid, BlobsBundle, ForkVersionedResponse};
 use ethers_core::types::Transaction as EthersTransaction;
+use fixed_bytes::UintExtended;
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
 use payload_status::process_payload_status;
@@ -1133,9 +1134,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 let relay_value = *relay.data.message.value();
 
                 let boosted_relay_value = match builder_boost_factor {
-                    Some(builder_boost_factor) => {
-                        (relay_value / 100).saturating_mul(builder_boost_factor.into())
-                    }
+                    Some(builder_boost_factor) => (relay_value / Uint256::from(100))
+                        .saturating_mul(Uint256::from(builder_boost_factor)),
                     None => relay_value,
                 };
 
@@ -2214,15 +2214,11 @@ fn verify_builder_bid<E: EthSpec>(
     let is_signature_valid = bid.data.verify_signature(spec);
     let header = &bid.data.message.header();
 
-    // Avoid logging values that we can't represent with our Prometheus library.
-    let payload_value_gwei = bid.data.message.value() / 1_000_000_000;
-    if payload_value_gwei <= Uint256::from(i64::MAX) {
-        metrics::set_gauge_vec(
-            &metrics::EXECUTION_LAYER_PAYLOAD_BIDS,
-            &[metrics::BUILDER],
-            payload_value_gwei.low_u64() as i64,
-        );
-    }
+    metrics::set_gauge_vec(
+        &metrics::EXECUTION_LAYER_PAYLOAD_BIDS,
+        &[metrics::BUILDER],
+        bid.data.message.value().to_i64(),
+    );
 
     let expected_withdrawals_root = payload_attributes
         .withdrawals()

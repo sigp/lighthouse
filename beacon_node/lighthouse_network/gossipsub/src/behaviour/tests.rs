@@ -220,6 +220,7 @@ where
         ConnectedPoint::Dialer {
             address,
             role_override: Endpoint::Dialer,
+            port_use: PortUse::Reuse,
         }
     } else {
         ConnectedPoint::Listener {
@@ -284,6 +285,7 @@ where
         let fake_endpoint = ConnectedPoint::Dialer {
             address: Multiaddr::empty(),
             role_override: Endpoint::Dialer,
+            port_use: PortUse::Reuse,
         }; // this is not relevant
            // peer_connections.connections should never be empty.
 
@@ -296,6 +298,7 @@ where
                 connection_id,
                 endpoint: &fake_endpoint,
                 remaining_established: active_connections,
+                cause: None,
             }));
         }
     }
@@ -635,6 +638,7 @@ fn test_join() {
             endpoint: &ConnectedPoint::Dialer {
                 address,
                 role_override: Endpoint::Dialer,
+                port_use: PortUse::Reuse,
             },
             failed_addresses: &[],
             other_established: 0,
@@ -4181,6 +4185,7 @@ fn test_scoring_p6() {
             endpoint: &ConnectedPoint::Dialer {
                 address: addr.clone(),
                 role_override: Endpoint::Dialer,
+                port_use: PortUse::Reuse,
             },
             failed_addresses: &[],
             other_established: 0,
@@ -4202,6 +4207,7 @@ fn test_scoring_p6() {
             endpoint: &ConnectedPoint::Dialer {
                 address: addr2.clone(),
                 role_override: Endpoint::Dialer,
+                port_use: PortUse::Reuse,
             },
             failed_addresses: &[],
             other_established: 1,
@@ -4232,6 +4238,7 @@ fn test_scoring_p6() {
         endpoint: &ConnectedPoint::Dialer {
             address: addr,
             role_override: Endpoint::Dialer,
+            port_use: PortUse::Reuse,
         },
         failed_addresses: &[],
         other_established: 2,

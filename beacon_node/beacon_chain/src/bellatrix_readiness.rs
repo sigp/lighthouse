@@ -64,7 +64,7 @@ impl MergeConfig {
     /// Instantiate `self` from the values in a `ChainSpec`.
     pub fn from_chainspec(spec: &ChainSpec) -> Self {
         let mut params = MergeConfig::default();
-        if spec.terminal_total_difficulty != Uint256::max_value() {
+        if spec.terminal_total_difficulty != Uint256::MAX {
             params.terminal_total_difficulty = Some(spec.terminal_total_difficulty);
         }
         if spec.terminal_block_hash != ExecutionBlockHash::zero() {

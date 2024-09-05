@@ -15,7 +15,7 @@ use itertools::Either;
 use slog::{debug, error, warn};
 use ssz_types::FixedVector;
 
-use lighthouse_metrics::inc_counter;
+use lighthouse_metrics::{inc_counter, TryExt};
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use types::blob_sidecar::{BlobSidecarError, FixedBlobSidecarList};
 use types::{
@@ -33,9 +33,9 @@ pub enum BlobsOrDataColumns<E: EthSpec> {
 }
 
 #[derive(Debug)]
-pub enum FetchEngineBlobError<E: EthSpec> {
+pub enum FetchEngineBlobError {
     BeaconStateError(BeaconStateError),
-    BlobProcessingError(BlockError<E>),
+    BlobProcessingError(BlockError),
     BlobSidecarError(BlobSidecarError),
     ExecutionLayerMissing,
     InternalError(String),
@@ -50,7 +50,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     publish_fn: impl FnOnce(BlobsOrDataColumns<T::EthSpec>) + Send + 'static,
-) -> Result<(), FetchEngineBlobError<T::EthSpec>> {
+) -> Result<(), FetchEngineBlobError> {
     let versioned_hashes =
         if let Ok(kzg_commitments) = block.message().body().blob_kzg_commitments() {
             kzg_commitments
@@ -131,12 +131,18 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
             .task_executor
             .spawn_handle(
                 async move {
+                    let mut timer = metrics::start_timer_vec(
+                        &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
+                        &[&blobs_cloned.len().to_string()],
+                    );
                     let blob_refs = blobs_cloned
                         .iter()
                         .filter_map(|b| b.as_ref().map(|b| &b.blob))
                         .collect::<Vec<_>>();
                     let data_columns_result =
-                        blobs_to_data_column_sidecars(&blob_refs, &block_cloned, &kzg, &spec);
+                        blobs_to_data_column_sidecars(&blob_refs, &block_cloned, &kzg, &spec)
+                            .discard_timer_on_break(&mut timer);
+                    drop(timer);
 
                     let all_data_columns = match data_columns_result {
                         Ok(d) => d,
@@ -243,7 +249,7 @@ fn build_blob_sidecars<E: EthSpec>(
     response: Vec<Option<BlobAndProofV1<E>>>,
     signed_block_header: SignedBeaconBlockHeader,
     kzg_commitments_proof: &FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
-) -> Result<FixedBlobSidecarList<E>, FetchEngineBlobError<E>> {
+) -> Result<FixedBlobSidecarList<E>, FetchEngineBlobError> {
     let mut fixed_blob_sidecar_list = FixedBlobSidecarList::default();
     for (i, blob_and_proof) in response
         .into_iter()

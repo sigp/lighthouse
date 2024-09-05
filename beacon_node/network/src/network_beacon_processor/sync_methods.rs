@@ -717,15 +717,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Helper function to handle a `BlockError` from `process_chain_segment`
-    fn handle_failed_chain_segment(
-        &self,
-        error: BlockError<T::EthSpec>,
-    ) -> Result<(), ChainSegmentFailed> {
+    fn handle_failed_chain_segment(&self, error: BlockError) -> Result<(), ChainSegmentFailed> {
         match error {
-            BlockError::ParentUnknown(block) => {
+            BlockError::ParentUnknown { parent_root, .. } => {
                 // blocks should be sequential and all parents should exist
                 Err(ChainSegmentFailed {
-                    message: format!("Block has an unknown parent: {}", block.parent_root()),
+                    message: format!("Block has an unknown parent: {}", parent_root),
                     // Peers are faulty if they send non-sequential blocks.
                     peer_action: Some(PeerAction::LowToleranceError),
                 })

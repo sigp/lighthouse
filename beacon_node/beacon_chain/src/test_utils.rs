@@ -1986,7 +1986,7 @@ where
         slot: Slot,
         block_root: Hash256,
         block_contents: SignedBlockContentsTuple<E>,
-    ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
+    ) -> Result<SignedBeaconBlockHash, BlockError> {
         self.set_current_slot(slot);
         let (block, blob_items) = block_contents;
 
@@ -2013,7 +2013,7 @@ where
     pub async fn process_block_result(
         &self,
         block_contents: SignedBlockContentsTuple<E>,
-    ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
+    ) -> Result<SignedBeaconBlockHash, BlockError> {
         let (block, blob_items) = block_contents;
 
         let sidecars = blob_items
@@ -2098,7 +2098,7 @@ where
             SignedBlockContentsTuple<E>,
             BeaconState<E>,
         ),
-        BlockError<E>,
+        BlockError,
     > {
         self.set_current_slot(slot);
         let (block_contents, new_state) = self.make_block(state, slot).await;
@@ -2144,7 +2144,7 @@ where
         state: BeaconState<E>,
         state_root: Hash256,
         validators: &[usize],
-    ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError<E>> {
+    ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError> {
         self.add_attested_block_at_slot_with_sync(
             slot,
             state,
@@ -2162,7 +2162,7 @@ where
         state_root: Hash256,
         validators: &[usize],
         sync_committee_strategy: SyncCommitteeStrategy,
-    ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError<E>> {
+    ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError> {
         let (block_hash, block, state) = self.add_block_at_slot(slot, state).await?;
         self.attest_block(&state, state_root, block_hash, &block.0, validators);
 
@@ -2627,6 +2627,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
 
     let mut block = SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(rng));
+
     let mut blob_sidecars = vec![];
 
     let bundle = match block {

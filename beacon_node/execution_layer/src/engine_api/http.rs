@@ -895,7 +895,7 @@ impl HttpJsonRpc {
             // Set the V1 payload values from the EE to be zero. This simulates
             // the pre-block-value functionality of always choosing the builder
             // block.
-            block_value: Uint256::zero(),
+            block_value: Uint256::ZERO,
         }))
     }
 
@@ -1433,7 +1433,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{MainnetEthSpec, Unsigned};
+    use types::{FixedBytesExtended, MainnetEthSpec, Unsigned};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,

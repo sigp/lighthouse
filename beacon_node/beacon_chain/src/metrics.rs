@@ -1,6 +1,7 @@
 use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use bls::FixedBytesExtended;
 pub use lighthouse_metrics::*;
 use slot_clock::SlotClock;
 use std::sync::LazyLock;
@@ -1652,11 +1653,12 @@ pub static BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION: LazyLock<Result<Histogram>>
             "Time taken to compute blob sidecar inclusion proof",
         )
     });
-pub static DATA_COLUMN_SIDECAR_COMPUTATION: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram_with_buckets(
+pub static DATA_COLUMN_SIDECAR_COMPUTATION: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
+    try_create_histogram_vec_with_buckets(
         "data_column_sidecar_computation_seconds",
         "Time taken to compute data column sidecar, including cells, proofs and inclusion proof",
-        Ok(vec![0.04, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0]),
+        Ok(vec![0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+        &["blob_count"],
     )
 });
 pub static DATA_COLUMN_SIDECAR_INCLUSION_PROOF_VERIFICATION: LazyLock<Result<Histogram>> =

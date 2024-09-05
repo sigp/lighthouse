@@ -18,7 +18,7 @@ use tokio::time::sleep;
 use types::payload::BlockProductionVersion;
 use types::{
     Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
-    ForkName, Hash256, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
+    FixedBytesExtended, ForkName, Hash256, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
 };
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -115,7 +115,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
         let mut spec = TEST_FORK.make_genesis_spec(MainnetEthSpec::default_spec());
-        spec.terminal_total_difficulty = Uint256::zero();
+        spec.terminal_total_difficulty = Uint256::ZERO;
 
         let fee_recipient = None;
 

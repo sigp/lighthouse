@@ -154,6 +154,7 @@ pub struct ExecutionBlock {
     pub block_hash: ExecutionBlockHash,
     #[serde(rename = "number", with = "serde_utils::u64_hex_be")]
     pub block_number: u64,
+
     pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
     #[serde(with = "serde_utils::u64_hex_be")]
@@ -175,6 +176,7 @@ pub struct ExecutionBlock {
 pub struct ExecutionBlockWithTransactions<E: EthSpec> {
     pub parent_hash: ExecutionBlockHash,
     #[serde(alias = "miner")]
+    #[serde(with = "serde_utils::address_hex")]
     pub fee_recipient: Address,
     pub state_root: Hash256,
     pub receipts_root: Hash256,
