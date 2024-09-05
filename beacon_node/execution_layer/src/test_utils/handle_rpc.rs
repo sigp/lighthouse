@@ -561,30 +561,17 @@ pub async fn handle_rpc<E: EthSpec>(
 
                 match maybe_payload {
                     Some(payload) => {
-                        // FIXME(sproul): remove electra support here?
-                        let json_payload_body = if payload.fork_name().electra_enabled() {
-                            let payload_body = ExecutionPayloadBodyV2 {
-                                transactions: payload.transactions().clone(),
-                                withdrawals: payload.withdrawals().ok().cloned(),
-                                deposit_requests: payload.deposit_requests().ok().cloned(),
-                                withdrawal_requests: payload.withdrawal_requests().ok().cloned(),
-                                consolidation_requests: payload
-                                    .consolidation_requests()
-                                    .ok()
-                                    .cloned(),
-                            };
-                            JsonExecutionPayloadBody::V2(JsonExecutionPayloadBodyV2::<E>::from(
-                                payload_body,
-                            ))
-                        } else {
-                            let payload_body = ExecutionPayloadBodyV1 {
-                                transactions: payload.transactions().clone(),
-                                withdrawals: payload.withdrawals().ok().cloned(),
-                            };
-                            JsonExecutionPayloadBody::V1(JsonExecutionPayloadBodyV1::<E>::from(
-                                payload_body,
-                            ))
+                        assert!(
+                            !payload.fork_name().electra_enabled(),
+                            "payload bodies V1 is not supported for Electra blocks"
+                        );
+                        let payload_body = ExecutionPayloadBodyV1 {
+                            transactions: payload.transactions().clone(),
+                            withdrawals: payload.withdrawals().ok().cloned(),
                         };
+                        let json_payload_body = JsonExecutionPayloadBody::V1(
+                            JsonExecutionPayloadBodyV1::<E>::from(payload_body),
+                        );
                         response.push(Some(json_payload_body));
                     }
                     None => response.push(None),
@@ -618,29 +605,16 @@ pub async fn handle_rpc<E: EthSpec>(
                         // deposit_requests
                         // withdrawal_requests
                         // consolidation_requests
-                        let json_payload_body = if payload.fork_name().electra_enabled() {
-                            let payload_body = ExecutionPayloadBodyV2 {
-                                transactions: payload.transactions().clone(),
-                                withdrawals: payload.withdrawals().ok().cloned(),
-                                deposit_requests: payload.deposit_requests().ok().cloned(),
-                                withdrawal_requests: payload.withdrawal_requests().ok().cloned(),
-                                consolidation_requests: payload
-                                    .consolidation_requests()
-                                    .ok()
-                                    .cloned(),
-                            };
-                            JsonExecutionPayloadBody::V2(JsonExecutionPayloadBodyV2::<E>::from(
-                                payload_body,
-                            ))
-                        } else {
-                            let payload_body = ExecutionPayloadBodyV1 {
-                                transactions: payload.transactions().clone(),
-                                withdrawals: payload.withdrawals().ok().cloned(),
-                            };
-                            JsonExecutionPayloadBody::V1(JsonExecutionPayloadBodyV1::<E>::from(
-                                payload_body,
-                            ))
+                        let payload_body = ExecutionPayloadBodyV2 {
+                            transactions: payload.transactions().clone(),
+                            withdrawals: payload.withdrawals().ok().cloned(),
+                            deposit_requests: payload.deposit_requests().ok().cloned(),
+                            withdrawal_requests: payload.withdrawal_requests().ok().cloned(),
+                            consolidation_requests: payload.consolidation_requests().ok().cloned(),
                         };
+                        let json_payload_body = JsonExecutionPayloadBody::V2(
+                            JsonExecutionPayloadBodyV2::<E>::from(payload_body),
+                        );
                         response.push(Some(json_payload_body));
                     }
                     None => response.push(None),

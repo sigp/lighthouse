@@ -144,6 +144,7 @@ pub enum Error {
         payload: ExecutionBlockHash,
         transactions_root: Hash256,
     },
+    PayloadBodiesByRangeNotSupported,
     InvalidJWTSecret(String),
     InvalidForkForPayload,
     InvalidPayloadBody(String),
@@ -1822,7 +1823,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         // Use efficient payload bodies by range method if supported.
         let capabilities = self.get_engine_capabilities(None).await?;
-        if capabilities.get_payload_bodies_by_range_v1 {
+        if capabilities.get_payload_bodies_by_range_v1
+            || capabilities.get_payload_bodies_by_range_v2
+        {
             let mut payload_bodies = self.get_payload_bodies_by_range(block_number, 1).await?;
 
             if payload_bodies.len() != 1 {
@@ -1837,8 +1840,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 })
                 .transpose()
         } else {
-            // FIXME(sproul): return an error here?
-            Ok(None)
+            Err(Error::PayloadBodiesByRangeNotSupported)
         }
     }
 
