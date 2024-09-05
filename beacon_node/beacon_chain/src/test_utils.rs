@@ -2607,12 +2607,10 @@ pub struct MakeAttestationOptions {
 
 pub enum LoggerType {
     Test,
+    // The logs are output to files for each test.
     CI,
+    // No logs will be printed.
     Null,
-}
-
-fn test_decorator() -> TermDecorator {
-    TermDecorator::new().build()
 }
 
 fn ci_decorator() -> PlainSyncDecorator<BufWriter<File>> {
@@ -2622,10 +2620,12 @@ fn ci_decorator() -> PlainSyncDecorator<BufWriter<File>> {
     let fork_name = std::env::var(FORK_NAME_ENV_VAR)
         .map(|s| format!("{s}_"))
         .unwrap_or_default();
+    // The current test name can be got via the thread name.
     let test_name = std::thread::current()
         .name()
         .unwrap()
         .to_string()
+        // Colons are not allowed in files that are uploaded to GitHub Artifacts.
         .replace("::", "_");
     let log_path = format!("/{log_dir}/{fork_name}{test_name}.log");
     let file = OpenOptions::new()
@@ -2640,20 +2640,17 @@ fn ci_decorator() -> PlainSyncDecorator<BufWriter<File>> {
 pub fn build_log(level: slog::Level, logger_type: LoggerType) -> Logger {
     match logger_type {
         LoggerType::Test => {
-            let decorator = test_decorator();
-            let drain = FullFormat::new(decorator).build().fuse();
+            let drain = FullFormat::new(TermDecorator::new().build()).build().fuse();
             let drain = Async::new(drain).build().fuse();
             Logger::root(drain.filter_level(level).fuse(), o!())
         }
         LoggerType::CI => {
-            let decorator = ci_decorator();
-            let drain = FullFormat::new(decorator).build().fuse();
+            let drain = FullFormat::new(ci_decorator()).build().fuse();
             let drain = Async::new(drain).build().fuse();
             Logger::root(drain.filter_level(level).fuse(), o!())
         }
         LoggerType::Null => {
-            let decorator = test_decorator();
-            let drain = FullFormat::new(decorator).build().fuse();
+            let drain = FullFormat::new(TermDecorator::new().build()).build().fuse();
             let drain = Async::new(drain).build().fuse();
             Logger::root(drain.filter(|_| false).fuse(), o!())
         }
