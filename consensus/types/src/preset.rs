@@ -209,8 +209,6 @@ impl CapellaPreset {
 #[serde(rename_all = "UPPERCASE")]
 pub struct DenebPreset {
     #[serde(with = "serde_utils::quoted_u64")]
-    pub max_blobs_per_block: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
     pub max_blob_commitments_per_block: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub field_elements_per_blob: u64,
@@ -219,7 +217,6 @@ pub struct DenebPreset {
 impl DenebPreset {
     pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
         Self {
-            max_blobs_per_block: E::max_blobs_per_block() as u64,
             max_blob_commitments_per_block: E::max_blob_commitments_per_block() as u64,
             field_elements_per_blob: E::field_elements_per_blob() as u64,
         }

@@ -11,14 +11,14 @@ use crate::BeaconChainTypes;
 use kzg::Kzg;
 use lru::LruCache;
 use parking_lot::RwLock;
-use ssz_types::{FixedVector, VariableList};
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use types::blob_sidecar::BlobIdentifier;
+use types::runtime_var_list::RuntimeFixedList;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock,
+    DataColumnSidecarList, Epoch, EthSpec, Hash256, RuntimeVariableList, SignedBeaconBlock,
 };
 
 pub type DataColumnsToPublish<E> = Option<DataColumnSidecarList<E>>;
@@ -32,7 +32,7 @@ pub type DataColumnsToPublish<E> = Option<DataColumnSidecarList<E>>;
 #[derive(Clone)]
 pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
-    pub verified_blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
+    pub verified_blobs: RuntimeFixedList<Option<KzgVerifiedBlob<E>>>,
     pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
     pub reconstruction_started: bool,
@@ -50,9 +50,7 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Returns an immutable reference to the fixed vector of cached blobs.
-    pub fn get_cached_blobs(
-        &self,
-    ) -> &FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock> {
+    pub fn get_cached_blobs(&self) -> &RuntimeFixedList<Option<KzgVerifiedBlob<E>>> {
         &self.verified_blobs
     }
 
@@ -73,9 +71,7 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Returns a mutable reference to the fixed vector of cached blobs.
-    pub fn get_cached_blobs_mut(
-        &mut self,
-    ) -> &mut FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock> {
+    pub fn get_cached_blobs_mut(&mut self) -> &mut RuntimeFixedList<Option<KzgVerifiedBlob<E>>> {
         &mut self.verified_blobs
     }
 
@@ -147,10 +143,7 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Blobs are only inserted if:
     /// 1. The blob entry at the index is empty and no block exists.
     /// 2. The block exists and its commitment matches the blob's commitment.
-    pub fn merge_blobs(
-        &mut self,
-        blobs: FixedVector<Option<KzgVerifiedBlob<E>>, E::MaxBlobsPerBlock>,
-    ) {
+    pub fn merge_blobs(&mut self, blobs: RuntimeFixedList<Option<KzgVerifiedBlob<E>>>) {
         for (index, blob) in blobs.iter().cloned().enumerate() {
             let Some(blob) = blob else { continue };
             self.merge_single_blob(index, blob);
@@ -194,7 +187,7 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Blobs that don't match the new block's commitments are evicted.
     pub fn merge_block(&mut self, block: DietAvailabilityPendingExecutedBlock<E>) {
         self.insert_block(block);
-        let reinsert = std::mem::take(self.get_cached_blobs_mut());
+        let reinsert = self.get_cached_blobs_mut().take();
         self.merge_blobs(reinsert);
     }
 
@@ -223,10 +216,11 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Returns an empty `PendingComponents` object with the given block root.
-    pub fn empty(block_root: Hash256) -> Self {
+    pub fn empty(block_root: Hash256, max_len: usize) -> Self {
         Self {
             block_root,
-            verified_blobs: FixedVector::default(),
+            // TODO(pawan): just make this a vec potentially
+            verified_blobs: RuntimeFixedList::new(vec![None; max_len]),
             verified_data_columns: vec![],
             executed_block: None,
             reconstruction_started: false,
@@ -279,7 +273,12 @@ impl<E: EthSpec> PendingComponents<E> {
                 else {
                     return Err(AvailabilityCheckError::Unexpected);
                 };
-                (Some(VariableList::new(verified_blobs)?), None)
+                let max_len =
+                    spec.max_blobs_per_block(diet_executed_block.as_block().epoch()) as usize;
+                (
+                    Some(RuntimeVariableList::new(verified_blobs, max_len)?),
+                    None,
+                )
             }
             BlockImportRequirement::CustodyColumns(_) => {
                 let verified_data_columns = verified_data_columns
@@ -476,7 +475,8 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         epoch: Epoch,
         kzg_verified_blobs: I,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let mut fixed_blobs = FixedVector::default();
+        let mut fixed_blobs =
+            RuntimeFixedList::new(vec![None; self.spec.max_blobs_per_block(epoch) as usize]);
 
         for blob in kzg_verified_blobs {
             if let Some(blob_opt) = fixed_blobs.get_mut(blob.blob_index() as usize) {
@@ -490,7 +490,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let mut pending_components = write_lock
             .pop_entry(&block_root)
             .map(|(_, v)| v)
-            .unwrap_or_else(|| PendingComponents::empty(block_root));
+            .unwrap_or_else(|| {
+                PendingComponents::empty(block_root, self.spec.max_blobs_per_block(epoch) as usize)
+            });
 
         // Merge in the blobs.
         pending_components.merge_blobs(fixed_blobs);
@@ -526,7 +528,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let mut pending_components = write_lock
             .pop_entry(&block_root)
             .map(|(_, v)| v)
-            .unwrap_or_else(|| PendingComponents::empty(block_root));
+            .unwrap_or_else(|| {
+                PendingComponents::empty(block_root, self.spec.max_blobs_per_block(epoch) as usize)
+            });
 
         // Merge in the data columns.
         pending_components.merge_data_columns(kzg_verified_data_columns)?;
@@ -613,7 +617,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let mut pending_components = write_lock
             .pop_entry(&block_root)
             .map(|(_, v)| v)
-            .unwrap_or_else(|| PendingComponents::empty(block_root));
+            .unwrap_or_else(|| {
+                PendingComponents::empty(block_root, self.spec.max_blobs_per_block(epoch) as usize)
+            });
 
         // Merge in the block.
         pending_components.merge_block(diet_executed_block);
@@ -831,7 +837,8 @@ mod test {
         info!(log, "done printing kzg commitments");
 
         let gossip_verified_blobs = if let Some((kzg_proofs, blobs)) = maybe_blobs {
-            let sidecars = BlobSidecar::build_sidecars(blobs, &block, kzg_proofs).unwrap();
+            let sidecars =
+                BlobSidecar::build_sidecars(blobs, &block, kzg_proofs, &chain.spec).unwrap();
             Vec::from(sidecars)
                 .into_iter()
                 .map(|sidecar| {
@@ -1146,7 +1153,7 @@ mod pending_components_tests {
     use super::*;
     use crate::block_verification_types::BlockImportData;
     use crate::eth1_finalization_cache::Eth1FinalizationData;
-    use crate::test_utils::{generate_rand_block_and_blobs, NumBlobs};
+    use crate::test_utils::{generate_rand_block_and_blobs, test_spec, NumBlobs};
     use crate::PayloadVerificationOutcome;
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
@@ -1162,15 +1169,19 @@ mod pending_components_tests {
 
     type Setup<E> = (
         SignedBeaconBlock<E>,
-        FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
-        FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
+        RuntimeFixedList<Option<Arc<BlobSidecar<E>>>>,
+        RuntimeFixedList<Option<Arc<BlobSidecar<E>>>>,
+        usize,
     );
 
     pub fn pre_setup() -> Setup<E> {
         let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+        let spec = test_spec::<E>();
         let (block, blobs_vec) =
             generate_rand_block_and_blobs::<E>(ForkName::Deneb, NumBlobs::Random, &mut rng);
-        let mut blobs: FixedVector<_, <E as EthSpec>::MaxBlobsPerBlock> = FixedVector::default();
+        let max_len = spec.max_blobs_per_block(block.epoch()) as usize;
+        let mut blobs: RuntimeFixedList<Option<Arc<BlobSidecar<E>>>> =
+            RuntimeFixedList::default(max_len);
 
         for blob in blobs_vec {
             if let Some(b) = blobs.get_mut(blob.index as usize) {
@@ -1178,10 +1189,8 @@ mod pending_components_tests {
             }
         }
 
-        let mut invalid_blobs: FixedVector<
-            Option<Arc<BlobSidecar<E>>>,
-            <E as EthSpec>::MaxBlobsPerBlock,
-        > = FixedVector::default();
+        let mut invalid_blobs: RuntimeFixedList<Option<Arc<BlobSidecar<E>>>> =
+            RuntimeFixedList::default(max_len);
         for (index, blob) in blobs.iter().enumerate() {
             if let Some(invalid_blob) = blob {
                 let mut blob_copy = invalid_blob.as_ref().clone();
@@ -1190,21 +1199,21 @@ mod pending_components_tests {
             }
         }
 
-        (block, blobs, invalid_blobs)
+        (block, blobs, invalid_blobs, max_len)
     }
 
     type PendingComponentsSetup<E> = (
         DietAvailabilityPendingExecutedBlock<E>,
-        FixedVector<Option<KzgVerifiedBlob<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
-        FixedVector<Option<KzgVerifiedBlob<E>>, <E as EthSpec>::MaxBlobsPerBlock>,
+        RuntimeFixedList<Option<KzgVerifiedBlob<E>>>,
+        RuntimeFixedList<Option<KzgVerifiedBlob<E>>>,
     );
 
     pub fn setup_pending_components(
         block: SignedBeaconBlock<E>,
-        valid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
-        invalid_blobs: FixedVector<Option<Arc<BlobSidecar<E>>>, <E as EthSpec>::MaxBlobsPerBlock>,
+        valid_blobs: RuntimeFixedList<Option<Arc<BlobSidecar<E>>>>,
+        invalid_blobs: RuntimeFixedList<Option<Arc<BlobSidecar<E>>>>,
     ) -> PendingComponentsSetup<E> {
-        let blobs = FixedVector::from(
+        let blobs = RuntimeFixedList::new(
             valid_blobs
                 .iter()
                 .map(|blob_opt| {
@@ -1214,7 +1223,7 @@ mod pending_components_tests {
                 })
                 .collect::<Vec<_>>(),
         );
-        let invalid_blobs = FixedVector::from(
+        let invalid_blobs = RuntimeFixedList::new(
             invalid_blobs
                 .iter()
                 .map(|blob_opt| {
@@ -1246,10 +1255,10 @@ mod pending_components_tests {
         (block.into(), blobs, invalid_blobs)
     }
 
-    pub fn assert_cache_consistent(cache: PendingComponents<E>) {
+    pub fn assert_cache_consistent(cache: PendingComponents<E>, max_len: usize) {
         if let Some(cached_block) = cache.get_cached_block() {
             let cached_block_commitments = cached_block.get_commitments();
-            for index in 0..E::max_blobs_per_block() {
+            for index in 0..max_len {
                 let block_commitment = cached_block_commitments.get(index).copied();
                 let blob_commitment_opt = cache.get_cached_blobs().get(index).unwrap();
                 let blob_commitment = blob_commitment_opt.as_ref().map(|b| *b.get_commitment());
@@ -1268,40 +1277,40 @@ mod pending_components_tests {
 
     #[test]
     fn valid_block_invalid_blobs_valid_blobs() {
-        let (block_commitments, blobs, random_blobs) = pre_setup();
+        let (block_commitments, blobs, random_blobs, max_len) = pre_setup();
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
         let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root);
+        let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
         cache.merge_block(block_commitments);
         cache.merge_blobs(random_blobs);
         cache.merge_blobs(blobs);
 
-        assert_cache_consistent(cache);
+        assert_cache_consistent(cache, max_len);
     }
 
     #[test]
     fn invalid_blobs_block_valid_blobs() {
-        let (block_commitments, blobs, random_blobs) = pre_setup();
+        let (block_commitments, blobs, random_blobs, max_len) = pre_setup();
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
         let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root);
+        let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
         cache.merge_blobs(random_blobs);
         cache.merge_block(block_commitments);
         cache.merge_blobs(blobs);
 
-        assert_cache_consistent(cache);
+        assert_cache_consistent(cache, max_len);
     }
 
     #[test]
     fn invalid_blobs_valid_blobs_block() {
-        let (block_commitments, blobs, random_blobs) = pre_setup();
+        let (block_commitments, blobs, random_blobs, max_len) = pre_setup();
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
 
         let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root);
+        let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
         cache.merge_blobs(random_blobs);
         cache.merge_blobs(blobs);
         cache.merge_block(block_commitments);
@@ -1311,46 +1320,46 @@ mod pending_components_tests {
 
     #[test]
     fn block_valid_blobs_invalid_blobs() {
-        let (block_commitments, blobs, random_blobs) = pre_setup();
+        let (block_commitments, blobs, random_blobs, max_len) = pre_setup();
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
 
         let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root);
+        let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
         cache.merge_block(block_commitments);
         cache.merge_blobs(blobs);
         cache.merge_blobs(random_blobs);
 
-        assert_cache_consistent(cache);
+        assert_cache_consistent(cache, max_len);
     }
 
     #[test]
     fn valid_blobs_block_invalid_blobs() {
-        let (block_commitments, blobs, random_blobs) = pre_setup();
+        let (block_commitments, blobs, random_blobs, max_len) = pre_setup();
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
 
         let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root);
+        let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
         cache.merge_blobs(blobs);
         cache.merge_block(block_commitments);
         cache.merge_blobs(random_blobs);
 
-        assert_cache_consistent(cache);
+        assert_cache_consistent(cache, max_len);
     }
 
     #[test]
     fn valid_blobs_invalid_blobs_block() {
-        let (block_commitments, blobs, random_blobs) = pre_setup();
+        let (block_commitments, blobs, random_blobs, max_len) = pre_setup();
         let (block_commitments, blobs, random_blobs) =
             setup_pending_components(block_commitments, blobs, random_blobs);
 
         let block_root = Hash256::zero();
-        let mut cache = <PendingComponents<E>>::empty(block_root);
+        let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
         cache.merge_blobs(blobs);
         cache.merge_blobs(random_blobs);
         cache.merge_block(block_commitments);
 
-        assert_cache_consistent(cache);
+        assert_cache_consistent(cache, max_len);
     }
 }

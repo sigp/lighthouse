@@ -1249,7 +1249,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_blobs(&self, block_root: &Hash256) -> Result<BlobSidecarList<T::EthSpec>, Error> {
         match self.store.get_blobs(block_root)? {
             Some(blobs) => Ok(blobs),
-            None => Ok(BlobSidecarList::default()),
+            None => Ok(BlobSidecarList::empty_uninitialized()),
         }
     }
 

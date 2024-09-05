@@ -82,7 +82,6 @@ use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::VariableList;
 use state_processing::per_block_processing::{errors::IntoWithIndex, is_merge_transition_block};
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
@@ -774,7 +773,9 @@ fn build_gossip_verified_blobs<T: BeaconChainTypes>(
                     GossipVerifiedBlob::new(Arc::new(blob), i as u64, chain)?;
                 gossip_verified_blobs.push(gossip_verified_blob);
             }
-            let gossip_verified_blobs = VariableList::from(gossip_verified_blobs);
+            let max_len = chain.spec.max_blobs_per_block(block.epoch()) as usize;
+            let gossip_verified_blobs =
+                RuntimeVariableList::from_vec(gossip_verified_blobs, max_len);
             Ok::<_, BlockContentsError>(gossip_verified_blobs)
         })
         .transpose()

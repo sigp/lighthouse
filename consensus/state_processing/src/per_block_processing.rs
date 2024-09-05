@@ -391,10 +391,12 @@ pub fn partially_verify_execution_payload<E: EthSpec, Payload: AbstractExecPaylo
 
     if let Ok(blob_commitments) = body.blob_kzg_commitments() {
         // Verify commitments are under the limit.
+        let max_blobs_per_block =
+            spec.max_blobs_per_block(block_slot.epoch(E::slots_per_epoch())) as usize;
         block_verify!(
-            blob_commitments.len() <= E::max_blobs_per_block(),
+            blob_commitments.len() <= max_blobs_per_block,
             BlockProcessingError::ExecutionInvalidBlobsLen {
-                max: E::max_blobs_per_block(),
+                max: max_blobs_per_block,
                 actual: blob_commitments.len(),
             }
         );
