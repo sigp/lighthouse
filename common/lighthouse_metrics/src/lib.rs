@@ -406,3 +406,31 @@ pub fn decimal_buckets(min_power: i32, max_power: i32) -> Result<Vec<f64>> {
     }
     Ok(buckets)
 }
+
+/// Would be nice to use the `Try` trait bound and have a single implementation, but try_trait_v2
+/// is not a stable feature yet.
+pub trait TryExt {
+    fn discard_timer_on_break(self, timer: &mut Option<HistogramTimer>) -> Self;
+}
+
+impl<T, E> TryExt for std::result::Result<T, E> {
+    fn discard_timer_on_break(self, timer_opt: &mut Option<HistogramTimer>) -> Self {
+        if self.is_err() {
+            if let Some(timer) = timer_opt.take() {
+                timer.stop_and_discard();
+            }
+        }
+        self
+    }
+}
+
+impl<T> TryExt for Option<T> {
+    fn discard_timer_on_break(self, timer_opt: &mut Option<HistogramTimer>) -> Self {
+        if self.is_none() {
+            if let Some(timer) = timer_opt.take() {
+                timer.stop_and_discard();
+            }
+        }
+        self
+    }
+}
