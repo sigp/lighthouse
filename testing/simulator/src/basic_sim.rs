@@ -26,6 +26,7 @@ const DENEB_FORK_EPOCH: u64 = 2;
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
+#[allow(clippy::large_stack_frames)]
 pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let node_count = matches
         .get_one::<String>("nodes")

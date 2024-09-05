@@ -5,6 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
 [dependencies]
+alloy-primitives = { workspace = true }
 ethereum_ssz = { workspace = true }
 tree_hash = { workspace = true }
 rand = { workspace = true }
@@ -12,10 +13,11 @@ serde = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 hex = { workspace = true }
 ethereum_hashing = { workspace = true }
-ethereum-types = { workspace = true }
 arbitrary = { workspace = true }
 zeroize = { workspace = true }
 blst = { version = "0.3.3", optional = true }
+safe_arith = { workspace = true }
+fixed_bytes = { workspace = true }
 
 [features]
 arbitrary = []

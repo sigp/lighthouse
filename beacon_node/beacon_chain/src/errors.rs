@@ -77,8 +77,6 @@ pub enum BeaconChainError {
     AttesterSlashingValidationError(AttesterSlashingValidationError),
     BlsExecutionChangeValidationError(BlsExecutionChangeValidationError),
     MissingFinalizedStateRoot(Slot),
-    /// Returned when an internal check fails, indicating corrupt data.
-    InvariantViolated(String),
     SszTypesError(SszTypesError),
     NoProposerForSlot(Slot),
     CanonicalHeadLockTimeout,
@@ -216,11 +214,13 @@ pub enum BeaconChainError {
     InconsistentFork(InconsistentFork),
     ProposerHeadForkChoiceError(fork_choice::Error<proto_array::Error>),
     UnableToPublish,
+    UnableToBuildColumnSidecar(String),
     AvailabilityCheckError(AvailabilityCheckError),
     LightClientUpdateError(LightClientUpdateError),
     LightClientBootstrapError(String),
     UnsupportedFork,
     MilhouseError(MilhouseError),
+    EmptyRpcCustodyColumns,
     AttestationError(AttestationError),
     AttestationCommitteeIndexNotSet,
 }
