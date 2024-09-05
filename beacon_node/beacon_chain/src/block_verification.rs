@@ -74,6 +74,7 @@ use derivative::Derivative;
 use eth2::types::{BlockGossip, EventKind, PublishBlockRequest};
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
+use lighthouse_metrics::TryExt;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
@@ -796,8 +797,12 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
                     GossipDataColumnError::KzgNotInitialized,
                 ))?;
 
-            let timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_COMPUTATION);
-            let sidecars = blobs_to_data_column_sidecars(&blobs, block, kzg, &chain.spec)?;
+            let mut timer = metrics::start_timer_vec(
+                &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
+                &[&blobs.len().to_string()],
+            );
+            let sidecars = blobs_to_data_column_sidecars(&blobs, block, kzg, &chain.spec)
+                .discard_timer_on_break(&mut timer)?;
             drop(timer);
             let mut gossip_verified_data_columns = vec![];
             for sidecar in sidecars {
