@@ -1185,7 +1185,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
             info!(
                 self.log,
-                "Block from API";
+                "Block from monitored validator";
                 "root" => ?block_root,
                 "delay" => %delay.as_millis(),
                 "slot" => %block.slot(),
