@@ -2630,7 +2630,6 @@ fn ci_decorator() -> PlainSyncDecorator<BufWriter<File>> {
     let log_path = format!("/{log_dir}/{fork_name}{test_name}.log");
     let file = OpenOptions::new()
         .create(true)
-        .write(true)
         .append(true)
         .open(log_path)
         .unwrap();
