@@ -1,6 +1,7 @@
 //! Implementation of Lighthouse's peer management system.
 
 use crate::discovery::enr_ext::EnrExt;
+use crate::discovery::peer_id_to_node_id;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::service::TARGET_SUBNET_PEERS;
 use crate::{error, metrics, Gossipsub};
@@ -321,6 +322,7 @@ impl<E: EthSpec> PeerManager<E> {
     /// This function decides whether or not to dial these peers.
     pub fn peers_discovered(&mut self, results: HashMap<Enr, Option<Instant>>) {
         let mut to_dial_peers = 0;
+        let results_count = results.len();
         let connected_or_dialing = self.network_globals.connected_or_dialing_peers();
         for (enr, min_ttl) in results {
             // There are two conditions in deciding whether to dial this peer.
@@ -352,8 +354,19 @@ impl<E: EthSpec> PeerManager<E> {
             }
         }
 
-        // Queue another discovery if we need to
-        self.maintain_peer_count(to_dial_peers);
+        // The heartbeat will attempt new discovery queries every N seconds if the node needs more
+        // peers. As an optimization, this function can recursively trigger new discovery queries
+        // immediatelly if we don't fulfill our peers needs after completing a query. This
+        // recursiveness results in an infinite loop in networks where there not enough peers to
+        // reach out target. To prevent the infinite loop, if a query returns no useful peers, we
+        // will cancel the recursiveness and wait for the heartbeat to trigger another query latter.
+        if results_count > 0 && to_dial_peers == 0 {
+            debug!(self.log, "Skipping recursive discovery query after finding no useful results"; "results" => results_count);
+            metrics::inc_counter(&metrics::DISCOVERY_NO_USEFUL_ENRS);
+        } else {
+            // Queue another discovery if we need to
+            self.maintain_peer_count(to_dial_peers);
+        }
     }
 
     /// A STATUS message has been received from a peer. This resets the status timer.
@@ -518,7 +531,10 @@ impl<E: EthSpec> PeerManager<E> {
                 RPCResponseErrorCode::Unknown => PeerAction::HighToleranceError,
                 RPCResponseErrorCode::ResourceUnavailable => {
                     // Don't ban on this because we want to retry with a block by root request.
-                    if matches!(protocol, Protocol::BlobsByRoot) {
+                    if matches!(
+                        protocol,
+                        Protocol::BlobsByRoot | Protocol::DataColumnsByRoot
+                    ) {
                         return;
                     }
 
@@ -557,6 +573,8 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::LightClientOptimisticUpdate => return,
                     Protocol::LightClientFinalityUpdate => return,
                     Protocol::BlobsByRoot => PeerAction::MidToleranceError,
+                    Protocol::DataColumnsByRoot => PeerAction::MidToleranceError,
+                    Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
                     Protocol::Goodbye => PeerAction::LowToleranceError,
                     Protocol::MetaData => PeerAction::LowToleranceError,
                     Protocol::Status => PeerAction::LowToleranceError,
@@ -575,6 +593,8 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::BlocksByRoot => return,
                     Protocol::BlobsByRange => return,
                     Protocol::BlobsByRoot => return,
+                    Protocol::DataColumnsByRoot => return,
+                    Protocol::DataColumnsByRange => return,
                     Protocol::Goodbye => return,
                     Protocol::LightClientBootstrap => return,
                     Protocol::LightClientOptimisticUpdate => return,
@@ -595,6 +615,8 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
                     Protocol::BlobsByRange => PeerAction::MidToleranceError,
                     Protocol::BlobsByRoot => PeerAction::MidToleranceError,
+                    Protocol::DataColumnsByRoot => PeerAction::MidToleranceError,
+                    Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
                     Protocol::LightClientBootstrap => return,
                     Protocol::LightClientOptimisticUpdate => return,
                     Protocol::LightClientFinalityUpdate => return,
@@ -695,7 +717,8 @@ impl<E: EthSpec> PeerManager<E> {
                 debug!(self.log, "Obtained peer's metadata";
                     "peer_id" => %peer_id, "new_seq_no" => meta_data.seq_number());
             }
-            peer_info.set_meta_data(meta_data);
+            let node_id_opt = peer_id_to_node_id(peer_id).ok();
+            peer_info.set_meta_data(meta_data, node_id_opt, &self.network_globals.spec);
         } else {
             error!(self.log, "Received METADATA from an unknown peer";
                 "peer_id" => %peer_id);
@@ -1367,7 +1390,8 @@ mod tests {
             ..Default::default()
         };
         let log = build_log(slog::Level::Debug, false);
-        let globals = NetworkGlobals::new_test_globals(vec![], &log);
+        let spec = E::default_spec();
+        let globals = NetworkGlobals::new_test_globals(vec![], &log, spec);
         PeerManager::new(config, Arc::new(globals), &log).unwrap()
     }
 
@@ -1381,7 +1405,8 @@ mod tests {
             ..Default::default()
         };
         let log = build_log(slog::Level::Debug, false);
-        let globals = NetworkGlobals::new_test_globals(trusted_peers, &log);
+        let spec = E::default_spec();
+        let globals = NetworkGlobals::new_test_globals(trusted_peers, &log, spec);
         PeerManager::new(config, Arc::new(globals), &log).unwrap()
     }
 
@@ -1655,7 +1680,11 @@ mod tests {
             .write()
             .peer_info_mut(&peer0)
             .unwrap()
-            .set_meta_data(MetaData::V2(metadata));
+            .set_meta_data(
+                MetaData::V2(metadata),
+                None,
+                &peer_manager.network_globals.spec,
+            );
         peer_manager
             .network_globals
             .peers
@@ -1675,7 +1704,11 @@ mod tests {
             .write()
             .peer_info_mut(&peer2)
             .unwrap()
-            .set_meta_data(MetaData::V2(metadata));
+            .set_meta_data(
+                MetaData::V2(metadata),
+                None,
+                &peer_manager.network_globals.spec,
+            );
         peer_manager
             .network_globals
             .peers
@@ -1695,7 +1728,11 @@ mod tests {
             .write()
             .peer_info_mut(&peer4)
             .unwrap()
-            .set_meta_data(MetaData::V2(metadata));
+            .set_meta_data(
+                MetaData::V2(metadata),
+                None,
+                &peer_manager.network_globals.spec,
+            );
         peer_manager
             .network_globals
             .peers
@@ -1769,7 +1806,11 @@ mod tests {
                 .write()
                 .peer_info_mut(&peer)
                 .unwrap()
-                .set_meta_data(MetaData::V2(metadata));
+                .set_meta_data(
+                    MetaData::V2(metadata),
+                    None,
+                    &peer_manager.network_globals.spec,
+                );
             peer_manager
                 .network_globals
                 .peers
@@ -1893,7 +1934,11 @@ mod tests {
                 .write()
                 .peer_info_mut(&peer)
                 .unwrap()
-                .set_meta_data(MetaData::V2(metadata));
+                .set_meta_data(
+                    MetaData::V2(metadata),
+                    None,
+                    &peer_manager.network_globals.spec,
+                );
             let long_lived_subnets = peer_manager
                 .network_globals
                 .peers
@@ -2002,7 +2047,11 @@ mod tests {
                 .write()
                 .peer_info_mut(&peer)
                 .unwrap()
-                .set_meta_data(MetaData::V2(metadata));
+                .set_meta_data(
+                    MetaData::V2(metadata),
+                    None,
+                    &peer_manager.network_globals.spec,
+                );
             let long_lived_subnets = peer_manager
                 .network_globals
                 .peers
@@ -2168,7 +2217,11 @@ mod tests {
                 .write()
                 .peer_info_mut(&peer)
                 .unwrap()
-                .set_meta_data(MetaData::V2(metadata));
+                .set_meta_data(
+                    MetaData::V2(metadata),
+                    None,
+                    &peer_manager.network_globals.spec,
+                );
             let long_lived_subnets = peer_manager
                 .network_globals
                 .peers
@@ -2325,7 +2378,11 @@ mod tests {
 
                     let mut peer_db = peer_manager.network_globals.peers.write();
                     let peer_info = peer_db.peer_info_mut(&condition.peer_id).unwrap();
-                    peer_info.set_meta_data(MetaData::V2(metadata));
+                    peer_info.set_meta_data(
+                        MetaData::V2(metadata),
+                        None,
+                        &peer_manager.network_globals.spec,
+                    );
                     peer_info.set_gossipsub_score(condition.gossipsub_score);
                     peer_info.add_to_score(condition.score);
 

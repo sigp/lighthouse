@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 use std::env;
 use std::os::raw::c_int;
 use std::result::Result;
+use std::sync::LazyLock;
 
 /// The optimal mmap threshold for Lighthouse seems to be around 128KB.
 ///

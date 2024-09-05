@@ -1,15 +1,18 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use super::RangeSyncType;
 use crate::metrics;
+use crate::metrics::PEERS_PER_COLUMN_SUBNET;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::network_context::RangeRequestId;
 use crate::sync::{network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
+use lighthouse_metrics::set_int_gauge;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::{PeerAction, PeerId};
-use rand::{seq::SliceRandom, Rng};
+use rand::seq::SliceRandom;
+use rand::Rng;
 use slog::{crit, debug, o, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -111,9 +114,6 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     /// The current processing batch, if any.
     current_processing_batch: Option<BatchId>,
 
-    /// Batches validated by this chain.
-    validated_batches: u64,
-
     /// The chain's log.
     log: slog::Logger,
 }
@@ -161,7 +161,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             attempted_optimistic_starts: HashSet::default(),
             state: ChainSyncingState::Stopped,
             current_processing_batch: None,
-            validated_batches: 0,
             log: log.new(o!("chain" => id)),
         }
     }
@@ -182,8 +181,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Progress in epochs made by the chain
-    pub fn validated_epochs(&self) -> u64 {
-        self.validated_batches * EPOCHS_PER_BATCH
+    pub fn processed_epochs(&self) -> u64 {
+        self.processing_target
+            .saturating_sub(self.start_epoch)
+            .into()
     }
 
     /// Returns the total count of pending blocks in all the batches of this chain
@@ -258,7 +259,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // sending an error /timeout) if the peer is removed from the chain for other
                 // reasons. Check that this block belongs to the expected peer, and that the
                 // request_id matches
-                if !batch.is_expecting_block(peer_id, &request_id) {
+                // TODO(das): removed peer_id matching as the node may request a different peer for data
+                // columns.
+                if !batch.is_expecting_block(&request_id) {
                     return Ok(KeepChain);
                 }
                 batch
@@ -441,6 +444,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.request_batches(network)?;
                 }
             }
+        } else if !self.good_peers_on_custody_subnets(self.processing_target, network) {
+            // This is to handle the case where no batch was sent for the current processing
+            // target when there is no custody peers available. This is a valid state and should not
+            // return an error.
+            return Ok(KeepChain);
         } else {
             return Err(RemoveChain::WrongChainState(format!(
                 "Batch not found for current processing target {}",
@@ -655,7 +663,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let removed_batches = std::mem::replace(&mut self.batches, remaining_batches);
 
         for (id, batch) in removed_batches.into_iter() {
-            self.validated_batches = self.validated_batches.saturating_add(1);
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
             match batch.state() {
@@ -865,7 +872,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // A batch could be retried without the peer failing the request (disconnecting/
             // sending an error /timeout) if the peer is removed from the chain for other
             // reasons. Check that this block belongs to the expected peer
-            if !batch.is_expecting_block(peer_id, &request_id) {
+            // TODO(das): removed peer_id matching as the node may request a different peer for data
+            // columns.
+            if !batch.is_expecting_block(&request_id) {
                 debug!(
                     self.log,
                     "Batch not expecting block";
@@ -956,7 +965,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let (request, batch_type) = batch.to_blocks_by_range_request();
-            match network.blocks_and_blobs_by_range_request(
+            match network.block_components_by_range_request(
                 peer,
                 batch_type,
                 request,
@@ -1066,6 +1075,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // check if we have the batch for our optimistic start. If not, request it first.
         // We wait for this batch before requesting any other batches.
         if let Some(epoch) = self.optimistic_start {
+            if !self.good_peers_on_custody_subnets(epoch, network) {
+                debug!(
+                    self.log,
+                    "Waiting for peers to be available on custody column subnets"
+                );
+                return Ok(KeepChain);
+            }
+
             if let Entry::Vacant(entry) = self.batches.entry(epoch) {
                 if let Some(peer) = idle_peers.pop() {
                     let batch_type = network.batch_type(epoch);
@@ -1088,6 +1105,36 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
 
         Ok(KeepChain)
+    }
+
+    /// Checks all custody column subnets for peers. Returns `true` if there is at least one peer in
+    /// every custody column subnet.
+    fn good_peers_on_custody_subnets(&self, epoch: Epoch, network: &SyncNetworkContext<T>) -> bool {
+        if network.chain.spec.is_peer_das_enabled_for_epoch(epoch) {
+            // Require peers on all custody column subnets before sending batches
+            let peers_on_all_custody_subnets =
+                network
+                    .network_globals()
+                    .custody_subnets()
+                    .all(|subnet_id| {
+                        let peer_count = network
+                            .network_globals()
+                            .peers
+                            .read()
+                            .good_custody_subnet_peer(subnet_id)
+                            .count();
+
+                        set_int_gauge(
+                            &PEERS_PER_COLUMN_SUBNET,
+                            &[&subnet_id.to_string()],
+                            peer_count as i64,
+                        );
+                        peer_count > 0
+                    });
+            peers_on_all_custody_subnets
+        } else {
+            true
+        }
     }
 
     /// Creates the next required batch from the chain. If there are no more batches required,
@@ -1117,6 +1164,18 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .count()
             > BATCH_BUFFER_SIZE as usize
         {
+            return None;
+        }
+
+        // don't send batch requests until we have peers on custody subnets
+        // TODO(das): this is a workaround to avoid sending out excessive block requests because
+        // block and data column requests are currently coupled. This can be removed once we find a
+        // way to decouple the requests and do retries individually, see issue #6258.
+        if !self.good_peers_on_custody_subnets(self.to_be_downloaded, network) {
+            debug!(
+                self.log,
+                "Waiting for peers to be available on custody column subnets"
+            );
             return None;
         }
 
@@ -1212,7 +1271,6 @@ impl<T: BeaconChainTypes> slog::KV for SyncingChain<T> {
         )?;
         serializer.emit_usize("batches", self.batches.len())?;
         serializer.emit_usize("peers", self.peers.len())?;
-        serializer.emit_u64("validated_batches", self.validated_batches)?;
         serializer.emit_arguments("state", &format_args!("{:?}", self.state))?;
         slog::Result::Ok(())
     }

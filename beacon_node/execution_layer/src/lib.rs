@@ -18,6 +18,7 @@ pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::FullPayloadContents;
 use eth2::types::{builder_bid::SignedBuilderBid, BlobsBundle, ForkVersionedResponse};
 use ethers_core::types::Transaction as EthersTransaction;
+use fixed_bytes::UintExtended;
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
 use payload_status::process_payload_status;
@@ -1132,9 +1133,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 let relay_value = *relay.data.message.value();
 
                 let boosted_relay_value = match builder_boost_factor {
-                    Some(builder_boost_factor) => {
-                        (relay_value / 100).saturating_mul(builder_boost_factor.into())
-                    }
+                    Some(builder_boost_factor) => (relay_value / Uint256::from(100))
+                        .saturating_mul(Uint256::from(builder_boost_factor)),
                     None => relay_value,
                 };
 
@@ -1771,10 +1771,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
     pub async fn get_payload_bodies_by_hash(
         &self,
         hashes: Vec<ExecutionBlockHash>,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
         self.engine()
             .request(|engine: &Engine| async move {
-                engine.api.get_payload_bodies_by_hash_v1(hashes).await
+                engine.api.get_payload_bodies_by_hash(hashes).await
             })
             .await
             .map_err(Box::new)
@@ -1785,14 +1785,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         start: u64,
         count: u64,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
         let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE);
         self.engine()
             .request(|engine: &Engine| async move {
-                engine
-                    .api
-                    .get_payload_bodies_by_range_v1(start, count)
-                    .await
+                engine.api.get_payload_bodies_by_range(start, count).await
             })
             .await
             .map_err(Box::new)
@@ -2008,15 +2005,11 @@ fn verify_builder_bid<E: EthSpec>(
     let is_signature_valid = bid.data.verify_signature(spec);
     let header = &bid.data.message.header();
 
-    // Avoid logging values that we can't represent with our Prometheus library.
-    let payload_value_gwei = bid.data.message.value() / 1_000_000_000;
-    if payload_value_gwei <= Uint256::from(i64::MAX) {
-        metrics::set_gauge_vec(
-            &metrics::EXECUTION_LAYER_PAYLOAD_BIDS,
-            &[metrics::BUILDER],
-            payload_value_gwei.low_u64() as i64,
-        );
-    }
+    metrics::set_gauge_vec(
+        &metrics::EXECUTION_LAYER_PAYLOAD_BIDS,
+        &[metrics::BUILDER],
+        bid.data.message.value().to_i64(),
+    );
 
     let expected_withdrawals_root = payload_attributes
         .withdrawals()

@@ -16,7 +16,9 @@ pub type Withdrawals<E> = VariableList<Withdrawal, <E as EthSpec>::MaxWithdrawal
 pub type DepositRequests<E> =
     VariableList<DepositRequest, <E as EthSpec>::MaxDepositRequestsPerPayload>;
 pub type WithdrawalRequests<E> =
-    VariableList<ExecutionLayerWithdrawalRequest, <E as EthSpec>::MaxWithdrawalRequestsPerPayload>;
+    VariableList<WithdrawalRequest, <E as EthSpec>::MaxWithdrawalRequestsPerPayload>;
+pub type ConsolidationRequests<E> =
+    VariableList<ConsolidationRequest, <E as EthSpec>::MaxConsolidationRequestsPerPayload>;
 
 #[superstruct(
     variants(Bellatrix, Capella, Deneb, Electra),
@@ -55,6 +57,7 @@ pub struct ExecutionPayload<E: EthSpec> {
     #[superstruct(getter(copy))]
     pub parent_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
+    #[serde(with = "serde_utils::address_hex")]
     pub fee_recipient: Address,
     #[superstruct(getter(copy))]
     pub state_root: Hash256,
@@ -94,12 +97,12 @@ pub struct ExecutionPayload<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
     #[superstruct(only(Electra))]
-    //TODO(electra) remove alias once EF tests are updates with correct name
-    #[serde(alias = "deposit_receipts")]
     pub deposit_requests: VariableList<DepositRequest, E::MaxDepositRequestsPerPayload>,
     #[superstruct(only(Electra))]
-    pub withdrawal_requests:
-        VariableList<ExecutionLayerWithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>,
+    pub withdrawal_requests: VariableList<WithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>,
+    #[superstruct(only(Electra))]
+    pub consolidation_requests:
+        VariableList<ConsolidationRequest, E::MaxConsolidationRequestsPerPayload>,
 }
 
 impl<'a, E: EthSpec> ExecutionPayloadRef<'a, E> {

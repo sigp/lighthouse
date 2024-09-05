@@ -20,7 +20,8 @@ use tree_hash_derive::TreeHash;
 use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra,
-    ExecutionPayloadHeader, ForkName, Hash256, Transaction, Transactions, Uint256,
+    ExecutionPayloadHeader, FixedBytesExtended, ForkName, Hash256, Transaction, Transactions,
+    Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
@@ -100,7 +101,9 @@ impl<E: EthSpec> Block<E> {
 #[serde(rename_all = "camelCase")]
 pub struct PoWBlock {
     pub block_number: u64,
+
     pub block_hash: ExecutionBlockHash,
+
     pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
     pub timestamp: u64,
@@ -571,7 +574,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 gas_used: GAS_USED,
                 timestamp: pa.timestamp,
                 extra_data: "block gen was here".as_bytes().to_vec().into(),
-                base_fee_per_gas: Uint256::one(),
+                base_fee_per_gas: Uint256::from(1u64),
                 block_hash: ExecutionBlockHash::zero(),
                 transactions: vec![].into(),
             }),
@@ -588,7 +591,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     gas_used: GAS_USED,
                     timestamp: pa.timestamp,
                     extra_data: "block gen was here".as_bytes().to_vec().into(),
-                    base_fee_per_gas: Uint256::one(),
+                    base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].into(),
                 }),
@@ -604,7 +607,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     gas_used: GAS_USED,
                     timestamp: pa.timestamp,
                     extra_data: "block gen was here".as_bytes().to_vec().into(),
-                    base_fee_per_gas: Uint256::one(),
+                    base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].into(),
                     withdrawals: pa.withdrawals.clone().into(),
@@ -624,7 +627,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     gas_used: GAS_USED,
                     timestamp: pa.timestamp,
                     extra_data: "block gen was here".as_bytes().to_vec().into(),
-                    base_fee_per_gas: Uint256::one(),
+                    base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].into(),
                     withdrawals: pa.withdrawals.clone().into(),
@@ -643,14 +646,16 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     gas_used: GAS_USED,
                     timestamp: pa.timestamp,
                     extra_data: "block gen was here".as_bytes().to_vec().into(),
-                    base_fee_per_gas: Uint256::one(),
+                    base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].into(),
                     withdrawals: pa.withdrawals.clone().into(),
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
+                    // TODO(electra): consider how to test these fields below
                     deposit_requests: vec![].into(),
                     withdrawal_requests: vec![].into(),
+                    consolidation_requests: vec![].into(),
                 }),
                 _ => unreachable!(),
             },
@@ -868,7 +873,7 @@ mod test {
         const DIFFICULTY_INCREMENT: u64 = 1;
 
         let mut generator: ExecutionBlockGenerator<MainnetEthSpec> = ExecutionBlockGenerator::new(
-            TERMINAL_DIFFICULTY.into(),
+            Uint256::from(TERMINAL_DIFFICULTY),
             TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
             None,
@@ -897,7 +902,7 @@ mod test {
 
             assert_eq!(
                 block.total_difficulty().unwrap(),
-                (i * DIFFICULTY_INCREMENT).into()
+                Uint256::from(i * DIFFICULTY_INCREMENT)
             );
 
             assert_eq!(generator.block_by_hash(block.block_hash()).unwrap(), block);
