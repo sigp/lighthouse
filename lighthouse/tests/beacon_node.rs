@@ -1886,27 +1886,31 @@ fn state_cache_size_flag() {
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(64)));
 }
+// This flag is deprecated but should not cause a crash.
 #[test]
 fn historic_state_cache_size_flag() {
     CommandLineTest::new()
         .flag("historic-state-cache-size", Some("4"))
+        .run_with_zero_port();
+}
+#[test]
+fn hdiff_buffer_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("hdiff-buffer-cache-size", Some("1"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(
-                config.store.historic_state_cache_size,
-                new_non_zero_usize(4)
-            )
+            assert_eq!(config.store.hdiff_buffer_cache_size, 1);
         });
 }
 #[test]
-fn historic_state_cache_size_default() {
-    use beacon_node::beacon_chain::store::config::DEFAULT_HISTORIC_STATE_CACHE_SIZE;
+fn hdiff_buffer_cache_size_default() {
+    use beacon_node::beacon_chain::store::config::DEFAULT_HDIFF_BUFFER_CACHE_SIZE;
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.store.historic_state_cache_size,
-                DEFAULT_HISTORIC_STATE_CACHE_SIZE
+                config.store.hdiff_buffer_cache_size,
+                DEFAULT_HDIFF_BUFFER_CACHE_SIZE
             );
         });
 }

@@ -74,12 +74,8 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     ///
     /// LOCK ORDERING: this lock must always be locked *after* the `split` if both are required.
     state_cache: Mutex<StateCache<E>>,
-    /// LRU cache of replayed states.
-    // FIXME(sproul): re-enable historic state cache
-    #[allow(dead_code)]
-    historic_state_cache: Mutex<LruCache<Slot, BeaconState<E>>>,
     /// Cache of hierarchical diff buffers.
-    diff_buffer_cache: Mutex<LruCache<Slot, HDiffBuffer>>,
+    hdiff_buffer_cache: Mutex<LruCache<Slot, HDiffBuffer>>,
     /// Chain spec.
     pub(crate) spec: ChainSpec,
     /// Logger.
@@ -216,8 +212,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             hot_db: MemoryStore::open(),
             block_cache: Mutex::new(BlockCache::new(config.block_cache_size)),
             state_cache: Mutex::new(StateCache::new(config.state_cache_size)),
-            historic_state_cache: Mutex::new(LruCache::new(config.historic_state_cache_size)),
-            diff_buffer_cache: Mutex::new(LruCache::new(config.diff_buffer_cache_size)),
+            hdiff_buffer_cache: Mutex::new(LruCache::new(config.hdiff_buffer_cache_size)),
             config,
             hierarchy,
             spec,
@@ -257,8 +252,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             hot_db: LevelDB::open(hot_path)?,
             block_cache: Mutex::new(BlockCache::new(config.block_cache_size)),
             state_cache: Mutex::new(StateCache::new(config.state_cache_size)),
-            historic_state_cache: Mutex::new(LruCache::new(config.historic_state_cache_size)),
-            diff_buffer_cache: Mutex::new(LruCache::new(config.diff_buffer_cache_size)),
+            hdiff_buffer_cache: Mutex::new(LruCache::new(config.hdiff_buffer_cache_size)),
             config,
             hierarchy,
             spec,
@@ -439,13 +433,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     pub fn register_metrics(&self) {
-        let diff_buffer_cache = self.diff_buffer_cache.lock();
-        let diff_buffer_cache_byte_size = diff_buffer_cache
+        let hdiff_buffer_cache = self.hdiff_buffer_cache.lock();
+        let hdiff_buffer_cache_byte_size = hdiff_buffer_cache
             .iter()
             .map(|(_, diff)| diff.size())
             .sum::<usize>();
-        let diff_buffer_cache_len = diff_buffer_cache.len();
-        drop(diff_buffer_cache);
+        let hdiff_buffer_cache_len = hdiff_buffer_cache.len();
+        drop(hdiff_buffer_cache);
 
         metrics::set_gauge(
             &metrics::STORE_BEACON_BLOCK_CACHE_SIZE,
@@ -460,16 +454,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             self.state_cache.lock().len() as i64,
         );
         metrics::set_gauge(
-            &metrics::STORE_BEACON_HISTORIC_STATE_CACHE_SIZE,
-            self.historic_state_cache.lock().len() as i64,
+            &metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_SIZE,
+            hdiff_buffer_cache_len as i64,
         );
         metrics::set_gauge(
-            &metrics::STORE_BEACON_DIFF_BUFFER_CACHE_SIZE,
-            diff_buffer_cache_len as i64,
-        );
-        metrics::set_gauge(
-            &metrics::STORE_BEACON_DIFF_BUFFER_CACHE_BYTE_SIZE,
-            diff_buffer_cache_byte_size as i64,
+            &metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_BYTE_SIZE,
+            hdiff_buffer_cache_byte_size as i64,
         );
     }
 
@@ -1552,7 +1542,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let (_, base_buffer) = self.load_hdiff_buffer_for_slot(from_slot, 0)?;
         let target_buffer = HDiffBuffer::from_state(state.clone());
         let diff = {
-            let _timer = metrics::start_timer(&metrics::STORE_BEACON_DIFF_BUFFER_COMPUTE_TIME);
+            let _timer = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_COMPUTE_TIME);
             HDiff::compute(&base_buffer, &target_buffer, &self.config)?
         };
         let diff_bytes = diff.as_ssz_bytes();
@@ -1617,16 +1607,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         slot: Slot,
         recursion: usize,
     ) -> Result<(Slot, HDiffBuffer), Error> {
-        if let Some(buffer) = self.diff_buffer_cache.lock().get(&slot) {
+        if let Some(buffer) = self.hdiff_buffer_cache.lock().get(&slot) {
             debug!(
                 self.log,
                 "Hit diff buffer cache";
                 "slot" => slot
             );
-            metrics::inc_counter(&metrics::STORE_BEACON_DIFF_BUFFER_CACHE_HIT);
+            metrics::inc_counter(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT);
             return Ok((slot, buffer.clone()));
         } else {
-            metrics::inc_counter(&metrics::STORE_BEACON_DIFF_BUFFER_CACHE_MISS);
+            metrics::inc_counter(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS);
         }
 
         // Do not time recursive calls into load_hdiff_buffer_for_slot to not double count
@@ -1644,7 +1634,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     .ok_or(Error::MissingSnapshot(slot))?;
                 let buffer = HDiffBuffer::from_state(state);
 
-                self.diff_buffer_cache.lock().put(slot, buffer.clone());
+                self.hdiff_buffer_cache.lock().put(slot, buffer.clone());
                 debug!(
                     self.log,
                     "Added diff buffer to cache";
@@ -1663,11 +1653,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 let diff = self.load_hdiff_for_slot(slot)?;
                 {
                     let _timer =
-                        metrics::start_timer(&metrics::STORE_BEACON_DIFF_BUFFER_APPLY_TIME);
+                        metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_APPLY_TIME);
                     diff.apply(&mut buffer, &self.config)?;
                 }
 
-                self.diff_buffer_cache.lock().put(slot, buffer.clone());
+                self.hdiff_buffer_cache.lock().put(slot, buffer.clone());
                 debug!(
                     self.log,
                     "Added diff buffer to cache";

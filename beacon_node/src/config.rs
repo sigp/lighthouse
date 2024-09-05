@@ -434,11 +434,21 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "state-cache-size is not a valid integer".to_string())?;
     }
 
-    if let Some(historic_state_cache_size) = cli_args.get_one::<String>("historic-state-cache-size")
+    if cli_args
+        .get_one::<String>("historic-state-cache-size")
+        .is_some()
     {
-        client_config.store.historic_state_cache_size = historic_state_cache_size
-            .parse()
-            .map_err(|_| "historic-state-cache-size is not a valid integer".to_string())?;
+        warn!(
+            log,
+            "Historic state cache is currently disabled. \
+             Please use hdiff-buffer-cache-size instead"
+        );
+    }
+
+    if let Some(hdiff_buffer_cache_size) =
+        clap_utils::parse_optional(cli_args, "hdiff-buffer-cache-size")?
+    {
+        client_config.store.hdiff_buffer_cache_size = hdiff_buffer_cache_size;
     }
 
     client_config.store.compact_on_init = cli_args.get_flag("compact-db");

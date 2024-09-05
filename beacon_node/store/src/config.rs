@@ -15,9 +15,8 @@ pub const DEFAULT_EPOCHS_PER_STATE_DIFF: u64 = 8;
 pub const DEFAULT_BLOCK_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(64);
 pub const DEFAULT_STATE_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(128);
 pub const DEFAULT_COMPRESSION_LEVEL: i32 = 1;
-pub const DEFAULT_DIFF_BUFFER_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(16);
+pub const DEFAULT_HDIFF_BUFFER_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(16);
 const EST_COMPRESSION_FACTOR: usize = 2;
-pub const DEFAULT_HISTORIC_STATE_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(1);
 pub const DEFAULT_EPOCHS_PER_BLOB_PRUNE: u64 = 1;
 pub const DEFAULT_BLOB_PUNE_MARGIN_EPOCHS: u64 = 0;
 
@@ -33,9 +32,7 @@ pub struct StoreConfig {
     /// Compression level for blocks, state diffs and other compressed values.
     pub compression_level: i32,
     /// Maximum number of `HDiffBuffer`s to store in memory.
-    pub diff_buffer_cache_size: NonZeroUsize,
-    /// Maximum number of states from freezer database to store in the in-memory state cache.
-    pub historic_state_cache_size: NonZeroUsize,
+    pub hdiff_buffer_cache_size: NonZeroUsize,
     /// Whether to compact the database on initialization.
     pub compact_on_init: bool,
     /// Whether to compact the database during database pruning.
@@ -109,9 +106,8 @@ impl Default for StoreConfig {
             epochs_per_state_diff: DEFAULT_EPOCHS_PER_STATE_DIFF,
             block_cache_size: DEFAULT_BLOCK_CACHE_SIZE,
             state_cache_size: DEFAULT_STATE_CACHE_SIZE,
-            diff_buffer_cache_size: DEFAULT_DIFF_BUFFER_CACHE_SIZE,
+            hdiff_buffer_cache_size: DEFAULT_HDIFF_BUFFER_CACHE_SIZE,
             compression_level: DEFAULT_COMPRESSION_LEVEL,
-            historic_state_cache_size: DEFAULT_HISTORIC_STATE_CACHE_SIZE,
             compact_on_init: false,
             compact_on_prune: true,
             prune_payloads: true,

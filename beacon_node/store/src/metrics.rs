@@ -180,17 +180,17 @@ pub static STORE_BEACON_HISTORIC_STATE_CACHE_SIZE: LazyLock<Result<IntGauge>> =
             "Current count of items in beacon store historic state cache",
         )
     });
-pub static STORE_BEACON_DIFF_BUFFER_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+pub static STORE_BEACON_HDIFF_BUFFER_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
-        "store_beacon_diff_buffer_cache_size",
-        "Current count of items in beacon store diff buffer cache",
+        "store_beacon_hdiff_buffer_cache_size",
+        "Current count of items in beacon store hdiff buffer cache",
     )
 });
-pub static STORE_BEACON_DIFF_BUFFER_CACHE_BYTE_SIZE: LazyLock<Result<IntGauge>> =
+pub static STORE_BEACON_HDIFF_BUFFER_CACHE_BYTE_SIZE: LazyLock<Result<IntGauge>> =
     LazyLock::new(|| {
         try_create_int_gauge(
-            "store_beacon_diff_buffer_cache_byte_size",
-            "Current byte size sum of all elements in beacon store diff buffer cache",
+            "store_beacon_hdiff_buffer_cache_byte_size",
+            "Current byte size sum of all elements in beacon store hdiff buffer cache",
         )
     });
 pub static STORE_BEACON_STATE_FREEZER_COMPRESS_TIME: LazyLock<Result<Histogram>> =
@@ -207,17 +207,18 @@ pub static STORE_BEACON_STATE_FREEZER_DECOMPRESS_TIME: LazyLock<Result<Histogram
             "Time taken to decompress a state snapshot for the freezer DB",
         )
     });
-pub static STORE_BEACON_DIFF_BUFFER_APPLY_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "store_beacon_diff_buffer_apply_seconds",
-        "Time taken to apply diff buffer to a state buffer",
-    )
-});
-pub static STORE_BEACON_DIFF_BUFFER_COMPUTE_TIME: LazyLock<Result<Histogram>> =
+pub static STORE_BEACON_HDIFF_BUFFER_APPLY_TIME: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
         try_create_histogram(
-            "store_beacon_diff_buffer_compute_seconds",
-            "Time taken to compute diff buffer to a state buffer",
+            "store_beacon_hdiff_buffer_apply_seconds",
+            "Time taken to apply hdiff buffer to a state buffer",
+        )
+    });
+pub static STORE_BEACON_HDIFF_BUFFER_COMPUTE_TIME: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "store_beacon_hdiff_buffer_compute_seconds",
+            "Time taken to compute hdiff buffer to a state buffer",
         )
     });
 pub static STORE_BEACON_HDIFF_BUFFER_LOAD_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {
@@ -226,17 +227,18 @@ pub static STORE_BEACON_HDIFF_BUFFER_LOAD_TIME: LazyLock<Result<Histogram>> = La
         "Time taken to load an hdiff buffer",
     )
 });
-pub static STORE_BEACON_DIFF_BUFFER_CACHE_HIT: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
-    try_create_int_counter(
-        "store_beacon_diff_buffer_cache_hit_total",
-        "Total count of diff buffer cache hits",
-    )
-});
-pub static STORE_BEACON_DIFF_BUFFER_CACHE_MISS: LazyLock<Result<IntCounter>> =
+pub static STORE_BEACON_HDIFF_BUFFER_CACHE_HIT: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
-            "store_beacon_diff_buffer_cache_miss_total",
-            "Total count of diff buffer cache miss",
+            "store_beacon_hdiff_buffer_cache_hit_total",
+            "Total count of hdiff buffer cache hits",
+        )
+    });
+pub static STORE_BEACON_HDIFF_BUFFER_CACHE_MISS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "store_beacon_hdiff_buffer_cache_miss_total",
+            "Total count of hdiff buffer cache miss",
         )
     });
 pub static STORE_BEACON_REPLAYED_BLOCKS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {

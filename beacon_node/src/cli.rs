@@ -802,8 +802,20 @@ pub fn cli_app() -> Command {
             Arg::new("historic-state-cache-size")
                 .long("historic-state-cache-size")
                 .value_name("SIZE")
-                .help("Specifies how many states from the freezer database should cache in memory")
+                .help("This cache is currently inactive. Please use hdiff-buffer-cache-size instead.")
                 .default_value("1")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("hdiff-buffer-cache-size")
+                .long("hdiff-buffer-cache-size")
+                .value_name("SIZE")
+                .help("Number of hierarchical diff (hdiff) buffers to cache in memory. Each buffer \
+                       is around the size of a BeaconState so you should be cautious about setting \
+                       this value too high. This flag is irrelevant for most nodes, which run with \
+                       state pruning enabled.")
+                .default_value("16")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
