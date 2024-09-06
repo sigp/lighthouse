@@ -16,7 +16,6 @@ use futures::prelude::*;
 use futures::StreamExt;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
-use lighthouse_network::Eth2Enr;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
     rpc::{GoodbyeReason, RPCResponseErrorCode},
@@ -808,17 +807,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
             }
         } else {
-            for column_subnet in DataColumnSubnetId::compute_custody_subnets::<T::EthSpec>(
-                self.network_globals.local_enr().node_id().raw(),
-                self.network_globals
-                    .local_enr()
-                    .custody_subnet_count::<<T as BeaconChainTypes>::EthSpec>(
-                        &self.fork_context.spec,
-                    ),
-                &self.fork_context.spec,
-            ) {
+            for column_subnet in &self.network_globals.custody_subnets {
                 for fork_digest in self.required_gossip_fork_digests() {
-                    let gossip_kind = Subnet::DataColumn(column_subnet).into();
+                    let gossip_kind = Subnet::DataColumn(*column_subnet).into();
                     let topic =
                         GossipTopic::new(gossip_kind, GossipEncoding::default(), fork_digest);
                     if self.libp2p.subscribe(topic.clone()) {
