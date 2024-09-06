@@ -1,9 +1,9 @@
 use crate::rpc::methods::*;
-use crate::rpc::{
-    codec::base::OutboundCodec,
-    protocol::{Encoding, ProtocolId, RPCError, SupportedProtocol, ERROR_TYPE_MAX, ERROR_TYPE_MIN},
+use crate::rpc::protocol::{
+    Encoding, ProtocolId, RPCError, SupportedProtocol, ERROR_TYPE_MAX, ERROR_TYPE_MIN,
 };
 use crate::rpc::{InboundRequest, OutboundRequest};
+use libp2p::bytes::BufMut;
 use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
@@ -57,13 +57,13 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
             max_packet_size,
         }
     }
-}
 
-// Encoder for inbound streams: Encodes RPC Responses sent to peers.
-impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
-    type Error = RPCError;
-
-    fn encode(&mut self, item: RPCCodedResponse<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    /// Encodes RPC Responses sent to peers.
+    fn encode_response(
+        &mut self,
+        item: RPCCodedResponse<E>,
+        dst: &mut BytesMut,
+    ) -> Result<(), RPCError> {
         let bytes = match &item {
             RPCCodedResponse::Success(resp) => match &resp {
                 RPCResponse::Status(res) => res.as_ssz_bytes(),
@@ -122,6 +122,21 @@ impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
         // Write compressed bytes to `dst`
         dst.extend_from_slice(writer.get_ref());
         Ok(())
+    }
+}
+
+// Encoder for inbound streams: Encodes RPC Responses sent to peers.
+impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
+    type Error = RPCError;
+
+    fn encode(&mut self, item: RPCCodedResponse<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        dst.clear();
+        dst.reserve(1);
+        dst.put_u8(
+            item.as_u8()
+                .expect("Should never encode a stream termination"),
+        );
+        self.encode_response(item, dst)
     }
 }
 
@@ -188,6 +203,8 @@ pub struct SSZSnappyOutboundCodec<E: EthSpec> {
     /// The fork name corresponding to the received context bytes.
     fork_name: Option<ForkName>,
     fork_context: Arc<ForkContext>,
+    /// Keeps track of the current response code for a chunk.
+    current_response_code: Option<u8>,
     phantom: PhantomData<E>,
 }
 
@@ -209,6 +226,93 @@ impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
             fork_name: None,
             fork_context,
             phantom: PhantomData,
+            current_response_code: None,
+        }
+    }
+
+    // Decode an Rpc response.
+    fn decode_response(&mut self, src: &mut BytesMut) -> Result<Option<RPCResponse<E>>, RPCError> {
+        // Read the context bytes if required
+        if self.protocol.has_context_bytes() && self.fork_name.is_none() {
+            if src.len() >= CONTEXT_BYTES_LEN {
+                let context_bytes = src.split_to(CONTEXT_BYTES_LEN);
+                let mut result = [0; CONTEXT_BYTES_LEN];
+                result.copy_from_slice(context_bytes.as_ref());
+                self.fork_name = Some(context_bytes_to_fork_name(
+                    result,
+                    self.fork_context.clone(),
+                )?);
+            } else {
+                return Ok(None);
+            }
+        }
+        let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
+            return Ok(None);
+        };
+
+        // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
+        // packet size for ssz container corresponding to `self.protocol`.
+        let ssz_limits = self.protocol.rpc_response_limits::<E>(&self.fork_context);
+        if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
+            return Err(RPCError::InvalidData(format!(
+                "RPC response length is out of bounds, length {}, max {}, min {}",
+                length, ssz_limits.max, ssz_limits.min
+            )));
+        }
+        // Calculate worst case compression length for given uncompressed length
+        let max_compressed_len = snap::raw::max_compress_len(length) as u64;
+        // Create a limit reader as a wrapper that reads only upto `max_compressed_len` from `src`.
+        let limit_reader = Cursor::new(src.as_ref()).take(max_compressed_len);
+        let mut reader = FrameDecoder::new(limit_reader);
+
+        let mut decoded_buffer = vec![0; length];
+
+        match reader.read_exact(&mut decoded_buffer) {
+            Ok(()) => {
+                // `n` is how many bytes the reader read in the compressed stream
+                let n = reader.get_ref().get_ref().position();
+                self.len = None;
+                let _read_bytes = src.split_to(n as usize);
+                // Safe to `take` from `self.fork_name` as we have all the bytes we need to
+                // decode an ssz object at this point.
+                let fork_name = self.fork_name.take();
+                handle_rpc_response(self.protocol.versioned_protocol, &decoded_buffer, fork_name)
+            }
+            Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
+        }
+    }
+
+    fn decode_error(&mut self, src: &mut BytesMut) -> Result<Option<ErrorType>, RPCError> {
+        let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
+            return Ok(None);
+        };
+
+        // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
+        // packet size for ssz container corresponding to `ErrorType`.
+        if length > self.max_packet_size || length > *ERROR_TYPE_MAX || length < *ERROR_TYPE_MIN {
+            return Err(RPCError::InvalidData(format!(
+                "RPC Error length is out of bounds, length {}",
+                length
+            )));
+        }
+
+        // Calculate worst case compression length for given uncompressed length
+        let max_compressed_len = snap::raw::max_compress_len(length) as u64;
+        // Create a limit reader as a wrapper that reads only upto `max_compressed_len` from `src`.
+        let limit_reader = Cursor::new(src.as_ref()).take(max_compressed_len);
+        let mut reader = FrameDecoder::new(limit_reader);
+        let mut decoded_buffer = vec![0; length];
+        match reader.read_exact(&mut decoded_buffer) {
+            Ok(()) => {
+                // `n` is how many bytes the reader read in the compressed stream
+                let n = reader.get_ref().get_ref().position();
+                self.len = None;
+                let _read_bytes = src.split_to(n as usize);
+                Ok(Some(ErrorType(VariableList::from_ssz_bytes(
+                    &decoded_buffer,
+                )?)))
+            }
+            Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
     }
 }
@@ -265,99 +369,40 @@ impl<E: EthSpec> Encoder<OutboundRequest<E>> for SSZSnappyOutboundCodec<E> {
 // We prefer to decode blocks and attestations with extra knowledge about the chain to perform
 // faster verification checks before decoding entire blocks/attestations.
 impl<E: EthSpec> Decoder for SSZSnappyOutboundCodec<E> {
-    type Item = RPCResponse<E>;
+    type Item = RPCCodedResponse<E>;
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        // Read the context bytes if required
-        if self.protocol.has_context_bytes() && self.fork_name.is_none() {
-            if src.len() >= CONTEXT_BYTES_LEN {
-                let context_bytes = src.split_to(CONTEXT_BYTES_LEN);
-                let mut result = [0; CONTEXT_BYTES_LEN];
-                result.copy_from_slice(context_bytes.as_ref());
-                self.fork_name = Some(context_bytes_to_fork_name(
-                    result,
-                    self.fork_context.clone(),
-                )?);
+        // if we have only received the response code, wait for more bytes
+        if src.len() <= 1 {
+            return Ok(None);
+        }
+        // using the response code determine which kind of payload needs to be decoded.
+        let response_code = self.current_response_code.unwrap_or_else(|| {
+            let resp_code = src.split_to(1)[0];
+            self.current_response_code = Some(resp_code);
+            resp_code
+        });
+
+        let inner_result = {
+            if RPCCodedResponse::<E>::is_response(response_code) {
+                // decode an actual response and mutates the buffer if enough bytes have been read
+                // returning the result.
+                self.decode_response(src)
+                    .map(|r| r.map(RPCCodedResponse::Success))
             } else {
-                return Ok(None);
+                // decode an error
+                self.decode_error(src)
+                    .map(|r| r.map(|resp| RPCCodedResponse::from_error(response_code, resp)))
             }
-        }
-        let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
-            return Ok(None);
         };
-
-        // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
-        // packet size for ssz container corresponding to `self.protocol`.
-        let ssz_limits = self.protocol.rpc_response_limits::<E>(&self.fork_context);
-        if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
-            return Err(RPCError::InvalidData(format!(
-                "RPC response length is out of bounds, length {}, max {}, min {}",
-                length, ssz_limits.max, ssz_limits.min
-            )));
+        // if the inner decoder was capable of decoding a chunk, we need to reset the current
+        // response code for the next chunk
+        if let Ok(Some(_)) = inner_result {
+            self.current_response_code = None;
         }
-        // Calculate worst case compression length for given uncompressed length
-        let max_compressed_len = snap::raw::max_compress_len(length) as u64;
-        // Create a limit reader as a wrapper that reads only upto `max_compressed_len` from `src`.
-        let limit_reader = Cursor::new(src.as_ref()).take(max_compressed_len);
-        let mut reader = FrameDecoder::new(limit_reader);
-
-        let mut decoded_buffer = vec![0; length];
-
-        match reader.read_exact(&mut decoded_buffer) {
-            Ok(()) => {
-                // `n` is how many bytes the reader read in the compressed stream
-                let n = reader.get_ref().get_ref().position();
-                self.len = None;
-                let _read_bytes = src.split_to(n as usize);
-                // Safe to `take` from `self.fork_name` as we have all the bytes we need to
-                // decode an ssz object at this point.
-                let fork_name = self.fork_name.take();
-                handle_rpc_response(self.protocol.versioned_protocol, &decoded_buffer, fork_name)
-            }
-            Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
-        }
-    }
-}
-
-impl<E: EthSpec> OutboundCodec<OutboundRequest<E>> for SSZSnappyOutboundCodec<E> {
-    type CodecErrorType = ErrorType;
-
-    fn decode_error(
-        &mut self,
-        src: &mut BytesMut,
-    ) -> Result<Option<Self::CodecErrorType>, RPCError> {
-        let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
-            return Ok(None);
-        };
-
-        // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
-        // packet size for ssz container corresponding to `ErrorType`.
-        if length > self.max_packet_size || length > *ERROR_TYPE_MAX || length < *ERROR_TYPE_MIN {
-            return Err(RPCError::InvalidData(format!(
-                "RPC Error length is out of bounds, length {}",
-                length
-            )));
-        }
-
-        // Calculate worst case compression length for given uncompressed length
-        let max_compressed_len = snap::raw::max_compress_len(length) as u64;
-        // Create a limit reader as a wrapper that reads only upto `max_compressed_len` from `src`.
-        let limit_reader = Cursor::new(src.as_ref()).take(max_compressed_len);
-        let mut reader = FrameDecoder::new(limit_reader);
-        let mut decoded_buffer = vec![0; length];
-        match reader.read_exact(&mut decoded_buffer) {
-            Ok(()) => {
-                // `n` is how many bytes the reader read in the compressed stream
-                let n = reader.get_ref().get_ref().position();
-                self.len = None;
-                let _read_bytes = src.split_to(n as usize);
-                Ok(Some(ErrorType(VariableList::from_ssz_bytes(
-                    &decoded_buffer,
-                )?)))
-            }
-            Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
-        }
+        // return the result
+        inner_result
     }
 }
 
@@ -1030,7 +1075,7 @@ mod tests {
         let mut snappy_inbound_codec =
             SSZSnappyInboundCodec::<Spec>::new(snappy_protocol_id, max_packet_size, fork_context);
 
-        snappy_inbound_codec.encode(message, &mut buf)?;
+        snappy_inbound_codec.encode_response(message, &mut buf)?;
         Ok(buf)
     }
 
@@ -1075,7 +1120,7 @@ mod tests {
         let mut snappy_outbound_codec =
             SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, max_packet_size, fork_context);
         // decode message just as snappy message
-        snappy_outbound_codec.decode(message)
+        snappy_outbound_codec.decode_response(message)
     }
 
     /// Encodes the provided protocol message as bytes and tries to decode the encoding bytes.
@@ -1844,6 +1889,131 @@ mod tests {
                 &chain_spec
             )
             .unwrap_err(),
+            RPCError::InvalidData(_)
+        ));
+    }
+
+    #[test]
+    fn test_decode_status_message() {
+        let message = hex::decode("0054ff060000734e615070590032000006e71e7b54989925efd6c9cbcb8ceb9b5f71216f5137282bf6a1e3b50f64e42d6c7fb347abe07eb0db8200000005029e2800").unwrap();
+        let mut buf = BytesMut::new();
+        buf.extend_from_slice(&message);
+
+        let snappy_protocol_id = ProtocolId::new(SupportedProtocol::StatusV1, Encoding::SSZSnappy);
+
+        let fork_context = Arc::new(fork_context(ForkName::Base));
+
+        let chain_spec = Spec::default_spec();
+
+        let mut snappy_outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
+            snappy_protocol_id,
+            max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize),
+            fork_context,
+        );
+
+        // remove response code
+        let mut snappy_buf = buf.clone();
+        let _ = snappy_buf.split_to(1);
+
+        // decode message just as snappy message
+        let _snappy_decoded_message = snappy_outbound_codec
+            .decode_response(&mut snappy_buf)
+            .unwrap();
+
+        // decode message as ssz snappy chunk
+        let _snappy_decoded_chunk = snappy_outbound_codec.decode(&mut buf).unwrap();
+    }
+
+    #[test]
+    fn test_invalid_length_prefix() {
+        let mut uvi_codec: Uvi<u128> = Uvi::default();
+        let mut dst = BytesMut::with_capacity(1024);
+
+        // Smallest > 10 byte varint
+        let len: u128 = 2u128.pow(70);
+
+        // Insert length-prefix
+        uvi_codec.encode(len, &mut dst).unwrap();
+
+        let snappy_protocol_id = ProtocolId::new(SupportedProtocol::StatusV1, Encoding::SSZSnappy);
+
+        let fork_context = Arc::new(fork_context(ForkName::Base));
+
+        let chain_spec = Spec::default_spec();
+
+        let mut snappy_outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
+            snappy_protocol_id,
+            max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize),
+            fork_context,
+        );
+
+        let snappy_decoded_message = snappy_outbound_codec.decode_response(&mut dst).unwrap_err();
+
+        assert_eq!(
+            snappy_decoded_message,
+            RPCError::IoError("input bytes exceed maximum".to_string()),
+            "length-prefix of > 10 bytes is invalid"
+        );
+    }
+
+    #[test]
+    fn test_length_limits() {
+        fn encode_len(len: usize) -> BytesMut {
+            let mut uvi_codec: Uvi<usize> = Uvi::default();
+            let mut dst = BytesMut::with_capacity(1024);
+            uvi_codec.encode(len, &mut dst).unwrap();
+            dst
+        }
+
+        let protocol_id = ProtocolId::new(SupportedProtocol::BlocksByRangeV1, Encoding::SSZSnappy);
+
+        // Response limits
+        let fork_context = Arc::new(fork_context(ForkName::Base));
+
+        let chain_spec = Spec::default_spec();
+
+        let max_rpc_size = max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize);
+        let limit = protocol_id.rpc_response_limits::<Spec>(&fork_context);
+        let mut max = encode_len(limit.max + 1);
+        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
+            protocol_id.clone(),
+            max_rpc_size,
+            fork_context.clone(),
+        );
+        assert!(matches!(
+            codec.decode_response(&mut max).unwrap_err(),
+            RPCError::InvalidData(_)
+        ));
+
+        let mut min = encode_len(limit.min - 1);
+        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
+            protocol_id.clone(),
+            max_rpc_size,
+            fork_context.clone(),
+        );
+        assert!(matches!(
+            codec.decode_response(&mut min).unwrap_err(),
+            RPCError::InvalidData(_)
+        ));
+
+        // Request limits
+        let limit = protocol_id.rpc_request_limits(&fork_context.spec);
+        let mut max = encode_len(limit.max + 1);
+        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
+            protocol_id.clone(),
+            max_rpc_size,
+            fork_context.clone(),
+        );
+        assert!(matches!(
+            codec.decode_response(&mut max).unwrap_err(),
+            RPCError::InvalidData(_)
+        ));
+
+        let mut min = encode_len(limit.min - 1);
+        let mut codec =
+            SSZSnappyOutboundCodec::<Spec>::new(protocol_id, max_rpc_size, fork_context);
+        assert!(matches!(
+            codec.decode_response(&mut min).unwrap_err(),
             RPCError::InvalidData(_)
         ));
     }
