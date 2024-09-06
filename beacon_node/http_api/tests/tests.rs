@@ -153,7 +153,7 @@ impl ApiTester {
 
             if !SKIPPED_SLOTS.contains(&slot) {
                 harness
-                    .extend_chain(
+                    .extend_chain_with_light_client_data(
                         1,
                         BlockStrategy::OnCanonicalHead,
                         AttestationStrategy::AllValidators,
@@ -1926,6 +1926,7 @@ impl ApiTester {
             )
             .unwrap();
 
+        assert_eq!(1, expected.len());
         assert_eq!(result.clone().unwrap().len(), expected.len());
         self
     }
@@ -1943,14 +1944,16 @@ impl ApiTester {
             Err(e) => panic!("query failed incorrectly: {e:?}"),
         };
 
-        assert!(result.is_none());
+        assert!(result.is_some());
 
         let expected = self
             .chain
             .light_client_server_cache
             .get_light_client_bootstrap(&self.chain.store, &block_root, 1u64, &self.chain.spec);
 
-        assert!(expected.is_err());
+        assert!(expected.is_ok());
+
+        assert_eq!(result.unwrap().data, expected.unwrap().unwrap().0);
 
         self
     }
