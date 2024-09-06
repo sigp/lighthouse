@@ -7,7 +7,7 @@ use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use store::{DBColumn, Error as StoreError, StoreItem, StoreOp};
-use types::{BeaconState, Hash256, PublicKey, PublicKeyBytes};
+use types::{BeaconState, FixedBytesExtended, Hash256, PublicKey, PublicKeyBytes};
 
 /// Provides a mapping of `validator_index -> validator_publickey`.
 ///

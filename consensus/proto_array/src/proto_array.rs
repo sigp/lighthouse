@@ -7,8 +7,8 @@ use ssz_derive::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
 use superstruct::superstruct;
 use types::{
-    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    Slot,
+    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
+    FixedBytesExtended, Hash256, Slot,
 };
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union

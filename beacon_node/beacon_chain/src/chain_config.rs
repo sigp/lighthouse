@@ -84,6 +84,10 @@ pub struct ChainConfig {
     pub epochs_per_migration: u64,
     /// When set to true Light client server computes and caches state proofs for serving updates
     pub enable_light_client_server: bool,
+    /// The number of data columns to withhold / exclude from publishing when proposing a block.
+    pub malicious_withhold_count: usize,
+    /// Enable peer sampling on blocks.
+    pub enable_sampling: bool,
 }
 
 impl Default for ChainConfig {
@@ -115,6 +119,8 @@ impl Default for ChainConfig {
             always_prepare_payload: false,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
             enable_light_client_server: false,
+            malicious_withhold_count: 0,
+            enable_sampling: false,
         }
     }
 }

@@ -93,7 +93,7 @@ impl TestRig {
         spec.shard_committee_period = 2;
 
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
-            .spec(spec)
+            .spec(spec.clone())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
@@ -204,7 +204,14 @@ impl TestRig {
         });
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = enr::Enr::builder().build(&enr_key).unwrap();
-        let network_globals = Arc::new(NetworkGlobals::new(enr, meta_data, vec![], false, &log));
+        let network_globals = Arc::new(NetworkGlobals::new(
+            enr,
+            meta_data,
+            vec![],
+            false,
+            &log,
+            spec,
+        ));
 
         let executor = harness.runtime.task_executor.clone();
 

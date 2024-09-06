@@ -9,13 +9,19 @@ use types::{
     blob_sidecar::BlobIdentifier, BlobSidecar, ChainSpec, EthSpec, Hash256, SignedBeaconBlock,
 };
 
+pub use data_columns_by_root::{
+    ActiveDataColumnsByRootRequest, DataColumnsByRootSingleBlockRequest,
+};
+
+mod data_columns_by_root;
+
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupVerifyError {
     NoResponseReturned,
     NotEnoughResponsesReturned { expected: usize, actual: usize },
     TooManyResponses,
     UnrequestedBlockRoot(Hash256),
-    UnrequestedBlobIndex(u64),
+    UnrequestedIndex(u64),
     InvalidInclusionProof,
     DuplicateData,
 }
@@ -131,7 +137,7 @@ impl<E: EthSpec> ActiveBlobsByRootRequest<E> {
             return Err(LookupVerifyError::InvalidInclusionProof);
         }
         if !self.request.indices.contains(&blob.index) {
-            return Err(LookupVerifyError::UnrequestedBlobIndex(blob.index));
+            return Err(LookupVerifyError::UnrequestedIndex(blob.index));
         }
         if self.blobs.iter().any(|b| b.index == blob.index) {
             return Err(LookupVerifyError::DuplicateData);
