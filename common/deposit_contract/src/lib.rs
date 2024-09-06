@@ -53,7 +53,7 @@ pub fn encode_eth1_tx_data(deposit_data: &DepositData) -> Result<Vec<u8>, Error>
     let abi: JsonAbi = serde_json::from_str(ABI)?;
     let function = abi
         .function("deposit")
-        .and_then(|funcs| funcs.first().clone())
+        .and_then(|funcs| funcs.first())
         .ok_or(Error::MissingDepositFunction)?;
     function.abi_encode_input(&params).map_err(Into::into)
 }
@@ -62,7 +62,7 @@ pub fn decode_eth1_tx_data(bytes: &[u8], amount: u64) -> Result<(DepositData, Ha
     let abi: JsonAbi = serde_json::from_str(ABI)?;
     let function = abi
         .function("deposit")
-        .and_then(|funcs| funcs.first().clone())
+        .and_then(|funcs| funcs.first())
         .ok_or(Error::MissingDepositFunction)?;
     let validate = true;
     let mut tokens =
