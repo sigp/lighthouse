@@ -37,7 +37,7 @@
 //! Whenever the manager receives a notification that a worker has finished a parcel of work, it
 //! checks the queues to see if there are more parcels of work that can be spawned in a new worker
 //! task.
-
+mod scheduler;
 use crate::work_reprocessing_queue::{
     QueuedBackfillBatch, QueuedGossipBlock, ReprocessQueueMessage,
 };
@@ -878,6 +878,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         // receive them back once they are ready (`ready_work_rx`).
         let (ready_work_tx, ready_work_rx) =
             mpsc::channel::<ReadyWork>(self.config.max_scheduled_work_queue_len);
+        // TODO(beacon-processor) reprocess scheduler
         spawn_reprocess_scheduler(
             ready_work_tx,
             work_reprocessing_rx,
@@ -906,6 +907,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         self.current_workers = self.current_workers.saturating_sub(1);
                         None
                     }
+                    // TODO(beacon-processor) backfill rate limiting is here
                     Some(InboundEvent::WorkEvent(event)) if enable_backfill_rate_limiting => {
                         match QueuedBackfillBatch::try_from(event) {
                             Ok(backfill_batch) => {
@@ -987,6 +989,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     .map_or(false, |event| event.drop_during_sync);
 
                 let idle_tx = idle_tx.clone();
+
+                // TODO(beacon-processor) ordering is defined here
                 match work_event {
                     // There is no new work event, but we are able to spawn a new worker.
                     //
@@ -1485,6 +1489,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         Ok(())
     }
 
+    // TODO(beacon-processor) should we move spawn_worker outside of self?
     /// Spawns a blocking worker thread to process some `Work`.
     ///
     /// Sends an message on `idle_tx` when the work is complete and the task is stopping.
