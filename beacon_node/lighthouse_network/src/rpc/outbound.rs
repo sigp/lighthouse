@@ -2,9 +2,7 @@ use super::methods::*;
 use super::protocol::ProtocolId;
 use super::protocol::SupportedProtocol;
 use super::RPCError;
-use crate::rpc::codec::{
-    base::BaseOutboundCodec, ssz_snappy::SSZSnappyOutboundCodec, OutboundCodec,
-};
+use crate::rpc::codec::SSZSnappyOutboundCodec;
 use crate::rpc::protocol::Encoding;
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
@@ -183,7 +181,7 @@ impl<E: EthSpec> OutboundRequest<E> {
 
 /* Outbound upgrades */
 
-pub type OutboundFramed<TSocket, E> = Framed<Compat<TSocket>, OutboundCodec<E>>;
+pub type OutboundFramed<TSocket, E> = Framed<Compat<TSocket>, SSZSnappyOutboundCodec<E>>;
 
 impl<TSocket, E> OutboundUpgrade<TSocket> for OutboundRequestContainer<E>
 where
@@ -199,12 +197,7 @@ where
         let socket = socket.compat();
         let codec = match protocol.encoding {
             Encoding::SSZSnappy => {
-                let ssz_snappy_codec = BaseOutboundCodec::new(SSZSnappyOutboundCodec::new(
-                    protocol,
-                    self.max_rpc_size,
-                    self.fork_context.clone(),
-                ));
-                OutboundCodec::SSZSnappy(ssz_snappy_codec)
+                SSZSnappyOutboundCodec::new(protocol, self.max_rpc_size, self.fork_context.clone())
             }
         };
 
