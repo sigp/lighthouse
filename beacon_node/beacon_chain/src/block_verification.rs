@@ -50,7 +50,7 @@
 
 use crate::beacon_snapshot::PreProcessingSnapshot;
 use crate::blob_verification::GossipBlobError;
-use crate::block_verification_types::{AsBlock, BlockImportData, RpcBlock};
+use crate::block_verification_types::{AsBlock, BlockContentsError, BlockImportData, RpcBlock};
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
 use crate::data_column_verification::{
     GossipDataColumnError, GossipVerifiedDataColumn, GossipVerifiedDataColumnList,
@@ -97,9 +97,10 @@ use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use types::data_column_sidecar::DataColumnSidecarError;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ExecPayload,
-    ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
-    RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSubnetId, Epoch,
+    EthSpec, ExecPayload, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, PublicKey,
+    PublicKeyBytes, RelativeEpoch, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader,
+    Slot,
 };
 
 pub const POS_PANDA_BANNER: &str = r#"
@@ -709,7 +710,7 @@ pub trait IntoGossipVerifiedBlock<T: BeaconChainTypes>: Sized {
     fn into_gossip_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>>;
+    ) -> Result<GossipVerifiedBlock<T>, BlockError>;
     fn inner_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>>;
 }
 
@@ -717,7 +718,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for GossipVerifiedBlock<T> 
     fn into_gossip_verified_block(
         self,
         _chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
+    ) -> Result<GossipVerifiedBlock<T>, BlockError> {
         Ok(self)
     }
     fn inner_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
@@ -759,6 +760,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for Arc<SignedBeaconBlock<T
     }
 }
 
+/* FIXME(sproul): do something with this
 #[allow(clippy::type_complexity)]
 fn build_gossip_verified_blobs<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
@@ -783,7 +785,10 @@ fn build_gossip_verified_blobs<T: BeaconChainTypes>(
         })
         .transpose()
 }
+*/
 
+// FIXME(sproul): do something with this
+#[allow(dead_code)]
 fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     block: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,

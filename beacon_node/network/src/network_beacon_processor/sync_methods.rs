@@ -354,14 +354,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
                 }
-                AvailabilityProcessingStatus::MissingComponents(_, _) => {
-                    debug!(
-                        self.log,
-                        "Missing components over rpc";
-                        "block_hash" => %block_root,
-                    );
-                }
-            },
+            }
             Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!(
                     self.log,

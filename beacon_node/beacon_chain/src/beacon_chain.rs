@@ -2980,7 +2980,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_gossip_blob(
         self: &Arc<Self>,
         blob: GossipVerifiedBlob<T>,
-        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let block_root = blob.block_root();
 
@@ -3018,7 +3018,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_gossip_data_columns(
         self: &Arc<Self>,
         data_columns: Vec<GossipVerifiedDataColumn<T>>,
-        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError>,
     ) -> Result<
         (
             AvailabilityProcessingStatus,
@@ -3237,7 +3237,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         unverified_block: B,
         notify_execution_layer: NotifyExecutionLayer,
         block_source: BlockImportSource,
-        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
@@ -3428,7 +3428,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn check_gossip_blob_availability_and_import(
         self: &Arc<Self>,
         blob: GossipVerifiedBlob<T>,
-        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let slot = blob.slot();
         if let Some(slasher) = self.slasher.as_ref() {
@@ -3447,7 +3447,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         block_root: Hash256,
         data_columns: Vec<GossipVerifiedDataColumn<T>>,
-        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError>,
     ) -> Result<
         (
             AvailabilityProcessingStatus,
@@ -3555,7 +3555,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 custody_columns,
             )?;
 
-        self.process_availability(slot, availability)
+        // FIXME(sproul): need a publication function here?
+        self.process_availability(slot, availability, || Ok(()))
             .await
             .map(|result| (result, data_columns_to_publish))
     }
@@ -3568,7 +3569,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         slot: Slot,
         availability: Availability<T::EthSpec>,
-        publish_fn: impl FnOnce() -> Result<(), BlockError<T::EthSpec>>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         match availability {
             Availability::Available(block) => {

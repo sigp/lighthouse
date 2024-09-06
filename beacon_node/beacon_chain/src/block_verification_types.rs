@@ -1,12 +1,11 @@
+use crate::blob_verification::GossipBlobError;
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
 use crate::data_column_verification::{
-    CustodyDataColumn, CustodyDataColumnList, GossipDataColumnError, GossipVerifiedDataColumnList,
+    CustodyDataColumn, CustodyDataColumnList, GossipDataColumnError,
 };
 use crate::eth1_finalization_cache::Eth1FinalizationData;
-use crate::{
-    get_block_root, BeaconChainTypes, BlockError, GossipVerifiedBlock, PayloadVerificationOutcome,
-};
+use crate::{get_block_root, BlockError, PayloadVerificationOutcome};
 use derivative::Derivative;
 use ssz_types::VariableList;
 use state_processing::ConsensusContext;
@@ -15,7 +14,7 @@ use std::sync::Arc;
 use types::blob_sidecar::{self, BlobIdentifier, FixedBlobSidecarList};
 use types::data_column_sidecar::{self};
 use types::{
-    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecar, BlobSidecarList, Epoch, EthSpec,
+    BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, ChainSpec, Epoch, EthSpec,
     Hash256, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
