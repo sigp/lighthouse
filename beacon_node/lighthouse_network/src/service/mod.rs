@@ -930,15 +930,17 @@ impl<E: EthSpec> Network<E> {
         self.eth2_rpc_mut().send_request(
             peer_id,
             RequestId::Application(request_id),
-            request.into(),
+            request.clone().into(),
         );
+        metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS_SENT, &[request.into()]);
         Ok(())
     }
 
     /// Send a successful response to a peer over RPC.
     pub fn send_response(&mut self, peer_id: PeerId, id: PeerRequestId, response: Response<E>) {
         self.eth2_rpc_mut()
-            .send_response(peer_id, id, response.into())
+            .send_response(peer_id, id, response.clone().into());
+        metrics::inc_counter_vec(&metrics::TOTAL_RPC_RESPONSES_SENT, &[response.into()]);
     }
 
     /// Inform the peer that their request produced an error.
@@ -1161,6 +1163,10 @@ impl<E: EthSpec> Network<E> {
         peer_id: PeerId,
         response: Response<E>,
     ) -> Option<NetworkEvent<E>> {
+        metrics::inc_counter_vec(
+            &metrics::TOTAL_RPC_RESPONSES_RECEIVED,
+            &[response.clone().into()],
+        );
         match id {
             RequestId::Application(id) => Some(NetworkEvent::ResponseReceived {
                 peer_id,
@@ -1180,40 +1186,10 @@ impl<E: EthSpec> Network<E> {
         request: Request,
     ) -> NetworkEvent<E> {
         // Increment metrics
-        match &request {
-            Request::Status(_) => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["status"])
-            }
-            Request::LightClientBootstrap(_) => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["light_client_bootstrap"])
-            }
-            Request::LightClientOptimisticUpdate => metrics::inc_counter_vec(
-                &metrics::TOTAL_RPC_REQUESTS,
-                &["light_client_optimistic_update"],
-            ),
-            Request::LightClientFinalityUpdate => metrics::inc_counter_vec(
-                &metrics::TOTAL_RPC_REQUESTS,
-                &["light_client_finality_update"],
-            ),
-            Request::BlocksByRange { .. } => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_range"])
-            }
-            Request::BlocksByRoot { .. } => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"])
-            }
-            Request::BlobsByRange { .. } => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"])
-            }
-            Request::BlobsByRoot { .. } => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_root"])
-            }
-            Request::DataColumnsByRoot { .. } => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["data_columns_by_root"])
-            }
-            Request::DataColumnsByRange { .. } => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["data_columns_by_range"])
-            }
-        }
+        metrics::inc_counter_vec(
+            &metrics::TOTAL_RPC_REQUESTS_RECEIVED,
+            &[request.clone().into()],
+        );
         NetworkEvent::RequestReceived {
             peer_id,
             id,

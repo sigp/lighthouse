@@ -153,7 +153,9 @@ pub(crate) struct Metrics {
     topic_msg_recv_counts_unfiltered: Family<TopicHash, Counter>,
     /// Number of gossipsub messages received on each topic (after filtering duplicates).
     topic_msg_recv_counts: Family<TopicHash, Counter>,
-    /// Bytes received from gossip messages for each topic.
+    /// Bytes received from gossip messages for each topic (without filtering duplicates).
+    topic_msg_recv_bytes_unfiltered: Family<TopicHash, Counter>,
+    /// Bytes received from gossip messages for each topic (after filtering duplicates).
     topic_msg_recv_bytes: Family<TopicHash, Counter>,
 
     /* Metrics related to scoring */
@@ -281,9 +283,13 @@ impl Metrics {
             "topic_msg_recv_counts",
             "Number of gossip messages received on each topic (after duplicates have been filtered)"
         );
+        let topic_msg_recv_bytes_unfiltered = register_family!(
+            "topic_msg_recv_bytes_unfiltered",
+            "Bytes received from gossip messages for each topic (without duplicates being filtered)"
+        );
         let topic_msg_recv_bytes = register_family!(
             "topic_msg_recv_bytes",
-            "Bytes received from gossip messages for each topic"
+            "Bytes received from gossip messages for each topic (after duplicates have been filtered)"
         );
 
         let hist_builder = HistBuilder {
@@ -382,6 +388,7 @@ impl Metrics {
             topic_msg_published,
             topic_msg_recv_counts_unfiltered,
             topic_msg_recv_counts,
+            topic_msg_recv_bytes_unfiltered,
             topic_msg_recv_bytes,
             score_per_mesh,
             scoring_penalties,
@@ -545,9 +552,12 @@ impl Metrics {
     }
 
     /// Register that a message was received (and was not a duplicate).
-    pub(crate) fn msg_recvd(&mut self, topic: &TopicHash) {
+    pub(crate) fn msg_recvd(&mut self, topic: &TopicHash, bytes: usize) {
         if self.register_topic(topic).is_ok() {
             self.topic_msg_recv_counts.get_or_create(topic).inc();
+            self.topic_msg_recv_bytes
+                .get_or_create(topic)
+                .inc_by(bytes as u64);
         }
     }
 
@@ -557,7 +567,7 @@ impl Metrics {
             self.topic_msg_recv_counts_unfiltered
                 .get_or_create(topic)
                 .inc();
-            self.topic_msg_recv_bytes
+            self.topic_msg_recv_bytes_unfiltered
                 .get_or_create(topic)
                 .inc_by(bytes as u64);
         }

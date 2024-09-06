@@ -1681,13 +1681,13 @@ pub static DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histog
             "Full runtime of data column sidecars gossip verification",
         )
     });
-pub static DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
-    LazyLock::new(|| {
-        try_create_int_counter(
-            "beacon_blobs_column_sidecar_processing_successes_total",
-            "Number of data column sidecars verified for gossip",
-        )
-    });
+
+pub static CUSTODY_COLUMNS_COUNT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "beacon_custody_columns_count_total",
+        "Total count of columns in custody",
+    )
+});
 
 /*
  * Light server message verification
@@ -1978,6 +1978,11 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     set_gauge_by_usize(
         &OP_POOL_NUM_SYNC_CONTRIBUTIONS,
         beacon_chain.op_pool.num_sync_contributions(),
+    );
+
+    set_gauge_by_usize(
+        &CUSTODY_COLUMNS_COUNT,
+        da_checker_metrics.custody_columns_count,
     );
 
     beacon_chain

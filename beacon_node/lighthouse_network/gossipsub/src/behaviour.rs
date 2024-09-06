@@ -20,10 +20,9 @@
 
 use std::{
     cmp::{max, Ordering},
-    collections::HashSet,
-    collections::VecDeque,
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
     fmt,
+    io::Read,
     net::IpAddr,
     task::{Context, Poll},
     time::Duration,
@@ -1833,7 +1832,7 @@ where
 
         // Record the received message with the metrics
         if let Some(metrics) = self.metrics.as_mut() {
-            metrics.msg_recvd(&message.topic);
+            metrics.msg_recvd(&message.topic, message.get_size());
         }
 
         // Consider the message as delivered for gossip promises.
