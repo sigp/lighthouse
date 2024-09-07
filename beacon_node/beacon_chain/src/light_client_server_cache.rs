@@ -227,7 +227,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             }
         };
 
-        if finalized_period >= sync_committee_period - 1 {
+        if finalized_period + 1 >= sync_committee_period {
             store.store_sync_committee(
                 sync_committee_period,
                 &cached_parts.current_sync_committee,
