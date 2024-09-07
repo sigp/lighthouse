@@ -66,7 +66,7 @@ the relevant page for your execution engine for the required flags:
 
 - [Geth: Connecting to Consensus Clients](https://geth.ethereum.org/docs/getting-started/consensus-clients)
 - [Nethermind: Running Nethermind Post Merge](https://docs.nethermind.io/nethermind/first-steps-with-nethermind/running-nethermind-post-merge)
-- [Besu: Prepare For The Merge](https://besu.hyperledger.org/en/stable/HowTo/Upgrade/Prepare-for-The-Merge/)
+- [Besu: Prepare For The Merge](https://besu.hyperledger.org/private-networks/how-to/configure/consensus)
 - [Erigon: Beacon Chain (Consensus Layer)](https://github.com/ledgerwatch/erigon#beacon-chain-consensus-layer)
 
 Once you have configured your execution engine to open up the engine API (usually on port 8551) you
