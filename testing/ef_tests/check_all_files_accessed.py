@@ -47,10 +47,10 @@ excluded_paths = [
     "tests/.*/whisk",
     "tests/.*/eip7594",
     # TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
-    "tests/.*/electra/ssz_static/LightClientUpdate",
-    "tests/.*/electra/ssz_static/LightClientFinalityUpdate",
-    "tests/.*/electra/ssz_static/LightClientBootstrap",
-    "tests/.*/electra/merkle_proof",
+    # "tests/.*/electra/ssz_static/LightClientUpdate",
+    # "tests/.*/electra/ssz_static/LightClientFinalityUpdate",
+    # "tests/.*/electra/ssz_static/LightClientBootstrap",
+    # "tests/.*/electra/merkle_proof",
 ]
 
 

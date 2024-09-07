@@ -920,8 +920,13 @@ fn kzg_recover_cells_and_proofs() {
 }
 
 #[test]
-fn merkle_proof_validity() {
-    MerkleProofValidityHandler::<MainnetEthSpec>::default().run();
+fn beacon_state_merkle_proof_validity() {
+    BeaconStateMerkleProofValidityHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
+fn beacon_block_body_merkle_proof_validity() {
+    BeaconBlockBodyMerkleProofValidityHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]

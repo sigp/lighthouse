@@ -423,8 +423,7 @@ impl<E: EthSpec> LightClientCachedData<E> {
     fn from_state(state: &mut BeaconState<E>) -> Result<Self, BeaconChainError> {
         Ok(Self {
             finalized_checkpoint: state.finalized_checkpoint(),
-            finality_branch: state
-                .compute_merkle_proof(FINALIZED_ROOT_INDEX_ELECTRA)?,
+            finality_branch: state.compute_merkle_proof(FINALIZED_ROOT_INDEX_ELECTRA)?,
             next_sync_committee: state.next_sync_committee()?.clone(),
             current_sync_committee: state.current_sync_committee()?.clone(),
             next_sync_committee_branch: state
