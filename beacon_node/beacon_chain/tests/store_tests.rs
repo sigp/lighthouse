@@ -213,8 +213,6 @@ async fn light_client_bootstrap_test() {
         .cached_head()
         .finalized_checkpoint();
 
-    let current_state = harness.get_current_state();
-
     // Advance to the next sync committee period
     for _i in 0..(E::slots_per_epoch() * u64::from(spec.epochs_per_sync_committee_period)) {
         harness.advance_slot();
