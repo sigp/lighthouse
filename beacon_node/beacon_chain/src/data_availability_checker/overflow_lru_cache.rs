@@ -972,6 +972,8 @@ mod test {
                 assert_eq!(cache.critical.read().len(), 1);
             }
         }
+        // remove the blob to simulate successful import
+        cache.remove_pending_components(root);
         assert!(
             cache.critical.read().is_empty(),
             "cache should be empty now that all components available"
