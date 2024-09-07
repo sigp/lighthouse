@@ -1,14 +1,11 @@
+use crate::engine_api::{
+    json_structures::{
+        JsonForkchoiceUpdatedV1Response, JsonPayloadStatusV1, JsonPayloadStatusV1Status,
+    },
+    ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
+};
 use crate::engines::ForkchoiceState;
 use crate::EthersTransaction;
-use crate::{
-    engine_api::{
-        json_structures::{
-            JsonForkchoiceUpdatedV1Response, JsonPayloadStatusV1, JsonPayloadStatusV1Status,
-        },
-        ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
-    },
-    ExecutionBlockWithTransactions,
-};
 use eth2::types::BlobsBundle;
 use kzg::{Kzg, KzgCommitment, KzgProof};
 use parking_lot::Mutex;
@@ -89,17 +86,13 @@ impl<E: EthSpec> Block<E> {
         }
     }
 
-    pub fn as_execution_block_with_tx(&self) -> Option<ExecutionBlockWithTransactions<E>> {
+    pub fn as_execution_payload(&self) -> Option<ExecutionPayload<E>> {
         match self {
-            Block::PoS(payload) => Some(payload.clone().try_into().unwrap()),
-            Block::PoW(block) => Some(
-                ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
-                    block_hash: block.block_hash,
-                    ..Default::default()
-                })
-                .try_into()
-                .unwrap(),
-            ),
+            Block::PoS(payload) => Some(payload.clone()),
+            Block::PoW(block) => Some(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
+                block_hash: block.block_hash,
+                ..Default::default()
+            })),
         }
     }
 }
@@ -255,20 +248,17 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             .map(|block| block.as_execution_block(self.terminal_total_difficulty))
     }
 
-    pub fn execution_block_with_txs_by_hash(
+    pub fn execution_payload_by_hash(
         &self,
         hash: ExecutionBlockHash,
-    ) -> Option<ExecutionBlockWithTransactions<E>> {
+    ) -> Option<ExecutionPayload<E>> {
         self.block_by_hash(hash)
-            .and_then(|block| block.as_execution_block_with_tx())
+            .and_then(|block| block.as_execution_payload())
     }
 
-    pub fn execution_block_with_txs_by_number(
-        &self,
-        number: u64,
-    ) -> Option<ExecutionBlockWithTransactions<E>> {
+    pub fn execution_payload_by_number(&self, number: u64) -> Option<ExecutionPayload<E>> {
         self.block_by_number(number)
-            .and_then(|block| block.as_execution_block_with_tx())
+            .and_then(|block| block.as_execution_payload())
     }
 
     pub fn move_to_block_prior_to_terminal_block(&mut self) -> Result<(), String> {
