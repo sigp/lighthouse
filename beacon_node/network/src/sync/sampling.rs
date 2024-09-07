@@ -10,11 +10,11 @@ use lighthouse_network::service::api_types::{
 };
 use lighthouse_network::{PeerAction, PeerId};
 use rand::{seq::SliceRandom, thread_rng};
-use tracing::{debug, error, warn};
 use std::{
     collections::hash_map::Entry, collections::HashMap, marker::PhantomData, sync::Arc,
     time::Duration,
 };
+use tracing::{debug, error, warn};
 use types::{data_column_sidecar::ColumnIndex, ChainSpec, DataColumnSidecar, Hash256};
 
 pub type SamplingResult = Result<(), SamplingError>;
@@ -122,7 +122,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
     ) -> Option<(SamplingRequester, SamplingResult)> {
         let Some(request) = self.requests.get_mut(&id.id) else {
             // TOOD(das): This log can happen if the request is error'ed early and dropped
-            debug!(?id,"Sample verified event for unknown request");
+            debug!(?id, "Sample verified event for unknown request");
             return None;
         };
 
@@ -140,7 +140,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
     ) -> Option<(SamplingRequester, SamplingResult)> {
         let result = result.transpose();
         if let Some(result) = result {
-            debug!(?id, ?result,"Sampling request completed, removing");
+            debug!(?id, ?result, "Sampling request completed, removing");
             metrics::inc_counter_vec(
                 &metrics::SAMPLING_REQUEST_RESULT,
                 &[metrics::from_result(&result)],
@@ -244,7 +244,10 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
             .column_indexes_by_sampling_request
             .get(&sampling_request_id)
         else {
-            error!(?sampling_request_id,"Column indexes for the sampling request ID not found");
+            error!(
+                ?sampling_request_id,
+                "Column indexes for the sampling request ID not found"
+            );
             return Ok(None);
         };
 
@@ -361,7 +364,10 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
             .column_indexes_by_sampling_request
             .get(&sampling_request_id)
         else {
-            error!(?sampling_request_id,"Column indexes for the sampling request ID not found");
+            error!(
+                ?sampling_request_id,
+                "Column indexes for the sampling request ID not found"
+            );
             return Ok(None);
         };
 

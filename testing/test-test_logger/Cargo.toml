@@ -8,3 +8,4 @@ edition = { workspace = true }
 [dependencies]
 logging = { workspace = true }
 slog = { workspace = true }
+tracing = { workspace = true }

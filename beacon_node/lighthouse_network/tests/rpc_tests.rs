@@ -6,7 +6,6 @@ use common::Protocol;
 use lighthouse_network::rpc::methods::*;
 use lighthouse_network::service::api_types::AppRequestId;
 use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Request, Response};
-use tracing::{debug, warn};
 use slog::Level;
 use ssz::Encode;
 use ssz_types::VariableList;
@@ -14,6 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
+use tracing::{debug, warn};
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BlobSidecar, ChainSpec,
     EmptyBlock, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256, MinimalEthSpec,

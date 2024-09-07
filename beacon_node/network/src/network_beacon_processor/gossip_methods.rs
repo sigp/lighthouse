@@ -25,9 +25,8 @@ use beacon_chain::{
 use lighthouse_network::{
     Client, MessageAcceptance, MessageId, PeerAction, PeerId, PubsubMessage, ReportSource,
 };
-use operation_pool::ReceivedPreCapella;
-use tracing::{debug, error, info, trace, warn};
 use logging::crit;
+use operation_pool::ReceivedPreCapella;
 use slog::Logger;
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -38,6 +37,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
+use tracing::{debug, error, info, trace, warn};
 use types::{
     beacon_block::BlockImportSource, Attestation, AttestationRef, AttesterSlashing, BlobSidecar,
     DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation,
@@ -813,8 +813,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     GossipBlobError::BlobParentUnknown { parent_root } => {
                         debug!(
                             action = "requesting parent",
-                            block_root = %blob.block_root(),
-                            parent_root = %blob.block_parent_root(),
+                            block_root = %root,
+                            parent_root = %parent_root,
                             %commitment,
                             "Unknown parent hash for blob"
                         );
@@ -947,8 +947,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(BlockError::BlockIsAlreadyKnown(_)) => {
                 debug!(
                     ?block_root,
-                    blob_index,
-                    "Ignoring gossip blob already imported"
+                    blob_index, "Ignoring gossip blob already imported"
                 );
             }
             Err(err) => {
@@ -1030,8 +1029,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(BlockError::BlockIsAlreadyKnown(_)) => {
                 debug!(
                     ?block_root,
-                    data_column_index,
-                    "Ignoring gossip column already imported"
+                    data_column_index, "Ignoring gossip column already imported"
                 );
             }
             Err(err) => {
@@ -1196,10 +1194,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 return None;
             }
             Err(BlockError::ParentUnknown { .. }) => {
-                debug!(
-                    ?block_root,
-                    "Unknown parent for gossip block"
-                );
+                debug!(?block_root, "Unknown parent for gossip block");
                 self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root));
                 return None;
             }
@@ -2012,9 +2007,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             );
 
                             if sender.try_send(msg).is_err() {
-                                error!(
-                                    "Failed to send optimistic update for re-processing"
-                                )
+                                error!("Failed to send optimistic update for re-processing")
                             }
                         } else {
                             debug!(
@@ -2319,10 +2312,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             *beacon_block_root,
                         ))
                         .unwrap_or_else(|_| {
-                            warn!(
-                                msg = "UnknownBlockHash",
-                                "Failed to send to sync service"
-                            )
+                            warn!(msg = "UnknownBlockHash", "Failed to send to sync service")
                         });
                     let msg = match failed_att {
                         FailedAtt::Aggregate {

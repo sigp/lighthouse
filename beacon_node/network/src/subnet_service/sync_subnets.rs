@@ -8,7 +8,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures::prelude::*;
-use slog::{o};
+use slog::o;
 use tracing::{debug, error, trace, warn};
 
 use super::SubnetServiceMessage;
@@ -127,10 +127,7 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
 
             // Registers the validator with the subnet service.
             // This will subscribe to long-lived random subnets if required.
-            trace!(
-                ?subscription,
-                "Sync committee subscription"
-            );
+            trace!(?subscription, "Sync committee subscription");
 
             let subnet_ids = match SyncSubnetId::compute_subnets_for_sync_committee::<T::EthSpec>(
                 &subscription.sync_committee_indices,
@@ -344,7 +341,7 @@ impl<T: BeaconChainTypes> Stream for SyncCommitteeService<T> {
         match self.unsubscriptions.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(exact_subnet))) => self.handle_unsubscriptions(exact_subnet),
             Poll::Ready(Some(Err(e))) => {
-                error!( error = e, "Failed to check for subnet unsubscription times");
+                error!(error = e, "Failed to check for subnet unsubscription times");
             }
             Poll::Ready(None) | Poll::Pending => {}
         }

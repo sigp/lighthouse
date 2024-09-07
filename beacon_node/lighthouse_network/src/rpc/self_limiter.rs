@@ -8,9 +8,9 @@ use futures::FutureExt;
 use libp2p::{swarm::NotifyHandler, PeerId};
 use logging::crit;
 use slog::Logger;
-use tracing::debug;
 use smallvec::SmallVec;
 use tokio_util::time::DelayQueue;
+use tracing::debug;
 use types::EthSpec;
 
 use super::{

@@ -18,11 +18,11 @@ use beacon_processor::{
     AsyncFn, BlockingFn, DuplicateCache,
 };
 use lighthouse_network::PeerAction;
-use tracing::{debug, error, info, warn};
 use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
 use tokio::sync::mpsc;
+use tracing::{debug, error, info, warn};
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlockImportSource, DataColumnSidecar, DataColumnSidecarList, Epoch, Hash256};

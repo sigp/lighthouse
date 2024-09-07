@@ -13,7 +13,7 @@ use logging::test_logger;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use slog::{info, Logger};
+use slog::Logger;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;
@@ -21,6 +21,7 @@ use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::{Arc, LazyLock};
 use tokio::{runtime, sync::oneshot};
+use tracing::info;
 use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{http::StatusCode, Filter, Rejection};
 
@@ -737,9 +738,8 @@ pub fn serve<E: EthSpec>(
     )?;
 
     info!(
-        log,
-        "Metrics HTTP server started";
-        "listen_address" => listening_socket.to_string(),
+        listen_address = listening_socket.to_string(),
+        "Metrics HTTP server started"
     );
 
     Ok((listening_socket, server))

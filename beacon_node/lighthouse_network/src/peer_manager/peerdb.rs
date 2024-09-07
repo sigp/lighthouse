@@ -7,7 +7,6 @@ use logging::crit;
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use rand::seq::SliceRandom;
 use score::{PeerAction, ReportSource, Score, ScoreState};
-use tracing::{debug, error, trace, warn};
 use std::net::IpAddr;
 use std::time::Instant;
 use std::{cmp::Ordering, fmt::Display};
@@ -16,6 +15,7 @@ use std::{
     fmt::Formatter,
 };
 use sync_status::SyncStatus;
+use tracing::{debug, error, trace, warn};
 use types::{ChainSpec, DataColumnSubnetId, EthSpec};
 
 pub mod client;
@@ -631,11 +631,14 @@ impl<E: EthSpec> PeerDB<E> {
     // VISIBILITY: The behaviour is able to adjust subscriptions.
     pub(crate) fn extend_peers_on_subnet(&mut self, subnet: &Subnet, min_ttl: Instant) {
         let log = &self.log;
-        self.peers.iter_mut()
+        self.peers
+            .iter_mut()
             .filter(move |(_, info)| {
-                info.is_connected() && info.on_subnet_metadata(subnet) && info.on_subnet_gossipsub(subnet)
+                info.is_connected()
+                    && info.on_subnet_metadata(subnet)
+                    && info.on_subnet_gossipsub(subnet)
             })
-            .for_each(|(peer_id,info)| {
+            .for_each(|(peer_id, info)| {
                 if info.min_ttl().is_none() || Some(&min_ttl) > info.min_ttl() {
                     info.set_min_ttl(min_ttl);
                 }
@@ -1082,9 +1085,7 @@ impl<E: EthSpec> PeerDB<E> {
                 Some((*id, unbanned_ips))
             } else {
                 // If there is no minimum, this is a coding error.
-                crit!(
-                    "banned_peers > MAX_BANNED_PEERS despite no banned peers in db!"
-                );
+                crit!("banned_peers > MAX_BANNED_PEERS despite no banned peers in db!");
                 // reset banned_peers this will also exit the loop
                 self.banned_peers_count = BannedPeersCount::default();
                 None

@@ -14,7 +14,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use delay_map::{HashMapDelay, HashSetDelay};
 use futures::prelude::*;
 use lighthouse_network::{discv5::enr::NodeId, NetworkConfig, Subnet, SubnetDiscovery};
-use slog::{o};
+use slog::o;
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, trace, warn};
 use types::{Attestation, EthSpec, Slot, SubnetId, ValidatorSubscription};
@@ -215,10 +215,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         for subscription in subscriptions {
             metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_REQUESTS);
 
-            trace!(
-                ?subscription,
-                "Validator subscription"
-            );
+            trace!(?subscription, "Validator subscription");
 
             // Compute the subnet that is associated with this subscription
             let subnet_id = match SubnetId::compute_subnet::<T::EthSpec>(
@@ -258,15 +255,9 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             if subscription.is_aggregator {
                 metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_AGGREGATOR_REQUESTS);
                 if let Err(e) = self.subscribe_to_short_lived_subnet(exact_subnet) {
-                    warn!(
-                        error = e,
-                        "Subscription to subnet error"
-                    );
+                    warn!(error = e, "Subscription to subnet error");
                 } else {
-                    trace!(
-                        ?exact_subnet,
-                        "Subscribed to subnet for aggregator duties"
-                    );
+                    trace!(?exact_subnet, "Subscribed to subnet for aggregator duties");
                 }
             }
         }
@@ -279,7 +270,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     .into_iter()
                     .map(|(subnet_id, slot)| ExactSubnet { subnet_id, slot }),
             ) {
-                warn!(error = e,"Discovery lookup request error");
+                warn!(error = e, "Discovery lookup request error");
             };
         }
 
@@ -320,7 +311,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             current_epoch,
             &self.beacon_chain.spec,
         )
-        .map_err(|e| error!(err = e,"Could not compute subnets for current epoch"))?;
+        .map_err(|e| error!(err = e, "Could not compute subnets for current epoch"))?;
 
         let next_subscription_slot =
             next_subscription_epoch.start_slot(T::EthSpec::slots_per_epoch());
@@ -329,9 +320,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .slot_clock
             .duration_to_slot(next_subscription_slot)
             .ok_or_else(|| {
-                error!(
-                    "Failed to compute duration to next to long lived subscription event"
-                )
+                error!("Failed to compute duration to next to long lived subscription event")
             })?;
 
         self.update_long_lived_subnets(subnets.collect());
@@ -661,7 +650,10 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
                     .wake_by_ref();
             }
             Poll::Ready(Some(Err(e))) => {
-                error!(error = e,"Failed to check for scheduled subnet subscriptions");
+                error!(
+                    error = e,
+                    "Failed to check for scheduled subnet subscriptions"
+                );
             }
             Poll::Ready(None) | Poll::Pending => {}
         }
@@ -677,7 +669,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
                     .wake_by_ref();
             }
             Poll::Ready(Some(Err(e))) => {
-                error!(error = e,"Failed to check for subnet unsubscription times");
+                error!(error = e, "Failed to check for subnet unsubscription times");
             }
             Poll::Ready(None) | Poll::Pending => {}
         }
@@ -685,7 +677,10 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
         // Poll to remove entries on expiration, no need to act on expiration events.
         if let Some(tracked_vals) = self.aggregate_validators_on_subnet.as_mut() {
             if let Poll::Ready(Some(Err(e))) = tracked_vals.poll_next_unpin(cx) {
-                error!(error = e,"Failed to check for aggregate validator on subnet expirations");
+                error!(
+                    error = e,
+                    "Failed to check for aggregate validator on subnet expirations"
+                );
             }
         }
 

@@ -14,11 +14,11 @@ use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
 use rand::seq::SliceRandom;
 use rand::Rng;
-use tracing::{debug, warn};
 use slog::o;
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
 use strum::IntoStaticStr;
+use tracing::{debug, warn};
 use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
@@ -372,7 +372,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 match state {
                     BatchState::AwaitingProcessing(..) => {
                         // this batch is ready
-                        debug!(?epoch,"Processing optimistic start");
+                        debug!(?epoch, "Processing optimistic start");
                         return self.process_batch(network, epoch);
                     }
                     BatchState::Downloading(..) => {
@@ -497,7 +497,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         })?;
 
         // Log the process result and the batch for debugging purposes.
-        debug!(    
+        debug!(
             result = ?result,
             batch_epoch = ?batch_id,
             client = %network.client_type(&peer),
@@ -711,9 +711,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         active_batches.remove(&id);
                     }
                 }
-                BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => crit!(
-                    "batch indicates inconsistent chain state while advancing chain"
-                ),
+                BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => {
+                    crit!("batch indicates inconsistent chain state while advancing chain")
+                }
                 BatchState::AwaitingProcessing(..) => {}
                 BatchState::Processing(_) => {
                     debug!(batch = ?id, ?batch,"Advancing chain while processing a batch");
@@ -742,9 +742,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
         debug!(
             previous_start = ?old_start,
-            new_start = ?self.start_epoch, 
+            new_start = ?self.start_epoch,
             processing_target = ?self.processing_target,
-            "Chain advanced");
+            "Chain advanced"
+        );
     }
 
     /// An invalid batch has been received that could not be processed, but that can be retried.
@@ -1077,9 +1078,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // We wait for this batch before requesting any other batches.
         if let Some(epoch) = self.optimistic_start {
             if !self.good_peers_on_custody_subnets(epoch, network) {
-                debug!(
-                    "Waiting for peers to be available on custody column subnets"
-                );
+                debug!("Waiting for peers to be available on custody column subnets");
                 return Ok(KeepChain);
             }
 
@@ -1172,9 +1171,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // block and data column requests are currently coupled. This can be removed once we find a
         // way to decouple the requests and do retries individually, see issue #6258.
         if !self.good_peers_on_custody_subnets(self.to_be_downloaded, network) {
-            debug!(
-                "Waiting for peers to be available on custody column subnets"
-            );
+            debug!("Waiting for peers to be available on custody column subnets");
             return None;
         }
 

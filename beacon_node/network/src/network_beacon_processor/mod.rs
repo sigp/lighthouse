@@ -16,15 +16,15 @@ use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
-use slog::{Logger};
+use slog::Logger;
 use slot_clock::ManualSlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
 use task_executor::TaskExecutor;
-use tracing::debug;
 use tokio::sync::mpsc::{self, error::TrySendError};
+use tracing::debug;
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
@@ -753,9 +753,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// Creates a log if there is an internal error.
     fn send_sync_message(&self, message: SyncMessage<T::EthSpec>) {
-        self.sync_tx.send(message).unwrap_or_else(|e| {
-            debug!(error = %e, "Could not send message to the sync service")
-        });
+        self.sync_tx
+            .send(message)
+            .unwrap_or_else(|e| debug!(error = %e, "Could not send message to the sync service"));
     }
 
     /// Send a message to `network_tx`.

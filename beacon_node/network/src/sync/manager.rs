@@ -61,14 +61,14 @@ use lighthouse_network::service::api_types::{
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
-use lru_cache::LRUTimeCache;
-use tracing::{ debug, error, info, trace, warn};
 use logging::crit;
-use slog::{o,Logger};
+use lru_cache::LRUTimeCache;
+use slog::{o, Logger};
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tracing::{debug, error, info, trace, warn};
 use types::{BlobSidecar, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -907,7 +907,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
                 // Some logs.
                 if dropped_single_blocks_requests > 0 {
-                    debug!(dropped_single_blocks_requests, "Execution engine not online. Dropping active requests.");
+                    debug!(
+                        dropped_single_blocks_requests,
+                        "Execution engine not online. Dropping active requests."
+                    );
                 }
             }
         }

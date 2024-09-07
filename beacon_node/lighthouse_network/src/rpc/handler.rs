@@ -16,6 +16,8 @@ use libp2p::swarm::handler::{
 };
 use libp2p::swarm::{ConnectionId, Stream};
 use libp2p::PeerId;
+use logging::crit;
+use tracing::{debug, trace};
 use smallvec::SmallVec;
 use std::{
     collections::{hash_map::Entry, VecDeque},
@@ -260,7 +262,10 @@ where
     fn shutdown(&mut self, goodbye_reason: Option<(Id, GoodbyeReason)>) {
         if matches!(self.state, HandlerState::Active) {
             if !self.dial_queue.is_empty() {
-                debug!(unsent_queued_requests = self.dial_queue.len(), "Starting handler shutdown");
+                debug!(
+                    unsent_queued_requests = self.dial_queue.len(),
+                    "Starting handler shutdown"
+                );
             }
             // We now drive to completion communications already dialed/established
             while let Some((id, req)) = self.dial_queue.pop() {
@@ -564,10 +569,20 @@ where
                                 // BlocksByRange is the one that typically consumes the most time.
                                 // Its useful to log when the request was completed.
                                 if matches!(info.protocol, Protocol::BlocksByRange) {
-                                    debug!(duration = Instant::now().duration_since(info.request_start_time).as_secs(), "BlocksByRange Response sent");
+                                    debug!(
+                                        duration = Instant::now()
+                                            .duration_since(info.request_start_time)
+                                            .as_secs(),
+                                        "BlocksByRange Response sent"
+                                    );
                                 }
                                 if matches!(info.protocol, Protocol::BlobsByRange) {
-                                    debug!(duration = Instant::now().duration_since(info.request_start_time).as_secs(), "BlobsByRange Response sent");
+                                    debug!(
+                                        duration = Instant::now()
+                                            .duration_since(info.request_start_time)
+                                            .as_secs(),
+                                        "BlobsByRange Response sent"
+                                    );
                                 }
 
                                 // There is nothing more to process on this substream as it has
@@ -590,10 +605,16 @@ where
                                 }));
 
                                 if matches!(info.protocol, Protocol::BlocksByRange) {
-                                    debug!( duration = info.request_start_time.elapsed().as_secs(), "BlocksByRange Response failed");
+                                    debug!(
+                                        duration = info.request_start_time.elapsed().as_secs(),
+                                        "BlocksByRange Response failed"
+                                    );
                                 }
                                 if matches!(info.protocol, Protocol::BlobsByRange) {
-                                    debug!(duration = info.request_start_time.elapsed().as_secs(), "BlobsByRange Response failed");
+                                    debug!(
+                                        duration = info.request_start_time.elapsed().as_secs(),
+                                        "BlobsByRange Response failed"
+                                    );
                                 }
                                 break;
                             }

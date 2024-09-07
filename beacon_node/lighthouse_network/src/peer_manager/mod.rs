@@ -13,12 +13,12 @@ use libp2p::identify::Info as IdentifyInfo;
 use lru_cache::LRUTimeCache;
 use peerdb::{BanOperation, BanResult, ScoreUpdateResult};
 use rand::seq::SliceRandom;
-use tracing::{debug, error, trace, warn};
 use smallvec::SmallVec;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use tracing::{debug, error, trace, warn};
 use types::{DataColumnSubnetId, EthSpec, SyncSubnetId};
 
 pub use libp2p::core::Multiaddr;
@@ -361,7 +361,10 @@ impl<E: EthSpec> PeerManager<E> {
         // reach out target. To prevent the infinite loop, if a query returns no useful peers, we
         // will cancel the recursiveness and wait for the heartbeat to trigger another query latter.
         if results_count > 0 && to_dial_peers == 0 {
-            debug!(results = results_count, "Skipping recursive discovery query after finding no useful results");
+            debug!(
+                results = results_count,
+                "Skipping recursive discovery query after finding no useful results"
+            );
             metrics::inc_counter(&metrics::DISCOVERY_NO_USEFUL_ENRS);
         } else {
             // Queue another discovery if we need to
@@ -483,7 +486,10 @@ impl<E: EthSpec> PeerManager<E> {
                 );
             }
         } else {
-            error!(peer_id = peer_id.to_string(), "Received an Identify response from an unknown peer");
+            error!(
+                peer_id = peer_id.to_string(),
+                "Received an Identify response from an unknown peer"
+            );
         }
     }
 
@@ -725,11 +731,12 @@ impl<E: EthSpec> PeerManager<E> {
                             peer_info.set_custody_subnets(custody_subnets);
                         }
                         Err(err) => {
-                            debug!(self.log, "Unable to compute peer custody subnets from metadata";
-                                "info" => "Sending goodbye to peer",
-                                "peer_id" => %peer_id,
-                                "custody_subnet_count" => custody_subnet_count,
-                                "error" => ?err,
+                            debug!(
+                                info = "Sending goodbye to peer",
+                                peer_id = %peer_id,
+                                custody_subnet_count,
+                                error = ?err,
+                                "Unable to compute peer custody subnets from metadata"
                             );
                             invalid_meta_data = true;
                         }
@@ -927,7 +934,13 @@ impl<E: EthSpec> PeerManager<E> {
 
             if wanted_peers != 0 {
                 // We need more peers, re-queue a discovery lookup.
-                debug!(connected = peer_count, target = self.target_peers, outbound = outbound_only_peer_count, wanted = wanted_peers, "Starting a new peer discovery query");
+                debug!(
+                    connected = peer_count,
+                    target = self.target_peers,
+                    outbound = outbound_only_peer_count,
+                    wanted = wanted_peers,
+                    "Starting a new peer discovery query"
+                );
                 self.events
                     .push(PeerManagerEvent::DiscoverPeers(wanted_peers));
             }
@@ -1410,12 +1423,11 @@ impl<E: EthSpec> PeerManager<E> {
             // This is an unreachable scenario unless there's a bug, as we've validated the csc
             // just above.
             error!(
-                self.log,
-                "Computing peer custody subnets failed unexpectedly";
-                "info" => "Falling back to default custody requirement subnets",
-                "peer_id" => %peer_id,
-                "custody_subnet_count" => custody_subnet_count,
-                "error" => ?e
+                info = "Falling back to default custody requirement subnets",
+                peer_id = %peer_id,
+                custody_subnet_count,
+                error = ?e,
+                "Computing peer custody subnets failed unexpectedly"
             );
             DataColumnSubnetId::compute_custody_requirement_subnets::<E>(node_id.raw(), spec)
                 .collect()

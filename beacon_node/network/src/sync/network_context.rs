@@ -27,12 +27,12 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use requests::ActiveDataColumnsByRootRequest;
 pub use requests::LookupVerifyError;
-use tracing::{debug, error, warn};
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tracing::{debug, error, warn};
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
     BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256,
@@ -469,11 +469,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .remove(&request_id)
             .map(|(sender_id, _info)| sender_id);
         if let Some(sender_id) = sender_id {
-            debug!(
-                ?request_id,
-                ?sender_id,
-                "Sync range request failed"
-            );
+            debug!(?request_id, ?sender_id, "Sync range request failed");
             Some(sender_id)
         } else {
             debug!(request_id, "Sync range request failed");
@@ -1164,7 +1160,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .beacon_processor_if_enabled()
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
 
-        debug!(?block_root, ?process_type, "Sending custody columns for processing");
+        debug!(
+            ?block_root,
+            ?process_type,
+            "Sending custody columns for processing"
+        );
 
         beacon_processor
             .send_rpc_custody_columns(block_root, custody_columns, duration, process_type)

@@ -9,11 +9,11 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
-use tracing::{debug, error, warn};
 use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
+use tracing::{debug, error, warn};
 use types::blob_sidecar::BlobIdentifier;
 use types::{Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, Slot};
 

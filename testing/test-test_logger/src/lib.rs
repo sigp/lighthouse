@@ -1,11 +1,12 @@
-use slog::{info, Logger};
+use slog::Logger;
+use tracing::info;
 
 pub struct Config {
     log: Logger,
 }
 
 pub fn fn_with_logging(config: &Config) {
-    info!(&config.log, "hi");
+    info!("hi");
 }
 
 #[cfg(test)]
