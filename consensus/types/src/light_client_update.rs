@@ -270,7 +270,6 @@ impl<E: EthSpec> LightClientUpdate<E> {
                     LightClientHeaderElectra::default()
                 };
 
-                // TODO(electra) fixed next_sync_committee_branch and finality branch
                 Self::Electra(LightClientUpdateElectra {
                     attested_header,
                     next_sync_committee,

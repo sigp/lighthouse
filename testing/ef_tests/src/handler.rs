@@ -939,10 +939,6 @@ impl<E: EthSpec + TypeName> Handler for BeaconStateMerkleProofValidityHandler<E>
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // Test is skipped due to some changes in the Capella light client
-        // spec.
-        //
-        // https://github.com/sigp/lighthouse/issues/4022
         fork_name.altair_enabled()
     }
 }
@@ -992,10 +988,6 @@ impl<E: EthSpec + TypeName> Handler for BeaconBlockBodyMerkleProofValidityHandle
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // Test is skipped due to some changes in the Capella light client
-        // spec.
-        //
-        // https://github.com/sigp/lighthouse/issues/4022
         fork_name.capella_enabled()
     }
 }
@@ -1021,7 +1013,6 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Enabled in Altair
-        // TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
         fork_name.altair_enabled()
     }
 }

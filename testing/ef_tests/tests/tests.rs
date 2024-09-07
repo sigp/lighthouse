@@ -396,7 +396,6 @@ mod ssz_static {
             .run();
         SszStaticHandler::<LightClientBootstrapDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
             .run();
-        //TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
         SszStaticHandler::<LightClientBootstrapElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only()
             .run();
         SszStaticHandler::<LightClientBootstrapElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only()
@@ -476,7 +475,6 @@ mod ssz_static {
         SszStaticHandler::<LightClientFinalityUpdateDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only(
         )
             .run();
-        // TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
         SszStaticHandler::<LightClientFinalityUpdateElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
         )
             .run();
@@ -506,7 +504,6 @@ mod ssz_static {
             .run();
         SszStaticHandler::<LightClientUpdateDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
             .run();
-        // TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
         SszStaticHandler::<LightClientUpdateElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
         )
         .run();
