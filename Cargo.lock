@@ -5218,6 +5218,7 @@ dependencies = [
  "tokio",
  "tokio-io-timeout",
  "tokio-util",
+ "tracing",
  "types",
  "unsigned-varint 0.8.0",
  "unused_port",

@@ -6,7 +6,9 @@ use std::{
 
 use futures::FutureExt;
 use libp2p::{swarm::NotifyHandler, PeerId};
-use slog::{crit, debug, Logger};
+use logging::crit;
+use slog::Logger;
+use tracing::debug;
 use smallvec::SmallVec;
 use tokio_util::time::DelayQueue;
 use types::EthSpec;
@@ -51,7 +53,7 @@ pub enum Error {
 impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
     /// Creates a new [`SelfRateLimiter`] based on configration values.
     pub fn new(config: OutboundRateLimiterConfig, log: Logger) -> Result<Self, &'static str> {
-        debug!(log, "Using self rate limiting params"; "config" => ?config);
+        debug!(?config, "Using self rate limiting params");
         let limiter = RateLimiter::new_with_config(config.0)?;
 
         Ok(SelfRateLimiter {
@@ -117,9 +119,8 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
                         // this should never happen with default parameters. Let's just send the request.
                         // Log a crit since this is a config issue.
                         crit!(
-                           log,
-                            "Self rate limiting error for a batch that will never fit. Sending request anyway. Check configuration parameters.";
-                            "protocol" => %req.versioned_protocol().protocol()
+                            protocol = %req.versioned_protocol().protocol(),
+                            "Self rate limiting error for a batch that will never fit. Sending request anyway. Check configuration parameters."
                         );
                         Ok(BehaviourAction::NotifyHandler {
                             peer_id,
@@ -128,7 +129,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
                         })
                     }
                     RateLimitedErr::TooSoon(wait_time) => {
-                        debug!(log, "Self rate limiting"; "protocol" => %protocol.protocol(), "wait_time_ms" => wait_time.as_millis(), "peer_id" => %peer_id);
+                        debug!(protocol = %protocol.protocol(), wait_time_ms = wait_time.as_millis(), %peer_id, "Self rate limiting");
                         Err((QueuedRequest { req, request_id }, wait_time))
                     }
                 }

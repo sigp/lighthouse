@@ -3,10 +3,11 @@ use crate::discovery::{peer_id_to_node_id, CombinedKey};
 use crate::{
     metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Eth2Enr, Gossipsub, PeerId,
 };
+use logging::crit;
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use rand::seq::SliceRandom;
 use score::{PeerAction, ReportSource, Score, ScoreState};
-use slog::{crit, debug, error, trace, warn};
+use tracing::{debug, error, trace, warn};
 use std::net::IpAddr;
 use std::time::Instant;
 use std::{cmp::Ordering, fmt::Display};
@@ -395,12 +396,12 @@ impl<E: EthSpec> PeerDB<E> {
             match Self::handle_score_transition(previous_state, peer_id, info, &self.log) {
                 // A peer should not be able to be banned from a score update.
                 ScoreTransitionResult::Banned => {
-                    error!(self.log, "Peer has been banned in an update"; "peer_id" => %peer_id)
+                    error!(%peer_id, "Peer has been banned in an update");
                 }
                 // A peer should not be able to transition to a disconnected state from a healthy
                 // state in a score update.
                 ScoreTransitionResult::Disconnected => {
-                    error!(self.log, "Peer has been disconnected in an update"; "peer_id" => %peer_id)
+                    error!(%peer_id, "Peer has been disconnected in an update");
                 }
                 ScoreTransitionResult::Unbanned => {
                     peers_to_unban.push(*peer_id);
@@ -548,11 +549,10 @@ impl<E: EthSpec> PeerDB<E> {
                     Self::handle_score_transition(previous_state, peer_id, info, &self.log);
                 if previous_state == info.score_state() {
                     debug!(
-                        self.log,
-                        "Peer score adjusted";
-                        "msg" => %msg,
-                        "peer_id" => %peer_id,
-                        "score" => %info.score()
+                        %msg,
+                        %peer_id,
+                        score = %info.score(),
+                        "Peer score adjusted"
                     );
                 }
                 match result {
@@ -574,10 +574,9 @@ impl<E: EthSpec> PeerDB<E> {
                     ScoreTransitionResult::NoAction => ScoreUpdateResult::NoAction,
                     ScoreTransitionResult::Unbanned => {
                         error!(
-                            self.log,
-                            "Report peer action lead to an unbanning";
-                            "msg" => %msg,
-                            "peer_id" => %peer_id
+                            %msg,
+                            %peer_id,
+                            "Report peer action lead to an unbanning"
                         );
                         ScoreUpdateResult::NoAction
                     }
@@ -585,10 +584,9 @@ impl<E: EthSpec> PeerDB<E> {
             }
             None => {
                 debug!(
-                    self.log,
-                    "Reporting a peer that doesn't exist";
-                    "msg" => %msg,
-                    "peer_id" =>%peer_id
+                    %msg,
+                    %peer_id,
+                    "Reporting a peer that doesn't exist"
                 );
                 ScoreUpdateResult::NoAction
             }
@@ -608,7 +606,7 @@ impl<E: EthSpec> PeerDB<E> {
                 .checked_duration_since(Instant::now())
                 .map(|duration| duration.as_secs())
                 .unwrap_or_else(|| 0);
-            debug!(self.log, "Updating the time a peer is required for"; "peer_id" => %peer_id, "future_min_ttl_secs" => min_ttl_secs);
+            debug!(%peer_id, future_min_ttl_secs = min_ttl_secs,"Updating the time a peer is required for");
         }
     }
 
@@ -645,7 +643,7 @@ impl<E: EthSpec> PeerDB<E> {
                     .checked_duration_since(Instant::now())
                     .map(|duration| duration.as_secs())
                     .unwrap_or_else(|| 0);
-                trace!(log, "Updating minimum duration a peer is required for"; "peer_id" => %peer_id, "min_ttl" => min_ttl_secs);
+                trace!(%peer_id,min_ttl_secs,"Updating minimum duration a peer is required for");
             });
     }
 
@@ -764,8 +762,7 @@ impl<E: EthSpec> PeerDB<E> {
                     | NewConnectionState::Disconnected { .. } // Dialing a peer that responds by a different ID can be immediately
                                                               // disconnected without having being stored in the db before
             ) {
-                warn!(log_ref, "Updating state of unknown peer";
-                    "peer_id" => %peer_id, "new_state" => ?new_state);
+                warn!(%peer_id, ?new_state, "Updating state of unknown peer");
             }
             if self.disable_peer_scoring {
                 PeerInfo::trusted_peer_info()
@@ -780,7 +777,7 @@ impl<E: EthSpec> PeerDB<E> {
                 ScoreState::Banned => {}
                 _ => {
                     // If score isn't low enough to ban, this function has been called incorrectly.
-                    error!(self.log, "Banning a peer with a good score"; "peer_id" => %peer_id);
+                    error!(%peer_id, "Banning a peer with a good score");
                     info.apply_peer_action_to_score(score::PeerAction::Fatal);
                 }
             }
@@ -811,13 +808,13 @@ impl<E: EthSpec> PeerDB<E> {
                         self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
                     }
                     PeerConnectionStatus::Banned { .. } => {
-                        error!(self.log, "Accepted a connection from a banned peer"; "peer_id" => %peer_id);
+                        error!(%peer_id, "Accepted a connection from a banned peer");
                         // TODO: check if this happens and report the unban back
                         self.banned_peers_count
                             .remove_banned_peer(info.seen_ip_addresses());
                     }
                     PeerConnectionStatus::Disconnecting { .. } => {
-                        warn!(self.log, "Connected to a disconnecting peer"; "peer_id" => %peer_id)
+                        warn!(%peer_id, "Connected to a disconnecting peer");
                     }
                     PeerConnectionStatus::Unknown
                     | PeerConnectionStatus::Connected { .. }
@@ -839,7 +836,7 @@ impl<E: EthSpec> PeerDB<E> {
             (old_state, NewConnectionState::Dialing { enr }) => {
                 match old_state {
                     PeerConnectionStatus::Banned { .. } => {
-                        warn!(self.log, "Dialing a banned peer"; "peer_id" => %peer_id);
+                        warn!(%peer_id, "Dialing a banned peer");
                         self.banned_peers_count
                             .remove_banned_peer(info.seen_ip_addresses());
                     }
@@ -847,13 +844,13 @@ impl<E: EthSpec> PeerDB<E> {
                         self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
                     }
                     PeerConnectionStatus::Connected { .. } => {
-                        warn!(self.log, "Dialing an already connected peer"; "peer_id" => %peer_id)
+                        warn!(%peer_id, "Dialing an already connected peer");
                     }
                     PeerConnectionStatus::Dialing { .. } => {
-                        warn!(self.log, "Dialing an already dialing peer"; "peer_id" => %peer_id)
+                        warn!(%peer_id, "Dialing an already dialing peer");
                     }
                     PeerConnectionStatus::Disconnecting { .. } => {
-                        warn!(self.log, "Dialing a disconnecting peer"; "peer_id" => %peer_id)
+                        warn!(%peer_id, "Dialing a disconnecting peer");
                     }
                     PeerConnectionStatus::Unknown => {} // default behaviour
                 }
@@ -863,7 +860,7 @@ impl<E: EthSpec> PeerDB<E> {
                 }
 
                 if let Err(e) = info.set_dialing_peer() {
-                    error!(self.log, "{}", e; "peer_id" => %peer_id);
+                    error!(%peer_id, e);
                 }
             }
 
@@ -919,7 +916,7 @@ impl<E: EthSpec> PeerDB<E> {
              * Handles the transition to a disconnecting state
              */
             (PeerConnectionStatus::Banned { .. }, NewConnectionState::Disconnecting { to_ban }) => {
-                error!(self.log, "Disconnecting from a banned peer"; "peer_id" => %peer_id);
+                error!(%peer_id, "Disconnecting from a banned peer");
                 info.set_connection_status(PeerConnectionStatus::Disconnecting { to_ban });
             }
             (
@@ -963,13 +960,13 @@ impl<E: EthSpec> PeerDB<E> {
             (PeerConnectionStatus::Disconnecting { .. }, NewConnectionState::Banned) => {
                 // NOTE: This can occur due a rapid downscore of a peer. It goes through the
                 // disconnection phase and straight into banning in a short time-frame.
-                debug!(log_ref, "Banning peer that is currently disconnecting"; "peer_id" => %peer_id);
+                debug!(%peer_id, "Banning peer that is currently disconnecting");
                 // Ban the peer once the disconnection process completes.
                 info.set_connection_status(PeerConnectionStatus::Disconnecting { to_ban: true });
                 return Some(BanOperation::PeerDisconnecting);
             }
             (PeerConnectionStatus::Banned { .. }, NewConnectionState::Banned) => {
-                error!(log_ref, "Banning already banned peer"; "peer_id" => %peer_id);
+                error!(%peer_id, "Banning already banned peer");
                 let known_banned_ips = self.banned_peers_count.banned_ips();
                 let banned_ips = info
                     .seen_ip_addresses()
@@ -987,7 +984,7 @@ impl<E: EthSpec> PeerDB<E> {
             }
             (PeerConnectionStatus::Unknown, NewConnectionState::Banned) => {
                 // shift the peer straight to banned
-                warn!(log_ref, "Banning a peer of unknown connection state"; "peer_id" => %peer_id);
+                warn!(%peer_id, "Banning a peer of unknown connection state");
                 self.banned_peers_count
                     .add_banned_peer(info.seen_ip_addresses());
                 info.set_connection_status(PeerConnectionStatus::Banned {
@@ -1008,15 +1005,15 @@ impl<E: EthSpec> PeerDB<E> {
              */
             (old_state, NewConnectionState::Unbanned) => {
                 if matches!(info.score_state(), ScoreState::Banned) {
-                    error!(self.log, "Unbanning a banned peer"; "peer_id" => %peer_id);
+                    error!(%peer_id, "Unbanning a banned peer");
                 }
                 match old_state {
                     PeerConnectionStatus::Unknown | PeerConnectionStatus::Connected { .. } => {
-                        error!(self.log, "Unbanning a connected peer"; "peer_id" => %peer_id);
+                        error!(%peer_id, "Unbanning a connected peer");
                     }
                     PeerConnectionStatus::Disconnected { .. }
                     | PeerConnectionStatus::Disconnecting { .. } => {
-                        debug!(self.log, "Unbanning disconnected or disconnecting peer"; "peer_id" => %peer_id);
+                        debug!(%peer_id, "Unbanning disconnected or disconnecting peer");
                     } // These are odd but fine.
                     PeerConnectionStatus::Dialing { .. } => {} // Also odd but acceptable
                     PeerConnectionStatus::Banned { since } => {
@@ -1086,14 +1083,13 @@ impl<E: EthSpec> PeerDB<E> {
             } else {
                 // If there is no minimum, this is a coding error.
                 crit!(
-                    self.log,
                     "banned_peers > MAX_BANNED_PEERS despite no banned peers in db!"
                 );
                 // reset banned_peers this will also exit the loop
                 self.banned_peers_count = BannedPeersCount::default();
                 None
             } {
-                debug!(self.log, "Removing old banned peer"; "peer_id" => %to_drop);
+                debug!(%to_drop, "Removing old banned peer");
                 self.peers.remove(&to_drop);
                 unbanned_peers.push((to_drop, unbanned_ips))
             }
@@ -1112,7 +1108,7 @@ impl<E: EthSpec> PeerDB<E> {
                 .min_by_key(|(_, age)| *age)
                 .map(|(id, _)| *id)
             {
-                debug!(self.log, "Removing old disconnected peer"; "peer_id" => %to_drop, "disconnected_size" => self.disconnected_peers.saturating_sub(1));
+                debug!(peer_id = %to_drop, disconnected_size = self.disconnected_peers.saturating_sub(1),"Removing old disconnected peer");
                 self.peers.remove(&to_drop);
             }
             // If there is no minimum, this is a coding error. For safety we decrease
@@ -1133,11 +1129,11 @@ impl<E: EthSpec> PeerDB<E> {
     ) -> ScoreTransitionResult {
         match (info.score_state(), previous_state) {
             (ScoreState::Banned, ScoreState::Healthy | ScoreState::ForcedDisconnect) => {
-                debug!(log, "Peer has been banned"; "peer_id" => %peer_id, "score" => %info.score());
+                debug!(%peer_id, score = %info.score(), "Peer has been banned");
                 ScoreTransitionResult::Banned
             }
             (ScoreState::ForcedDisconnect, ScoreState::Banned | ScoreState::Healthy) => {
-                debug!(log, "Peer transitioned to forced disconnect score state"; "peer_id" => %peer_id, "score" => %info.score(), "past_score_state" => %previous_state);
+                debug!(%peer_id, score = %info.score(), past_score_state = %previous_state, "Peer transitioned to forced disconnect score state");
                 // disconnect the peer if it's currently connected or dialing
                 if info.is_connected_or_dialing() {
                     ScoreTransitionResult::Disconnected
@@ -1150,11 +1146,11 @@ impl<E: EthSpec> PeerDB<E> {
                 }
             }
             (ScoreState::Healthy, ScoreState::ForcedDisconnect) => {
-                debug!(log, "Peer transitioned to healthy score state"; "peer_id" => %peer_id, "score" => %info.score(), "past_score_state" => %previous_state);
+                debug!(%peer_id, score = %info.score(), past_score_state = %previous_state, "Peer transitioned to healthy score state");
                 ScoreTransitionResult::NoAction
             }
             (ScoreState::Healthy, ScoreState::Banned) => {
-                debug!(log, "Peer transitioned to healthy score state"; "peer_id" => %peer_id, "score" => %info.score(), "past_score_state" => %previous_state);
+                debug!( %peer_id, score = %info.score(), past_score_state = %previous_state, "Peer transitioned to healthy score state");
                 // unban the peer if it was previously banned.
                 ScoreTransitionResult::Unbanned
             }

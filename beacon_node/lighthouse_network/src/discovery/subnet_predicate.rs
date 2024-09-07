@@ -2,8 +2,8 @@
 use super::*;
 use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use itertools::Itertools;
-use slog::trace;
 use std::ops::Deref;
+use tracing::trace;
 use types::{ChainSpec, DataColumnSubnetId};
 
 /// Returns the predicate for a given subnet.
@@ -52,9 +52,8 @@ where
 
         if !predicate {
             trace!(
-                log_clone,
-                "Peer found but not on any of the desired subnets";
-                "peer_id" => %enr.peer_id()
+                peer_id = %enr.peer_id(),
+                "Peer found but not on any of the desired subnets"
             );
         }
         predicate

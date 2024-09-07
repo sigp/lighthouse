@@ -31,8 +31,8 @@ pub use libp2p::{
         SubstreamProtocol, ToSwarm,
     },
 };
+use logging::crit;
 use lru::LruCache;
-use slog::{crit, debug, error, info, trace, warn};
 use ssz::Encode;
 use std::num::NonZeroUsize;
 use std::{
@@ -45,6 +45,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc;
+use tracing::{debug, error, info, trace, warn};
 use types::{ChainSpec, EnrForkId, EthSpec};
 
 mod subnet_predicate;
@@ -216,9 +217,11 @@ impl<E: EthSpec> Discovery<E> {
         let local_enr = network_globals.local_enr.read().clone();
         let local_node_id = local_enr.node_id();
 
-        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
-              "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6(),
-              "quic4" => ?local_enr.quic4(), "quic6" => ?local_enr.quic6()
+        info!(
+            enr = local_enr.to_base64(), seq = local_enr.seq(), id = %local_enr.node_id(),
+            ip4 = ?local_enr.ip4(), udp4= ?local_enr.udp4(), tcp4 = ?local_enr.tcp4(), tcp6 = ?local_enr.tcp6(), udp6 = ?local_enr.udp6(),
+            quic4 = ?local_enr.quic4(), quic6 = ?local_enr.quic6(),
+            "ENR Initialised"
         );
 
         // convert the keypair into an ENR key
@@ -234,22 +237,20 @@ impl<E: EthSpec> Discovery<E> {
                 continue;
             }
             debug!(
-                log,
-                "Adding node to routing table";
-                "node_id" => %bootnode_enr.node_id(),
-                "peer_id" => %bootnode_enr.peer_id(),
-                "ip" => ?bootnode_enr.ip4(),
-                "udp" => ?bootnode_enr.udp4(),
-                "tcp" => ?bootnode_enr.tcp4(),
-                "quic" => ?bootnode_enr.quic4()
+                node_id = %bootnode_enr.node_id(),
+                peer_id = %bootnode_enr.peer_id(),
+                ip = ?bootnode_enr.ip4(),
+                udp = ?bootnode_enr.udp4(),
+                tcp = ?bootnode_enr.tcp4(),
+                quic = bootnode_enr.quic4(),
+                "Adding node to routing table"
             );
             let repr = bootnode_enr.to_string();
             let _ = discv5.add_enr(bootnode_enr).map_err(|e| {
                 error!(
-                    log,
-                    "Could not add peer to the local routing table";
-                    "addr" => repr,
-                    "error" => e.to_string(),
+                    addr = repr,
+                    error = e.to_string(),
+                    "Could not add peer to the local routing table"
                 )
             });
         }
@@ -257,14 +258,14 @@ impl<E: EthSpec> Discovery<E> {
         // Start the discv5 service and obtain an event stream
         let event_stream = if !config.disable_discovery {
             discv5.start().map_err(|e| e.to_string()).await?;
-            debug!(log, "Discovery service started");
+            debug!("Discovery service started");
             EventStream::Awaiting(Box::pin(discv5.event_stream()))
         } else {
             EventStream::InActive
         };
 
         if !config.boot_nodes_multiaddr.is_empty() {
-            info!(log, "Contacting Multiaddr boot-nodes for their ENR");
+            info!("Contacting Multiaddr boot-nodes for their ENR");
         }
 
         // get futures for requesting the Enrs associated to these multiaddr and wait for their
@@ -286,26 +287,28 @@ impl<E: EthSpec> Discovery<E> {
             match result {
                 Ok(enr) => {
                     debug!(
-                        log,
-                        "Adding node to routing table";
-                        "node_id" => %enr.node_id(),
-                        "peer_id" => %enr.peer_id(),
-                        "ip" => ?enr.ip4(),
-                        "udp" => ?enr.udp4(),
-                        "tcp" => ?enr.tcp4(),
-                        "quic" => ?enr.quic4()
+                        node_id = %enr.node_id(),
+                        peer_id = %enr.peer_id(),
+                        ip4 = ?enr.ip4(),
+                        udp4 = ?enr.udp4(),
+                        tcp4 = ?enr.tcp4(),
+                        quic4 = ?enr.quic4(),
+                        "Adding node to routing table"
                     );
                     let _ = discv5.add_enr(enr).map_err(|e| {
                         error!(
-                            log,
-                            "Could not add peer to the local routing table";
-                            "addr" => original_addr.to_string(),
-                            "error" => e.to_string(),
+                            addr = original_addr.to_string(),
+                            error = e.to_string(),
+                            "Could not add peer to the local routing table"
                         )
                     });
                 }
                 Err(e) => {
-                    error!(log, "Error getting mapping to ENR"; "multiaddr" => original_addr.to_string(), "error" => e.to_string())
+                    error!(
+                        multiaddr = original_addr.to_string(),
+                        error = e.to_string(),
+                        "Error getting mapping to ENR"
+                    )
                 }
             }
         }
@@ -358,7 +361,7 @@ impl<E: EthSpec> Discovery<E> {
         }
         // Immediately start a FindNode query
         let target_peers = std::cmp::min(FIND_NODE_QUERY_CLOSEST_PEERS, target_peers);
-        debug!(self.log, "Starting a peer discovery request"; "target_peers" => target_peers );
+        debug!(target_peers, "Starting a peer discovery request");
         self.find_peer_active = true;
         self.start_query(QueryType::FindPeers, target_peers, |_| true);
     }
@@ -370,9 +373,8 @@ impl<E: EthSpec> Discovery<E> {
             return;
         }
         trace!(
-            self.log,
-            "Starting discovery query for subnets";
-            "subnets" => ?subnets_to_discover.iter().map(|s| s.subnet).collect::<Vec<_>>()
+            subnets = ?subnets_to_discover.iter().map(|s| s.subnet).collect::<Vec<_>>(),
+            "Starting discovery query for subnets"
         );
         for subnet in subnets_to_discover {
             self.add_subnet_query(subnet.subnet, subnet.min_ttl, 0);
@@ -386,9 +388,8 @@ impl<E: EthSpec> Discovery<E> {
 
         if let Err(e) = self.discv5.add_enr(enr) {
             debug!(
-                self.log,
-                "Could not add peer to the local routing table";
-                "error" => %e
+                error = %e,
+                "Could not add peer to the local routing table"
             )
         }
     }
@@ -575,10 +576,11 @@ impl<E: EthSpec> Discovery<E> {
             format!("{:?}", enr_fork_id.next_fork_epoch)
         };
 
-        info!(self.log, "Updating the ENR fork version";
-            "fork_digest" => ?enr_fork_id.fork_digest,
-            "next_fork_version" => ?enr_fork_id.next_fork_version,
-            "next_fork_epoch" => next_fork_epoch_log,
+        info!(
+            fork_digest = ?enr_fork_id.fork_digest,
+            next_fork_version = ?enr_fork_id.next_fork_version,
+            next_fork_epoch = next_fork_epoch_log,
+            "Updating the ENR fork version"
         );
 
         let _ = self
@@ -586,9 +588,8 @@ impl<E: EthSpec> Discovery<E> {
             .enr_insert::<Bytes>(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes().into())
             .map_err(|e| {
                 warn!(
-                    self.log,
-                    "Could not update eth2 ENR field";
-                    "error" => ?e
+                    error = ?e,
+                    "Could not update eth2 ENR field"
                 )
             });
 
@@ -642,10 +643,7 @@ impl<E: EthSpec> Discovery<E> {
     fn add_subnet_query(&mut self, subnet: Subnet, min_ttl: Option<Instant>, retries: usize) {
         // remove the entry and complete the query if greater than the maximum search count
         if retries > MAX_DISCOVERY_RETRY {
-            debug!(
-                self.log,
-                "Subnet peer discovery did not find sufficient peers. Reached max retry limit"
-            );
+            debug!("Subnet peer discovery did not find sufficient peers. Reached max retry limit");
             return;
         }
 
@@ -666,7 +664,7 @@ impl<E: EthSpec> Discovery<E> {
         }
         if !found {
             // update the metrics and insert into the queue.
-            trace!(self.log, "Queuing subnet query"; "subnet" => ?subnet, "retries" => retries);
+            trace!(?subnet, retries, "Queuing subnet query");
             self.queued_queries.push_back(SubnetQuery {
                 subnet,
                 min_ttl,
@@ -737,19 +735,21 @@ impl<E: EthSpec> Discovery<E> {
                     .count();
 
                 if peers_on_subnet >= TARGET_SUBNET_PEERS {
-                    debug!(self.log, "Discovery ignored";
-                        "reason" => "Already connected to desired peers",
-                        "connected_peers_on_subnet" => peers_on_subnet,
-                        "target_subnet_peers" => TARGET_SUBNET_PEERS,
+                    debug!(
+                        reason = "Already connected to desired peers",
+                        connected_peers_on_subnet = peers_on_subnet,
+                        target_subnet_peers = TARGET_SUBNET_PEERS,
+                        "Discovery ignored"
                     );
                     return false;
                 }
 
                 let target_peers = TARGET_SUBNET_PEERS.saturating_sub(peers_on_subnet);
-                trace!(self.log, "Discovery query started for subnet";
-                    "subnet_query" => ?subnet_query,
-                    "connected_peers_on_subnet" => peers_on_subnet,
-                    "peers_to_find" => target_peers,
+                trace!(
+                    ?subnet_query,
+                    connected_peers_on_subnet = peers_on_subnet,
+                    peers_to_find = target_peers,
+                    "Discovery query started for subnet"
                 );
 
                 filtered_subnets.push(subnet_query.subnet);
@@ -764,9 +764,8 @@ impl<E: EthSpec> Discovery<E> {
                 subnet_predicate::<E>(filtered_subnets, &self.log, self.spec.clone());
 
             debug!(
-                self.log,
-                "Starting grouped subnet query";
-                "subnets" => ?filtered_subnet_queries,
+                subnets = ?filtered_subnet_queries,
+                "Starting grouped subnet query"
             );
             self.start_query(
                 QueryType::Subnet(filtered_subnet_queries),
@@ -790,7 +789,7 @@ impl<E: EthSpec> Discovery<E> {
         let enr_fork_id = match self.local_enr().eth2() {
             Ok(v) => v,
             Err(e) => {
-                crit!(self.log, "Local ENR has no fork id"; "error" => e);
+                crit!(error = e, "Local ENR has no fork id");
                 return;
             }
         };
@@ -831,10 +830,10 @@ impl<E: EthSpec> Discovery<E> {
                 self.find_peer_active = false;
                 match query.result {
                     Ok(r) if r.is_empty() => {
-                        debug!(self.log, "Discovery query yielded no results.");
+                        debug!("Discovery query yielded no results.");
                     }
                     Ok(r) => {
-                        debug!(self.log, "Discovery query completed"; "peers_found" => r.len());
+                        debug!(peers_found = r.len(), "Discovery query completed");
                         let results = r
                             .into_iter()
                             .map(|enr| {
@@ -846,7 +845,7 @@ impl<E: EthSpec> Discovery<E> {
                         return Some(results);
                     }
                     Err(e) => {
-                        warn!(self.log, "Discovery query failed"; "error" => %e);
+                        warn!(error = %e, "Discovery query failed");
                     }
                 }
             }
@@ -855,13 +854,20 @@ impl<E: EthSpec> Discovery<E> {
                     queries.iter().map(|query| query.subnet).collect();
                 match query.result {
                     Ok(r) if r.is_empty() => {
-                        debug!(self.log, "Grouped subnet discovery query yielded no results."; "subnets_searched_for" => ?subnets_searched_for);
+                        debug!(
+                            ?subnets_searched_for,
+                            "Grouped subnet discovery query yielded no results."
+                        );
                         queries.iter().for_each(|query| {
                             self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
                         })
                     }
                     Ok(r) => {
-                        debug!(self.log, "Peer grouped subnet discovery request completed"; "peers_found" => r.len(), "subnets_searched_for" => ?subnets_searched_for);
+                        debug!(
+                            peers_found = r.len(),
+                            ?subnets_searched_for,
+                            "Peer grouped subnet discovery request completed"
+                        );
 
                         let mut mapped_results = HashMap::new();
 
@@ -941,7 +947,7 @@ impl<E: EthSpec> Discovery<E> {
                         }
                     }
                     Err(e) => {
-                        warn!(self.log,"Grouped subnet discovery query failed"; "subnets_searched_for" => ?subnets_searched_for, "error" => %e);
+                        warn!(?subnets_searched_for, error = %e,"Grouped subnet discovery query failed");
                     }
                 }
             }
@@ -1020,11 +1026,11 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                 if let Poll::Ready(event_stream) = fut.poll_unpin(cx) {
                     match event_stream {
                         Ok(stream) => {
-                            debug!(self.log, "Discv5 event stream ready");
+                            debug!("Discv5 event stream ready");
                             self.event_stream = EventStream::Present(stream);
                         }
                         Err(e) => {
-                            slog::crit!(self.log, "Discv5 event stream failed"; "error" => %e);
+                            crit!(error = %e, "Discv5 event stream failed");
                             self.event_stream = EventStream::InActive;
                         }
                     }
@@ -1042,15 +1048,15 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                             // log these to see if we are unnecessarily dropping discovered peers
                             /*
                             if enr.eth2() == self.local_enr().eth2() {
-                                trace!(self.log, "Peer found in process of query"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
+                                trace!( "Peer found in process of query"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
                             } else {
                             // this is temporary warning for debugging the DHT
-                            warn!(self.log, "Found peer during discovery not on correct fork"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
+                            warn!( "Found peer during discovery not on correct fork"; "peer_id" => format!("{}", enr.peer_id()), "tcp_socket" => enr.tcp_socket());
                             }
                             */
                         }
                         discv5::Event::SocketUpdated(socket_addr) => {
-                            info!(self.log, "Address updated"; "ip" => %socket_addr.ip(), "udp_port" => %socket_addr.port());
+                            info!( ip = %socket_addr.ip(), udp_port = %socket_addr.port(),"Address updated");
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
                             // We have SOCKET_UPDATED messages. This occurs when discovery has a majority of
                             // users reporting an external port and our ENR gets updated.
@@ -1090,7 +1096,11 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                 let addr = ev.addr;
                 let listener_id = ev.listener_id;
 
-                trace!(self.log, "Received NewListenAddr event from swarm"; "listener_id" => ?listener_id, "addr" => ?addr);
+                trace!(
+                    ?listener_id,
+                    ?addr,
+                    "Received NewListenAddr event from swarm"
+                );
 
                 let mut addr_iter = addr.iter();
 
@@ -1098,7 +1108,7 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                     Some(Protocol::Ip4(_)) => match (addr_iter.next(), addr_iter.next()) {
                         (Some(Protocol::Tcp(port)), None) => {
                             if !self.update_ports.tcp4 {
-                                debug!(self.log, "Skipping ENR update"; "multiaddr" => ?addr);
+                                debug!(multiaddr = ?addr, "Skipping ENR update");
                                 return;
                             }
 
@@ -1106,21 +1116,21 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                         }
                         (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
                             if !self.update_ports.quic4 {
-                                debug!(self.log, "Skipping ENR update"; "multiaddr" => ?addr);
+                                debug!(?addr, "Skipping ENR update");
                                 return;
                             }
 
                             self.update_enr_quic_port(port, false)
                         }
                         _ => {
-                            debug!(self.log, "Encountered unacceptable multiaddr for listening (unsupported transport)"; "addr" => ?addr);
+                            debug!(?addr, "Encountered unacceptable multiaddr for listening (unsupported transport)");
                             return;
                         }
                     },
                     Some(Protocol::Ip6(_)) => match (addr_iter.next(), addr_iter.next()) {
                         (Some(Protocol::Tcp(port)), None) => {
                             if !self.update_ports.tcp6 {
-                                debug!(self.log, "Skipping ENR update"; "multiaddr" => ?addr);
+                                debug!(?addr, "Skipping ENR update");
                                 return;
                             }
 
@@ -1128,19 +1138,22 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                         }
                         (Some(Protocol::Udp(port)), Some(Protocol::QuicV1)) => {
                             if !self.update_ports.quic6 {
-                                debug!(self.log, "Skipping ENR update"; "multiaddr" => ?addr);
+                                debug!(?addr, "Skipping ENR update");
                                 return;
                             }
 
                             self.update_enr_quic_port(port, true)
                         }
                         _ => {
-                            debug!(self.log, "Encountered unacceptable multiaddr for listening (unsupported transport)"; "addr" => ?addr);
+                            debug!(?addr, "Encountered unacceptable multiaddr for listening (unsupported transport)");
                             return;
                         }
                     },
                     _ => {
-                        debug!(self.log, "Encountered unacceptable multiaddr for listening (no IP)"; "addr" => ?addr);
+                        debug!(
+                            ?addr,
+                            "Encountered unacceptable multiaddr for listening (no IP)"
+                        );
                         return;
                     }
                 };
@@ -1149,10 +1162,10 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
 
                 match attempt_enr_update {
                     Ok(true) => {
-                        info!(self.log, "Updated local ENR"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(), "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp4(), "tcp6" => ?local_enr.tcp6(), "udp6" => ?local_enr.udp6())
+                        info!(enr = local_enr.to_base64(), seq = local_enr.seq(), id = %local_enr.node_id(), ip4 = ?local_enr.ip4(), udp4 = ?local_enr.udp4(), tcp4 = ?local_enr.tcp4(), tcp6 = ?local_enr.tcp6(), udp6 = ?local_enr.udp6(),"Updated local ENR")
                     }
                     Ok(false) => {} // Nothing to do, ENR already configured
-                    Err(e) => warn!(self.log, "Failed to update ENR"; "error" => ?e),
+                    Err(e) => warn!(error = ?e,"Failed to update ENR"),
                 }
             }
             _ => {
@@ -1175,7 +1188,7 @@ impl<E: EthSpec> Discovery<E> {
                         return;
                     }
                     // set peer as disconnected in discovery DHT
-                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id, "error" => %ClearDialError(error));
+                    debug!(%peer_id, error = %ClearDialError(error),"Marking peer disconnected in DHT");
                     self.disconnect_peer(&peer_id);
                 }
                 DialError::LocalPeerId { .. }
@@ -1183,7 +1196,7 @@ impl<E: EthSpec> Discovery<E> {
                 | DialError::Transport(_)
                 | DialError::WrongPeerId { .. } => {
                     // set peer as disconnected in discovery DHT
-                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id, "error" => %ClearDialError(error));
+                    debug!(%peer_id, error = %ClearDialError(error),"Marking peer disconnected in DHT");
                     self.disconnect_peer(&peer_id);
                 }
                 DialError::DialPeerConditionFalse(_) | DialError::Aborted => {}

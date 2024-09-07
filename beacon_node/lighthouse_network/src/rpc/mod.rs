@@ -13,12 +13,14 @@ use libp2p::swarm::{
 };
 use libp2p::swarm::{ConnectionClosed, FromSwarm, SubstreamProtocol, THandlerInEvent};
 use libp2p::PeerId;
+use logging::crit;
 use rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr};
-use slog::{crit, debug, o};
+use slog::o;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
+use tracing::debug;
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::{HandlerErr, HandlerEvent};
@@ -146,7 +148,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         let log = log.new(o!("service" => "libp2p_rpc"));
 
         let inbound_limiter = inbound_rate_limiter_config.map(|config| {
-            debug!(log, "Using inbound rate limiting params"; "config" => ?config);
+            debug!(?config, "Using inbound rate limiting params");
             RateLimiter::new_with_config(config.0)
                 .expect("Inbound limiter configuration parameters are valid")
         });
@@ -379,10 +381,10 @@ where
                                     | Protocol::BlobsByRoot
                                     | Protocol::DataColumnsByRoot
                             ) {
-                                debug!(self.log, "Request too large to process"; "request" => %req, "protocol" => %protocol);
+                                debug!(request = %req, %protocol, "Request too large to process");
                             } else {
                                 // Other protocols shouldn't be sending large messages, we should flag the peer kind
-                                crit!(self.log, "Request size too large to ever be processed"; "protocol" => %protocol);
+                                crit!(%protocol, "Request size too large to ever be processed");
                             }
                             // send an error code to the peer.
                             // the handler upon receiving the error code will send it back to the behaviour
@@ -396,8 +398,7 @@ where
                             );
                         }
                         Err(RateLimitedErr::TooSoon(wait_time)) => {
-                            debug!(self.log, "Request exceeds the rate limit";
-                        "request" => %req, "peer_id" => %peer_id, "wait_time_ms" => wait_time.as_millis());
+                            debug!(request = %req, %peer_id, wait_time_ms = wait_time.as_millis(), "Request exceeds the rate limit");
                             // send an error code to the peer.
                             // the handler upon receiving the error code will send it back to the behaviour
                             self.send_response(

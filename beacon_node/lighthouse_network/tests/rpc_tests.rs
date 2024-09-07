@@ -6,7 +6,8 @@ use common::Protocol;
 use lighthouse_network::rpc::methods::*;
 use lighthouse_network::service::api_types::AppRequestId;
 use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Request, Response};
-use slog::{debug, warn, Level};
+use tracing::{debug, warn};
+use slog::Level;
 use ssz::Encode;
 use ssz_types::VariableList;
 use std::sync::Arc;
@@ -98,7 +99,7 @@ fn test_tcp_status_rpc() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -109,9 +110,9 @@ fn test_tcp_status_rpc() {
                         response,
                     } => {
                         // Should receive the RPC response
-                        debug!(log, "Sender Received");
+                        debug!("Sender Received");
                         assert_eq!(response, rpc_response.clone());
-                        debug!(log, "Sender Completed");
+                        debug!("Sender Completed");
                         return;
                     }
                     _ => {}
@@ -130,7 +131,7 @@ fn test_tcp_status_rpc() {
                     } => {
                         if request == rpc_request {
                             // send the response
-                            debug!(log, "Receiver Received");
+                            debug!("Receiver Received");
                             receiver.send_response(peer_id, id, rpc_response.clone());
                         }
                     }
@@ -203,7 +204,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -213,7 +214,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                         id: _,
                         response,
                     } => {
-                        warn!(log, "Sender received a response");
+                        warn!("Sender received a response");
                         match response {
                             Response::BlocksByRange(Some(_)) => {
                                 if messages_received < 2 {
@@ -224,7 +225,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                                     assert_eq!(response, rpc_response_bellatrix_small.clone());
                                 }
                                 messages_received += 1;
-                                warn!(log, "Chunk received");
+                                warn!("Chunk received");
                             }
                             Response::BlocksByRange(None) => {
                                 // should be exactly `messages_to_send` messages before terminating
@@ -251,7 +252,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                     } => {
                         if request == rpc_request {
                             // send the response
-                            warn!(log, "Receiver got request");
+                            warn!("Receiver got request");
                             for i in 0..messages_to_send {
                                 // Send first third of responses as base blocks,
                                 // second as altair and third as bellatrix.
@@ -329,7 +330,7 @@ fn test_blobs_by_range_chunked_rpc() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -339,12 +340,12 @@ fn test_blobs_by_range_chunked_rpc() {
                         id: _,
                         response,
                     } => {
-                        warn!(log, "Sender received a response");
+                        warn!("Sender received a response");
                         match response {
                             Response::BlobsByRange(Some(_)) => {
                                 assert_eq!(response, rpc_response.clone());
                                 messages_received += 1;
-                                warn!(log, "Chunk received");
+                                warn!("Chunk received");
                             }
                             Response::BlobsByRange(None) => {
                                 // should be exactly `messages_to_send` messages before terminating
@@ -371,7 +372,7 @@ fn test_blobs_by_range_chunked_rpc() {
                     } => {
                         if request == rpc_request {
                             // send the response
-                            warn!(log, "Receiver got request");
+                            warn!("Receiver got request");
                             for _ in 0..messages_to_send {
                                 // Send first third of responses as base blocks,
                                 // second as altair and third as bellatrix.
@@ -438,7 +439,7 @@ fn test_tcp_blocks_by_range_over_limit() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -464,7 +465,7 @@ fn test_tcp_blocks_by_range_over_limit() {
                     } => {
                         if request == rpc_request {
                             // send the response
-                            warn!(log, "Receiver got request");
+                            warn!("Receiver got request");
                             for _ in 0..messages_to_send {
                                 let rpc_response = rpc_response_bellatrix_large.clone();
                                 receiver.send_response(peer_id, id, rpc_response.clone());
@@ -532,7 +533,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -544,7 +545,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                     } =>
                     // Should receive the RPC response
                     {
-                        debug!(log, "Sender received a response");
+                        debug!("Sender received a response");
                         match response {
                             Response::BlocksByRange(Some(_)) => {
                                 assert_eq!(response, rpc_response.clone());
@@ -588,7 +589,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                     )) => {
                         if request == rpc_request {
                             // send the response
-                            warn!(log, "Receiver got request");
+                            warn!("Receiver got request");
                             message_info = Some((peer_id, id));
                         }
                     }
@@ -601,7 +602,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                     messages_sent += 1;
                     let (peer_id, stream_id) = message_info.as_ref().unwrap();
                     receiver.send_response(*peer_id, *stream_id, rpc_response.clone());
-                    debug!(log, "Sending message {}", messages_sent);
+                    debug!("Sending message {}", messages_sent);
                     if messages_sent == messages_to_send + extra_messages_to_send {
                         // stop sending messages
                         return;
@@ -663,7 +664,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -676,7 +677,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                         Response::BlocksByRange(Some(_)) => {
                             assert_eq!(response, rpc_response.clone());
                             messages_received += 1;
-                            warn!(log, "Chunk received");
+                            warn!("Chunk received");
                         }
                         Response::BlocksByRange(None) => {
                             // should be exactly 10 messages before terminating
@@ -702,7 +703,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                     } => {
                         if request == rpc_request {
                             // send the response
-                            warn!(log, "Receiver got request");
+                            warn!("Receiver got request");
 
                             for _ in 1..=messages_to_send {
                                 receiver.send_response(peer_id, id, rpc_response.clone());
@@ -788,7 +789,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -807,7 +808,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                                 assert_eq!(response, rpc_response_bellatrix_small.clone());
                             }
                             messages_received += 1;
-                            debug!(log, "Chunk received");
+                            debug!("Chunk received");
                         }
                         Response::BlocksByRoot(None) => {
                             // should be exactly messages_to_send
@@ -833,7 +834,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                     } => {
                         if request == rpc_request {
                             // send the response
-                            debug!(log, "Receiver got request");
+                            debug!("Receiver got request");
 
                             for i in 0..messages_to_send {
                                 // Send equal base, altair and bellatrix blocks
@@ -845,11 +846,11 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                                     rpc_response_bellatrix_small.clone()
                                 };
                                 receiver.send_response(peer_id, id, rpc_response);
-                                debug!(log, "Sending message");
+                                debug!("Sending message");
                             }
                             // send the stream termination
                             receiver.send_response(peer_id, id, Response::BlocksByRange(None));
-                            debug!(log, "Send stream term");
+                            debug!("Send stream term");
                         }
                     }
                     _ => {} // Ignore other events
@@ -921,7 +922,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a STATUS message
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
@@ -931,12 +932,12 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                         id: AppRequestId::Router,
                         response,
                     } => {
-                        debug!(log, "Sender received a response");
+                        debug!("Sender received a response");
                         match response {
                             Response::BlocksByRoot(Some(_)) => {
                                 assert_eq!(response, rpc_response.clone());
                                 messages_received += 1;
-                                debug!(log, "Chunk received");
+                                debug!("Chunk received");
                             }
                             Response::BlocksByRoot(None) => {
                                 // should be exactly messages_to_send
@@ -977,7 +978,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                     )) => {
                         if request == rpc_request {
                             // send the response
-                            warn!(log, "Receiver got request");
+                            warn!("Receiver got request");
                             message_info = Some((peer_id, id));
                         }
                     }
@@ -990,7 +991,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                     messages_sent += 1;
                     let (peer_id, stream_id) = message_info.as_ref().unwrap();
                     receiver.send_response(*peer_id, *stream_id, rpc_response.clone());
-                    debug!(log, "Sending message {}", messages_sent);
+                    debug!("Sending message {}", messages_sent);
                     if messages_sent == messages_to_send + extra_messages_to_send {
                         // stop sending messages
                         return;
@@ -1030,7 +1031,7 @@ fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         // Send a goodbye and disconnect
-                        debug!(log, "Sending RPC");
+                        debug!("Sending RPC");
                         sender.goodbye_peer(
                             &peer_id,
                             GoodbyeReason::IrrelevantNetwork,
