@@ -8,7 +8,7 @@ use lighthouse_network::{
     discv5::{self, enr::NodeId, Discv5},
     EnrExt, Eth2Enr,
 };
-use slog::info;
+use tracing::{info, warn};
 use types::EthSpec;
 
 pub async fn run<E: EthSpec>(
@@ -52,19 +52,19 @@ pub async fn run<E: EthSpec>(
     let pretty_v4_socket = enr_v4_socket.as_ref().map(|addr| addr.to_string());
     let pretty_v6_socket = enr_v6_socket.as_ref().map(|addr| addr.to_string());
     info!(
-        log, "Configuration parameters";
-        "listening_address" => ?discv5_config.listen_config,
-        "advertised_v4_address" => ?pretty_v4_socket,
-        "advertised_v6_address" => ?pretty_v6_socket,
-        "eth2" => eth2_field
+        listening_address = ?discv5_config.listen_config,
+        advertised_v4_address = ?pretty_v4_socket,
+        advertised_v6_address = ?pretty_v6_socket,
+        eth2 = eth2_field,
+        "Configuration parameters"
     );
 
-    info!(log, "Identity established"; "peer_id" => %local_enr.peer_id(), "node_id" => %local_enr.node_id());
+    info!(peer_id = %local_enr.peer_id(), node_id = %local_enr.node_id(),"Identity established");
 
     // build the contactable multiaddr list, adding the p2p protocol
-    info!(log, "Contact information"; "enr" => local_enr.to_base64());
-    info!(log, "Enr details"; "enr" => ?local_enr);
-    info!(log, "Contact information"; "multiaddrs" => ?local_enr.multiaddr_p2p());
+    info!(enr = local_enr.to_base64(), "Contact information");
+    info!(enr = ?local_enr,"Enr details");
+    info!(multiaddrs = ?local_enr.multiaddr_p2p(),"Contact information");
 
     // construct the discv5 server
     let mut discv5: Discv5 = Discv5::new(local_enr.clone(), local_key, discv5_config).unwrap();
@@ -72,16 +72,15 @@ pub async fn run<E: EthSpec>(
     // If there are any bootnodes add them to the routing table
     for enr in boot_nodes {
         info!(
-            log,
-            "Adding bootnode";
-            "ipv4_address" => ?enr.udp4_socket(),
-            "ipv6_address" => ?enr.udp6_socket(),
-            "peer_id" => ?enr.peer_id(),
-            "node_id" => ?enr.node_id()
+            ipv4_address = ?enr.udp4_socket(),
+            ipv6_address = ?enr.udp6_socket(),
+            peer_id = ?enr.peer_id(),
+            node_id = ?enr.node_id(),
+            "Adding bootnode"
         );
         if enr != local_enr {
             if let Err(e) = discv5.add_enr(enr) {
-                slog::warn!(log, "Failed adding ENR"; "error" => ?e);
+                warn!(error = ?e,"Failed adding ENR");
             }
         }
     }
@@ -93,7 +92,7 @@ pub async fn run<E: EthSpec>(
 
     // if there are peers in the local routing table, establish a session by running a query
     if !discv5.table_entries_id().is_empty() {
-        info!(log, "Executing bootstrap query...");
+        info!("Executing bootstrap query...");
         let _ = discv5.find_node(NodeId::random()).await;
     }
 
@@ -131,14 +130,14 @@ pub async fn run<E: EthSpec>(
                 // display server metrics
                 let metrics = discv5.metrics();
                 info!(
-                    log, "Server metrics";
-                    "connected_peers" => discv5.connected_peers(),
-                    "active_sessions" => metrics.active_sessions,
-                    "requests/s" => format_args!("{:.2}", metrics.unsolicited_requests_per_second),
-                    "ipv4_nodes" => ipv4_only_reachable,
-                    "ipv6_nodes" => ipv6_only_reachable,
-                    "ipv6_and_ipv4_nodes" => ipv4_ipv6_reachable,
-                    "unreachable_nodes" => unreachable_nodes,
+                    connected_peers = discv5.connected_peers(),
+                    active_sessions = metrics.active_sessions,
+                    requests_per_second = format_args!("{:.2}", metrics.unsolicited_requests_per_second),
+                    ipv4_nodes = ipv4_only_reachable,
+                    ipv6_nodes = ipv6_only_reachable,
+                    ipv6_and_ipv4_nodes = ipv4_ipv6_reachable,
+                    unreachable_nodes,
+                    "Server metrics"
                 );
 
             }
@@ -149,7 +148,7 @@ pub async fn run<E: EthSpec>(
                         // Ignore these events here
                     }
                     discv5::Event::SocketUpdated(socket_addr) => {
-                        info!(log, "Advertised socket address updated"; "socket_addr" => %socket_addr);
+                        info!(%socket_addr,"Advertised socket address updated");
                     }
                     _ => {} // Ignore
                 }

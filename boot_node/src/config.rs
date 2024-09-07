@@ -113,7 +113,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
                     let genesis_state_root = genesis_state
                         .canonical_root()
                         .map_err(|e| format!("Error hashing genesis state: {e:?}"))?;
-                    slog::info!(logger, "Genesis state found"; "root" => ?genesis_state_root);
+                    tracing::info!(root = ?genesis_state_root, "Genesis state found");
                     let enr_fork = spec.enr_fork_id::<E>(
                         types::Slot::from(0u64),
                         genesis_state.genesis_validators_root(),
@@ -121,10 +121,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
 
                     Some(enr_fork.as_ssz_bytes())
                 } else {
-                    slog::warn!(
-                        logger,
-                        "No genesis state provided. No Eth2 field added to the ENR"
-                    );
+                    tracing::warn!("No genesis state provided. No Eth2 field added to the ENR");
                     None
                 }
             };
