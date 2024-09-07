@@ -16,13 +16,14 @@ use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
-use slog::{debug, Logger};
+use slog::{Logger};
 use slot_clock::ManualSlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
 use task_executor::TaskExecutor;
+use tracing::debug;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use types::*;
 
@@ -753,8 +754,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Creates a log if there is an internal error.
     fn send_sync_message(&self, message: SyncMessage<T::EthSpec>) {
         self.sync_tx.send(message).unwrap_or_else(|e| {
-            debug!(self.log, "Could not send message to the sync service";
-                   "error" => %e)
+            debug!(error = %e, "Could not send message to the sync service")
         });
     }
 
@@ -763,8 +763,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Creates a log if there is an internal error.
     fn send_network_message(&self, message: NetworkMessage<T::EthSpec>) {
         self.network_tx.send(message).unwrap_or_else(|e| {
-            debug!(self.log, "Could not send message to the network service. Likely shutdown";
-                "error" => %e)
+            debug!(error = %e, "Could not send message to the network service. Likely shutdown")
         });
     }
 }

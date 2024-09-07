@@ -61,6 +61,7 @@ pub trait BatchConfig {
     fn batch_attempt_hash<E: EthSpec>(blocks: &[RpcBlock<E>]) -> u64;
 }
 
+#[derive(Debug)]
 pub struct RangeSyncBatchConfig {}
 
 impl BatchConfig for RangeSyncBatchConfig {
@@ -92,7 +93,7 @@ pub enum BatchProcessingResult {
     FaultyFailure,
     NonFaultyFailure,
 }
-
+#[derive(Debug)]
 /// A segment of a chain.
 pub struct BatchInfo<E: EthSpec, B: BatchConfig = RangeSyncBatchConfig> {
     /// Start slot of the batch.

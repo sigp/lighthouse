@@ -8,7 +8,8 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures::prelude::*;
-use slog::{debug, error, o, trace, warn};
+use slog::{o};
+use tracing::{debug, error, trace, warn};
 
 use super::SubnetServiceMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -126,9 +127,9 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
 
             // Registers the validator with the subnet service.
             // This will subscribe to long-lived random subnets if required.
-            trace!(self.log,
-                "Sync committee subscription";
-                "subscription" => ?subscription,
+            trace!(
+                ?subscription,
+                "Sync committee subscription"
             );
 
             let subnet_ids = match SyncSubnetId::compute_subnets_for_sync_committee::<T::EthSpec>(
@@ -136,10 +137,10 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
             ) {
                 Ok(subnet_ids) => subnet_ids,
                 Err(e) => {
-                    warn!(self.log,
-                        "Failed to compute subnet id for sync committee subscription";
-                        "error" => ?e,
-                        "validator_index" => subscription.validator_index
+                    warn!(
+                        error = ?e,
+                        validator_index = subscription.validator_index,
+                        "Failed to compute subnet id for sync committee subscription"
                     );
                     continue;
                 }
@@ -152,16 +153,16 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
                 };
                 subnets_to_discover.push(exact_subnet.clone());
                 if let Err(e) = self.subscribe_to_subnet(exact_subnet.clone()) {
-                    warn!(self.log,
-                        "Subscription to sync subnet error";
-                        "error" => e,
-                        "validator_index" => subscription.validator_index,
+                    warn!(
+                        error = e,
+                        validator_index = subscription.validator_index,
+                        "Subscription to sync subnet error"
                     );
                 } else {
-                    trace!(self.log,
-                        "Subscribed to subnet for sync committee duties";
-                        "exact_subnet" => ?exact_subnet,
-                        "validator_index" => subscription.validator_index
+                    trace!(
+                        ?exact_subnet,
+                        validator_index = subscription.validator_index,
+                        "Subscribed to subnet for sync committee duties"
                     );
                 }
             }
@@ -170,7 +171,7 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
         // required subnets.
         if !self.discovery_disabled {
             if let Err(e) = self.discover_peers_request(subnets_to_discover.iter()) {
-                warn!(self.log, "Discovery lookup request error"; "error" => e);
+                warn!(error = e, "Discovery lookup request error");
             };
         }
 
@@ -218,9 +219,9 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
                 } else {
                     // We may want to check the global PeerInfo to see estimated timeouts for each
                     // peer before they can be removed.
-                    warn!(self.log,
-                        "Not enough time for a discovery search";
-                        "subnet_id" => ?exact_subnet
+                    warn!(
+                        subnet_id = ?exact_subnet,
+                        "Not enough time for a discovery search"
                     );
                     None
                 }
@@ -265,10 +266,9 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
         // Calculate the duration to the unsubscription event.
         let expected_end_subscription_duration = if current_slot >= until_slot {
             warn!(
-                self.log,
-                "Sync committee subscription is past expiration";
-                "current_slot" => current_slot,
-                "exact_subnet" => ?exact_subnet,
+                ?current_slot,
+                ?exact_subnet,
+                "Sync committee subscription is past expiration"
             );
             return Ok(());
         } else {
@@ -285,7 +285,7 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
 
         if let Entry::Vacant(e) = self.subscriptions.entry(exact_subnet.subnet_id) {
             // We are not currently subscribed and have no waiting subscription, create one
-            debug!(self.log, "Subscribing to subnet"; "subnet" => *exact_subnet.subnet_id, "until_epoch" => ?exact_subnet.until_epoch);
+            debug!(subnet = *exact_subnet.subnet_id, until_epoch = ?exact_subnet.until_epoch, "Subscribing to subnet");
             e.insert(exact_subnet.until_epoch);
             self.events
                 .push_back(SubnetServiceMessage::Subscribe(Subnet::SyncCommittee(
@@ -312,7 +312,7 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
 
     /// A queued unsubscription is ready.
     fn handle_unsubscriptions(&mut self, subnet_id: SyncSubnetId) {
-        debug!(self.log, "Unsubscribing from subnet"; "subnet" => *subnet_id);
+        debug!(subnet = *subnet_id, "Unsubscribing from subnet");
 
         self.subscriptions.remove(&subnet_id);
         self.events
@@ -344,7 +344,7 @@ impl<T: BeaconChainTypes> Stream for SyncCommitteeService<T> {
         match self.unsubscriptions.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(exact_subnet))) => self.handle_unsubscriptions(exact_subnet),
             Poll::Ready(Some(Err(e))) => {
-                error!(self.log, "Failed to check for subnet unsubscription times"; "error"=> e);
+                error!( error = e, "Failed to check for subnet unsubscription times");
             }
             Poll::Ready(None) | Poll::Pending => {}
         }

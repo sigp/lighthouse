@@ -53,10 +53,11 @@ use lighthouse_network::rpc::GoodbyeReason;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::PeerId;
 use lighthouse_network::SyncInfo;
+use logging::crit;
 use lru_cache::LRUTimeCache;
-use slog::{crit, debug, trace, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::{debug, trace};
 use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// For how long we store failed finalized chains to prevent retries.
@@ -133,14 +134,13 @@ where
             RangeSyncType::Finalized => {
                 // Make sure we have not recently tried this chain
                 if self.failed_chains.contains(&remote_info.finalized_root) {
-                    debug!(self.log, "Disconnecting peer that belongs to previously failed chain";
-                        "failed_root" => %remote_info.finalized_root, "peer_id" => %peer_id);
+                    debug!(failed_root = ?remote_info.finalized_root, %peer_id,"Disconnecting peer that belongs to previously failed chain");
                     network.goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
                     return;
                 }
 
                 // Finalized chain search
-                debug!(self.log, "Finalization sync peer joined"; "peer_id" => %peer_id);
+                debug!(?peer_id, "Finalization sync peer joined");
                 self.awaiting_head_peers.remove(&peer_id);
 
                 // Because of our change in finalized sync batch size from 2 to 1 and our transition
@@ -171,8 +171,7 @@ where
                 if self.chains.is_finalizing_sync() {
                     // If there are finalized chains to sync, finish these first, before syncing head
                     // chains.
-                    trace!(self.log, "Waiting for finalized sync to complete";
-                        "peer_id" => %peer_id, "awaiting_head_peers" => &self.awaiting_head_peers.len());
+                    trace!(%peer_id, awaiting_head_peers = &self.awaiting_head_peers.len(),"Waiting for finalized sync to complete");
                     self.awaiting_head_peers.insert(peer_id, remote_info);
                     return;
                 }
@@ -229,7 +228,7 @@ where
                 }
             }
             Err(_) => {
-                trace!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
+                trace!(%chain_id,"BlocksByRange response for removed chain")
             }
         }
     }
@@ -259,7 +258,7 @@ where
             }
 
             Err(_) => {
-                trace!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
+                trace!(?chain_id, "BlocksByRange response for removed chain")
             }
         }
     }
@@ -321,7 +320,7 @@ where
                 }
             }
             Err(_) => {
-                trace!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
+                trace!(?chain_id, "BlocksByRange response for removed chain")
             }
         }
     }
@@ -335,14 +334,14 @@ where
         op: &'static str,
     ) {
         if remove_reason.is_critical() {
-            crit!(self.log, "Chain removed"; "sync_type" => ?sync_type, &chain, "reason" => ?remove_reason, "op" => op);
+            slog::crit!(self.log, "Chain removed"; "sync_type" => ?sync_type, &chain, "reason" => ?remove_reason, "op" => op);
         } else {
-            debug!(self.log, "Chain removed"; "sync_type" => ?sync_type, &chain, "reason" => ?remove_reason, "op" => op);
+            slog::debug!(self.log, "Chain removed"; "sync_type" => ?sync_type, &chain, "reason" => ?remove_reason, "op" => op);
         }
 
         if let RemoveChain::ChainFailed { blacklist, .. } = remove_reason {
             if RangeSyncType::Finalized == sync_type && blacklist {
-                warn!(self.log, "Chain failed! Syncing to its head won't be retried for at least the next {} seconds", FAILED_CHAINS_EXPIRY_SECONDS; &chain);
+                slog::warn!(self.log, "Chain failed! Syncing to its head won't be retried for at least the next {} seconds", FAILED_CHAINS_EXPIRY_SECONDS; &chain);
                 self.failed_chains.insert(chain.target_head_root);
             }
         }
