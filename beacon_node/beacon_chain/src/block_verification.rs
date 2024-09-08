@@ -74,6 +74,7 @@ use derivative::Derivative;
 use eth2::types::{BlockGossip, EventKind, PublishBlockRequest};
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
+use lighthouse_metrics::TryExt;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
@@ -796,8 +797,12 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
                     GossipDataColumnError::KzgNotInitialized,
                 ))?;
 
-            let timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_COMPUTATION);
-            let sidecars = blobs_to_data_column_sidecars(&blobs, block, kzg, &chain.spec)?;
+            let mut timer = metrics::start_timer_vec(
+                &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
+                &[&blobs.len().to_string()],
+            );
+            let sidecars = blobs_to_data_column_sidecars(&blobs, block, kzg, &chain.spec)
+                .discard_timer_on_break(&mut timer)?;
             drop(timer);
             let mut gossip_verified_data_columns = vec![];
             for sidecar in sidecars {
@@ -829,12 +834,11 @@ pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<ExecutionPendingBlock<T>, BlockError> {
         self.into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
-            .map(|execution_pending| {
+            .inspect(|execution_pending| {
                 // Supply valid block to slasher.
                 if let Some(slasher) = chain.slasher.as_ref() {
                     slasher.accept_block_header(execution_pending.block.signed_block_header());
                 }
-                execution_pending
             })
             .map_err(|slash_info| process_block_slash_info::<_, BlockError>(chain, slash_info))
     }

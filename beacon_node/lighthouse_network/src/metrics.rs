@@ -91,6 +91,15 @@ pub static PEERS_PER_CLIENT: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
         &["Client"],
     )
 });
+
+pub static PEERS_PER_CUSTODY_SUBNET_COUNT: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
+    try_create_int_gauge_vec(
+        "peers_per_custody_subnet_count",
+        "The current count of peers by custody subnet count",
+        &["custody_subnet_count"],
+    )
+});
+
 pub static FAILED_ATTESTATION_PUBLISHES_PER_SUBNET: LazyLock<Result<IntGaugeVec>> =
     LazyLock::new(|| {
         try_create_int_gauge_vec(
