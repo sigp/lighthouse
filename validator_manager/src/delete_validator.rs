@@ -112,20 +112,20 @@ pub async fn run<'a>(config: DeleteConfig) -> Result<(), String> {
         pubkeys: validators_to_delete,
     };
 
-    let response = http_client
+    let responses = http_client
         .delete_keystores(&delete_request)
         .await
         .map_err(|e| format!("Error deleting keystore {}", e))?
         .data;
 
     let mut error = false;
-    for delete_status in response {
-        if delete_status.status == DeleteKeystoreStatus::Error
-            || delete_status.status == DeleteKeystoreStatus::NotFound
-            || delete_status.status == DeleteKeystoreStatus::NotActive
+    for response in responses {
+        if response.status == DeleteKeystoreStatus::Error
+            || response.status == DeleteKeystoreStatus::NotFound
+            || response.status == DeleteKeystoreStatus::NotActive
         {
             error = true;
-            eprintln!("Problem with removing validator {:?}", delete_status.status);
+            eprintln!("Problem with removing validator {:?}", response.status);
         }
     }
     if error {
