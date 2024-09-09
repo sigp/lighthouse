@@ -1,5 +1,4 @@
 use crate::beacon_chain::BeaconChainTypes;
-use slog::error;
 use slog::{info, Logger};
 use std::sync::Arc;
 use store::chunked_iter::ChunkedVectorIter;
@@ -47,23 +46,6 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
     let old_anchor = db.get_anchor_info();
     let split_slot = db.get_split_slot();
     let genesis_state_root = genesis_state_root.ok_or(Error::GenesisStateUnknown)?;
-
-    if !db.get_config().allow_tree_states_migration
-        && old_anchor
-            .as_ref()
-            .map_or(true, |anchor| !anchor.no_historic_states_stored(split_slot))
-    {
-        error!(
-            log,
-            "You are attempting to migrate to tree-states but this is a destructive operation. \
-             Upgrading will require FIXME(sproul) minutes of downtime before Lighthouse starts again. \
-             All current historic states will be deleted. Reconstructing the states in the new \
-             schema will take up to 2 weeks. \
-             \
-             To proceed add the flag --allow-tree-states-migration OR run lighthouse db prune-states"
-        );
-        return Err(Error::DestructiveFreezerUpgrade);
-    }
 
     let mut cold_ops = vec![];
 

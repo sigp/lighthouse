@@ -1982,13 +1982,6 @@ fn blob_prune_margin_epochs_on_startup_ten() {
         .with_config(|config| assert!(config.store.blob_prune_margin_epochs == 10));
 }
 #[test]
-fn allow_tree_states_migration_on_startup_true() {
-    CommandLineTest::new()
-        .flag("allow-tree-states-migration", Some("true"))
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.store.allow_tree_states_migration == true));
-}
-#[test]
 fn reconstruct_historic_states_flag() {
     CommandLineTest::new()
         .flag("reconstruct-historic-states", None)

@@ -81,7 +81,6 @@ pub enum Error {
     ForwardsIterGap(DBColumn, Slot, Slot),
     StateShouldNotBeRequired(Slot),
     MissingBlock(Hash256),
-    DestructiveFreezerUpgrade,
     NoAnchorInfo,
     RandaoMixOutOfBounds,
     GenesisStateUnknown,
