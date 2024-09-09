@@ -3,18 +3,15 @@ use libp2p::swarm::ConnectionId;
 use libp2p::PeerId;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::time::Duration;
 
 /// Restricts more than two inbound requests from running simultaneously on the same protocol per peer.
 pub(super) struct ActiveRequestsLimiter {
-    resp_timeout: Duration,
     requests: HashMap<PeerId, Vec<(Protocol, ConnectionId, SubstreamId)>>,
 }
 
 impl ActiveRequestsLimiter {
-    pub(super) fn new(resp_timeout: Duration) -> Self {
+    pub(super) fn new() -> Self {
         Self {
-            resp_timeout,
             requests: HashMap::new(),
         }
     }
@@ -74,7 +71,7 @@ mod tests {
 
     #[test]
     fn test_limiter() {
-        let mut limiter = ActiveRequestsLimiter::new(Duration::from_secs(10));
+        let mut limiter = ActiveRequestsLimiter::new();
         let peer_id = PeerId::random();
         let connection_id = ConnectionId::new_unchecked(1);
         let substream_id = SubstreamId::new(1);

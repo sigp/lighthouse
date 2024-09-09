@@ -164,9 +164,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         RPC {
             response_limiter,
             outbound_request_limiter,
-            active_inbound_requests_limiter: ActiveRequestsLimiter::new(
-                network_params.resp_timeout,
-            ),
+            active_inbound_requests_limiter: ActiveRequestsLimiter::new(),
             events: Vec::new(),
             fork_context,
             enable_light_client_server,
