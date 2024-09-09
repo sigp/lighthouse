@@ -187,6 +187,7 @@ impl<E: EthSpec> Redb<E> {
 
                 KeyValueStoreOp::DeleteKey(column, key) => {
                     metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[&column]);
+                    let _timer = metrics::start_timer(&metrics::DISK_DB_DELETE_TIMES);
                     let table_definition: TableDefinition<'_, &[u8], &[u8]> =
                         TableDefinition::new(&column);
 
@@ -218,9 +219,14 @@ impl<E: EthSpec> Redb<E> {
             let read_txn = open_db.begin_read()?;
             let table = read_txn.open_table(table_definition)?;
             table.range(from..)?.map(move |res| {
-                metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
-                let (k, _) = res?;
-                K::from_bytes(k.value())
+                let (key, _) = res?;
+                metrics::inc_counter_vec(&metrics::DISK_DB_KEY_READ_COUNT, &[column.into()]);
+                metrics::inc_counter_vec_by(
+                    &metrics::DISK_DB_KEY_READ_BYTES,
+                    &[column.into()],
+                    key.value().len() as u64,
+                );
+                K::from_bytes(key.value())
             })
         };
 
@@ -251,15 +257,18 @@ impl<E: EthSpec> Redb<E> {
             table
                 .range(from..)?
                 .take_while(move |res| match res.as_ref() {
-                    Ok((key, _)) => {
-                        metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
-                        predicate(key.value(), prefix.as_slice())
-                    }
+                    Ok((key, _)) => predicate(key.value(), prefix.as_slice()),
                     Err(_) => false,
                 })
-                .map(|res| {
-                    let (k, v) = res?;
-                    Ok((K::from_bytes(k.value())?, v.value().to_vec()))
+                .map(move |res| {
+                    let (key, value) = res?;
+                    metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
+                    metrics::inc_counter_vec_by(
+                        &metrics::DISK_DB_READ_BYTES,
+                        &[column.into()],
+                        value.value().len() as u64,
+                    );
+                    Ok((K::from_bytes(key.value())?, value.value().to_vec()))
                 })
         };
 

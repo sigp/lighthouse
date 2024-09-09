@@ -33,10 +33,24 @@ pub static DISK_DB_READ_BYTES: LazyLock<Result<IntCounterVec>> = LazyLock::new(|
         &["col"],
     )
 });
+pub static DISK_DB_KEY_READ_BYTES: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "store_disk_db_key_read_bytes_total",
+        "Number of key bytes read from the hot on-disk DB",
+        &["col"],
+    )
+});
 pub static DISK_DB_READ_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "store_disk_db_read_count_total",
         "Total number of reads to the hot on-disk DB",
+        &["col"],
+    )
+});
+pub static DISK_DB_KEY_READ_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "store_disk_db_read_count_total",
+        "Total number of key reads to the hot on-disk DB",
         &["col"],
     )
 });
@@ -64,6 +78,12 @@ pub static DISK_DB_EXISTS_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new
         "store_disk_db_exists_count_total",
         "Total number of checks if a key is in the hot on-disk DB",
         &["col"],
+    )
+});
+pub static DISK_DB_DELETE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "store_disk_db_delete_seconds",
+        "Time taken to delete bytes from the store.",
     )
 });
 pub static DISK_DB_DELETE_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
