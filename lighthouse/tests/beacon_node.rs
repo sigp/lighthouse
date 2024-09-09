@@ -1899,7 +1899,7 @@ fn hdiff_buffer_cache_size_flag() {
         .flag("hdiff-buffer-cache-size", Some("1"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.store.hdiff_buffer_cache_size, 1);
+            assert_eq!(config.store.hdiff_buffer_cache_size.get(), 1);
         });
 }
 #[test]

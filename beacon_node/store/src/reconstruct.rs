@@ -2,7 +2,7 @@
 use crate::hot_cold_store::{HotColdDB, HotColdDBError};
 use crate::{Error, ItemStore};
 use itertools::{process_results, Itertools};
-use slog::info;
+use slog::{debug, info};
 use state_processing::{
     per_block_processing, per_slot_processing, BlockSignatureStrategy, ConsensusContext,
     VerifyBlockRoot,
@@ -32,9 +32,9 @@ where
             });
         }
 
-        info!(
+        debug!(
             self.log,
-            "Beginning historic state reconstruction";
+            "Starting state reconstruction batch";
             "start_slot" => anchor.state_lower_limit,
         );
 
@@ -142,11 +142,26 @@ where
                             Some(anchor.clone()),
                         )?;
                     }
+
+                    // If this is the end of the batch, return Ok. The caller will run another
+                    // batch when there is idle capacity.
+                    if num_blocks.map_or(false, |n_blocks| {
+                        slot + 1 == lower_limit_slot + n_blocks as u64
+                    }) {
+                        debug!(
+                            self.log,
+                            "Finished state reconstruction batch";
+                            "start_slot" => lower_limit_slot,
+                            "end_slot" => slot,
+                        );
+                        return Ok(());
+                    }
                 }
             }
 
-            // Should always reach the `upper_limit_slot` and return early above.
-            Err(Error::StateReconstructionDidNotComplete)
+            // Should always reach the `upper_limit_slot` or the end of the batch and return early
+            // above.
+            Err(Error::StateReconstructionLogicError)
         })??;
 
         // Check that the split point wasn't mutated during the state reconstruction process.

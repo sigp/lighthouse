@@ -39,7 +39,7 @@ pub enum Error {
     /// State reconstruction failed because it didn't reach the upper limit slot.
     ///
     /// This should never happen (it's a logic error).
-    StateReconstructionDidNotComplete,
+    StateReconstructionLogicError,
     StateReconstructionRootMismatch {
         slot: Slot,
         expected: Hash256,
