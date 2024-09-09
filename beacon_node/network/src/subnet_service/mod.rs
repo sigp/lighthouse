@@ -17,7 +17,7 @@ use lighthouse_network::{discv5::enr::NodeId, NetworkConfig, Subnet, SubnetDisco
 use slog::{debug, error, o, warn};
 use slot_clock::SlotClock;
 use types::{
-    Attestation, EthSpec, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId, Unsigned,
+    Attestation, EthSpec, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
     ValidatorSubscription,
 };
 
@@ -51,17 +51,14 @@ const ADVANCE_SUBSCRIBE_SLOT_FRACTION: u32 = 1;
 /// `aggregate_validators_on_subnet` delay map.
 const UNSUBSCRIBE_AFTER_AGGREGATOR_DUTY: u32 = 2;
 
-/// A particular subnet at a given slot.
+/// A particular subnet at a given slot. This is used for Attestation subnets and not for sync
+/// committee subnets because the logic for handling subscriptions between these types is different.
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
 pub struct ExactSubnet {
     /// The `SubnetId` associated with this subnet.
     pub subnet: Subnet,
     /// For Attestations, this slot represents the start time at which we need to subscribe to the
-    /// slot. For SyncCommittee subnet id's this represents the end slot at which we no longer need
-    /// to subscribe to the subnet.
-    // NOTE: There was different logic between the two subscriptions and having a different
-    // interpretation of this variable seemed like the best way to group the logic, even though it
-    // may be counter-intuitive (apologies to future readers).
+    /// slot.
     pub slot: Slot,
 }
 
@@ -123,7 +120,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
         config: &NetworkConfig,
         log: &slog::Logger,
     ) -> Self {
-        let log = log.new(o!("service" => "attestation_service"));
+        let log = log.new(o!("service" => "subnet_service"));
 
         let slot_duration = beacon_chain.slot_clock.slot_duration();
 
@@ -136,16 +133,15 @@ impl<T: BeaconChainTypes> SubnetService<T> {
         let mut permanent_attestation_subscriptions = HashSet::default();
         if config.subscribe_all_subnets {
             // We are subscribed to all subnets, set all the bits to true.
-            for index in 0..<T::EthSpec as EthSpec>::SubnetBitfieldLength::to_u64() {
+            for index in 0..beacon_chain.spec.attestation_subnet_count {
                 permanent_attestation_subscriptions
                     .insert(Subnet::Attestation(SubnetId::from(index)));
             }
         } else {
             // Not subscribed to all subnets, so just calculate the required subnets from the
-            for subnet_id in SubnetId::compute_attestation_subnets::<T::EthSpec>(
-                node_id.raw().into(),
-                &beacon_chain.spec,
-            ) {
+            for subnet_id in
+                SubnetId::compute_attestation_subnets(node_id.raw().into(), &beacon_chain.spec)
+            {
                 permanent_attestation_subscriptions.insert(Subnet::Attestation(subnet_id));
             }
         }
@@ -165,16 +161,18 @@ impl<T: BeaconChainTypes> SubnetService<T> {
         let mut events = VecDeque::with_capacity(10);
 
         // Queue discovery queries for the permanent attestation subnets
-        events.push_back(SubnetServiceMessage::DiscoverPeers(
-            permanent_attestation_subscriptions
-                .iter()
-                .cloned()
-                .map(|subnet| SubnetDiscovery {
-                    subnet,
-                    min_ttl: None,
-                })
-                .collect(),
-        ));
+        if !config.disable_discovery {
+            events.push_back(SubnetServiceMessage::DiscoverPeers(
+                permanent_attestation_subscriptions
+                    .iter()
+                    .cloned()
+                    .map(|subnet| SubnetDiscovery {
+                        subnet,
+                        min_ttl: None,
+                    })
+                    .collect(),
+            ));
+        }
 
         // Pre-populate the events with permanent subscriptions
         for subnet in permanent_attestation_subscriptions.iter() {
@@ -507,7 +505,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             return;
         }
 
-        // Return if we already have a subscription for the subnet and its closer or
+        // Update the unsubscription duration if we already have a subscription for the subnet
         if let Some(current_instant_to_unsubscribe) = self.subscriptions.deadline(&subnet) {
             // The extra 500ms in the comparison accounts of the inaccuracy of the underlying
             // DelayQueue inside the delaymap struct.
@@ -595,9 +593,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
         Ok(())
     }
 
-    // Unsubscribes from a subnet that was removed if it does not continue to exist as a
-    // subscription of the other kind. For long lived subscriptions, it also removes the
-    // advertisement from our ENR.
+    // Unsubscribes from a subnet that was removed.
     fn handle_removed_subnet(&mut self, subnet: Subnet) {
         if !self.subscriptions.contains_key(&subnet) {
             // Subscription no longer exists as short lived or long lived.

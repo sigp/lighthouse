@@ -77,7 +77,7 @@ impl SubnetId {
     /// Computes the set of subnets the node should be subscribed to during the current epoch,
     /// along with the first epoch in which these subscriptions are no longer valid.
     #[allow(clippy::arithmetic_side_effects)]
-    pub fn compute_attestation_subnets<E: EthSpec>(
+    pub fn compute_attestation_subnets(
         node_id: ethereum_types::U256,
         spec: &ChainSpec,
     ) -> impl Iterator<Item = SubnetId> {

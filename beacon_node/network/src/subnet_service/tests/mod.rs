@@ -7,6 +7,7 @@ use beacon_chain::{
 use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lazy_static::lazy_static;
 use lighthouse_network::NetworkConfig;
+use logging::test_logger;
 use slog::{o, Drain, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
@@ -118,7 +119,7 @@ lazy_static! {
 }
 
 fn get_subnet_service() -> SubnetService<TestBeaconChainType> {
-    let log = get_logger(TEST_LOG_LEVEL);
+    let log = test_logger();
     let config = NetworkConfig::default();
 
     let beacon_chain = CHAIN.chain.clone();
