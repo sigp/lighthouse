@@ -238,9 +238,11 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             | Protocol::LightClientFinalityUpdate
             // The RuntimeVariable ssz list ensures that we don't get more requests than the max specified in the config.
             | Protocol::BlocksByRoot
-            | Protocol::BlobsByRoot => false,
+            | Protocol::BlobsByRoot
+            | Protocol::DataColumnsByRoot => false,
             Protocol::BlocksByRange => request.max_responses() > self.fork_context.spec.max_request_blocks(self.fork_context.current_fork()) as u64,
             Protocol::BlobsByRange => request.max_responses() > self.fork_context.spec.max_request_blob_sidecars,
+            Protocol::DataColumnsByRange => request.max_responses() > self.fork_context.spec.max_request_data_column_sidecars,
         }
     }
 }
