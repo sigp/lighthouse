@@ -195,7 +195,7 @@ mod test {
             self.delete_config = Some(DeleteConfig {
                 vc_url: import_config.vc_url,
                 vc_token_path: import_config.vc_token_path,
-                validator_to_delete: PublicKeyBytes::from_str(
+                validators_to_delete: vec![PublicKeyBytes::from_str(
                     format!(
                         "0x{}",
                         local_validators[index_of_validator_to_delete]
@@ -204,7 +204,7 @@ mod test {
                     )
                     .as_str(),
                 )
-                .unwrap(),
+                .unwrap()],
             });
 
             self.validators = local_validators.clone();
@@ -240,10 +240,13 @@ mod test {
                 let list_keystores_response = http_client.get_keystores().await.unwrap().data;
 
                 assert_eq!(list_keystores_response.len(), self.validators.len() - 1);
-                assert!(list_keystores_response
-                    .iter()
-                    .all(|keystore| keystore.validating_pubkey
-                        != self.delete_config.clone().unwrap().validator_to_delete));
+                assert!(list_keystores_response.iter().all(|keystore| vec![
+                    keystore.validating_pubkey
+                ] != self
+                    .delete_config
+                    .clone()
+                    .unwrap()
+                    .validators_to_delete));
 
                 return TestResult { result: Ok(()) };
             }
