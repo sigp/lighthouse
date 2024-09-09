@@ -104,7 +104,7 @@ pub fn check_tree_hash(expected_str: &str, actual_root: &[u8]) -> Result<(), Err
 impl<T: SszStaticType + TreeHash + Decode> Case for SszStatic<T> {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         check_serialization(&self.value, &self.serialized, T::from_ssz_bytes)?;
-        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_slice())?;
         Ok(())
     }
 }
@@ -118,7 +118,7 @@ impl<E: EthSpec> Case for SszStaticTHC<BeaconState<E>> {
 
         let mut state = self.value.clone();
         let cached_tree_hash_root = state.update_tree_hash_cache().unwrap();
-        check_tree_hash(&self.roots.root, cached_tree_hash_root.as_bytes())?;
+        check_tree_hash(&self.roots.root, cached_tree_hash_root.as_slice())?;
 
         Ok(())
     }
@@ -130,7 +130,7 @@ impl<E: EthSpec> Case for SszStaticWithSpec<BeaconBlock<E>> {
         check_serialization(&self.value, &self.serialized, |bytes| {
             BeaconBlock::from_ssz_bytes(bytes, spec)
         })?;
-        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_slice())?;
         Ok(())
     }
 }
@@ -141,7 +141,7 @@ impl<E: EthSpec> Case for SszStaticWithSpec<SignedBeaconBlock<E>> {
         check_serialization(&self.value, &self.serialized, |bytes| {
             SignedBeaconBlock::from_ssz_bytes(bytes, spec)
         })?;
-        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_bytes())?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_slice())?;
         Ok(())
     }
 }

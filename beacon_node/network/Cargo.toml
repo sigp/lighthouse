@@ -14,6 +14,7 @@ eth2 = { workspace = true }
 gossipsub = { workspace = true }
 
 [dependencies]
+alloy-primitives = { workspace = true }
 async-channel = { workspace = true }
 anyhow = { workspace = true }
 beacon_chain = { workspace = true }

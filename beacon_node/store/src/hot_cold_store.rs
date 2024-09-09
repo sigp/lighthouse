@@ -389,6 +389,7 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
     pub fn iter_temporary_state_roots(
         &self,
     ) -> Result<impl Iterator<Item = Result<Hash256, Error>> + '_, Error> {
+        // TODO(modularize-backend) should delete temp state roots
         self.hot_db
             .iter_column_keys::<Hash256>(DBColumn::BeaconStateTemporary)
     }
@@ -462,7 +463,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let column_name: &str = DBColumn::BeaconBlock.into();
         ops.push(KeyValueStoreOp::PutKeyValue(
             column_name.to_owned(),
-            key.as_bytes().into(),
+            key.as_slice().into(),
             blinded_block.as_ssz_bytes(),
         ));
     }
@@ -584,7 +585,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         decoder: impl FnOnce(&[u8]) -> Result<SignedBeaconBlock<E, Payload>, ssz::DecodeError>,
     ) -> Result<Option<SignedBeaconBlock<E, Payload>>, Error> {
         self.hot_db
-            .get_bytes(DBColumn::BeaconBlock.into(), block_root.as_bytes())?
+            .get_bytes(DBColumn::BeaconBlock.into(), block_root.as_slice())?
             .map(|block_bytes| decoder(&block_bytes))
             .transpose()
             .map_err(|e| e.into())
@@ -598,7 +599,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         fork_name: ForkName,
     ) -> Result<Option<ExecutionPayload<E>>, Error> {
         let column = ExecutionPayload::<E>::db_column().into();
-        let key = block_root.as_bytes();
+        let key = block_root.as_slice();
 
         match self.hot_db.get_bytes(column, key)? {
             Some(bytes) => Ok(Some(ExecutionPayload::from_ssz_bytes(&bytes, fork_name)?)),
@@ -624,30 +625,30 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Check if the blobs for a block exists on disk.
     pub fn blobs_exist(&self, block_root: &Hash256) -> Result<bool, Error> {
         self.blobs_db
-            .key_exists(DBColumn::BeaconBlob.into(), block_root.as_bytes())
+            .key_exists(DBColumn::BeaconBlob.into(), block_root.as_slice())
     }
 
     /// Determine whether a block exists in the database.
     pub fn block_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
         self.hot_db
-            .key_exists(DBColumn::BeaconBlock.into(), block_root.as_bytes())
+            .key_exists(DBColumn::BeaconBlock.into(), block_root.as_slice())
     }
 
     /// Delete a block from the store and the block cache.
     pub fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
         self.block_cache.lock().delete(block_root);
         self.hot_db
-            .key_delete(DBColumn::BeaconBlock.into(), block_root.as_bytes())?;
+            .key_delete(DBColumn::BeaconBlock.into(), block_root.as_slice())?;
         self.hot_db
-            .key_delete(DBColumn::ExecPayload.into(), block_root.as_bytes())?;
+            .key_delete(DBColumn::ExecPayload.into(), block_root.as_slice())?;
         self.blobs_db
-            .key_delete(DBColumn::BeaconBlob.into(), block_root.as_bytes())
+            .key_delete(DBColumn::BeaconBlob.into(), block_root.as_slice())
     }
 
     pub fn put_blobs(&self, block_root: &Hash256, blobs: BlobSidecarList<E>) -> Result<(), Error> {
         self.blobs_db.put_bytes(
             DBColumn::BeaconBlob.into(),
-            block_root.as_bytes(),
+            block_root.as_slice(),
             &blobs.as_ssz_bytes(),
         )?;
         self.block_cache.lock().put_blobs(*block_root, blobs);
@@ -663,7 +664,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let column_key: &str = DBColumn::BeaconBlob.into();
         ops.push(KeyValueStoreOp::PutKeyValue(
             column_key.to_owned(),
-            key.as_bytes().to_vec(),
+            key.as_slice().to_vec(),
             blobs.as_ssz_bytes(),
         ));
     }
@@ -987,7 +988,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     let column_name: &str = TemporaryFlag::db_column().into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
                         column_name.to_owned(),
-                        state_root.as_bytes().to_vec(),
+                        state_root.as_slice().to_vec(),
                     ));
                 }
 
@@ -995,7 +996,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     let column_name: &str = DBColumn::BeaconBlock.into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
                         column_name.to_owned(),
-                        block_root.as_bytes().to_vec(),
+                        block_root.as_slice().to_vec(),
                     ));
                 }
 
@@ -1003,7 +1004,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     let column_name: &str = DBColumn::BeaconBlob.into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
                         column_name.to_owned(),
-                        block_root.as_bytes().to_vec(),
+                        block_root.as_slice().to_vec(),
                     ));
                 }
 
@@ -1020,14 +1021,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     let column_name: &str = DBColumn::BeaconStateSummary.into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
                         column_name.to_owned(),
-                        state_root.as_bytes().to_vec(),
+                        state_root.as_slice().to_vec(),
                     ));
 
                     if slot.map_or(true, |slot| slot % E::slots_per_epoch() == 0) {
                         let column_name: &str = DBColumn::BeaconState.into();
                         key_value_batch.push(KeyValueStoreOp::DeleteKey(
                             column_name.to_owned(),
-                            state_root.as_bytes().to_vec(),
+                            state_root.as_slice().to_vec(),
                         ));
                     }
                 }
@@ -1036,7 +1037,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     let column_name: &str = DBColumn::ExecPayload.into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
                         column_name.to_owned(),
-                        block_root.as_bytes().to_vec(),
+                        block_root.as_slice().to_vec(),
                     ));
                 }
 
@@ -1458,7 +1459,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     fn load_restore_point(&self, state_root: &Hash256) -> Result<BeaconState<E>, Error> {
         let partial_state_bytes = self
             .cold_db
-            .get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())?
+            .get_bytes(DBColumn::BeaconState.into(), state_root.as_slice())?
             .ok_or(HotColdDBError::MissingRestorePoint(*state_root))?;
         let mut partial_state: PartialBeaconState<E> =
             PartialBeaconState::from_ssz_bytes(&partial_state_bytes, &self.spec)?;
@@ -1669,7 +1670,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         match self
             .blobs_db
-            .get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())?
+            .get_bytes(DBColumn::BeaconBlob.into(), block_root.as_slice())?
         {
             Some(ref blobs_bytes) => {
                 let blobs = BlobSidecarList::from_ssz_bytes(blobs_bytes)?;
@@ -1684,11 +1685,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Fetch all keys in the data_column column with prefix `block_root`
     pub fn get_data_column_keys(&self, block_root: Hash256) -> Result<Vec<ColumnIndex>, Error> {
+        // TODO(modularize-backend)could be iter_raw_keys
         self.blobs_db
             .iter_column_from::<Vec<u8>>(
                 DBColumn::BeaconDataColumn,
-                block_root.as_bytes(),
-                move |key, _| key.starts_with(block_root.as_bytes()),
+                block_root.as_slice(),
+                move |key, _| key.starts_with(block_root.as_slice()),
             )?
             .map(|result| result.and_then(|(key, _)| parse_data_column_key(key).map(|key| key.1)))
             .collect()
@@ -1794,7 +1796,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         mut ops: Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         let column: &str = SchemaVersion::db_column().into();
-        let key = SCHEMA_VERSION_KEY.as_bytes();
+        let key = SCHEMA_VERSION_KEY.as_slice();
         let op = KeyValueStoreOp::PutKeyValue(
             column.to_owned(),
             key.to_vec(),
@@ -1891,7 +1893,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             anchor_info.as_kv_store_op(ANCHOR_INFO_KEY)
         } else {
             let column_name: &str = DBColumn::BeaconMeta.into();
-            KeyValueStoreOp::DeleteKey(column_name.to_owned(), ANCHOR_INFO_KEY.as_bytes().to_vec())
+            KeyValueStoreOp::DeleteKey(column_name.to_owned(), ANCHOR_INFO_KEY.as_slice().to_vec())
         }
     }
 

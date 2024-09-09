@@ -2,9 +2,7 @@ use super::methods::*;
 use super::protocol::ProtocolId;
 use super::protocol::SupportedProtocol;
 use super::RPCError;
-use crate::rpc::codec::{
-    base::BaseOutboundCodec, ssz_snappy::SSZSnappyOutboundCodec, OutboundCodec,
-};
+use crate::rpc::codec::SSZSnappyOutboundCodec;
 use crate::rpc::protocol::Encoding;
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
@@ -94,6 +92,7 @@ impl<E: EthSpec> OutboundRequest<E> {
                 Encoding::SSZSnappy,
             )],
             OutboundRequest::MetaData(_) => vec![
+                ProtocolId::new(SupportedProtocol::MetaDataV3, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::MetaDataV2, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::MetaDataV1, Encoding::SSZSnappy),
             ],
@@ -153,6 +152,7 @@ impl<E: EthSpec> OutboundRequest<E> {
             OutboundRequest::MetaData(req) => match req {
                 MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
                 MetadataRequest::V2(_) => SupportedProtocol::MetaDataV2,
+                MetadataRequest::V3(_) => SupportedProtocol::MetaDataV3,
             },
         }
     }
@@ -181,7 +181,7 @@ impl<E: EthSpec> OutboundRequest<E> {
 
 /* Outbound upgrades */
 
-pub type OutboundFramed<TSocket, E> = Framed<Compat<TSocket>, OutboundCodec<E>>;
+pub type OutboundFramed<TSocket, E> = Framed<Compat<TSocket>, SSZSnappyOutboundCodec<E>>;
 
 impl<TSocket, E> OutboundUpgrade<TSocket> for OutboundRequestContainer<E>
 where
@@ -197,12 +197,7 @@ where
         let socket = socket.compat();
         let codec = match protocol.encoding {
             Encoding::SSZSnappy => {
-                let ssz_snappy_codec = BaseOutboundCodec::new(SSZSnappyOutboundCodec::new(
-                    protocol,
-                    self.max_rpc_size,
-                    self.fork_context.clone(),
-                ));
-                OutboundCodec::SSZSnappy(ssz_snappy_codec)
+                SSZSnappyOutboundCodec::new(protocol, self.max_rpc_size, self.fork_context.clone())
             }
         };
 

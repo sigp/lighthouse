@@ -12,7 +12,6 @@ AARCH64_TAG = "aarch64-unknown-linux-gnu"
 BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 
 PINNED_NIGHTLY ?= nightly
-CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
 # List of features to use when cross-compiling. Can be overridden via the environment.
 CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,jemalloc,beacon-node-leveldb,beacon-node-redb
@@ -61,8 +60,6 @@ install-lcli:
 # - The current user is in the `docker` group.
 #
 # The resulting binaries will be created in the `target/` directory.
-#
-# The *-portable options is the default feature.
 build-x86_64:
 	cross build --bin lighthouse --target x86_64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 build-aarch64:
@@ -210,6 +207,7 @@ lint:
 	cargo clippy --workspace --tests $(EXTRA_CLIPPY_OPTS) --features "$(TEST_FEATURES)" -- \
 		-D clippy::fn_to_numeric_cast_any \
 		-D clippy::manual_let_else \
+		-D clippy::large_stack_frames \
 		-D warnings \
 		-A clippy::derive_partial_eq_without_eq \
 		-A clippy::upper-case-acronyms \
@@ -221,13 +219,6 @@ lint:
 # Lints the code using Clippy and automatically fix some simple compiler warnings.
 lint-fix:
 	EXTRA_CLIPPY_OPTS="--fix --allow-staged --allow-dirty" $(MAKE) lint
-
-nightly-lint:
-	cp .github/custom/clippy.toml .
-	cargo +$(CLIPPY_PINNED_NIGHTLY) clippy --workspace --tests --release -- \
-		-A clippy::all \
-		-D clippy::disallowed_from_async
-	rm clippy.toml
 
 # Runs the makefile in the `ef_tests` repo.
 #

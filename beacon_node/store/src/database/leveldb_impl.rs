@@ -16,7 +16,7 @@ use leveldb::{
 use parking_lot::{Mutex, MutexGuard};
 use std::marker::PhantomData;
 use std::path::Path;
-use types::{EthSpec, Hash256};
+use types::{EthSpec, FixedBytesExtended, Hash256};
 
 use super::interface::WriteOptions;
 
@@ -111,14 +111,13 @@ impl<E: EthSpec> LevelDB<E> {
             .get(self.read_options(), BytesKey::from_vec(column_key))
             .map_err(Into::into)
             .map(|opt| {
-                opt.map(|bytes| {
+                opt.inspect(|bytes| {
                     metrics::inc_counter_vec_by(
                         &metrics::DISK_DB_READ_BYTES,
                         &[col],
                         bytes.len() as u64,
                     );
                     metrics::stop_timer(timer);
-                    bytes
                 })
             })
     }
@@ -182,10 +181,10 @@ impl<E: EthSpec> LevelDB<E> {
         let _timer = metrics::start_timer(&metrics::DISK_DB_COMPACT_TIMES);
         let endpoints = |column: DBColumn| {
             (
-                BytesKey::from_vec(get_key_for_col(column.as_str(), Hash256::zero().as_bytes())),
+                BytesKey::from_vec(get_key_for_col(column.as_str(), Hash256::zero().as_slice())),
                 BytesKey::from_vec(get_key_for_col(
                     column.as_str(),
-                    Hash256::repeat_byte(0xff).as_bytes(),
+                    Hash256::repeat_byte(0xff).as_slice(),
                 )),
             )
         };

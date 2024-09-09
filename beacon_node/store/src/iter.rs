@@ -385,6 +385,7 @@ mod test {
     use beacon_chain::test_utils::BeaconChainHarness;
     use beacon_chain::types::{ChainSpec, MainnetEthSpec};
     use sloggers::{null::NullLoggerBuilder, Build};
+    use types::FixedBytesExtended;
 
     fn get_state<E: EthSpec>() -> BeaconState<E> {
         let harness = BeaconChainHarness::builder(E::default())

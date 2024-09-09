@@ -326,7 +326,7 @@ impl<E: EthSpec> PartialBeaconState<E> {
         let column_name: &str = DBColumn::BeaconState.into();
         KeyValueStoreOp::PutKeyValue(
             column_name.to_owned(),
-            state_root.as_bytes().to_vec(),
+            state_root.as_slice().to_vec(),
             self.as_ssz_bytes(),
         )
     }

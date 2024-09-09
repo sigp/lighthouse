@@ -7,12 +7,12 @@
 //!
 //! A) `JEMALLOC_SYS_WITH_MALLOC_CONF` at compile-time.
 //! B) `_RJEM_MALLOC_CONF` at runtime.
-use jemalloc_ctl::{arenas, epoch, stats, Error};
 use lighthouse_metrics::{set_gauge, try_create_int_gauge, IntGauge};
 use std::sync::LazyLock;
+use tikv_jemalloc_ctl::{arenas, epoch, stats, Error};
 
 #[global_allocator]
-static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 // Metrics for jemalloc.
 pub static NUM_ARENAS: LazyLock<lighthouse_metrics::Result<IntGauge>> =
