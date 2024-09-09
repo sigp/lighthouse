@@ -389,7 +389,6 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
     pub fn iter_temporary_state_roots(
         &self,
     ) -> Result<impl Iterator<Item = Result<Hash256, Error>> + '_, Error> {
-        // TODO(modularize-backend) should delete temp state roots
         self.hot_db
             .iter_column_keys::<Hash256>(DBColumn::BeaconStateTemporary)
     }
@@ -1685,7 +1684,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Fetch all keys in the data_column column with prefix `block_root`
     pub fn get_data_column_keys(&self, block_root: Hash256) -> Result<Vec<ColumnIndex>, Error> {
-        // TODO(modularize-backend)could be iter_raw_keys
         self.blobs_db
             .iter_column_from::<Vec<u8>>(
                 DBColumn::BeaconDataColumn,
