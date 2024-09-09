@@ -207,6 +207,8 @@ async fn light_client_bootstrap_test() {
         .build()
         .expect("should build");
 
+    let current_state = harness.get_current_state();
+
     if ForkName::Electra == current_state.fork_name_unchecked() {
         // TODO(electra) fix beacon state `compute_merkle_proof`
         return;
