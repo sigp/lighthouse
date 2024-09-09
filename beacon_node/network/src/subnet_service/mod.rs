@@ -560,10 +560,9 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             return Err("Time when subscription would end has already passed.");
         }
 
-        // We need to check and add a subscription for the right kind, regardless of the presence
-        // of the subnet as a subscription of the other kind. This is mainly since long lived
-        // subscriptions can be removed at any time when a validator goes offline.
-
+        // Check if we already have this subscription. If we do, optionally update the timeout of
+        // when we need the subscription, otherwise leave as is.
+        // If this is a new subscription simply add it to our mapping and subscribe.
         match self.subscriptions.deadline(&subnet) {
             Some(current_end_slot_time) => {
                 // We are already subscribed. Check if we need to extend the subscription.
