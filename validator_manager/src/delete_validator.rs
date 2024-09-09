@@ -13,7 +13,7 @@ use crate::{common::vc_http_client, DumpConfig};
 pub const CMD: &str = "delete";
 pub const VC_URL_FLAG: &str = "vc-url";
 pub const VC_TOKEN_FLAG: &str = "vc-token";
-pub const VALIDATOR_FLAG: &str = "validator";
+pub const VALIDATOR_FLAG: &str = "validators";
 
 #[derive(Debug)]
 pub enum DeleteError {
@@ -50,7 +50,7 @@ pub fn cli_app() -> Command {
             Arg::new(VALIDATOR_FLAG)
                 .long(VALIDATOR_FLAG)
                 .value_name("STRING")
-                .help("Validator that will be deleted (pubkey).")
+                .help("Comma-separated list of validators (pubkey) that will be deleted.")
                 .action(ArgAction::Set)
                 .display_order(0),
         )
@@ -60,14 +60,22 @@ pub fn cli_app() -> Command {
 pub struct DeleteConfig {
     pub vc_url: SensitiveUrl,
     pub vc_token_path: PathBuf,
-    pub validator_to_delete: PublicKeyBytes,
+    pub validators_to_delete: Vec<PublicKeyBytes>,
 }
 
 impl DeleteConfig {
     fn from_cli(matches: &ArgMatches) -> Result<Self, String> {
+        let validators_to_delete_str =
+            clap_utils::parse_required::<String>(matches, VALIDATOR_FLAG)?;
+
+        let validators_to_delete = validators_to_delete_str
+            .split(',')
+            .map(|s| s.trim().parse())
+            .collect::<Result<Vec<PublicKeyBytes>, _>>()?;
+
         Ok(Self {
             vc_token_path: clap_utils::parse_required(matches, VC_TOKEN_FLAG)?,
-            validator_to_delete: clap_utils::parse_required(matches, VALIDATOR_FLAG)?,
+            validators_to_delete,
             vc_url: clap_utils::parse_required(matches, VC_URL_FLAG)?,
         })
     }
@@ -86,20 +94,22 @@ pub async fn run<'a>(config: DeleteConfig) -> Result<(), String> {
     let DeleteConfig {
         vc_url,
         vc_token_path,
-        validator_to_delete,
+        validators_to_delete,
     } = config;
 
     let (http_client, validators) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
 
-    if !validators
-        .iter()
-        .any(|validator| validator.validating_pubkey == validator_to_delete)
-    {
-        return Err(format!("Validator {} doesn't exists", validator_to_delete));
+    for validator_to_delete in &validators_to_delete {
+        if !validators
+            .iter()
+            .any(|validator| &validator.validating_pubkey == validator_to_delete)
+        {
+            return Err(format!("Validator {} doesn't exists", validator_to_delete));
+        }
     }
 
     let delete_request = DeleteKeystoresRequest {
-        pubkeys: vec![validator_to_delete],
+        pubkeys: validators_to_delete,
     };
 
     let response = http_client
@@ -108,18 +118,21 @@ pub async fn run<'a>(config: DeleteConfig) -> Result<(), String> {
         .map_err(|e| format!("Error deleting keystore {}", e))?
         .data;
 
-    if response[0].status == DeleteKeystoreStatus::Error
-        || response[0].status == DeleteKeystoreStatus::NotFound
-        || response[0].status == DeleteKeystoreStatus::NotActive
-    {
-        eprintln!("Problem with removing validator {}", validator_to_delete);
-        return Err(format!(
-            "Problem with removing validator {}",
-            validator_to_delete
-        ));
+    let mut error = false;
+    for delete_status in response {
+        if delete_status.status == DeleteKeystoreStatus::Error
+            || delete_status.status == DeleteKeystoreStatus::NotFound
+            || delete_status.status == DeleteKeystoreStatus::NotActive
+        {
+            error = true;
+            eprintln!("Problem with removing validator {:?}", delete_status.status);
+        }
+    }
+    if error {
+        return Err("Problem with removing one or more validators".to_string());
     }
 
-    eprintln!("Validator deleted");
+    eprintln!("Validator(s) deleted");
     Ok(())
 }
 
