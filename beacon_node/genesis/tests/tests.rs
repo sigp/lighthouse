@@ -6,13 +6,15 @@ use genesis::{Eth1Config, Eth1GenesisService};
 use sensitive_url::SensitiveUrl;
 use state_processing::is_valid_genesis_state;
 use std::time::Duration;
-use types::{test_utils::generate_deterministic_keypair, Hash256, MinimalEthSpec};
+use types::{
+    test_utils::generate_deterministic_keypair, FixedBytesExtended, Hash256, MinimalEthSpec,
+};
 
 pub fn new_env() -> Environment<MinimalEthSpec> {
     EnvironmentBuilder::minimal()
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
-        .null_logger()
+        .test_logger()
         .expect("should start null logger")
         .build()
         .expect("should build env")

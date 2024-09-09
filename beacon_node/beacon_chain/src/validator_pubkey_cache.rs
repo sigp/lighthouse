@@ -1,10 +1,13 @@
 use crate::errors::BeaconChainError;
 use crate::{BeaconChainTypes, BeaconStore};
+use bls::PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN;
+use smallvec::SmallVec;
 use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use store::{DBColumn, Error as StoreError, StoreItem, StoreOp};
-use types::{BeaconState, Hash256, PublicKey, PublicKeyBytes};
+use types::{BeaconState, FixedBytesExtended, Hash256, PublicKey, PublicKeyBytes};
 
 /// Provides a mapping of `validator_index -> validator_publickey`.
 ///
@@ -49,14 +52,13 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         let mut pubkey_bytes = vec![];
 
         for validator_index in 0.. {
-            if let Some(DatabasePubkey(pubkey)) =
+            if let Some(db_pubkey) =
                 store.get_item(&DatabasePubkey::key_for_index(validator_index))?
             {
-                pubkeys.push((&pubkey).try_into().map_err(|e| {
-                    BeaconChainError::ValidatorPubkeyCacheError(format!("{:?}", e))
-                })?);
-                pubkey_bytes.push(pubkey);
-                indices.insert(pubkey, validator_index);
+                let (pk, pk_bytes) = DatabasePubkey::as_pubkey(&db_pubkey)?;
+                pubkeys.push(pk);
+                indices.insert(pk_bytes, validator_index);
+                pubkey_bytes.push(pk_bytes);
             } else {
                 break;
             }
@@ -104,29 +106,29 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         self.indices.reserve(validator_keys.len());
 
         let mut store_ops = Vec::with_capacity(validator_keys.len());
-        for pubkey in validator_keys {
+        for pubkey_bytes in validator_keys {
             let i = self.pubkeys.len();
 
-            if self.indices.contains_key(&pubkey) {
+            if self.indices.contains_key(&pubkey_bytes) {
                 return Err(BeaconChainError::DuplicateValidatorPublicKey);
             }
+
+            let pubkey = (&pubkey_bytes)
+                .try_into()
+                .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?;
 
             // Stage the new validator key for writing to disk.
             // It will be committed atomically when the block that introduced it is written to disk.
             // Notably it is NOT written while the write lock on the cache is held.
             // See: https://github.com/sigp/lighthouse/issues/2327
             store_ops.push(StoreOp::KeyValueOp(
-                DatabasePubkey(pubkey).as_kv_store_op(DatabasePubkey::key_for_index(i)),
+                DatabasePubkey::from_pubkey(&pubkey)
+                    .as_kv_store_op(DatabasePubkey::key_for_index(i)),
             ));
 
-            self.pubkeys.push(
-                (&pubkey)
-                    .try_into()
-                    .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?,
-            );
-            self.pubkey_bytes.push(pubkey);
-
-            self.indices.insert(pubkey, i);
+            self.pubkeys.push(pubkey);
+            self.pubkey_bytes.push(pubkey_bytes);
+            self.indices.insert(pubkey_bytes, i);
         }
 
         Ok(store_ops)
@@ -166,7 +168,10 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
 /// Wrapper for a public key stored in the database.
 ///
 /// Keyed by the validator index as `Hash256::from_low_u64_be(index)`.
-struct DatabasePubkey(PublicKeyBytes);
+#[derive(Encode, Decode)]
+pub struct DatabasePubkey {
+    pubkey: SmallVec<[u8; PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN]>,
+}
 
 impl StoreItem for DatabasePubkey {
     fn db_column() -> DBColumn {
@@ -174,17 +179,30 @@ impl StoreItem for DatabasePubkey {
     }
 
     fn as_store_bytes(&self) -> Vec<u8> {
-        self.0.as_ssz_bytes()
+        self.as_ssz_bytes()
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
-        Ok(Self(PublicKeyBytes::from_ssz_bytes(bytes)?))
+        Ok(Self::from_ssz_bytes(bytes)?)
     }
 }
 
 impl DatabasePubkey {
     fn key_for_index(index: usize) -> Hash256 {
         Hash256::from_low_u64_be(index as u64)
+    }
+
+    pub fn from_pubkey(pubkey: &PublicKey) -> Self {
+        Self {
+            pubkey: pubkey.serialize_uncompressed().into(),
+        }
+    }
+
+    pub fn as_pubkey(&self) -> Result<(PublicKey, PublicKeyBytes), BeaconChainError> {
+        let pubkey = PublicKey::deserialize_uncompressed(&self.pubkey)
+            .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?;
+        let pubkey_bytes = pubkey.compress();
+        Ok((pubkey, pubkey_bytes))
     }
 }
 

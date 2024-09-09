@@ -26,6 +26,7 @@ const DENEB_FORK_EPOCH: u64 = 2;
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
+#[allow(clippy::large_stack_frames)]
 pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let node_count = matches
         .get_one::<String>("nodes")
@@ -37,6 +38,8 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         .unwrap_or(&String::from("0"))
         .parse::<usize>()
         .unwrap_or(0);
+    // extra beacon node added with delay
+    let extra_nodes: usize = 1;
     println!("PROPOSER-NODES: {}", proposer_nodes);
     let validators_per_node = matches
         .get_one::<String>("validators-per-node")
@@ -133,6 +136,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
                 LocalNetworkParams {
                     validator_count: total_validator_count,
                     node_count,
+                    extra_nodes,
                     proposer_nodes,
                     genesis_delay,
                 },

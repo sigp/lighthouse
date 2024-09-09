@@ -27,7 +27,8 @@ pub fn cli_app() -> Command {
                 .help("Prints help information")
                 .action(ArgAction::HelpLong)
                 .display_order(0)
-                .help_heading(FLAG_HEADER),
+                .help_heading(FLAG_HEADER)
+                .global(true),
         )
         .arg(
             Arg::new(VALIDATOR_DIR_FLAG)

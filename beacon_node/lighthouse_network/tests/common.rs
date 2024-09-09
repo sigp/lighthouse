@@ -9,11 +9,11 @@ use std::sync::Arc;
 use std::sync::Weak;
 use tokio::runtime::Runtime;
 use types::{
-    ChainSpec, EnrForkId, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Slot,
+    ChainSpec, EnrForkId, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256,
+    MinimalEthSpec, Slot,
 };
 
 type E = MinimalEthSpec;
-type ReqId = usize;
 
 use tempfile::Builder as TempBuilder;
 
@@ -44,14 +44,14 @@ pub fn fork_context(fork_name: ForkName) -> ForkContext {
 }
 
 pub struct Libp2pInstance(
-    LibP2PService<ReqId, E>,
+    LibP2PService<E>,
     #[allow(dead_code)]
     // This field is managed for lifetime purposes may not be used directly, hence the `#[allow(dead_code)]` attribute.
     async_channel::Sender<()>,
 );
 
 impl std::ops::Deref for Libp2pInstance {
-    type Target = LibP2PService<ReqId, E>;
+    type Target = LibP2PService<E>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -125,7 +125,7 @@ pub async fn build_libp2p_instance(
 }
 
 #[allow(dead_code)]
-pub fn get_enr(node: &LibP2PService<ReqId, E>) -> Enr {
+pub fn get_enr(node: &LibP2PService<E>) -> Enr {
     node.local_enr()
 }
 

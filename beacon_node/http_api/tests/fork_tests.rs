@@ -10,7 +10,7 @@ use http_api::test_utils::*;
 use std::collections::HashSet;
 use types::{
     test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
-    Address, ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot,
+    Address, ChainSpec, Epoch, EthSpec, FixedBytesExtended, Hash256, MinimalEthSpec, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -55,7 +55,7 @@ async fn sync_committee_duties_across_fork() {
     // though the head state hasn't transitioned yet.
     let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
     let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
-    let (_, state) = harness
+    let (_, mut state) = harness
         .add_attested_block_at_slot(
             fork_slot - 1,
             genesis_state,
@@ -76,7 +76,7 @@ async fn sync_committee_duties_across_fork() {
     assert_eq!(sync_duties.len(), E::sync_committee_size());
 
     // After applying a block at the fork slot the duties should remain unchanged.
-    let state_root = state.canonical_root();
+    let state_root = state.canonical_root().unwrap();
     harness
         .add_attested_block_at_slot(fork_slot, state, state_root, &all_validators)
         .await
@@ -150,8 +150,13 @@ async fn attestations_across_fork_with_skip_slots() {
         .collect::<Vec<_>>();
 
     assert!(!unaggregated_attestations.is_empty());
+    let fork_name = harness.spec.fork_name_at_slot::<E>(fork_slot);
     client
-        .post_beacon_pool_attestations(&unaggregated_attestations)
+        .post_beacon_pool_attestations_v1(&unaggregated_attestations)
+        .await
+        .unwrap();
+    client
+        .post_beacon_pool_attestations_v2(&unaggregated_attestations, fork_name)
         .await
         .unwrap();
 
@@ -162,7 +167,11 @@ async fn attestations_across_fork_with_skip_slots() {
     assert!(!signed_aggregates.is_empty());
 
     client
-        .post_validator_aggregate_and_proof(&signed_aggregates)
+        .post_validator_aggregate_and_proof_v1(&signed_aggregates)
+        .await
+        .unwrap();
+    client
+        .post_validator_aggregate_and_proof_v2(&signed_aggregates, fork_name)
         .await
         .unwrap();
 }
@@ -257,7 +266,7 @@ async fn sync_committee_indices_across_fork() {
     // applied.
     let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
     let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
-    let (_, state) = harness
+    let (_, mut state) = harness
         .add_attested_block_at_slot(
             fork_slot - 1,
             genesis_state,
@@ -295,7 +304,7 @@ async fn sync_committee_indices_across_fork() {
 
     // Once the head is updated it should be useable for requests, including in the next sync
     // committee period.
-    let state_root = state.canonical_root();
+    let state_root = state.canonical_root().unwrap();
     harness
         .add_attested_block_at_slot(fork_slot + 1, state, state_root, &all_validators)
         .await

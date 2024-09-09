@@ -2,7 +2,7 @@ use crate::service::endpoint_from_config;
 use crate::Config;
 use crate::{
     block_cache::{BlockCache, Eth1Block},
-    deposit_cache::{DepositCache, SszDepositCache, SszDepositCacheV1, SszDepositCacheV13},
+    deposit_cache::{DepositCache, SszDepositCache, SszDepositCacheV13},
 };
 use execution_layer::HttpJsonRpc;
 use parking_lot::RwLock;
@@ -75,10 +75,7 @@ impl Inner {
         SszEth1Cache::from_ssz_bytes(bytes)
             .map_err(|e| format!("Ssz decoding error: {:?}", e))?
             .to_inner(config, spec)
-            .map(|inner| {
-                inner.block_cache.write().rebuild_by_hash_map();
-                inner
-            })
+            .inspect(|inner| inner.block_cache.write().rebuild_by_hash_map())
     }
 
     /// Returns a reference to the specification.
@@ -90,15 +87,12 @@ impl Inner {
 pub type SszEth1Cache = SszEth1CacheV13;
 
 #[superstruct(
-    variants(V1, V13),
+    variants(V13),
     variant_attributes(derive(Encode, Decode, Clone)),
     no_enum
 )]
 pub struct SszEth1Cache {
     pub block_cache: BlockCache,
-    #[superstruct(only(V1))]
-    pub deposit_cache: SszDepositCacheV1,
-    #[superstruct(only(V13))]
     pub deposit_cache: SszDepositCacheV13,
     #[ssz(with = "four_byte_option_u64")]
     pub last_processed_block: Option<u64>,

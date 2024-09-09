@@ -1,3 +1,4 @@
+use account_utils::{read_input_from_user, STDIN_INPUTS_FLAG};
 use beacon_chain::chain_config::{
     DisallowedReOrgOffsets, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
     DEFAULT_RE_ORG_HEAD_THRESHOLD, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
@@ -21,6 +22,7 @@ use slog::{info, warn, Logger};
 use std::cmp::max;
 use std::fmt::Debug;
 use std::fs;
+use std::io::IsTerminal;
 use std::net::Ipv6Addr;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::num::NonZeroU16;
@@ -29,6 +31,8 @@ use std::str::FromStr;
 use std::time::Duration;
 use types::graffiti::GraffitiString;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes};
+
+const PURGE_DB_CONFIRMATION: &str = "confirm";
 
 /// Gets the fully-initialized global client.
 ///
@@ -50,26 +54,45 @@ pub fn get_config<E: EthSpec>(
     client_config.set_data_dir(get_data_dir(cli_args));
 
     // If necessary, remove any existing database and configuration
-    if client_config.data_dir().exists() && cli_args.get_flag("purge-db") {
-        // Remove the chain_db.
-        let chain_db = client_config.get_db_path();
-        if chain_db.exists() {
-            fs::remove_dir_all(chain_db)
-                .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
-        }
+    if client_config.data_dir().exists() {
+        if cli_args.get_flag("purge-db-force") {
+            let chain_db = client_config.get_db_path();
+            let freezer_db = client_config.get_freezer_db_path();
+            let blobs_db = client_config.get_blobs_db_path();
+            purge_db(chain_db, freezer_db, blobs_db)?;
+        } else if cli_args.get_flag("purge-db") {
+            let stdin_inputs = cfg!(windows) || cli_args.get_flag(STDIN_INPUTS_FLAG);
+            if std::io::stdin().is_terminal() || stdin_inputs {
+                info!(
+                    log,
+                    "You are about to delete the chain database. This is irreversable \
+                    and you will need to resync the chain."
+                );
+                info!(
+                    log,
+                    "Type 'confirm' to delete the database. Any other input will leave \
+                    the database intact and Lighthouse will exit."
+                );
+                let confirmation = read_input_from_user(stdin_inputs)?;
 
-        // Remove the freezer db.
-        let freezer_db = client_config.get_freezer_db_path();
-        if freezer_db.exists() {
-            fs::remove_dir_all(freezer_db)
-                .map_err(|err| format!("Failed to remove freezer_db: {}", err))?;
-        }
-
-        // Remove the blobs db.
-        let blobs_db = client_config.get_blobs_db_path();
-        if blobs_db.exists() {
-            fs::remove_dir_all(blobs_db)
-                .map_err(|err| format!("Failed to remove blobs_db: {}", err))?;
+                if confirmation == PURGE_DB_CONFIRMATION {
+                    let chain_db = client_config.get_db_path();
+                    let freezer_db = client_config.get_freezer_db_path();
+                    let blobs_db = client_config.get_blobs_db_path();
+                    purge_db(chain_db, freezer_db, blobs_db)?;
+                    info!(log, "Database was deleted.");
+                } else {
+                    info!(log, "Database was not deleted. Lighthouse will now close.");
+                    std::process::exit(1);
+                }
+            } else {
+                warn!(
+                    log,
+                    "The `--purge-db` flag was passed, but Lighthouse is not running \
+                    interactively. The database was not purged. Use `--purge-db-force` \
+                    to purge the database without requiring confirmation."
+                );
+            }
         }
     }
 
@@ -179,6 +202,10 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
+    }
+
+    if cli_args.get_flag("enable-sampling") {
+        client_config.chain.enable_sampling = true;
     }
 
     /*
@@ -335,13 +362,6 @@ pub fn get_config<E: EthSpec>(
                     .map(Duration::from_millis);
         }
 
-        if parse_flag(cli_args, "builder-profit-threshold") {
-            warn!(
-                log,
-                "Ignoring --builder-profit-threshold";
-                "info" => "this flag is deprecated and will be removed"
-            );
-        }
         if cli_args.get_flag("always-prefer-builder-payload") {
             warn!(
                 log,
@@ -402,7 +422,10 @@ pub fn get_config<E: EthSpec>(
         client_config.blobs_db_path = Some(PathBuf::from(blobs_db_dir));
     }
 
-    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
+    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(clap_utils::parse_optional(
+        cli_args,
+        "slots-per-restore-point",
+    )?)?;
     client_config.store.slots_per_restore_point = sprp;
     client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
 
@@ -456,6 +479,12 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_optional(cli_args, "blob-prune-margin-epochs")?
     {
         client_config.store.blob_prune_margin_epochs = blob_prune_margin_epochs;
+    }
+
+    if let Some(malicious_withhold_count) =
+        clap_utils::parse_optional(cli_args, "malicious-withhold-count")?
+    {
+        client_config.chain.malicious_withhold_count = malicious_withhold_count;
     }
 
     /*
@@ -757,7 +786,11 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.get_flag("disable-lock-timeouts") {
-        client_config.chain.enable_lock_timeouts = false;
+        warn!(
+            log,
+            "Ignoring --disable-lock-timeouts";
+            "info" => "this flag is deprecated and will be removed"
+        );
     }
 
     if cli_args.get_flag("disable-proposer-reorgs") {
@@ -1130,6 +1163,10 @@ pub fn set_network_config(
         config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
 
+    if parse_flag(cli_args, "subscribe-all-data-column-subnets") {
+        config.subscribe_all_data_column_subnets = true;
+    }
+
     if parse_flag(cli_args, "subscribe-all-subnets") {
         config.subscribe_all_subnets = true;
     }
@@ -1413,16 +1450,15 @@ pub fn set_network_config(
     // Light client server config.
     config.enable_light_client_server = parse_flag(cli_args, "light-client-server");
 
-    // The self limiter is disabled by default. If the `self-limiter` flag is provided
-    // without the `self-limiter-protocols` flag, the default params will be used.
-    if parse_flag(cli_args, "self-limiter") {
-        config.outbound_rate_limiter_config =
-            if let Some(protocols) = cli_args.get_one::<String>("self-limiter-protocols") {
-                Some(protocols.parse()?)
-            } else {
-                Some(Default::default())
-            };
-    }
+    // The self limiter is enabled by default. If the `self-limiter-protocols` flag is not provided,
+    // the default params will be used.
+    config.outbound_rate_limiter_config = if parse_flag(cli_args, "disable-self-limiter") {
+        None
+    } else if let Some(protocols) = cli_args.get_one::<String>("self-limiter-protocols") {
+        Some(protocols.parse()?)
+    } else {
+        Some(Default::default())
+    };
 
     // Proposer-only mode overrides a number of previous configuration parameters.
     // Specifically, we avoid subscribing to long-lived subnets and wish to maintain a minimal set
@@ -1476,11 +1512,9 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
 ///
 /// Return `(sprp, set_explicitly)` where `set_explicitly` is `true` if the user provided the value.
 pub fn get_slots_per_restore_point<E: EthSpec>(
-    cli_args: &ArgMatches,
+    slots_per_restore_point: Option<u64>,
 ) -> Result<(u64, bool), String> {
-    if let Some(slots_per_restore_point) =
-        clap_utils::parse_optional(cli_args, "slots-per-restore-point")?
-    {
+    if let Some(slots_per_restore_point) = slots_per_restore_point {
         Ok((slots_per_restore_point, true))
     } else {
         let default = std::cmp::min(
@@ -1524,4 +1558,27 @@ where
         .into_iter()
         .next()
         .ok_or(format!("Must provide at least one value to {}", flag_name))
+}
+
+/// Remove chain, freezer and blobs db.
+fn purge_db(chain_db: PathBuf, freezer_db: PathBuf, blobs_db: PathBuf) -> Result<(), String> {
+    // Remove the chain_db.
+    if chain_db.exists() {
+        fs::remove_dir_all(chain_db)
+            .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+    }
+
+    // Remove the freezer db.
+    if freezer_db.exists() {
+        fs::remove_dir_all(freezer_db)
+            .map_err(|err| format!("Failed to remove freezer_db: {}", err))?;
+    }
+
+    // Remove the blobs db.
+    if blobs_db.exists() {
+        fs::remove_dir_all(blobs_db)
+            .map_err(|err| format!("Failed to remove blobs_db: {}", err))?;
+    }
+
+    Ok(())
 }

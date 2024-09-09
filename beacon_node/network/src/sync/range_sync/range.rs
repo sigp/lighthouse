@@ -22,7 +22,7 @@
 //!  - Only one finalized chain can sync at a time
 //!  - The finalized chain with the largest peer pool takes priority.
 //!  - As one finalized chain completes, others are checked to see if we they can be continued,
-//!  otherwise they are removed.
+//!    otherwise they are removed.
 //!
 //!  ## Head Chain Sync
 //!
@@ -43,13 +43,14 @@ use super::block_storage::BlockStorage;
 use super::chain::{BatchId, ChainId, RemoveChain, SyncingChain};
 use super::chain_collection::ChainCollection;
 use super::sync_type::RangeSyncType;
+use crate::metrics;
 use crate::status::ToStatusMessage;
-use crate::sync::manager::Id;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::BatchProcessResult;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::GoodbyeReason;
+use lighthouse_network::service::api_types::Id;
 use lighthouse_network::PeerId;
 use lighthouse_network::SyncInfo;
 use lru_cache::LRUTimeCache;
@@ -346,6 +347,12 @@ where
             }
         }
 
+        metrics::inc_counter_vec_by(
+            &metrics::SYNCING_CHAINS_DROPPED_BLOCKS,
+            &[sync_type.as_str()],
+            chain.pending_blocks() as u64,
+        );
+
         network.status_peers(self.beacon_chain.as_ref(), chain.peers());
 
         let status = self.beacon_chain.status_message();
@@ -380,7 +387,6 @@ where
 #[cfg(test)]
 mod tests {
     use crate::network_beacon_processor::NetworkBeaconProcessor;
-    use crate::service::RequestId;
     use crate::NetworkMessage;
 
     use super::*;
@@ -391,13 +397,16 @@ mod tests {
     use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
     use beacon_chain::EngineState;
     use beacon_processor::WorkEvent as BeaconWorkEvent;
-    use lighthouse_network::{rpc::StatusMessage, NetworkGlobals};
+    use lighthouse_network::service::api_types::SyncRequestId;
+    use lighthouse_network::{
+        rpc::StatusMessage, service::api_types::AppRequestId, NetworkGlobals,
+    };
     use slog::{o, Drain};
     use slot_clock::TestingSlotClock;
     use std::collections::HashSet;
     use store::MemoryStore;
     use tokio::sync::mpsc;
-    use types::{ForkName, MinimalEthSpec as E};
+    use types::{FixedBytesExtended, ForkName, MinimalEthSpec as E};
 
     #[derive(Debug)]
     struct FakeStorage {
@@ -517,7 +526,7 @@ mod tests {
             &mut self,
             expected_peer: &PeerId,
             fork_name: ForkName,
-        ) -> (RequestId, Option<RequestId>) {
+        ) -> (AppRequestId, Option<AppRequestId>) {
             let block_req_id = if let Ok(NetworkMessage::SendRequest {
                 peer_id,
                 request: _,
@@ -550,12 +559,12 @@ mod tests {
 
         fn complete_range_block_and_blobs_response(
             &mut self,
-            block_req: RequestId,
-            blob_req_opt: Option<RequestId>,
+            block_req: AppRequestId,
+            blob_req_opt: Option<AppRequestId>,
         ) -> (ChainId, BatchId, Id) {
             if blob_req_opt.is_some() {
                 match block_req {
-                    RequestId::Sync(crate::sync::manager::RequestId::RangeBlockAndBlobs { id }) => {
+                    AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }) => {
                         let _ = self
                             .cx
                             .range_block_and_blob_response(id, BlockOrBlob::Block(None));
@@ -571,7 +580,7 @@ mod tests {
                 }
             } else {
                 match block_req {
-                    RequestId::Sync(crate::sync::manager::RequestId::RangeBlockAndBlobs { id }) => {
+                    AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }) => {
                         let response = self
                             .cx
                             .range_block_and_blob_response(id, BlockOrBlob::Block(None))
@@ -680,7 +689,11 @@ mod tests {
             log.new(o!("component" => "range")),
         );
         let (network_tx, network_rx) = mpsc::unbounded_channel();
-        let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
+        let globals = Arc::new(NetworkGlobals::new_test_globals(
+            Vec::new(),
+            &log,
+            chain.spec.clone(),
+        ));
         let (network_beacon_processor, beacon_processor_rx) =
             NetworkBeaconProcessor::null_for_testing(
                 globals.clone(),

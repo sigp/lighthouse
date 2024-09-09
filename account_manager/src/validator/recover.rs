@@ -1,9 +1,8 @@
 use super::create::STORE_WITHDRAW_FLAG;
 use crate::validator::create::COUNT_FLAG;
-use crate::wallet::create::STDIN_INPUTS_FLAG;
 use crate::SECRETS_DIR_FLAG;
 use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder};
-use account_utils::{random_password, read_mnemonic_from_cli};
+use account_utils::{random_password, read_mnemonic_from_cli, STDIN_INPUTS_FLAG};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
 use directory::ensure_dir_exists;
@@ -76,15 +75,6 @@ pub fn cli_app() -> Command {
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
-        .arg(
-            Arg::new(STDIN_INPUTS_FLAG)
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .hide(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty.")
-                .display_order(0)
-        )
 }
 
 pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), String> {
@@ -147,8 +137,8 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
 
         println!(
             "{}/{}\tIndex: {}\t0x{}",
-            index - first_index,
-            count - first_index,
+            index - first_index + 1,
+            count,
             index,
             voting_pubkey
         );

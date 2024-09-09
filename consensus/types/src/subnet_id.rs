@@ -1,22 +1,21 @@
 //! Identifies each shard by an integer identifier.
 use crate::{AttestationRef, ChainSpec, CommitteeIndex, EthSpec, Slot};
-use lazy_static::lazy_static;
+use alloy_primitives::{bytes::Buf, U256};
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
+use std::sync::LazyLock;
 
 const MAX_SUBNET_ID: usize = 64;
 
-lazy_static! {
-    static ref SUBNET_ID_TO_STRING: Vec<String> = {
-        let mut v = Vec::with_capacity(MAX_SUBNET_ID);
+static SUBNET_ID_TO_STRING: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let mut v = Vec::with_capacity(MAX_SUBNET_ID);
 
-        for i in 0..MAX_SUBNET_ID {
-            v.push(i.to_string());
-        }
-        v
-    };
-}
+    for i in 0..MAX_SUBNET_ID {
+        v.push(i.to_string());
+    }
+    v
+});
 
 #[derive(arbitrary::Arbitrary, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -78,14 +77,15 @@ impl SubnetId {
     /// along with the first epoch in which these subscriptions are no longer valid.
     #[allow(clippy::arithmetic_side_effects)]
     pub fn compute_attestation_subnets(
-        node_id: ethereum_types::U256,
+        raw_node_id: [u8; 32],
         spec: &ChainSpec,
     ) -> impl Iterator<Item = SubnetId> {
         // The bits of the node-id we are using to define the subnets.
         let prefix_bits = spec.attestation_subnet_prefix_bits as u64;
 
+        let node_id = U256::from_be_slice(&raw_node_id);
         // calculate the prefixes used to compute the subnet and shuffling
-        let node_id_prefix = (node_id >> (256 - prefix_bits)).as_u64();
+        let node_id_prefix = (node_id >> (256 - prefix_bits)).as_le_slice().get_u64_le();
 
         // Get the constants we need to avoid holding a reference to the spec
         let &ChainSpec {
@@ -139,6 +139,8 @@ impl AsRef<str> for SubnetId {
 
 #[cfg(test)]
 mod tests {
+    use crate::Uint256;
+
     use super::*;
 
     /// A set of tests compared to the python specification
@@ -153,7 +155,7 @@ mod tests {
             "39755236029158558527862903296867805548949739810920318269566095185775868999998",
             "31899136003441886988955119620035330314647133604576220223892254902004850516297",
         ]
-        .map(|v| ethereum_types::U256::from_dec_str(v).unwrap());
+        .map(|v| Uint256::from_str_radix(v, 10).unwrap().to_be_bytes::<32>());
 
         let expected_subnets = [
             vec![0, 1],
@@ -170,8 +172,13 @@ mod tests {
         for x in 0..node_ids.len() {
             println!("Test: {}", x);
             println!(
+<<<<<<< HEAD
                 "NodeId: {}\nExpected_subnets: {:?}",
                 node_ids[x], expected_subnets[x]
+=======
+                "NodeId: {:?}\n Epoch: {}\n, expected_update_time: {}\n, expected_subnets: {:?}",
+                node_ids[x], epochs[x], expected_valid_time[x], expected_subnets[x]
+>>>>>>> network/unstable
             );
 
             let computed_subnets =

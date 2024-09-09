@@ -13,7 +13,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use tokio::time::sleep;
-use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256};
+use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, FixedBytesExtended, Hash256};
 
 /// The number of blocks that are pulled per request whilst waiting for genesis.
 const BLOCKS_PER_GENESIS_POLL: usize = 99;
@@ -352,7 +352,7 @@ impl Eth1GenesisService {
     ///
     /// - `Ok(genesis_state)`: if all went well.
     /// - `Err(e)`: if the given `eth1_block` was not a viable block to trigger genesis or there was
-    /// an internal error.
+    ///   an internal error.
     fn genesis_from_eth1_block<E: EthSpec>(
         &self,
         eth1_block: Eth1Block,

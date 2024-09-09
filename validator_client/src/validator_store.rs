@@ -71,7 +71,6 @@ pub struct ValidatorStore<T, E: EthSpec> {
     gas_limit: Option<u64>,
     builder_proposals: bool,
     enable_web3signer_slashing_protection: bool,
-    produce_block_v3: bool,
     prefer_builder_proposals: bool,
     builder_boost_factor: Option<u64>,
     task_executor: TaskExecutor,
@@ -106,7 +105,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             gas_limit: config.gas_limit,
             builder_proposals: config.builder_proposals,
             enable_web3signer_slashing_protection: config.enable_web3signer_slashing_protection,
-            produce_block_v3: config.produce_block_v3,
             prefer_builder_proposals: config.prefer_builder_proposals,
             builder_boost_factor: config.builder_boost_factor,
             task_executor,
@@ -321,10 +319,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.spec.fork_at_epoch(epoch)
     }
 
-    pub fn produce_block_v3(&self) -> bool {
-        self.produce_block_v3
-    }
-
     /// Returns a `SigningMethod` for `validator_pubkey` *only if* that validator is considered safe
     /// by doppelganger protection.
     fn doppelganger_checked_signing_method(
@@ -502,7 +496,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// Translate the per validator `builder_proposals`, `builder_boost_factor` and
     /// `prefer_builder_proposals` to a boost factor, if available.
     /// - If `prefer_builder_proposals` is true, set boost factor to `u64::MAX` to indicate a
-    /// preference for builder payloads.
+    ///   preference for builder payloads.
     /// - If `builder_boost_factor` is a value other than None, return its value as the boost factor.
     /// - If `builder_proposals` is set to false, set boost factor to 0 to indicate a preference for
     ///   local payloads.

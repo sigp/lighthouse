@@ -1,4 +1,5 @@
 use crate::test_utils::TestRandom;
+use crate::FixedBytesExtended;
 use crate::Hash256;
 use derivative::Derivative;
 use rand::RngCore;
@@ -20,7 +21,7 @@ use std::fmt;
 )]
 #[derivative(Debug = "transparent")]
 #[serde(transparent)]
-pub struct ExecutionBlockHash(pub Hash256);
+pub struct ExecutionBlockHash(#[serde(with = "serde_utils::b256_hex")] pub Hash256);
 
 impl ExecutionBlockHash {
     pub fn zero() -> Self {

@@ -31,7 +31,6 @@
 //! the head block root. This is unacceptable for fast-responding functions like the networking
 //! stack.
 
-use crate::beacon_chain::ATTESTATION_CACHE_LOCK_TIMEOUT;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::BlockShufflingIds;
 use crate::{
@@ -49,7 +48,7 @@ use fork_choice::{
 };
 use itertools::process_results;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use slog::{crit, debug, error, warn, Logger};
+use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use state_processing::AllCaches;
 use std::sync::Arc;
@@ -237,12 +236,12 @@ impl<E: EthSpec> CachedHead<E> {
 pub struct CanonicalHead<T: BeaconChainTypes> {
     /// Provides an in-memory representation of the non-finalized block tree and is used to run the
     /// fork choice algorithm and determine the canonical head.
-    pub fork_choice: CanonicalHeadRwLock<BeaconForkChoice<T>>,
+    fork_choice: CanonicalHeadRwLock<BeaconForkChoice<T>>,
     /// Provides values cached from a previous execution of `self.fork_choice.get_head`.
     ///
     /// Although `self.fork_choice` might be slightly more advanced that this value, it is safe to
     /// consider that these values represent the "canonical head" of the beacon chain.
-    pub cached_head: CanonicalHeadRwLock<CachedHead<T::EthSpec>>,
+    cached_head: CanonicalHeadRwLock<CachedHead<T::EthSpec>>,
     /// A lock used to prevent concurrent runs of `BeaconChain::recompute_head`.
     ///
     /// This lock **should not be made public**, it should only be used inside this module.
@@ -384,11 +383,13 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
 
     /// Access a read-lock for fork choice.
     pub fn fork_choice_read_lock(&self) -> RwLockReadGuard<BeaconForkChoice<T>> {
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_READ_LOCK_AQUIRE_TIMES);
         self.fork_choice.read()
     }
 
     /// Access a write-lock for fork choice.
     pub fn fork_choice_write_lock(&self) -> RwLockWriteGuard<BeaconForkChoice<T>> {
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES);
         self.fork_choice.write()
     }
 }
@@ -817,21 +818,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             new_snapshot.beacon_block_root,
             &new_snapshot.beacon_state,
         ) {
-            Ok(head_shuffling_ids) => {
-                self.shuffling_cache
-                    .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
-                    .map(|mut shuffling_cache| {
-                        shuffling_cache.update_head_shuffling_ids(head_shuffling_ids)
-                    })
-                    .unwrap_or_else(|| {
-                        error!(
-                            self.log,
-                            "Failed to obtain cache write lock";
-                            "lock" => "shuffling_cache",
-                            "task" => "update head shuffling decision root"
-                        );
-                    });
-            }
+            Ok(head_shuffling_ids) => self
+                .shuffling_cache
+                .write()
+                .update_head_shuffling_ids(head_shuffling_ids),
             Err(e) => {
                 error!(
                     self.log,
@@ -1224,7 +1214,7 @@ fn detect_reorg<E: EthSpec>(
             &metrics::FORK_CHOICE_REORG_DISTANCE,
             reorg_distance.as_u64() as i64,
         );
-        warn!(
+        info!(
             log,
             "Beacon chain re-org";
             "previous_head" => ?old_block_root,
@@ -1385,6 +1375,15 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 .as_millis() as i64,
         );
 
+        // The time it took to check the validity within Lighthouse
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_DELAY_CONSENSUS_VERIFICATION_TIME,
+            block_delays
+                .consensus_verification_time
+                .unwrap_or_else(|| Duration::from_secs(0))
+                .as_millis() as i64,
+        );
+
         // The time it took to check the validity with the EL
         metrics::set_gauge(
             &metrics::BEACON_BLOCK_DELAY_EXECUTION_TIME,
@@ -1447,6 +1446,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 "total_delay_ms" => block_delay_total.as_millis(),
                 "observed_delay_ms" => format_delay(&block_delays.observed),
                 "blob_delay_ms" => format_delay(&block_delays.all_blobs_observed),
+                "consensus_time_ms" => format_delay(&block_delays.consensus_verification_time),
                 "execution_time_ms" => format_delay(&block_delays.execution_time),
                 "available_delay_ms" => format_delay(&block_delays.available),
                 "attestable_delay_ms" => format_delay(&block_delays.attestable),
@@ -1463,6 +1463,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 "total_delay_ms" => block_delay_total.as_millis(),
                 "observed_delay_ms" => format_delay(&block_delays.observed),
                 "blob_delay_ms" => format_delay(&block_delays.all_blobs_observed),
+                "consensus_time_ms" => format_delay(&block_delays.consensus_verification_time),
                 "execution_time_ms" => format_delay(&block_delays.execution_time),
                 "available_delay_ms" => format_delay(&block_delays.available),
                 "attestable_delay_ms" => format_delay(&block_delays.attestable),
