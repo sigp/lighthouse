@@ -57,7 +57,6 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         (SchemaVersion(21), SchemaVersion(22)) => {
             migration_schema_v22::upgrade_to_v22::<T>(db.clone(), genesis_state_root, log)
         }
-        // FIXME(sproul): consider downgrade
         // Anything else is an error.
         (_, _) => Err(HotColdDBError::UnsupportedSchemaVersion {
             target_version: to,
