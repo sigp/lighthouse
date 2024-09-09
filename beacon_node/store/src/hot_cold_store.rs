@@ -1432,7 +1432,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 DBColumn::BeaconStateRoots.into(),
                 &slot.as_u64().to_be_bytes(),
             ),
-            state_root.as_bytes().to_vec(),
+            state_root.as_slice().to_vec(),
         ));
         Ok(())
     }
@@ -2285,7 +2285,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         for slot in start_slot.as_u64()..end_slot.as_u64() {
             ops.push(KeyValueStoreOp::PutKeyValue(
                 get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
-                block_root.as_bytes().to_vec(),
+                block_root.as_slice().to_vec(),
             ));
         }
         Ok(ops)
@@ -2793,7 +2793,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
                 DBColumn::BeaconBlockRoots.into(),
                 &slot.as_u64().to_be_bytes(),
             ),
-            block_root.as_bytes().to_vec(),
+            block_root.as_slice().to_vec(),
         ));
 
         // Delete the old summary, and the full state if we lie on an epoch boundary.

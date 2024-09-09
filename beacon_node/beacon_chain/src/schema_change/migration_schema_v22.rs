@@ -20,7 +20,7 @@ fn load_old_schema_frozen_state<T: BeaconChainTypes>(
 ) -> Result<Option<BeaconState<T::EthSpec>>, Error> {
     let Some(partial_state_bytes) = db
         .cold_db
-        .get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())?
+        .get_bytes(DBColumn::BeaconState.into(), state_root.as_slice())?
     else {
         return Ok(None);
     };
@@ -118,7 +118,7 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
         AnchorInfo {
             anchor_slot: Slot::new(0),
             oldest_block_slot: Slot::new(0),
-            oldest_block_parent: Hash256::zero(),
+            oldest_block_parent: Hash256::ZERO,
             state_upper_limit: STATE_UPPER_LIMIT_NO_RETAIN,
             state_lower_limit: Slot::new(0),
         }
@@ -195,7 +195,7 @@ pub fn rewrite_block_roots<T: BeaconChainTypes>(
     if oldest_block_slot != 0 {
         cold_ops.push(KeyValueStoreOp::PutKeyValue(
             get_key_for_col(DBColumn::BeaconBlockRoots.into(), &0u64.to_be_bytes()),
-            genesis_block_root.as_bytes().to_vec(),
+            genesis_block_root.as_slice().to_vec(),
         ));
     }
 
@@ -215,7 +215,7 @@ pub fn rewrite_block_roots<T: BeaconChainTypes>(
                 DBColumn::BeaconBlockRoots.into(),
                 &(slot as u64).to_be_bytes(),
             ),
-            block_root.as_bytes().to_vec(),
+            block_root.as_slice().to_vec(),
         ));
 
         if i > 0 && i % LOG_EVERY == 0 {

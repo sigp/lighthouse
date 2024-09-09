@@ -148,7 +148,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             for slot in (block.slot().as_u64()..prev_block_slot.as_u64()).rev() {
                 cold_batch.push(KeyValueStoreOp::PutKeyValue(
                     get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
-                    block_root.as_bytes().to_vec(),
+                    block_root.as_slice().to_vec(),
                 ));
             }
 
@@ -164,7 +164,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 for slot in genesis_slot.as_u64()..prev_block_slot.as_u64() {
                     cold_batch.push(KeyValueStoreOp::PutKeyValue(
                         get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
-                        self.genesis_block_root.as_bytes().to_vec(),
+                        self.genesis_block_root.as_slice().to_vec(),
                     ));
                 }
                 prev_block_slot = genesis_slot;
