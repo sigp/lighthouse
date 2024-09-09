@@ -207,8 +207,6 @@ async fn light_client_bootstrap_test() {
         .build()
         .expect("should build");
 
-    let current_state = harness.get_current_state();
-
     let finalized_checkpoint = beacon_chain
         .canonical_head
         .cached_head()
