@@ -835,12 +835,11 @@ pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<ExecutionPendingBlock<T>, BlockError> {
         self.into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
-            .map(|execution_pending| {
+            .inspect(|execution_pending| {
                 // Supply valid block to slasher.
                 if let Some(slasher) = chain.slasher.as_ref() {
                     slasher.accept_block_header(execution_pending.block.signed_block_header());
                 }
-                execution_pending
             })
             .map_err(|slash_info| process_block_slash_info::<_, BlockError>(chain, slash_info))
     }

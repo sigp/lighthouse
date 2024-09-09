@@ -100,10 +100,7 @@ impl<'a> AlignedRecordDecorator<'a> {
             self.ignore_comma = false;
             Ok(buf.len())
         } else if self.message_active {
-            self.wrapped.write(buf).map(|n| {
-                self.message_count += n;
-                n
-            })
+            self.wrapped.write(buf).inspect(|n| self.message_count += n)
         } else {
             self.wrapped.write(buf)
         }

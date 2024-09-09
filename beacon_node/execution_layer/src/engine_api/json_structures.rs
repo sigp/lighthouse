@@ -789,6 +789,57 @@ pub struct JsonExecutionPayloadBody<E: EthSpec> {
         Option<VariableList<ConsolidationRequest, E::MaxConsolidationRequestsPerPayload>>,
 }
 
+impl<E: EthSpec> From<ExecutionPayloadBodyV1<E>> for JsonExecutionPayloadBodyV1<E> {
+    fn from(value: ExecutionPayloadBodyV1<E>) -> Self {
+        Self {
+            transactions: value.transactions,
+            withdrawals: value.withdrawals.map(|json_withdrawals| {
+                VariableList::from(
+                    json_withdrawals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
+        }
+    }
+}
+
+impl<E: EthSpec> From<ExecutionPayloadBodyV2<E>> for JsonExecutionPayloadBodyV2<E> {
+    fn from(value: ExecutionPayloadBodyV2<E>) -> Self {
+        Self {
+            transactions: value.transactions,
+            withdrawals: value.withdrawals.map(|json_withdrawals| {
+                VariableList::from(
+                    json_withdrawals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
+            deposit_requests: value.deposit_requests.map(|receipts| {
+                VariableList::from(receipts.into_iter().map(Into::into).collect::<Vec<_>>())
+            }),
+            withdrawal_requests: value.withdrawal_requests.map(|withdrawal_requests| {
+                VariableList::from(
+                    withdrawal_requests
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
+            consolidation_requests: value.consolidation_requests.map(|consolidation_requests| {
+                VariableList::from(
+                    consolidation_requests
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
+        }
+    }
+}
+
 impl<E: EthSpec> From<JsonExecutionPayloadBody<E>> for ExecutionPayloadBody<E> {
     fn from(value: JsonExecutionPayloadBody<E>) -> Self {
         match value {

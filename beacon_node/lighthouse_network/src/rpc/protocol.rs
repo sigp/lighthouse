@@ -1,5 +1,5 @@
 use super::methods::*;
-use crate::rpc::codec::{base::BaseInboundCodec, ssz_snappy::SSZSnappyInboundCodec, InboundCodec};
+use crate::rpc::codec::SSZSnappyInboundCodec;
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, StreamExt};
@@ -647,7 +647,7 @@ pub fn rpc_data_column_limits<E: EthSpec>() -> RpcLimits {
 
 pub type InboundOutput<TSocket, E> = (InboundRequest<E>, InboundFramed<TSocket, E>);
 pub type InboundFramed<TSocket, E> =
-    Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, InboundCodec<E>>;
+    Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, SSZSnappyInboundCodec<E>>;
 
 impl<TSocket, E> InboundUpgrade<TSocket> for RPCProtocol<E>
 where
@@ -664,15 +664,13 @@ where
             // convert the socket to tokio compatible socket
             let socket = socket.compat();
             let codec = match protocol.encoding {
-                Encoding::SSZSnappy => {
-                    let ssz_snappy_codec = BaseInboundCodec::new(SSZSnappyInboundCodec::new(
-                        protocol,
-                        self.max_rpc_size,
-                        self.fork_context.clone(),
-                    ));
-                    InboundCodec::SSZSnappy(ssz_snappy_codec)
-                }
+                Encoding::SSZSnappy => SSZSnappyInboundCodec::new(
+                    protocol,
+                    self.max_rpc_size,
+                    self.fork_context.clone(),
+                ),
             };
+
             let mut timed_socket = TimeoutStream::new(socket);
             timed_socket.set_read_timeout(Some(self.ttfb_timeout));
 

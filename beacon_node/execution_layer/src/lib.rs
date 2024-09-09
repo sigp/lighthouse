@@ -145,6 +145,7 @@ pub enum Error {
         payload: ExecutionBlockHash,
         transactions_root: Hash256,
     },
+    PayloadBodiesByRangeNotSupported,
     InvalidJWTSecret(String),
     InvalidForkForPayload,
     InvalidPayloadBody(String),
@@ -1805,7 +1806,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
         header: &ExecutionPayloadHeader<E>,
         fork: ForkName,
     ) -> Result<Option<ExecutionPayload<E>>, Error> {
-        let hash = header.block_hash();
         let block_number = header.block_number();
 
         // Handle default payload body.
@@ -1824,7 +1824,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         // Use efficient payload bodies by range method if supported.
         let capabilities = self.get_engine_capabilities(None).await?;
-        if capabilities.get_payload_bodies_by_range_v1 {
+        if capabilities.get_payload_bodies_by_range_v1
+            || capabilities.get_payload_bodies_by_range_v2
+        {
             let mut payload_bodies = self.get_payload_bodies_by_range(block_number, 1).await?;
 
             if payload_bodies.len() != 1 {
@@ -1839,8 +1841,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 })
                 .transpose()
         } else {
-            // Fall back to eth_blockByHash.
-            self.get_payload_by_hash_legacy(hash, fork).await
+            Err(Error::PayloadBodiesByRangeNotSupported)
         }
     }
 
@@ -1870,196 +1871,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .await
             .map_err(Box::new)
             .map_err(Error::EngineError)
-    }
-
-    pub async fn get_payload_by_hash_legacy(
-        &self,
-        hash: ExecutionBlockHash,
-        fork: ForkName,
-    ) -> Result<Option<ExecutionPayload<E>>, Error> {
-        self.engine()
-            .request(|engine| async move {
-                self.get_payload_by_hash_from_engine(engine, hash, fork)
-                    .await
-            })
-            .await
-            .map_err(Box::new)
-            .map_err(Error::EngineError)
-    }
-
-    async fn get_payload_by_hash_from_engine(
-        &self,
-        engine: &Engine,
-        hash: ExecutionBlockHash,
-        fork: ForkName,
-    ) -> Result<Option<ExecutionPayload<E>>, ApiError> {
-        let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BY_BLOCK_HASH);
-
-        if hash == ExecutionBlockHash::zero() {
-            return match fork {
-                ForkName::Bellatrix => Ok(Some(ExecutionPayloadBellatrix::default().into())),
-                ForkName::Capella => Ok(Some(ExecutionPayloadCapella::default().into())),
-                ForkName::Deneb => Ok(Some(ExecutionPayloadDeneb::default().into())),
-                ForkName::Electra => Ok(Some(ExecutionPayloadElectra::default().into())),
-                ForkName::Base | ForkName::Altair => Err(ApiError::UnsupportedForkVariant(
-                    format!("called get_payload_by_hash_from_engine with {}", fork),
-                )),
-            };
-        }
-
-        let Some(block) = engine
-            .api
-            .get_block_by_hash_with_txns::<E>(hash, fork)
-            .await?
-        else {
-            return Ok(None);
-        };
-
-        let convert_transactions = |transactions: Vec<EthersTransaction>| {
-            VariableList::new(
-                transactions
-                    .into_iter()
-                    .map(|tx| VariableList::new(tx.rlp().to_vec()))
-                    .collect::<Result<Vec<_>, ssz_types::Error>>()?,
-            )
-            .map_err(ApiError::SszError)
-        };
-
-        let payload = match block {
-            ExecutionBlockWithTransactions::Bellatrix(bellatrix_block) => {
-                ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
-                    parent_hash: bellatrix_block.parent_hash,
-                    fee_recipient: bellatrix_block.fee_recipient,
-                    state_root: bellatrix_block.state_root,
-                    receipts_root: bellatrix_block.receipts_root,
-                    logs_bloom: bellatrix_block.logs_bloom,
-                    prev_randao: bellatrix_block.prev_randao,
-                    block_number: bellatrix_block.block_number,
-                    gas_limit: bellatrix_block.gas_limit,
-                    gas_used: bellatrix_block.gas_used,
-                    timestamp: bellatrix_block.timestamp,
-                    extra_data: bellatrix_block.extra_data,
-                    base_fee_per_gas: bellatrix_block.base_fee_per_gas,
-                    block_hash: bellatrix_block.block_hash,
-                    transactions: convert_transactions(bellatrix_block.transactions)?,
-                })
-            }
-            ExecutionBlockWithTransactions::Capella(capella_block) => {
-                let withdrawals = VariableList::new(
-                    capella_block
-                        .withdrawals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                )
-                .map_err(ApiError::DeserializeWithdrawals)?;
-                ExecutionPayload::Capella(ExecutionPayloadCapella {
-                    parent_hash: capella_block.parent_hash,
-                    fee_recipient: capella_block.fee_recipient,
-                    state_root: capella_block.state_root,
-                    receipts_root: capella_block.receipts_root,
-                    logs_bloom: capella_block.logs_bloom,
-                    prev_randao: capella_block.prev_randao,
-                    block_number: capella_block.block_number,
-                    gas_limit: capella_block.gas_limit,
-                    gas_used: capella_block.gas_used,
-                    timestamp: capella_block.timestamp,
-                    extra_data: capella_block.extra_data,
-                    base_fee_per_gas: capella_block.base_fee_per_gas,
-                    block_hash: capella_block.block_hash,
-                    transactions: convert_transactions(capella_block.transactions)?,
-                    withdrawals,
-                })
-            }
-            ExecutionBlockWithTransactions::Deneb(deneb_block) => {
-                let withdrawals = VariableList::new(
-                    deneb_block
-                        .withdrawals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                )
-                .map_err(ApiError::DeserializeWithdrawals)?;
-                ExecutionPayload::Deneb(ExecutionPayloadDeneb {
-                    parent_hash: deneb_block.parent_hash,
-                    fee_recipient: deneb_block.fee_recipient,
-                    state_root: deneb_block.state_root,
-                    receipts_root: deneb_block.receipts_root,
-                    logs_bloom: deneb_block.logs_bloom,
-                    prev_randao: deneb_block.prev_randao,
-                    block_number: deneb_block.block_number,
-                    gas_limit: deneb_block.gas_limit,
-                    gas_used: deneb_block.gas_used,
-                    timestamp: deneb_block.timestamp,
-                    extra_data: deneb_block.extra_data,
-                    base_fee_per_gas: deneb_block.base_fee_per_gas,
-                    block_hash: deneb_block.block_hash,
-                    transactions: convert_transactions(deneb_block.transactions)?,
-                    withdrawals,
-                    blob_gas_used: deneb_block.blob_gas_used,
-                    excess_blob_gas: deneb_block.excess_blob_gas,
-                })
-            }
-            ExecutionBlockWithTransactions::Electra(electra_block) => {
-                let withdrawals = VariableList::new(
-                    electra_block
-                        .withdrawals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                )
-                .map_err(ApiError::DeserializeWithdrawals)?;
-                let deposit_requests = VariableList::new(
-                    electra_block
-                        .deposit_requests
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                )
-                .map_err(ApiError::DeserializeDepositRequests)?;
-                let withdrawal_requests = VariableList::new(
-                    electra_block
-                        .withdrawal_requests
-                        .into_iter()
-                        .map(Into::into)
-                        .collect(),
-                )
-                .map_err(ApiError::DeserializeWithdrawalRequests)?;
-                let n_consolidations = electra_block.consolidation_requests.len();
-                let consolidation_requests = VariableList::new(
-                    electra_block
-                        .consolidation_requests
-                        .into_iter()
-                        .map(Into::into)
-                        .collect::<Vec<_>>(),
-                )
-                .map_err(|_| ApiError::TooManyConsolidationRequests(n_consolidations))?;
-                ExecutionPayload::Electra(ExecutionPayloadElectra {
-                    parent_hash: electra_block.parent_hash,
-                    fee_recipient: electra_block.fee_recipient,
-                    state_root: electra_block.state_root,
-                    receipts_root: electra_block.receipts_root,
-                    logs_bloom: electra_block.logs_bloom,
-                    prev_randao: electra_block.prev_randao,
-                    block_number: electra_block.block_number,
-                    gas_limit: electra_block.gas_limit,
-                    gas_used: electra_block.gas_used,
-                    timestamp: electra_block.timestamp,
-                    extra_data: electra_block.extra_data,
-                    base_fee_per_gas: electra_block.base_fee_per_gas,
-                    block_hash: electra_block.block_hash,
-                    transactions: convert_transactions(electra_block.transactions)?,
-                    withdrawals,
-                    blob_gas_used: electra_block.blob_gas_used,
-                    excess_blob_gas: electra_block.excess_blob_gas,
-                    deposit_requests,
-                    withdrawal_requests,
-                    consolidation_requests,
-                })
-            }
-        };
-
-        Ok(Some(payload))
     }
 
     pub async fn propose_blinded_beacon_block(

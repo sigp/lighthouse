@@ -2036,7 +2036,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer =
             metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
-        VerifiedUnaggregatedAttestation::verify(unaggregated_attestation, subnet_id, self).map(
+        VerifiedUnaggregatedAttestation::verify(unaggregated_attestation, subnet_id, self).inspect(
             |v| {
                 // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
                 if let Some(event_handler) = self.event_handler.as_ref() {
@@ -2047,7 +2047,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
                 }
                 metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
-                v
             },
         )
     }
@@ -2075,7 +2074,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer =
             metrics::start_timer(&metrics::AGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
 
-        VerifiedAggregatedAttestation::verify(signed_aggregate, self).map(|v| {
+        VerifiedAggregatedAttestation::verify(signed_aggregate, self).inspect(|v| {
             // This method is called for API and gossip attestations, so this covers all aggregated attestation events
             if let Some(event_handler) = self.event_handler.as_ref() {
                 if event_handler.has_attestation_subscribers() {
@@ -2085,7 +2084,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
             metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
-            v
         })
     }
 
@@ -2099,9 +2097,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::inc_counter(&metrics::SYNC_MESSAGE_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::SYNC_MESSAGE_GOSSIP_VERIFICATION_TIMES);
 
-        VerifiedSyncCommitteeMessage::verify(sync_message, subnet_id, self).map(|v| {
+        VerifiedSyncCommitteeMessage::verify(sync_message, subnet_id, self).inspect(|_| {
             metrics::inc_counter(&metrics::SYNC_MESSAGE_PROCESSING_SUCCESSES);
-            v
         })
     }
 
@@ -2113,7 +2110,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<VerifiedSyncContribution<T>, SyncCommitteeError> {
         metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::SYNC_CONTRIBUTION_GOSSIP_VERIFICATION_TIMES);
-        VerifiedSyncContribution::verify(sync_contribution, self).map(|v| {
+        VerifiedSyncContribution::verify(sync_contribution, self).inspect(|v| {
             if let Some(event_handler) = self.event_handler.as_ref() {
                 if event_handler.has_contribution_subscribers() {
                     event_handler.register(EventKind::ContributionAndProof(Box::new(
@@ -2122,7 +2119,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
             metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_PROCESSING_SUCCESSES);
-            v
         })
     }
 
@@ -2137,9 +2133,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self,
             seen_timestamp,
         )
-        .map(|v| {
+        .inspect(|_| {
             metrics::inc_counter(&metrics::FINALITY_UPDATE_PROCESSING_SUCCESSES);
-            v
         })
     }
 
@@ -2150,9 +2145,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError> {
         metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, self).map(|v| {
+        GossipVerifiedDataColumn::new(data_column_sidecar, subnet_id, self).inspect(|_| {
             metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES);
-            v
         })
     }
 
@@ -2163,9 +2157,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<GossipVerifiedBlob<T>, GossipBlobError> {
         metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::BLOBS_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        GossipVerifiedBlob::new(blob_sidecar, subnet_id, self).map(|v| {
+        GossipVerifiedBlob::new(blob_sidecar, subnet_id, self).inspect(|_| {
             metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_SUCCESSES);
-            v
         })
     }
 
@@ -2180,9 +2173,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self,
             seen_timestamp,
         )
-        .map(|v| {
+        .inspect(|_| {
             metrics::inc_counter(&metrics::OPTIMISTIC_UPDATE_PROCESSING_SUCCESSES);
-            v
         })
     }
 
@@ -2486,7 +2478,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .observed_voluntary_exits
             .lock()
             .verify_and_observe_at(exit, wall_clock_epoch, head_state, &self.spec)
-            .map(|exit| {
+            .inspect(|exit| {
                 // this method is called for both API and gossip exits, so this covers all exit events
                 if let Some(event_handler) = self.event_handler.as_ref() {
                     if event_handler.has_exit_subscribers() {
@@ -2495,7 +2487,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         }
                     }
                 }
-                exit
             })?)
     }
 
@@ -3068,6 +3059,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::BlockIsAlreadyKnown(block_root));
         }
 
+        // Reject RPC blobs referencing unknown parents. Otherwise we allow potentially invalid data
+        // into the da_checker, where invalid = descendant of invalid blocks.
+        // Note: blobs should have at least one item and all items have the same parent root.
+        if let Some(parent_root) = blobs
+            .iter()
+            .filter_map(|b| b.as_ref().map(|b| b.block_parent_root()))
+            .next()
+        {
+            if !self
+                .canonical_head
+                .fork_choice_read_lock()
+                .contains_block(&parent_root)
+            {
+                return Err(BlockError::ParentUnknown { parent_root });
+            }
+        }
+
         self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().flatten().map(Arc::as_ref));
 
         let r = self
@@ -3153,6 +3161,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .contains_block(&block_root)
         {
             return Err(BlockError::BlockIsAlreadyKnown(block_root));
+        }
+
+        // Reject RPC columns referencing unknown parents. Otherwise we allow potentially invalid data
+        // into the da_checker, where invalid = descendant of invalid blocks.
+        // Note: custody_columns should have at least one item and all items have the same parent root.
+        if let Some(parent_root) = custody_columns.iter().map(|c| c.block_parent_root()).next() {
+            if !self
+                .canonical_head
+                .fork_choice_read_lock()
+                .contains_block(&parent_root)
+            {
+                return Err(BlockError::ParentUnknown { parent_root });
+            }
         }
 
         let r = self
