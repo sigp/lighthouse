@@ -277,22 +277,23 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     // - Tell range sync to sync to the tip's root (if available, else its ancestor)
                     // - But use all peers in the ancestor lookup, which should have at least one
                     //   peer, and its peer set is a strict superset of the tip's lookup.
-                    let (remote_head_root, remote_head_slot) = match self
+                    if let Some((_, tip_lookup)) = self
                         .single_block_lookups
                         .iter()
                         .find(|(_, l)| l.block_root() == parent_chain_tip)
                     {
-                        Some((_, tip_lookup)) => {
-                            (parent_chain_tip, tip_lookup.peek_downloaded_block_slot())
-                        }
-                        None => (lookup.block_root(), lookup.peek_downloaded_block_slot()),
-                    };
-
-                    cx.send_sync_message(SyncMessage::AddPeersForceRangeSync {
-                        peers: lookup.all_peers().copied().collect(),
-                        head_slot: remote_head_slot,
-                        head_root: remote_head_root,
-                    });
+                        cx.send_sync_message(SyncMessage::AddPeersForceRangeSync {
+                            peers: lookup.all_peers().copied().collect(),
+                            head_slot: tip_lookup.peek_downloaded_block_slot(),
+                            head_root: parent_chain_tip,
+                        });
+                    } else {
+                        // Should never happen, log error and continue the lookup drop
+                        error!(self.log, "Unable to transition lookup to range sync";
+                            "error" => "Parent chain tip lookup not found",
+                            "block_root" => ?parent_chain_tip
+                        );
+                    }
 
                     // Do not downscore peers here. Because we can't distinguish a valid chain from
                     // a malicious one we may penalize honest peers for attempting to discover us a
@@ -302,6 +303,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     // then correct blocks via blocks_by_range.
 
                     self.drop_lookup_and_children(*lookup_id);
+                } else {
+                    // Should never happen
+                    error!(self.log, "Unable to transition lookup to range sync";
+                        "error" => "Block to drop lookup not found",
+                        "block_root" => ?block_to_drop
+                    );
                 }
 
                 return false;
