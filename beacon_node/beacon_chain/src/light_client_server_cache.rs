@@ -232,7 +232,9 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             }
         };
 
+        println!("f+1 {} s {}", finalized_period + 1, sync_committee_period);
         if finalized_period + 1 >= sync_committee_period {
+            println!("storing sync committee {}", sync_committee_period);
             store.store_sync_committee(
                 sync_committee_period,
                 &cached_parts.current_sync_committee,
@@ -392,7 +394,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         let Some(current_sync_committee) = store.get_sync_committee(sync_committee_period)? else {
             return Err(BeaconChainError::LightClientBootstrapError(format!(
-                "Sync committee for block root {block_root} not found"
+                "Sync committee for period {sync_committee_period} not found"
             )));
         };
 
