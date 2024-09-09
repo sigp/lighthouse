@@ -9,10 +9,11 @@ use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, AggregateSignature, AttesterSlashingRef, BeaconBlockRef, BeaconState,
     BeaconStateError, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256,
-    InconsistentFork, IndexedAttestation, IndexedAttestationRef, ProposerSlashing, PublicKey,
-    PublicKeyBytes, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit,
-    SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
+    InconsistentFork, IndexedAttestation, IndexedAttestationRef, IndexedPayloadAttestation,
+    ProposerSlashing, PublicKey, PublicKeyBytes, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, SigningData, Slot, SyncAggregate,
+    SyncAggregatorSelectionData, Unsigned,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -294,6 +295,35 @@ where
     );
 
     let message = indexed_attestation.data().signing_root(domain);
+
+    Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
+}
+
+pub fn indexed_payload_attestation_signature_set<'a, 'b, E, F>(
+    state: &'a BeaconState<E>,
+    get_pubkey: F,
+    signature: &'a AggregateSignature,
+    indexed_payload_attestation: &'b IndexedPayloadAttestation<E>,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    E: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
+    let mut pubkeys = Vec::with_capacity(indexed_payload_attestation.attesting_indices.len());
+    for &validator_idx in indexed_payload_attestation.attesting_indices.iter() {
+        pubkeys.push(
+            get_pubkey(validator_idx as usize).ok_or(Error::ValidatorUnknown(validator_idx))?,
+        );
+    }
+
+    let domain = spec.compute_domain(
+        Domain::PTCAttester,
+        spec.genesis_fork_version,
+        state.genesis_validators_root(),
+    );
+
+    let message = indexed_payload_attestation.data.signing_root(domain);
 
     Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
 }

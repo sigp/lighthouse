@@ -14,6 +14,7 @@ pub use self::verify_proposer_slashing::verify_proposer_slashing;
 pub use altair::sync_committee::process_sync_aggregate;
 pub use block_signature_verifier::{BlockSignatureVerifier, ParallelSignatureSets};
 pub use is_valid_indexed_attestation::is_valid_indexed_attestation;
+pub use is_valid_indexed_payload_attestation::is_valid_indexed_payload_attestation;
 pub use process_operations::process_operations;
 pub use verify_attestation::{
     verify_attestation_for_block_inclusion, verify_attestation_for_state,
@@ -23,12 +24,14 @@ pub use verify_deposit::{
     get_existing_validator_index, is_valid_deposit_signature, verify_deposit_merkle_proof,
 };
 pub use verify_exit::verify_exit;
+pub use verify_payload_attestation::verify_payload_attestation;
 
 pub mod altair;
 pub mod block_signature_verifier;
 pub mod deneb;
 pub mod errors;
 mod is_valid_indexed_attestation;
+mod is_valid_indexed_payload_attestation;
 pub mod process_operations;
 pub mod signature_sets;
 pub mod tests;
@@ -37,6 +40,7 @@ mod verify_attester_slashing;
 mod verify_bls_to_execution_change;
 mod verify_deposit;
 mod verify_exit;
+mod verify_payload_attestation;
 mod verify_proposer_slashing;
 
 use crate::common::decrease_balance;

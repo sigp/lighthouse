@@ -224,8 +224,8 @@ pub use crate::payload::{
     FullPayload, FullPayloadBellatrix, FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra,
     FullPayloadRef, OwnedExecPayload,
 };
-pub use crate::payload_attestation::{PayloadAttestation, PayloadStatus};
-pub use crate::payload_attestation_data::PayloadAttestationData;
+pub use crate::payload_attestation::PayloadAttestation;
+pub use crate::payload_attestation_data::{PayloadAttestationData, PayloadStatus};
 pub use crate::payload_attestation_message::PayloadAttestationMessage;
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::pending_balance_deposit::PendingBalanceDeposit;

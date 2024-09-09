@@ -727,8 +727,12 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockEIP7732<E, Payload>
         let payload_attestations = vec![
             PayloadAttestation::<E> {
                 aggregation_bits: BitList::with_capacity(E::PTCSize::to_usize()).unwrap(),
-                slot: Slot::new(0),
-                payload_status: PayloadStatus::PayloadPresent,
+                data: PayloadAttestationData {
+                    beacon_block_root: Hash256::zero(),
+                    slot: Slot::new(0),
+                    payload_status: PayloadStatus::PayloadPresent,
+                },
+                signature: AggregateSignature::empty(),
             };
             E::max_payload_attestations()
         ]
