@@ -652,7 +652,10 @@ mod tests {
         fn expect_empty_processor(&mut self) {
             match self.beacon_processor_rx.try_recv() {
                 Ok(work) => {
-                    panic!("Expected empty processor. Instead got {}", work.work_type());
+                    panic!(
+                        "Expected empty processor. Instead got {}",
+                        work.work_type_str()
+                    );
                 }
                 Err(e) => match e {
                     mpsc::error::TryRecvError::Empty => {}
@@ -665,7 +668,7 @@ mod tests {
         fn expect_chain_segment(&mut self) {
             match self.beacon_processor_rx.try_recv() {
                 Ok(work) => {
-                    assert_eq!(work.work_type(), beacon_processor::CHAIN_SEGMENT);
+                    assert_eq!(work.work_type(), beacon_processor::WorkType::ChainSegment);
                 }
                 other => panic!("Expected chain segment process, found {:?}", other),
             }
