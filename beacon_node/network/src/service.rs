@@ -158,7 +158,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
     beacon_chain: Arc<BeaconChain<T>>,
     /// The underlying libp2p service that drives all the network interactions.
-    libp2p: Network<RequestId, T::EthSpec>,
+    libp2p: Network<T::EthSpec>,
     /// An attestation and sync committee subnet manager service.
     subnet_service: SubnetService<T>,
     /// The receiver channel for lighthouse to communicate with the network service.
