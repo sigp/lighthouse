@@ -136,6 +136,15 @@ impl PeerGroup {
     pub fn all(&self) -> impl Iterator<Item = &PeerId> + '_ {
         self.peers.keys()
     }
+    pub fn of_index(&self, index: usize) -> impl Iterator<Item = &PeerId> + '_ {
+        self.peers.iter().filter_map(move |(peer, indices)| {
+            if indices.contains(&index) {
+                Some(peer)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 /// Sequential ID that uniquely identifies ReqResp outgoing requests

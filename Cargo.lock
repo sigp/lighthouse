@@ -5784,6 +5784,7 @@ dependencies = [
  "hex",
  "igd-next",
  "itertools 0.10.5",
+ "kzg",
  "lighthouse_metrics",
  "lighthouse_network",
  "logging",
