@@ -48,7 +48,6 @@ use crate::sync::block_lookups::{
 use crate::sync::block_sidecar_coupling::RangeBlockComponentsRequest;
 use crate::sync::network_context::PeerGroup;
 use beacon_chain::block_verification_types::AsBlock;
-use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
@@ -115,7 +114,7 @@ pub enum SyncMessage<E: EthSpec> {
     },
 
     /// A block with an unknown parent has been received.
-    UnknownParentBlock(PeerId, RpcBlock<E>, Hash256),
+    UnknownParentBlock(PeerId, Arc<SignedBeaconBlock<E>>, Hash256),
 
     /// A blob with an unknown parent has been received.
     UnknownParentBlob(PeerId, Arc<BlobSidecar<E>>),
@@ -150,7 +149,7 @@ pub enum SyncMessage<E: EthSpec> {
     /// Block processed
     BlockComponentProcessed {
         process_type: BlockProcessType,
-        result: BlockProcessingResult<E>,
+        result: BlockProcessingResult,
     },
 
     /// Sample data column verified
@@ -182,9 +181,9 @@ impl BlockProcessType {
 }
 
 #[derive(Debug)]
-pub enum BlockProcessingResult<E: EthSpec> {
+pub enum BlockProcessingResult {
     Ok(AvailabilityProcessingStatus),
-    Err(BlockError<E>),
+    Err(BlockError),
     Ignored,
 }
 
@@ -1187,10 +1186,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 }
 
-impl<E: EthSpec> From<Result<AvailabilityProcessingStatus, BlockError<E>>>
-    for BlockProcessingResult<E>
-{
-    fn from(result: Result<AvailabilityProcessingStatus, BlockError<E>>) -> Self {
+impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingResult {
+    fn from(result: Result<AvailabilityProcessingStatus, BlockError>) -> Self {
         match result {
             Ok(status) => BlockProcessingResult::Ok(status),
             Err(e) => BlockProcessingResult::Err(e),
@@ -1198,8 +1195,8 @@ impl<E: EthSpec> From<Result<AvailabilityProcessingStatus, BlockError<E>>>
     }
 }
 
-impl<E: EthSpec> From<BlockError<E>> for BlockProcessingResult<E> {
-    fn from(e: BlockError<E>) -> Self {
+impl From<BlockError> for BlockProcessingResult {
+    fn from(e: BlockError) -> Self {
         BlockProcessingResult::Err(e)
     }
 }

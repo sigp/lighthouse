@@ -11,7 +11,7 @@ use std::iter;
 use std::time::Duration;
 use store::metadata::DataColumnInfo;
 use store::{get_key_for_col, AnchorInfo, BlobInfo, DBColumn, KeyValueStore, KeyValueStoreOp};
-use types::{Hash256, Slot};
+use types::{FixedBytesExtended, Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
 ///

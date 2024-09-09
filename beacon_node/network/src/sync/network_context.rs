@@ -389,7 +389,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         let (expects_custody_columns, num_of_custody_column_req) =
             if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
-                let custody_indexes = self.network_globals().custody_columns();
+                let custody_indexes = self.network_globals().custody_columns.clone();
                 let mut num_of_custody_column_req = 0;
 
                 for (peer_id, columns_by_range_request) in
@@ -758,10 +758,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .imported_custody_column_indexes(&block_root)
             .unwrap_or_default();
 
-        let custody_indexes_duty = self.network_globals().custody_columns();
-
         // Include only the blob indexes not yet imported (received through gossip)
-        let custody_indexes_to_fetch = custody_indexes_duty
+        let custody_indexes_to_fetch = self
+            .network_globals()
+            .custody_columns
+            .clone()
             .into_iter()
             .filter(|index| !custody_indexes_imported.contains(index))
             .collect::<Vec<_>>();

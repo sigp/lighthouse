@@ -16,8 +16,8 @@ use std::time::Duration;
 use store::MemoryStore;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlockRef, BeaconState, ChainSpec, Checkpoint,
-    Epoch, EthSpec, ForkName, Hash256, IndexedAttestation, MainnetEthSpec, RelativeEpoch,
-    SignedBeaconBlock, Slot, SubnetId,
+    Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, IndexedAttestation, MainnetEthSpec,
+    RelativeEpoch, SignedBeaconBlock, Slot, SubnetId,
 };
 
 pub type E = MainnetEthSpec;

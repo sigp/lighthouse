@@ -73,6 +73,7 @@ pub struct JsonPayloadIdResponse {
 #[serde(bound = "E: EthSpec", rename_all = "camelCase", untagged)]
 pub struct JsonExecutionPayload<E: EthSpec> {
     pub parent_hash: ExecutionBlockHash,
+    #[serde(with = "serde_utils::address_hex")]
     pub fee_recipient: Address,
     pub state_root: Hash256,
     pub receipts_root: Hash256,
@@ -91,6 +92,7 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     pub extra_data: VariableList<u8, E::MaxExtraDataBytes>,
     #[serde(with = "serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
+
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
@@ -449,6 +451,7 @@ pub struct JsonWithdrawal {
     pub index: u64,
     #[serde(with = "serde_utils::u64_hex_be")]
     pub validator_index: u64,
+    #[serde(with = "serde_utils::address_hex")]
     pub address: Address,
     #[serde(with = "serde_utils::u64_hex_be")]
     pub amount: u64,
@@ -488,7 +491,7 @@ impl<'a> From<&'a JsonWithdrawal> for EncodableJsonWithdrawal<'a> {
         Self {
             index: json_withdrawal.index,
             validator_index: json_withdrawal.validator_index,
-            address: json_withdrawal.address.as_bytes(),
+            address: json_withdrawal.address.as_slice(),
             amount: json_withdrawal.amount,
         }
     }
@@ -509,6 +512,7 @@ pub struct JsonPayloadAttributes {
     #[serde(with = "serde_utils::u64_hex_be")]
     pub timestamp: u64,
     pub prev_randao: Hash256,
+    #[serde(with = "serde_utils::address_hex")]
     pub suggested_fee_recipient: Address,
     #[superstruct(only(V2, V3))]
     pub withdrawals: Vec<JsonWithdrawal>,
@@ -598,7 +602,9 @@ impl<E: EthSpec> From<JsonBlobsBundleV1<E>> for BlobsBundle<E> {
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkchoiceStateV1 {
     pub head_block_hash: ExecutionBlockHash,
+
     pub safe_block_hash: ExecutionBlockHash,
+
     pub finalized_block_hash: ExecutionBlockHash,
 }
 
@@ -772,6 +778,57 @@ pub struct JsonExecutionPayloadBody<E: EthSpec> {
         Option<VariableList<ConsolidationRequest, E::MaxConsolidationRequestsPerPayload>>,
 }
 
+impl<E: EthSpec> From<ExecutionPayloadBodyV1<E>> for JsonExecutionPayloadBodyV1<E> {
+    fn from(value: ExecutionPayloadBodyV1<E>) -> Self {
+        Self {
+            transactions: value.transactions,
+            withdrawals: value.withdrawals.map(|json_withdrawals| {
+                VariableList::from(
+                    json_withdrawals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
+        }
+    }
+}
+
+impl<E: EthSpec> From<ExecutionPayloadBodyV2<E>> for JsonExecutionPayloadBodyV2<E> {
+    fn from(value: ExecutionPayloadBodyV2<E>) -> Self {
+        Self {
+            transactions: value.transactions,
+            withdrawals: value.withdrawals.map(|json_withdrawals| {
+                VariableList::from(
+                    json_withdrawals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
+            deposit_requests: value.deposit_requests.map(|receipts| {
+                VariableList::from(receipts.into_iter().map(Into::into).collect::<Vec<_>>())
+            }),
+            withdrawal_requests: value.withdrawal_requests.map(|withdrawal_requests| {
+                VariableList::from(
+                    withdrawal_requests
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
+            consolidation_requests: value.consolidation_requests.map(|consolidation_requests| {
+                VariableList::from(
+                    consolidation_requests
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
+        }
+    }
+}
+
 impl<E: EthSpec> From<JsonExecutionPayloadBody<E>> for ExecutionPayloadBody<E> {
     fn from(value: JsonExecutionPayloadBody<E>) -> Self {
         match value {
@@ -823,6 +880,7 @@ impl<E: EthSpec> From<JsonExecutionPayloadBody<E>> for ExecutionPayloadBody<E> {
 pub struct TransitionConfigurationV1 {
     #[serde(with = "serde_utils::u256_hex_be")]
     pub terminal_total_difficulty: Uint256,
+
     pub terminal_block_hash: ExecutionBlockHash,
     #[serde(with = "serde_utils::u64_hex_be")]
     pub terminal_block_number: u64,

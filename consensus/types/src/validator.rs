@@ -1,6 +1,6 @@
 use crate::{
-    test_utils::TestRandom, Address, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, ForkName,
-    Hash256, PublicKeyBytes,
+    test_utils::TestRandom, Address, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec,
+    FixedBytesExtended, ForkName, Hash256, PublicKeyBytes,
 };
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -129,7 +129,7 @@ impl Validator {
     /// Returns `true` if the validator has eth1 withdrawal credential.
     pub fn has_eth1_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
         self.withdrawal_credentials
-            .as_bytes()
+            .as_slice()
             .first()
             .map(|byte| *byte == spec.eth1_address_withdrawal_prefix_byte)
             .unwrap_or(false)
@@ -145,7 +145,7 @@ impl Validator {
         self.has_execution_withdrawal_credential(spec)
             .then(|| {
                 self.withdrawal_credentials
-                    .as_bytes()
+                    .as_slice()
                     .get(12..)
                     .map(Address::from_slice)
             })
@@ -158,7 +158,7 @@ impl Validator {
     pub fn change_withdrawal_credentials(&mut self, execution_address: &Address, spec: &ChainSpec) {
         let mut bytes = [0u8; 32];
         bytes[0] = spec.eth1_address_withdrawal_prefix_byte;
-        bytes[12..].copy_from_slice(execution_address.as_bytes());
+        bytes[12..].copy_from_slice(execution_address.as_slice());
         self.withdrawal_credentials = Hash256::from(bytes);
     }
 
@@ -283,7 +283,7 @@ impl Default for Validator {
     fn default() -> Self {
         Self {
             pubkey: PublicKeyBytes::empty(),
-            withdrawal_credentials: Hash256::default(),
+            withdrawal_credentials: Hash256::zero(),
             activation_eligibility_epoch: Epoch::from(u64::MAX),
             activation_epoch: Epoch::from(u64::MAX),
             exit_epoch: Epoch::from(u64::MAX),
@@ -299,7 +299,7 @@ pub fn is_compounding_withdrawal_credential(
     spec: &ChainSpec,
 ) -> bool {
     withdrawal_credentials
-        .as_bytes()
+        .as_slice()
         .first()
         .map(|prefix_byte| *prefix_byte == spec.compounding_withdrawal_prefix_byte)
         .unwrap_or(false)
