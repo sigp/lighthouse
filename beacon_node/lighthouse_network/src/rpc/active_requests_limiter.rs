@@ -4,12 +4,11 @@ use libp2p::PeerId;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::time::Duration;
-use tokio::time::Instant;
 
 /// Restricts more than two inbound requests from running simultaneously on the same protocol per peer.
 pub(super) struct ActiveRequestsLimiter {
     resp_timeout: Duration,
-    requests: HashMap<PeerId, Vec<(Protocol, ConnectionId, SubstreamId, Instant)>>,
+    requests: HashMap<PeerId, Vec<(Protocol, ConnectionId, SubstreamId)>>,
 }
 
 impl ActiveRequestsLimiter {
@@ -30,37 +29,22 @@ impl ActiveRequestsLimiter {
     ) -> bool {
         match self.requests.entry(peer_id) {
             Entry::Occupied(mut entry) => {
-                for (p, cid, sid, requested_at) in entry.get_mut().iter_mut() {
+                for (p, _cid, _sid) in entry.get_mut().iter_mut() {
                     // Check if there is a request on the same protocol.
                     if p == &protocol {
-                        return if requested_at.elapsed() > self.resp_timeout {
-                            // There is an active request on the same protocol, but it has reached the response timeout.
-                            // So, the given request is allowed, and the active request is updated.
-                            // This helps us avoid leaving a request in the HashMap and ensures that new requests are allowed.
-                            *cid = *connection_id;
-                            *sid = *substream_id;
-                            *requested_at = Instant::now();
-                            true
-                        } else {
-                            false
-                        };
+                        return false;
                     }
                 }
 
                 // Request on the same protocol was not found.
                 entry
                     .get_mut()
-                    .push((protocol, *connection_id, *substream_id, Instant::now()));
+                    .push((protocol, *connection_id, *substream_id));
                 true
             }
             Entry::Vacant(entry) => {
                 // No active requests for the peer.
-                entry.insert(vec![(
-                    protocol,
-                    *connection_id,
-                    *substream_id,
-                    Instant::now(),
-                )]);
+                entry.insert(vec![(protocol, *connection_id, *substream_id)]);
                 true
             }
         }
@@ -74,9 +58,7 @@ impl ActiveRequestsLimiter {
         substream_id: &SubstreamId,
     ) {
         if let Some(requests) = self.requests.get_mut(&peer_id) {
-            requests.retain(|(_protocol, cid, sid, _requested_at)| {
-                cid != connection_id && sid != substream_id
-            });
+            requests.retain(|(_protocol, cid, sid)| cid != connection_id && sid != substream_id);
         }
     }
 
@@ -89,7 +71,6 @@ impl ActiveRequestsLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread::sleep;
 
     #[test]
     fn test_limiter() {
@@ -139,40 +120,5 @@ mod tests {
             &connection_id,
             &SubstreamId::new(5)
         ));
-    }
-
-    // Test that a request for the same protocol is allowed if a preceding request has reached the
-    // response timeout.
-    #[test]
-    fn test_timeout() {
-        let resp_timeout = Duration::from_secs(2);
-        let peer_id = PeerId::random();
-        let connection_id = ConnectionId::new_unchecked(1);
-        let mut limiter = ActiveRequestsLimiter::new(resp_timeout);
-
-        // Allows the first request.
-        assert!(limiter.allows(
-            peer_id,
-            Protocol::Status,
-            &connection_id,
-            &SubstreamId::new(1)
-        ));
-        let requested_at1 = limiter.requests.get(&peer_id).unwrap().first().unwrap().3;
-        sleep(resp_timeout);
-        // The second request is allowed since the first request has been reached resp_timeout.
-        assert!(limiter.allows(
-            peer_id,
-            Protocol::Status,
-            &connection_id,
-            &SubstreamId::new(2)
-        ));
-
-        // Check that the active request has been updated with the second request.
-        let (protocol, cid, sid, requested_at2) =
-            limiter.requests.get(&peer_id).unwrap().first().unwrap();
-        assert!(matches!(protocol, Protocol::Status));
-        assert_eq!(cid, &connection_id);
-        assert_eq!(sid, &SubstreamId::new(2));
-        assert!(requested_at1.lt(requested_at2));
     }
 }
