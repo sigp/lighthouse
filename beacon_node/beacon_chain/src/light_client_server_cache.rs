@@ -232,9 +232,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             }
         };
 
-        println!("f+1 {} s {}", finalized_period + 1, sync_committee_period);
         if finalized_period + 1 >= sync_committee_period {
-            println!("storing sync committee {}", sync_committee_period);
             store.store_sync_committee(
                 sync_committee_period,
                 &cached_parts.current_sync_committee,
