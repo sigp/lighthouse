@@ -104,8 +104,16 @@ where
                 // Stage state for storage in freezer DB.
                 self.store_cold_state(&state_root, &state, &mut io_batch)?;
 
+                let batch_complete = num_blocks.map_or(false, |n_blocks| {
+                    slot + 1 == lower_limit_slot + n_blocks as u64
+                });
+                let reconstruction_complete = slot + 1 == upper_limit_slot;
+
                 // If the slot lies on an epoch boundary, commit the batch and update the anchor.
-                if self.hierarchy.should_commit_immediately(slot)? || slot + 1 == upper_limit_slot {
+                if self.hierarchy.should_commit_immediately(slot)?
+                    || batch_complete
+                    || reconstruction_complete
+                {
                     info!(
                         self.log,
                         "State reconstruction in progress";
@@ -118,7 +126,7 @@ where
                     // Update anchor.
                     let old_anchor = Some(anchor.clone());
 
-                    if slot + 1 == upper_limit_slot {
+                    if reconstruction_complete {
                         // The two limits have met in the middle! We're done!
                         // Perform one last integrity check on the state reached.
                         let computed_state_root = state.update_tree_hash_cache()?;
@@ -145,9 +153,7 @@ where
 
                     // If this is the end of the batch, return Ok. The caller will run another
                     // batch when there is idle capacity.
-                    if num_blocks.map_or(false, |n_blocks| {
-                        slot + 1 == lower_limit_slot + n_blocks as u64
-                    }) {
+                    if batch_complete {
                         debug!(
                             self.log,
                             "Finished state reconstruction batch";
