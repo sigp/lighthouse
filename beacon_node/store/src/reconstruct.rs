@@ -43,12 +43,14 @@ where
         let lower_limit_slot = anchor.state_lower_limit;
         let upper_limit_slot = std::cmp::min(split.slot, anchor.state_upper_limit);
 
-        // If `num_blocks` is not specified iterate all blocks.
+        // If `num_blocks` is not specified iterate all blocks. Add 1 so that we end on an epoch
+        // boundary when `num_blocks` is a multiple of an epoch boundary. We want to be *inclusive*
+        // of the state at slot `lower_limit_slot + num_blocks`.
         let block_root_iter = self
             .forwards_block_roots_iterator_until(lower_limit_slot, upper_limit_slot - 1, || {
                 Err(Error::StateShouldNotBeRequired(upper_limit_slot - 1))
             })?
-            .take(num_blocks.unwrap_or(usize::MAX));
+            .take(num_blocks.map_or(usize::MAX, |n| n + 1));
 
         // The state to be advanced.
         let mut state = self
@@ -104,12 +106,15 @@ where
                 // Stage state for storage in freezer DB.
                 self.store_cold_state(&state_root, &state, &mut io_batch)?;
 
-                let batch_complete = num_blocks.map_or(false, |n_blocks| {
-                    slot + 1 == lower_limit_slot + n_blocks as u64
-                });
+                let batch_complete =
+                    num_blocks.map_or(false, |n_blocks| slot == lower_limit_slot + n_blocks as u64);
                 let reconstruction_complete = slot + 1 == upper_limit_slot;
 
-                // If the slot lies on an epoch boundary, commit the batch and update the anchor.
+                // Commit the I/O batch if:
+                //
+                // - The diff/snapshot for this slot is required for future slots, or
+                // - The reconstruction batch is complete (we are about to return), or
+                // - Reconstruction is complete.
                 if self.hierarchy.should_commit_immediately(slot)?
                     || batch_complete
                     || reconstruction_complete
