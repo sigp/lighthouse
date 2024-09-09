@@ -112,8 +112,7 @@ async fn light_client_bootstrap_test() {
         return;
     };
 
-    let num_final_blocks = E::slots_per_epoch() * 3;
-    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
+    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 6);
     let db_path = tempdir().unwrap();
     let log = test_logger();
 
@@ -128,7 +127,7 @@ async fn light_client_bootstrap_test() {
     );
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
-    let num_initial_slots = E::slots_per_epoch() * 10;
+    let num_initial_slots = E::slots_per_epoch() * 7;
     let slots: Vec<Slot> = (1..num_initial_slots).map(Slot::new).collect();
 
     let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
@@ -208,23 +207,12 @@ async fn light_client_bootstrap_test() {
         .build()
         .expect("should build");
 
+    let current_state = harness.get_current_state();
+
     let finalized_checkpoint = beacon_chain
         .canonical_head
         .cached_head()
         .finalized_checkpoint();
-
-    // Advance to the next sync committee period
-    for _i in 0..(E::slots_per_epoch() * u64::from(spec.epochs_per_sync_committee_period)) {
-        harness.advance_slot();
-    }
-
-    harness
-        .extend_chain_with_light_client_data(
-            (num_final_blocks) as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
 
     let block_root = finalized_checkpoint.root;
 

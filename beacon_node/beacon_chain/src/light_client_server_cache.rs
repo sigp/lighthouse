@@ -387,7 +387,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         let Some(current_sync_committee) = store.get_sync_committee(sync_committee_period)? else {
             return Err(BeaconChainError::LightClientBootstrapError(format!(
-                "Sync committee for block root {block_root} not found"
+                "Sync committee for period {sync_committee_period} not found"
             )));
         };
 
