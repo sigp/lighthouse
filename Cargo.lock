@@ -8262,6 +8262,7 @@ dependencies = [
  "lighthouse_metrics",
  "lru",
  "parking_lot 0.12.3",
+ "safe_arith",
  "serde",
  "slog",
  "sloggers",
