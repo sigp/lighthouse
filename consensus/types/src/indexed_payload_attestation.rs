@@ -23,7 +23,7 @@ pub struct IndexedPayloadAttestation<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     pub attesting_indices: VariableList<u64, E::PTCSize>,
     pub data: PayloadAttestationData,
-    signature: AggregateSignature,
+    pub signature: AggregateSignature,
 }
 
 #[cfg(test)]

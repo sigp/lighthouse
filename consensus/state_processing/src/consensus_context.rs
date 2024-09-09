@@ -1,11 +1,16 @@
-use crate::common::{attesting_indices_base, attesting_indices_electra};
-use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
+use crate::common::{
+    attesting_indices_base, attesting_indices_electra, get_indexed_payload_attestation,
+};
+use crate::per_block_processing::errors::{
+    AttestationInvalid, BlockOperationError, PayloadAttestationInvalid,
+};
 use crate::EpochCacheError;
 use std::collections::{hash_map::Entry, HashMap};
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, AttestationRef, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec,
-    Hash256, IndexedAttestation, IndexedAttestationRef, SignedBeaconBlock, Slot,
+    Hash256, IndexedAttestation, IndexedAttestationRef, IndexedPayloadAttestation,
+    PayloadAttestation, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -22,6 +27,8 @@ pub struct ConsensusContext<E: EthSpec> {
     pub current_block_root: Option<Hash256>,
     /// Cache of indexed attestations constructed during block processing.
     pub indexed_attestations: HashMap<Hash256, IndexedAttestation<E>>,
+    /// Cache of indexed payload attestations constructed during block processing.
+    pub indexed_payload_attestations: HashMap<Hash256, IndexedPayloadAttestation<E>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -55,6 +62,7 @@ impl<E: EthSpec> ConsensusContext<E> {
             proposer_index: None,
             current_block_root: None,
             indexed_attestations: HashMap::new(),
+            indexed_payload_attestations: HashMap::new(),
         }
     }
 
@@ -175,6 +183,24 @@ impl<E: EthSpec> ConsensusContext<E> {
             },
         }
         .map(|indexed_attestation| (*indexed_attestation).to_ref())
+    }
+
+    pub fn get_indexed_payload_attestation<'a>(
+        &'a mut self,
+        state: &BeaconState<E>,
+        slot: Slot,
+        payload_attestation: &'a PayloadAttestation<E>,
+    ) -> Result<&'a IndexedPayloadAttestation<E>, BlockOperationError<PayloadAttestationInvalid>>
+    {
+        let key = payload_attestation.tree_hash_root();
+        match self.indexed_payload_attestations.entry(key) {
+            Entry::Occupied(occupied) => Ok(occupied.into_mut()),
+            Entry::Vacant(vacant) => {
+                let indexed_payload_attestation =
+                    get_indexed_payload_attestation(state, slot, payload_attestation)?;
+                Ok(vacant.insert(indexed_payload_attestation))
+            }
+        }
     }
 
     pub fn num_cached_indexed_attestations(&self) -> usize {

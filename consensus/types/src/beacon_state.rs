@@ -1813,6 +1813,44 @@ impl<E: EthSpec> BeaconState<E> {
             })
     }
 
+    /// Get the PTC
+    /// Requires the committee cache to be initialized.
+    /// TODO(EIP-7732): is it easier to return u64 or usize?
+    /// TODO(EIP-7732): definitely gonna have to cache this..
+    pub fn get_ptc(&self, slot: Slot) -> Result<FixedVector<usize, E::PTCSize>, Error> {
+        // this function is only used here and
+        // I have no idea where else to put it
+        fn bit_floor(n: u64) -> u64 {
+            if n == 0 {
+                0
+            } else {
+                1 << (n.leading_zeros() as u64 ^ 63)
+            }
+        }
+
+        let committee_cache = self.committee_cache_at_slot(slot)?;
+        let committee_count_per_slot = committee_cache.committees_per_slot();
+
+        let committees_per_slot = bit_floor(std::cmp::min(
+            committee_count_per_slot as u64,
+            E::PTCSize::to_u64(),
+        ));
+        let members_per_committee =
+            committee_count_per_slot.safe_div(committees_per_slot)? as usize;
+
+        let committees = committee_cache.get_beacon_committees_at_slot(slot)?;
+        let mut validator_indices = Vec::with_capacity(committees_per_slot as usize);
+        for idx in 0..committees_per_slot {
+            let beacon_committee = committees
+                .get(idx as usize)
+                .ok_or_else(|| Error::InvalidCommitteeIndex(idx))?;
+            validator_indices
+                .extend_from_slice(&beacon_committee.committee[..members_per_committee]);
+        }
+
+        Ok(FixedVector::new(validator_indices)?)
+    }
+
     /// Build all caches (except the tree hash cache), if they need to be built.
     pub fn build_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_all_committee_caches(spec)?;

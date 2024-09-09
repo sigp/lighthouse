@@ -35,6 +35,8 @@ impl<E: EthSpec> OnDiskConsensusContext<E> {
             proposer_index,
             current_block_root,
             indexed_attestations,
+            indexed_payload_attestations: _,
+            // TODO(EIP-77342): add indexed_payload_attestations to the on-disk format.
         } = ctxt;
         OnDiskConsensusContext {
             slot,

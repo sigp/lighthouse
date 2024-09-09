@@ -38,13 +38,23 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
     }
 
-    if state.fork_name_unchecked().electra_enabled() {
+    if state.fork_name_unchecked() == ForkName::Electra {
         state.update_pubkey_cache()?;
         process_deposit_requests(state, &block_body.execution_requests()?.deposits, spec)?;
         process_withdrawal_requests(state, &block_body.execution_requests()?.withdrawals, spec)?;
         process_consolidation_requests(
             state,
             &block_body.execution_requests()?.consolidations,
+            spec,
+        )?;
+    }
+
+    if state.fork_name_unchecked().eip7732_enabled() {
+        process_payload_attestations(
+            state,
+            block_body.payload_attestations()?.iter(),
+            verify_signatures,
+            ctxt,
             spec,
         )?;
     }
@@ -740,4 +750,50 @@ pub fn process_consolidation_request<E: EthSpec>(
         })?;
 
     Ok(())
+}
+
+pub fn process_payload_attestation<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    payload_attestation: &PayloadAttestation<E>,
+    att_index: usize,
+    verify_signatures: VerifySignatures,
+    ctxt: &mut ConsensusContext<E>,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    let _indexed =
+        verify_payload_attestation(state, payload_attestation, ctxt, verify_signatures, spec)
+            .map_err(|e| e.into_with_index(att_index))?;
+
+    // TODO((EIP-7732): finish implementing this function
+
+    Ok(())
+}
+
+pub fn process_payload_attestations<'a, E: EthSpec, I>(
+    state: &mut BeaconState<E>,
+    payload_attestations: I,
+    verify_signatures: VerifySignatures,
+    ctxt: &mut ConsensusContext<E>,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError>
+where
+    I: Iterator<Item = &'a PayloadAttestation<E>>,
+{
+    // Ensure required caches are all built. These should be no-ops during regular operation.
+    // TODO(EIP-7732): check necessary caches
+    state.build_committee_cache(RelativeEpoch::Current, spec)?;
+    state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+
+    payload_attestations
+        .enumerate()
+        .try_for_each(|(i, payload_attestation)| {
+            process_payload_attestation(
+                state,
+                payload_attestation,
+                i,
+                verify_signatures,
+                ctxt,
+                spec,
+            )
+        })
 }
