@@ -20,6 +20,7 @@ const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 3;
 #[derive(Debug, Copy, Clone, Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum ByRangeRequestType {
+    BlocksAndColumns,
     BlocksAndBlobs,
     Blocks,
 }
@@ -199,9 +200,9 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     }
 
     /// Verifies if an incoming block belongs to this batch.
-    pub fn is_expecting_block(&self, peer_id: &PeerId, request_id: &Id) -> bool {
-        if let BatchState::Downloading(expected_peer, expected_id) = &self.state {
-            return peer_id == expected_peer && expected_id == request_id;
+    pub fn is_expecting_block(&self, request_id: &Id) -> bool {
+        if let BatchState::Downloading(_, expected_id) = &self.state {
+            return expected_id == request_id;
         }
         false
     }
@@ -463,6 +464,11 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
             }
         }
     }
+
+    // Visualizes the state of this batch using state::visualize()
+    pub fn visualize(&self) -> char {
+        self.state.visualize()
+    }
 }
 
 /// Represents a peer's attempt and providing the result for this batch.
@@ -536,6 +542,22 @@ impl<E: EthSpec> std::fmt::Debug for BatchState<E> {
                 write!(f, "Downloading({}, {})", peer, request_id)
             }
             BatchState::Poisoned => f.write_str("Poisoned"),
+        }
+    }
+}
+
+impl<E: EthSpec> BatchState<E> {
+    /// Creates a character representation/visualization for the batch state to display in logs for quicker and
+    /// easier recognition
+    fn visualize(&self) -> char {
+        match self {
+            BatchState::Downloading(..) => 'D',
+            BatchState::Processing(_) => 'P',
+            BatchState::AwaitingValidation(_) => 'v',
+            BatchState::AwaitingDownload => 'd',
+            BatchState::Failed => 'F',
+            BatchState::AwaitingProcessing(..) => 'p',
+            BatchState::Poisoned => 'X',
         }
     }
 }

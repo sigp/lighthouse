@@ -26,6 +26,7 @@ per beacon node. The reason for this is that the beacon node *controls* the exec
 - [Besu](https://besu.hyperledger.org/en/stable/public-networks/get-started/connect/mainnet/)
 - [Erigon](https://github.com/ledgerwatch/erigon#beacon-chain-consensus-layer)
 - [Geth](https://geth.ethereum.org/docs/getting-started/consensus-clients)
+- [Reth](https://reth.rs/run/mainnet.html)
 
 > Note: Each execution engine has its own flags for configuring the engine API and JWT secret to connect to a beacon node. Please consult the relevant page of your execution engine as above for the required flags.
 

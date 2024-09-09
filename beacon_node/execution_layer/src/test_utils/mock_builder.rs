@@ -20,9 +20,9 @@ use types::builder_bid::{
 };
 use types::{
     Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, ForkName, ForkVersionedResponse, Hash256, PublicKeyBytes,
-    Signature, SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot,
-    Uint256,
+    ExecutionPayloadHeaderRefMut, FixedBytesExtended, ForkName, ForkVersionedResponse, Hash256,
+    PublicKeyBytes, Signature, SignedBlindedBeaconBlock, SignedRoot,
+    SignedValidatorRegistrationData, Slot, Uint256,
 };
 use types::{ExecutionBlockHash, SecretKey};
 use warp::{Filter, Rejection};

@@ -4,12 +4,12 @@
 //! https://www.gnu.org/software/libc/manual/html_node/The-GNU-Allocator.html
 //!
 //! These functions are generally only suitable for Linux systems.
-use lazy_static::lazy_static;
 use lighthouse_metrics::*;
 use parking_lot::Mutex;
 use std::env;
 use std::os::raw::c_int;
 use std::result::Result;
+use std::sync::LazyLock;
 
 /// The optimal mmap threshold for Lighthouse seems to be around 128KB.
 ///
@@ -33,50 +33,65 @@ const M_MMAP_THRESHOLD: c_int = -3;
 /// https://man7.org/linux/man-pages/man3/mallopt.3.html
 const ENV_VAR_MMAP_THRESHOLD: &str = "MALLOC_MMAP_THRESHOLD_";
 
-lazy_static! {
-    pub static ref GLOBAL_LOCK: Mutex<()> = <_>::default();
-}
+pub static GLOBAL_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| <_>::default());
 
 // Metrics for the malloc. For more information, see:
 //
 // https://man7.org/linux/man-pages/man3/mallinfo.3.html
-lazy_static! {
-    pub static ref MALLINFO_ARENA: lighthouse_metrics::Result<IntGauge> = try_create_int_gauge(
+pub static MALLINFO_ARENA: LazyLock<lighthouse_metrics::Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
         "mallinfo_arena",
         "The total amount of memory allocated by means other than mmap(2). \
             This figure includes both in-use blocks and blocks on the free list.",
-    );
-    pub static ref MALLINFO_ORDBLKS: lighthouse_metrics::Result<IntGauge> = try_create_int_gauge(
+    )
+});
+pub static MALLINFO_ORDBLKS: LazyLock<lighthouse_metrics::Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
         "mallinfo_ordblks",
         "The number of ordinary (i.e., non-fastbin) free blocks.",
-    );
-    pub static ref MALLINFO_SMBLKS: lighthouse_metrics::Result<IntGauge> =
-        try_create_int_gauge("mallinfo_smblks", "The number of fastbin free blocks.",);
-    pub static ref MALLINFO_HBLKS: lighthouse_metrics::Result<IntGauge> = try_create_int_gauge(
+    )
+});
+pub static MALLINFO_SMBLKS: LazyLock<lighthouse_metrics::Result<IntGauge>> =
+    LazyLock::new(|| try_create_int_gauge("mallinfo_smblks", "The number of fastbin free blocks."));
+pub static MALLINFO_HBLKS: LazyLock<lighthouse_metrics::Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
         "mallinfo_hblks",
         "The number of blocks currently allocated using mmap.",
-    );
-    pub static ref MALLINFO_HBLKHD: lighthouse_metrics::Result<IntGauge> = try_create_int_gauge(
+    )
+});
+pub static MALLINFO_HBLKHD: LazyLock<lighthouse_metrics::Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
         "mallinfo_hblkhd",
         "The number of bytes in blocks currently allocated using mmap.",
-    );
-    pub static ref MALLINFO_FSMBLKS: lighthouse_metrics::Result<IntGauge> = try_create_int_gauge(
+    )
+});
+pub static MALLINFO_FSMBLKS: LazyLock<lighthouse_metrics::Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
         "mallinfo_fsmblks",
         "The total number of bytes in fastbin free blocks.",
-    );
-    pub static ref MALLINFO_UORDBLKS: lighthouse_metrics::Result<IntGauge> = try_create_int_gauge(
-        "mallinfo_uordblks",
-        "The total number of bytes used by in-use allocations.",
-    );
-    pub static ref MALLINFO_FORDBLKS: lighthouse_metrics::Result<IntGauge> = try_create_int_gauge(
-        "mallinfo_fordblks",
-        "The total number of bytes in free blocks.",
-    );
-    pub static ref MALLINFO_KEEPCOST: lighthouse_metrics::Result<IntGauge> = try_create_int_gauge(
-        "mallinfo_keepcost",
-        "The total amount of releasable free space at the top of the heap..",
-    );
-}
+    )
+});
+pub static MALLINFO_UORDBLKS: LazyLock<lighthouse_metrics::Result<IntGauge>> =
+    LazyLock::new(|| {
+        try_create_int_gauge(
+            "mallinfo_uordblks",
+            "The total number of bytes used by in-use allocations.",
+        )
+    });
+pub static MALLINFO_FORDBLKS: LazyLock<lighthouse_metrics::Result<IntGauge>> =
+    LazyLock::new(|| {
+        try_create_int_gauge(
+            "mallinfo_fordblks",
+            "The total number of bytes in free blocks.",
+        )
+    });
+pub static MALLINFO_KEEPCOST: LazyLock<lighthouse_metrics::Result<IntGauge>> =
+    LazyLock::new(|| {
+        try_create_int_gauge(
+            "mallinfo_keepcost",
+            "The total amount of releasable free space at the top of the heap..",
+        )
+    });
 
 /// Calls `mallinfo` and updates Prometheus metrics with the results.
 pub fn scrape_mallinfo_metrics() {

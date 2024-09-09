@@ -1,4 +1,5 @@
 use crate::block_verification_types::{AsBlock, RpcBlock};
+use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::BeaconBlockResponseWrapper;
@@ -31,7 +32,6 @@ use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use kzg::{Kzg, TrustedSetup};
-use lazy_static::lazy_static;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::Mutex;
@@ -52,7 +52,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use task_executor::TaskExecutor;
@@ -75,15 +75,21 @@ pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 // a different value.
 pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
 
-lazy_static! {
-    pub static ref KZG: Arc<Kzg> = {
-        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
-            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-            .expect("should have trusted setup");
-        let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
-        Arc::new(kzg)
-    };
-}
+pub static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
+    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+        .expect("should have trusted setup");
+    let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
+    Arc::new(kzg)
+});
+
+pub static KZG_PEERDAS: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
+    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+        .expect("should have trusted setup");
+    let kzg = Kzg::new_from_trusted_setup_das_enabled(trusted_setup).expect("should create kzg");
+    Arc::new(kzg)
+});
 
 pub type BaseHarnessType<E, THotStore, TColdStore> =
     Witness<TestingSlotClock, CachingEth1Backend<E>, E, THotStore, TColdStore>;
@@ -1980,7 +1986,7 @@ where
         slot: Slot,
         block_root: Hash256,
         block_contents: SignedBlockContentsTuple<E>,
-    ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
+    ) -> Result<SignedBeaconBlockHash, BlockError> {
         self.set_current_slot(slot);
         let (block, blob_items) = block_contents;
 
@@ -2007,7 +2013,7 @@ where
     pub async fn process_block_result(
         &self,
         block_contents: SignedBlockContentsTuple<E>,
-    ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
+    ) -> Result<SignedBeaconBlockHash, BlockError> {
         let (block, blob_items) = block_contents;
 
         let sidecars = blob_items
@@ -2092,7 +2098,7 @@ where
             SignedBlockContentsTuple<E>,
             BeaconState<E>,
         ),
-        BlockError<E>,
+        BlockError,
     > {
         self.set_current_slot(slot);
         let (block_contents, new_state) = self.make_block(state, slot).await;
@@ -2138,7 +2144,7 @@ where
         state: BeaconState<E>,
         state_root: Hash256,
         validators: &[usize],
-    ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError<E>> {
+    ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError> {
         self.add_attested_block_at_slot_with_sync(
             slot,
             state,
@@ -2156,7 +2162,7 @@ where
         state_root: Hash256,
         validators: &[usize],
         sync_committee_strategy: SyncCommitteeStrategy,
-    ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError<E>> {
+    ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError> {
         let (block_hash, block, state) = self.add_block_at_slot(slot, state).await?;
         self.attest_block(&state, state_root, block_hash, &block.0, validators);
 
@@ -2621,6 +2627,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
 
     let mut block = SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(rng));
+
     let mut blob_sidecars = vec![];
 
     let bundle = match block {
@@ -2692,4 +2699,21 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         });
     }
     (block, blob_sidecars)
+}
+
+#[allow(clippy::type_complexity)]
+pub fn generate_rand_block_and_data_columns<E: EthSpec>(
+    fork_name: ForkName,
+    num_blobs: NumBlobs,
+    rng: &mut impl Rng,
+    spec: &ChainSpec,
+) -> (
+    SignedBeaconBlock<E, FullPayload<E>>,
+    Vec<Arc<DataColumnSidecar<E>>>,
+) {
+    let (block, blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng);
+    let blob: BlobsList<E> = blobs.into_iter().map(|b| b.blob).collect::<Vec<_>>().into();
+    let data_columns = blobs_to_data_column_sidecars(&blob, &block, &KZG_PEERDAS, spec).unwrap();
+
+    (block, data_columns)
 }

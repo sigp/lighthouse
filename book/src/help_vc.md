@@ -265,10 +265,9 @@ Flags:
           If this flag is set, Lighthouse will always prefer blocks constructed
           by builders, regardless of payload value.
       --produce-block-v3
-          Enable block production via the block v3 endpoint for this validator
-          client. This should only be enabled when paired with a beacon node
-          that has this endpoint implemented. This flag will be enabled by
-          default in future.
+          This flag is deprecated and is no longer in use.
+      --stdin-inputs
+          If present, read all user inputs from stdin instead of tty.
       --unencrypted-http-transport
           This is a safety flag to ensure that the user is aware that the http
           transport is unencrypted and using a custom HTTP address is unsafe.

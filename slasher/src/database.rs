@@ -4,8 +4,8 @@ mod mdbx_impl;
 mod redb_impl;
 
 use crate::{
-    metrics, AttesterRecord, AttesterSlashingStatus, CompactAttesterRecord, Config, Error,
-    ProposerSlashingStatus,
+    metrics, AttesterRecord, AttesterSlashingStatus, CompactAttesterRecord, Config, Database,
+    Error, ProposerSlashingStatus,
 };
 use byteorder::{BigEndian, ByteOrder};
 use interface::{Environment, OpenDatabases, RwTransaction};
@@ -174,7 +174,7 @@ impl IndexedAttestationIdKey {
         let mut data = [0; INDEXED_ATTESTATION_ID_KEY_SIZE];
         data[0..8].copy_from_slice(&target_epoch.as_u64().to_be_bytes());
         data[8..INDEXED_ATTESTATION_ID_KEY_SIZE]
-            .copy_from_slice(indexed_attestation_root.as_bytes());
+            .copy_from_slice(indexed_attestation_root.as_slice());
         Self {
             target_and_root: data,
         }
@@ -348,6 +348,18 @@ impl<E: EthSpec> SlasherDB<E> {
             &bincode::serialize(&CURRENT_SCHEMA_VERSION)?,
         )?;
         Ok(())
+    }
+
+    pub fn get_config(&self) -> &Config {
+        &self.config
+    }
+
+    /// TESTING ONLY.
+    ///
+    /// Replace the config for this database. This is only a sane thing to do if the database
+    /// is empty (has been `reset`).
+    pub fn update_config(&mut self, config: Arc<Config>) {
+        self.config = config;
     }
 
     /// Load a config from disk.
@@ -797,6 +809,50 @@ impl<E: EthSpec> SlasherDB<E> {
         }
         self.delete_attestation_data_roots(indexed_attestation_ids);
 
+        Ok(())
+    }
+
+    /// Delete all data from the database, essentially re-initialising it.
+    ///
+    /// We use this reset pattern in tests instead of leaking tonnes of file descriptors and
+    /// exhausting our allocation by creating (and leaking) databases.
+    ///
+    /// THIS FUNCTION SHOULD ONLY BE USED IN TESTS.
+    pub fn reset(&self) -> Result<(), Error> {
+        // Clear the cache(s) first.
+        self.attestation_root_cache.lock().clear();
+
+        // Pattern match to avoid missing any database.
+        let OpenDatabases {
+            indexed_attestation_db,
+            indexed_attestation_id_db,
+            attesters_db,
+            attesters_max_targets_db,
+            min_targets_db,
+            max_targets_db,
+            current_epochs_db,
+            proposers_db,
+            metadata_db,
+        } = &self.databases;
+        let mut txn = self.begin_rw_txn()?;
+        self.reset_db(&mut txn, indexed_attestation_db)?;
+        self.reset_db(&mut txn, indexed_attestation_id_db)?;
+        self.reset_db(&mut txn, attesters_db)?;
+        self.reset_db(&mut txn, attesters_max_targets_db)?;
+        self.reset_db(&mut txn, min_targets_db)?;
+        self.reset_db(&mut txn, max_targets_db)?;
+        self.reset_db(&mut txn, current_epochs_db)?;
+        self.reset_db(&mut txn, proposers_db)?;
+        self.reset_db(&mut txn, metadata_db)?;
+        txn.commit()
+    }
+
+    fn reset_db(&self, txn: &mut RwTransaction<'_>, db: &Database<'static>) -> Result<(), Error> {
+        let mut cursor = txn.cursor(db)?;
+        if cursor.first_key()?.is_none() {
+            return Ok(());
+        }
+        cursor.delete_while(|_| Ok(true))?;
         Ok(())
     }
 }

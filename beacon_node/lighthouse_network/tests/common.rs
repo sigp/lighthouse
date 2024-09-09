@@ -9,7 +9,8 @@ use std::sync::Arc;
 use std::sync::Weak;
 use tokio::runtime::Runtime;
 use types::{
-    ChainSpec, EnrForkId, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Slot,
+    ChainSpec, EnrForkId, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256,
+    MinimalEthSpec, Slot,
 };
 
 type E = MinimalEthSpec;

@@ -6,6 +6,7 @@
 
 use futures::future::FutureExt;
 use handler::RPCHandler;
+use libp2p::core::transport::PortUse;
 use libp2p::swarm::{
     handler::ConnectionHandler, CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler,
     ToSwarm,
@@ -22,7 +23,9 @@ use std::time::Duration;
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::{HandlerErr, HandlerEvent};
-pub(crate) use methods::{MetaData, MetaDataV1, MetaDataV2, Ping, RPCCodedResponse, RPCResponse};
+pub(crate) use methods::{
+    MetaData, MetaDataV1, MetaDataV2, MetaDataV3, Ping, RPCCodedResponse, RPCResponse,
+};
 pub(crate) use protocol::InboundRequest;
 
 use crate::rpc::active_requests_limiter::ActiveRequestsLimiter;
@@ -289,6 +292,7 @@ where
         peer_id: PeerId,
         _addr: &libp2p::Multiaddr,
         _role_override: libp2p::core::Endpoint,
+        _port_use: PortUse,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         let protocol = SubstreamProtocol::new(
             RPCProtocol {
@@ -488,6 +492,8 @@ where
                             ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,
                             ResponseTermination::BlobsByRange => Protocol::BlobsByRange,
                             ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
+                            ResponseTermination::DataColumnsByRoot => Protocol::DataColumnsByRoot,
+                            ResponseTermination::DataColumnsByRange => Protocol::DataColumnsByRange,
                         },
                     ),
                 };

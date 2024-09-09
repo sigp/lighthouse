@@ -9,8 +9,8 @@ use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_aggregates::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
-use crate::observed_blob_sidecars::Error as ObservedBlobSidecarsError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
+use crate::observed_data_sidecars::Error as ObservedDataSidecarsError;
 use execution_layer::PayloadStatus;
 use fork_choice::ExecutionStatus;
 use futures::channel::mpsc::TrySendError;
@@ -77,8 +77,6 @@ pub enum BeaconChainError {
     AttesterSlashingValidationError(AttesterSlashingValidationError),
     BlsExecutionChangeValidationError(BlsExecutionChangeValidationError),
     MissingFinalizedStateRoot(Slot),
-    /// Returned when an internal check fails, indicating corrupt data.
-    InvariantViolated(String),
     SszTypesError(SszTypesError),
     NoProposerForSlot(Slot),
     CanonicalHeadLockTimeout,
@@ -100,7 +98,7 @@ pub enum BeaconChainError {
     ObservedAttestationsError(ObservedAttestationsError),
     ObservedAttestersError(ObservedAttestersError),
     ObservedBlockProducersError(ObservedBlockProducersError),
-    ObservedBlobSidecarsError(ObservedBlobSidecarsError),
+    ObservedDataSidecarsError(ObservedDataSidecarsError),
     AttesterCacheError(AttesterCacheError),
     PruningError(PruningError),
     ArithError(ArithError),
@@ -216,10 +214,12 @@ pub enum BeaconChainError {
     InconsistentFork(InconsistentFork),
     ProposerHeadForkChoiceError(fork_choice::Error<proto_array::Error>),
     UnableToPublish,
+    UnableToBuildColumnSidecar(String),
     AvailabilityCheckError(AvailabilityCheckError),
     LightClientError(LightClientError),
     UnsupportedFork,
     MilhouseError(MilhouseError),
+    EmptyRpcCustodyColumns,
     AttestationError(AttestationError),
     AttestationCommitteeIndexNotSet,
 }
@@ -238,7 +238,7 @@ easy_from_to!(NaiveAggregationError, BeaconChainError);
 easy_from_to!(ObservedAttestationsError, BeaconChainError);
 easy_from_to!(ObservedAttestersError, BeaconChainError);
 easy_from_to!(ObservedBlockProducersError, BeaconChainError);
-easy_from_to!(ObservedBlobSidecarsError, BeaconChainError);
+easy_from_to!(ObservedDataSidecarsError, BeaconChainError);
 easy_from_to!(AttesterCacheError, BeaconChainError);
 easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(PruningError, BeaconChainError);

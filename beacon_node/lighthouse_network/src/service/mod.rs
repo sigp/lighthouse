@@ -33,6 +33,7 @@ use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{Swarm, SwarmEvent};
 use libp2p::{identify, PeerId, SwarmBuilder};
 use slog::{crit, debug, info, o, trace, warn};
+use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::{
@@ -161,15 +162,27 @@ impl<E: EthSpec> Network<E> {
                 &config,
                 &ctx.enr_fork_id,
                 &log,
+                ctx.chain_spec,
             )?;
             // Construct the metadata
-            let meta_data = utils::load_or_build_metadata(&config.network_dir, &log);
+            let custody_subnet_count = if ctx.chain_spec.is_peer_das_scheduled() {
+                if config.subscribe_all_data_column_subnets {
+                    Some(ctx.chain_spec.data_column_sidecar_subnet_count)
+                } else {
+                    Some(ctx.chain_spec.custody_requirement)
+                }
+            } else {
+                None
+            };
+            let meta_data =
+                utils::load_or_build_metadata(&config.network_dir, custody_subnet_count, &log);
             let globals = NetworkGlobals::new(
                 enr,
                 meta_data,
                 trusted_peers,
                 config.disable_peer_scoring,
                 &log,
+                ctx.chain_spec.clone(),
             );
             Arc::new(globals)
         };
@@ -240,6 +253,7 @@ impl<E: EthSpec> Network<E> {
             let max_topics = ctx.chain_spec.attestation_subnet_count as usize
                 + SYNC_COMMITTEE_SUBNET_COUNT as usize
                 + ctx.chain_spec.blob_sidecar_subnet_count as usize
+                + ctx.chain_spec.data_column_sidecar_subnet_count as usize
                 + BASE_CORE_TOPICS.len()
                 + ALTAIR_CORE_TOPICS.len()
                 + CAPELLA_CORE_TOPICS.len()
@@ -253,10 +267,11 @@ impl<E: EthSpec> Network<E> {
                     ctx.chain_spec.attestation_subnet_count,
                     SYNC_COMMITTEE_SUBNET_COUNT,
                     ctx.chain_spec.blob_sidecar_subnet_count,
+                    ctx.chain_spec.data_column_sidecar_subnet_count,
                 ),
                 // during a fork we subscribe to both the old and new topics
                 max_subscribed_topics: max_topics * 4,
-                // 162 in theory = (64 attestation + 4 sync committee + 7 core topics + 6 blob topics) * 2
+                // 418 in theory = (64 attestation + 4 sync committee + 7 core topics + 6 blob topics + 128 column topics) * 2
                 max_subscriptions_per_request: max_topics * 2,
             };
 
@@ -415,6 +430,11 @@ impl<E: EthSpec> Network<E> {
         // sets up the libp2p swarm.
 
         let swarm = {
+            let config = libp2p::swarm::Config::with_executor(Executor(executor))
+                .with_notify_handler_buffer_size(NonZeroUsize::new(7).expect("Not zero"))
+                .with_per_connection_event_buffer_size(4)
+                .with_dial_concurrency_factor(NonZeroU8::new(1).unwrap());
+
             let builder = SwarmBuilder::with_existing_identity(local_keypair)
                 .with_tokio()
                 .with_other_transport(|_key| transport)
@@ -426,25 +446,13 @@ impl<E: EthSpec> Network<E> {
                     .with_bandwidth_metrics(libp2p_registry)
                     .with_behaviour(|_| behaviour)
                     .expect("infalible")
-                    .with_swarm_config(|_| {
-                        libp2p::swarm::Config::with_executor(Executor(executor))
-                            .with_notify_handler_buffer_size(
-                                std::num::NonZeroUsize::new(7).expect("Not zero"),
-                            )
-                            .with_per_connection_event_buffer_size(4)
-                    })
+                    .with_swarm_config(|_| config)
                     .build()
             } else {
                 builder
                     .with_behaviour(|_| behaviour)
                     .expect("infalible")
-                    .with_swarm_config(|_| {
-                        libp2p::swarm::Config::with_executor(Executor(executor))
-                            .with_notify_handler_buffer_size(
-                                std::num::NonZeroUsize::new(7).expect("Not zero"),
-                            )
-                            .with_per_connection_event_buffer_size(4)
-                    })
+                    .with_swarm_config(|_| config)
                     .build()
             }
         };
@@ -1132,8 +1140,14 @@ impl<E: EthSpec> Network<E> {
 
     /// Sends a METADATA request to a peer.
     fn send_meta_data_request(&mut self, peer_id: PeerId) {
-        // We always prefer sending V2 requests
-        let event = OutboundRequest::MetaData(MetadataRequest::new_v2());
+        let event = if self.fork_context.spec.is_peer_das_scheduled() {
+            // Nodes with higher custody will probably start advertising it
+            // before peerdas is activated
+            OutboundRequest::MetaData(MetadataRequest::new_v3())
+        } else {
+            // We always prefer sending V2 requests otherwise
+            OutboundRequest::MetaData(MetadataRequest::new_v2())
+        };
         self.eth2_rpc_mut()
             .send_request(peer_id, RequestId::Internal, event);
     }
@@ -1141,15 +1155,12 @@ impl<E: EthSpec> Network<E> {
     /// Sends a METADATA response to a peer.
     fn send_meta_data_response(
         &mut self,
-        req: MetadataRequest<E>,
+        _req: MetadataRequest<E>,
         id: PeerRequestId,
         peer_id: PeerId,
     ) {
         let metadata = self.network_globals.local_metadata.read().clone();
-        let metadata = match req {
-            MetadataRequest::V1(_) => metadata.metadata_v1(),
-            MetadataRequest::V2(_) => metadata,
-        };
+        // The encoder is responsible for sending the negotiated version of the metadata
         let event = RPCCodedResponse::Success(RPCResponse::MetaData(metadata));
         self.eth2_rpc_mut().send_response(peer_id, id, event);
     }
@@ -1208,6 +1219,12 @@ impl<E: EthSpec> Network<E> {
             }
             Request::BlobsByRoot { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_root"])
+            }
+            Request::DataColumnsByRoot { .. } => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["data_columns_by_root"])
+            }
+            Request::DataColumnsByRange { .. } => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["data_columns_by_range"])
             }
         }
         NetworkEvent::RequestReceived {
@@ -1528,6 +1545,22 @@ impl<E: EthSpec> Network<E> {
                             self.build_request(peer_request_id, peer_id, Request::BlobsByRoot(req));
                         Some(event)
                     }
+                    InboundRequest::DataColumnsByRoot(req) => {
+                        let event = self.build_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::DataColumnsByRoot(req),
+                        );
+                        Some(event)
+                    }
+                    InboundRequest::DataColumnsByRange(req) => {
+                        let event = self.build_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::DataColumnsByRange(req),
+                        );
+                        Some(event)
+                    }
                     InboundRequest::LightClientBootstrap(req) => {
                         let event = self.build_request(
                             peer_request_id,
@@ -1585,6 +1618,12 @@ impl<E: EthSpec> Network<E> {
                     RPCResponse::BlobsByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlobsByRoot(Some(resp)))
                     }
+                    RPCResponse::DataColumnsByRoot(resp) => {
+                        self.build_response(id, peer_id, Response::DataColumnsByRoot(Some(resp)))
+                    }
+                    RPCResponse::DataColumnsByRange(resp) => {
+                        self.build_response(id, peer_id, Response::DataColumnsByRange(Some(resp)))
+                    }
                     // Should never be reached
                     RPCResponse::LightClientBootstrap(bootstrap) => {
                         self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap))
@@ -1607,6 +1646,8 @@ impl<E: EthSpec> Network<E> {
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
                     ResponseTermination::BlobsByRange => Response::BlobsByRange(None),
                     ResponseTermination::BlobsByRoot => Response::BlobsByRoot(None),
+                    ResponseTermination::DataColumnsByRoot => Response::DataColumnsByRoot(None),
+                    ResponseTermination::DataColumnsByRange => Response::DataColumnsByRange(None),
                 };
                 self.build_response(id, peer_id, response)
             }
@@ -1620,7 +1661,11 @@ impl<E: EthSpec> Network<E> {
     /// Handle an identify event.
     fn inject_identify_event(&mut self, event: identify::Event) -> Option<NetworkEvent<E>> {
         match event {
-            identify::Event::Received { peer_id, mut info } => {
+            identify::Event::Received {
+                peer_id,
+                mut info,
+                connection_id: _,
+            } => {
                 if info.listen_addrs.len() > MAX_IDENTIFY_ADDRESSES {
                     debug!(
                         self.log,
@@ -1764,6 +1809,7 @@ impl<E: EthSpec> Network<E> {
                         self.inject_upnp_event(e);
                         None
                     }
+                    #[allow(unreachable_patterns)]
                     BehaviourEvent::ConnectionLimits(le) => void::unreachable(le),
                 },
                 SwarmEvent::ConnectionEstablished { .. } => None,
