@@ -8,9 +8,6 @@ beacon chain and publishing messages to the network.
 Usage: lighthouse beacon_node [OPTIONS]
 
 Options:
-      --allow-tree-states-migration <BOOLEAN>
-          Whether to allow a destructive freezer DB migration for hierarchical
-          state diffs [default: false]
       --auto-compact-db <auto-compact-db>
           Enable or disable automatic compaction of the database on
           finalization. [default: true]
@@ -169,6 +166,11 @@ Options:
       --graffiti <GRAFFITI>
           Specify your custom graffiti to be included in blocks. Defaults to the
           current version and commit, truncated to fit in 32 bytes.
+      --hdiff-buffer-cache-size <SIZE>
+          Number of hierarchical diff (hdiff) buffers to cache in memory. Each
+          buffer is around the size of a BeaconState so you should be cautious
+          about setting this value too high. This flag is irrelevant for most
+          nodes, which run with state pruning enabled. [default: 16]
       --hierarchy-exponents <EXPONENTS>
           Specifies the frequency for storing full state snapshots and
           hierarchical diffs in the freezer DB. Accepts a comma-separated list
@@ -179,8 +181,8 @@ Options:
           slots, and second-level diffs every 16 (2^4) slots. Cannot be changed
           after initialization. [default: 5,9,11,13,16,18,21]
       --historic-state-cache-size <SIZE>
-          Specifies how many states from the freezer database should cache in
-          memory [default: 1]
+          This cache is currently inactive. Please use hdiff-buffer-cache-size
+          instead. [default: 1]
       --http-address <ADDRESS>
           Set the listen address for the RESTful HTTP API server.
       --http-allow-origin <ORIGIN>
