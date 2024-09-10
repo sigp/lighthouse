@@ -26,7 +26,7 @@ Commands:
   list
           Lists all validators in a validator client using the HTTP API.
   delete
-          Deletes validator from a validator client using the HTTP API.
+          Deletes one or more validators from a validator client using the HTTP API.
   import-standard
           Uploads validators to a validator client using the HTTP API. The
           validators are defined in a JSON file which can be generated using the

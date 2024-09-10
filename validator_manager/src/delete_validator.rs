@@ -23,7 +23,7 @@ pub enum DeleteError {
 
 pub fn cli_app() -> Command {
     Command::new(CMD)
-        .about("Deletes validator(s) from a validator client using the HTTP API.")
+        .about("Deletes one or more validators from a validator client using the HTTP API.")
         .arg(
             Arg::new(VC_URL_FLAG)
                 .long(VC_URL_FLAG)
@@ -239,7 +239,7 @@ mod test {
             if result.is_ok() {
                 let (_, list_keystores_response) = vc_http_client(url, path.clone()).await.unwrap();
 
-                // The remaining number of active keystores (left) = Total validators = Deleted validators (right)
+                // The remaining number of active keystores (left) = Total validators - Deleted validators (right)
                 assert_eq!(
                     list_keystores_response.len(),
                     self.validators.len()
