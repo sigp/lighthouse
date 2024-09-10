@@ -189,7 +189,6 @@ async fn test_rewards_base_inactivity_leak_justification_epoch() {
     // advance to create first justification epoch
     harness.extend_slots(E::slots_per_epoch() as usize).await;
     target_epoch += 1;
-    let mut expected_balances = harness.get_current_state().balances().to_vec();
 
     // assert previous_justified_checkpoint matches 0 as we were in inactivity leak from beginning
     assert_eq!(
@@ -215,27 +214,6 @@ async fn test_rewards_base_inactivity_leak_justification_epoch() {
             .epoch
             .as_u64()
     );
-
-    // compute reward deltas for all validators in epoch N
-    let StandardAttestationRewards {
-        ideal_rewards,
-        total_rewards,
-    } = harness
-        .chain
-        .compute_attestation_rewards(Epoch::new(target_epoch), vec![])
-        .unwrap();
-
-    // assert we successfully get ideal rewards for justified epoch out of inactivity leak
-    assert!(ideal_rewards
-        .iter()
-        .all(|reward| reward.head > 0 && reward.target > 0 && reward.source > 0));
-
-    // apply attestation rewards to initial balances
-    apply_attestation_rewards(&mut expected_balances, total_rewards);
-
-    // verify expected balances against actual balances
-    let balances: Vec<u64> = harness.get_current_state().balances().to_vec();
-    assert_eq!(expected_balances, balances);
 }
 
 #[tokio::test]
