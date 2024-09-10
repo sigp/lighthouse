@@ -10,8 +10,8 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use types::{
-    BeaconCommittee, BeaconState, BeaconStateError, BlindedPayload, ChainSpec, Epoch, EthSpec,
-    Hash256, OwnedBeaconCommittee, RelativeEpoch, SignedBeaconBlock, Slot,
+    AttestationRef, BeaconCommittee, BeaconState, BeaconStateError, BlindedPayload, ChainSpec,
+    Epoch, EthSpec, Hash256, OwnedBeaconCommittee, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 use warp_utils::reject::{beacon_chain_error, custom_bad_request, custom_server_error};
 
@@ -53,24 +53,24 @@ impl CommitteeStore {
     }
 }
 
-struct PackingEfficiencyHandler<T: EthSpec> {
+struct PackingEfficiencyHandler<E: EthSpec> {
     current_slot: Slot,
     current_epoch: Epoch,
     prior_skip_slots: u64,
     available_attestations: HashSet<UniqueAttestation>,
     included_attestations: HashMap<UniqueAttestation, u64>,
     committee_store: CommitteeStore,
-    _phantom: PhantomData<T>,
+    _phantom: PhantomData<E>,
 }
 
-impl<T: EthSpec> PackingEfficiencyHandler<T> {
+impl<E: EthSpec> PackingEfficiencyHandler<E> {
     fn new(
         start_epoch: Epoch,
-        starting_state: BeaconState<T>,
+        starting_state: BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<Self, PackingEfficiencyError> {
         let mut handler = PackingEfficiencyHandler {
-            current_slot: start_epoch.start_slot(T::slots_per_epoch()),
+            current_slot: start_epoch.start_slot(E::slots_per_epoch()),
             current_epoch: start_epoch,
             prior_skip_slots: 0,
             available_attestations: HashSet::new(),
@@ -85,54 +85,77 @@ impl<T: EthSpec> PackingEfficiencyHandler<T> {
 
     fn update_slot(&mut self, slot: Slot) {
         self.current_slot = slot;
-        if slot % T::slots_per_epoch() == 0 {
-            self.current_epoch = Epoch::new(slot.as_u64() / T::slots_per_epoch());
+        if slot % E::slots_per_epoch() == 0 {
+            self.current_epoch = Epoch::new(slot.as_u64() / E::slots_per_epoch());
         }
     }
 
     fn prune_included_attestations(&mut self) {
         let epoch = self.current_epoch;
         self.included_attestations.retain(|x, _| {
-            x.slot >= Epoch::new(epoch.as_u64().saturating_sub(2)).start_slot(T::slots_per_epoch())
+            x.slot >= Epoch::new(epoch.as_u64().saturating_sub(2)).start_slot(E::slots_per_epoch())
         });
     }
 
     fn prune_available_attestations(&mut self) {
         let slot = self.current_slot;
         self.available_attestations
-            .retain(|x| x.slot >= (slot.as_u64().saturating_sub(T::slots_per_epoch())));
+            .retain(|x| x.slot >= (slot.as_u64().saturating_sub(E::slots_per_epoch())));
     }
 
     fn apply_block(
         &mut self,
-        block: &SignedBeaconBlock<T, BlindedPayload<T>>,
+        block: &SignedBeaconBlock<E, BlindedPayload<E>>,
     ) -> Result<usize, PackingEfficiencyError> {
         let block_body = block.message().body();
         let attestations = block_body.attestations();
 
         let mut attestations_in_block = HashMap::new();
-        for attestation in attestations.iter() {
-            for (position, voted) in attestation.aggregation_bits.iter().enumerate() {
-                if voted {
-                    let unique_attestation = UniqueAttestation {
-                        slot: attestation.data.slot,
-                        committee_index: attestation.data.index,
-                        committee_position: position,
-                    };
-                    let inclusion_distance: u64 = block
-                        .slot()
-                        .as_u64()
-                        .checked_sub(attestation.data.slot.as_u64())
-                        .ok_or(PackingEfficiencyError::InvalidAttestationError)?;
+        for attestation in attestations {
+            match attestation {
+                AttestationRef::Base(attn) => {
+                    for (position, voted) in attn.aggregation_bits.iter().enumerate() {
+                        if voted {
+                            let unique_attestation = UniqueAttestation {
+                                slot: attn.data.slot,
+                                committee_index: attn.data.index,
+                                committee_position: position,
+                            };
+                            let inclusion_distance: u64 = block
+                                .slot()
+                                .as_u64()
+                                .checked_sub(attn.data.slot.as_u64())
+                                .ok_or(PackingEfficiencyError::InvalidAttestationError)?;
 
-                    self.available_attestations.remove(&unique_attestation);
-                    attestations_in_block.insert(unique_attestation, inclusion_distance);
+                            self.available_attestations.remove(&unique_attestation);
+                            attestations_in_block.insert(unique_attestation, inclusion_distance);
+                        }
+                    }
+                }
+                AttestationRef::Electra(attn) => {
+                    for (position, voted) in attn.aggregation_bits.iter().enumerate() {
+                        if voted {
+                            let unique_attestation = UniqueAttestation {
+                                slot: attn.data.slot,
+                                committee_index: attn.data.index,
+                                committee_position: position,
+                            };
+                            let inclusion_distance: u64 = block
+                                .slot()
+                                .as_u64()
+                                .checked_sub(attn.data.slot.as_u64())
+                                .ok_or(PackingEfficiencyError::InvalidAttestationError)?;
+
+                            self.available_attestations.remove(&unique_attestation);
+                            attestations_in_block.insert(unique_attestation, inclusion_distance);
+                        }
+                    }
                 }
             }
         }
 
         // Remove duplicate attestations as these yield no reward.
-        attestations_in_block.retain(|x, _| self.included_attestations.get(x).is_none());
+        attestations_in_block.retain(|x, _| !self.included_attestations.contains_key(x));
         self.included_attestations
             .extend(attestations_in_block.clone());
 
@@ -158,7 +181,7 @@ impl<T: EthSpec> PackingEfficiencyHandler<T> {
     fn compute_epoch(
         &mut self,
         epoch: Epoch,
-        state: &BeaconState<T>,
+        state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), PackingEfficiencyError> {
         // Free some memory by pruning old attestations from the included set.
@@ -179,8 +202,9 @@ impl<T: EthSpec> PackingEfficiencyHandler<T> {
                 .collect::<Vec<_>>()
         };
 
-        self.committee_store.previous_epoch_committees =
-            self.committee_store.current_epoch_committees.clone();
+        self.committee_store
+            .previous_epoch_committees
+            .clone_from(&self.committee_store.current_epoch_committees);
 
         self.committee_store.current_epoch_committees = new_committees;
 
@@ -278,7 +302,7 @@ pub fn get_block_packing_efficiency<T: BeaconChainTypes>(
     ));
 
     let pre_slot_hook =
-        |state: &mut BeaconState<T::EthSpec>| -> Result<(), PackingEfficiencyError> {
+        |_, state: &mut BeaconState<T::EthSpec>| -> Result<(), PackingEfficiencyError> {
             // Add attestations to `available_attestations`.
             handler.lock().add_attestations(state.slot())?;
             Ok(())

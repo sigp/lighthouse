@@ -8,22 +8,20 @@ use beacon_chain::{
     },
     BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
 };
-use lazy_static::lazy_static;
 use operation_pool::PersistedOperationPool;
-use state_processing::{
-    per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
-};
+use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
+use std::sync::LazyLock;
 use types::{
-    BeaconState, BeaconStateError, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot,
+    BeaconState, BeaconStateError, BlockImportSource, EthSpec, Hash256, Keypair, MinimalEthSpec,
+    RelativeEpoch, Slot,
 };
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 48;
 
-lazy_static! {
-    /// A cached set of keys.
-    static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
-}
+/// A cached set of keys.
+static KEYPAIRS: LazyLock<Vec<Keypair>> =
+    LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
@@ -59,9 +57,7 @@ fn massive_skips() {
     assert!(state.slot() > 1, "the state should skip at least one slot");
     assert_eq!(
         error,
-        SlotProcessingError::EpochProcessingError(EpochProcessingError::BeaconStateError(
-            BeaconStateError::InsufficientValidators
-        )),
+        SlotProcessingError::BeaconStateError(BeaconStateError::InsufficientValidators),
         "should return error indicating that validators have been slashed out"
     )
 }
@@ -577,7 +573,7 @@ async fn attestations_with_increasing_slots() {
             .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
-        let expected_attestation_slot = attestation.data.slot;
+        let expected_attestation_slot = attestation.data().slot;
         let expected_earliest_permissible_slot =
             current_slot - MinimalEthSpec::slots_per_epoch() - 1;
 
@@ -690,6 +686,7 @@ async fn run_skip_slot_test(skip_slots: u64) {
             harness_a.chain.head_snapshot().beacon_block_root,
             harness_a.get_head_block(),
             NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
             || Ok(()),
         )
         .await

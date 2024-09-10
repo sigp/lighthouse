@@ -1,7 +1,8 @@
-use validator_client::{ApiTopic, Config};
+use validator_client::{config::DEFAULT_WEB3SIGNER_KEEP_ALIVE, ApiTopic, Config};
 
 use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
+use sensitive_url::SensitiveUrl;
 use std::fs::File;
 use std::io::Write;
 use std::net::IpAddr;
@@ -9,6 +10,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
+use std::time::Duration;
 use tempfile::TempDir;
 use types::Address;
 
@@ -421,19 +423,12 @@ fn no_doppelganger_protection_flag() {
         .run()
         .with_config(|config| assert!(!config.enable_doppelganger_protection));
 }
-#[test]
-fn produce_block_v3_flag() {
-    CommandLineTest::new()
-        .flag("produce-block-v3", None)
-        .run()
-        .with_config(|config| assert!(config.produce_block_v3));
-}
 
 #[test]
-fn no_produce_block_v3_flag() {
-    CommandLineTest::new()
-        .run()
-        .with_config(|config| assert!(!config.produce_block_v3));
+fn produce_block_v3_flag() {
+    // The flag is DEPRECATED but providing it should not trigger an error.
+    // We can delete this test when deleting the flag entirely.
+    CommandLineTest::new().flag("produce-block-v3", None).run();
 }
 
 #[test]
@@ -592,27 +587,22 @@ fn wrong_broadcast_flag() {
 }
 
 #[test]
+fn disable_latency_measurement_service() {
+    CommandLineTest::new()
+        .flag("disable-latency-measurement-service", None)
+        .run()
+        .with_config(|config| {
+            assert!(!config.enable_latency_measurement_service);
+        });
+}
+#[test]
 fn latency_measurement_service() {
-    CommandLineTest::new().run().with_config(|config| {
-        assert!(config.enable_latency_measurement_service);
-    });
-    CommandLineTest::new()
-        .flag("latency-measurement-service", None)
-        .run()
-        .with_config(|config| {
-            assert!(config.enable_latency_measurement_service);
-        });
-    CommandLineTest::new()
-        .flag("latency-measurement-service", Some("true"))
-        .run()
-        .with_config(|config| {
-            assert!(config.enable_latency_measurement_service);
-        });
+    // This flag is DEPRECATED so has no effect, but should still be accepted.
     CommandLineTest::new()
         .flag("latency-measurement-service", Some("false"))
         .run()
         .with_config(|config| {
-            assert!(!config.enable_latency_measurement_service);
+            assert!(config.enable_latency_measurement_service);
         });
 }
 
@@ -651,5 +641,51 @@ fn validator_disable_web3_signer_slashing_protection() {
         .run()
         .with_config(|config| {
             assert!(!config.enable_web3signer_slashing_protection);
+        });
+}
+
+#[test]
+fn validator_web3_signer_keep_alive_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(
+            config.web3_signer_keep_alive_timeout,
+            DEFAULT_WEB3SIGNER_KEEP_ALIVE
+        );
+    });
+}
+
+#[test]
+fn validator_web3_signer_keep_alive_override() {
+    CommandLineTest::new()
+        .flag("web3-signer-keep-alive-timeout", Some("1000"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.web3_signer_keep_alive_timeout,
+                Some(Duration::from_secs(1))
+            );
+        });
+}
+
+#[test]
+fn validator_proposer_nodes_default_empty() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(config.proposer_nodes, vec![]);
+    });
+}
+
+#[test]
+fn validator_proposer_nodes() {
+    CommandLineTest::new()
+        .flag("proposer-nodes", Some("http://bn-1:5052,http://bn-2:5052"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.proposer_nodes,
+                vec![
+                    SensitiveUrl::parse("http://bn-1:5052").unwrap(),
+                    SensitiveUrl::parse("http://bn-2:5052").unwrap()
+                ]
+            );
         });
 }

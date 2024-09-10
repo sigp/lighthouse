@@ -1,31 +1,34 @@
 use crate::engines::ForkchoiceState;
 use crate::http::{
     ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3,
-    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
-    ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2, ENGINE_GET_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V1,
-    ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
+    ENGINE_GET_CLIENT_VERSION_V1, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2, ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
+    ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
+    ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
 };
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
     SsePayloadAttributesV3,
 };
-use ethers_core::types::Transaction;
-use ethers_core::utils::rlp;
-use ethers_core::utils::rlp::{Decodable, Rlp};
 use http::deposit_methods::RpcError;
 pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
+use types::execution_payload::{ConsolidationRequests, DepositRequests, WithdrawalRequests};
 pub use types::{
-    Address, BeaconBlockRef, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
-    ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions, Uint256, VariableList,
-    Withdrawal, Withdrawals,
+    Address, BeaconBlockRef, ConsolidationRequest, EthSpec, ExecutionBlockHash, ExecutionPayload,
+    ExecutionPayloadHeader, ExecutionPayloadRef, FixedVector, ForkName, Hash256, Transactions,
+    Uint256, VariableList, Withdrawal, Withdrawals,
 };
-use types::{ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadMerge, KzgProofs};
+use types::{
+    ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+    ExecutionPayloadElectra, KzgProofs,
+};
+use types::{Graffiti, GRAFFITI_BYTES_LEN};
 
 pub mod auth;
 pub mod http;
@@ -33,7 +36,8 @@ pub mod json_structures;
 mod new_payload_request;
 
 pub use new_payload_request::{
-    NewPayloadRequest, NewPayloadRequestCapella, NewPayloadRequestDeneb, NewPayloadRequestMerge,
+    NewPayloadRequest, NewPayloadRequestBellatrix, NewPayloadRequestCapella,
+    NewPayloadRequestDeneb, NewPayloadRequestElectra,
 };
 
 pub const LATEST_TAG: &str = "latest";
@@ -56,15 +60,16 @@ pub enum Error {
     ExecutionHeadBlockNotFound,
     ParentHashEqualsBlockHash(ExecutionBlockHash),
     PayloadIdUnavailable,
-    TransitionConfigurationMismatch,
-    PayloadConversionLogicFlaw,
     SszError(ssz_types::Error),
     DeserializeWithdrawals(ssz_types::Error),
+    DeserializeDepositRequests(ssz_types::Error),
+    DeserializeWithdrawalRequests(ssz_types::Error),
     BuilderApi(builder_client::Error),
     IncorrectStateVariant,
     RequiredMethodUnsupported(&'static str),
     UnsupportedForkVariant(String),
-    RlpDecoderError(rlp::DecoderError),
+    InvalidClientVersion(String),
+    TooManyConsolidationRequests(usize),
 }
 
 impl From<reqwest::Error> for Error {
@@ -95,12 +100,6 @@ impl From<auth::Error> for Error {
 impl From<builder_client::Error> for Error {
     fn from(e: builder_client::Error) -> Self {
         Error::BuilderApi(e)
-    }
-}
-
-impl From<rlp::DecoderError> for Error {
-    fn from(e: rlp::DecoderError) -> Self {
-        Error::RlpDecoderError(e)
     }
 }
 
@@ -143,138 +142,11 @@ pub struct ExecutionBlock {
     pub block_hash: ExecutionBlockHash,
     #[serde(rename = "number", with = "serde_utils::u64_hex_be")]
     pub block_number: u64,
+
     pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
     #[serde(with = "serde_utils::u64_hex_be")]
     pub timestamp: u64,
-}
-
-/// Representation of an execution block with enough detail to reconstruct a payload.
-#[superstruct(
-    variants(Merge, Capella, Deneb),
-    variant_attributes(
-        derive(Clone, Debug, PartialEq, Serialize, Deserialize,),
-        serde(bound = "T: EthSpec", rename_all = "camelCase"),
-    ),
-    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
-    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
-)]
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(bound = "T: EthSpec", rename_all = "camelCase", untagged)]
-pub struct ExecutionBlockWithTransactions<T: EthSpec> {
-    pub parent_hash: ExecutionBlockHash,
-    #[serde(alias = "miner")]
-    pub fee_recipient: Address,
-    pub state_root: Hash256,
-    pub receipts_root: Hash256,
-    #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
-    pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
-    #[serde(alias = "mixHash")]
-    pub prev_randao: Hash256,
-    #[serde(rename = "number", with = "serde_utils::u64_hex_be")]
-    pub block_number: u64,
-    #[serde(with = "serde_utils::u64_hex_be")]
-    pub gas_limit: u64,
-    #[serde(with = "serde_utils::u64_hex_be")]
-    pub gas_used: u64,
-    #[serde(with = "serde_utils::u64_hex_be")]
-    pub timestamp: u64,
-    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
-    pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
-    pub base_fee_per_gas: Uint256,
-    #[serde(rename = "hash")]
-    pub block_hash: ExecutionBlockHash,
-    pub transactions: Vec<Transaction>,
-    #[superstruct(only(Capella, Deneb))]
-    pub withdrawals: Vec<JsonWithdrawal>,
-    #[superstruct(only(Deneb))]
-    #[serde(with = "serde_utils::u64_hex_be")]
-    pub blob_gas_used: u64,
-    #[superstruct(only(Deneb))]
-    #[serde(with = "serde_utils::u64_hex_be")]
-    pub excess_blob_gas: u64,
-}
-
-impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T> {
-    type Error = Error;
-
-    fn try_from(payload: ExecutionPayload<T>) -> Result<Self, Error> {
-        let json_payload = match payload {
-            ExecutionPayload::Merge(block) => Self::Merge(ExecutionBlockWithTransactionsMerge {
-                parent_hash: block.parent_hash,
-                fee_recipient: block.fee_recipient,
-                state_root: block.state_root,
-                receipts_root: block.receipts_root,
-                logs_bloom: block.logs_bloom,
-                prev_randao: block.prev_randao,
-                block_number: block.block_number,
-                gas_limit: block.gas_limit,
-                gas_used: block.gas_used,
-                timestamp: block.timestamp,
-                extra_data: block.extra_data,
-                base_fee_per_gas: block.base_fee_per_gas,
-                block_hash: block.block_hash,
-                transactions: block
-                    .transactions
-                    .iter()
-                    .map(|tx| Transaction::decode(&Rlp::new(tx)))
-                    .collect::<Result<Vec<_>, _>>()?,
-            }),
-            ExecutionPayload::Capella(block) => {
-                Self::Capella(ExecutionBlockWithTransactionsCapella {
-                    parent_hash: block.parent_hash,
-                    fee_recipient: block.fee_recipient,
-                    state_root: block.state_root,
-                    receipts_root: block.receipts_root,
-                    logs_bloom: block.logs_bloom,
-                    prev_randao: block.prev_randao,
-                    block_number: block.block_number,
-                    gas_limit: block.gas_limit,
-                    gas_used: block.gas_used,
-                    timestamp: block.timestamp,
-                    extra_data: block.extra_data,
-                    base_fee_per_gas: block.base_fee_per_gas,
-                    block_hash: block.block_hash,
-                    transactions: block
-                        .transactions
-                        .iter()
-                        .map(|tx| Transaction::decode(&Rlp::new(tx)))
-                        .collect::<Result<Vec<_>, _>>()?,
-                    withdrawals: Vec::from(block.withdrawals)
-                        .into_iter()
-                        .map(|withdrawal| withdrawal.into())
-                        .collect(),
-                })
-            }
-            ExecutionPayload::Deneb(block) => Self::Deneb(ExecutionBlockWithTransactionsDeneb {
-                parent_hash: block.parent_hash,
-                fee_recipient: block.fee_recipient,
-                state_root: block.state_root,
-                receipts_root: block.receipts_root,
-                logs_bloom: block.logs_bloom,
-                prev_randao: block.prev_randao,
-                block_number: block.block_number,
-                gas_limit: block.gas_limit,
-                gas_used: block.gas_used,
-                timestamp: block.timestamp,
-                extra_data: block.extra_data,
-                base_fee_per_gas: block.base_fee_per_gas,
-                block_hash: block.block_hash,
-                transactions: block
-                    .transactions
-                    .iter()
-                    .map(|tx| Transaction::decode(&Rlp::new(tx)))
-                    .collect::<Result<Vec<_>, _>>()?,
-                withdrawals: Vec::from(block.withdrawals)
-                    .into_iter()
-                    .map(|withdrawal| withdrawal.into())
-                    .collect(),
-                blob_gas_used: block.blob_gas_used,
-                excess_blob_gas: block.excess_blob_gas,
-            }),
-        };
-        Ok(json_payload)
-    }
 }
 
 #[superstruct(
@@ -391,7 +263,7 @@ pub struct ProposeBlindedBlockResponse {
 }
 
 #[superstruct(
-    variants(Merge, Capella, Deneb),
+    variants(Bellatrix, Capella, Deneb, Electra),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -399,17 +271,22 @@ pub struct ProposeBlindedBlockResponse {
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
 #[derive(Clone, Debug, PartialEq)]
-pub struct GetPayloadResponse<T: EthSpec> {
-    #[superstruct(only(Merge), partial_getter(rename = "execution_payload_merge"))]
-    pub execution_payload: ExecutionPayloadMerge<T>,
+pub struct GetPayloadResponse<E: EthSpec> {
+    #[superstruct(
+        only(Bellatrix),
+        partial_getter(rename = "execution_payload_bellatrix")
+    )]
+    pub execution_payload: ExecutionPayloadBellatrix<E>,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
-    pub execution_payload: ExecutionPayloadCapella<T>,
+    pub execution_payload: ExecutionPayloadCapella<E>,
     #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
-    pub execution_payload: ExecutionPayloadDeneb<T>,
+    pub execution_payload: ExecutionPayloadDeneb<E>,
+    #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
+    pub execution_payload: ExecutionPayloadElectra<E>,
     pub block_value: Uint256,
-    #[superstruct(only(Deneb))]
-    pub blobs_bundle: BlobsBundle<T>,
-    #[superstruct(only(Deneb), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra))]
+    pub blobs_bundle: BlobsBundle<E>,
+    #[superstruct(only(Deneb, Electra), partial_getter(copy))]
     pub should_override_builder: bool,
 }
 
@@ -427,29 +304,29 @@ impl<E: EthSpec> GetPayloadResponse<E> {
     }
 }
 
-impl<'a, T: EthSpec> From<GetPayloadResponseRef<'a, T>> for ExecutionPayloadRef<'a, T> {
-    fn from(response: GetPayloadResponseRef<'a, T>) -> Self {
+impl<'a, E: EthSpec> From<GetPayloadResponseRef<'a, E>> for ExecutionPayloadRef<'a, E> {
+    fn from(response: GetPayloadResponseRef<'a, E>) -> Self {
         map_get_payload_response_ref_into_execution_payload_ref!(&'a _, response, |inner, cons| {
             cons(&inner.execution_payload)
         })
     }
 }
 
-impl<T: EthSpec> From<GetPayloadResponse<T>> for ExecutionPayload<T> {
-    fn from(response: GetPayloadResponse<T>) -> Self {
+impl<E: EthSpec> From<GetPayloadResponse<E>> for ExecutionPayload<E> {
+    fn from(response: GetPayloadResponse<E>) -> Self {
         map_get_payload_response_into_execution_payload!(response, |inner, cons| {
             cons(inner.execution_payload)
         })
     }
 }
 
-impl<T: EthSpec> From<GetPayloadResponse<T>>
-    for (ExecutionPayload<T>, Uint256, Option<BlobsBundle<T>>)
+impl<E: EthSpec> From<GetPayloadResponse<E>>
+    for (ExecutionPayload<E>, Uint256, Option<BlobsBundle<E>>)
 {
-    fn from(response: GetPayloadResponse<T>) -> Self {
+    fn from(response: GetPayloadResponse<E>) -> Self {
         match response {
-            GetPayloadResponse::Merge(inner) => (
-                ExecutionPayload::Merge(inner.execution_payload),
+            GetPayloadResponse::Bellatrix(inner) => (
+                ExecutionPayload::Bellatrix(inner.execution_payload),
                 inner.block_value,
                 None,
             ),
@@ -463,6 +340,11 @@ impl<T: EthSpec> From<GetPayloadResponse<T>>
                 inner.block_value,
                 Some(inner.blobs_bundle),
             ),
+            GetPayloadResponse::Electra(inner) => (
+                ExecutionPayload::Electra(inner.execution_payload),
+                inner.block_value,
+                Some(inner.blobs_bundle),
+            ),
         }
     }
 }
@@ -472,32 +354,113 @@ pub enum GetPayloadResponseType<E: EthSpec> {
     Blinded(GetPayloadResponse<E>),
 }
 
-impl<T: EthSpec> GetPayloadResponse<T> {
-    pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<T> {
+impl<E: EthSpec> GetPayloadResponse<E> {
+    pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<E> {
         self.to_ref().into()
     }
 }
 
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(derive(Clone, Debug),),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
 #[derive(Clone, Debug)]
-pub struct ExecutionPayloadBodyV1<E: EthSpec> {
+pub struct ExecutionPayloadBody<E: EthSpec> {
     pub transactions: Transactions<E>,
     pub withdrawals: Option<Withdrawals<E>>,
+    #[superstruct(only(V2))]
+    pub deposit_requests: Option<DepositRequests<E>>,
+    #[superstruct(only(V2))]
+    pub withdrawal_requests: Option<WithdrawalRequests<E>>,
+    #[superstruct(only(V2))]
+    pub consolidation_requests: Option<ConsolidationRequests<E>>,
 }
 
-impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
+impl<E: EthSpec> ExecutionPayloadBody<E> {
+    #[allow(clippy::type_complexity)]
+    pub fn deconstruct(
+        self,
+    ) -> (
+        Transactions<E>,
+        Option<Withdrawals<E>>,
+        Option<DepositRequests<E>>,
+        Option<WithdrawalRequests<E>>,
+        Option<ConsolidationRequests<E>>,
+    ) {
+        match self {
+            ExecutionPayloadBody::V1(body) => {
+                (body.transactions, body.withdrawals, None, None, None)
+            }
+            ExecutionPayloadBody::V2(body) => (
+                body.transactions,
+                body.withdrawals,
+                body.deposit_requests,
+                body.withdrawal_requests,
+                body.consolidation_requests,
+            ),
+        }
+    }
     pub fn to_payload(
         self,
         header: ExecutionPayloadHeader<E>,
     ) -> Result<ExecutionPayload<E>, String> {
-        match header {
-            ExecutionPayloadHeader::Merge(header) => {
-                if self.withdrawals.is_some() {
+        let header_fork = header.fork_name_unchecked();
+        match &self {
+            Self::V1(_) => {
+                if header_fork.electra_enabled() {
                     return Err(format!(
-                        "block {} is merge but payload body has withdrawals",
-                        header.block_hash
+                        "block {} is {} but response is ExecutionPayloadBodyV1. Does the EL support {}?",
+                        header.block_hash(),
+                        header_fork,
+                        ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2,
                     ));
                 }
-                Ok(ExecutionPayload::Merge(ExecutionPayloadMerge {
+            }
+            Self::V2(_) => {}
+        }
+
+        let (
+            transactions,
+            withdrawals,
+            deposit_requests,
+            withdrawal_requests,
+            consolidation_requests,
+        ) = self.deconstruct();
+        if !header_fork.capella_enabled() && withdrawals.is_some() {
+            return Err(format!(
+                "block {} is {} but payload body has withdrawals",
+                header.block_hash(),
+                header_fork
+            ));
+        }
+        if !header_fork.electra_enabled() {
+            if deposit_requests.is_some() {
+                return Err(format!(
+                    "block {} is {} but payload body has deposit_requests",
+                    header.block_hash(),
+                    header_fork
+                ));
+            }
+            if withdrawal_requests.is_some() {
+                return Err(format!(
+                    "block {} is {} but payload body has withdrawal_requests",
+                    header.block_hash(),
+                    header_fork
+                ));
+            }
+            if consolidation_requests.is_some() {
+                return Err(format!(
+                    "block {} is {} but payload body has consolidation_requests",
+                    header.block_hash(),
+                    header_fork
+                ));
+            }
+        }
+
+        match header {
+            ExecutionPayloadHeader::Bellatrix(header) => {
+                Ok(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
                     parent_hash: header.parent_hash,
                     fee_recipient: header.fee_recipient,
                     state_root: header.state_root,
@@ -511,62 +474,108 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
                     extra_data: header.extra_data,
                     base_fee_per_gas: header.base_fee_per_gas,
                     block_hash: header.block_hash,
-                    transactions: self.transactions,
+                    transactions,
                 }))
             }
             ExecutionPayloadHeader::Capella(header) => {
-                if let Some(withdrawals) = self.withdrawals {
-                    Ok(ExecutionPayload::Capella(ExecutionPayloadCapella {
-                        parent_hash: header.parent_hash,
-                        fee_recipient: header.fee_recipient,
-                        state_root: header.state_root,
-                        receipts_root: header.receipts_root,
-                        logs_bloom: header.logs_bloom,
-                        prev_randao: header.prev_randao,
-                        block_number: header.block_number,
-                        gas_limit: header.gas_limit,
-                        gas_used: header.gas_used,
-                        timestamp: header.timestamp,
-                        extra_data: header.extra_data,
-                        base_fee_per_gas: header.base_fee_per_gas,
-                        block_hash: header.block_hash,
-                        transactions: self.transactions,
-                        withdrawals,
-                    }))
-                } else {
-                    Err(format!(
-                        "block {} is capella but payload body doesn't have withdrawals",
-                        header.block_hash
-                    ))
-                }
+                let withdrawals = withdrawals.ok_or_else(|| {
+                    format!(
+                        "block {} is {} but payload body has withdrawals set to null",
+                        header.block_hash, header_fork
+                    )
+                })?;
+                Ok(ExecutionPayload::Capella(ExecutionPayloadCapella {
+                    parent_hash: header.parent_hash,
+                    fee_recipient: header.fee_recipient,
+                    state_root: header.state_root,
+                    receipts_root: header.receipts_root,
+                    logs_bloom: header.logs_bloom,
+                    prev_randao: header.prev_randao,
+                    block_number: header.block_number,
+                    gas_limit: header.gas_limit,
+                    gas_used: header.gas_used,
+                    timestamp: header.timestamp,
+                    extra_data: header.extra_data,
+                    base_fee_per_gas: header.base_fee_per_gas,
+                    block_hash: header.block_hash,
+                    transactions,
+                    withdrawals,
+                }))
             }
             ExecutionPayloadHeader::Deneb(header) => {
-                if let Some(withdrawals) = self.withdrawals {
-                    Ok(ExecutionPayload::Deneb(ExecutionPayloadDeneb {
-                        parent_hash: header.parent_hash,
-                        fee_recipient: header.fee_recipient,
-                        state_root: header.state_root,
-                        receipts_root: header.receipts_root,
-                        logs_bloom: header.logs_bloom,
-                        prev_randao: header.prev_randao,
-                        block_number: header.block_number,
-                        gas_limit: header.gas_limit,
-                        gas_used: header.gas_used,
-                        timestamp: header.timestamp,
-                        extra_data: header.extra_data,
-                        base_fee_per_gas: header.base_fee_per_gas,
-                        block_hash: header.block_hash,
-                        transactions: self.transactions,
-                        withdrawals,
-                        blob_gas_used: header.blob_gas_used,
-                        excess_blob_gas: header.excess_blob_gas,
-                    }))
-                } else {
-                    Err(format!(
-                        "block {} is post capella but payload body doesn't have withdrawals",
-                        header.block_hash
-                    ))
-                }
+                let withdrawals = withdrawals.ok_or_else(|| {
+                    format!(
+                        "block {} is {} but payload body has withdrawals set to null",
+                        header.block_hash, header_fork
+                    )
+                })?;
+                Ok(ExecutionPayload::Deneb(ExecutionPayloadDeneb {
+                    parent_hash: header.parent_hash,
+                    fee_recipient: header.fee_recipient,
+                    state_root: header.state_root,
+                    receipts_root: header.receipts_root,
+                    logs_bloom: header.logs_bloom,
+                    prev_randao: header.prev_randao,
+                    block_number: header.block_number,
+                    gas_limit: header.gas_limit,
+                    gas_used: header.gas_used,
+                    timestamp: header.timestamp,
+                    extra_data: header.extra_data,
+                    base_fee_per_gas: header.base_fee_per_gas,
+                    block_hash: header.block_hash,
+                    transactions,
+                    withdrawals,
+                    blob_gas_used: header.blob_gas_used,
+                    excess_blob_gas: header.excess_blob_gas,
+                }))
+            }
+            ExecutionPayloadHeader::Electra(header) => {
+                let withdrawals = withdrawals.ok_or_else(|| {
+                    format!(
+                        "block {} is {} but payload body has withdrawals set to null",
+                        header.block_hash, header_fork
+                    )
+                })?;
+                let deposit_requests = deposit_requests.ok_or_else(|| {
+                    format!(
+                        "block {} is {} but payload body has deposit_requests set to null",
+                        header.block_hash, header_fork
+                    )
+                })?;
+                let withdrawal_requests = withdrawal_requests.ok_or_else(|| {
+                    format!(
+                        "block {} is {} but payload body has withdrawal_requests set to null",
+                        header.block_hash, header_fork
+                    )
+                })?;
+                let consolidation_requests = consolidation_requests.ok_or_else(|| {
+                    format!(
+                        "block {} is {} but payload body has consolidation_requests set to null",
+                        header.block_hash, header_fork
+                    )
+                })?;
+                Ok(ExecutionPayload::Electra(ExecutionPayloadElectra {
+                    parent_hash: header.parent_hash,
+                    fee_recipient: header.fee_recipient,
+                    state_root: header.state_root,
+                    receipts_root: header.receipts_root,
+                    logs_bloom: header.logs_bloom,
+                    prev_randao: header.prev_randao,
+                    block_number: header.block_number,
+                    gas_limit: header.gas_limit,
+                    gas_used: header.gas_used,
+                    timestamp: header.timestamp,
+                    extra_data: header.extra_data,
+                    base_fee_per_gas: header.base_fee_per_gas,
+                    block_hash: header.block_hash,
+                    transactions,
+                    withdrawals,
+                    blob_gas_used: header.blob_gas_used,
+                    excess_blob_gas: header.excess_blob_gas,
+                    deposit_requests,
+                    withdrawal_requests,
+                    consolidation_requests,
+                }))
             }
         }
     }
@@ -577,14 +586,19 @@ pub struct EngineCapabilities {
     pub new_payload_v1: bool,
     pub new_payload_v2: bool,
     pub new_payload_v3: bool,
+    pub new_payload_v4: bool,
     pub forkchoice_updated_v1: bool,
     pub forkchoice_updated_v2: bool,
     pub forkchoice_updated_v3: bool,
     pub get_payload_bodies_by_hash_v1: bool,
     pub get_payload_bodies_by_range_v1: bool,
+    pub get_payload_bodies_by_hash_v2: bool,
+    pub get_payload_bodies_by_range_v2: bool,
     pub get_payload_v1: bool,
     pub get_payload_v2: bool,
     pub get_payload_v3: bool,
+    pub get_payload_v4: bool,
+    pub get_client_version_v1: bool,
 }
 
 impl EngineCapabilities {
@@ -598,6 +612,9 @@ impl EngineCapabilities {
         }
         if self.new_payload_v3 {
             response.push(ENGINE_NEW_PAYLOAD_V3);
+        }
+        if self.new_payload_v4 {
+            response.push(ENGINE_NEW_PAYLOAD_V4);
         }
         if self.forkchoice_updated_v1 {
             response.push(ENGINE_FORKCHOICE_UPDATED_V1);
@@ -614,6 +631,12 @@ impl EngineCapabilities {
         if self.get_payload_bodies_by_range_v1 {
             response.push(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1);
         }
+        if self.get_payload_bodies_by_hash_v2 {
+            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2);
+        }
+        if self.get_payload_bodies_by_range_v2 {
+            response.push(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2);
+        }
         if self.get_payload_v1 {
             response.push(ENGINE_GET_PAYLOAD_V1);
         }
@@ -623,7 +646,144 @@ impl EngineCapabilities {
         if self.get_payload_v3 {
             response.push(ENGINE_GET_PAYLOAD_V3);
         }
+        if self.get_payload_v4 {
+            response.push(ENGINE_GET_PAYLOAD_V4);
+        }
+        if self.get_client_version_v1 {
+            response.push(ENGINE_GET_CLIENT_VERSION_V1);
+        }
 
         response
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ClientCode {
+    Besu,
+    EtherumJS,
+    Erigon,
+    GoEthereum,
+    Grandine,
+    Lighthouse,
+    Lodestar,
+    Nethermind,
+    Nimbus,
+    Teku,
+    Prysm,
+    Reth,
+    Unknown(String),
+}
+
+impl std::fmt::Display for ClientCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            ClientCode::Besu => "BU",
+            ClientCode::EtherumJS => "EJ",
+            ClientCode::Erigon => "EG",
+            ClientCode::GoEthereum => "GE",
+            ClientCode::Grandine => "GR",
+            ClientCode::Lighthouse => "LH",
+            ClientCode::Lodestar => "LS",
+            ClientCode::Nethermind => "NM",
+            ClientCode::Nimbus => "NB",
+            ClientCode::Teku => "TK",
+            ClientCode::Prysm => "PM",
+            ClientCode::Reth => "RH",
+            ClientCode::Unknown(code) => code,
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl TryFrom<String> for ClientCode {
+    type Error = String;
+
+    fn try_from(code: String) -> Result<Self, Self::Error> {
+        match code.as_str() {
+            "BU" => Ok(Self::Besu),
+            "EJ" => Ok(Self::EtherumJS),
+            "EG" => Ok(Self::Erigon),
+            "GE" => Ok(Self::GoEthereum),
+            "GR" => Ok(Self::Grandine),
+            "LH" => Ok(Self::Lighthouse),
+            "LS" => Ok(Self::Lodestar),
+            "NM" => Ok(Self::Nethermind),
+            "NB" => Ok(Self::Nimbus),
+            "TK" => Ok(Self::Teku),
+            "PM" => Ok(Self::Prysm),
+            "RH" => Ok(Self::Reth),
+            string => {
+                if string.len() == 2 {
+                    Ok(Self::Unknown(code))
+                } else {
+                    Err(format!("Invalid client code: {}", code))
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CommitPrefix(pub String);
+
+impl TryFrom<String> for CommitPrefix {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        // Check if the input starts with '0x' and strip it if it does
+        let commit_prefix = value.strip_prefix("0x").unwrap_or(&value);
+
+        // Ensure length is exactly 8 characters after '0x' removal
+        if commit_prefix.len() != 8 {
+            return Err(
+                "Input must be exactly 8 characters long (excluding any '0x' prefix)".to_string(),
+            );
+        }
+
+        // Ensure all characters are valid hex digits
+        if commit_prefix.chars().all(|c| c.is_ascii_hexdigit()) {
+            Ok(CommitPrefix(commit_prefix.to_lowercase()))
+        } else {
+            Err("Input must contain only hexadecimal characters".to_string())
+        }
+    }
+}
+
+impl std::fmt::Display for CommitPrefix {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ClientVersionV1 {
+    pub code: ClientCode,
+    pub name: String,
+    pub version: String,
+    pub commit: CommitPrefix,
+}
+
+impl ClientVersionV1 {
+    pub fn calculate_graffiti(&self, lighthouse_commit_prefix: CommitPrefix) -> Graffiti {
+        let graffiti_string = format!(
+            "{}{}LH{}",
+            self.code,
+            self.commit
+                .0
+                .get(..4)
+                .map_or_else(|| self.commit.0.as_str(), |s| s)
+                .to_lowercase(),
+            lighthouse_commit_prefix
+                .0
+                .get(..4)
+                .unwrap_or("0000")
+                .to_lowercase(),
+        );
+        let mut graffiti_bytes = [0u8; GRAFFITI_BYTES_LEN];
+        let bytes_to_copy = std::cmp::min(graffiti_string.len(), GRAFFITI_BYTES_LEN);
+        graffiti_bytes[..bytes_to_copy]
+            .copy_from_slice(&graffiti_string.as_bytes()[..bytes_to_copy]);
+
+        Graffiti::from(graffiti_bytes)
     }
 }

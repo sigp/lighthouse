@@ -11,24 +11,24 @@ use lighthouse_network::{
 use slog::info;
 use types::EthSpec;
 
-pub async fn run<T: EthSpec>(
-    lh_matches: &ArgMatches<'_>,
-    bn_matches: &ArgMatches<'_>,
+pub async fn run<E: EthSpec>(
+    lh_matches: &ArgMatches,
+    bn_matches: &ArgMatches,
     eth2_network_config: &Eth2NetworkConfig,
     log: slog::Logger,
 ) -> Result<(), String> {
     // parse the CLI args into a useable config
-    let config: BootNodeConfig<T> = BootNodeConfig::new(bn_matches, eth2_network_config).await?;
+    let config: BootNodeConfig<E> = BootNodeConfig::new(bn_matches, eth2_network_config).await?;
 
     // Dump configs if `dump-config` or `dump-chain-config` flags are set
     let config_sz = BootNodeConfigSerialization::from_config_ref(&config);
-    clap_utils::check_dump_configs::<_, T>(
+    clap_utils::check_dump_configs::<_, E>(
         lh_matches,
         &config_sz,
-        &eth2_network_config.chain_spec::<T>()?,
+        &eth2_network_config.chain_spec::<E>()?,
     )?;
 
-    if lh_matches.is_present("immediate-shutdown") {
+    if lh_matches.get_flag("immediate-shutdown") {
         return Ok(());
     }
 

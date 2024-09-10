@@ -1,22 +1,22 @@
 //! Identifies each shard by an integer identifier.
-use crate::{AttestationData, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
+use crate::{AttestationRef, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
+use alloy_primitives::{bytes::Buf, U256};
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
+use std::sync::LazyLock;
 use swap_or_not_shuffle::compute_shuffled_index;
 
 const MAX_SUBNET_ID: usize = 64;
 
-lazy_static! {
-    static ref SUBNET_ID_TO_STRING: Vec<String> = {
-        let mut v = Vec::with_capacity(MAX_SUBNET_ID);
+static SUBNET_ID_TO_STRING: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let mut v = Vec::with_capacity(MAX_SUBNET_ID);
 
-        for i in 0..MAX_SUBNET_ID {
-            v.push(i.to_string());
-        }
-        v
-    };
-}
+    for i in 0..MAX_SUBNET_ID {
+        v.push(i.to_string());
+    }
+    v
+});
 
 #[derive(arbitrary::Arbitrary, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -37,16 +37,18 @@ impl SubnetId {
         id.into()
     }
 
-    /// Compute the subnet for an attestation with `attestation_data` where each slot in the
+    /// Compute the subnet for an attestation where each slot in the
     /// attestation epoch contains `committee_count_per_slot` committees.
-    pub fn compute_subnet_for_attestation_data<T: EthSpec>(
-        attestation_data: &AttestationData,
+    pub fn compute_subnet_for_attestation<E: EthSpec>(
+        attestation: AttestationRef<E>,
         committee_count_per_slot: u64,
         spec: &ChainSpec,
     ) -> Result<SubnetId, ArithError> {
-        Self::compute_subnet::<T>(
-            attestation_data.slot,
-            attestation_data.index,
+        let committee_index = attestation.committee_index().ok_or(ArithError::Overflow)?;
+
+        Self::compute_subnet::<E>(
+            attestation.data().slot,
+            committee_index,
             committee_count_per_slot,
             spec,
         )
@@ -55,13 +57,13 @@ impl SubnetId {
     /// Compute the subnet for an attestation with `attestation.data.slot == slot` and
     /// `attestation.data.index == committee_index` where each slot in the attestation epoch
     /// contains `committee_count_at_slot` committees.
-    pub fn compute_subnet<T: EthSpec>(
+    pub fn compute_subnet<E: EthSpec>(
         slot: Slot,
         committee_index: CommitteeIndex,
         committee_count_at_slot: u64,
         spec: &ChainSpec,
     ) -> Result<SubnetId, ArithError> {
-        let slots_since_epoch_start: u64 = slot.as_u64().safe_rem(T::slots_per_epoch())?;
+        let slots_since_epoch_start: u64 = slot.as_u64().safe_rem(E::slots_per_epoch())?;
 
         let committees_since_epoch_start =
             committee_count_at_slot.safe_mul(slots_since_epoch_start)?;
@@ -75,8 +77,8 @@ impl SubnetId {
     /// Computes the set of subnets the node should be subscribed to during the current epoch,
     /// along with the first epoch in which these subscriptions are no longer valid.
     #[allow(clippy::arithmetic_side_effects)]
-    pub fn compute_subnets_for_epoch<T: EthSpec>(
-        node_id: ethereum_types::U256,
+    pub fn compute_subnets_for_epoch<E: EthSpec>(
+        raw_node_id: [u8; 32],
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<(impl Iterator<Item = SubnetId>, Epoch), &'static str> {
@@ -84,10 +86,13 @@ impl SubnetId {
         let subscription_duration = spec.epochs_per_subnet_subscription;
         let prefix_bits = spec.attestation_subnet_prefix_bits as u64;
         let shuffling_prefix_bits = spec.attestation_subnet_shuffling_prefix_bits as u64;
+        let node_id = U256::from_be_slice(&raw_node_id);
 
         // calculate the prefixes used to compute the subnet and shuffling
-        let node_id_prefix = (node_id >> (256 - prefix_bits)).as_u64();
-        let shuffling_prefix = (node_id >> (256 - (prefix_bits + shuffling_prefix_bits))).as_u64();
+        let node_id_prefix = (node_id >> (256 - prefix_bits)).as_le_slice().get_u64_le();
+        let shuffling_prefix = (node_id >> (256 - (prefix_bits + shuffling_prefix_bits)))
+            .as_le_slice()
+            .get_u64_le();
 
         // number of groups the shuffling creates
         let shuffling_groups = 1 << shuffling_prefix_bits;
@@ -149,15 +154,15 @@ impl From<u64> for SubnetId {
     }
 }
 
-impl Into<u64> for SubnetId {
-    fn into(self) -> u64 {
-        self.0
+impl From<SubnetId> for u64 {
+    fn from(from: SubnetId) -> u64 {
+        from.0
     }
 }
 
-impl Into<u64> for &SubnetId {
-    fn into(self) -> u64 {
-        self.0
+impl From<&SubnetId> for u64 {
+    fn from(from: &SubnetId) -> u64 {
+        from.0
     }
 }
 
@@ -169,6 +174,8 @@ impl AsRef<str> for SubnetId {
 
 #[cfg(test)]
 mod tests {
+    use crate::Uint256;
+
     use super::*;
 
     /// A set of tests compared to the python specification
@@ -187,7 +194,7 @@ mod tests {
             "60930578857433095740782970114409273483106482059893286066493409689627770333527",
             "103822458477361691467064888613019442068586830412598673713899771287914656699997",
         ]
-        .map(|v| ethereum_types::U256::from_dec_str(v).unwrap());
+        .map(|v| Uint256::from_str_radix(v, 10).unwrap().to_be_bytes::<32>());
 
         let epochs = [
             54321u64, 1017090249, 1827566880, 846255942, 766597383, 1204990115, 1616209495,
@@ -221,7 +228,7 @@ mod tests {
         for x in 0..node_ids.len() {
             println!("Test: {}", x);
             println!(
-                "NodeId: {}\n Epoch: {}\n, expected_update_time: {}\n, expected_subnets: {:?}",
+                "NodeId: {:?}\n Epoch: {}\n, expected_update_time: {}\n, expected_subnets: {:?}",
                 node_ids[x], epochs[x], expected_valid_time[x], expected_subnets[x]
             );
 

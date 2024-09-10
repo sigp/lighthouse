@@ -1,4 +1,6 @@
-use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, Gossipsub, PeerId};
+use crate::discovery::enr::PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY;
+use crate::discovery::CombinedKey;
+use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Gossipsub, PeerId};
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use rand::seq::SliceRandom;
 use score::{PeerAction, ReportSource, Score, ScoreState};
@@ -11,7 +13,7 @@ use std::{
     fmt::Formatter,
 };
 use sync_status::SyncStatus;
-use types::EthSpec;
+use types::{ChainSpec, DataColumnSubnetId, EthSpec};
 
 pub mod client;
 pub mod peer_info;
@@ -32,9 +34,9 @@ const ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR: f32 = 0.1;
 const DIAL_TIMEOUT: u64 = 15;
 
 /// Storage of known peers, their reputation and information
-pub struct PeerDB<TSpec: EthSpec> {
+pub struct PeerDB<E: EthSpec> {
     /// The collection of known connected peers, their status and reputation
-    peers: HashMap<PeerId, PeerInfo<TSpec>>,
+    peers: HashMap<PeerId, PeerInfo<E>>,
     /// The number of disconnected nodes in the database.
     disconnected_peers: usize,
     /// Counts banned peers in total and per ip
@@ -45,7 +47,7 @@ pub struct PeerDB<TSpec: EthSpec> {
     log: slog::Logger,
 }
 
-impl<TSpec: EthSpec> PeerDB<TSpec> {
+impl<E: EthSpec> PeerDB<E> {
     pub fn new(trusted_peers: Vec<PeerId>, disable_peer_scoring: bool, log: &slog::Logger) -> Self {
         // Initialize the peers hashmap with trusted peers
         let peers = trusted_peers
@@ -72,7 +74,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Returns an iterator over all peers in the db.
-    pub fn peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo<TSpec>)> {
+    pub fn peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo<E>)> {
         self.peers.iter()
     }
 
@@ -82,14 +84,14 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Returns a peer's info, if known.
-    pub fn peer_info(&self, peer_id: &PeerId) -> Option<&PeerInfo<TSpec>> {
+    pub fn peer_info(&self, peer_id: &PeerId) -> Option<&PeerInfo<E>> {
         self.peers.get(peer_id)
     }
 
     /// Returns a mutable reference to a peer's info if known.
     // VISIBILITY: The peer manager is able to modify some elements of the peer info, such as sync
     // status.
-    pub(super) fn peer_info_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerInfo<TSpec>> {
+    pub(super) fn peer_info_mut(&mut self, peer_id: &PeerId) -> Option<&mut PeerInfo<E>> {
         self.peers.get_mut(peer_id)
     }
 
@@ -154,7 +156,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Checks if the peer's known addresses are currently banned.
-    fn ip_is_banned(&self, peer: &PeerInfo<TSpec>) -> Option<IpAddr> {
+    fn ip_is_banned(&self, peer: &PeerInfo<E>) -> Option<IpAddr> {
         peer.seen_ip_addresses()
             .find(|ip| self.banned_peers_count.ip_is_banned(ip))
     }
@@ -177,7 +179,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /// Gives the ids and info of all known connected peers.
-    pub fn connected_peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo<TSpec>)> {
+    pub fn connected_peers(&self) -> impl Iterator<Item = (&PeerId, &PeerInfo<E>)> {
         self.peers.iter().filter(|(_, info)| info.is_connected())
     }
 
@@ -245,6 +247,22 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .map(|(peer_id, _)| peer_id)
     }
 
+    /// Returns an iterator of all good gossipsub peers that are supposed to be custodying
+    /// the given subnet id.
+    pub fn good_custody_subnet_peer(
+        &self,
+        subnet: DataColumnSubnetId,
+    ) -> impl Iterator<Item = &PeerId> {
+        self.peers
+            .iter()
+            .filter(move |(_, info)| {
+                // The custody_subnets hashset can be populated via enr or metadata
+                let is_custody_subnet_peer = info.is_assigned_to_custody_subnet(&subnet);
+                info.is_connected() && info.is_good_gossipsub_peer() && is_custody_subnet_peer
+            })
+            .map(|(peer_id, _)| peer_id)
+    }
+
     /// Gives the ids of all known disconnected peers.
     pub fn disconnected_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers
@@ -271,7 +289,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Returns a vector of all connected peers sorted by score beginning with the worst scores.
     /// Ties get broken randomly.
-    pub fn worst_connected_peers(&self) -> Vec<(&PeerId, &PeerInfo<TSpec>)> {
+    pub fn worst_connected_peers(&self) -> Vec<(&PeerId, &PeerInfo<E>)> {
         let mut connected = self
             .peers
             .iter()
@@ -285,9 +303,9 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// Returns a vector containing peers (their ids and info), sorted by
     /// score from highest to lowest, and filtered using `is_status`
-    pub fn best_peers_by_status<F>(&self, is_status: F) -> Vec<(&PeerId, &PeerInfo<TSpec>)>
+    pub fn best_peers_by_status<F>(&self, is_status: F) -> Vec<(&PeerId, &PeerInfo<E>)>
     where
-        F: Fn(&PeerInfo<TSpec>) -> bool,
+        F: Fn(&PeerInfo<E>) -> bool,
     {
         let mut by_status = self
             .peers
@@ -301,7 +319,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     /// Returns the peer with highest reputation that satisfies `is_status`
     pub fn best_by_status<F>(&self, is_status: F) -> Option<&PeerId>
     where
-        F: Fn(&PeerInfo<TSpec>) -> bool,
+        F: Fn(&PeerInfo<E>) -> bool,
     {
         self.peers
             .iter()
@@ -671,6 +689,45 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         );
     }
 
+    /// Updates the connection state. MUST ONLY BE USED IN TESTS.
+    pub fn __add_connected_peer_testing_only(
+        &mut self,
+        supernode: bool,
+        spec: &ChainSpec,
+    ) -> PeerId {
+        let enr_key = CombinedKey::generate_secp256k1();
+        let mut enr = Enr::builder().build(&enr_key).unwrap();
+        let peer_id = enr.peer_id();
+
+        if supernode {
+            enr.insert(
+                PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY,
+                &spec.data_column_sidecar_subnet_count,
+                &enr_key,
+            )
+            .expect("u64 can be encoded");
+        }
+
+        self.update_connection_state(
+            &peer_id,
+            NewConnectionState::Connected {
+                enr: Some(enr),
+                seen_address: Multiaddr::empty(),
+                direction: ConnectionDirection::Outgoing,
+            },
+        );
+
+        if supernode {
+            let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
+            let all_subnets = (0..spec.data_column_sidecar_subnet_count)
+                .map(|csc| csc.into())
+                .collect();
+            peer_info.set_custody_subnets(all_subnets);
+        }
+
+        peer_id
+    }
+
     /// The connection state of the peer has been changed. Modify the peer in the db to ensure all
     /// variables are in sync with libp2p.
     /// Updating the state can lead to a `BanOperation` which needs to be processed via the peer
@@ -731,7 +788,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     seen_address,
                 },
             ) => {
-                // Update the ENR if one exists
+                // Update the ENR if one exists, and compute the custody subnets
                 if let Some(enr) = enr {
                     info.set_enr(enr);
                 }
@@ -1058,7 +1115,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     fn handle_score_transition(
         previous_state: ScoreState,
         peer_id: &PeerId,
-        info: &PeerInfo<TSpec>,
+        info: &PeerInfo<E>,
         log: &slog::Logger,
     ) -> ScoreTransitionResult {
         match (info.score_state(), previous_state) {
@@ -1251,7 +1308,6 @@ impl BannedPeersCount {
 mod tests {
     use super::*;
     use libp2p::core::multiaddr::Protocol;
-    use libp2p::core::Multiaddr;
     use slog::{o, Drain};
     use std::net::{Ipv4Addr, Ipv6Addr};
     use types::MinimalEthSpec;
@@ -1270,13 +1326,13 @@ mod tests {
         }
     }
 
-    fn add_score<TSpec: EthSpec>(db: &mut PeerDB<TSpec>, peer_id: &PeerId, score: f64) {
+    fn add_score<E: EthSpec>(db: &mut PeerDB<E>, peer_id: &PeerId, score: f64) {
         if let Some(info) = db.peer_info_mut(peer_id) {
             info.add_to_score(score);
         }
     }
 
-    fn reset_score<TSpec: EthSpec>(db: &mut PeerDB<TSpec>, peer_id: &PeerId) {
+    fn reset_score<E: EthSpec>(db: &mut PeerDB<E>, peer_id: &PeerId) {
         if let Some(info) = db.peer_info_mut(peer_id) {
             info.reset_score();
         }

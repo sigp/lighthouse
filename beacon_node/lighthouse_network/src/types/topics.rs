@@ -1,7 +1,7 @@
-use crate::gossipsub::{IdentTopic as Topic, TopicHash};
+use gossipsub::{IdentTopic as Topic, TopicHash};
 use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
-use types::{ChainSpec, EthSpec, ForkName, SubnetId, SyncSubnetId, Unsigned};
+use types::{ChainSpec, DataColumnSubnetId, EthSpec, ForkName, SubnetId, SyncSubnetId, Unsigned};
 
 use crate::Subnet;
 
@@ -14,6 +14,7 @@ pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
 pub const BEACON_AGGREGATE_AND_PROOF_TOPIC: &str = "beacon_aggregate_and_proof";
 pub const BEACON_ATTESTATION_PREFIX: &str = "beacon_attestation_";
 pub const BLOB_SIDECAR_PREFIX: &str = "blob_sidecar_";
+pub const DATA_COLUMN_SIDECAR_PREFIX: &str = "data_column_sidecar_";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
 pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
@@ -43,11 +44,11 @@ pub const LIGHT_CLIENT_GOSSIP_TOPICS: [GossipKind; 2] = [
 pub const DENEB_CORE_TOPICS: [GossipKind; 0] = [];
 
 /// Returns the core topics associated with each fork that are new to the previous fork
-pub fn fork_core_topics<T: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> Vec<GossipKind> {
+pub fn fork_core_topics<E: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> Vec<GossipKind> {
     match fork_name {
         ForkName::Base => BASE_CORE_TOPICS.to_vec(),
         ForkName::Altair => ALTAIR_CORE_TOPICS.to_vec(),
-        ForkName::Merge => vec![],
+        ForkName::Bellatrix => vec![],
         ForkName::Capella => CAPELLA_CORE_TOPICS.to_vec(),
         ForkName::Deneb => {
             // All of deneb blob topics are core topics
@@ -59,15 +60,16 @@ pub fn fork_core_topics<T: EthSpec>(fork_name: &ForkName, spec: &ChainSpec) -> V
             deneb_topics.append(&mut deneb_blob_topics);
             deneb_topics
         }
+        ForkName::Electra => vec![],
     }
 }
 
 /// Returns all the attestation and sync committee topics, for a given fork.
-pub fn attestation_sync_committee_topics<TSpec: EthSpec>() -> impl Iterator<Item = GossipKind> {
-    (0..TSpec::SubnetBitfieldLength::to_usize())
+pub fn attestation_sync_committee_topics<E: EthSpec>() -> impl Iterator<Item = GossipKind> {
+    (0..E::SubnetBitfieldLength::to_usize())
         .map(|subnet_id| GossipKind::Attestation(SubnetId::new(subnet_id as u64)))
         .chain(
-            (0..TSpec::SyncCommitteeSubnetCount::to_usize()).map(|sync_committee_id| {
+            (0..E::SyncCommitteeSubnetCount::to_usize()).map(|sync_committee_id| {
                 GossipKind::SyncCommitteeMessage(SyncSubnetId::new(sync_committee_id as u64))
             }),
         )
@@ -75,13 +77,13 @@ pub fn attestation_sync_committee_topics<TSpec: EthSpec>() -> impl Iterator<Item
 
 /// Returns all the topics that we need to subscribe to for a given fork
 /// including topics from older forks and new topics for the current fork.
-pub fn core_topics_to_subscribe<T: EthSpec>(
+pub fn core_topics_to_subscribe<E: EthSpec>(
     mut current_fork: ForkName,
     spec: &ChainSpec,
 ) -> Vec<GossipKind> {
-    let mut topics = fork_core_topics::<T>(&current_fork, spec);
+    let mut topics = fork_core_topics::<E>(&current_fork, spec);
     while let Some(previous_fork) = current_fork.previous_fork() {
-        let previous_fork_topics = fork_core_topics::<T>(&previous_fork, spec);
+        let previous_fork_topics = fork_core_topics::<E>(&previous_fork, spec);
         topics.extend(previous_fork_topics);
         current_fork = previous_fork;
     }
@@ -111,6 +113,8 @@ pub enum GossipKind {
     BeaconAggregateAndProof,
     /// Topic for publishing BlobSidecars.
     BlobSidecar(u64),
+    /// Topic for publishing DataColumnSidecars.
+    DataColumnSidecar(DataColumnSubnetId),
     /// Topic for publishing raw attestations on a particular subnet.
     #[strum(serialize = "beacon_attestation")]
     Attestation(SubnetId),
@@ -142,6 +146,9 @@ impl std::fmt::Display for GossipKind {
             }
             GossipKind::BlobSidecar(blob_index) => {
                 write!(f, "{}{}", BLOB_SIDECAR_PREFIX, blob_index)
+            }
+            GossipKind::DataColumnSidecar(column_index) => {
+                write!(f, "{}{}", DATA_COLUMN_SIDECAR_PREFIX, **column_index)
             }
             x => f.write_str(x.as_ref()),
         }
@@ -230,6 +237,7 @@ impl GossipTopic {
         match self.kind() {
             GossipKind::Attestation(subnet_id) => Some(Subnet::Attestation(*subnet_id)),
             GossipKind::SyncCommitteeMessage(subnet_id) => Some(Subnet::SyncCommittee(*subnet_id)),
+            GossipKind::DataColumnSidecar(subnet_id) => Some(Subnet::DataColumn(*subnet_id)),
             _ => None,
         }
     }
@@ -268,6 +276,9 @@ impl std::fmt::Display for GossipTopic {
             GossipKind::BlobSidecar(blob_index) => {
                 format!("{}{}", BLOB_SIDECAR_PREFIX, blob_index)
             }
+            GossipKind::DataColumnSidecar(index) => {
+                format!("{}{}", DATA_COLUMN_SIDECAR_PREFIX, *index)
+            }
             GossipKind::BlsToExecutionChange => BLS_TO_EXECUTION_CHANGE_TOPIC.into(),
             GossipKind::LightClientFinalityUpdate => LIGHT_CLIENT_FINALITY_UPDATE.into(),
             GossipKind::LightClientOptimisticUpdate => LIGHT_CLIENT_OPTIMISTIC_UPDATE.into(),
@@ -288,6 +299,7 @@ impl From<Subnet> for GossipKind {
         match subnet_id {
             Subnet::Attestation(s) => GossipKind::Attestation(s),
             Subnet::SyncCommittee(s) => GossipKind::SyncCommitteeMessage(s),
+            Subnet::DataColumn(s) => GossipKind::DataColumnSidecar(s),
         }
     }
 }
@@ -311,6 +323,10 @@ fn subnet_topic_index(topic: &str) -> Option<GossipKind> {
         )));
     } else if let Some(index) = topic.strip_prefix(BLOB_SIDECAR_PREFIX) {
         return Some(GossipKind::BlobSidecar(index.parse::<u64>().ok()?));
+    } else if let Some(index) = topic.strip_prefix(DATA_COLUMN_SIDECAR_PREFIX) {
+        return Some(GossipKind::DataColumnSidecar(DataColumnSubnetId::new(
+            index.parse::<u64>().ok()?,
+        )));
     }
     None
 }

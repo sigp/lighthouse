@@ -6,7 +6,7 @@ PRESET_BASE: 'mainnet'
 # Free-form short name of the network that this configuration applies to - known
 # canonical network names include:
 # * 'mainnet' - there can be only one
-# * 'prater' - testnet
+# * 'holesky' - testnet
 # Must match the regex: [a-z0-9\-]
 CONFIG_NAME: 'mainnet'
 
@@ -50,6 +50,11 @@ CAPELLA_FORK_EPOCH: 194048  # April 12, 2023, 10:27:35pm UTC
 # Deneb
 DENEB_FORK_VERSION: 0x04000000
 DENEB_FORK_EPOCH: 269568  # March 13, 2024, 01:55:35pm UTC
+# Electra
+ELECTRA_FORK_VERSION: 0x05000000
+ELECTRA_FORK_EPOCH: 18446744073709551615
+# PeerDAS
+EIP7594_FORK_EPOCH: 18446744073709551615
 
 
 # Time parameters
@@ -140,3 +145,8 @@ MAX_REQUEST_BLOB_SIDECARS: 768
 MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS: 4096
 # `6`
 BLOB_SIDECAR_SUBNET_COUNT: 6
+
+# DAS
+CUSTODY_REQUIREMENT: 4
+DATA_COLUMN_SIDECAR_SUBNET_COUNT: 128
+NUMBER_OF_COLUMNS: 128

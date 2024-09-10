@@ -9,7 +9,7 @@ use eth2::{
 };
 use log::{debug, error, info, warn};
 use std::collections::HashSet;
-use std::iter::FromIterator;
+use std::marker::PhantomData;
 use types::{BeaconBlockHeader, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 use crate::updater::{get_beacon_block, get_header, get_validators};
@@ -17,8 +17,8 @@ use crate::updater::{get_beacon_block, get_header, get_validators};
 const MAX_EXPECTED_REORG_LENGTH: u64 = 32;
 
 /// Ensure the existing database is valid for this run.
-pub async fn ensure_valid_database<T: EthSpec>(
-    spec: &WatchSpec<T>,
+pub async fn ensure_valid_database<E: EthSpec>(
+    spec: &WatchSpec<E>,
     pool: &mut PgPool,
 ) -> Result<(), Error> {
     let mut conn = database::get_connection(pool)?;
@@ -42,21 +42,21 @@ pub async fn ensure_valid_database<T: EthSpec>(
     }
 }
 
-pub struct UpdateHandler<T: EthSpec> {
+pub struct UpdateHandler<E: EthSpec> {
     pub pool: PgPool,
     pub bn: BeaconNodeHttpClient,
     pub blockprint: Option<WatchBlockprintClient>,
     pub config: Config,
     pub slots_per_epoch: u64,
-    pub spec: WatchSpec<T>,
+    pub _phantom: PhantomData<E>,
 }
 
-impl<T: EthSpec> UpdateHandler<T> {
+impl<E: EthSpec> UpdateHandler<E> {
     pub async fn new(
         bn: BeaconNodeHttpClient,
-        spec: WatchSpec<T>,
+        spec: WatchSpec<E>,
         config: FullConfig,
-    ) -> Result<UpdateHandler<T>, Error> {
+    ) -> Result<UpdateHandler<E>, Error> {
         let blockprint = if config.blockprint.enabled {
             if let Some(server) = config.blockprint.url {
                 let blockprint_url = SensitiveUrl::parse(&server).map_err(Error::SensitiveUrl)?;
@@ -85,7 +85,7 @@ impl<T: EthSpec> UpdateHandler<T> {
             blockprint,
             config: config.updater,
             slots_per_epoch: spec.slots_per_epoch(),
-            spec,
+            _phantom: PhantomData,
         })
     }
 
@@ -100,7 +100,7 @@ impl<T: EthSpec> UpdateHandler<T> {
         let mut conn = database::get_connection(&self.pool)?;
         let roots = database::get_unknown_canonical_blocks(&mut conn)?;
         for root in roots {
-            let block_opt: Option<SignedBeaconBlock<T>> =
+            let block_opt: Option<SignedBeaconBlock<E>> =
                 get_beacon_block(&self.bn, BlockId::Root(root.as_hash())).await?;
             if let Some(block) = block_opt {
                 database::insert_beacon_block(&mut conn, block, root)?;
@@ -112,14 +112,14 @@ impl<T: EthSpec> UpdateHandler<T> {
 
     /// Performs a head update with the following steps:
     /// 1. Pull the latest header from the beacon node and the latest canonical slot from the
-    /// database.
+    ///    database.
     /// 2. Loop back through the beacon node and database to find the first matching slot -> root
-    /// pair.
+    ///    pair.
     /// 3. Go back `MAX_EXPECTED_REORG_LENGTH` slots through the database ensuring it is
-    /// consistent with the beacon node. If a re-org occurs beyond this range, we cannot recover.
+    ///    consistent with the beacon node. If a re-org occurs beyond this range, we cannot recover.
     /// 4. Remove any invalid slots from the database.
     /// 5. Sync all blocks between the first valid block of the database and the head of the beacon
-    /// chain.
+    ///    chain.
     ///
     /// In the event there are no slots present in the database, it will sync from the head block
     /// block back to the first slot of the epoch.

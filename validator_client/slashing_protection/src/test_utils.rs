@@ -1,13 +1,10 @@
 use crate::*;
 use tempfile::{tempdir, TempDir};
-use types::{
-    test_utils::generate_deterministic_keypair, AttestationData, BeaconBlockHeader, Hash256,
-    PublicKeyBytes,
-};
+use types::{test_utils::generate_deterministic_keypair, AttestationData, BeaconBlockHeader};
 
 pub const DEFAULT_VALIDATOR_INDEX: usize = 0;
-pub const DEFAULT_DOMAIN: Hash256 = Hash256::zero();
-pub const DEFAULT_GENESIS_VALIDATORS_ROOT: Hash256 = Hash256::zero();
+pub const DEFAULT_DOMAIN: Hash256 = Hash256::ZERO;
+pub const DEFAULT_GENESIS_VALIDATORS_ROOT: Hash256 = Hash256::ZERO;
 
 pub fn pubkey(index: usize) -> PublicKeyBytes {
     generate_deterministic_keypair(index).pk.compress()

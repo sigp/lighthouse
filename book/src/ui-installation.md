@@ -1,105 +1,73 @@
 # 📦 Installation
 
-Siren runs on Linux, MacOS and Windows.
+Siren supports any operating system that supports container runtimes and/or NodeJS 18, this includes Linux, MacOS, and Windows. The recommended way of running Siren is by launching the [docker container](https://hub.docker.com/r/sigp/siren) , but running the application directly is also possible.
 
 ## Version Requirement
-The Siren app requires Lighthouse v3.5.1 or higher to function properly. These versions can be found on the [releases](https://github.com/sigp/lighthouse/releases) page of the Lighthouse repository.
 
-## Pre-Built Electron Packages
+To ensure proper functionality, the Siren app requires Lighthouse v4.3.0 or higher. You can find these versions on the [releases](https://github.com/sigp/lighthouse/releases) page of the Lighthouse repository.
 
-There are pre-compiled electron packages for each operating systems which can
-be downloaded and executed. These can be found on the
-[releases](https://github.com/sigp/siren/releases) page of the
-Siren repository.
+## Running the Docker container (Recommended)
 
-Simply download the package specific to your operating system and run it.
+The most convenient way to run Siren is to use the Docker images built and published by Sigma Prime.
+
+ They can be found on [Docker hub](https://hub.docker.com/r/sigp/siren/tags), or pulled directly with `docker pull sigp/siren`
+
+Configuration is done through environment variables, the easiest way to get started is by copying `.env.example` to `.env` and editing the relevant sections (typically, this would at least include adding `BEACON_URL`, `VALIDATOR_URL`, `API_TOKEN` and `SESSION_PASSWORD`)
+
+Then to run the image:
+
+`docker compose up`
+or
+`docker run --rm -ti --name siren -p 4443:443 --env-file $PWD/.env sigp/siren`
+
+This command will open port 4443, allowing your browser to connect.
+
+To start Siren, visit `https://localhost:4443` in your web browser.
+
+Advanced users can mount their own certificates, see the `SSL Certificates` section below
 
 ## Building From Source
 
-### Requirements
+### Docker
 
-Building from source requires `Node v18` and `yarn`.
+The docker image can be built with the following command:
+`docker build -f Dockerfile -t siren .`
 
-### Building From Source
+### Building locally
 
-The electron app can be built from source by first cloning the repository and
-entering the directory:
+To build from source, ensure that your system has `Node v18.18` and `yarn` installed.
 
-```
-$ git clone https://github.com/sigp/siren.git
-$ cd siren
-```
+#### Build and run the backend
 
-Once cloned, the electron app can be built and ran via the Makefile by:
+Navigate to the backend directory `cd backend`. Install all required Node packages by running `yarn`. Once the installation is complete, compile the backend with `yarn build`. Deploy the backend in a production environment, `yarn start:production`. This ensures optimal performance.
 
-```
-$ make
-```
+#### Build and run the frontend
 
-alternatively it can be built via:
+After initializing the backend, return to the root directory. Install all frontend dependencies by executing `yarn`. Build the frontend using `yarn build`. Start the frontend production server with `yarn start`.
 
-```
-$ yarn
-```
+This will allow you to access siren at `http://localhost:3000` by default.
 
-Once completed successfully the electron app can be run via:
+## Advanced configuration
 
-```
-$ yarn dev
-```
+### About self-signed SSL certificates
 
-### Running In The Browser
+By default, Siren will generate and use a self-signed certificate on startup.
+This will generate a security warning when you try to access the interface.
+We recommend to only disable SSL if you would access Siren over a local LAN or otherwise highly trusted or encrypted network (i.e. VPN).
 
-#### Docker (Recommended)
+#### Generating persistent SSL certificates and installing them to your system
 
-Docker is the recommended way to run a webserver that hosts Siren and can be
-connected to via a web browser. We recommend this method as it establishes a
-production-grade web-server to host the application.
+[mkcert](https://github.com/FiloSottile/mkcert) is a tool that makes it super easy to generate a self-signed certificate that is trusted by your browser.
 
-`docker` is required to be installed with the service running.
+To use it for `siren`, install it following the instructions. Then, run `mkdir certs; mkcert -cert-file certs/cert.pem -key-file certs/key.pem 127.0.0.1 localhost` (add or replace any IP or hostname that you would use to access it at the end of this command)
 
-The docker image can be built and run via the Makefile by running:
-```
-$ make docker
-```
+The nginx SSL config inside Siren's container expects 3 files: `/certs/cert.pem` `/certs/key.pem` `/certs/key.pass`. If `/certs/cert.pem` does not exist, it will generate a self-signed certificate as mentioned above. If `/certs/cert.pem` does exist, it will attempt to use your provided or persisted certificates.
 
-Alternatively, to run with Docker, the image needs to be built. From the repository directory
-run:
-```
-$ docker build -t siren .
-```
+### Configuration through environment variables
 
-Then to run the image:
-```
-$ docker run --rm -ti --name siren -p 80:80 siren
-```
+For those who prefer to use environment variables to configure Siren instead of using an `.env` file, this is fully supported. In some cases this may even be preferred.
 
-This will open port 80 and allow your browser to connect. You can choose
-another local port by modifying the command. For example `-p 8000:80` will open
-port 8000.
+#### Docker installed through `snap`
 
-To view Siren, simply go to `http://localhost` in your web browser.
-
-#### Development Server
-
-A development server can also be built which will expose a local port 3000 via:
-```
-$ yarn start
-```
-
-Once executed, you can direct your web browser to the following URL to interact
-with the app:
-```
-http://localhost:3000
-```
-
-A production version of the app can be built via
-```
-$ yarn build
-```
-and then further hosted via a production web server.
-
-### Known Issues
-
-If you experience any issues in running the UI please create an issue on the
-[Lighthouse UI](https://github.com/sigp/lighthouse-ui) repository.
+If you installed Docker through a snap (i.e. on Ubuntu), Docker will have trouble accessing the `.env` file. In this case it is highly recommended to pass the config to the container with environment variables.
+Note that the defaults in `.env.example` will be used as fallback, if no other value is provided.

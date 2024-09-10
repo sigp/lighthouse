@@ -6,7 +6,6 @@ use crate::{
 use parking_lot::RwLock;
 use proto_array::Block as ProtoBlock;
 use std::sync::Arc;
-use types::blob_sidecar::BlobSidecarList;
 use types::*;
 
 pub struct CacheItem<E: EthSpec> {
@@ -23,6 +22,7 @@ pub struct CacheItem<E: EthSpec> {
      */
     block: Arc<SignedBeaconBlock<E>>,
     blobs: Option<BlobSidecarList<E>>,
+    data_columns: Option<DataColumnSidecarList<E>>,
     proto_block: ProtoBlock,
 }
 
@@ -70,7 +70,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             },
         };
 
-        let (_, block, blobs) = block.deconstruct();
+        let (_, block, blobs, data_columns) = block.deconstruct();
         let item = CacheItem {
             epoch,
             committee_lengths,
@@ -79,6 +79,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             target,
             block,
             blobs,
+            data_columns,
             proto_block,
         };
 
@@ -123,18 +124,16 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             item.committee_lengths
                 .get_committee_length::<E>(request_slot, request_index, spec)?;
 
-        let attestation = Attestation {
-            aggregation_bits: BitList::with_capacity(committee_len)
-                .map_err(BeaconStateError::from)?,
-            data: AttestationData {
-                slot: request_slot,
-                index: request_index,
-                beacon_block_root: item.beacon_block_root,
-                source: item.source,
-                target: item.target,
-            },
-            signature: AggregateSignature::empty(),
-        };
+        let attestation = Attestation::empty_for_signing(
+            request_index,
+            committee_len,
+            request_slot,
+            item.beacon_block_root,
+            item.source,
+            item.target,
+            spec,
+        )
+        .map_err(Error::AttestationError)?;
 
         metrics::inc_counter(&metrics::BEACON_EARLY_ATTESTER_CACHE_HITS);
 
@@ -165,6 +164,15 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             .as_ref()
             .filter(|item| item.beacon_block_root == block_root)
             .and_then(|item| item.blobs.clone())
+    }
+
+    /// Returns the data columns, if `block_root` matches the cached item.
+    pub fn get_data_columns(&self, block_root: Hash256) -> Option<DataColumnSidecarList<E>> {
+        self.item
+            .read()
+            .as_ref()
+            .filter(|item| item.beacon_block_root == block_root)
+            .and_then(|item| item.data_columns.clone())
     }
 
     /// Returns the proto-array block, if `block_root` matches the cached item.

@@ -4,20 +4,21 @@ use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{types::StateId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use eth2_network_config::Eth2NetworkConfig;
+use log::info;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use types::{BeaconState, EthSpec};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
-pub fn run<T: EthSpec>(
-    env: Environment<T>,
+pub fn run<E: EthSpec>(
+    env: Environment<E>,
     network_config: Eth2NetworkConfig,
     matches: &ArgMatches,
 ) -> Result<(), String> {
     let executor = env.core_context().executor;
 
-    let spec = &network_config.chain_spec::<T>()?;
+    let spec = &network_config.chain_spec::<E>()?;
 
     let state_path: Option<PathBuf> = parse_optional(matches, "state-path")?;
     let beacon_url: Option<SensitiveUrl> = parse_optional(matches, "beacon-url")?;
@@ -26,7 +27,7 @@ pub fn run<T: EthSpec>(
     info!(
         "Using {} network ({} spec)",
         spec.config_name.as_deref().unwrap_or("unknown"),
-        T::spec_name()
+        E::spec_name()
     );
     info!("Doing {} runs", runs);
 
@@ -43,7 +44,7 @@ pub fn run<T: EthSpec>(
                 .ok_or("shutdown in progress")?
                 .block_on(async move {
                     client
-                        .get_debug_beacon_states::<T>(state_id)
+                        .get_debug_beacon_states::<E>(state_id)
                         .await
                         .map_err(|e| format!("Failed to download state: {:?}", e))
                 })

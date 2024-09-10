@@ -11,12 +11,9 @@ sloggers = { workspace = true }
 environment = { workspace = true }
 
 [dependencies]
-reqwest = { workspace = true }
 execution_layer = { workspace = true }
 futures = { workspace = true }
-serde_json = { workspace = true }
 serde = { workspace = true }
-hex = { workspace = true }
 types = { workspace = true }
 merkle_proof = { workspace = true }
 ethereum_ssz = { workspace = true }
@@ -24,11 +21,11 @@ ethereum_ssz_derive = { workspace = true }
 tree_hash = { workspace = true }
 parking_lot = { workspace = true }
 slog = { workspace = true }
+logging = { workspace = true }
 superstruct = { workspace = true }
 tokio = { workspace = true }
 state_processing = { workspace = true }
 lighthouse_metrics = { workspace = true }
-lazy_static = { workspace = true }
 task_executor = { workspace = true }
 eth2 = { workspace = true }
 sensitive_url = { workspace = true }

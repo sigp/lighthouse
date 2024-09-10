@@ -29,6 +29,6 @@ Simply run `./account_manager generate` to generate a new random private key,
 which will be automatically saved to the correct directory.
 
 If you prefer to use our "deterministic" keys for testing purposes, simply
-run `./accounts_manager generate_deterministic -i <index>`, where `index` is
+run `./account_manager generate_deterministic -i <index>`, where `index` is
 the validator index for the key. This will reliably produce the same key each time
 and save it to the directory.

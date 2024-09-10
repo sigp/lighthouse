@@ -16,27 +16,23 @@
 //!
 //! This implementation passes the [reference implementation
 //! tests](https://github.com/ethereum/eth2.0-pm/blob/6e41fcf383ebeb5125938850d8e9b4e9888389b4/interop/mocked_start/keygen_test_vector.yaml).
-#[macro_use]
-extern crate lazy_static;
-
 use bls::{Keypair, PublicKey, SecretKey};
 use ethereum_hashing::hash;
 use num_bigint::BigUint;
 use serde::{Deserialize, Serialize};
-use std::convert::TryInto;
 use std::fs::File;
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 pub const PRIVATE_KEY_BYTES: usize = 32;
 pub const PUBLIC_KEY_BYTES: usize = 48;
 pub const HASH_BYTES: usize = 32;
 
-lazy_static! {
-    static ref CURVE_ORDER: BigUint =
-        "52435875175126190479447740508185965837690552500527637822603658699938581184513"
-            .parse::<BigUint>()
-            .expect("Curve order should be valid");
-}
+static CURVE_ORDER: LazyLock<BigUint> = LazyLock::new(|| {
+    "52435875175126190479447740508185965837690552500527637822603658699938581184513"
+        .parse::<BigUint>()
+        .expect("Curve order should be valid")
+});
 
 /// Return a G1 point for the given `validator_index`, encoded as a compressed point in
 /// big-endian byte-ordering.

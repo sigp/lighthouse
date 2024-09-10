@@ -1,9 +1,14 @@
 use std::sync::Arc;
 
 use libp2p::swarm::ConnectionId;
-use types::{BlobSidecar, EthSpec, LightClientBootstrap, SignedBeaconBlock};
+use types::{
+    BlobSidecar, DataColumnSidecar, EthSpec, Hash256, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, SignedBeaconBlock,
+};
 
-use crate::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
+use crate::rpc::methods::{
+    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
+};
 use crate::rpc::{
     methods::{
         BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest,
@@ -16,10 +21,75 @@ use crate::rpc::{
 /// Identifier of requests sent by a peer.
 pub type PeerRequestId = (ConnectionId, SubstreamId);
 
-/// Identifier of a request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RequestId<AppReqId> {
-    Application(AppReqId),
+pub type Id = u32;
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct SingleLookupReqId {
+    pub lookup_id: Id,
+    pub req_id: Id,
+}
+
+/// Request ID for data_columns_by_root requests. Block lookup do not issue this requests directly.
+/// Wrapping this particular req_id, ensures not mixing this requests with a custody req_id.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct DataColumnsByRootRequestId(pub Id);
+
+/// Id of rpc requests sent by sync to the network.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum SyncRequestId {
+    /// Request searching for a block given a hash.
+    SingleBlock { id: SingleLookupReqId },
+    /// Request searching for a set of blobs given a hash.
+    SingleBlob { id: SingleLookupReqId },
+    /// Request searching for a set of data columns given a hash and list of column indices.
+    DataColumnsByRoot(DataColumnsByRootRequestId, DataColumnsByRootRequester),
+    /// Range request that is composed by both a block range request and a blob range request.
+    RangeBlockAndBlobs { id: Id },
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum DataColumnsByRootRequester {
+    Sampling(SamplingId),
+    Custody(CustodyId),
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct SamplingId {
+    pub id: SamplingRequester,
+    pub sampling_request_id: SamplingRequestId,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum SamplingRequester {
+    ImportedBlock(Hash256),
+}
+
+/// Identifier of sampling requests.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct SamplingRequestId(pub usize);
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct CustodyId {
+    pub requester: CustodyRequester,
+    pub req_id: Id,
+}
+
+/// Downstream components that perform custody by root requests.
+/// Currently, it's only single block lookups, so not using an enum
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct CustodyRequester(pub SingleLookupReqId);
+
+/// Application level requests sent to the network.
+#[derive(Debug, Clone, Copy)]
+pub enum AppRequestId {
+    Sync(SyncRequestId),
+    Router,
+}
+
+/// Global identifier of a request.
+#[derive(Debug, Clone, Copy)]
+pub enum RequestId {
+    Application(AppRequestId),
     Internal,
 }
 
@@ -40,12 +110,20 @@ pub enum Request {
     BlocksByRoot(BlocksByRootRequest),
     // light client bootstrap request
     LightClientBootstrap(LightClientBootstrapRequest),
+    // light client optimistic update request
+    LightClientOptimisticUpdate,
+    // light client finality update request
+    LightClientFinalityUpdate,
     /// A request blobs root request.
     BlobsByRoot(BlobsByRootRequest),
+    /// A request data columns root request.
+    DataColumnsByRoot(DataColumnsByRootRequest),
+    /// A request data columns by range request.
+    DataColumnsByRange(DataColumnsByRangeRequest),
 }
 
-impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
-    fn from(req: Request) -> OutboundRequest<TSpec> {
+impl<E: EthSpec> std::convert::From<Request> for OutboundRequest<E> {
+    fn from(req: Request) -> OutboundRequest<E> {
         match req {
             Request::BlocksByRoot(r) => OutboundRequest::BlocksByRoot(r),
             Request::BlocksByRange(r) => match r {
@@ -64,11 +142,15 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
                     }),
                 ),
             },
-            Request::LightClientBootstrap(_) => {
+            Request::LightClientBootstrap(_)
+            | Request::LightClientOptimisticUpdate
+            | Request::LightClientFinalityUpdate => {
                 unreachable!("Lighthouse never makes an outbound light client request")
             }
             Request::BlobsByRange(r) => OutboundRequest::BlobsByRange(r),
             Request::BlobsByRoot(r) => OutboundRequest::BlobsByRoot(r),
+            Request::DataColumnsByRoot(r) => OutboundRequest::DataColumnsByRoot(r),
+            Request::DataColumnsByRange(r) => OutboundRequest::DataColumnsByRange(r),
             Request::Status(s) => OutboundRequest::Status(s),
         }
     }
@@ -81,23 +163,31 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
 //       Behaviour. For all protocol reponses managed by RPC see `RPCResponse` and
 //       `RPCCodedResponse`.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Response<TSpec: EthSpec> {
+pub enum Response<E: EthSpec> {
     /// A Status message.
     Status(StatusMessage),
     /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
-    BlocksByRange(Option<Arc<SignedBeaconBlock<TSpec>>>),
+    BlocksByRange(Option<Arc<SignedBeaconBlock<E>>>),
     /// A response to a get BLOBS_BY_RANGE request. A None response signals the end of the batch.
-    BlobsByRange(Option<Arc<BlobSidecar<TSpec>>>),
+    BlobsByRange(Option<Arc<BlobSidecar<E>>>),
+    /// A response to a get DATA_COLUMN_SIDECARS_BY_Range request.
+    DataColumnsByRange(Option<Arc<DataColumnSidecar<E>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
-    BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
+    BlocksByRoot(Option<Arc<SignedBeaconBlock<E>>>),
     /// A response to a get BLOBS_BY_ROOT request.
-    BlobsByRoot(Option<Arc<BlobSidecar<TSpec>>>),
+    BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
+    /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
+    DataColumnsByRoot(Option<Arc<DataColumnSidecar<E>>>),
     /// A response to a LightClientUpdate request.
-    LightClientBootstrap(LightClientBootstrap<TSpec>),
+    LightClientBootstrap(Arc<LightClientBootstrap<E>>),
+    /// A response to a LightClientOptimisticUpdate request.
+    LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<E>>),
+    /// A response to a LightClientFinalityUpdate request.
+    LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
 }
 
-impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {
-    fn from(resp: Response<TSpec>) -> RPCCodedResponse<TSpec> {
+impl<E: EthSpec> std::convert::From<Response<E>> for RPCCodedResponse<E> {
+    fn from(resp: Response<E>) -> RPCCodedResponse<E> {
         match resp {
             Response::BlocksByRoot(r) => match r {
                 Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRoot(b)),
@@ -115,15 +205,31 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
                 Some(b) => RPCCodedResponse::Success(RPCResponse::BlobsByRange(b)),
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::BlobsByRange),
             },
+            Response::DataColumnsByRoot(r) => match r {
+                Some(d) => RPCCodedResponse::Success(RPCResponse::DataColumnsByRoot(d)),
+                None => RPCCodedResponse::StreamTermination(ResponseTermination::DataColumnsByRoot),
+            },
+            Response::DataColumnsByRange(r) => match r {
+                Some(d) => RPCCodedResponse::Success(RPCResponse::DataColumnsByRange(d)),
+                None => {
+                    RPCCodedResponse::StreamTermination(ResponseTermination::DataColumnsByRange)
+                }
+            },
             Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
             Response::LightClientBootstrap(b) => {
                 RPCCodedResponse::Success(RPCResponse::LightClientBootstrap(b))
+            }
+            Response::LightClientOptimisticUpdate(o) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientOptimisticUpdate(o))
+            }
+            Response::LightClientFinalityUpdate(f) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientFinalityUpdate(f))
             }
         }
     }
 }
 
-impl<AppReqId: std::fmt::Debug> slog::Value for RequestId<AppReqId> {
+impl slog::Value for RequestId {
     fn serialize(
         &self,
         record: &slog::Record,
@@ -136,5 +242,11 @@ impl<AppReqId: std::fmt::Debug> slog::Value for RequestId<AppReqId> {
                 slog::Value::serialize(&format_args!("{:?}", id), record, key, serializer)
             }
         }
+    }
+}
+
+impl std::fmt::Display for DataColumnsByRootRequestId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }

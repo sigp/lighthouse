@@ -1,21 +1,21 @@
 use crate::{
-    json_structures::JsonWithdrawal,
+    json_structures::{EncodableJsonWithdrawal, JsonWithdrawal},
     keccak::{keccak256, KeccakHasher},
 };
-use ethers_core::utils::rlp::RlpStream;
+use alloy_rlp::Encodable;
 use keccak_hash::KECCAK_EMPTY_LIST_RLP;
 use triehash::ordered_trie_root;
 use types::{
-    map_execution_block_header_fields_base, Address, EthSpec, ExecutionBlockHash,
-    ExecutionBlockHeader, ExecutionPayloadRef, Hash256, Hash64, Uint256,
+    EncodableExecutionBlockHeader, EthSpec, ExecutionBlockHash, ExecutionBlockHeader,
+    ExecutionPayloadRef, Hash256,
 };
 
 /// Calculate the block hash of an execution block.
 ///
 /// Return `(block_hash, transactions_root)`, where `transactions_root` is the root of the RLP
 /// transactions.
-pub fn calculate_execution_block_hash<T: EthSpec>(
-    payload: ExecutionPayloadRef<T>,
+pub fn calculate_execution_block_hash<E: EthSpec>(
+    payload: ExecutionPayloadRef<E>,
     parent_beacon_block_root: Option<Hash256>,
 ) -> (ExecutionBlockHash, Hash256) {
     // Calculate the transactions root.
@@ -60,36 +60,16 @@ pub fn calculate_execution_block_hash<T: EthSpec>(
 
 /// RLP encode a withdrawal.
 pub fn rlp_encode_withdrawal(withdrawal: &JsonWithdrawal) -> Vec<u8> {
-    let mut rlp_stream = RlpStream::new();
-    rlp_stream.begin_list(4);
-    rlp_stream.append(&withdrawal.index);
-    rlp_stream.append(&withdrawal.validator_index);
-    rlp_stream.append(&withdrawal.address);
-    rlp_stream.append(&withdrawal.amount);
-    rlp_stream.out().into()
+    let mut out: Vec<u8> = vec![];
+    EncodableJsonWithdrawal::from(withdrawal).encode(&mut out);
+    out
 }
 
 /// RLP encode an execution block header.
 pub fn rlp_encode_block_header(header: &ExecutionBlockHeader) -> Vec<u8> {
-    let mut rlp_header_stream = RlpStream::new();
-    rlp_header_stream.begin_unbounded_list();
-    map_execution_block_header_fields_base!(&header, |_, field| {
-        rlp_header_stream.append(field);
-    });
-    if let Some(withdrawals_root) = &header.withdrawals_root {
-        rlp_header_stream.append(withdrawals_root);
-    }
-    if let Some(blob_gas_used) = &header.blob_gas_used {
-        rlp_header_stream.append(blob_gas_used);
-    }
-    if let Some(excess_blob_gas) = &header.excess_blob_gas {
-        rlp_header_stream.append(excess_blob_gas);
-    }
-    if let Some(parent_beacon_block_root) = &header.parent_beacon_block_root {
-        rlp_header_stream.append(parent_beacon_block_root);
-    }
-    rlp_header_stream.finalize_unbounded_list();
-    rlp_header_stream.out().into()
+    let mut out: Vec<u8> = vec![];
+    EncodableExecutionBlockHeader::from(header).encode(&mut out);
+    out
 }
 
 #[cfg(test)]
@@ -97,6 +77,7 @@ mod test {
     use super::*;
     use hex::FromHex;
     use std::str::FromStr;
+    use types::{Address, Hash256, Hash64, Uint256};
 
     fn test_rlp_encoding(
         header: &ExecutionBlockHeader,
@@ -124,15 +105,15 @@ mod test {
             transactions_root: Hash256::from_str("50f738580ed699f0469702c7ccc63ed2e51bc034be9479b7bff4e68dee84accf").unwrap(),
             receipts_root: Hash256::from_str("29b0562f7140574dd0d50dee8a271b22e1a0a7b78fca58f7c60370d8317ba2a9").unwrap(),
             logs_bloom: <[u8; 256]>::from_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000").unwrap().into(),
-            difficulty: 0x020000.into(),
-            number: 0x01_u64.into(),
-            gas_limit: 0x016345785d8a0000_u64.into(),
-            gas_used: 0x015534_u64.into(),
+            difficulty: Uint256::from(0x020000),
+            number: Uint256::from(0x01_u64),
+            gas_limit: Uint256::from(0x016345785d8a0000_u64),
+            gas_used: Uint256::from(0x015534_u64),
             timestamp: 0x079e,
             extra_data: vec![0x42],
             mix_hash: Hash256::from_str("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
-            nonce: Hash64::zero(),
-            base_fee_per_gas: 0x036b_u64.into(),
+            nonce: Hash64::ZERO,
+            base_fee_per_gas: Uint256::from(0x036b_u64),
             withdrawals_root: None,
             blob_gas_used: None,
             excess_blob_gas: None,
@@ -146,7 +127,7 @@ mod test {
     }
 
     #[test]
-    fn test_rlp_encode_merge_block() {
+    fn test_rlp_encode_bellatrix_block() {
         let header = ExecutionBlockHeader {
             parent_hash: Hash256::from_str("927ca537f06c783a3a2635b8805eef1c8c2124f7444ad4a3389898dd832f2dbe").unwrap(),
             ommers_hash: Hash256::from_str("1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347").unwrap(),
@@ -155,15 +136,15 @@ mod test {
             transactions_root: Hash256::from_str("50f738580ed699f0469702c7ccc63ed2e51bc034be9479b7bff4e68dee84accf").unwrap(),
             receipts_root: Hash256::from_str("29b0562f7140574dd0d50dee8a271b22e1a0a7b78fca58f7c60370d8317ba2a9").unwrap(),
             logs_bloom: <[u8; 256]>::from_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000").unwrap().into(),
-            difficulty: 0x00.into(),
-            number: 0x01_u64.into(),
-            gas_limit: 0x016345785d8a0000_u64.into(),
-            gas_used: 0x015534_u64.into(),
+            difficulty: Uint256::from(0x00),
+            number: Uint256::from(0x01_u64),
+            gas_limit: Uint256::from(0x016345785d8a0000_u64),
+            gas_used: Uint256::from(0x015534_u64),
             timestamp: 0x079e,
             extra_data: vec![0x42],
             mix_hash: Hash256::from_str("0000000000000000000000000000000000000000000000000000000000020000").unwrap(),
-            nonce: Hash64::zero(),
-            base_fee_per_gas: 0x036b_u64.into(),
+            nonce: Hash64::ZERO,
+            base_fee_per_gas: Uint256::from(0x036b_u64),
             withdrawals_root: None,
             blob_gas_used: None,
             excess_blob_gas: None,
@@ -187,15 +168,15 @@ mod test {
             transactions_root: Hash256::from_str("0223f0cb35f184d2ac409e89dc0768ad738f777bd1c85d3302ca50f307180c94").unwrap(),
             receipts_root: Hash256::from_str("371c76821b1cc21232574604eac5349d51647eb530e2a45d4f6fe2c501351aa5").unwrap(),
             logs_bloom: <[u8; 256]>::from_hex("1a2c559955848d2662a0634cb40c7a6192a1524f11061203689bcbcdec901b054084d4f4d688009d24c10918e0089b48e72fe2d7abafb903889d10c3827c6901096612d259801b1b7ba1663a4201f5f88f416a9997c55bcc2c54785280143b057a008764c606182e324216822a2d5913e797a05c16cc1468d001acf3783b18e00e0203033e43106178db554029e83ca46402dc49d929d7882a04a0e7215041bdabf7430bd10ef4bb658a40f064c63c4816660241c2480862f26742fdf9ca41637731350301c344e439428182a03e384484e6d65d0c8a10117c6739ca201b60974519a1ae6b0c3966c0f650b449d10eae065dab2c83ab4edbab5efdea50bbc801").unwrap().into(),
-            difficulty: 0.into(),
-            number: 16182891.into(),
-            gas_limit: 0x1c9c380.into(),
-            gas_used: 0xe9b752.into(),
+            difficulty: Uint256::ZERO,
+            number: Uint256::from(16182891),
+            gas_limit: Uint256::from(0x1c9c380),
+            gas_used: Uint256::from(0xe9b752),
             timestamp: 0x6399bf63,
             extra_data: hex::decode("496c6c756d696e61746520446d6f63726174697a6520447374726962757465").unwrap(),
             mix_hash: Hash256::from_str("bf5289894b2ceab3549f92f063febbac896b280ddb18129a57cff13113c11b13").unwrap(),
-            nonce: Hash64::zero(),
-            base_fee_per_gas: 0x34187b238_u64.into(),
+            nonce: Hash64::ZERO,
+            base_fee_per_gas: Uint256::from(0x34187b238_u64),
             withdrawals_root: None,
             blob_gas_used: None,
             excess_blob_gas: None,
@@ -217,15 +198,45 @@ mod test {
             transactions_root: Hash256::from_str("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
             receipts_root: Hash256::from_str("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
             logs_bloom:<[u8; 256]>::from_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000").unwrap().into(),
-            difficulty: 0.into(),
-            number: 97.into(),
-            gas_limit: 27482534.into(),
-            gas_used: 0.into(),
+            difficulty: Uint256::ZERO,
+            number: Uint256::from(97),
+            gas_limit: Uint256::from(27482534),
+            gas_used: Uint256::ZERO,
             timestamp: 1692132829u64,
             extra_data: hex::decode("d883010d00846765746888676f312e32302e37856c696e7578").unwrap(),
             mix_hash: Hash256::from_str("0b493c22d2ad4ca76c77ae6ad916af429b42b1dc98fdcb8e5ddbd049bbc5d623").unwrap(),
-            nonce: Hash64::zero(),
-            base_fee_per_gas: 2374u64.into(),
+            nonce: Hash64::ZERO,
+            base_fee_per_gas: Uint256::from(2374u64),
+            withdrawals_root: Some(Hash256::from_str("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap()),
+            blob_gas_used: Some(0x0u64),
+            excess_blob_gas: Some(0x0u64),
+            parent_beacon_block_root: Some(Hash256::from_str("f7d327d2c04e4f12e9cdd492e53d39a1d390f8b1571e3b2a22ac6e1e170e5b1a").unwrap()),
+        };
+        let expected_hash =
+            Hash256::from_str("a7448e600ead0a23d16f96aa46e8dea9eef8a7c5669a5f0a5ff32709afe9c408")
+                .unwrap();
+        test_rlp_encoding(&header, None, expected_hash);
+    }
+
+    #[test]
+    fn test_rlp_encode_block_electra() {
+        let header = ExecutionBlockHeader {
+            parent_hash: Hash256::from_str("172864416698b842f4c92f7b476be294b4ef720202779df194cd225f531053ab").unwrap(),
+            ommers_hash: Hash256::from_str("1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347").unwrap(),
+            beneficiary: Address::from_str("878705ba3f8bc32fcf7f4caa1a35e72af65cf766").unwrap(),
+            state_root: Hash256::from_str("c6457d0df85c84c62d1c68f68138b6e796e8a44fb44de221386fb2d5611c41e0").unwrap(),
+            transactions_root: Hash256::from_str("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
+            receipts_root: Hash256::from_str("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
+            logs_bloom:<[u8; 256]>::from_hex("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000").unwrap().into(),
+            difficulty: Uint256::ZERO,
+            number: Uint256::from(97),
+            gas_limit: Uint256::from(27482534),
+            gas_used: Uint256::ZERO,
+            timestamp: 1692132829u64,
+            extra_data: hex::decode("d883010d00846765746888676f312e32302e37856c696e7578").unwrap(),
+            mix_hash: Hash256::from_str("0b493c22d2ad4ca76c77ae6ad916af429b42b1dc98fdcb8e5ddbd049bbc5d623").unwrap(),
+            nonce: Hash64::ZERO,
+            base_fee_per_gas: Uint256::from(2374u64),
             withdrawals_root: Some(Hash256::from_str("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap()),
             blob_gas_used: Some(0x0u64),
             excess_blob_gas: Some(0x0u64),

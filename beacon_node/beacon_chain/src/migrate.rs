@@ -14,8 +14,8 @@ use store::iter::RootsIterator;
 use store::{Error, ItemStore, StoreItem, StoreOp};
 pub use store::{HotColdDB, MemoryStore};
 use types::{
-    BeaconState, BeaconStateError, BeaconStateHash, Checkpoint, Epoch, EthSpec, Hash256,
-    SignedBeaconBlockHash, Slot,
+    BeaconState, BeaconStateError, BeaconStateHash, Checkpoint, Epoch, EthSpec, FixedBytesExtended,
+    Hash256, SignedBeaconBlockHash, Slot,
 };
 
 /// Compact at least this frequently, finalization permitting (7 days).
@@ -703,6 +703,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         ));
 
         store.do_atomically_with_block_and_blobs_cache(batch)?;
+
+        // Do a quick separate pass to delete obsoleted hot states, usually pre-states from the state
+        // advance which are not canonical due to blocks being applied on top.
+        store.prune_old_hot_states()?;
+
         debug!(log, "Database pruning complete");
 
         Ok(PruningOutcome::Successful {

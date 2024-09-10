@@ -3,7 +3,9 @@ use beacon_chain::{
     test_utils::{BeaconChainHarness, BoxedMutator, Builder, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
 };
-use beacon_processor::{BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig};
+use beacon_processor::{
+    BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig, BeaconProcessorQueueLengths,
+};
 use directory::DEFAULT_ROOT_DIR;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use lighthouse_network::{
@@ -149,6 +151,7 @@ pub async fn create_api_server<T: BeaconChainTypes>(
         vec![],
         false,
         &log,
+        chain.spec.clone(),
     ));
 
     // Only a peer manager can add peers, so we create a dummy manager.
@@ -206,6 +209,11 @@ pub async fn create_api_server<T: BeaconChainTypes>(
         None,
         chain.slot_clock.clone(),
         chain.spec.maximum_gossip_clock_disparity(),
+        BeaconProcessorQueueLengths::from_state(
+            &chain.canonical_head.cached_head().snapshot.beacon_state,
+            &chain.spec,
+        )
+        .unwrap(),
     )
     .unwrap();
 

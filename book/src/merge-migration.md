@@ -7,7 +7,7 @@
 There are two configuration changes required for a Lighthouse node to operate correctly throughout
 the merge:
 
-1. You *must* run your own execution engine such as Besu, Erigon, Geth or Nethermind alongside Lighthouse.
+1. You *must* run your own execution engine such as Besu, Erigon, Reth, Geth or Nethermind alongside Lighthouse.
    You *must* update your `lighthouse bn` configuration to connect to the execution engine using new
    flags which are documented on this page in the
    [Connecting to an execution engine](#connecting-to-an-execution-engine) section.
@@ -16,7 +16,7 @@ the merge:
    be made to your `lighthouse vc` configuration, and are covered on the
    [Suggested fee recipient](./suggested-fee-recipient.md) page.
 
-Additionally, you _must_ update Lighthouse to v3.0.0 (or later), and must update your execution
+Additionally, you *must* update Lighthouse to v3.0.0 (or later), and must update your execution
 engine to a merge-ready version.
 
 ## When?
@@ -27,7 +27,7 @@ All networks (**Mainnet**, **Goerli (Prater)**, **Ropsten**, **Sepolia**, **Kiln
 
 | Network | Bellatrix                     | The Merge                     | Remark     |
 |---------|-------------------------------|-------------------------------| -----------|
-| Ropsten | 2<sup>nd</sup> June 2022      | 8<sup>th</sup> June 2022      | Deprecated |   
+| Ropsten | 2<sup>nd</sup> June 2022      | 8<sup>th</sup> June 2022      | Deprecated |
 | Sepolia  | 20<sup>th</sup> June 2022    | 6<sup>th</sup> July 2022      |            |
 | Goerli   | 4<sup>th</sup> August 2022   | 10<sup>th</sup> August 2022   | Previously named `Prater`|
 | Mainnet  | 6<sup>th</sup> September 2022| 15<sup>th</sup> September 2022|            |
@@ -55,7 +55,7 @@ has the authority to control the execution engine.
 > needing to pass a jwt secret file.
 
 The execution engine connection must be **exclusive**, i.e. you must have one execution node
-per beacon node. The reason for this is that the beacon node _controls_ the execution node. Please
+per beacon node. The reason for this is that the beacon node *controls* the execution node. Please
 see the [FAQ](#faq) for further information about why many:1 and 1:many configurations are not
 supported.
 
@@ -65,6 +65,7 @@ Each execution engine has its own flags for configuring the engine API and JWT. 
 the relevant page for your execution engine for the required flags:
 
 - [Geth: Connecting to Consensus Clients](https://geth.ethereum.org/docs/getting-started/consensus-clients)
+- [Reth: Running the Consensus Layer](https://reth.rs/run/mainnet.html?highlight=consensus#running-the-consensus-layer)
 - [Nethermind: Running Nethermind Post Merge](https://docs.nethermind.io/nethermind/first-steps-with-nethermind/running-nethermind-post-merge)
 - [Besu: Prepare For The Merge](https://besu.hyperledger.org/en/stable/HowTo/Upgrade/Prepare-for-The-Merge/)
 - [Erigon: Beacon Chain (Consensus Layer)](https://github.com/ledgerwatch/erigon#beacon-chain-consensus-layer)
@@ -123,7 +124,7 @@ a deprecation warning will be logged and Lighthouse *may* remove these flags in 
 ### The relationship between `--eth1-endpoints` and `--execution-endpoint`
 
 Pre-merge users will be familiar with the `--eth1-endpoints` flag. This provides a list of Ethereum
-"eth1" nodes (Besu, Erigon, Geth or Nethermind). Each beacon node (BN) can have multiple eth1 endpoints
+"eth1" nodes (Besu, Erigon, Reth, Geth or Nethermind). Each beacon node (BN) can have multiple eth1 endpoints
 and each eth1 endpoint can have many BNs connection (many-to-many relationship). The eth1 node
 provides a source of truth for the [deposit
 contract](https://ethereum.org/en/staking/deposit-contract/) and beacon chain proposers include this
@@ -134,7 +135,7 @@ achieve this.
 To progress through the Bellatrix upgrade nodes will need a *new* connection to an "eth1" node;
 `--execution-endpoint`. This connection has a few different properties. Firstly, the term "eth1
 node" has been deprecated and replaced with "execution engine". Whilst "eth1 node" and "execution
-engine" still refer to the same projects (Besu, Erigon, Geth or Nethermind), the former refers to the pre-merge
+engine" still refer to the same projects (Besu, Erigon, Reth, Geth or Nethermind), the former refers to the pre-merge
 versions and the latter refers to post-merge versions. Secondly, there is a strict one-to-one
 relationship between Lighthouse and the execution engine; only one Lighthouse node can connect to
 one execution engine. Thirdly, it is impossible to fully verify the post-merge chain without an
@@ -173,7 +174,7 @@ client to be able to connect to the beacon node.
 ### Can I use `http://localhost:8545` for the execution endpoint?
 
 Most execution nodes use port `8545` for the Ethereum JSON-RPC API. Unless custom configuration is
-used, an execution node _will not_ provide the necessary engine API on port `8545`. You should
+used, an execution node *will not* provide the necessary engine API on port `8545`. You should
 not attempt to use `http://localhost:8545` as your engine URL and should instead use
 `http://localhost:8551`.
 
@@ -209,4 +210,3 @@ guidance for specific setups.
 - [Ethereum Staking Launchpad: Merge Readiness](https://launchpad.ethereum.org/en/merge-readiness).
 - [CoinCashew: Ethereum Merge Upgrade Checklist](https://www.coincashew.com/coins/overview-eth/archived-guides/ethereum-merge-upgrade-checklist-for-home-stakers-and-validators)
 - [EthDocker: Merge Preparation](https://eth-docker.net/About/MergePrep/)
-- [Remy Roy: How to join the Goerli/Prater merge testnet](https://github.com/remyroy/ethstaker/blob/main/merge-goerli-prater.md)

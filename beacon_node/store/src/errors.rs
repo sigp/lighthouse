@@ -3,7 +3,7 @@ use crate::config::StoreConfigError;
 use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
-use types::{BeaconStateError, Hash256, InconsistentFork, Slot};
+use types::{BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -27,6 +27,8 @@ pub enum Error {
     AnchorInfoConcurrentMutation,
     /// The store's `blob_info` was mutated concurrently, the latest modification wasn't applied.
     BlobInfoConcurrentMutation,
+    /// The store's `data_column_info` was mutated concurrently, the latest modification wasn't applied.
+    DataColumnInfoConcurrentMutation,
     /// The block or state is unavailable due to weak subjectivity sync.
     HistoryUnavailable,
     /// State reconstruction cannot commence because not all historic blocks are known.
@@ -49,6 +51,14 @@ pub enum Error {
     InvalidBytes,
     UnableToDowngrade,
     InconsistentFork(InconsistentFork),
+    CacheBuildError(EpochCacheError),
+    RandaoMixOutOfBounds,
+    FinalizedStateDecreasingSlot,
+    FinalizedStateUnaligned,
+    StateForCacheHasPendingUpdates {
+        state_root: Hash256,
+        slot: Slot,
+    },
 }
 
 pub trait HandleUnavailable<T> {
@@ -110,6 +120,12 @@ impl From<BlockReplayError> for Error {
 impl From<InconsistentFork> for Error {
     fn from(e: InconsistentFork) -> Error {
         Error::InconsistentFork(e)
+    }
+}
+
+impl From<EpochCacheError> for Error {
+    fn from(e: EpochCacheError) -> Error {
+        Error::CacheBuildError(e)
     }
 }
 

@@ -11,8 +11,10 @@ matches = "0.1.8"
 slog-term = { workspace = true }
 slog-async = { workspace = true }
 eth2 = { workspace = true }
+gossipsub = { workspace = true }
 
 [dependencies]
+alloy-primitives = { workspace = true }
 async-channel = { workspace = true }
 anyhow = { workspace = true }
 beacon_chain = { workspace = true }
@@ -32,28 +34,23 @@ smallvec = { workspace = true }
 rand = { workspace = true }
 fnv = { workspace = true }
 rlp = "0.5.0"
-lazy_static = { workspace = true }
 lighthouse_metrics = { workspace = true }
 logging = { workspace = true }
 task_executor = { workspace = true }
 igd-next = "0.14"
 itertools = { workspace = true }
-num_cpus = { workspace = true }
 lru_cache = { workspace = true }
-lru = { workspace = true }
 strum = { workspace = true }
-tokio-util = { workspace = true }
 derivative = { workspace = true }
 delay_map = { workspace = true }
-ethereum-types = { workspace = true }
 operation_pool = { workspace = true }
 execution_layer = { workspace = true }
 beacon_processor = { workspace = true }
 parking_lot = { workspace = true }
-environment = { workspace = true }
 
 [features]
 # NOTE: This can be run via cargo build --bin lighthouse --features network/disable-backfill
 disable-backfill = []
 fork_from_env = ["beacon_chain/fork_from_env"]
 portable = ["beacon_chain/portable"]
+test_logger = []

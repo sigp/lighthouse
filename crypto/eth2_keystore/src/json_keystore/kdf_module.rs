@@ -8,7 +8,6 @@ use crate::DKLEN;
 use hmac::{Hmac, Mac, NewMac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::convert::TryFrom;
 
 /// KDF module representation.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -24,8 +23,8 @@ pub struct KdfModule {
 #[serde(try_from = "String", into = "String")]
 pub struct EmptyString;
 
-impl Into<String> for EmptyString {
-    fn into(self) -> String {
+impl From<EmptyString> for String {
+    fn from(_from: EmptyString) -> String {
         "".into()
     }
 }
@@ -92,9 +91,9 @@ pub enum KdfFunction {
     Pbkdf2,
 }
 
-impl Into<String> for KdfFunction {
-    fn into(self) -> String {
-        match self {
+impl From<KdfFunction> for String {
+    fn from(from: KdfFunction) -> String {
+        match from {
             KdfFunction::Scrypt => "scrypt".into(),
             KdfFunction::Pbkdf2 => "pbkdf2".into(),
         }

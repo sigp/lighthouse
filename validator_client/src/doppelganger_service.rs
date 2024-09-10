@@ -687,10 +687,9 @@ impl DoppelgangerService {
 #[cfg(test)]
 mod test {
     use super::*;
-    use environment::null_logger;
     use futures::executor::block_on;
+    use logging::test_logger;
     use slot_clock::TestingSlotClock;
-    use std::collections::HashSet;
     use std::future;
     use std::time::Duration;
     use types::{
@@ -733,7 +732,7 @@ mod test {
         fn build(self) -> TestScenario {
             let mut rng = XorShiftRng::from_seed([42; 16]);
             let slot_clock = TestingSlotClock::new(Slot::new(0), GENESIS_TIME, SLOT_DURATION);
-            let log = null_logger().unwrap();
+            let log = test_logger();
 
             TestScenario {
                 validators: (0..self.validator_count)
@@ -1116,7 +1115,7 @@ mod test {
             )
             // All validators should still be disabled.
             .assert_all_disabled()
-            // The states of all validators should be jammed with `u64::max_value()`.
+            // The states of all validators should be jammed with `u64:MAX`.
             .assert_all_states(&DoppelgangerState {
                 next_check_epoch: starting_epoch + 1,
                 remaining_epochs: u64::MAX,
@@ -1348,7 +1347,7 @@ mod test {
             )
             .assert_all_states(&DoppelgangerState {
                 next_check_epoch: initial_epoch + 1,
-                remaining_epochs: u64::max_value(),
+                remaining_epochs: u64::MAX,
             });
     }
 

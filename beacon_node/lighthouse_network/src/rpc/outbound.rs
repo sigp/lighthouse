@@ -2,11 +2,8 @@ use super::methods::*;
 use super::protocol::ProtocolId;
 use super::protocol::SupportedProtocol;
 use super::RPCError;
+use crate::rpc::codec::SSZSnappyOutboundCodec;
 use crate::rpc::protocol::Encoding;
-use crate::rpc::{
-    codec::{base::BaseOutboundCodec, ssz_snappy::SSZSnappyOutboundCodec, OutboundCodec},
-    methods::ResponseTermination,
-};
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, SinkExt};
@@ -23,25 +20,27 @@ use types::{EthSpec, ForkContext};
 // `OutboundUpgrade`
 
 #[derive(Debug, Clone)]
-pub struct OutboundRequestContainer<TSpec: EthSpec> {
-    pub req: OutboundRequest<TSpec>,
+pub struct OutboundRequestContainer<E: EthSpec> {
+    pub req: OutboundRequest<E>,
     pub fork_context: Arc<ForkContext>,
     pub max_rpc_size: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum OutboundRequest<TSpec: EthSpec> {
+pub enum OutboundRequest<E: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
+    DataColumnsByRoot(DataColumnsByRootRequest),
+    DataColumnsByRange(DataColumnsByRangeRequest),
     Ping(Ping),
-    MetaData(MetadataRequest<TSpec>),
+    MetaData(MetadataRequest<E>),
 }
 
-impl<TSpec: EthSpec> UpgradeInfo for OutboundRequestContainer<TSpec> {
+impl<E: EthSpec> UpgradeInfo for OutboundRequestContainer<E> {
     type Info = ProtocolId;
     type InfoIter = Vec<Self::Info>;
 
@@ -52,7 +51,7 @@ impl<TSpec: EthSpec> UpgradeInfo for OutboundRequestContainer<TSpec> {
 }
 
 /// Implements the encoding per supported protocol for `RPCRequest`.
-impl<TSpec: EthSpec> OutboundRequest<TSpec> {
+impl<E: EthSpec> OutboundRequest<E> {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
         match self {
             // add more protocols when versions/encodings are supported
@@ -80,11 +79,20 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
                 SupportedProtocol::BlobsByRootV1,
                 Encoding::SSZSnappy,
             )],
+            OutboundRequest::DataColumnsByRoot(_) => vec![ProtocolId::new(
+                SupportedProtocol::DataColumnsByRootV1,
+                Encoding::SSZSnappy,
+            )],
+            OutboundRequest::DataColumnsByRange(_) => vec![ProtocolId::new(
+                SupportedProtocol::DataColumnsByRangeV1,
+                Encoding::SSZSnappy,
+            )],
             OutboundRequest::Ping(_) => vec![ProtocolId::new(
                 SupportedProtocol::PingV1,
                 Encoding::SSZSnappy,
             )],
             OutboundRequest::MetaData(_) => vec![
+                ProtocolId::new(SupportedProtocol::MetaDataV3, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::MetaDataV2, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::MetaDataV1, Encoding::SSZSnappy),
             ],
@@ -92,17 +100,34 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
     }
     /* These functions are used in the handler for stream management */
 
-    /// Number of responses expected for this request.
-    pub fn expected_responses(&self) -> u64 {
+    /// Maximum number of responses expected for this request.
+    pub fn max_responses(&self) -> u64 {
         match self {
             OutboundRequest::Status(_) => 1,
             OutboundRequest::Goodbye(_) => 0,
             OutboundRequest::BlocksByRange(req) => *req.count(),
             OutboundRequest::BlocksByRoot(req) => req.block_roots().len() as u64,
-            OutboundRequest::BlobsByRange(req) => req.max_blobs_requested::<TSpec>(),
+            OutboundRequest::BlobsByRange(req) => req.max_blobs_requested::<E>(),
             OutboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
+            OutboundRequest::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
+            OutboundRequest::DataColumnsByRange(req) => req.max_requested::<E>(),
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
+        }
+    }
+
+    pub fn expect_exactly_one_response(&self) -> bool {
+        match self {
+            OutboundRequest::Status(_) => true,
+            OutboundRequest::Goodbye(_) => false,
+            OutboundRequest::BlocksByRange(_) => false,
+            OutboundRequest::BlocksByRoot(_) => false,
+            OutboundRequest::BlobsByRange(_) => false,
+            OutboundRequest::BlobsByRoot(_) => false,
+            OutboundRequest::DataColumnsByRoot(_) => false,
+            OutboundRequest::DataColumnsByRange(_) => false,
+            OutboundRequest::Ping(_) => true,
+            OutboundRequest::MetaData(_) => true,
         }
     }
 
@@ -121,10 +146,13 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             },
             OutboundRequest::BlobsByRange(_) => SupportedProtocol::BlobsByRangeV1,
             OutboundRequest::BlobsByRoot(_) => SupportedProtocol::BlobsByRootV1,
+            OutboundRequest::DataColumnsByRoot(_) => SupportedProtocol::DataColumnsByRootV1,
+            OutboundRequest::DataColumnsByRange(_) => SupportedProtocol::DataColumnsByRangeV1,
             OutboundRequest::Ping(_) => SupportedProtocol::PingV1,
             OutboundRequest::MetaData(req) => match req {
                 MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
                 MetadataRequest::V2(_) => SupportedProtocol::MetaDataV2,
+                MetadataRequest::V3(_) => SupportedProtocol::MetaDataV3,
             },
         }
     }
@@ -139,6 +167,8 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
             OutboundRequest::BlobsByRange(_) => ResponseTermination::BlobsByRange,
             OutboundRequest::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
+            OutboundRequest::DataColumnsByRoot(_) => ResponseTermination::DataColumnsByRoot,
+            OutboundRequest::DataColumnsByRange(_) => ResponseTermination::DataColumnsByRange,
             OutboundRequest::Status(_) => unreachable!(),
             OutboundRequest::Goodbye(_) => unreachable!(),
             OutboundRequest::Ping(_) => unreachable!(),
@@ -151,14 +181,14 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
 
 /* Outbound upgrades */
 
-pub type OutboundFramed<TSocket, TSpec> = Framed<Compat<TSocket>, OutboundCodec<TSpec>>;
+pub type OutboundFramed<TSocket, E> = Framed<Compat<TSocket>, SSZSnappyOutboundCodec<E>>;
 
-impl<TSocket, TSpec> OutboundUpgrade<TSocket> for OutboundRequestContainer<TSpec>
+impl<TSocket, E> OutboundUpgrade<TSocket> for OutboundRequestContainer<E>
 where
-    TSpec: EthSpec + Send + 'static,
+    E: EthSpec + Send + 'static,
     TSocket: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    type Output = OutboundFramed<TSocket, TSpec>;
+    type Output = OutboundFramed<TSocket, E>;
     type Error = RPCError;
     type Future = BoxFuture<'static, Result<Self::Output, Self::Error>>;
 
@@ -167,12 +197,7 @@ where
         let socket = socket.compat();
         let codec = match protocol.encoding {
             Encoding::SSZSnappy => {
-                let ssz_snappy_codec = BaseOutboundCodec::new(SSZSnappyOutboundCodec::new(
-                    protocol,
-                    self.max_rpc_size,
-                    self.fork_context.clone(),
-                ));
-                OutboundCodec::SSZSnappy(ssz_snappy_codec)
+                SSZSnappyOutboundCodec::new(protocol, self.max_rpc_size, self.fork_context.clone())
             }
         };
 
@@ -187,7 +212,7 @@ where
     }
 }
 
-impl<TSpec: EthSpec> std::fmt::Display for OutboundRequest<TSpec> {
+impl<E: EthSpec> std::fmt::Display for OutboundRequest<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OutboundRequest::Status(status) => write!(f, "Status Message: {}", status),
@@ -196,6 +221,10 @@ impl<TSpec: EthSpec> std::fmt::Display for OutboundRequest<TSpec> {
             OutboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
             OutboundRequest::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
             OutboundRequest::BlobsByRoot(req) => write!(f, "Blobs by root: {:?}", req),
+            OutboundRequest::DataColumnsByRoot(req) => write!(f, "Data columns by root: {:?}", req),
+            OutboundRequest::DataColumnsByRange(req) => {
+                write!(f, "Data columns by range: {:?}", req)
+            }
             OutboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             OutboundRequest::MetaData(_) => write!(f, "MetaData request"),
         }

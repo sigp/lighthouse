@@ -4,7 +4,7 @@ use store::{DBColumn, Error as StoreError, HotColdDB, ItemStore, StoreItem};
 use types::{EthSpec, Hash256};
 
 /// 32-byte key for accessing the `DhtEnrs`. All zero because `DhtEnrs` has its own column.
-pub const DHT_DB_KEY: Hash256 = Hash256::zero();
+pub const DHT_DB_KEY: Hash256 = Hash256::ZERO;
 
 pub fn load_dht<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     store: Arc<HotColdDB<E, Hot, Cold>>,
@@ -60,11 +60,10 @@ impl StoreItem for PersistedDht {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lighthouse_network::Enr;
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use store::config::StoreConfig;
-    use store::{HotColdDB, MemoryStore};
+    use store::MemoryStore;
     use types::{ChainSpec, MinimalEthSpec};
     #[test]
     fn test_persisted_dht() {

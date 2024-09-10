@@ -1,0 +1,50 @@
+[package]
+name = "gossipsub"
+edition = "2021"
+description = "Sigma prime's version of Gossipsub protocol for libp2p"
+version = "0.5.0"
+authors = ["Age Manning <Age@AgeManning.com>"]
+license = "MIT"
+repository = "https://github.com/sigp/lighthouse/"
+keywords = ["peer-to-peer", "libp2p", "networking"]
+categories = ["network-programming", "asynchronous"]
+
+[features]
+wasm-bindgen = ["getrandom/js"]
+rsa = []
+
+[dependencies]
+async-channel = { workspace = true }
+asynchronous-codec = "0.7.0"
+base64 = "0.21.7"
+byteorder = "1.5.0"
+bytes = "1.5"
+either = "1.9"
+fnv = "1.0.7"
+futures = "0.3.30"
+futures-ticker = "0.0.3"
+futures-timer = "3.0.2"
+getrandom = "0.2.12"
+hashlink.workspace = true
+hex_fmt = "0.3.0"
+libp2p = { version = "0.54", default-features = false }
+quick-protobuf = "0.8"
+quick-protobuf-codec = "0.3"
+rand = "0.8"
+regex = "1.10.3"
+serde = { version = "1", optional = true, features = ["derive"] }
+sha2 = "0.10.8"
+tracing = "0.1.37"
+void = "1.0.2"
+prometheus-client = "0.22.0"
+web-time = "1.1.0"
+
+[dev-dependencies]
+quickcheck = { workspace = true }
+
+# Passing arguments to the docsrs builder in order to properly document cfg's.
+# More information: https://docs.rs/about/builds#cross-compiling
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+rustc-args = ["--cfg", "docsrs"]

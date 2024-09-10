@@ -10,17 +10,22 @@ pub enum Error {
         blob_commitment: KzgCommitment,
         block_commitment: KzgCommitment,
     },
+    UnableToDetermineImportRequirement,
     Unexpected,
     SszTypes(ssz_types::Error),
     MissingBlobs,
+    MissingCustodyColumns,
     BlobIndexInvalid(u64),
+    DataColumnIndexInvalid(u64),
     StoreError(store::Error),
     DecodeError(ssz::DecodeError),
     ParentStateMissing(Hash256),
     BlockReplayError(state_processing::BlockReplayError),
     RebuildingStateCaches(BeaconStateError),
+    SlotClockError,
 }
 
+#[derive(PartialEq, Eq)]
 pub enum ErrorCategory {
     /// Internal Errors (not caused by peers)
     Internal,
@@ -34,14 +39,18 @@ impl Error {
             Error::KzgNotInitialized
             | Error::SszTypes(_)
             | Error::MissingBlobs
+            | Error::MissingCustodyColumns
             | Error::StoreError(_)
             | Error::DecodeError(_)
             | Error::Unexpected
             | Error::ParentStateMissing(_)
             | Error::BlockReplayError(_)
-            | Error::RebuildingStateCaches(_) => ErrorCategory::Internal,
+            | Error::UnableToDetermineImportRequirement
+            | Error::RebuildingStateCaches(_)
+            | Error::SlotClockError => ErrorCategory::Internal,
             Error::Kzg(_)
             | Error::BlobIndexInvalid(_)
+            | Error::DataColumnIndexInvalid(_)
             | Error::KzgCommitmentMismatch { .. }
             | Error::KzgVerificationFailed => ErrorCategory::Malicious,
         }

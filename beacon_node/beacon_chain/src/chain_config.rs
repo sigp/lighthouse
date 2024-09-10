@@ -1,9 +1,10 @@
 pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use types::{Checkpoint, Epoch, ProgressiveBalancesMode};
+use types::{Checkpoint, Epoch};
 
-pub const DEFAULT_RE_ORG_THRESHOLD: ReOrgThreshold = ReOrgThreshold(20);
+pub const DEFAULT_RE_ORG_HEAD_THRESHOLD: ReOrgThreshold = ReOrgThreshold(20);
+pub const DEFAULT_RE_ORG_PARENT_THRESHOLD: ReOrgThreshold = ReOrgThreshold(160);
 pub const DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION: Epoch = Epoch::new(2);
 /// Default to 1/12th of the slot, which is 1 second on mainnet.
 pub const DEFAULT_RE_ORG_CUTOFF_DENOMINATOR: u32 = 12;
@@ -27,12 +28,12 @@ pub struct ChainConfig {
     pub weak_subjectivity_checkpoint: Option<Checkpoint>,
     /// Determine whether to reconstruct historic states, usually after a checkpoint sync.
     pub reconstruct_historic_states: bool,
-    /// Whether timeouts on `TimeoutRwLock`s are enabled or not.
-    pub enable_lock_timeouts: bool,
     /// The max size of a message that can be sent over the network.
     pub max_network_size: usize,
-    /// Maximum percentage of committee weight at which to attempt re-orging the canonical head.
-    pub re_org_threshold: Option<ReOrgThreshold>,
+    /// Maximum percentage of the head committee weight at which to attempt re-orging the canonical head.
+    pub re_org_head_threshold: Option<ReOrgThreshold>,
+    /// Minimum percentage of the parent committee weight at which to attempt re-orging the canonical head.
+    pub re_org_parent_threshold: Option<ReOrgThreshold>,
     /// Maximum number of epochs since finalization for attempting a proposer re-org.
     pub re_org_max_epochs_since_finalization: Epoch,
     /// Maximum delay after the start of the slot at which to propose a reorging block.
@@ -72,8 +73,6 @@ pub struct ChainConfig {
     pub optimistic_finalized_sync: bool,
     /// The size of the shuffling cache,
     pub shuffling_cache_size: usize,
-    /// The size of the snapshot cache.
-    pub snapshot_cache_size: usize,
     /// If using a weak-subjectivity sync, whether we should download blocks all the way back to
     /// genesis.
     pub genesis_backfill: bool,
@@ -81,12 +80,14 @@ pub struct ChainConfig {
     ///
     /// This is useful for block builders and testing.
     pub always_prepare_payload: bool,
-    /// Whether to use `ProgressiveBalancesCache` in unrealized FFG progression calculation.
-    pub progressive_balances_mode: ProgressiveBalancesMode,
     /// Number of epochs between each migration of data from the hot database to the freezer.
     pub epochs_per_migration: u64,
     /// When set to true Light client server computes and caches state proofs for serving updates
     pub enable_light_client_server: bool,
+    /// The number of data columns to withhold / exclude from publishing when proposing a block.
+    pub malicious_withhold_count: usize,
+    /// Enable peer sampling on blocks.
+    pub enable_sampling: bool,
 }
 
 impl Default for ChainConfig {
@@ -95,9 +96,9 @@ impl Default for ChainConfig {
             import_max_skip_slots: None,
             weak_subjectivity_checkpoint: None,
             reconstruct_historic_states: false,
-            enable_lock_timeouts: true,
             max_network_size: 10 * 1_048_576, // 10M
-            re_org_threshold: Some(DEFAULT_RE_ORG_THRESHOLD),
+            re_org_head_threshold: Some(DEFAULT_RE_ORG_HEAD_THRESHOLD),
+            re_org_parent_threshold: Some(DEFAULT_RE_ORG_PARENT_THRESHOLD),
             re_org_max_epochs_since_finalization: DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
             re_org_cutoff_millis: None,
             re_org_disallowed_offsets: DisallowedReOrgOffsets::default(),
@@ -114,12 +115,12 @@ impl Default for ChainConfig {
             // This value isn't actually read except in tests.
             optimistic_finalized_sync: true,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
-            snapshot_cache_size: crate::snapshot_cache::DEFAULT_SNAPSHOT_CACHE_SIZE,
             genesis_backfill: false,
             always_prepare_payload: false,
-            progressive_balances_mode: ProgressiveBalancesMode::Fast,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
             enable_light_client_server: false,
+            malicious_withhold_count: 0,
+            enable_sampling: false,
         }
     }
 }

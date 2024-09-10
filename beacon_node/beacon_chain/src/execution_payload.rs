@@ -62,7 +62,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         state: &BeaconState<T::EthSpec>,
         notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<Self, BlockError<T::EthSpec>> {
+    ) -> Result<Self, BlockError> {
         let payload_verification_status = if is_execution_enabled(state, block.message().body()) {
             // Perform the initial stages of payload verification.
             //
@@ -110,9 +110,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         })
     }
 
-    pub async fn notify_new_payload(
-        self,
-    ) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
+    pub async fn notify_new_payload(self) -> Result<PayloadVerificationStatus, BlockError> {
         if let Some(precomputed_status) = self.payload_verification_status {
             Ok(precomputed_status)
         } else {
@@ -133,7 +131,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 async fn notify_new_payload<'a, T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block: BeaconBlockRef<'a, T::EthSpec>,
-) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
+) -> Result<PayloadVerificationStatus, BlockError> {
     let execution_layer = chain
         .execution_layer
         .as_ref()
@@ -237,7 +235,7 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block: BeaconBlockRef<'a, T::EthSpec>,
     allow_optimistic_import: AllowOptimisticImport,
-) -> Result<(), BlockError<T::EthSpec>> {
+) -> Result<(), BlockError> {
     let spec = &chain.spec;
     let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
     let execution_payload = block.execution_payload()?;
@@ -335,8 +333,8 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
     parent_block: &ProtoBlock,
     block: BeaconBlockRef<'_, T::EthSpec>,
     chain: &BeaconChain<T>,
-) -> Result<(), BlockError<T::EthSpec>> {
-    // Only apply this validation if this is a merge beacon block.
+) -> Result<(), BlockError> {
+    // Only apply this validation if this is a Bellatrix beacon block.
     if let Ok(execution_payload) = block.body().execution_payload() {
         // This logic should match `is_execution_enabled`. We use only the execution block hash of
         // the parent here in order to avoid loading the parent state during gossip verification.
@@ -385,7 +383,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
 /// ## Errors
 ///
 /// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
-/// after the merge fork.
+/// after the Bellatrix fork.
 ///
 /// ## Specification
 ///
@@ -412,16 +410,16 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     let latest_execution_payload_header_block_hash =
         state.latest_execution_payload_header()?.block_hash();
     let withdrawals = match state {
-        &BeaconState::Capella(_) | &BeaconState::Deneb(_) => {
-            Some(get_expected_withdrawals(state, spec)?.into())
+        &BeaconState::Capella(_) | &BeaconState::Deneb(_) | &BeaconState::Electra(_) => {
+            Some(get_expected_withdrawals(state, spec)?.0.into())
         }
-        &BeaconState::Merge(_) => None,
+        &BeaconState::Bellatrix(_) => None,
         // These shouldn't happen but they're here to make the pattern irrefutable
         &BeaconState::Base(_) | &BeaconState::Altair(_) => None,
     };
     let parent_beacon_block_root = match state {
-        BeaconState::Deneb(_) => Some(parent_block_root),
-        BeaconState::Merge(_) | BeaconState::Capella(_) => None,
+        BeaconState::Deneb(_) | BeaconState::Electra(_) => Some(parent_block_root),
+        BeaconState::Bellatrix(_) | BeaconState::Capella(_) => None,
         // These shouldn't happen but they're here to make the pattern irrefutable
         BeaconState::Base(_) | BeaconState::Altair(_) => None,
     };
@@ -457,12 +455,12 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
 
 /// Prepares an execution payload for inclusion in a block.
 ///
-/// Will return `Ok(None)` if the merge fork has occurred, but a terminal block has not been found.
+/// Will return `Ok(None)` if the Bellatrix fork has occurred, but a terminal block has not been found.
 ///
 /// ## Errors
 ///
-/// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
-/// after the merge fork.
+/// Will return an error when using a pre-Bellatrix fork `state`. Ensure to only run this function
+/// after the Bellatrix fork.
 ///
 /// ## Specification
 ///
@@ -505,7 +503,7 @@ where
             return Ok(BlockProposalContentsType::Full(
                 BlockProposalContents::Payload {
                     payload: FullPayload::default_at_fork(fork)?,
-                    block_value: Uint256::zero(),
+                    block_value: Uint256::ZERO,
                 },
             ));
         }
@@ -523,7 +521,7 @@ where
             return Ok(BlockProposalContentsType::Full(
                 BlockProposalContents::Payload {
                     payload: FullPayload::default_at_fork(fork)?,
-                    block_value: Uint256::zero(),
+                    block_value: Uint256::ZERO,
                 },
             ));
         }
@@ -560,9 +558,6 @@ where
         parent_beacon_block_root,
     );
 
-    // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
-    //
-    // This future is not executed here, it's up to the caller to await it.
     let block_contents = execution_layer
         .get_payload(
             parent_hash,

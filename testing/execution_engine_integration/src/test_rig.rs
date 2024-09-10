@@ -18,29 +18,29 @@ use tokio::time::sleep;
 use types::payload::BlockProductionVersion;
 use types::{
     Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
-    ForkName, Hash256, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
+    FixedBytesExtended, ForkName, Hash256, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
 };
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(60);
 
 const TEST_FORK: ForkName = ForkName::Capella;
 
-struct ExecutionPair<E, T: EthSpec> {
+struct ExecutionPair<Engine, E: EthSpec> {
     /// The Lighthouse `ExecutionLayer` struct, connected to the `execution_engine` via HTTP.
-    execution_layer: ExecutionLayer<T>,
+    execution_layer: ExecutionLayer<E>,
     /// A handle to external EE process, once this is dropped the process will be killed.
     #[allow(dead_code)]
-    execution_engine: ExecutionEngine<E>,
+    execution_engine: ExecutionEngine<Engine>,
 }
 
 /// A rig that holds two EE processes for testing.
 ///
 /// There are two EEs held here so that we can test out-of-order application of payloads, and other
 /// edge-cases.
-pub struct TestRig<E, T: EthSpec = MainnetEthSpec> {
+pub struct TestRig<Engine, E: EthSpec = MainnetEthSpec> {
     #[allow(dead_code)]
     runtime: Arc<tokio::runtime::Runtime>,
-    ee_a: ExecutionPair<E, T>,
-    ee_b: ExecutionPair<E, T>,
+    ee_a: ExecutionPair<Engine, E>,
+    ee_b: ExecutionPair<Engine, E>,
     spec: ChainSpec,
     _runtime_shutdown: async_channel::Sender<()>,
 }
@@ -102,8 +102,8 @@ async fn import_and_unlock(http_url: SensitiveUrl, priv_keys: &[&str], password:
     }
 }
 
-impl<E: GenericExecutionEngine> TestRig<E> {
-    pub fn new(generic_engine: E) -> Self {
+impl<Engine: GenericExecutionEngine> TestRig<Engine> {
+    pub fn new(generic_engine: Engine) -> Self {
         let log = logging::test_logger();
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
@@ -115,17 +115,17 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
         let mut spec = TEST_FORK.make_genesis_spec(MainnetEthSpec::default_spec());
-        spec.terminal_total_difficulty = Uint256::zero();
+        spec.terminal_total_difficulty = Uint256::ZERO;
 
         let fee_recipient = None;
 
         let ee_a = {
             let execution_engine = ExecutionEngine::new(generic_engine.clone());
-            let urls = vec![execution_engine.http_auth_url()];
+            let url = Some(execution_engine.http_auth_url());
 
             let config = execution_layer::Config {
-                execution_endpoints: urls,
-                secret_files: vec![],
+                execution_endpoint: url,
+                secret_file: None,
                 suggested_fee_recipient: Some(Address::repeat_byte(42)),
                 default_datadir: execution_engine.datadir(),
                 ..Default::default()
@@ -140,11 +140,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         let ee_b = {
             let execution_engine = ExecutionEngine::new(generic_engine);
-            let urls = vec![execution_engine.http_auth_url()];
+            let url = Some(execution_engine.http_auth_url());
 
             let config = execution_layer::Config {
-                execution_endpoints: urls,
-                secret_files: vec![],
+                execution_endpoint: url,
+                secret_file: None,
                 suggested_fee_recipient: fee_recipient,
                 default_datadir: execution_engine.datadir(),
                 ..Default::default()
@@ -180,7 +180,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 // Run the routine to check for online nodes.
                 pair.execution_layer.watchdog_task().await;
 
-                if pair.execution_layer.is_synced().await {
+                if !pair.execution_layer.is_offline_or_erroring().await {
                     break;
                 } else if start_instant + EXECUTION_ENGINE_START_TIMEOUT > Instant::now() {
                     sleep(Duration::from_millis(500)).await;
@@ -649,15 +649,7 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
     ee: &ExecutionPair<E, MainnetEthSpec>,
     payload: &ExecutionPayload<MainnetEthSpec>,
 ) {
-    // check via legacy eth_getBlockByHash
-    let reconstructed = ee
-        .execution_layer
-        .get_payload_by_hash_legacy(payload.block_hash(), payload.fork_name())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(reconstructed, *payload);
-    // also check via payload bodies method
+    // check via payload bodies method
     let capabilities = ee
         .execution_layer
         .get_engine_capabilities(None)

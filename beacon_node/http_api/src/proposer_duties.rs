@@ -10,7 +10,7 @@ use safe_arith::SafeArith;
 use slog::{debug, Logger};
 use slot_clock::SlotClock;
 use std::cmp::Ordering;
-use types::{CloneConfig, Epoch, EthSpec, Hash256, Slot};
+use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// The struct that is returned to the requesting HTTP client.
 type ApiDuties = api_types::DutiesResponse<Vec<api_types::ProposerData>>;
@@ -22,7 +22,10 @@ pub fn proposer_duties<T: BeaconChainTypes>(
     log: &Logger,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
     let current_epoch = chain
-        .epoch()
+        .slot_clock
+        .now_or_genesis()
+        .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()))
+        .ok_or(BeaconChainError::UnableToReadSlot)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
     // Determine what the current epoch would be if we fast-forward our system clock by
@@ -31,11 +34,17 @@ pub fn proposer_duties<T: BeaconChainTypes>(
     // Most of the time, `tolerant_current_epoch` will be equal to `current_epoch`. However, during
     // the first `MAXIMUM_GOSSIP_CLOCK_DISPARITY` duration of the epoch `tolerant_current_epoch`
     // will equal `current_epoch + 1`
-    let tolerant_current_epoch = chain
-        .slot_clock
-        .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
-        .ok_or_else(|| warp_utils::reject::custom_server_error("unable to read slot clock".into()))?
-        .epoch(T::EthSpec::slots_per_epoch());
+    let tolerant_current_epoch = if chain.slot_clock.is_prior_to_genesis().unwrap_or(true) {
+        current_epoch
+    } else {
+        chain
+            .slot_clock
+            .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
+            .ok_or_else(|| {
+                warp_utils::reject::custom_server_error("unable to read slot clock".into())
+            })?
+            .epoch(T::EthSpec::slots_per_epoch())
+    };
 
     if request_epoch == current_epoch || request_epoch == tolerant_current_epoch {
         // If we could consider ourselves in the `request_epoch` when allowing for clock disparity
@@ -192,8 +201,7 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
         if head.beacon_state.current_epoch() <= epoch {
             Some((
                 head.beacon_state_root(),
-                head.beacon_state
-                    .clone_with(CloneConfig::committee_caches_only()),
+                head.beacon_state.clone(),
                 execution_status.is_optimistic_or_invalid(),
             ))
         } else {

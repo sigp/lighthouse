@@ -19,8 +19,8 @@ use ethers_core::{
 pub use ethers_providers::{Http, Middleware, Provider};
 use std::time::Duration;
 use tokio::time::sleep;
-use types::DepositData;
 use types::{test_utils::generate_deterministic_keypair, EthSpec, Hash256, Keypair, Signature};
+use types::{DepositData, FixedBytesExtended};
 
 pub const DEPLOYER_ACCOUNTS_INDEX: usize = 0;
 pub const DEPOSIT_ACCOUNTS_INDEX: usize = 0;
@@ -95,7 +95,7 @@ impl DepositContract {
                 .await
                 .map_err(|e| {
                     format!(
-                        "Failed to deploy contract: {}. Is scripts/anvil_tests_node.sh running?.",
+                        "Failed to deploy contract: {}. Is the RPC server running?.",
                         e
                     )
                 })?;

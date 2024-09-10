@@ -1,8 +1,6 @@
 use crate::*;
 use ssz::{DecodeError, Encode};
 use ssz_derive::Encode;
-use std::convert::TryInto;
-use types::beacon_state::{CloneConfig, CommitteeCache, CACHED_EPOCHS};
 
 pub fn store_full_state<E: EthSpec>(
     state_root: &Hash256,
@@ -15,7 +13,7 @@ pub fn store_full_state<E: EthSpec>(
     };
     metrics::inc_counter_by(&metrics::BEACON_STATE_WRITE_BYTES, bytes.len() as u64);
     metrics::inc_counter(&metrics::BEACON_STATE_WRITE_COUNT);
-    let key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
+    let key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_slice());
     ops.push(KeyValueStoreOp::PutKeyValue(key, bytes));
     Ok(())
 }
@@ -27,7 +25,7 @@ pub fn get_full_state<KV: KeyValueStore<E>, E: EthSpec>(
 ) -> Result<Option<BeaconState<E>>, Error> {
     let total_timer = metrics::start_timer(&metrics::BEACON_STATE_READ_TIMES);
 
-    match db.get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())? {
+    match db.get_bytes(DBColumn::BeaconState.into(), state_root.as_slice())? {
         Some(bytes) => {
             let overhead_timer = metrics::start_timer(&metrics::BEACON_STATE_READ_OVERHEAD_TIMES);
             let container = StorageContainer::from_ssz_bytes(&bytes, spec)?;
@@ -46,16 +44,16 @@ pub fn get_full_state<KV: KeyValueStore<E>, E: EthSpec>(
 /// A container for storing `BeaconState` components.
 // TODO: would be more space efficient with the caches stored separately and referenced by hash
 #[derive(Encode)]
-pub struct StorageContainer<T: EthSpec> {
-    state: BeaconState<T>,
-    committee_caches: Vec<CommitteeCache>,
+pub struct StorageContainer<E: EthSpec> {
+    state: BeaconState<E>,
+    committee_caches: Vec<Arc<CommitteeCache>>,
 }
 
-impl<T: EthSpec> StorageContainer<T> {
+impl<E: EthSpec> StorageContainer<E> {
     /// Create a new instance for storing a `BeaconState`.
-    pub fn new(state: &BeaconState<T>) -> Self {
+    pub fn new(state: &BeaconState<E>) -> Self {
         Self {
-            state: state.clone_with(CloneConfig::none()),
+            state: state.clone(),
             committee_caches: state.committee_caches().to_vec(),
         }
     }
@@ -80,10 +78,10 @@ impl<T: EthSpec> StorageContainer<T> {
     }
 }
 
-impl<T: EthSpec> TryInto<BeaconState<T>> for StorageContainer<T> {
+impl<E: EthSpec> TryInto<BeaconState<E>> for StorageContainer<E> {
     type Error = Error;
 
-    fn try_into(mut self) -> Result<BeaconState<T>, Error> {
+    fn try_into(mut self) -> Result<BeaconState<E>, Error> {
         let mut state = self.state;
 
         for i in (0..CACHED_EPOCHS).rev() {

@@ -1,4 +1,3 @@
-use super::sync::manager::RequestId as SyncId;
 use crate::nat;
 use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
@@ -23,6 +22,7 @@ use lighthouse_network::{
     Context, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
 };
 use lighthouse_network::{
+    service::api_types::AppRequestId,
     types::{core_topics_to_subscribe, GossipEncoding, GossipTopic},
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
@@ -35,8 +35,8 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    ChainSpec, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
-    Unsigned, ValidatorSubscription,
+    ChainSpec, DataColumnSubnetId, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription,
+    SyncSubnetId, Unsigned, ValidatorSubscription,
 };
 
 mod tests;
@@ -51,17 +51,10 @@ const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
 /// able to run tens of thousands of validators on one BN.
 const VALIDATOR_SUBSCRIPTION_MESSAGE_QUEUE_SIZE: usize = 65_536;
 
-/// Application level requests sent to the network.
-#[derive(Debug, Clone, Copy)]
-pub enum RequestId {
-    Sync(SyncId),
-    Router,
-}
-
 /// Types of messages that the network service can receive.
 #[derive(Debug, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
-pub enum NetworkMessage<T: EthSpec> {
+pub enum NetworkMessage<E: EthSpec> {
     /// Subscribes the beacon node to the core gossipsub topics. We do this when we are either
     /// synced or close to the head slot.
     SubscribeCoreTopics,
@@ -69,12 +62,12 @@ pub enum NetworkMessage<T: EthSpec> {
     SendRequest {
         peer_id: PeerId,
         request: Request,
-        request_id: RequestId,
+        request_id: AppRequestId,
     },
     /// Send a successful Response to the libp2p service.
     SendResponse {
         peer_id: PeerId,
-        response: Response<T>,
+        response: Response<E>,
         id: PeerRequestId,
     },
     /// Sends an error response to an RPC request.
@@ -85,7 +78,7 @@ pub enum NetworkMessage<T: EthSpec> {
         id: PeerRequestId,
     },
     /// Publish a list of messages to the gossipsub protocol.
-    Publish { messages: Vec<PubsubMessage<T>> },
+    Publish { messages: Vec<PubsubMessage<E>> },
     /// Validates a received gossipsub message. This will propagate the message on the network.
     ValidationResult {
         /// The peer that sent us the message. We don't send back to this peer.
@@ -168,7 +161,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
     beacon_chain: Arc<BeaconChain<T>>,
     /// The underlying libp2p service that drives all the network interactions.
-    libp2p: Network<RequestId, T::EthSpec>,
+    libp2p: Network<T::EthSpec>,
     /// An attestation and subnet manager service.
     attestation_service: AttestationService<T>,
     /// A sync committeee subnet manager service.
@@ -190,6 +183,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     next_fork_subscriptions: Pin<Box<OptionFuture<Sleep>>>,
     /// A delay that expires when we need to unsubscribe from old fork topics.
     next_unsubscribe: Pin<Box<OptionFuture<Sleep>>>,
+    /// Subscribe to all the data column subnets.
+    subscribe_all_data_column_subnets: bool,
     /// Subscribe to all the subnets once synced.
     subscribe_all_subnets: bool,
     /// Shutdown beacon node after sync is complete.
@@ -356,6 +351,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             next_fork_update,
             next_fork_subscriptions,
             next_unsubscribe,
+            subscribe_all_data_column_subnets: config.subscribe_all_data_column_subnets,
             subscribe_all_subnets: config.subscribe_all_subnets,
             shutdown_after_sync: config.shutdown_after_sync,
             metrics_enabled: config.metrics_enabled,
@@ -499,7 +495,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     /// Handle an event received from the network.
     async fn on_libp2p_event(
         &mut self,
-        ev: NetworkEvent<RequestId, T::EthSpec>,
+        ev: NetworkEvent<T::EthSpec>,
         shutdown_sender: &mut Sender<ShutdownReason>,
     ) {
         match ev {
@@ -613,7 +609,15 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 request,
                 request_id,
             } => {
-                self.libp2p.send_request(peer_id, request_id, request);
+                if let Err((request_id, error)) =
+                    self.libp2p.send_request(peer_id, request_id, request)
+                {
+                    self.send_to_router(RouterMessage::RPCFailed {
+                        peer_id,
+                        request_id,
+                        error,
+                    });
+                }
             }
             NetworkMessage::SendResponse {
                 peer_id,
@@ -732,6 +736,15 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
 
+                // TODO(das): This is added here for the purpose of testing, *without* having to
+                // activate Electra. This should happen as part of the Electra upgrade and we should
+                // move the subscription logic once it's ready to rebase PeerDAS on Electra, or if
+                // we decide to activate via the soft fork route:
+                // https://github.com/sigp/lighthouse/pull/5899
+                if self.fork_context.spec.is_peer_das_scheduled() {
+                    self.subscribe_to_peer_das_topics(&mut subscribed_topics);
+                }
+
                 // If we are to subscribe to all subnets we do it here
                 if self.subscribe_all_subnets {
                     for subnet_id in 0..<<T as BeaconChainTypes>::EthSpec as EthSpec>::SubnetBitfieldLength::to_u64() {
@@ -773,6 +786,37 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         "Subscribed to topics";
                         "topics" => ?subscribed_topics.into_iter().map(|topic| format!("{}", topic)).collect::<Vec<_>>()
                     );
+                }
+            }
+        }
+    }
+
+    fn subscribe_to_peer_das_topics(&mut self, subscribed_topics: &mut Vec<GossipTopic>) {
+        if self.subscribe_all_data_column_subnets {
+            for column_subnet in 0..self.fork_context.spec.data_column_sidecar_subnet_count {
+                for fork_digest in self.required_gossip_fork_digests() {
+                    let gossip_kind =
+                        Subnet::DataColumn(DataColumnSubnetId::new(column_subnet)).into();
+                    let topic =
+                        GossipTopic::new(gossip_kind, GossipEncoding::default(), fork_digest);
+                    if self.libp2p.subscribe(topic.clone()) {
+                        subscribed_topics.push(topic);
+                    } else {
+                        warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
+                    }
+                }
+            }
+        } else {
+            for column_subnet in &self.network_globals.custody_subnets {
+                for fork_digest in self.required_gossip_fork_digests() {
+                    let gossip_kind = Subnet::DataColumn(*column_subnet).into();
+                    let topic =
+                        GossipTopic::new(gossip_kind, GossipEncoding::default(), fork_digest);
+                    if self.libp2p.subscribe(topic.clone()) {
+                        subscribed_topics.push(topic);
+                    } else {
+                        warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
+                    }
                 }
             }
         }

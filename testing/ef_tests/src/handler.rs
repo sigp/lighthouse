@@ -1,11 +1,14 @@
 use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
-use crate::type_name;
 use crate::type_name::TypeName;
+use crate::{type_name, FeatureName};
 use derivative::Derivative;
 use std::fs::{self, DirEntry};
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use types::{BeaconState, EthSpec, ForkName};
+
+const EIP7594_FORK: ForkName = ForkName::Deneb;
+const EIP7594_TESTS: [&str; 4] = ["ssz_static", "merkle_proof", "networking", "kzg"];
 
 pub trait Handler {
     type Case: Case + LoadCase;
@@ -18,14 +21,31 @@ pub trait Handler {
 
     fn handler_name(&self) -> String;
 
+    // Add forks here to exclude them from EF spec testing. Helpful for adding future or
+    // unspecified forks.
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        vec![]
+    }
+
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         Self::Case::is_enabled_for_fork(fork_name)
     }
 
+    fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
+        Self::Case::is_enabled_for_feature(feature_name)
+    }
+
     fn run(&self) {
         for fork_name in ForkName::list_all() {
-            if self.is_enabled_for_fork(fork_name) {
-                self.run_for_fork(fork_name)
+            if !self.disabled_forks().contains(&fork_name) && self.is_enabled_for_fork(fork_name) {
+                self.run_for_fork(fork_name);
+
+                if fork_name == EIP7594_FORK
+                    && EIP7594_TESTS.contains(&Self::runner_name())
+                    && self.is_enabled_for_feature(FeatureName::Eip7594)
+                {
+                    self.run_for_feature(EIP7594_FORK, FeatureName::Eip7594);
+                }
             }
         }
     }
@@ -70,6 +90,47 @@ pub trait Handler {
         let name = format!(
             "{}/{}/{}",
             fork_name_str,
+            Self::runner_name(),
+            self.handler_name()
+        );
+        crate::results::assert_tests_pass(&name, &handler_path, &results);
+    }
+
+    fn run_for_feature(&self, fork_name: ForkName, feature_name: FeatureName) {
+        let feature_name_str = feature_name.to_string();
+
+        let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("consensus-spec-tests")
+            .join("tests")
+            .join(Self::config_name())
+            .join(&feature_name_str)
+            .join(Self::runner_name())
+            .join(self.handler_name());
+
+        // Iterate through test suites
+        let as_directory = |entry: Result<DirEntry, std::io::Error>| -> Option<DirEntry> {
+            entry
+                .ok()
+                .filter(|e| e.file_type().map(|ty| ty.is_dir()).unwrap())
+        };
+
+        let test_cases = fs::read_dir(&handler_path)
+            .unwrap_or_else(|e| panic!("handler dir {} exists: {:?}", handler_path.display(), e))
+            .filter_map(as_directory)
+            .flat_map(|suite| fs::read_dir(suite.path()).expect("suite dir exists"))
+            .filter_map(as_directory)
+            .map(|test_case_dir| {
+                let path = test_case_dir.path();
+                let case = Self::Case::load_from_dir(&path, fork_name).expect("test should load");
+                (path, case)
+            })
+            .collect();
+
+        let results = Cases { test_cases }.test_results(fork_name, Self::use_rayon());
+
+        let name = format!(
+            "{}/{}/{}",
+            feature_name_str,
             Self::runner_name(),
             self.handler_name()
         );
@@ -210,8 +271,8 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Altair])
     }
 
-    pub fn merge_only() -> Self {
-        Self::for_forks(vec![ForkName::Merge])
+    pub fn bellatrix_only() -> Self {
+        Self::for_forks(vec![ForkName::Bellatrix])
     }
 
     pub fn capella_only() -> Self {
@@ -220,6 +281,10 @@ impl<T, E> SszStaticHandler<T, E> {
 
     pub fn deneb_only() -> Self {
         Self::for_forks(vec![ForkName::Deneb])
+    }
+
+    pub fn electra_only() -> Self {
+        Self::for_forks(vec![ForkName::Electra])
     }
 
     pub fn altair_and_later() -> Self {
@@ -232,6 +297,18 @@ impl<T, E> SszStaticHandler<T, E> {
 
     pub fn capella_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[3..].to_vec())
+    }
+
+    pub fn deneb_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[4..].to_vec())
+    }
+
+    pub fn electra_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[5..].to_vec())
+    }
+
+    pub fn pre_electra() -> Self {
+        Self::for_forks(ForkName::list_all()[0..5].to_vec())
     }
 }
 
@@ -247,7 +324,7 @@ pub struct SszStaticWithSpecHandler<T, E>(PhantomData<(T, E)>);
 
 impl<T, E> Handler for SszStaticHandler<T, E>
 where
-    T: cases::SszStaticType + ssz::Decode + TypeName,
+    T: cases::SszStaticType + tree_hash::TreeHash + ssz::Decode + TypeName,
     E: TypeName,
 {
     type Case = cases::SszStatic<T>;
@@ -551,7 +628,7 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Merge block tests are only enabled for Bellatrix.
-        if self.handler_name == "on_merge_block" && fork_name != ForkName::Merge {
+        if self.handler_name == "on_merge_block" && fork_name != ForkName::Bellatrix {
             return false;
         }
 
@@ -562,7 +639,7 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
 
         // No FCU override tests prior to bellatrix.
         if self.handler_name == "should_override_forkchoice_update"
-            && (fork_name == ForkName::Base || fork_name == ForkName::Altair)
+            && !fork_name.bellatrix_enabled()
         {
             return false;
         }
@@ -598,9 +675,7 @@ impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base
-            && fork_name != ForkName::Altair
-            && cfg!(not(feature = "fake_crypto"))
+        fork_name.bellatrix_enabled() && cfg!(not(feature = "fake_crypto"))
     }
 }
 
@@ -766,6 +841,86 @@ impl<E: EthSpec> Handler for KZGVerifyKZGProofHandler<E> {
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
+pub struct GetCustodyColumnsHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for GetCustodyColumnsHandler<E> {
+    type Case = cases::GetCustodyColumns<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "networking"
+    }
+
+    fn handler_name(&self) -> String {
+        "get_custody_columns".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct KZGComputeCellsAndKZGProofHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
+    type Case = cases::KZGComputeCellsAndKZGProofs<E>;
+
+    fn config_name() -> &'static str {
+        "general"
+    }
+
+    fn runner_name() -> &'static str {
+        "kzg"
+    }
+
+    fn handler_name(&self) -> String {
+        "compute_cells_and_kzg_proofs".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct KZGVerifyCellKZGProofBatchHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
+    type Case = cases::KZGVerifyCellKZGProofBatch<E>;
+
+    fn config_name() -> &'static str {
+        "general"
+    }
+
+    fn runner_name() -> &'static str {
+        "kzg"
+    }
+
+    fn handler_name(&self) -> String {
+        "verify_cell_kzg_proof_batch".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct KZGRecoverCellsAndKZGProofHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
+    type Case = cases::KZGRecoverCellsAndKZGProofs<E>;
+
+    fn config_name() -> &'static str {
+        "general"
+    }
+
+    fn runner_name() -> &'static str {
+        "kzg"
+    }
+
+    fn handler_name(&self) -> String {
+        "recover_cells_and_kzg_proofs".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct MerkleProofValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
@@ -783,13 +938,12 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
         "single_merkle_proof".into()
     }
 
-    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base
-            // Test is skipped due to some changes in the Capella light client
-            // spec.
-            //
-            // https://github.com/sigp/lighthouse/issues/4022
-            && fork_name != ForkName::Capella && fork_name != ForkName::Deneb
+    fn is_enabled_for_fork(&self, _fork_name: ForkName) -> bool {
+        // Test is skipped due to some changes in the Capella light client
+        // spec.
+        //
+        // https://github.com/sigp/lighthouse/issues/4022
+        false
     }
 }
 
@@ -814,10 +968,33 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Enabled in Deneb
-        fork_name != ForkName::Base
-            && fork_name != ForkName::Altair
-            && fork_name != ForkName::Merge
-            && fork_name != ForkName::Capella
+        fork_name == ForkName::Deneb
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct LightClientUpdateHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
+    type Case = cases::LightClientVerifyIsBetterUpdate<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "light_client"
+    }
+
+    fn handler_name(&self) -> String {
+        "update_ranking".into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        // Enabled in Altair
+        // TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
+        fork_name != ForkName::Base && fork_name != ForkName::Electra
     }
 }
 

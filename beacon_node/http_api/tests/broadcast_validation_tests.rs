@@ -7,8 +7,7 @@ use eth2::types::{BroadcastValidation, PublishBlockRequest};
 use http_api::test_utils::InteractiveTester;
 use http_api::{publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock};
 use std::sync::Arc;
-use tree_hash::TreeHash;
-use types::{Epoch, EthSpec, ForkName, Hash256, MainnetEthSpec, Slot};
+use types::{Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, MainnetEthSpec, Slot};
 use warp::Rejection;
 use warp_utils::reject::CustomBadRequest;
 
@@ -82,9 +81,7 @@ pub async fn gossip_invalid() {
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
-    assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string())
-    );
+    assert_server_message_error(error_response, "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string());
 }
 
 /// This test checks that a block that is valid from a gossip perspective is accepted when using `broadcast_validation=gossip`.
@@ -269,10 +266,7 @@ pub async fn consensus_invalid() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-
-    assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string())
-    );
+    assert_server_message_error(error_response, "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string());
 }
 
 /// This test checks that a block that is only valid from a gossip perspective is rejected when using `broadcast_validation=consensus`.
@@ -318,10 +312,7 @@ pub async fn consensus_gossip() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-
-    assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xfc675d642ff7a06458eb33c7d7b62a5813e34d1b2bb1aee3e395100b579da026 }".to_string())
-    );
+    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xfc675d642ff7a06458eb33c7d7b62a5813e34d1b2bb1aee3e395100b579da026 }".to_string());
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective, but nonetheless equivocates, is accepted when using `broadcast_validation=consensus`.
@@ -353,13 +344,20 @@ pub async fn consensus_partial_pass_only_consensus() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block_a, _), state_after_a) = tester.harness.make_block(state_a.clone(), slot_b).await;
-    let ((block_b, blobs_b), state_after_b) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block_a, _), mut state_after_a) =
+        tester.harness.make_block(state_a.clone(), slot_b).await;
+    let ((block_b, blobs_b), mut state_after_b) = tester.harness.make_block(state_a, slot_b).await;
     let block_b_root = block_b.canonical_root();
 
     /* check for `make_block` curios */
-    assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
-    assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
+    assert_eq!(
+        block_a.state_root(),
+        state_after_a.canonical_root().unwrap()
+    );
+    assert_eq!(
+        block_b.state_root(),
+        state_after_b.canonical_root().unwrap()
+    );
     assert_ne!(block_a.state_root(), block_b.state_root());
 
     let gossip_block_contents_b = PublishBlockRequest::new(block_b, blobs_b)
@@ -370,6 +368,7 @@ pub async fn consensus_partial_pass_only_consensus() {
 
     /* submit `block_b` which should induce equivocation */
     let channel = tokio::sync::mpsc::unbounded_channel();
+    let network_globals = tester.ctx.network_globals.clone().unwrap();
 
     let publication_result = publish_block(
         None,
@@ -379,6 +378,7 @@ pub async fn consensus_partial_pass_only_consensus() {
         test_logger,
         validation_level.unwrap(),
         StatusCode::ACCEPTED,
+        network_globals,
     )
     .await;
 
@@ -481,10 +481,7 @@ pub async fn equivocation_invalid() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-
-    assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string())
-    );
+    assert_server_message_error(error_response, "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string());
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective is rejected when using `broadcast_validation=consensus_and_equivocation`.
@@ -516,13 +513,19 @@ pub async fn equivocation_consensus_early_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block_a, blobs_a), state_after_a) =
+    let ((block_a, blobs_a), mut state_after_a) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
-    let ((block_b, blobs_b), state_after_b) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block_b, blobs_b), mut state_after_b) = tester.harness.make_block(state_a, slot_b).await;
 
     /* check for `make_block` curios */
-    assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
-    assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
+    assert_eq!(
+        block_a.state_root(),
+        state_after_a.canonical_root().unwrap()
+    );
+    assert_eq!(
+        block_b.state_root(),
+        state_after_b.canonical_root().unwrap()
+    );
     assert_ne!(block_a.state_root(), block_b.state_root());
 
     /* submit `block_a` as valid */
@@ -552,9 +555,9 @@ pub async fn equivocation_consensus_early_equivocation() {
     let error_response: eth2::Error = response.err().unwrap();
 
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-
-    assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message ==  "BAD_REQUEST: BlockError(Slashable)".to_string())
+    assert_server_message_error(
+        error_response,
+        "BAD_REQUEST: BlockError(Slashable)".to_string(),
     );
 }
 
@@ -602,10 +605,7 @@ pub async fn equivocation_gossip() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-
-    assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xfc675d642ff7a06458eb33c7d7b62a5813e34d1b2bb1aee3e395100b579da026 }".to_string())
-    );
+    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xfc675d642ff7a06458eb33c7d7b62a5813e34d1b2bb1aee3e395100b579da026 }".to_string());
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective but
@@ -642,13 +642,19 @@ pub async fn equivocation_consensus_late_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let ((block_a, blobs_a), state_after_a) =
+    let ((block_a, blobs_a), mut state_after_a) =
         tester.harness.make_block(state_a.clone(), slot_b).await;
-    let ((block_b, blobs_b), state_after_b) = tester.harness.make_block(state_a, slot_b).await;
+    let ((block_b, blobs_b), mut state_after_b) = tester.harness.make_block(state_a, slot_b).await;
 
     /* check for `make_block` curios */
-    assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
-    assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
+    assert_eq!(
+        block_a.state_root(),
+        state_after_a.canonical_root().unwrap()
+    );
+    assert_eq!(
+        block_b.state_root(),
+        state_after_b.canonical_root().unwrap()
+    );
     assert_ne!(block_a.state_root(), block_b.state_root());
 
     let gossip_block_contents_b = PublishBlockRequest::new(block_b, blobs_b)
@@ -659,6 +665,7 @@ pub async fn equivocation_consensus_late_equivocation() {
     assert!(gossip_block_contents_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();
+    let network_globals = tester.ctx.network_globals.clone().unwrap();
 
     let publication_result = publish_block(
         None,
@@ -668,6 +675,7 @@ pub async fn equivocation_consensus_late_equivocation() {
         test_logger,
         validation_level.unwrap(),
         StatusCode::ACCEPTED,
+        network_globals,
     )
     .await;
 
@@ -775,10 +783,7 @@ pub async fn blinded_gossip_invalid() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-
-    assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string())
-    );
+    assert_server_message_error(error_response, "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string());
 }
 
 /// This test checks that a block that is valid from a gossip perspective is accepted when using `broadcast_validation=gossip`.
@@ -956,10 +961,7 @@ pub async fn blinded_consensus_invalid() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-
-    assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string())
-    );
+    assert_server_message_error(error_response, "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string());
 }
 
 /// This test checks that a block that is only valid from a gossip perspective is rejected when using `broadcast_validation=consensus`.
@@ -1005,10 +1007,7 @@ pub async fn blinded_consensus_gossip() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-
-    assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xfc675d642ff7a06458eb33c7d7b62a5813e34d1b2bb1aee3e395100b579da026 }".to_string())
-    );
+    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xfc675d642ff7a06458eb33c7d7b62a5813e34d1b2bb1aee3e395100b579da026 }".to_string());
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=consensus`.
@@ -1100,10 +1099,7 @@ pub async fn blinded_equivocation_invalid() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-
-    assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string())
-    );
+    assert_server_message_error(error_response, "BAD_REQUEST: BlockError(NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 })".to_string());
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective is rejected when using `broadcast_validation=consensus_and_equivocation`.
@@ -1135,15 +1131,21 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block_a, state_after_a) = tester
+    let (block_a, mut state_after_a) = tester
         .harness
         .make_blinded_block(state_a.clone(), slot_b)
         .await;
-    let (block_b, state_after_b) = tester.harness.make_blinded_block(state_a, slot_b).await;
+    let (block_b, mut state_after_b) = tester.harness.make_blinded_block(state_a, slot_b).await;
 
     /* check for `make_blinded_block` curios */
-    assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
-    assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
+    assert_eq!(
+        block_a.state_root(),
+        state_after_a.canonical_root().unwrap()
+    );
+    assert_eq!(
+        block_b.state_root(),
+        state_after_b.canonical_root().unwrap()
+    );
     assert_ne!(block_a.state_root(), block_b.state_root());
 
     /* submit `block_a` as valid */
@@ -1167,9 +1169,9 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
     let error_response: eth2::Error = response.err().unwrap();
 
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-
-    assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message ==  "BAD_REQUEST: BlockError(Slashable)".to_string())
+    assert_server_message_error(
+        error_response,
+        "BAD_REQUEST: BlockError(Slashable)".to_string(),
     );
 }
 
@@ -1218,9 +1220,7 @@ pub async fn blinded_equivocation_gossip() {
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
-    assert!(
-        matches!(error_response, eth2::Error::ServerMessage(err) if err.message == "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xfc675d642ff7a06458eb33c7d7b62a5813e34d1b2bb1aee3e395100b579da026 }".to_string())
-    );
+    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xfc675d642ff7a06458eb33c7d7b62a5813e34d1b2bb1aee3e395100b579da026 }".to_string());
 }
 
 /// This test checks that a block that is valid from both a gossip and
@@ -1259,16 +1259,22 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block_a, state_after_a) = tester
+    let (block_a, mut state_after_a) = tester
         .harness
         .make_blinded_block(state_a.clone(), slot_b)
         .await;
-    let (block_b, state_after_b) = tester.harness.make_blinded_block(state_a, slot_b).await;
+    let (block_b, mut state_after_b) = tester.harness.make_blinded_block(state_a, slot_b).await;
     let block_b = Arc::new(block_b);
 
     /* check for `make_blinded_block` curios */
-    assert_eq!(block_a.state_root(), state_after_a.tree_hash_root());
-    assert_eq!(block_b.state_root(), state_after_b.tree_hash_root());
+    assert_eq!(
+        block_a.state_root(),
+        state_after_a.canonical_root().unwrap()
+    );
+    assert_eq!(
+        block_b.state_root(),
+        state_after_b.canonical_root().unwrap()
+    );
     assert_ne!(block_a.state_root(), block_b.state_root());
 
     let unblinded_block_a = reconstruct_block(
@@ -1305,6 +1311,7 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     assert!(gossip_block_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();
+    let network_globals = tester.ctx.network_globals.clone().unwrap();
 
     let publication_result = publish_blinded_block(
         block_b,
@@ -1313,6 +1320,7 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         test_logger,
         validation_level.unwrap(),
         StatusCode::ACCEPTED,
+        network_globals,
     )
     .await;
 
@@ -1364,4 +1372,11 @@ pub async fn blinded_equivocation_full_pass() {
         .harness
         .chain
         .block_is_known_to_fork_choice(&block.canonical_root()));
+}
+
+fn assert_server_message_error(error_response: eth2::Error, expected_message: String) {
+    let eth2::Error::ServerMessage(err) = error_response else {
+        panic!("Not a eth2::Error::ServerMessage");
+    };
+    assert_eq!(err.message, expected_message);
 }
