@@ -418,41 +418,42 @@ impl<E: EthSpec> LightClientUpdate<E> {
     fn is_next_sync_committee_branch_empty(&self) -> bool {
         match self {
             LightClientUpdate::Electra(update) => {
-                for index in update.next_sync_committee_branch.iter() {
-                    if *index != Hash256::default() {
-                        return false;
-                    }
-                }
-                true
+                self.is_empty_branch(update.next_sync_committee_branch.as_ref().into())
             }
-            _ => {
-                for index in self.next_sync_committee_branch_altair().unwrap().iter() {
-                    if *index != Hash256::default() {
-                        return false;
-                    }
-                }
-                true
+            LightClientUpdate::Deneb(update) => {
+                self.is_empty_branch(update.next_sync_committee_branch.as_ref().into())
+            }
+            LightClientUpdate::Capella(update) => {
+                self.is_empty_branch(update.next_sync_committee_branch.as_ref().into())
+            }
+            LightClientUpdate::Altair(update) => {
+                self.is_empty_branch(update.next_sync_committee_branch.as_ref().into())
             }
         }
+    }
+
+    fn is_empty_branch(&self, branch: &[Hash256]) -> bool {
+        for index in branch.iter() {
+            if *index != Hash256::default() {
+                return false;
+            }
+        }
+        true
     }
 
     pub fn is_finality_branch_empty(&self) -> bool {
         match self {
             LightClientUpdate::Electra(update) => {
-                for index in update.finality_branch.iter() {
-                    if *index != Hash256::default() {
-                        return false;
-                    }
-                }
-                true
+                self.is_empty_branch(update.finality_branch.as_ref().into())
             }
-            _ => {
-                for index in self.finality_branch_altair().unwrap().iter() {
-                    if *index != Hash256::default() {
-                        return false;
-                    }
-                }
-                true
+            LightClientUpdate::Deneb(update) => {
+                self.is_empty_branch(update.finality_branch.as_ref().into())
+            }
+            LightClientUpdate::Capella(update) => {
+                self.is_empty_branch(update.finality_branch.as_ref().into())
+            }
+            LightClientUpdate::Altair(update) => {
+                self.is_empty_branch(update.finality_branch.as_ref().into())
             }
         }
     }

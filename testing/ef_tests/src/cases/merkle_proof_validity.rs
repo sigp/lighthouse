@@ -248,8 +248,6 @@ impl<E: EthSpec> Case for BeaconBlockBodyMerkleProofValidity<E> {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let binding = self.block_body.clone();
         let block_body = binding.to_ref();
-        println!("{}", self.merkle_proof.leaf_index);
-        // block_body.update_tree_hash_cache().unwrap();
         let Ok(proof) = block_body.block_body_merkle_proof(self.merkle_proof.leaf_index) else {
             return Err(Error::FailedToParseTest(
                 "Could not retrieve merkle proof".to_string(),
