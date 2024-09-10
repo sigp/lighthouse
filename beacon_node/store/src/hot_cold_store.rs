@@ -721,26 +721,54 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<Vec<LightClientUpdate<E>>, Error> {
         let column = DBColumn::LightClientUpdate;
         let mut light_client_updates = vec![];
-        for res in self
-            .hot_db
-            .iter_column_from::<Vec<u8>>(column, &start_period.to_le_bytes())
-        {
-            let (sync_committee_bytes, light_client_update_bytes) = res?;
-            let sync_committee_period = u64::from_ssz_bytes(&sync_committee_bytes)?;
-            let epoch = sync_committee_period
-                .safe_mul(self.spec.epochs_per_sync_committee_period.into())?;
+        // TODO(modularize-backend) we are calculating sync committee period from ssz twice
+        self.hot_db
+            .iter_column_from::<Vec<u8>>(
+                column,
+                &start_period.to_le_bytes(),
+                move |sync_committee_bytes, _| {
+                    let Ok(sync_committee_period) = u64::from_ssz_bytes(sync_committee_bytes)
+                    else {
+                        // TODO(modularize-backend) logging
+                        return false;
+                    };
 
-            let fork_name = self.spec.fork_name_at_epoch(epoch.into());
+                    if sync_committee_period >= start_period + count {
+                        // TODO(modularize-backend) logging
+                        return false;
+                    }
 
-            let light_client_update =
-                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)?;
+                    true
+                },
+            )?
+            .for_each(|res| {
+                let Ok((sync_committee_bytes, light_client_update_bytes)) = res else {
+                    // TODO(modularize-backend) logging
+                    return;
+                };
 
-            light_client_updates.push(light_client_update);
+                let Ok(sync_committee_period) = u64::from_ssz_bytes(&sync_committee_bytes) else {
+                    // TODO(modularize-backend) logging
+                    return;
+                };
 
-            if sync_committee_period >= start_period + count {
-                break;
-            }
-        }
+                let Ok(epoch) = sync_committee_period
+                    .safe_mul(self.spec.epochs_per_sync_committee_period.into())
+                else {
+                    // TODO(modularize-backend) logging
+                    return;
+                };
+
+                let fork_name = self.spec.fork_name_at_epoch(epoch.into());
+
+                let Ok(light_client_update) =
+                    LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)
+                else {
+                    // TODO(modularize-backend) logging
+                    return;
+                };
+                light_client_updates.push(light_client_update);
+            });
         Ok(light_client_updates)
     }
 
@@ -1180,11 +1208,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::DeleteSyncCommitteeBranch(block_root) => {
-                    let key = get_key_for_col(
-                        DBColumn::SyncCommitteeBranch.into(),
-                        block_root.as_slice(),
-                    );
-                    key_value_batch.push(KeyValueStoreOp::DeleteKey(key));
+                    let column_name: &str = DBColumn::SyncCommitteeBranch.into();
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(
+                        column_name.to_owned(),
+                        block_root.as_slice().to_vec(),
+                    ));
                 }
 
                 StoreOp::KeyValueOp(kv_op) => {
