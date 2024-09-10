@@ -389,7 +389,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         .count()
         > 0
     {
-        let custody_columns_indices = network_globals.custody_columns();
+        let custody_columns_indices = &network_globals.custody_columns;
 
         let custody_columns = gossip_verified_data_columns
             .into_iter()
