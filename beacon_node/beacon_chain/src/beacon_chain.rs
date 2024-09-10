@@ -3555,7 +3555,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 custody_columns,
             )?;
 
-        // FIXME(sproul): need a publication function here?
         self.process_availability(slot, availability, || Ok(()))
             .await
             .map(|result| (result, data_columns_to_publish))

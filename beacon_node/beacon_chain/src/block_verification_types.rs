@@ -1,18 +1,14 @@
-use crate::blob_verification::GossipBlobError;
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
-use crate::data_column_verification::{
-    CustodyDataColumn, CustodyDataColumnList, GossipDataColumnError,
-};
+use crate::data_column_verification::{CustodyDataColumn, CustodyDataColumnList};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
-use crate::{get_block_root, BlockError, PayloadVerificationOutcome};
+use crate::{get_block_root, PayloadVerificationOutcome};
 use derivative::Derivative;
 use ssz_types::VariableList;
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
-use types::blob_sidecar::{self, BlobIdentifier, FixedBlobSidecarList};
-use types::data_column_sidecar::{self};
+use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
     BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, ChainSpec, Epoch, EthSpec,
     Hash256, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
@@ -385,62 +381,6 @@ impl<E: EthSpec> BlockImportData<E> {
             },
             confirmed_state_roots: vec![],
             consensus_context: ConsensusContext::new(Slot::new(0)),
-        }
-    }
-}
-
-// FIXME(sproul): delete?
-#[derive(Debug)]
-pub enum BlockContentsError {
-    BlockError(BlockError),
-    BlobError(GossipBlobError),
-    BlobSidecarError(blob_sidecar::BlobSidecarError),
-    DataColumnError(GossipDataColumnError),
-    DataColumnSidecarError(data_column_sidecar::DataColumnSidecarError),
-}
-
-impl From<BlockError> for BlockContentsError {
-    fn from(value: BlockError) -> Self {
-        Self::BlockError(value)
-    }
-}
-
-impl From<GossipBlobError> for BlockContentsError {
-    fn from(value: GossipBlobError) -> Self {
-        Self::BlobError(value)
-    }
-}
-
-impl From<GossipDataColumnError> for BlockContentsError {
-    fn from(value: GossipDataColumnError) -> Self {
-        Self::DataColumnError(value)
-    }
-}
-
-impl From<data_column_sidecar::DataColumnSidecarError> for BlockContentsError {
-    fn from(value: data_column_sidecar::DataColumnSidecarError) -> Self {
-        Self::DataColumnSidecarError(value)
-    }
-}
-
-impl std::fmt::Display for BlockContentsError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BlockContentsError::BlockError(err) => {
-                write!(f, "BlockError({})", err)
-            }
-            BlockContentsError::BlobError(err) => {
-                write!(f, "BlobError({})", err)
-            }
-            BlockContentsError::BlobSidecarError(err) => {
-                write!(f, "BlobSidecarError({:?})", err)
-            }
-            BlockContentsError::DataColumnError(err) => {
-                write!(f, "DataColumnError({:?})", err)
-            }
-            BlockContentsError::DataColumnSidecarError(err) => {
-                write!(f, "DataColumnSidecarError({:?})", err)
-            }
         }
     }
 }
