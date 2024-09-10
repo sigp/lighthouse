@@ -199,7 +199,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .now_duration()
             .ok_or(AvailabilityCheckError::SlotClockError)?;
 
-        // Note: currenlty not reporting which specific blob is invalid because we fetch all blobs
+        // Note: currently not reporting which specific blob is invalid because we fetch all blobs
         // from the same peer for both lookup and range sync.
         let verified_blobs =
             KzgVerifiedBlobList::new(Vec::from(blobs).into_iter().flatten(), kzg, seen_timestamp)
