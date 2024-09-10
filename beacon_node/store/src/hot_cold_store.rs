@@ -44,7 +44,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
-use types::light_client_update::CurrentSyncCommitteeProofLen;
 use types::*;
 
 /// On-disk database that stores finalized states efficiently.
