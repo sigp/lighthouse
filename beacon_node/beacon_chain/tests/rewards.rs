@@ -16,7 +16,7 @@ use eth2::lighthouse::attestation_rewards::TotalAttestationRewards;
 use eth2::lighthouse::StandardAttestationRewards;
 use eth2::types::ValidatorId;
 use state_processing::{BlockReplayError, BlockReplayer};
-use types::{BeaconState, BeaconStateError, ChainSpec, ForkName, Slot};
+use types::{ChainSpec, ForkName, Slot};
 
 pub const VALIDATOR_COUNT: usize = 64;
 
@@ -189,7 +189,7 @@ async fn test_rewards_base_inactivity_leak_justification_epoch() {
     // advance to create first justification epoch
     harness.extend_slots(E::slots_per_epoch() as usize).await;
     target_epoch += 1;
-    let initial_balances: Vec<u64> = harness.get_current_state().balances().to_vec();
+    let mut expected_balances = harness.get_current_state().balances().to_vec();
 
     // assert previous_justified_checkpoint matches 0 as we were in inactivity leak from beginning
     assert_eq!(
@@ -231,7 +231,7 @@ async fn test_rewards_base_inactivity_leak_justification_epoch() {
         .all(|reward| reward.head > 0 && reward.target > 0 && reward.source > 0));
 
     // apply attestation rewards to initial balances
-    let expected_balances = apply_attestation_rewards(&initial_balances, total_rewards);
+    apply_attestation_rewards(&mut expected_balances, total_rewards);
 
     // verify expected balances against actual balances
     let balances: Vec<u64> = harness.get_current_state().balances().to_vec();

@@ -4,9 +4,9 @@ use safe_arith::SafeArith;
 use slog::error;
 use state_processing::{
     common::{
-        altair, base, get_attestation_participation_flag_indices, get_attesting_indices_from_state,
+        base::{self, SqrtTotalActiveBalance},
+        get_attestation_participation_flag_indices, get_attesting_indices_from_state,
     },
-    common::{get_attestation_participation_flag_indices, get_attesting_indices_from_state},
     epoch_cache::initialize_epoch_cache,
     per_block_processing::{
         altair::sync_committee::compute_sync_aggregate_rewards, get_slashable_indices,
@@ -184,7 +184,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut block_reward = 0;
 
         for attestation in block.body().attestations() {
-            let processing_epoch_end = if attestation.data.target.epoch == epoch {
+            let processing_epoch_end = if attestation.data().target.epoch == epoch {
                 let next_epoch_end = match &mut next_epoch_end {
                     Some(next_epoch_end) => next_epoch_end,
                     None => {
@@ -204,7 +204,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
 
                 next_epoch_end
-            } else if attestation.data.target.epoch == epoch.safe_sub(1)? {
+            } else if attestation.data().target.epoch == epoch.safe_sub(1)? {
                 match &mut current_epoch_end {
                     Some(current_epoch_end) => current_epoch_end,
                     None => {
@@ -220,13 +220,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Err(BeaconChainError::BlockRewardAttestationError);
             };
 
+            let sqrt_total_active_balance =
+                SqrtTotalActiveBalance::new(processing_epoch_end.get_total_active_balance()?);
             for attester in get_attesting_indices_from_state(state, attestation)? {
-                let attester = attester as usize;
-                if !processing_epoch_end.get_validator(attester)?.slashed {
+                let validator = processing_epoch_end.get_validator(attester as usize)?;
+                if !validator.slashed {
                     let base_reward = base::get_base_reward(
-                        state,
-                        attester,
-                        processing_epoch_end.get_total_active_balance()?,
+                        validator.effective_balance,
+                        sqrt_total_active_balance,
                         &self.spec,
                     )?;
                     let proposer_reward =
