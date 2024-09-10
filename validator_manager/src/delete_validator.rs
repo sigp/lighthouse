@@ -174,7 +174,7 @@ mod test {
             mut self,
             count: u32,
             first_index: u32,
-            index_of_validator_to_delete: usize,
+            indices_of_validators_to_delete: Vec<usize>,
         ) -> Self {
             let builder = ImportTestBuilder::new_with_http_config(self.http_config.clone())
                 .await
@@ -192,19 +192,20 @@ mod test {
 
             let import_config = builder.get_import_config();
 
+            let validators_to_delete = indices_of_validators_to_delete
+                .iter()
+                .map(|&index| {
+                    PublicKeyBytes::from_str(
+                        format!("0x{}", local_validators[index].voting_keystore.pubkey()).as_str(),
+                    )
+                    .unwrap()
+                })
+                .collect();
+
             self.delete_config = Some(DeleteConfig {
                 vc_url: import_config.vc_url,
                 vc_token_path: import_config.vc_token_path,
-                validators_to_delete: vec![PublicKeyBytes::from_str(
-                    format!(
-                        "0x{}",
-                        local_validators[index_of_validator_to_delete]
-                            .voting_keystore
-                            .pubkey()
-                    )
-                    .as_str(),
-                )
-                .unwrap()],
+                validators_to_delete,
             });
 
             self.validators = local_validators.clone();
@@ -236,17 +237,29 @@ mod test {
             let result = run(self.delete_config.clone().unwrap()).await;
 
             if result.is_ok() {
-                let (http_client, _keystores) = vc_http_client(url, path.clone()).await.unwrap();
-                let list_keystores_response = http_client.get_keystores().await.unwrap().data;
+                let (_, list_keystores_response) = vc_http_client(url, path.clone()).await.unwrap();
 
-                assert_eq!(list_keystores_response.len(), self.validators.len() - 1);
-                assert!(list_keystores_response.iter().all(|keystore| vec![
-                    keystore.validating_pubkey
-                ] != self
-                    .delete_config
-                    .clone()
-                    .unwrap()
-                    .validators_to_delete));
+                // The remaining number of active keystores (left) = Total validators = Deleted validators (right)
+                assert_eq!(
+                    list_keystores_response.len(),
+                    self.validators.len()
+                        - self
+                            .delete_config
+                            .clone()
+                            .unwrap()
+                            .validators_to_delete
+                            .len()
+                );
+
+                // Check the remaining validator keys are not in validators_to_delete
+                assert!(list_keystores_response.iter().all(|keystore| {
+                    !self
+                        .delete_config
+                        .clone()
+                        .unwrap()
+                        .validators_to_delete
+                        .contains(&keystore.validating_pubkey)
+                }));
 
                 return TestResult { result: Ok(()) };
             }
@@ -268,10 +281,10 @@ mod test {
         }
     }
     #[tokio::test]
-    async fn list_all_validators() {
+    async fn delete_multiple_validators() {
         TestBuilder::new()
             .await
-            .with_validators(3, 0, 0)
+            .with_validators(3, 0, vec![0, 1, 2])
             .await
             .run_test()
             .await
