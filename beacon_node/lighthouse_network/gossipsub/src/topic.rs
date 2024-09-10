@@ -82,6 +82,10 @@ impl TopicHash {
     pub fn as_str(&self) -> &str {
         &self.hash
     }
+
+    pub fn hash_byte_len(&self) -> usize {
+        self.hash.as_bytes().len()
+    }
 }
 
 /// A gossipsub topic.
