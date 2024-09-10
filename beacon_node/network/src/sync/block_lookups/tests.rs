@@ -1972,7 +1972,6 @@ fn sampling_happy_path() {
 }
 
 #[test]
-#[ignore] // Ignoring due to flakiness https://github.com/sigp/lighthouse/issues/6319
 fn sampling_with_retries() {
     let Some(mut r) = TestRig::test_setup_after_peerdas() else {
         return;
