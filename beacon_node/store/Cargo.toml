@@ -22,6 +22,7 @@ itertools = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 types = { workspace = true }
+safe_arith = { workspace = true }
 state_processing = { workspace = true }
 slog = { workspace = true }
 serde = { workspace = true }

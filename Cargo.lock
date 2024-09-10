@@ -8241,6 +8241,7 @@ dependencies = [
  "lru",
  "parking_lot 0.12.3",
  "redb",
+ "safe_arith",
  "serde",
  "slog",
  "sloggers",

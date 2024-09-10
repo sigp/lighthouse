@@ -144,6 +144,12 @@ pub enum SyncCommitteeStrategy {
     NoValidators,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LightClientStrategy {
+    Enabled,
+    Disabled,
+}
+
 /// Indicates whether the `BeaconChainHarness` should use the `state.current_sync_committee` or
 /// `state.next_sync_committee` when creating sync messages or contributions.
 #[derive(Clone, Debug)]
@@ -2231,6 +2237,96 @@ where
         .await
     }
 
+    fn update_light_client_server_cache(
+        &self,
+        state: &BeaconState<E>,
+        slot: Slot,
+        block_root: Hash256,
+    ) {
+        let fork_name = state.fork_name(&self.spec).unwrap();
+        if !fork_name.altair_enabled() {
+            return;
+        }
+
+        let log = self.logger();
+        let contributions =
+            self.make_sync_contributions(state, block_root, slot, RelativeSyncCommittee::Current);
+
+        for (_, contribution_and_proof) in contributions {
+            let Some(contribution_and_proof) = contribution_and_proof else {
+                continue;
+            };
+            let contribution = contribution_and_proof.message.contribution;
+            self.chain
+                .op_pool
+                .insert_sync_contribution(contribution.clone())
+                .unwrap();
+            self.chain
+                .op_pool
+                .insert_sync_contribution(contribution)
+                .unwrap();
+        }
+
+        let Some(sync_aggregate) = self.chain.op_pool.get_sync_aggregate(state).unwrap() else {
+            return;
+        };
+
+        let _ = self
+            .chain
+            .light_client_server_cache
+            .recompute_and_cache_updates(
+                self.chain.store.clone(),
+                slot,
+                &block_root,
+                &sync_aggregate,
+                log,
+                &self.spec,
+            );
+    }
+
+    pub async fn add_attested_blocks_at_slots_with_lc_data(
+        &self,
+        mut state: BeaconState<E>,
+        state_root: Hash256,
+        slots: &[Slot],
+        validators: &[usize],
+        mut latest_block_hash: Option<SignedBeaconBlockHash>,
+        sync_committee_strategy: SyncCommitteeStrategy,
+    ) -> AddBlocksResult<E> {
+        assert!(
+            slots.windows(2).all(|w| w[0] <= w[1]),
+            "Slots have to be sorted"
+        ); // slice.is_sorted() isn't stabilized at the moment of writing this
+        let mut block_hash_from_slot: HashMap<Slot, SignedBeaconBlockHash> = HashMap::new();
+        let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
+        for slot in slots {
+            let (block_hash, new_state) = self
+                .add_attested_block_at_slot_with_sync(
+                    *slot,
+                    state,
+                    state_root,
+                    validators,
+                    sync_committee_strategy,
+                )
+                .await
+                .unwrap();
+
+            state = new_state;
+
+            self.update_light_client_server_cache(&state, *slot, block_hash.into());
+
+            block_hash_from_slot.insert(*slot, block_hash);
+            state_hash_from_slot.insert(*slot, state.canonical_root().unwrap().into());
+            latest_block_hash = Some(block_hash);
+        }
+        (
+            block_hash_from_slot,
+            state_hash_from_slot,
+            latest_block_hash.unwrap(),
+            state,
+        )
+    }
+
     async fn add_attested_blocks_at_slots_given_lbh(
         &self,
         mut state: BeaconState<E>,
@@ -2257,7 +2353,9 @@ where
                 )
                 .await
                 .unwrap();
+
             state = new_state;
+
             block_hash_from_slot.insert(*slot, block_hash);
             state_hash_from_slot.insert(*slot, state.canonical_root().unwrap().into());
             latest_block_hash = Some(block_hash);
@@ -2466,6 +2564,23 @@ where
             block_strategy,
             attestation_strategy,
             SyncCommitteeStrategy::NoValidators,
+            LightClientStrategy::Disabled,
+        )
+        .await
+    }
+
+    pub async fn extend_chain_with_light_client_data(
+        &self,
+        num_blocks: usize,
+        block_strategy: BlockStrategy,
+        attestation_strategy: AttestationStrategy,
+    ) -> Hash256 {
+        self.extend_chain_with_sync(
+            num_blocks,
+            block_strategy,
+            attestation_strategy,
+            SyncCommitteeStrategy::NoValidators,
+            LightClientStrategy::Enabled,
         )
         .await
     }
@@ -2476,6 +2591,7 @@ where
         block_strategy: BlockStrategy,
         attestation_strategy: AttestationStrategy,
         sync_committee_strategy: SyncCommitteeStrategy,
+        light_client_strategy: LightClientStrategy,
     ) -> Hash256 {
         let (mut state, slots) = match block_strategy {
             BlockStrategy::OnCanonicalHead => {
@@ -2507,15 +2623,30 @@ where
         };
 
         let state_root = state.update_tree_hash_cache().unwrap();
-        let (_, _, last_produced_block_hash, _) = self
-            .add_attested_blocks_at_slots_with_sync(
-                state,
-                state_root,
-                &slots,
-                &validators,
-                sync_committee_strategy,
-            )
-            .await;
+        let (_, _, last_produced_block_hash, _) = match light_client_strategy {
+            LightClientStrategy::Enabled => {
+                self.add_attested_blocks_at_slots_with_lc_data(
+                    state,
+                    state_root,
+                    &slots,
+                    &validators,
+                    None,
+                    sync_committee_strategy,
+                )
+                .await
+            }
+            LightClientStrategy::Disabled => {
+                self.add_attested_blocks_at_slots_with_sync(
+                    state,
+                    state_root,
+                    &slots,
+                    &validators,
+                    sync_committee_strategy,
+                )
+                .await
+            }
+        };
+
         last_produced_block_hash.into()
     }
 

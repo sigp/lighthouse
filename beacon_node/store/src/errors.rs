@@ -65,6 +65,7 @@ pub enum Error {
         state_root: Hash256,
         slot: Slot,
     },
+    ArithError(safe_arith::ArithError),
 }
 
 pub trait HandleUnavailable<T> {
@@ -188,6 +189,12 @@ impl From<redb::CompactionError> for Error {
 impl From<EpochCacheError> for Error {
     fn from(e: EpochCacheError) -> Error {
         Error::CacheBuildError(e)
+    }
+}
+
+impl From<safe_arith::ArithError> for Error {
+    fn from(e: safe_arith::ArithError) -> Error {
+        Error::ArithError(e)
     }
 }
 
