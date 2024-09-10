@@ -9,6 +9,7 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
+use methods::LightClientUpdatesByRangeRequest;
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
@@ -376,6 +377,94 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "request" => ?request.group_by_ordered_block_root(),
             "returned" => send_data_column_count
         );
+
+        Ok(())
+    }
+
+    pub async fn handle_light_client_updates_by_range(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: LightClientUpdatesByRangeRequest,
+    ) {
+        self.terminate_response_stream(
+            peer_id,
+            request_id,
+            self.clone()
+                .handle_light_client_updates_by_range_request_inner(peer_id, request_id, request)
+                .await,
+            Response::BlocksByRange,
+        );
+    }
+
+    /// Handle a `LightClientUpdatesByRange` request from the peer.
+    pub async fn handle_light_client_updates_by_range_request_inner(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        req: LightClientUpdatesByRangeRequest,
+    ) -> Result<(), (RPCResponseErrorCode, &'static str)> {
+        debug!(self.log, "Received LightClientUpdatesByRange Request";
+            "peer_id" => %peer_id,
+            "count" => req.count,
+            "start_period" => req.start_period,
+        );
+
+        // TODO(lc-update) use correct val here
+        // Should not send more than max light client updates
+        let max_request_size: u64 = 1;
+        if req.count > max_request_size {
+            return Err((
+                RPCResponseErrorCode::InvalidRequest,
+                "Request exceeded max size",
+            ));
+        }
+
+        let lc_updates = match self
+            .chain
+            .get_light_client_updates(req.start_period, req.count)
+        {
+            Ok(lc_updates) => lc_updates,
+            Err(e) => {
+                error!(self.log, "Unable to obtain light client updates";
+                    "request" => ?req,
+                    "peer" => %peer_id,
+                    "error" => ?e
+                );
+                return Err((RPCResponseErrorCode::ServerError, "Database error"));
+            }
+        };
+
+        lc_updates.iter().for_each(|lc_update| {
+            self.send_network_message(NetworkMessage::SendResponse {
+                peer_id,
+                response: Response::LightClientUpdatesByRange(Some(Arc::new(lc_update.clone()))),
+                id: request_id,
+            });
+        });
+
+        let lc_updates_sent = lc_updates.len();
+
+        if lc_updates_sent < req.count as usize {
+            debug!(
+                self.log,
+                "LightClientUpdatesByRange outgoing response processed";
+                "peer" => %peer_id,
+                "msg" => "Failed to return all requested light client updates",
+                "start_period" => req.start_period,
+                "requested" => req.count,
+                "returned" => lc_updates_sent
+            );
+        } else {
+            debug!(
+                self.log,
+                "LightClientUpdatesByRange outgoing response processed";
+                "peer" => %peer_id,
+                "start_period" => req.start_period,
+                "requested" => req.count,
+                "returned" => lc_updates_sent
+            );
+        }
 
         Ok(())
     }

@@ -14,6 +14,7 @@ use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
+use types::LightClientUpdate;
 use types::{
     blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
     Epoch, EthSpec, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
@@ -477,6 +478,41 @@ impl DataColumnsByRootRequest {
     }
 }
 
+/// Request a number of beacon data columns from a peer.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct LightClientUpdatesByRangeRequest {
+    /// The starting period to request light client updates.
+    pub start_period: u64,
+    /// The number of periods from `start_period`.
+    pub count: u64,
+}
+
+impl LightClientUpdatesByRangeRequest {
+    pub fn max_requested<E: EthSpec>(&self) -> u64 {
+        // TODO(lc-update) check spec for max request limits
+        todo!()
+    }
+
+    pub fn ssz_min_len() -> usize {
+        LightClientUpdatesByRangeRequest {
+            start_period: 0,
+            count: 0,
+        }
+        .as_ssz_bytes()
+        .len()
+    }
+
+    pub fn ssz_max_len(_: &ChainSpec) -> usize {
+        // TODO(lc-update) make sure max count is correct
+        LightClientUpdatesByRangeRequest {
+            start_period: 0,
+            count: 0,
+        }
+        .as_ssz_bytes()
+        .len()
+    }
+}
+
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
@@ -503,6 +539,9 @@ pub enum RPCResponse<E: EthSpec> {
 
     /// A response to a get LIGHT_CLIENT_FINALITY_UPDATE request.
     LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
+
+    /// A response to a get LIGHT_CLIENT_UPDATES_BY_RANGE request.
+    LightClientUpdatesByRange(Arc<LightClientUpdate<E>>),
 
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Arc<BlobSidecar<E>>),
@@ -540,6 +579,9 @@ pub enum ResponseTermination {
 
     /// Data column sidecars by range stream termination.
     DataColumnsByRange,
+
+    /// Light client updates by range stream termination.
+    LightClientUpdatesByRange,
 }
 
 /// The structured response containing a result/code indicating success or failure
@@ -637,6 +679,7 @@ impl<E: EthSpec> RPCResponse<E> {
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
             RPCResponse::LightClientOptimisticUpdate(_) => Protocol::LightClientOptimisticUpdate,
             RPCResponse::LightClientFinalityUpdate(_) => Protocol::LightClientFinalityUpdate,
+            RPCResponse::LightClientUpdatesByRange(_) => Protocol::LightClientUpdatesByRange,
         }
     }
 }
@@ -704,6 +747,13 @@ impl<E: EthSpec> std::fmt::Display for RPCResponse<E> {
                     f,
                     "LightClientFinalityUpdate Slot: {}",
                     update.signature_slot()
+                )
+            }
+            RPCResponse::LightClientUpdatesByRange(update) => {
+                write!(
+                    f,
+                    "LightClientUpdatesByRange Slot: {}",
+                    update.signature_slot(),
                 )
             }
         }

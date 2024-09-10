@@ -3,7 +3,7 @@ use std::sync::Arc;
 use libp2p::swarm::ConnectionId;
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, Hash256, LightClientBootstrap,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, SignedBeaconBlock,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
 };
 
 use crate::rpc::methods::{
@@ -184,6 +184,8 @@ pub enum Response<E: EthSpec> {
     LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<E>>),
     /// A response to a LightClientFinalityUpdate request.
     LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
+    /// A response to a LightClientUpdatesByRange request.
+    LightClientUpdatesByRange(Option<Arc<LightClientUpdate<E>>>),
 }
 
 impl<E: EthSpec> std::convert::From<Response<E>> for RPCCodedResponse<E> {
@@ -225,6 +227,12 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RPCCodedResponse<E> {
             Response::LightClientFinalityUpdate(f) => {
                 RPCCodedResponse::Success(RPCResponse::LightClientFinalityUpdate(f))
             }
+            Response::LightClientUpdatesByRange(f) => match f {
+                Some(d) => RPCCodedResponse::Success(RPCResponse::LightClientUpdatesByRange(d)),
+                None => RPCCodedResponse::StreamTermination(
+                    ResponseTermination::LightClientUpdatesByRange,
+                ),
+            },
         }
     }
 }

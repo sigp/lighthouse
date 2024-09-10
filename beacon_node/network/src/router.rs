@@ -275,7 +275,8 @@ impl<T: BeaconChainTypes> Router<T> {
             // Light client responses should not be received
             Response::LightClientBootstrap(_)
             | Response::LightClientOptimisticUpdate(_)
-            | Response::LightClientFinalityUpdate(_) => unreachable!(),
+            | Response::LightClientFinalityUpdate(_)
+            | Response::LightClientUpdatesByRange(_) => unreachable!(),
         }
     }
 

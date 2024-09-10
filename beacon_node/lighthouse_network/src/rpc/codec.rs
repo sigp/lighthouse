@@ -76,6 +76,7 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
                 RPCResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientOptimisticUpdate(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientFinalityUpdate(res) => res.as_ssz_bytes(),
+                RPCResponse::LightClientUpdatesByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) =>
                 // Encode the correct version of the MetaData response based on the negotiated version.
@@ -492,6 +493,10 @@ fn context_bytes<E: EthSpec>(
                 }
                 RPCResponse::LightClientFinalityUpdate(lc_finality_update) => {
                     return lc_finality_update
+                        .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
+                }
+                RPCResponse::LightClientUpdatesByRange(lc_update) => {
+                    return lc_update
                         .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
                 }
                 // These will not pass the has_context_bytes() check
