@@ -2566,6 +2566,12 @@ impl<E: EthSpec> BeaconState<E> {
         }
 
         Ok(proof)
+        // metastruct
+        // mapping from field name to field index
+        // two way mapping
+        // proof for pretty much
+        // stable container is forward compatible with metastruct
+        // index of field should be manually overwritten
     }
 }
 

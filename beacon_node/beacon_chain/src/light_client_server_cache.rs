@@ -1,5 +1,6 @@
 use crate::errors::BeaconChainError;
 use crate::{metrics, BeaconChainTypes, BeaconStore};
+use eth2::types::light_client_update::CurrentSyncCommitteeProofLen;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
 use slog::{debug, Logger};
