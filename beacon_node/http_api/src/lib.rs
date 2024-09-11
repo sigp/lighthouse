@@ -31,7 +31,7 @@ mod validator_inclusion;
 mod validators;
 mod version;
 
-use crate::light_client::get_light_client_updates;
+use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
 use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
 use crate::version::fork_versioned_response;
 use beacon_chain::{
@@ -2411,40 +2411,7 @@ pub fn serve<T: BeaconChainTypes>(
              block_root: Hash256,
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
-                    let (bootstrap, fork_name) = match chain.get_light_client_bootstrap(&block_root)
-                    {
-                        Ok(Some(res)) => res,
-                        Ok(None) => {
-                            return Err(warp_utils::reject::custom_not_found(
-                                "Light client bootstrap unavailable".to_string(),
-                            ));
-                        }
-                        Err(e) => {
-                            return Err(warp_utils::reject::custom_server_error(format!(
-                                "Unable to obtain LightClientBootstrap instance: {e:?}"
-                            )));
-                        }
-                    };
-
-                    match accept_header {
-                        Some(api_types::Accept::Ssz) => Response::builder()
-                            .status(200)
-                            .body(bootstrap.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
-                            .map_err(|e| {
-                                warp_utils::reject::custom_server_error(format!(
-                                    "failed to create response: {}",
-                                    e
-                                ))
-                            }),
-                        _ => Ok(warp::reply::json(&ForkVersionedResponse {
-                            version: Some(fork_name),
-                            metadata: EmptyMetadata {},
-                            data: bootstrap,
-                        })
-                        .into_response()),
-                    }
-                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                    get_light_client_bootstrap::<T>(chain, &block_root, accept_header)
                 })
             },
         );
