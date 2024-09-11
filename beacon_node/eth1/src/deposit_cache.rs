@@ -471,7 +471,7 @@ impl DepositCache {
 pub mod tests {
     use super::*;
     use execution_layer::http::deposit_log::Log;
-    use types::{EthSpec, MainnetEthSpec};
+    use types::{EthSpec, FixedBytesExtended, MainnetEthSpec};
 
     /// The data from a deposit event, using the v0.8.3 version of the deposit contract.
     pub const EXAMPLE_LOG: &[u8] = &[

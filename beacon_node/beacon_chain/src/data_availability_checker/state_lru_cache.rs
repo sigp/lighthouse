@@ -70,11 +70,11 @@ impl<E: EthSpec> DietAvailabilityPendingExecutedBlock<E> {
 pub struct StateLRUCache<T: BeaconChainTypes> {
     states: RwLock<LruCache<Hash256, BeaconState<T::EthSpec>>>,
     store: BeaconStore<T>,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
 }
 
 impl<T: BeaconChainTypes> StateLRUCache<T> {
-    pub fn new(store: BeaconStore<T>, spec: ChainSpec) -> Self {
+    pub fn new(store: BeaconStore<T>, spec: Arc<ChainSpec>) -> Self {
         Self {
             states: RwLock::new(LruCache::new(STATE_LRU_CAPACITY_NON_ZERO)),
             store,

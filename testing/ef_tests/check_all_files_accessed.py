@@ -26,15 +26,15 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/Eth1Block/",
     "tests/.*/.*/ssz_static/PowBlock/",
     # light_client
-    # "tests/.*/.*/light_client",
     "tests/.*/.*/light_client/single_merkle_proof",
     "tests/.*/.*/light_client/sync",
+    "tests/.*/electra/light_client/update_ranking",
     # LightClientStore
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientSnapshot
     "tests/.*/.*/ssz_static/LightClientSnapshot",
     # One of the EF researchers likes to pack the tarballs on a Mac
-    ".*\.DS_Store.*",
+    ".*\\.DS_Store.*",
     # More Mac weirdness.
     "tests/mainnet/bellatrix/operations/deposit/pyspec_tests/deposit_with_previous_fork_version__valid_ineffective/._meta.yaml",
     # bls tests are moved to bls12-381-tests directory
@@ -49,7 +49,8 @@ excluded_paths = [
     # TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
     "tests/.*/electra/ssz_static/LightClientUpdate",
     "tests/.*/electra/ssz_static/LightClientFinalityUpdate",
-    "tests/.*/electra/ssz_static/LightClientBootstrap"
+    "tests/.*/electra/ssz_static/LightClientBootstrap",
+    "tests/.*/electra/merkle_proof",
 ]
 
 

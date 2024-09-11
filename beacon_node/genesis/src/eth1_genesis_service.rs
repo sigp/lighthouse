@@ -13,7 +13,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use tokio::time::sleep;
-use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256};
+use types::{BeaconState, ChainSpec, Deposit, Eth1Data, EthSpec, FixedBytesExtended, Hash256};
 
 /// The number of blocks that are pulled per request whilst waiting for genesis.
 const BLOCKS_PER_GENESIS_POLL: usize = 99;

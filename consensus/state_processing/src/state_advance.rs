@@ -5,7 +5,7 @@
 //! duplication and protect against some easy-to-make mistakes when performing state advances.
 
 use crate::*;
-use types::{BeaconState, ChainSpec, EthSpec, Hash256, Slot};
+use types::{BeaconState, ChainSpec, EthSpec, FixedBytesExtended, Hash256, Slot};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
