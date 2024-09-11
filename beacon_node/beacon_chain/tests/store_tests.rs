@@ -114,14 +114,7 @@ async fn light_client_bootstrap_test() {
     let log = test_logger();
 
     let seconds_per_slot = spec.seconds_per_slot;
-    let store = get_store_generic(
-        &db_path,
-        StoreConfig {
-            slots_per_restore_point: 2 * E::slots_per_epoch(),
-            ..Default::default()
-        },
-        test_spec::<E>(),
-    );
+    let store = get_store_generic(&db_path, StoreConfig::default(), test_spec::<E>());
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
     let num_initial_slots = E::slots_per_epoch() * 7;
