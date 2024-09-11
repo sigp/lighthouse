@@ -1,21 +1,21 @@
 #![cfg(test)]
 
-use std::array::IntoIter;
-use std::collections::HashMap;
-use std::sync::LazyLock;
-
+use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::test_utils::{
     generate_deterministic_keypairs, BeaconChainHarness, EphemeralHarnessType,
 };
 use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy, RelativeSyncCommittee},
     types::{Epoch, EthSpec, Keypair, MinimalEthSpec},
-    ChainConfig, StateSkipConfig, WhenSlotSkipped,
+    BlockError, ChainConfig, StateSkipConfig, WhenSlotSkipped,
 };
 use eth2::lighthouse::attestation_rewards::TotalAttestationRewards;
 use eth2::lighthouse::StandardAttestationRewards;
 use eth2::types::ValidatorId;
 use state_processing::{BlockReplayError, BlockReplayer};
+use std::array::IntoIter;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock};
 use types::{ChainSpec, ForkName, Slot};
 
 pub const VALIDATOR_COUNT: usize = 64;
@@ -233,6 +233,71 @@ async fn test_rewards_base_slashings() {
     harness.extend_slots(E::slots_per_epoch() as usize).await;
 
     check_all_base_rewards(&harness, initial_balances).await;
+}
+
+#[tokio::test]
+async fn test_rewards_base_multi_inclusion() {
+    let spec = ForkName::Base.make_genesis_spec(E::default_spec());
+    let harness = get_harness(spec);
+    let initial_balances = harness.get_current_state().balances().to_vec();
+
+    harness.extend_slots(2).await;
+
+    let prev_block = harness.chain.head_beacon_block();
+
+    harness.extend_slots(1).await;
+
+    harness.advance_slot();
+    let slot = harness.get_current_slot();
+    let mut block =
+        // pin to reduce stack size for clippy
+        Box::pin(
+            harness.make_block_with_modifier(harness.get_current_state(), slot, |block| {
+                // add one attestation from the same block
+                let attestations = &mut block.body_base_mut().unwrap().attestations;
+                attestations
+                    .push(attestations.first().unwrap().clone())
+                    .unwrap();
+
+                // add one attestation from the previous block
+                let attestation = prev_block
+                    .as_block()
+                    .message_base()
+                    .unwrap()
+                    .body
+                    .attestations
+                    .first()
+                    .unwrap()
+                    .clone();
+                attestations.push(attestation).unwrap();
+            }),
+        )
+        .await
+        .0;
+
+    // funky hack: on first try, the state root will mismatch due to our modification
+    // thankfully, the correct state root is reported back, so we just take that one :^)
+    // there probably is a better way...
+    let Err(BlockError::StateRootMismatch { local, .. }) = harness
+        .process_block(slot, block.0.canonical_root(), block.clone())
+        .await
+    else {
+        panic!("unexpected match of state root");
+    };
+    let mut new_block = block.0.message_base().unwrap().clone();
+    new_block.state_root = local;
+    block.0 = Arc::new(harness.sign_beacon_block(new_block.into(), &harness.get_current_state()));
+    harness
+        .process_block(slot, block.0.canonical_root(), block.clone())
+        .await
+        .unwrap();
+
+    harness
+        .extend_slots(E::slots_per_epoch() as usize * 2 - 4)
+        .await;
+
+    // pin to reduce stack size for clippy
+    Box::pin(check_all_base_rewards(&harness, initial_balances)).await;
 }
 
 #[tokio::test]

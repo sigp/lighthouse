@@ -1,7 +1,9 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, StateSkipConfig};
+use attesting_indices_base::get_attesting_indices;
 use eth2::lighthouse::StandardBlockReward;
 use safe_arith::SafeArith;
 use slog::error;
+use state_processing::common::attesting_indices_base;
 use state_processing::{
     common::{
         base::{self, SqrtTotalActiveBalance},
@@ -12,6 +14,7 @@ use state_processing::{
         altair::sync_committee::compute_sync_aggregate_rewards, get_slashable_indices,
     },
 };
+use std::collections::HashSet;
 use store::{
     consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
     RelativeEpoch,
@@ -183,16 +186,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let epoch = block.epoch();
         let mut block_reward = 0;
 
+        let mut rewarded_attesters = HashSet::new();
+
         for attestation in block.body().attestations() {
             let processing_epoch_end = if attestation.data().target.epoch == epoch {
                 let next_epoch_end = match &mut next_epoch_end {
                     Some(next_epoch_end) => next_epoch_end,
                     None => {
-                        let mut state = self.state_at_slot(
+                        let state = self.state_at_slot(
                             epoch.safe_add(1)?.end_slot(T::EthSpec::slots_per_epoch()),
                             StateSkipConfig::WithoutStateRoots,
                         )?;
-                        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
                         next_epoch_end.get_or_insert(state)
                     }
                 };
@@ -208,11 +212,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 match &mut current_epoch_end {
                     Some(current_epoch_end) => current_epoch_end,
                     None => {
-                        let mut state = self.state_at_slot(
+                        let state = self.state_at_slot(
                             epoch.end_slot(T::EthSpec::slots_per_epoch()),
                             StateSkipConfig::WithoutStateRoots,
                         )?;
-                        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
                         current_epoch_end.get_or_insert(state)
                     }
                 }
@@ -220,11 +223,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Err(BeaconChainError::BlockRewardAttestationError);
             };
 
+            let inclusion_delay = state.slot().safe_sub(attestation.data().slot)?.as_u64();
             let sqrt_total_active_balance =
                 SqrtTotalActiveBalance::new(processing_epoch_end.get_total_active_balance()?);
             for attester in get_attesting_indices_from_state(state, attestation)? {
                 let validator = processing_epoch_end.get_validator(attester as usize)?;
-                if !validator.slashed {
+                if !validator.slashed
+                    && !rewarded_attesters.contains(&attester)
+                    && !has_earlier_attestation(
+                        state,
+                        processing_epoch_end,
+                        inclusion_delay,
+                        attester,
+                    )?
+                {
                     let base_reward = base::get_base_reward(
                         validator.effective_balance,
                         sqrt_total_active_balance,
@@ -233,6 +245,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let proposer_reward =
                         base_reward.safe_div(self.spec.proposer_reward_quotient)?;
                     block_reward.safe_add_assign(proposer_reward)?;
+                    rewarded_attesters.insert(attester);
                 }
             }
         }
@@ -299,4 +312,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         Ok(total_proposer_reward)
     }
+}
+
+fn has_earlier_attestation<E: EthSpec>(
+    state: &BeaconState<E>,
+    processing_epoch_end: &BeaconState<E>,
+    inclusion_delay: u64,
+    attester: u64,
+) -> Result<bool, BeaconChainError> {
+    if inclusion_delay > 1 {
+        for epoch_att in processing_epoch_end.previous_epoch_attestations()? {
+            if epoch_att.inclusion_delay < inclusion_delay {
+                let committee =
+                    state.get_beacon_committee(epoch_att.data.slot, epoch_att.data.index)?;
+                let earlier_attesters =
+                    get_attesting_indices::<E>(committee.committee, &epoch_att.aggregation_bits)?;
+                if earlier_attesters.contains(&attester) {
+                    return Ok(true);
+                }
+            }
+        }
+    }
+    Ok(false)
 }
