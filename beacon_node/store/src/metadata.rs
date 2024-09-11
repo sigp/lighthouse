@@ -88,17 +88,34 @@ impl StoreItem for CompactionTimestamp {
 /// Database parameters relevant to weak subjectivity sync.
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct AnchorInfo {
-    /// The slot at which the anchor state is present and which we cannot revert.
+    /// The slot at which the anchor state is present and which we cannot revert. Values on start:
+    /// - Genesis start: 0
+    /// - Checkpoint sync: Slot of the finalized checkpoint block
+    ///
+    /// Progressively increases during a finalization migration as the node forward syncs.
     pub anchor_slot: Slot,
-    /// The slot from which historical blocks are available (>=).
+    /// The slot from which historical blocks are available (>=). Values on start:
+    /// - Genesis start: 0
+    /// - Checkpoint sync: Slot of the finalized checkpoint block
+    ///
+    /// Progressively decreases during backfill sync until reaching 0.
     pub oldest_block_slot: Slot,
     /// The block root of the next block that needs to be added to fill in the history.
     ///
     /// Zero if we know all blocks back to genesis.
     pub oldest_block_parent: Hash256,
-    /// The slot from which historical states are available (>=).
+    /// The slot from which historical states are available (>=). Values on start:
+    /// - Genesis start: 0
+    /// - Checkpoint sync: Slot of the finalized checkpoint state
+    ///
+    /// Never changes
     pub state_upper_limit: Slot,
-    /// The slot before which historical states are available (<=).
+    /// The slot before which historical states are available (<=). Values on start:
+    /// - Genesis start: 0
+    /// - Checkpoint sync: 0
+    ///
+    /// When full block backfill completes (`oldest_block_slot == 0`) state reconstruction starts and
+    /// this value will progressively increase until reaching `state_upper_limit`.
     pub state_lower_limit: Slot,
 }
 

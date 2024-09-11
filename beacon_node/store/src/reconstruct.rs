@@ -38,6 +38,8 @@ where
             "start_slot" => anchor.state_lower_limit,
         );
 
+        let _t = metrics::start_timer(&metrics::STORE_BEACON_RECONSTRUCTION_TIME);
+
         // Iterate blocks from the state lower limit to the upper limit.
         let split = self.get_split_info();
         let lower_limit_slot = anchor.state_lower_limit;
