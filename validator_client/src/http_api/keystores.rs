@@ -240,11 +240,18 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
 ) -> Result<DeleteKeystoresResponse, Rejection> {
     let export_response = export(request, validator_store, task_executor, log.clone())?;
 
-    if export_response.data.len() > 0 {
+    // Check the status is Deleted to confirm deletion is successful, then only display the log
+    let successful_deletion: Vec<_> = export_response
+        .data
+        .iter()
+        .filter(|response| matches!(response.status.status, DeleteKeystoreStatus::Deleted))
+        .collect();
+
+    if !successful_deletion.is_empty() {
         info!(
             log,
             "Deleted keystore via standard HTTP API";
-            "count" => export_response.data.len(),
+            "count" => successful_deletion.len(),
         );
     }
 

@@ -125,7 +125,10 @@ pub async fn run<'a>(config: DeleteConfig) -> Result<(), String> {
             || response.status == DeleteKeystoreStatus::NotActive
         {
             error = true;
-            eprintln!("Problem with removing validator {:?}", response.status);
+            eprintln!(
+                "Problem with removing validator, status: {:?}",
+                response.status
+            );
         }
     }
     if error {
