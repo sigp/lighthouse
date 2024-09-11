@@ -107,7 +107,6 @@ pub struct AnchorInfo {
     ///
     /// Zero if we know all blocks back to genesis.
     pub oldest_block_parent: Hash256,
-    /// The slot from which historical states are available (>=).
     /// All states with slots _greater than or equal to_ `min(split.slot, state_upper_limit)` are
     /// available in the database. If `state_upper_limit` is higher than `split.slot`, states are
     /// not being written to the freezer database.
