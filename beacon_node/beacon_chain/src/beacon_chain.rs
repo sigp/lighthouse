@@ -4088,19 +4088,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Attestations.
         for attestation in block.body().attestations() {
-            let indexed_attestation = match ctxt.get_indexed_attestation(state, attestation) {
-                Ok(indexed) => indexed,
-                Err(e) => {
-                    debug!(
-                        self.log,
-                        "Failed to get indexed attestation";
-                        "purpose" => "validator monitor",
-                        "attestation_slot" => attestation.data().slot,
-                        "error" => ?e,
-                    );
-                    continue;
-                }
-            };
+            let indexed_attestation =
+                match ctxt.get_indexed_attestation(state, attestation, &self.spec) {
+                    Ok(indexed) => indexed,
+                    Err(e) => {
+                        debug!(
+                            self.log,
+                            "Failed to get indexed attestation";
+                            "purpose" => "validator monitor",
+                            "attestation_slot" => attestation.data().slot,
+                            "error" => ?e,
+                        );
+                        continue;
+                    }
+                };
             validator_monitor.register_attestation_in_block(
                 indexed_attestation,
                 parent_block_slot,
@@ -4156,7 +4157,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
 
-            let indexed_attestation = match ctxt.get_indexed_attestation(state, a) {
+            let indexed_attestation = match ctxt.get_indexed_attestation(state, a, &self.spec) {
                 Ok(indexed) => indexed,
                 Err(e) => {
                     debug!(
@@ -4197,19 +4198,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) {
         if let Some(slasher) = self.slasher.as_ref() {
             for attestation in block.body().attestations() {
-                let indexed_attestation = match ctxt.get_indexed_attestation(state, attestation) {
-                    Ok(indexed) => indexed,
-                    Err(e) => {
-                        debug!(
-                            self.log,
-                            "Failed to get indexed attestation";
-                            "purpose" => "slasher",
-                            "attestation_slot" => attestation.data().slot,
-                            "error" => ?e,
-                        );
-                        continue;
-                    }
-                };
+                let indexed_attestation =
+                    match ctxt.get_indexed_attestation(state, attestation, &self.spec) {
+                        Ok(indexed) => indexed,
+                        Err(e) => {
+                            debug!(
+                                self.log,
+                                "Failed to get indexed attestation";
+                                "purpose" => "slasher",
+                                "attestation_slot" => attestation.data().slot,
+                                "error" => ?e,
+                            );
+                            continue;
+                        }
+                    };
                 slasher.accept_attestation(indexed_attestation.clone_as_indexed_attestation());
             }
         }
@@ -5241,7 +5243,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for attestation in self.naive_aggregation_pool.read().iter() {
             let import = |attestation: &Attestation<T::EthSpec>| {
                 let attesting_indices =
-                    get_attesting_indices_from_state(&state, attestation.to_ref())?;
+                    get_attesting_indices_from_state(&state, attestation.to_ref(), &self.spec)?;
                 self.op_pool
                     .insert_attestation(attestation.clone(), attesting_indices)
             };

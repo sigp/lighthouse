@@ -226,7 +226,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let inclusion_delay = state.slot().safe_sub(attestation.data().slot)?.as_u64();
             let sqrt_total_active_balance =
                 SqrtTotalActiveBalance::new(processing_epoch_end.get_total_active_balance()?);
-            for attester in get_attesting_indices_from_state(state, attestation)? {
+            for attester in get_attesting_indices_from_state(state, attestation, &self.spec)? {
                 let validator = processing_epoch_end.get_validator(attester as usize)?;
                 if !validator.slashed
                     && !rewarded_attesters.contains(&attester)
@@ -281,7 +281,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &self.spec,
             )?;
 
-            let attesting_indices = get_attesting_indices_from_state(state, attestation)?;
+            let attesting_indices =
+                get_attesting_indices_from_state(state, attestation, &self.spec)?;
             let mut proposer_reward_numerator = 0;
             for index in attesting_indices {
                 let index = index as usize;

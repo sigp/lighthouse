@@ -39,7 +39,7 @@ pub fn run<E: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
                 attesting_indices_base::get_indexed_attestation(committee.committee, &att)
             }
             Attestation::Electra(att) => {
-                attesting_indices_electra::get_indexed_attestation_from_state(&state, &att)
+                attesting_indices_electra::get_indexed_attestation_from_state(&state, &att, spec)
             }
         })
         .collect::<Result<Vec<_>, _>>()

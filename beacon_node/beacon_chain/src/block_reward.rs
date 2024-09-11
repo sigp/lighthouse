@@ -28,7 +28,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .body()
             .attestations()
             .map(|att| {
-                let attesting_indices = get_attesting_indices_from_state(state, att)?;
+                let attesting_indices = get_attesting_indices_from_state(state, att, &self.spec)?;
                 Ok(SplitAttestation::new(
                     att.clone_as_attestation(),
                     attesting_indices,

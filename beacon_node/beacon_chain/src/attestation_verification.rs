@@ -629,6 +629,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                         attesting_indices_electra::get_indexed_attestation(
                             &committees,
                             &signed_aggregate.message.aggregate,
+                            &chain.spec,
                         )
                         .map_err(|e| BeaconChainError::from(e).into())
                     }
@@ -1364,7 +1365,7 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
                 }
             }
             AttestationRef::Electra(att) => {
-                attesting_indices_electra::get_indexed_attestation(&committees, att)
+                attesting_indices_electra::get_indexed_attestation(&committees, att, &chain.spec)
                     .map(|attestation| (attestation, committees_per_slot))
                     .map_err(|e| {
                         if let BlockOperationError::BeaconStateError(NoCommitteeFound(index)) = e {

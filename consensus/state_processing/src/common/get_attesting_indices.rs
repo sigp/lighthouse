@@ -56,11 +56,13 @@ pub mod attesting_indices_electra {
     pub fn get_indexed_attestation<E: EthSpec>(
         committees: &[BeaconCommittee],
         attestation: &AttestationElectra<E>,
+        spec: &ChainSpec,
     ) -> Result<IndexedAttestation<E>, BlockOperationError<Invalid>> {
         let attesting_indices = get_attesting_indices::<E>(
             committees,
             &attestation.aggregation_bits,
             &attestation.committee_bits,
+            spec,
         )?;
 
         Ok(IndexedAttestation::Electra(IndexedAttestationElectra {
@@ -73,18 +75,45 @@ pub mod attesting_indices_electra {
     pub fn get_indexed_attestation_from_state<E: EthSpec>(
         beacon_state: &BeaconState<E>,
         attestation: &AttestationElectra<E>,
+        spec: &ChainSpec,
     ) -> Result<IndexedAttestation<E>, BlockOperationError<Invalid>> {
         let committees = beacon_state.get_beacon_committees_at_slot(attestation.data.slot)?;
-        get_indexed_attestation(&committees, attestation)
+        get_indexed_attestation(&committees, attestation, spec)
     }
 
     /// Shortcut for getting the attesting indices while fetching the committee from the state's cache.
     pub fn get_attesting_indices_from_state<E: EthSpec>(
         state: &BeaconState<E>,
         att: &AttestationElectra<E>,
+        spec: &ChainSpec,
     ) -> Result<Vec<u64>, BeaconStateError> {
         let committees = state.get_beacon_committees_at_slot(att.data.slot)?;
-        get_attesting_indices::<E>(&committees, &att.aggregation_bits, &att.committee_bits)
+        get_attesting_indices::<E>(
+            &committees,
+            &att.aggregation_bits,
+            &att.committee_bits,
+            spec,
+        )
+    }
+
+    /// Returns a set of the PTC if the attestation slot is post EIP-7732, otherwise returns an empty set.
+    pub fn get_ptc_set<E: EthSpec>(
+        committees: &[BeaconCommittee],
+        spec: &ChainSpec,
+    ) -> Result<HashSet<u64>, BeaconStateError> {
+        let attestation_slot = committees
+            .get(0)
+            .map(|committee| committee.slot)
+            .ok_or(Error::NoCommitteeFound(0))?;
+        if spec
+            .fork_name_at_slot::<E>(attestation_slot)
+            .eip7732_enabled()
+        {
+            PTC::<E>::from_committees(committees)
+                .map(|ptc| ptc.into_iter().map(|i| i as u64).collect())
+        } else {
+            Ok(HashSet::new())
+        }
     }
 
     /// Returns validator indices which participated in the attestation, sorted by increasing index.
@@ -94,9 +123,11 @@ pub mod attesting_indices_electra {
         committees: &[BeaconCommittee],
         aggregation_bits: &BitList<E::MaxValidatorsPerSlot>,
         committee_bits: &BitVector<E::MaxCommitteesPerSlot>,
+        spec: &ChainSpec,
     ) -> Result<Vec<u64>, BeaconStateError> {
         let mut attesting_indices = vec![];
 
+        let ptc_set = get_ptc_set::<E>(committees, spec)?;
         let committee_indices = get_committee_indices::<E>(committee_bits);
 
         let mut committee_offset = 0;
@@ -125,6 +156,8 @@ pub mod attesting_indices_electra {
                     }
                     None
                 })
+                // EIP-7732: filter out the PTC
+                .filter(|index| !ptc_set.contains(index))
                 .collect::<HashSet<u64>>();
 
             attesting_indices.extend(committee_attesters);
@@ -156,6 +189,7 @@ pub mod attesting_indices_electra {
 pub fn get_attesting_indices_from_state<E: EthSpec>(
     state: &BeaconState<E>,
     att: AttestationRef<E>,
+    spec: &ChainSpec,
 ) -> Result<Vec<u64>, BeaconStateError> {
     match att {
         AttestationRef::Base(att) => {
@@ -166,7 +200,7 @@ pub fn get_attesting_indices_from_state<E: EthSpec>(
             )
         }
         AttestationRef::Electra(att) => {
-            attesting_indices_electra::get_attesting_indices_from_state::<E>(state, att)
+            attesting_indices_electra::get_attesting_indices_from_state::<E>(state, att, spec)
         }
     }
 }

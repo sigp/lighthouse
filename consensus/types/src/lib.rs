@@ -67,6 +67,7 @@ pub mod pending_consolidation;
 pub mod pending_partial_withdrawal;
 pub mod proposer_preparation_data;
 pub mod proposer_slashing;
+pub mod ptc;
 pub mod relative_epoch;
 pub mod selection_proof;
 pub mod shuffling_id;
@@ -236,6 +237,7 @@ pub use crate::preset::{
 };
 pub use crate::proposer_preparation_data::ProposerPreparationData;
 pub use crate::proposer_slashing::ProposerSlashing;
+pub use crate::ptc::PTC;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
 pub use crate::runtime_var_list::RuntimeVariableList;
 pub use crate::selection_proof::SelectionProof;

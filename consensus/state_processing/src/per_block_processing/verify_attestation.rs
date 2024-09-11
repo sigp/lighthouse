@@ -87,7 +87,7 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
     verify_casper_ffg_vote(attestation, state)?;
 
     // Check signature and bitfields
-    let indexed_attestation = ctxt.get_indexed_attestation(state, attestation)?;
+    let indexed_attestation = ctxt.get_indexed_attestation(state, attestation, spec)?;
     is_valid_indexed_attestation(state, indexed_attestation, verify_signatures, spec)?;
 
     Ok(indexed_attestation)

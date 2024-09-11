@@ -161,6 +161,7 @@ impl<E: EthSpec> ConsensusContext<E> {
         &'a mut self,
         state: &BeaconState<E>,
         attestation: AttestationRef<'a, E>,
+        spec: &ChainSpec,
     ) -> Result<IndexedAttestationRef<E>, BlockOperationError<AttestationInvalid>> {
         let key = attestation.tree_hash_root();
         match attestation {
@@ -177,7 +178,9 @@ impl<E: EthSpec> ConsensusContext<E> {
                 Entry::Occupied(occupied) => Ok(occupied.into_mut()),
                 Entry::Vacant(vacant) => {
                     let indexed_attestation =
-                        attesting_indices_electra::get_indexed_attestation_from_state(state, attn)?;
+                        attesting_indices_electra::get_indexed_attestation_from_state(
+                            state, attn, spec,
+                        )?;
                     Ok(vacant.insert(indexed_attestation))
                 }
             },

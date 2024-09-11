@@ -1678,7 +1678,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         // Register each attestation in the block with fork choice.
         for (i, attestation) in block.message().body().attestations().enumerate() {
             let indexed_attestation = consensus_context
-                .get_indexed_attestation(&state, attestation)
+                .get_indexed_attestation(&state, attestation, &chain.spec)
                 .map_err(|e| BlockError::PerBlockProcessingError(e.into_with_index(i)))?;
 
             match fork_choice.on_attestation(

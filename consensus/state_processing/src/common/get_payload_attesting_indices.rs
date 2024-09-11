@@ -24,14 +24,14 @@ pub fn get_payload_attesting_indices<E: EthSpec>(
 ) -> Result<Vec<u64>, BeaconStateError> {
     let ptc = state.get_ptc(slot)?;
     let bitlist = &payload_attestation.aggregation_bits;
-    if bitlist.len() != ptc.len() {
+    if bitlist.len() != E::PTCSize::to_usize() {
         return Err(BeaconStateError::InvalidBitfield);
     }
 
     let mut attesting_indices = Vec::<u64>::new();
     for (i, index) in ptc.into_iter().enumerate() {
         if let Ok(true) = bitlist.get(i) {
-            attesting_indices.push(*index as u64);
+            attesting_indices.push(index as u64);
         }
     }
     attesting_indices.sort_unstable();
