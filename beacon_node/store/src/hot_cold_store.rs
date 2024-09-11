@@ -464,6 +464,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_BYTE_SIZE,
             hdiff_buffer_cache_byte_size as i64,
         );
+
+        if let Some(anchor_info) = self.get_anchor_info() {
+            metrics::set_gauge(
+                &metrics::STORE_BEACON_ANCHOR_SLOT,
+                anchor_info.anchor_slot.as_u64() as i64,
+            );
+            metrics::set_gauge(
+                &metrics::STORE_BEACON_OLDEST_BLOCK_SLOT,
+                anchor_info.oldest_block_slot.as_u64() as i64,
+            );
+            metrics::set_gauge(
+                &metrics::STORE_BEACON_STATE_LOWER_LIMIT,
+                anchor_info.state_lower_limit.as_u64() as i64,
+            );
+        }
     }
 
     /// Store a block and update the LRU cache.

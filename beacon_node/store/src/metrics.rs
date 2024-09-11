@@ -74,6 +74,27 @@ pub static DISK_DB_DELETE_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new
     )
 });
 /*
+ * Anchor Info
+ */
+pub static STORE_BEACON_ANCHOR_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "store_beacon_anchor_slot",
+        "Current anchor info anchor_slot value",
+    )
+});
+pub static STORE_BEACON_OLDEST_BLOCK_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "store_beacon_oldest_block_slot",
+        "Current anchor info oldest_block_slot value",
+    )
+});
+pub static STORE_BEACON_STATE_LOWER_LIMIT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "store_beacon_state_lower_limit",
+        "Current anchor info state_lower_limit value",
+    )
+});
+/*
  * Beacon State
  */
 pub static BEACON_STATE_GET_COUNT: LazyLock<Result<IntCounter>> = LazyLock::new(|| {

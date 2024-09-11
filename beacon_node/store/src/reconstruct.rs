@@ -1,5 +1,6 @@
 //! Implementation of historic state reconstruction (given complete block history).
 use crate::hot_cold_store::{HotColdDB, HotColdDBError};
+use crate::metrics;
 use crate::{Error, ItemStore};
 use itertools::{process_results, Itertools};
 use slog::{debug, info};
