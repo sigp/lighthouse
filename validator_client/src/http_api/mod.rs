@@ -73,7 +73,7 @@ impl From<String> for Error {
 pub struct Context<T: SlotClock, E: EthSpec> {
     pub task_executor: TaskExecutor,
     pub api_secret: ApiSecret,
-    pub block_service: BlockService<T, E>,
+    pub block_service: Option<BlockService<T, E>>,
     pub validator_store: Option<Arc<ValidatorStore<T, E>>>,
     pub validator_dir: Option<PathBuf>,
     pub secrets_dir: Option<PathBuf>,
@@ -172,7 +172,15 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     };
 
     let inner_block_service = ctx.block_service.clone();
-    let block_service_filter = warp::any().map(move || inner_block_service.clone());
+    let block_service_filter = warp::any()
+        .map(move || inner_block_service.clone())
+        .and_then(|block_service: Option<_>| async move {
+            block_service.ok_or_else(|| {
+                warp_utils::reject::custom_not_found(
+                    "block service is not initialized.".to_string(),
+                )
+            })
+        });
 
     let inner_validator_store = ctx.validator_store.clone();
     let validator_store_filter = warp::any()
