@@ -21,6 +21,7 @@ use itertools::{process_results, Itertools};
 use leveldb::iterator::LevelDBIterator;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
+use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, trace, warn, Logger};
 use ssz::{Decode, Encode};
@@ -30,7 +31,7 @@ use state_processing::{
     SlotProcessingError,
 };
 use std::cmp::min;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::num::NonZeroUsize;
@@ -38,6 +39,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
+use types::light_client_update::CurrentSyncCommitteeProofLen;
 use types::*;
 use zstd::{Decoder, Encoder};
 
@@ -673,6 +675,143 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|payload| payload.is_some())
     }
 
+    /// Get the sync committee branch for the given block root
+    /// Note: we only persist sync committee branches for checkpoint slots
+    pub fn get_sync_committee_branch(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<FixedVector<Hash256, CurrentSyncCommitteeProofLen>>, Error> {
+        let column = DBColumn::SyncCommitteeBranch;
+
+        if let Some(bytes) = self
+            .hot_db
+            .get_bytes(column.into(), &block_root.as_ssz_bytes())?
+        {
+            let sync_committee_branch: FixedVector<Hash256, CurrentSyncCommitteeProofLen> =
+                FixedVector::from_ssz_bytes(&bytes)?;
+            return Ok(Some(sync_committee_branch));
+        }
+
+        Ok(None)
+    }
+
+    /// Fetch sync committee by sync committee period
+    pub fn get_sync_committee(
+        &self,
+        sync_committee_period: u64,
+    ) -> Result<Option<SyncCommittee<E>>, Error> {
+        let column = DBColumn::SyncCommittee;
+
+        if let Some(bytes) = self
+            .hot_db
+            .get_bytes(column.into(), &sync_committee_period.as_ssz_bytes())?
+        {
+            let sync_committee: SyncCommittee<E> = SyncCommittee::from_ssz_bytes(&bytes)?;
+            return Ok(Some(sync_committee));
+        }
+
+        Ok(None)
+    }
+
+    pub fn store_sync_committee_branch(
+        &self,
+        block_root: Hash256,
+        sync_committee_branch: &FixedVector<Hash256, CurrentSyncCommitteeProofLen>,
+    ) -> Result<(), Error> {
+        let column = DBColumn::SyncCommitteeBranch;
+        self.hot_db.put_bytes(
+            column.into(),
+            &block_root.as_ssz_bytes(),
+            &sync_committee_branch.as_ssz_bytes(),
+        )?;
+        Ok(())
+    }
+
+    pub fn store_sync_committee(
+        &self,
+        sync_committee_period: u64,
+        sync_committee: &SyncCommittee<E>,
+    ) -> Result<(), Error> {
+        let column = DBColumn::SyncCommittee;
+        self.hot_db.put_bytes(
+            column.into(),
+            &sync_committee_period.to_le_bytes(),
+            &sync_committee.as_ssz_bytes(),
+        )?;
+
+        Ok(())
+    }
+
+    pub fn get_light_client_update(
+        &self,
+        sync_committee_period: u64,
+    ) -> Result<Option<LightClientUpdate<E>>, Error> {
+        let column = DBColumn::LightClientUpdate;
+        let res = self
+            .hot_db
+            .get_bytes(column.into(), &sync_committee_period.to_le_bytes())?;
+
+        if let Some(light_client_update_bytes) = res {
+            let epoch = sync_committee_period
+                .safe_mul(self.spec.epochs_per_sync_committee_period.into())?;
+
+            let fork_name = self.spec.fork_name_at_epoch(epoch.into());
+
+            let light_client_update =
+                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)?;
+
+            return Ok(Some(light_client_update));
+        }
+
+        Ok(None)
+    }
+
+    pub fn get_light_client_updates(
+        &self,
+        start_period: u64,
+        count: u64,
+    ) -> Result<Vec<LightClientUpdate<E>>, Error> {
+        let column = DBColumn::LightClientUpdate;
+        let mut light_client_updates = vec![];
+        for res in self
+            .hot_db
+            .iter_column_from::<Vec<u8>>(column, &start_period.to_le_bytes())
+        {
+            let (sync_committee_bytes, light_client_update_bytes) = res?;
+            let sync_committee_period = u64::from_ssz_bytes(&sync_committee_bytes)?;
+            let epoch = sync_committee_period
+                .safe_mul(self.spec.epochs_per_sync_committee_period.into())?;
+
+            let fork_name = self.spec.fork_name_at_epoch(epoch.into());
+
+            let light_client_update =
+                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)?;
+
+            light_client_updates.push(light_client_update);
+
+            if sync_committee_period >= start_period + count {
+                break;
+            }
+        }
+        Ok(light_client_updates)
+    }
+
+    pub fn store_light_client_update(
+        &self,
+        sync_committee_period: u64,
+        light_client_update: &LightClientUpdate<E>,
+    ) -> Result<(), Error> {
+        let column = DBColumn::LightClientUpdate;
+
+        self.hot_db.put_bytes(
+            column.into(),
+            &sync_committee_period.to_le_bytes(),
+            &light_client_update.as_ssz_bytes(),
+        )?;
+
+        Ok(())
+    }
+
     /// Check if the blobs for a block exists on disk.
     pub fn blobs_exist(&self, block_root: &Hash256) -> Result<bool, Error> {
         self.blobs_db
@@ -1084,6 +1223,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(key));
                 }
 
+                StoreOp::DeleteSyncCommitteeBranch(block_root) => {
+                    let key = get_key_for_col(
+                        DBColumn::SyncCommitteeBranch.into(),
+                        block_root.as_slice(),
+                    );
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(key));
+                }
+
                 StoreOp::KeyValueOp(kv_op) => {
                     key_value_batch.push(kv_op);
                 }
@@ -1228,6 +1375,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 StoreOp::DeleteDataColumns(_, _) => (),
 
                 StoreOp::DeleteExecutionPayload(_) => (),
+
+                StoreOp::DeleteSyncCommitteeBranch(_) => (),
 
                 StoreOp::KeyValueOp(_) => (),
             }
@@ -2760,12 +2909,16 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         .into());
     }
 
+    // finalized_state.slot() must be at an epoch boundary
+    // else we may introduce bugs to the migration/pruning logic
     if finalized_state.slot() % E::slots_per_epoch() != 0 {
         return Err(HotColdDBError::FreezeSlotUnaligned(finalized_state.slot()).into());
     }
 
     let mut hot_db_ops = vec![];
     let mut cold_db_block_ops = vec![];
+    let mut epoch_boundary_blocks = HashSet::new();
+    let mut non_checkpoint_block_roots = HashSet::new();
 
     let state_roots = RootsIterator::new(&store, finalized_state)
         .take_while(|result| match result {
@@ -2795,6 +2948,22 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
             ),
             block_root.as_slice().to_vec(),
         ));
+
+        // At a missed slot, `state_root_iter` will return the block root
+        // from the previous non-missed slot. This ensures that the block root at an
+        // epoch boundary is always a checkpoint block root. We keep track of block roots
+        // at epoch boundaries by storing them in the `epoch_boundary_blocks` hash set.
+        // We then ensure that block roots at the epoch boundary aren't included in the
+        // `non_checkpoint_block_roots` hash set.
+        if slot % E::slots_per_epoch() == 0 {
+            epoch_boundary_blocks.insert(block_root);
+        } else {
+            non_checkpoint_block_roots.insert(block_root);
+        }
+
+        if epoch_boundary_blocks.contains(&block_root) {
+            non_checkpoint_block_roots.remove(&block_root);
+        }
 
         // Delete the old summary, and the full state if we lie on an epoch boundary.
         hot_db_ops.push(StoreOp::DeleteState(state_root, Some(slot)));
@@ -2833,6 +3002,19 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         store.cold_db.do_atomically(cold_db_ops)?;
     }
 
+    // Prune sync committee branch data for all non checkpoint block roots.
+    // Note that `non_checkpoint_block_roots` should only contain non checkpoint block roots
+    // as long as `finalized_state.slot()` is at an epoch boundary. If this were not the case
+    // we risk the chance of pruning a `sync_committee_branch` for a checkpoint block root.
+    // E.g. if `current_split_slot` = (Epoch A slot 0) and `finalized_state.slot()` = (Epoch C slot 31)
+    // and (Epoch D slot 0) is a skipped slot, we will have pruned a `sync_committee_branch`
+    // for a checkpoint block root.
+    non_checkpoint_block_roots
+        .into_iter()
+        .for_each(|block_root| {
+            hot_db_ops.push(StoreOp::DeleteSyncCommitteeBranch(block_root));
+        });
+
     // Warning: Critical section.  We have to take care not to put any of the two databases in an
     //          inconsistent state if the OS process dies at any point during the freezing
     //          procedure.
@@ -2844,7 +3026,6 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     // exceedingly rare event, this should be an acceptable tradeoff.
     store.cold_db.do_atomically(cold_db_block_ops)?;
     store.cold_db.sync()?;
-
     {
         let mut split_guard = store.split.write();
         let latest_split_slot = split_guard.slot;
