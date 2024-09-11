@@ -94,7 +94,10 @@ pub struct AnchorInfo {
     ///
     /// Progressively increases during a finalization migration as the node forward syncs.
     pub anchor_slot: Slot,
-    /// The slot from which historical blocks are available (>=). Values on start:
+    /// All blocks with slots greater than or equal to this value are available in the database.
+    /// Additionally, the genesis block is always available.
+    ///
+    /// Values on start:
     /// - Genesis start: 0
     /// - Checkpoint sync: Slot of the finalized checkpoint block
     ///
@@ -104,13 +107,21 @@ pub struct AnchorInfo {
     ///
     /// Zero if we know all blocks back to genesis.
     pub oldest_block_parent: Hash256,
-    /// The slot from which historical states are available (>=). Values on start:
+    /// The slot from which historical states are available (>=).
+    /// All states with slots _greater than or equal to_ `min(split.slot, state_upper_limit)` are
+    /// available in the database. If `state_upper_limit` is higher than `split.slot`, states are
+    /// not being written to the freezer database.
+    ///
+    /// Values on start:
     /// - Genesis start: 0
     /// - Checkpoint sync: Slot of the finalized checkpoint state
     ///
     /// Never changes
     pub state_upper_limit: Slot,
-    /// The slot before which historical states are available (<=). Values on start:
+    /// All states with slots _less than or equal to_ this value are available in the database.
+    /// The minimum value is 0, indicating that the genesis state is always available.
+    ///
+    /// Values on start:
     /// - Genesis start: 0
     /// - Checkpoint sync: 0
     ///
