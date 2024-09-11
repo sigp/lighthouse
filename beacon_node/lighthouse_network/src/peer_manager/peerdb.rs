@@ -728,7 +728,7 @@ impl<E: EthSpec> PeerDB<E> {
             let node_id = peer_id_to_node_id(&peer_id).expect("convert peer_id to node_id");
             let subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
                 node_id.raw(),
-                spec.custody_requirement + 4,
+                spec.custody_requirement,
                 spec,
             )
             .expect("should compute custody subnets")
