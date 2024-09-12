@@ -809,6 +809,7 @@ impl<E: EthSpec> From<StateDiff<E>> for JsonStateDiff<E> {
 pub struct JsonExecutionWitness<E: EthSpec> {
     state_diff: JsonStateDiff<E>,
     verkle_proof: JsonVerkleProof<E>,
+    parent_state_root: Hash256,
 }
 
 impl<E: EthSpec> From<JsonExecutionWitness<E>> for ExecutionWitness<E> {
@@ -816,6 +817,7 @@ impl<E: EthSpec> From<JsonExecutionWitness<E>> for ExecutionWitness<E> {
         Self {
             state_diff: StateDiff::<E>::from(value.state_diff),
             verkle_proof: VerkleProof::<E>::from(value.verkle_proof),
+            parent_state_root: value.parent_state_root,
         }
     }
 }
@@ -825,6 +827,7 @@ impl<E: EthSpec> From<ExecutionWitness<E>> for JsonExecutionWitness<E> {
         Self {
             state_diff: JsonStateDiff::<E>::from(value.state_diff),
             verkle_proof: JsonVerkleProof::<E>::from(value.verkle_proof),
+            parent_state_root: value.parent_state_root,
         }
     }
 }

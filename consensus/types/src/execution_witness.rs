@@ -254,4 +254,5 @@ pub struct VerkleProof<T: EthSpec> {
 pub struct ExecutionWitness<T: EthSpec> {
     pub state_diff: StateDiff<T>,
     pub verkle_proof: VerkleProof<T>,
+    pub parent_state_root: Hash256,
 }
