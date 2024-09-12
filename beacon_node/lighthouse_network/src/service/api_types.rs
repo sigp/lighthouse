@@ -18,6 +18,8 @@ use crate::rpc::{
     OutboundRequest, SubstreamId,
 };
 
+use super::methods::LightClientUpdatesByRangeRequest;
+
 /// Identifier of requests sent by a peer.
 pub type PeerRequestId = (ConnectionId, SubstreamId);
 
@@ -114,6 +116,8 @@ pub enum Request {
     LightClientOptimisticUpdate,
     // light client finality update request
     LightClientFinalityUpdate,
+    // light client updates by range request
+    LightClientUpdatesByRange(LightClientUpdatesByRangeRequest),
     /// A request blobs root request.
     BlobsByRoot(BlobsByRootRequest),
     /// A request data columns root request.
@@ -144,7 +148,8 @@ impl<E: EthSpec> std::convert::From<Request> for OutboundRequest<E> {
             },
             Request::LightClientBootstrap(_)
             | Request::LightClientOptimisticUpdate
-            | Request::LightClientFinalityUpdate => {
+            | Request::LightClientFinalityUpdate
+            | Request::LightClientUpdatesByRange(_) => {
                 unreachable!("Lighthouse never makes an outbound light client request")
             }
             Request::BlobsByRange(r) => OutboundRequest::BlobsByRange(r),

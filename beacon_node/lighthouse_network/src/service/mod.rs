@@ -1208,6 +1208,10 @@ impl<E: EthSpec> Network<E> {
                 &metrics::TOTAL_RPC_REQUESTS,
                 &["light_client_finality_update"],
             ),
+            Request::LightClientUpdatesByRange(_) => metrics::inc_counter_vec(
+                &metrics::TOTAL_RPC_REQUESTS,
+                &["light_client_updates_by_range"],
+            ),
             Request::BlocksByRange { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_range"])
             }
@@ -1582,6 +1586,14 @@ impl<E: EthSpec> Network<E> {
                             peer_request_id,
                             peer_id,
                             Request::LightClientFinalityUpdate,
+                        );
+                        Some(event)
+                    }
+                    InboundRequest::LightClientUpdatesByRange(req) => {
+                        let event = self.build_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::LightClientUpdatesByRange(req),
                         );
                         Some(event)
                     }

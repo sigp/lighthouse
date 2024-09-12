@@ -18,9 +18,9 @@ use tokio_util::codec::{Decoder, Encoder};
 use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, ForkContext, ForkName, Hash256,
     LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockBellatrix, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
-    SignedBeaconBlockElectra,
+    LightClientUpdate, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -607,6 +607,11 @@ fn handle_rpc_request<E: EthSpec>(
         SupportedProtocol::LightClientFinalityUpdateV1 => {
             Ok(Some(InboundRequest::LightClientFinalityUpdate))
         }
+        SupportedProtocol::LightClientUpdatesByRangeV1 => {
+            Ok(Some(InboundRequest::LightClientUpdatesByRange(
+                LightClientUpdatesByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+            )))
+        }
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
         SupportedProtocol::MetaDataV3 => {
@@ -772,6 +777,18 @@ fn handle_rpc_response<E: EthSpec>(
         SupportedProtocol::LightClientFinalityUpdateV1 => match fork_name {
             Some(fork_name) => Ok(Some(RPCResponse::LightClientFinalityUpdate(Arc::new(
                 LightClientFinalityUpdate::from_ssz_bytes(decoded_buffer, fork_name)?,
+            )))),
+            None => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
+        SupportedProtocol::LightClientUpdatesByRangeV1 => match fork_name {
+            Some(fork_name) => Ok(Some(RPCResponse::LightClientUpdatesByRange(Arc::new(
+                LightClientUpdate::from_ssz_bytes(decoded_buffer, &fork_name)?,
             )))),
             None => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,

@@ -25,6 +25,10 @@ use types::{
 pub type MaxErrorLen = U256;
 pub const MAX_ERROR_LEN: u64 = 256;
 
+// Max light client updates by range request limits
+// spec: https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/light-client/p2p-interface.md#configuration
+pub const MAX_REQUEST_LIGHT_CLIENT_UPDATES: u64 = 128;
+
 /// Wrapper over SSZ List to represent error message in rpc responses.
 #[derive(Debug, Clone)]
 pub struct ErrorType(pub VariableList<u8, MaxErrorLen>);
@@ -489,8 +493,7 @@ pub struct LightClientUpdatesByRangeRequest {
 
 impl LightClientUpdatesByRangeRequest {
     pub fn max_requested<E: EthSpec>(&self) -> u64 {
-        // TODO(lc-update) check spec for max request limits
-        todo!()
+        MAX_REQUEST_LIGHT_CLIENT_UPDATES
     }
 
     pub fn ssz_min_len() -> usize {
@@ -502,8 +505,7 @@ impl LightClientUpdatesByRangeRequest {
         .len()
     }
 
-    pub fn ssz_max_len(_: &ChainSpec) -> usize {
-        // TODO(lc-update) make sure max count is correct
+    pub fn ssz_max_len() -> usize {
         LightClientUpdatesByRangeRequest {
             start_period: 0,
             count: 0,

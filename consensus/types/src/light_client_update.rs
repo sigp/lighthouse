@@ -405,7 +405,8 @@ impl<E: EthSpec> LightClientUpdate<E> {
         true
     }
 
-    // TODO(lc-update) does this math look correct?
+    // A `LightClientUpdate` has two `LightClientHeader`s
+    // Spec: https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/light-client/sync-protocol.md#lightclientupdate
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
         let fixed_len = match fork_name {

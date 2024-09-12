@@ -236,6 +236,11 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.network_beacon_processor
                     .send_light_client_finality_update_request(peer_id, request_id),
             ),
+            Request::LightClientUpdatesByRange(request) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_light_client_updates_by_range_request(peer_id, request_id, request),
+                ),
         }
     }
 

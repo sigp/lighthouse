@@ -9,7 +9,7 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
-use methods::LightClientUpdatesByRangeRequest;
+use methods::{LightClientUpdatesByRangeRequest, MAX_REQUEST_LIGHT_CLIENT_UPDATES};
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
@@ -381,7 +381,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         Ok(())
     }
 
-    pub async fn handle_light_client_updates_by_range(
+    pub fn handle_light_client_updates_by_range(
         self: &Arc<Self>,
         peer_id: PeerId,
         request_id: PeerRequestId,
@@ -391,14 +391,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             peer_id,
             request_id,
             self.clone()
-                .handle_light_client_updates_by_range_request_inner(peer_id, request_id, request)
-                .await,
-            Response::BlocksByRange,
+                .handle_light_client_updates_by_range_request_inner(peer_id, request_id, request),
+            Response::LightClientUpdatesByRange,
         );
     }
 
     /// Handle a `LightClientUpdatesByRange` request from the peer.
-    pub async fn handle_light_client_updates_by_range_request_inner(
+    pub fn handle_light_client_updates_by_range_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,
         request_id: PeerRequestId,
@@ -410,9 +409,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "start_period" => req.start_period,
         );
 
-        // TODO(lc-update) use correct val here
         // Should not send more than max light client updates
-        let max_request_size: u64 = 1;
+        let max_request_size: u64 = MAX_REQUEST_LIGHT_CLIENT_UPDATES;
         if req.count > max_request_size {
             return Err((
                 RPCResponseErrorCode::InvalidRequest,
@@ -435,13 +433,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         };
 
-        lc_updates.iter().for_each(|lc_update| {
+        for lc_update in lc_updates.iter() {
             self.send_network_message(NetworkMessage::SendResponse {
                 peer_id,
                 response: Response::LightClientUpdatesByRange(Some(Arc::new(lc_update.clone()))),
                 id: request_id,
             });
-        });
+        }
 
         let lc_updates_sent = lc_updates.len();
 
@@ -450,7 +448,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.log,
                 "LightClientUpdatesByRange outgoing response processed";
                 "peer" => %peer_id,
-                "msg" => "Failed to return all requested light client updates",
+                "msg" => "Failed to return all requested light client updates. The peer may have requested data ahead of whats currently available.",
                 "start_period" => req.start_period,
                 "requested" => req.count,
                 "returned" => lc_updates_sent

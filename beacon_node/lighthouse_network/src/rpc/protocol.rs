@@ -368,6 +368,7 @@ pub enum SupportedProtocol {
     LightClientBootstrapV1,
     LightClientOptimisticUpdateV1,
     LightClientFinalityUpdateV1,
+    LightClientUpdatesByRangeV1,
 }
 
 impl SupportedProtocol {
@@ -390,6 +391,7 @@ impl SupportedProtocol {
             SupportedProtocol::LightClientBootstrapV1 => "1",
             SupportedProtocol::LightClientOptimisticUpdateV1 => "1",
             SupportedProtocol::LightClientFinalityUpdateV1 => "1",
+            SupportedProtocol::LightClientUpdatesByRangeV1 => "1",
         }
     }
 
@@ -414,6 +416,7 @@ impl SupportedProtocol {
                 Protocol::LightClientOptimisticUpdate
             }
             SupportedProtocol::LightClientFinalityUpdateV1 => Protocol::LightClientFinalityUpdate,
+            SupportedProtocol::LightClientUpdatesByRangeV1 => Protocol::LightClientUpdatesByRange,
         }
     }
 
@@ -574,12 +577,11 @@ impl ProtocolId {
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
             ),
-            // TODO(lc-update) make sure rpc limits are set correctly for lc data
             Protocol::LightClientOptimisticUpdate => RpcLimits::new(0, 0),
             Protocol::LightClientFinalityUpdate => RpcLimits::new(0, 0),
             Protocol::LightClientUpdatesByRange => RpcLimits::new(
                 LightClientUpdatesByRangeRequest::ssz_min_len(),
-                LightClientUpdatesByRangeRequest::ssz_max_len(spec),
+                LightClientUpdatesByRangeRequest::ssz_max_len(),
             ),
             Protocol::MetaData => RpcLimits::new(0, 0), // Metadata requests are empty
         }
@@ -634,7 +636,8 @@ impl ProtocolId {
             | SupportedProtocol::DataColumnsByRangeV1
             | SupportedProtocol::LightClientBootstrapV1
             | SupportedProtocol::LightClientOptimisticUpdateV1
-            | SupportedProtocol::LightClientFinalityUpdateV1 => true,
+            | SupportedProtocol::LightClientFinalityUpdateV1
+            | SupportedProtocol::LightClientUpdatesByRangeV1 => true,
             SupportedProtocol::StatusV1
             | SupportedProtocol::BlocksByRootV1
             | SupportedProtocol::BlocksByRangeV1
@@ -765,6 +768,7 @@ pub enum InboundRequest<E: EthSpec> {
     LightClientBootstrap(LightClientBootstrapRequest),
     LightClientOptimisticUpdate,
     LightClientFinalityUpdate,
+    LightClientUpdatesByRange(LightClientUpdatesByRangeRequest),
     Ping(Ping),
     MetaData(MetadataRequest<E>),
 }
@@ -789,6 +793,7 @@ impl<E: EthSpec> InboundRequest<E> {
             InboundRequest::LightClientBootstrap(_) => 1,
             InboundRequest::LightClientOptimisticUpdate => 1,
             InboundRequest::LightClientFinalityUpdate => 1,
+            InboundRequest::LightClientUpdatesByRange(_) => MAX_REQUEST_LIGHT_CLIENT_UPDATES,
         }
     }
 
@@ -822,6 +827,9 @@ impl<E: EthSpec> InboundRequest<E> {
             InboundRequest::LightClientFinalityUpdate => {
                 SupportedProtocol::LightClientFinalityUpdateV1
             }
+            InboundRequest::LightClientUpdatesByRange(_) => {
+                SupportedProtocol::LightClientUpdatesByRangeV1
+            }
         }
     }
 
@@ -844,6 +852,7 @@ impl<E: EthSpec> InboundRequest<E> {
             InboundRequest::LightClientBootstrap(_) => unreachable!(),
             InboundRequest::LightClientFinalityUpdate => unreachable!(),
             InboundRequest::LightClientOptimisticUpdate => unreachable!(),
+            InboundRequest::LightClientUpdatesByRange(_) => unreachable!(),
         }
     }
 }
@@ -961,6 +970,9 @@ impl<E: EthSpec> std::fmt::Display for InboundRequest<E> {
             }
             InboundRequest::LightClientFinalityUpdate => {
                 write!(f, "Light client finality update request")
+            }
+            InboundRequest::LightClientUpdatesByRange(_) => {
+                write!(f, "Light client updates by range request")
             }
         }
     }
