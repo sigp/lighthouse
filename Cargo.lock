@@ -5035,6 +5035,7 @@ dependencies = [
  "lighthouse_version",
  "logging",
  "malloc_utils",
+ "rustc_version 0.4.1",
  "sensitive_url",
  "serde",
  "serde_json",
