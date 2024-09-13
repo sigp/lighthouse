@@ -282,6 +282,20 @@ jobs:
           cache-target: release
     - name: Run a beacon chain sim which tests VC fallback behaviour
       run: cargo run --release --bin simulator fallback-sim
+  peering-simulator-ubuntu:
+    name: peering-simulator-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+          channel: stable
+          cache-target: release
+    - name: Run a beacon chain sim which tests BN peering behaviour
+      run: cargo run --release --bin simulator peering-sim
   execution-engine-integration-ubuntu:
     name: execution-engine-integration-ubuntu
     needs: [check-labels]
