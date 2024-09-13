@@ -849,7 +849,9 @@ impl HttpJsonRpc {
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                Ok(JsonGetPayloadResponse::V1(response).into())
+                JsonGetPayloadResponse::V1(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
             }
             ForkName::Capella => {
                 let response: JsonGetPayloadResponseV2<E> = self
@@ -859,7 +861,9 @@ impl HttpJsonRpc {
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                Ok(JsonGetPayloadResponse::V2(response).into())
+                JsonGetPayloadResponse::V2(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
             }
             ForkName::Base | ForkName::Altair | ForkName::Deneb | ForkName::Electra => Err(
                 Error::UnsupportedForkVariant(format!("called get_payload_v2 with {}", fork_name)),
@@ -883,7 +887,9 @@ impl HttpJsonRpc {
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                Ok(JsonGetPayloadResponse::V3(response).into())
+                JsonGetPayloadResponse::V3(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
             }
             ForkName::Base
             | ForkName::Altair
@@ -912,7 +918,9 @@ impl HttpJsonRpc {
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                Ok(JsonGetPayloadResponse::V4(response).into())
+                JsonGetPayloadResponse::V4(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
             }
             ForkName::Base
             | ForkName::Altair
@@ -1004,7 +1012,7 @@ impl HttpJsonRpc {
 
         Ok(response
             .into_iter()
-            .map(|opt_json| opt_json.map(|v1| JsonExecutionPayloadBody::V1(v1).into()))
+            .map(|opt_json| opt_json.map(|v1| ExecutionPayloadBody::V1(v1.into())))
             .collect())
     }
 
@@ -1022,10 +1030,19 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        Ok(response
-            .into_iter()
-            .map(|opt_json| opt_json.map(|v2| JsonExecutionPayloadBody::V2(v2).into()))
-            .collect())
+        let mut responses = vec![];
+        for resp in response.into_iter() {
+            if let Some(v2) = resp {
+                // Try decoding requests and return error if it fails
+                let body =
+                    ExecutionPayloadBody::V2(v2.try_into().map_err(|e| Error::BadResponse(e))?);
+                responses.push(Some(body));
+            } else {
+                responses.push(None);
+            }
+        }
+
+        Ok(responses)
     }
 
     pub async fn get_payload_bodies_by_range_v1<E: EthSpec>(
@@ -1048,7 +1065,7 @@ impl HttpJsonRpc {
 
         Ok(response
             .into_iter()
-            .map(|opt_json| opt_json.map(|v1| JsonExecutionPayloadBody::V1(v1).into()))
+            .map(|opt_json| opt_json.map(|v1| ExecutionPayloadBody::V1(v1.into())))
             .collect())
     }
 
@@ -1070,10 +1087,18 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        Ok(response
-            .into_iter()
-            .map(|opt_json| opt_json.map(|v2| JsonExecutionPayloadBody::V2(v2).into()))
-            .collect())
+        let mut responses = vec![];
+        for resp in response.into_iter() {
+            if let Some(v2) = resp {
+                // Try decoding requests and return error if it fails
+                let body = ExecutionPayloadBody::V2(v2.try_into().map_err(Error::BadResponse)?);
+                responses.push(Some(body));
+            } else {
+                responses.push(None);
+            }
+        }
+
+        Ok(responses)
     }
 
     pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
