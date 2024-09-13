@@ -9,7 +9,7 @@
 //! supernodes.
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_data_sidecars::ObservableDataSidecar;
-use crate::{metrics, BeaconChain, BeaconChainTypes, BlockError};
+use crate::{metrics, AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
 use execution_layer::json_structures::BlobAndProofV1;
 use execution_layer::Error as ExecutionLayerError;
 use itertools::Either;
@@ -55,7 +55,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     publish_fn: impl Fn(BlobsOrDataColumns<T::EthSpec>) + Send + 'static,
-) -> Result<(), FetchEngineBlobError> {
+) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     let versioned_hashes =
         if let Ok(kzg_commitments) = block.message().body().blob_kzg_commitments() {
             kzg_commitments
@@ -69,7 +69,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
 
     if versioned_hashes.is_empty() {
         debug!(chain.log, "Blobs from EL - none required");
-        return Ok(());
+        return Ok(None);
     }
 
     let execution_layer = chain
@@ -120,7 +120,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
                 "num_expected_blobs" => num_expected_blobs,
             );
             inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
-            return Ok(());
+            return Ok(None);
         }
 
         inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
@@ -223,7 +223,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
                 "num_expected_blobs" => num_expected_blobs,
             );
             inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
-            return Ok(());
+            return Ok(None);
         }
 
         inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
@@ -254,7 +254,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         "num_fetched_blobs" => num_fetched_blobs,
     );
 
-    chain
+    let availability_processing_status = chain
         .process_engine_blobs(
             block.slot(),
             block_root,
@@ -262,13 +262,9 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
             data_columns_receiver_opt,
         )
         .await
-        .map(|_| debug!(chain.log, "Blobs from EL - processed"))
-        .map_err(|e| {
-            warn!(chain.log, "Blobs from EL - error"; "error" => ?e);
-            FetchEngineBlobError::BlobProcessingError(e)
-        })?;
+        .map_err(|e| FetchEngineBlobError::BlobProcessingError(e))?;
 
-    Ok(())
+    Ok(Some(availability_processing_status))
 }
 
 fn build_blob_sidecars<E: EthSpec>(

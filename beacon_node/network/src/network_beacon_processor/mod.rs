@@ -3,7 +3,9 @@ use crate::sync::SamplingId;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::fetch_blobs::{fetch_and_process_engine_blobs, BlobsOrDataColumns};
-use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend, BeaconChain};
+use beacon_chain::{
+    builder::Witness, eth1_chain::CachingEth1Backend, AvailabilityProcessingStatus, BeaconChain,
+};
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{
     work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorChannels, BeaconProcessorSend,
@@ -802,7 +804,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let publish_fn = move |blobs_or_data_column| {
             self_cloned.publish_blobs_or_data_column(blobs_or_data_column)
         };
-        if let Err(e) = fetch_and_process_engine_blobs(
+
+        match fetch_and_process_engine_blobs(
             self.chain.clone(),
             block_root,
             block.clone(),
@@ -810,7 +813,33 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         )
         .await
         {
-            error!(self.log, "Error fetching or processing blobs from EL"; "error" => ?e);
+            Ok(Some(availability)) => match availability {
+                AvailabilityProcessingStatus::Imported(hash) => {
+                    debug!(
+                        self.log,
+                        "Block components retrieved from EL";
+                        "result" => "imported block and custody columns",
+                        "block_hash" => %block_root,
+                    );
+                    self.chain.recompute_head_at_current_slot().await;
+                }
+                AvailabilityProcessingStatus::MissingComponents(_, _) => {
+                    error!(
+                        self.log,
+                        "MissingComponents is not expected after engine blobs processed successfully";
+                        "block_hash" => %block_root,
+                    );
+                }
+            },
+            Ok(None) => { /* No blobs fetched from the EL. Reasons logged separately. */ }
+            Err(e) => {
+                error!(
+                    self.log,
+                    "Error fetching or processing blobs from EL";
+                    "error" => ?e,
+                    "block_hash" => %block_root,
+                );
+            }
         }
     }
 }
