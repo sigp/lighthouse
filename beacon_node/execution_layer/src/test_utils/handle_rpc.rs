@@ -247,7 +247,7 @@ pub async fn handle_rpc<E: EthSpec>(
                 Some(
                     ctx.execution_block_generator
                         .write()
-                        .new_payload(request.into()),
+                        .new_payload(request.try_into().unwrap()),
                 )
             } else {
                 None
