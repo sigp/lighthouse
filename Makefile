@@ -44,6 +44,14 @@ install:
 		--profile "$(PROFILE)" \
 		$(CARGO_INSTALL_EXTRA_FLAGS)
 
+# Builds Lighthouse in a reproducible way such that two binaries for the same commit on the same
+# architecture are bit-identical. We remap the source directory to `/project/` as that is what
+# the Cross builds use.
+reproducible:
+	env RUSTFLAGS="--remap-path-prefix=$(CURDIR)=/project" cargo build --bin lighthouse --locked \
+		--features "$(FEATURES)" \
+		--profile "$(PROFILE)"
+
 # Builds the lcli binary in release (optimized).
 install-lcli:
 	cargo install --path lcli --force --locked \
