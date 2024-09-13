@@ -345,7 +345,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok((availability, data_columns_to_publish)) => {
-                self.handle_data_columns_to_publish(data_columns_to_publish.clone());
+                self.handle_data_columns_to_publish(data_columns_to_publish.clone(), block_root);
 
                 match availability {
                     AvailabilityProcessingStatus::Imported(hash) => {

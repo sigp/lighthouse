@@ -7,25 +7,30 @@
 //! on P2P gossip to the network. From PeerDAS onwards, together with the increase in blob count,
 //! broadcasting blobs requires a much higher bandwidth, and is only done by high capacity
 //! supernodes.
-use std::sync::Arc;
-
+use crate::kzg_utils::blobs_to_data_column_sidecars;
+use crate::observed_data_sidecars::ObservableDataSidecar;
+use crate::{metrics, BeaconChain, BeaconChainTypes, BlockError};
 use execution_layer::json_structures::BlobAndProofV1;
 use execution_layer::Error as ExecutionLayerError;
 use itertools::Either;
+use lighthouse_metrics::{inc_counter, TryExt};
+use rand::prelude::SliceRandom;
 use slog::{debug, error, warn};
 use ssz_types::FixedVector;
-
-use lighthouse_metrics::{inc_counter, TryExt};
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
+use std::sync::Arc;
+use std::time::Duration;
 use types::blob_sidecar::{BlobSidecarError, FixedBlobSidecarList};
 use types::{
     BeaconStateError, BlobSidecar, DataColumnSidecarList, EthSpec, FullPayload, Hash256,
     SignedBeaconBlock, SignedBeaconBlockHeader,
 };
 
-use crate::kzg_utils::blobs_to_data_column_sidecars;
-use crate::observed_data_sidecars::ObservableDataSidecar;
-use crate::{metrics, BeaconChain, BeaconChainTypes, BlockError};
+/// Number of batches that supernodes split data columns into during publishing.
+pub const SUPERNODE_DATA_COLUMN_PUBLICATION_BATCHES: usize = 4;
+
+/// The delay applied by supernodes between the sending of each data column batch.
+pub const SUPERNODE_DATA_COLUMN_PUBLICATION_BATCH_INTERVAL: Duration = Duration::from_millis(200);
 
 pub enum BlobsOrDataColumns<E: EthSpec> {
     Blobs(Vec<Arc<BlobSidecar<E>>>),
@@ -49,7 +54,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
-    publish_fn: impl FnOnce(BlobsOrDataColumns<T::EthSpec>) + Send + 'static,
+    publish_fn: impl Fn(BlobsOrDataColumns<T::EthSpec>) + Send + 'static,
 ) -> Result<(), FetchEngineBlobError> {
     let versioned_hashes =
         if let Ok(kzg_commitments) = block.message().body().blob_kzg_commitments() {
@@ -144,7 +149,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
                             .discard_timer_on_break(&mut timer);
                     drop(timer);
 
-                    let all_data_columns = match data_columns_result {
+                    let mut all_data_columns = match data_columns_result {
                         Ok(d) => d,
                         Err(e) => {
                             error!(
@@ -156,31 +161,53 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
                         }
                     };
 
-                    // Check indices from cache before sending the columns, to make sure we don't
-                    // publish components already seen on gossip.
-                    let all_data_columns_iter = all_data_columns.clone().into_iter();
-                    let data_columns_to_publish = match chain_cloned
-                        .data_availability_checker
-                        .imported_custody_column_indexes(&block_root)
-                    {
-                        None => Either::Left(all_data_columns_iter),
-                        Some(imported_columns_indices) => Either::Right(
-                            all_data_columns_iter
-                                .filter(move |d| !imported_columns_indices.contains(&d.index())),
-                        ),
-                    }
-                    .collect::<Vec<_>>();
-
-                    if let Err(e) = data_columns_sender.try_send(all_data_columns) {
+                    if let Err(e) = data_columns_sender.try_send(all_data_columns.clone()) {
                         error!(logger, "Failed to send computed data columns"; "error" => ?e);
                     };
 
+                    // Check indices from cache before sending the columns, to make sure we don't
+                    // publish components already seen on gossip.
                     let is_supernode = chain_cloned
                         .data_availability_checker
                         .get_custody_columns_count()
                         == spec.number_of_columns;
-                    if is_supernode && !data_columns_to_publish.is_empty() {
-                        publish_fn(BlobsOrDataColumns::DataColumns(data_columns_to_publish));
+
+                    // At the moment non supernodes are not required to publish any columns.
+                    // TODO(das): we could experiment with having full nodes publish their custodied
+                    // columns here.
+                    if !is_supernode {
+                        return;
+                    }
+
+                    // To reduce bandwidth for supernodes: permute the columns to publish and
+                    // publish them in batches. Our hope is that some columns arrive from
+                    // other supernodes in the meantime, obviating the need for us to publish
+                    // them. If no other publisher exists for a column, it will eventually get
+                    // published here.
+                    // FIXME(das): deduplicate this wrt to gossip/sync methods
+                    all_data_columns.shuffle(&mut rand::thread_rng());
+
+                    let batch_size =
+                        all_data_columns.len() / SUPERNODE_DATA_COLUMN_PUBLICATION_BATCHES;
+                    for batch in all_data_columns.chunks(batch_size) {
+                        let already_seen = chain_cloned
+                            .data_availability_checker
+                            .imported_custody_column_indexes(&block_root)
+                            .unwrap_or_default();
+                        let publishable = batch
+                            .iter()
+                            .filter(|col| !already_seen.contains(&col.index()))
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        if !publishable.is_empty() {
+                            debug!(
+                                chain_cloned.log,
+                                "Publishing data columns from EL";
+                                "count" => publishable.len()
+                            );
+                            publish_fn(BlobsOrDataColumns::DataColumns(publishable));
+                        }
+                        tokio::time::sleep(SUPERNODE_DATA_COLUMN_PUBLICATION_BATCH_INTERVAL).await;
                     }
                 },
                 "compute_data_columns",
