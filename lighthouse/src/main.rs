@@ -35,6 +35,7 @@ pub static LONG_VERSION: LazyLock<String> = LazyLock::new(|| {
          SHA256 hardware acceleration: {}\n\
          Allocator: {}\n\
          Profile: {}\n\
+         Compiler: {}\n\
          Specs: mainnet (true), minimal ({}), gnosis ({})",
         SHORT_VERSION.as_str(),
         bls_library_name(),
@@ -42,6 +43,7 @@ pub static LONG_VERSION: LazyLock<String> = LazyLock::new(|| {
         have_sha_extensions(),
         allocator_name(),
         build_profile_name(),
+        compiler_version(),
         cfg!(feature = "spec-minimal"),
         cfg!(feature = "gnosis"),
     )
@@ -83,6 +85,29 @@ fn build_profile_name() -> String {
         .nth_back(3)
         .unwrap_or_else(|| "unknown")
         .to_string()
+}
+
+fn compiler_version() -> String {
+    let version = rustc_version::version_meta().expect("should be able to fetch compiler version");
+    let commit_hash_chars = 7;
+    format!(
+        "Rust v{} {} ({})",
+        version.semver,
+        compiler_channel(&version.channel),
+        version
+            .commit_hash
+            .map_or("??".to_string(), |hash| hash[..commit_hash_chars]
+                .to_string()),
+    )
+}
+
+fn compiler_channel(channel: &rustc_version::Channel) -> &'static str {
+    match channel {
+        rustc_version::Channel::Stable => "stable",
+        rustc_version::Channel::Beta => "beta",
+        rustc_version::Channel::Nightly => "nightly",
+        rustc_version::Channel::Dev => "dev",
+    }
 }
 
 fn main() {
