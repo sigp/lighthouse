@@ -92,7 +92,7 @@ pub struct AnchorInfo {
     /// - Genesis start: 0
     /// - Checkpoint sync: Slot of the finalized checkpoint block
     ///
-    /// Progressively increases during a finalization migration as the node forward syncs.
+    /// Immutable
     pub anchor_slot: Slot,
     /// All blocks with slots greater than or equal to this value are available in the database.
     /// Additionally, the genesis block is always available.
@@ -115,7 +115,7 @@ pub struct AnchorInfo {
     /// - Genesis start: 0
     /// - Checkpoint sync: Slot of the finalized checkpoint state
     ///
-    /// Never changes
+    /// Immutable
     pub state_upper_limit: Slot,
     /// All states with slots _less than or equal to_ this value are available in the database.
     /// The minimum value is 0, indicating that the genesis state is always available.
