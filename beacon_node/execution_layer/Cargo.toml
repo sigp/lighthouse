@@ -51,3 +51,4 @@ eth2_network_config = { workspace = true }
 alloy-rlp = { workspace = true }
 alloy-consensus = { workspace = true }
 lighthouse_version = { workspace = true }
+fixed_bytes = { workspace = true }

@@ -18,6 +18,7 @@ pub use libp2p::identity::{Keypair, PublicKey};
 use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
+use libp2p::core::transport::PortUse;
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
 use libp2p::swarm::THandlerInEvent;
@@ -983,6 +984,7 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
         _peer: PeerId,
         _addr: &Multiaddr,
         _role_override: libp2p::core::Endpoint,
+        _port_use: PortUse,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         Ok(ConnectionHandler)
     }
@@ -1070,10 +1072,7 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                             // NOTE: We assume libp2p itself can keep track of IP changes and we do
                             // not inform it about IP changes found via discovery.
                         }
-                        discv5::Event::EnrAdded { .. }
-                        | discv5::Event::TalkRequest(_)
-                        | discv5::Event::NodeInserted { .. }
-                        | discv5::Event::SessionEstablished { .. } => {} // Ignore all other discv5 server events
+                        _ => {} // Ignore all other discv5 server events
                     }
                 }
             }

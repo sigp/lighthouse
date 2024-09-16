@@ -4,6 +4,7 @@ use clap::{builder::ArgPredicate, crate_version, Arg, ArgAction, ArgGroup, Comma
 use clap_utils::{get_color_style, FLAG_HEADER};
 use strum::VariantNames;
 
+#[allow(clippy::large_stack_frames)]
 pub fn cli_app() -> Command {
     Command::new("beacon_node")
         .display_order(0)

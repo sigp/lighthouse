@@ -15,7 +15,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
-use types::{Epoch, EthSpec, ForkName, Hash256, Slot};
+use types::{Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, Slot};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
@@ -394,7 +394,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Ok(Some((bootstrap, _))) => Ok(Arc::new(bootstrap)),
                 Ok(None) => Err((
                     RPCResponseErrorCode::ResourceUnavailable,
-                    "Bootstrap not available",
+                    "Bootstrap not available".to_string(),
                 )),
                 Err(e) => {
                     error!(self.log, "Error getting LightClientBootstrap instance";
@@ -404,7 +404,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                     Err((
                         RPCResponseErrorCode::ResourceUnavailable,
-                        "Bootstrap not available",
+                        format!("{:?}", e),
                     ))
                 }
             },
@@ -429,7 +429,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Some(update) => Ok(Arc::new(update)),
                 None => Err((
                     RPCResponseErrorCode::ResourceUnavailable,
-                    "Latest optimistic update not available",
+                    "Latest optimistic update not available".to_string(),
                 )),
             },
             Response::LightClientOptimisticUpdate,
@@ -453,7 +453,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Some(update) => Ok(Arc::new(update)),
                 None => Err((
                     RPCResponseErrorCode::ResourceUnavailable,
-                    "Latest finality update not available",
+                    "Latest finality update not available".to_string(),
                 )),
             },
             Response::LightClientFinalityUpdate,
@@ -1081,7 +1081,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         peer_id: PeerId,
         request_id: PeerRequestId,
-        result: Result<R, (RPCResponseErrorCode, &'static str)>,
+        result: Result<R, (RPCResponseErrorCode, String)>,
         into_response: F,
     ) {
         match result {
@@ -1096,7 +1096,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 });
             }
             Err((error_code, reason)) => {
-                self.send_error_response(peer_id, error_code, reason.into(), request_id);
+                self.send_error_response(peer_id, error_code, reason, request_id);
             }
         }
     }

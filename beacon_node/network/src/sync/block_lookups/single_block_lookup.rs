@@ -1,4 +1,3 @@
-use super::common::ResponseType;
 use super::{BlockComponent, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS};
 use crate::sync::block_lookups::common::RequestState;
 use crate::sync::network_context::{
@@ -188,7 +187,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             .state
             .peek_downloaded_data()
             .cloned();
-        let block_is_processed = self.block_request_state.state.is_processed();
         let request = R::request_state_mut(self);
 
         // Attempt to progress awaiting downloads
@@ -221,11 +219,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     // with this `req_id`.
                     request.get_state_mut().on_download_start(req_id)?
                 }
-                LookupRequestResult::NoRequestNeeded => {
+                LookupRequestResult::NoRequestNeeded(reason) => {
                     // Lookup sync event safety: Advances this request to the terminal `Processed`
                     // state. If all requests reach this state, the request is marked as completed
                     // in `Self::continue_requests`.
-                    request.get_state_mut().on_completed_request()?
+                    request.get_state_mut().on_completed_request(reason)?
                 }
                 // Sync will receive a future event to make progress on the request, do nothing now
                 LookupRequestResult::Pending(reason) => {
@@ -241,12 +239,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         // Otherwise, attempt to progress awaiting processing
         // If this request is awaiting a parent lookup to be processed, do not send for processing.
         // The request will be rejected with unknown parent error.
-        //
-        // TODO: The condition `block_is_processed || Block` can be dropped after checking for
-        // unknown parent root when import RPC blobs
-        } else if !awaiting_parent
-            && (block_is_processed || matches!(R::response_type(), ResponseType::Block))
-        {
+        } else if !awaiting_parent {
             // maybe_start_processing returns Some if state == AwaitingProcess. This pattern is
             // useful to conditionally access the result data.
             if let Some(result) = request.get_state_mut().maybe_start_processing() {
@@ -357,13 +350,13 @@ pub struct DownloadResult<T: Clone> {
 
 #[derive(IntoStaticStr)]
 pub enum State<T: Clone> {
-    AwaitingDownload(&'static str),
+    AwaitingDownload(/* reason */ &'static str),
     Downloading(ReqId),
     AwaitingProcess(DownloadResult<T>),
     /// Request is processing, sent by lookup sync
     Processing(DownloadResult<T>),
     /// Request is processed
-    Processed,
+    Processed(/* reason */ &'static str),
 }
 
 /// Object representing the state of a single block or blob lookup request.
@@ -554,7 +547,7 @@ impl<T: Clone> SingleLookupRequestState<T> {
     pub fn on_processing_success(&mut self) -> Result<(), LookupRequestError> {
         match &self.state {
             State::Processing(_) => {
-                self.state = State::Processed;
+                self.state = State::Processed("processing success");
                 Ok(())
             }
             other => Err(LookupRequestError::BadState(format!(
@@ -564,10 +557,10 @@ impl<T: Clone> SingleLookupRequestState<T> {
     }
 
     /// Mark a request as complete without any download or processing
-    pub fn on_completed_request(&mut self) -> Result<(), LookupRequestError> {
+    pub fn on_completed_request(&mut self, reason: &'static str) -> Result<(), LookupRequestError> {
         match &self.state {
             State::AwaitingDownload { .. } => {
-                self.state = State::Processed;
+                self.state = State::Processed(reason);
                 Ok(())
             }
             other => Err(LookupRequestError::BadState(format!(
@@ -598,11 +591,11 @@ impl<T: Clone> std::fmt::Display for State<T> {
 impl<T: Clone> std::fmt::Debug for State<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::AwaitingDownload(status) => write!(f, "AwaitingDownload({:?})", status),
+            Self::AwaitingDownload(reason) => write!(f, "AwaitingDownload({})", reason),
             Self::Downloading(req_id) => write!(f, "Downloading({:?})", req_id),
             Self::AwaitingProcess(d) => write!(f, "AwaitingProcess({:?})", d.peer_group),
             Self::Processing(d) => write!(f, "Processing({:?})", d.peer_group),
-            Self::Processed { .. } => write!(f, "Processed"),
+            Self::Processed(reason) => write!(f, "Processed({})", reason),
         }
     }
 }
