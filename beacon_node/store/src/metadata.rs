@@ -111,11 +111,14 @@ pub struct AnchorInfo {
     /// available in the database. If `state_upper_limit` is higher than `split.slot`, states are
     /// not being written to the freezer database.
     ///
-    /// Values on start:
+    /// Values on start if state reconstruction is enabled:
     /// - Genesis start: 0
-    /// - Checkpoint sync: Slot of the finalized checkpoint state
+    /// - Checkpoint sync: Slot of the next scheduled snapshot
     ///
-    /// Immutable
+    /// Value on start if state reconstruction is disabled:
+    /// - 2^64 - 1 representing no historic state storage.
+    ///
+    /// Immutable until state reconstruction completes.
     pub state_upper_limit: Slot,
     /// All states with slots _less than or equal to_ this value are available in the database.
     /// The minimum value is 0, indicating that the genesis state is always available.

@@ -127,7 +127,7 @@ impl StoreConfig {
         anchor: Option<&AnchorInfo>,
     ) -> Result<(), StoreConfigError> {
         // Allow changing the hierarchy exponents if no historic states are stored.
-        // anchor == None implies no data stored thus no historic states
+        // anchor == None implies full archive node thus all historic states
         let no_historic_states_stored =
             anchor.map_or(false, |anchor| anchor.no_historic_states_stored(split.slot));
         let hierarchy_config_changed =
