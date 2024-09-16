@@ -245,6 +245,8 @@ where
             .log
             .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
         let handler = RPCHandler::new(
+            connection_id,
+            peer_id,
             protocol,
             self.fork_context.clone(),
             &log,
@@ -278,6 +280,8 @@ where
             .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
 
         let handler = RPCHandler::new(
+            connection_id,
+            peer_id,
             protocol,
             self.fork_context.clone(),
             &log,
