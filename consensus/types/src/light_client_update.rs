@@ -464,11 +464,36 @@ fn compute_sync_committee_period_at_slot<E: EthSpec>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MainnetEthSpec;
     use ssz_types::typenum::Unsigned;
 
-    // TODO(light-client) should run for every fork?
-    ssz_tests!(LightClientUpdateDeneb<MainnetEthSpec>);
+    // `ssz_tests!` can only be defined once per namespace
+    #[cfg(test)]
+    mod altair {
+        use super::*;
+        use crate::MainnetEthSpec;
+        ssz_tests!(LightClientUpdateAltair<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod capella {
+        use super::*;
+        use crate::MainnetEthSpec;
+        ssz_tests!(LightClientUpdateCapella<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod deneb {
+        use super::*;
+        use crate::MainnetEthSpec;
+        ssz_tests!(LightClientUpdateDeneb<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod electra {
+        use super::*;
+        use crate::MainnetEthSpec;
+        ssz_tests!(LightClientUpdateElectra<MainnetEthSpec>);
+    }
 
     #[test]
     fn finalized_root_params() {

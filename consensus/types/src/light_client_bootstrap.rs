@@ -224,8 +224,28 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientBootstrap<E> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::MainnetEthSpec;
+    // `ssz_tests!` can only be defined once per namespace
+    #[cfg(test)]
+    mod altair {
+        use crate::{LightClientBootstrapAltair, MainnetEthSpec};
+        ssz_tests!(LightClientBootstrapAltair<MainnetEthSpec>);
+    }
 
-    ssz_tests!(LightClientBootstrapDeneb<MainnetEthSpec>);
+    #[cfg(test)]
+    mod capella {
+        use crate::{LightClientBootstrapCapella, MainnetEthSpec};
+        ssz_tests!(LightClientBootstrapCapella<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod deneb {
+        use crate::{LightClientBootstrapDeneb, MainnetEthSpec};
+        ssz_tests!(LightClientBootstrapDeneb<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod electra {
+        use crate::{LightClientBootstrapElectra, MainnetEthSpec};
+        ssz_tests!(LightClientBootstrapElectra<MainnetEthSpec>);
+    }
 }

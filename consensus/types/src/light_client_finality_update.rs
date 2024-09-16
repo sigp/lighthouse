@@ -232,8 +232,28 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientFinalityUpdate<E> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::MainnetEthSpec;
+    // `ssz_tests!` can only be defined once per namespace
+    #[cfg(test)]
+    mod altair {
+        use crate::{LightClientFinalityUpdateAltair, MainnetEthSpec};
+        ssz_tests!(LightClientFinalityUpdateAltair<MainnetEthSpec>);
+    }
 
-    ssz_tests!(LightClientFinalityUpdateDeneb<MainnetEthSpec>);
+    #[cfg(test)]
+    mod capella {
+        use crate::{LightClientFinalityUpdateCapella, MainnetEthSpec};
+        ssz_tests!(LightClientFinalityUpdateCapella<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod deneb {
+        use crate::{LightClientFinalityUpdateDeneb, MainnetEthSpec};
+        ssz_tests!(LightClientFinalityUpdateDeneb<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod electra {
+        use crate::{LightClientFinalityUpdateElectra, MainnetEthSpec};
+        ssz_tests!(LightClientFinalityUpdateElectra<MainnetEthSpec>);
+    }
 }
