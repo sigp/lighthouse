@@ -2505,7 +2505,10 @@ impl<E: EthSpec> BeaconState<E> {
         self.generate_proof(field_index, &leaves)
     }
 
-    pub fn compute_finalized_root_proof(&self, generalized_index: usize) -> Result<Vec<Hash256>, Error> {
+    pub fn compute_finalized_root_proof(
+        &self,
+        generalized_index: usize,
+    ) -> Result<Vec<Hash256>, Error> {
         // 1. Convert generalized index to field index.
         let field_index = match generalized_index {
             light_client_update::FINALIZED_ROOT_INDEX_ELECTRA
