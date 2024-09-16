@@ -10,7 +10,11 @@ use crate::peer_manager::{
 };
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
 use crate::rpc::methods::MetadataRequest;
-use crate::rpc::*;
+use crate::rpc::{
+    methods, BlocksByRangeRequest, GoodbyeReason, HandlerErr, HandlerEvent, InboundRequest,
+    NetworkParams, OutboundRequest, Protocol, RPCCodedResponse, RPCError, RPCMessage, RPCReceived,
+    RPCResponse, RPCResponseErrorCode, ResponseTermination, RPC,
+};
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
 use crate::types::{
