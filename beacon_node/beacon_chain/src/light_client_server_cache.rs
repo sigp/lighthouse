@@ -10,8 +10,7 @@ use store::DBColumn;
 use store::KeyValueStore;
 use tree_hash::TreeHash;
 use types::light_client_update::{
-    CURRENT_SYNC_COMMITTEE_INDEX, CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA, FINALIZED_ROOT_INDEX,
-    FINALIZED_ROOT_INDEX_ELECTRA, NEXT_SYNC_COMMITTEE_INDEX, NEXT_SYNC_COMMITTEE_INDEX_ELECTRA,
+    Proof, CURRENT_SYNC_COMMITTEE_INDEX, CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA, FINALIZED_ROOT_INDEX, FINALIZED_ROOT_INDEX_ELECTRA, NEXT_SYNC_COMMITTEE_INDEX, NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
 };
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
@@ -415,9 +414,9 @@ impl<T: BeaconChainTypes> Default for LightClientServerCache<T> {
 #[derive(Clone)]
 struct LightClientCachedData<E: EthSpec> {
     finalized_checkpoint: Checkpoint,
-    finality_branch: Vec<Hash256>,
-    next_sync_committee_branch: Vec<Hash256>,
-    current_sync_committee_branch: Vec<Hash256>,
+    finality_branch: Proof,
+    next_sync_committee_branch: Proof,
+    current_sync_committee_branch: Proof,
     next_sync_committee: Arc<SyncCommittee<E>>,
     current_sync_committee: Arc<SyncCommittee<E>>,
     finalized_block_root: Hash256,
