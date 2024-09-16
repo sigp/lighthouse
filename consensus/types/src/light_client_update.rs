@@ -420,45 +420,37 @@ impl<E: EthSpec> LightClientUpdate<E> {
     fn is_next_sync_committee_branch_empty(&self) -> bool {
         match self {
             LightClientUpdate::Electra(update) => {
-                self.is_empty_branch(update.next_sync_committee_branch.as_ref())
+                is_empty_branch(update.next_sync_committee_branch.as_ref())
             }
             LightClientUpdate::Deneb(update) => {
-                self.is_empty_branch(update.next_sync_committee_branch.as_ref())
+                is_empty_branch(update.next_sync_committee_branch.as_ref())
             }
             LightClientUpdate::Capella(update) => {
-                self.is_empty_branch(update.next_sync_committee_branch.as_ref())
+                is_empty_branch(update.next_sync_committee_branch.as_ref())
             }
             LightClientUpdate::Altair(update) => {
-                self.is_empty_branch(update.next_sync_committee_branch.as_ref())
+                is_empty_branch(update.next_sync_committee_branch.as_ref())
             }
         }
-    }
-
-    fn is_empty_branch(&self, branch: &[Hash256]) -> bool {
-        for index in branch.iter() {
-            if *index != Hash256::default() {
-                return false;
-            }
-        }
-        true
     }
 
     pub fn is_finality_branch_empty(&self) -> bool {
         match self {
-            LightClientUpdate::Electra(update) => {
-                self.is_empty_branch(update.finality_branch.as_ref())
-            }
-            LightClientUpdate::Deneb(update) => {
-                self.is_empty_branch(update.finality_branch.as_ref())
-            }
-            LightClientUpdate::Capella(update) => {
-                self.is_empty_branch(update.finality_branch.as_ref())
-            }
-            LightClientUpdate::Altair(update) => {
-                self.is_empty_branch(update.finality_branch.as_ref())
-            }
+            LightClientUpdate::Electra(update) => is_empty_branch(update.finality_branch.as_ref()),
+            LightClientUpdate::Deneb(update) => is_empty_branch(update.finality_branch.as_ref()),
+            LightClientUpdate::Capella(update) => is_empty_branch(update.finality_branch.as_ref()),
+            LightClientUpdate::Altair(update) => is_empty_branch(update.finality_branch.as_ref()),
         }
     }
+}
+
+fn is_empty_branch(branch: &[Hash256]) -> bool {
+    for index in branch.iter() {
+        if *index != Hash256::default() {
+            return false;
+        }
+    }
+    true
 }
 
 fn compute_sync_committee_period_at_slot<E: EthSpec>(
