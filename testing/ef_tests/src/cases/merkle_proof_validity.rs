@@ -63,7 +63,7 @@ impl<E: EthSpec> Case for BeaconStateMerkleProofValidity<E> {
             }
             light_client_update::FINALIZED_ROOT_INDEX_ELECTRA
             | light_client_update::FINALIZED_ROOT_INDEX => {
-                state.compute_finality_proof(self.merkle_proof.leaf_index)
+                state.compute_finalized_root_proof(self.merkle_proof.leaf_index)
             }
             _ => {
                 return Err(Error::FailedToParseTest(
