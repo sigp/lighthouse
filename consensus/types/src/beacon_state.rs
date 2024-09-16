@@ -2533,13 +2533,7 @@ impl<E: EthSpec> BeaconState<E> {
         let mut proof = self.generate_proof(field_index, &leaves)?;
 
         // 4. patch in the finalized epoch to complete the proof.
-        if generalized_index == light_client_update::FINALIZED_ROOT_INDEX {
-            proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
-        }
-
-        if generalized_index == light_client_update::FINALIZED_ROOT_INDEX_ELECTRA {
-            proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
-        }
+        proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
 
         Ok(proof)
     }
