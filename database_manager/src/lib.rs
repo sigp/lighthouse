@@ -16,7 +16,6 @@ use slog::{info, warn, Logger};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
-use store::metadata::STATE_UPPER_LIMIT_NO_RETAIN;
 use store::{
     errors::Error,
     metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION},
@@ -433,18 +432,12 @@ pub fn prune_states<E: EthSpec>(
 
     // Check that the user has confirmed they want to proceed.
     if !prune_config.confirm {
-        match db.get_anchor_info() {
-            Some(anchor_info)
-                if anchor_info.state_lower_limit == 0
-                    && anchor_info.state_upper_limit == STATE_UPPER_LIMIT_NO_RETAIN =>
-            {
-                info!(log, "States have already been pruned");
-                return Ok(());
-            }
-            _ => {
-                info!(log, "Ready to prune states");
-            }
+        if db.get_anchor_info().full_state_pruning_enabled() {
+            info!(log, "States have already been pruned");
+            return Ok(());
         }
+
+        info!(log, "Ready to prune states");
         warn!(
             log,
             "Pruning states is irreversible";

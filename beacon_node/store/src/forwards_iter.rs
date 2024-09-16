@@ -99,27 +99,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     fn freezer_upper_bound_for_state_roots(&self, start_slot: Slot) -> Option<Slot> {
         let split_slot = self.get_split_slot();
-        let anchor_info = self.get_anchor_info();
+        let anchor = self.get_anchor_info();
 
-        match anchor_info {
-            Some(anchor) => {
-                if start_slot <= anchor.state_lower_limit {
-                    // Starting slot is prior to lower limit, so that's the upper limit. We can't
-                    // iterate past the lower limit into the gap. The +1 accounts for exclusivity.
-                    Some(anchor.state_lower_limit + 1)
-                } else if start_slot >= anchor.state_upper_limit {
-                    // Starting slot is after the upper limit, so the split is the upper limit.
-                    // The split state's root is not available in the freezer so this is exclusive.
-                    Some(split_slot)
-                } else {
-                    // In the gap, nothing is available.
-                    None
-                }
-            }
-            None => {
-                // No anchor indicates that all state roots up to the split slot are available.
-                Some(split_slot)
-            }
+        if start_slot >= anchor.state_upper_limit {
+            // Starting slot is after the upper limit, so the split is the upper limit.
+            // The split state's root is not available in the freezer so this is exclusive.
+            Some(split_slot)
+        } else if start_slot <= anchor.state_lower_limit {
+            // Starting slot is prior to lower limit, so that's the upper limit. We can't
+            // iterate past the lower limit into the gap. The +1 accounts for exclusivity.
+            Some(anchor.state_lower_limit + 1)
+        } else {
+            // In the gap, nothing is available.
+            None
         }
     }
 }

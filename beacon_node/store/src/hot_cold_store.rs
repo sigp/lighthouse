@@ -7,9 +7,9 @@ use crate::leveldb_store::{BytesKey, LevelDB};
 use crate::memory_store::MemoryStore;
 use crate::metadata::{
     AnchorInfo, BlobInfo, CompactionTimestamp, DataColumnInfo, PruningCheckpoint, SchemaVersion,
-    ANCHOR_INFO_KEY, BLOB_INFO_KEY, COMPACTION_TIMESTAMP_KEY, CONFIG_KEY, CURRENT_SCHEMA_VERSION,
-    DATA_COLUMN_INFO_KEY, PRUNING_CHECKPOINT_KEY, SCHEMA_VERSION_KEY, SPLIT_KEY,
-    STATE_UPPER_LIMIT_NO_RETAIN,
+    ANCHOR_FOR_ARCHIVE_NODE, ANCHOR_INFO_KEY, ANCHOR_UNINITIALIZED, BLOB_INFO_KEY,
+    COMPACTION_TIMESTAMP_KEY, CONFIG_KEY, CURRENT_SCHEMA_VERSION, DATA_COLUMN_INFO_KEY,
+    PRUNING_CHECKPOINT_KEY, SCHEMA_VERSION_KEY, SPLIT_KEY, STATE_UPPER_LIMIT_NO_RETAIN,
 };
 use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{
@@ -55,7 +55,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// greater than or equal are in the hot DB.
     pub(crate) split: RwLock<Split>,
     /// The starting slots for the range of blocks & states stored in the database.
-    anchor_info: RwLock<Option<AnchorInfo>>,
+    anchor_info: RwLock<AnchorInfo>,
     /// The starting slots for the range of blobs stored in the database.
     blob_info: RwLock<BlobInfo>,
     /// The starting slots for the range of data columns stored in the database.
@@ -209,7 +209,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
 
         let db = HotColdDB {
             split: RwLock::new(Split::default()),
-            anchor_info: RwLock::new(None),
+            anchor_info: RwLock::new(ANCHOR_UNINITIALIZED),
             blob_info: RwLock::new(BlobInfo::default()),
             data_column_info: RwLock::new(DataColumnInfo::default()),
             cold_db: MemoryStore::open(),
@@ -247,14 +247,17 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
 
         let hierarchy = config.hierarchy_config.to_moduli()?;
 
+        let hot_db = LevelDB::open(hot_path)?;
+        let anchor_info = RwLock::new(Self::load_anchor_info(&hot_db)?);
+
         let db = HotColdDB {
             split: RwLock::new(Split::default()),
-            anchor_info: RwLock::new(None),
+            anchor_info,
             blob_info: RwLock::new(BlobInfo::default()),
             data_column_info: RwLock::new(DataColumnInfo::default()),
             cold_db: LevelDB::open(cold_path)?,
             blobs_db: LevelDB::open(blobs_db_path)?,
-            hot_db: LevelDB::open(hot_path)?,
+            hot_db,
             block_cache: Mutex::new(BlockCache::new(config.block_cache_size)),
             state_cache: Mutex::new(StateCache::new(config.state_cache_size)),
             hdiff_buffer_cache: Mutex::new(LruCache::new(config.hdiff_buffer_cache_size)),
@@ -274,7 +277,6 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         // because some migrations load states and depend on the split.
         if let Some(split) = db.load_split()? {
             *db.split.write() = split;
-            *db.anchor_info.write() = db.load_anchor_info()?;
 
             info!(
                 db.log,
@@ -370,7 +372,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             let split = db.get_split_info();
             let anchor = db.get_anchor_info();
             db.config
-                .check_compatibility(&disk_config, &split, anchor.as_ref())?;
+                .check_compatibility(&disk_config, &split, &anchor)?;
 
             // Inform user if hierarchy config is changing.
             if let Ok(hierarchy_config) = disk_config.hierarchy_config() {
@@ -467,20 +469,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             hdiff_buffer_cache_byte_size as i64,
         );
 
-        if let Some(anchor_info) = self.get_anchor_info() {
-            metrics::set_gauge(
-                &metrics::STORE_BEACON_ANCHOR_SLOT,
-                anchor_info.anchor_slot.as_u64() as i64,
-            );
-            metrics::set_gauge(
-                &metrics::STORE_BEACON_OLDEST_BLOCK_SLOT,
-                anchor_info.oldest_block_slot.as_u64() as i64,
-            );
-            metrics::set_gauge(
-                &metrics::STORE_BEACON_STATE_LOWER_LIMIT,
-                anchor_info.state_lower_limit.as_u64() as i64,
-            );
-        }
+        let anchor_info = self.get_anchor_info();
+        metrics::set_gauge(
+            &metrics::STORE_BEACON_ANCHOR_SLOT,
+            anchor_info.anchor_slot.as_u64() as i64,
+        );
+        metrics::set_gauge(
+            &metrics::STORE_BEACON_OLDEST_BLOCK_SLOT,
+            anchor_info.oldest_block_slot.as_u64() as i64,
+        );
+        metrics::set_gauge(
+            &metrics::STORE_BEACON_STATE_LOWER_LIMIT,
+            anchor_info.state_lower_limit.as_u64() as i64,
+        );
     }
 
     /// Store a block and update the LRU cache.
@@ -2071,23 +2072,23 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         };
         let anchor_info = if state_upper_limit == 0 && anchor_slot == 0 {
             // Genesis archive node: no anchor because we *will* store all states.
-            None
+            ANCHOR_FOR_ARCHIVE_NODE
         } else {
-            Some(AnchorInfo {
+            AnchorInfo {
                 anchor_slot,
                 oldest_block_slot: anchor_slot,
                 oldest_block_parent: block.parent_root(),
                 state_upper_limit,
                 state_lower_limit: self.spec.genesis_slot,
-            })
+            }
         };
-        self.compare_and_set_anchor_info(None, anchor_info)
+        self.compare_and_set_anchor_info(ANCHOR_UNINITIALIZED, anchor_info)
     }
 
     /// Get a clone of the store's anchor info.
     ///
     /// To do mutations, use `compare_and_set_anchor_info`.
-    pub fn get_anchor_info(&self) -> Option<AnchorInfo> {
+    pub fn get_anchor_info(&self) -> AnchorInfo {
         self.anchor_info.read_recursive().clone()
     }
 
@@ -2100,8 +2101,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// is not correct.
     pub fn compare_and_set_anchor_info(
         &self,
-        prev_value: Option<AnchorInfo>,
-        new_value: Option<AnchorInfo>,
+        prev_value: AnchorInfo,
+        new_value: AnchorInfo,
     ) -> Result<KeyValueStoreOp, Error> {
         let mut anchor_info = self.anchor_info.write();
         if *anchor_info == prev_value {
@@ -2116,39 +2117,27 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// As for `compare_and_set_anchor_info`, but also writes the anchor to disk immediately.
     pub fn compare_and_set_anchor_info_with_write(
         &self,
-        prev_value: Option<AnchorInfo>,
-        new_value: Option<AnchorInfo>,
+        prev_value: AnchorInfo,
+        new_value: AnchorInfo,
     ) -> Result<(), Error> {
         let kv_store_op = self.compare_and_set_anchor_info(prev_value, new_value)?;
         self.hot_db.do_atomically(vec![kv_store_op])
     }
 
-    /// Load the anchor info from disk, but do not set `self.anchor_info`.
-    fn load_anchor_info(&self) -> Result<Option<AnchorInfo>, Error> {
-        self.hot_db.get(&ANCHOR_INFO_KEY)
+    /// Load the anchor info from disk.
+    fn load_anchor_info(hot_db: &Hot) -> Result<AnchorInfo, Error> {
+        // FIXME(sproul): add migration
+        Ok(hot_db
+            .get(&ANCHOR_INFO_KEY)?
+            .unwrap_or(ANCHOR_UNINITIALIZED))
     }
 
     /// Store the given `anchor_info` to disk.
     ///
     /// The argument is intended to be `self.anchor_info`, but is passed manually to avoid issues
     /// with recursive locking.
-    fn store_anchor_info_in_batch(&self, anchor_info: &Option<AnchorInfo>) -> KeyValueStoreOp {
-        if let Some(ref anchor_info) = anchor_info {
-            anchor_info.as_kv_store_op(ANCHOR_INFO_KEY)
-        } else {
-            KeyValueStoreOp::DeleteKey(get_key_for_col(
-                DBColumn::BeaconMeta.into(),
-                ANCHOR_INFO_KEY.as_slice(),
-            ))
-        }
-    }
-
-    /// If an anchor exists, return its `anchor_slot` field.
-    pub fn get_anchor_slot(&self) -> Option<Slot> {
-        self.anchor_info
-            .read_recursive()
-            .as_ref()
-            .map(|a| a.anchor_slot)
+    fn store_anchor_info_in_batch(&self, anchor_info: &AnchorInfo) -> KeyValueStoreOp {
+        anchor_info.as_kv_store_op(ANCHOR_INFO_KEY)
     }
 
     /// Initialize the `BlobInfo` when starting from genesis or a checkpoint.
@@ -2296,7 +2285,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// instance.
     pub fn get_historic_state_limits(&self) -> (Slot, Slot) {
         // If checkpoint sync is used then states in the hot DB will always be available, but may
-        // become unavailable as finalisation advances due to the lack of a restore point in the
+        // become unavailable as finalisation advances due to the lack of a snapshot in the
         // database. For this reason we take the minimum of the split slot and the
         // restore-point-aligned `state_upper_limit`, which should be set _ahead_ of the checkpoint
         // slot during initialisation.
@@ -2307,20 +2296,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // a new restore point will be created at that slot, making all states from 4096 onwards
         // permanently available.
         let split_slot = self.get_split_slot();
-        self.anchor_info
-            .read_recursive()
-            .as_ref()
-            .map_or((split_slot, self.spec.genesis_slot), |a| {
-                (a.state_lower_limit, min(a.state_upper_limit, split_slot))
-            })
+        let anchor = self.anchor_info.read_recursive();
+        (
+            anchor.state_lower_limit,
+            min(anchor.state_upper_limit, split_slot),
+        )
     }
 
     /// Return the minimum slot such that blocks are available for all subsequent slots.
     pub fn get_oldest_block_slot(&self) -> Slot {
-        self.anchor_info
-            .read_recursive()
-            .as_ref()
-            .map_or(self.spec.genesis_slot, |anchor| anchor.oldest_block_slot)
+        self.anchor_info.read_recursive().oldest_block_slot
     }
 
     /// Return the in-memory configuration used by the database.
@@ -2502,7 +2487,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "Pruning finalized payloads";
             "info" => "you may notice degraded I/O performance while this runs"
         );
-        let anchor_slot = self.get_anchor_info().map(|info| info.anchor_slot);
+        let anchor_slot = self.get_anchor_info().anchor_slot;
 
         let mut ops = vec![];
         let mut last_pruned_block_root = None;
@@ -2543,7 +2528,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 ops.push(StoreOp::DeleteExecutionPayload(block_root));
             }
 
-            if Some(slot) == anchor_slot {
+            if slot == anchor_slot {
                 info!(
                     self.log,
                     "Payload pruning reached anchor state";
@@ -2650,16 +2635,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         // Sanity checks.
-        if let Some(anchor) = self.get_anchor_info() {
-            if oldest_blob_slot < anchor.oldest_block_slot {
-                error!(
-                    self.log,
-                    "Oldest blob is older than oldest block";
-                    "oldest_blob_slot" => oldest_blob_slot,
-                    "oldest_block_slot" => anchor.oldest_block_slot
-                );
-                return Err(HotColdDBError::BlobPruneLogicError.into());
-            }
+        let anchor = self.get_anchor_info();
+        if oldest_blob_slot < anchor.oldest_block_slot {
+            error!(
+                self.log,
+                "Oldest blob is older than oldest block";
+                "oldest_blob_slot" => oldest_blob_slot,
+                "oldest_block_slot" => anchor.oldest_block_slot
+            );
+            return Err(HotColdDBError::BlobPruneLogicError.into());
         }
 
         // Iterate block roots forwards from the oldest blob slot.
@@ -2760,25 +2744,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<(), Error> {
         // Update the anchor to use the dummy state upper limit and disable historic state storage.
         let old_anchor = self.get_anchor_info();
-        let new_anchor = if let Some(old_anchor) = old_anchor.clone() {
-            AnchorInfo {
-                state_upper_limit: STATE_UPPER_LIMIT_NO_RETAIN,
-                state_lower_limit: Slot::new(0),
-                ..old_anchor.clone()
-            }
-        } else {
-            AnchorInfo {
-                anchor_slot: Slot::new(0),
-                oldest_block_slot: Slot::new(0),
-                oldest_block_parent: Hash256::zero(),
-                state_upper_limit: STATE_UPPER_LIMIT_NO_RETAIN,
-                state_lower_limit: Slot::new(0),
-            }
+        let new_anchor = AnchorInfo {
+            state_upper_limit: STATE_UPPER_LIMIT_NO_RETAIN,
+            state_lower_limit: Slot::new(0),
+            ..old_anchor.clone()
         };
 
         // Commit the anchor change immediately: if the cold database ops fail they can always be
         // retried, and we can't do them atomically with this change anyway.
-        self.compare_and_set_anchor_info_with_write(old_anchor, Some(new_anchor))?;
+        self.compare_and_set_anchor_info_with_write(old_anchor, new_anchor)?;
 
         // Stage freezer data for deletion. Do not bother loading and deserializing values as this
         // wastes time and is less schema-agnostic. My hope is that this method will be useful for
@@ -2983,11 +2957,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         // Do not try to store states if a restore point is yet to be stored, or will never be
         // stored (see `STATE_UPPER_LIMIT_NO_RETAIN`). Make an exception for the genesis state
         // which always needs to be copied from the hot DB to the freezer and should not be deleted.
-        if slot != 0
-            && anchor_info
-                .as_ref()
-                .map_or(false, |anchor| slot < anchor.state_upper_limit)
-        {
+        if slot != 0 && slot < anchor_info.state_upper_limit {
             debug!(store.log, "Pruning finalized state"; "slot" => slot);
             continue;
         }
