@@ -317,7 +317,7 @@ mod tests {
             validator_definitions: Vec<ValidatorDefinition>,
             slashing_protection_config: SlashingProtectionConfig,
             using_web3signer: bool,
-            spec: ChainSpec,
+            spec: Arc<ChainSpec>,
         ) -> Self {
             let log = test_logger();
             let validator_dir = TempDir::new().unwrap();
@@ -408,7 +408,7 @@ mod tests {
         pub async fn new(
             network: &str,
             slashing_protection_config: SlashingProtectionConfig,
-            spec: ChainSpec,
+            spec: Arc<ChainSpec>,
             listen_port: u16,
         ) -> Self {
             let signer_rig =

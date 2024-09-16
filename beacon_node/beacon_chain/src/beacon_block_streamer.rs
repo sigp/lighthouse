@@ -711,6 +711,7 @@ mod tests {
     use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
     use crate::test_utils::{test_spec, BeaconChainHarness, EphemeralHarnessType};
     use execution_layer::test_utils::Block;
+    use std::sync::Arc;
     use std::sync::LazyLock;
     use tokio::sync::mpsc;
     use types::{
@@ -725,7 +726,7 @@ mod tests {
 
     fn get_harness(
         validator_count: usize,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
         let harness = BeaconChainHarness::builder(MinimalEthSpec)
             .spec(spec)
@@ -756,6 +757,7 @@ mod tests {
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
         spec.deneb_fork_epoch = Some(Epoch::new(deneb_fork_epoch as u64));
         spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
+        let spec = Arc::new(spec);
 
         let harness = get_harness(VALIDATOR_COUNT, spec.clone());
         // go to bellatrix fork

@@ -1,6 +1,7 @@
 #![cfg(test)]
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::LazyLock;
 
 use beacon_chain::test_utils::{
@@ -25,7 +26,7 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 
 fn get_harness(spec: ChainSpec) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::builder(E::default())
-        .spec(spec)
+        .spec(Arc::new(spec))
         .keypairs(KEYPAIRS.to_vec())
         .fresh_ephemeral_store()
         .build();
