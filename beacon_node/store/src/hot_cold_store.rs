@@ -2821,7 +2821,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
         let delete_ops = cold_ops.len();
 
-        // If we just deleted the the genesis state, re-store it using the current* schema.
+        // If we just deleted the genesis state, re-store it using the current* schema.
         if self.get_split_slot() > 0 {
             info!(
                 self.log,
