@@ -25,7 +25,7 @@ where
         let mut anchor = self.get_anchor_info();
 
         // Nothing to do, history is complete.
-        if anchor.state_upper_limit == anchor.state_lower_limit {
+        if anchor.all_historic_states_stored() {
             return Ok(());
         }
 
