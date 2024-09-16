@@ -340,8 +340,12 @@ impl HierarchyModuli {
 
     /// Return `true` if the database ops for this slot should be committed immediately.
     ///
-    /// This is the case for all diffs in the 2nd lowest layer and above, which are required by diffs
-    /// in the 1st layer.
+    /// This is the case for all diffs aside from the ones in the leaf layer. To store a diff
+    /// might require loading the state at the previous layer, in which case the diff for that
+    /// layer must already have been stored.
+    ///
+    /// In future we may be able to handle this differently (with proper transaction semantics
+    /// rather than LevelDB's "write batches").
     pub fn should_commit_immediately(&self, slot: Slot) -> Result<bool, Error> {
         // If there's only 1 layer of snapshots, then commit only when writing a snapshot.
         self.moduli.get(1).map_or_else(

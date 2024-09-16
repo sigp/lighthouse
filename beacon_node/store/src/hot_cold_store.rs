@@ -2914,7 +2914,6 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     // boundary (in order for the hot state summary scheme to work).
     let current_split_slot = store.split.read_recursive().slot;
     let anchor_info = store.anchor_info.read_recursive().clone();
-    let anchor_slot = anchor_info.as_ref().map(|a| a.anchor_slot);
 
     if finalized_state.slot() < current_split_slot {
         return Err(HotColdDBError::FreezeSlotError {
@@ -2938,10 +2937,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     // Iterate in descending order until the current split slot
     let state_roots = RootsIterator::new(&store, finalized_state)
         .take_while(|result| match result {
-            Ok((_, _, slot)) => {
-                slot >= &current_split_slot
-                    && anchor_slot.map_or(true, |anchor_slot| slot >= &anchor_slot)
-            }
+            Ok((_, _, slot)) => *slot >= current_split_slot,
             Err(_) => true,
         })
         .collect::<Result<Vec<_>, _>>()?;
