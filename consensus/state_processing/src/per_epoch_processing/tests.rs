@@ -4,7 +4,6 @@ use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_chain::types::{EthSpec, MinimalEthSpec};
 use bls::{FixedBytesExtended, Hash256};
 use env_logger::{Builder, Env};
-use std::sync::Arc;
 use types::Slot;
 
 #[tokio::test]
@@ -46,6 +45,7 @@ mod release_tests {
         per_slot_processing::per_slot_processing, EpochProcessingError, SlotProcessingError,
     };
     use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
+    use std::sync::Arc;
     use types::{Epoch, ForkName, InconsistentFork, MainnetEthSpec};
 
     #[tokio::test]
