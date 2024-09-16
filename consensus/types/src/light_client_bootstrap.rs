@@ -169,9 +169,9 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             .map_err(|_| Error::InconsistentFork)?
             .electra_enabled()
         {
-            beacon_state.compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA)?
+            beacon_state.compute_sync_committee_proof(CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA)?
         } else {
-            beacon_state.compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?
+            beacon_state.compute_sync_committee_proof(CURRENT_SYNC_COMMITTEE_INDEX)?
         };
         let current_sync_committee = beacon_state.current_sync_committee()?.clone();
 

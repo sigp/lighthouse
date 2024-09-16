@@ -432,15 +432,15 @@ impl<E: EthSpec> LightClientCachedData<E> {
         let (finality_branch, next_sync_committee_branch, current_sync_committee_branch) =
             if fork_name.electra_enabled() {
                 (
-                    state.compute_merkle_proof(FINALIZED_ROOT_INDEX_ELECTRA)?,
-                    state.compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX_ELECTRA)?,
-                    state.compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA)?,
+                    state.compute_finality_proof(FINALIZED_ROOT_INDEX_ELECTRA)?,
+                    state.compute_sync_committee_proof(NEXT_SYNC_COMMITTEE_INDEX_ELECTRA)?,
+                    state.compute_sync_committee_proof(CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA)?,
                 )
             } else {
                 (
-                    state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?,
-                    state.compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX)?,
-                    state.compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?,
+                    state.compute_finality_proof(FINALIZED_ROOT_INDEX)?,
+                    state.compute_sync_committee_proof(NEXT_SYNC_COMMITTEE_INDEX)?,
+                    state.compute_sync_committee_proof(CURRENT_SYNC_COMMITTEE_INDEX)?,
                 )
             };
         Ok(Self {

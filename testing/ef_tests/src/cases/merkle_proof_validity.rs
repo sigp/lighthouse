@@ -3,8 +3,8 @@ use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
 use tree_hash::Hash256;
 use types::{
-    BeaconBlockBody, BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra,
-    BeaconState, FixedVector, FullPayload, Unsigned,
+    light_client_update, BeaconBlockBody, BeaconBlockBodyCapella, BeaconBlockBodyDeneb,
+    BeaconBlockBodyElectra, BeaconState, FixedVector, FullPayload, Unsigned,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -53,7 +53,26 @@ impl<E: EthSpec> Case for BeaconStateMerkleProofValidity<E> {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let mut state = self.state.clone();
         state.update_tree_hash_cache().unwrap();
-        let Ok(proof) = state.compute_merkle_proof(self.merkle_proof.leaf_index) else {
+
+        let proof = match self.merkle_proof.leaf_index {
+            light_client_update::CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
+            | light_client_update::CURRENT_SYNC_COMMITTEE_INDEX
+            | light_client_update::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
+            | light_client_update::NEXT_SYNC_COMMITTEE_INDEX => {
+                state.compute_sync_committee_proof(self.merkle_proof.leaf_index)
+            }
+            light_client_update::FINALIZED_ROOT_INDEX_ELECTRA
+            | light_client_update::FINALIZED_ROOT_INDEX => {
+                state.compute_finality_proof(self.merkle_proof.leaf_index)
+            }
+            _ => {
+                return Err(Error::FailedToParseTest(
+                    "Could not retrieve merkle proof, invalid index".to_string(),
+                ));
+            }
+        };
+
+        let Ok(proof) = proof else {
             return Err(Error::FailedToParseTest(
                 "Could not retrieve merkle proof".to_string(),
             ));

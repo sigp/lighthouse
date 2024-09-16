@@ -2477,13 +2477,15 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(())
     }
 
-    pub fn compute_merkle_proof(&self, generalized_index: usize) -> Result<Vec<Hash256>, Error> {
-        println!("generalized index {}", generalized_index);
+    pub fn compute_sync_committee_proof(
+        &self,
+        generalized_index: usize,
+    ) -> Result<Vec<Hash256>, Error> {
         // 1. Convert generalized index to field index.
         let field_index = match generalized_index {
             light_client_update::CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
-            | light_client_update::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
             | light_client_update::CURRENT_SYNC_COMMITTEE_INDEX
+            | light_client_update::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
             | light_client_update::NEXT_SYNC_COMMITTEE_INDEX => {
                 // Sync committees are top-level fields, subtract off the generalized indices
                 // for the internal nodes. Result should be 22 or 23, the field offset of the committee
@@ -2493,6 +2495,19 @@ impl<E: EthSpec> BeaconState<E> {
                     .checked_sub(self.num_fields_pow2())
                     .ok_or(Error::IndexNotSupported(generalized_index))?
             }
+            _ => return Err(Error::IndexNotSupported(generalized_index)),
+        };
+
+        // 2. get beacon state leaves
+        let leaves = self.get_beacon_state_leaves();
+
+        // 3. generate proof
+        self.generate_proof(field_index, &leaves)
+    }
+
+    pub fn compute_finality_proof(&self, generalized_index: usize) -> Result<Vec<Hash256>, Error> {
+        // 1. Convert generalized index to field index.
+        let field_index = match generalized_index {
             light_client_update::FINALIZED_ROOT_INDEX_ELECTRA
             | light_client_update::FINALIZED_ROOT_INDEX => {
                 // Finalized root is the right child of `finalized_checkpoint`, divide by two to get
@@ -2508,7 +2523,38 @@ impl<E: EthSpec> BeaconState<E> {
             _ => return Err(Error::IndexNotSupported(generalized_index)),
         };
 
-        // 2. Get all `BeaconState` leaves.
+        // 2. get beacon state leaves
+        let leaves = self.get_beacon_state_leaves();
+
+        // 3. generate proof
+        let mut proof = self.generate_proof(field_index, &leaves)?;
+
+        // 4. patch in the finalized epoch to complete the proof.
+        if generalized_index == light_client_update::FINALIZED_ROOT_INDEX {
+            proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
+        }
+
+        if generalized_index == light_client_update::FINALIZED_ROOT_INDEX_ELECTRA {
+            proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
+        }
+
+        Ok(proof)
+    }
+
+    fn generate_proof(
+        &self,
+        field_index: usize,
+        leaves: &[Hash256],
+    ) -> Result<Vec<Hash256>, Error> {
+        let depth = self.num_fields_pow2().ilog2() as usize;
+
+        let tree = merkle_proof::MerkleTree::create(leaves, depth);
+        let (_, proof) = tree.generate_proof(field_index, depth)?;
+
+        Ok(proof)
+    }
+
+    fn get_beacon_state_leaves(&self) -> Vec<Hash256> {
         let mut leaves = vec![];
         #[allow(clippy::arithmetic_side_effects)]
         match self {
@@ -2544,28 +2590,7 @@ impl<E: EthSpec> BeaconState<E> {
             }
         };
 
-        // 3. Make deposit tree.
-        let depth = if let BeaconState::Electra(_) = self {
-            // Use the depth of the `BeaconState` fields (i.e. `log2(64) = 6`).
-            light_client_update::CURRENT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA
-        } else {
-            // Use the depth of the `BeaconState` fields (i.e. `log2(32) = 5`).
-            light_client_update::CURRENT_SYNC_COMMITTEE_PROOF_LEN
-        };
-
-        let tree = merkle_proof::MerkleTree::create(&leaves, depth);
-        let (_, mut proof) = tree.generate_proof(field_index, depth)?;
-
-        // 4. If we're proving the finalized root, patch in the finalized epoch to complete the proof.
-        if generalized_index == light_client_update::FINALIZED_ROOT_INDEX {
-            proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
-        }
-
-        if generalized_index == light_client_update::FINALIZED_ROOT_INDEX_ELECTRA {
-            proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
-        }
-
-        Ok(proof)
+        leaves
     }
 }
 
