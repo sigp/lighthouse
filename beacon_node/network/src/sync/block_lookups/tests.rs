@@ -24,8 +24,8 @@ use beacon_chain::{
 use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::{RPCError, RPCResponseErrorCode};
 use lighthouse_network::service::api_types::{
-    AppRequestId, DataColumnsByRootRequester, Id, SamplingRequester, SingleLookupReqId,
-    SyncRequestId,
+    AppRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id, SamplingRequester,
+    SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::types::SyncState;
 use lighthouse_network::{NetworkGlobals, Request};
@@ -713,10 +713,10 @@ impl TestRig {
         let first_dc = data_columns.first().unwrap();
         let block_root = first_dc.block_root();
         let sampling_request_id = match id.0 {
-            SyncRequestId::DataColumnsByRoot(
-                _,
-                _requester @ DataColumnsByRootRequester::Sampling(sampling_id),
-            ) => sampling_id.sampling_request_id,
+            SyncRequestId::DataColumnsByRoot(DataColumnsByRootRequestId {
+                requester: DataColumnsByRootRequester::Sampling(sampling_id),
+                ..
+            }) => sampling_id.sampling_request_id,
             _ => unreachable!(),
         };
         self.complete_data_columns_by_root_request(id, data_columns);
@@ -741,14 +741,15 @@ impl TestRig {
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
         missing_components: bool,
     ) {
-        let lookup_id =
-            if let SyncRequestId::DataColumnsByRoot(_, DataColumnsByRootRequester::Custody(id)) =
-                ids.first().unwrap().0
-            {
-                id.requester.0.lookup_id
-            } else {
-                panic!("not a custody requester")
-            };
+        let lookup_id = if let SyncRequestId::DataColumnsByRoot(DataColumnsByRootRequestId {
+            requester: DataColumnsByRootRequester::Custody(id),
+            ..
+        }) = ids.first().unwrap().0
+        {
+            id.requester.0.lookup_id
+        } else {
+            panic!("not a custody requester")
+        };
 
         let first_column = data_columns.first().cloned().unwrap();
 
@@ -1339,7 +1340,7 @@ fn test_single_block_lookup_empty_response() {
 
     // The peer does not have the block. It should be penalized.
     r.single_lookup_block_response(id, peer_id, None);
-    r.expect_penalty(peer_id, "NoResponseReturned");
+    r.expect_penalty(peer_id, "NotEnoughResponsesReturned");
     // it should be retried
     let id = r.expect_block_lookup_request(block_root);
     // Send the right block this time.
@@ -2698,7 +2699,7 @@ mod deneb_only {
         };
         tester
             .empty_block_response()
-            .expect_penalty("NoResponseReturned")
+            .expect_penalty("NotEnoughResponsesReturned")
             .expect_block_request()
             .expect_no_blobs_request()
             .block_response_and_expect_blob_request()
