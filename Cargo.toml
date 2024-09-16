@@ -116,7 +116,7 @@ derivative = "2"
 dirs = "3"
 either = "1.9"
 rust_eth_kzg = "0.5.1"
-discv5 = { version = "0.4.1", features = ["libp2p"] }
+discv5 = { version = "0.7", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"
 ethereum_hashing = "0.7.0"
