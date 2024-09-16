@@ -1,5 +1,5 @@
 use crate::discovery::enr::PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY;
-use crate::discovery::CombinedKey;
+use crate::discovery::{peer_id_to_node_id, CombinedKey};
 use crate::{metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Gossipsub, PeerId};
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use rand::seq::SliceRandom;
@@ -723,6 +723,17 @@ impl<E: EthSpec> PeerDB<E> {
                 .map(|csc| csc.into())
                 .collect();
             peer_info.set_custody_subnets(all_subnets);
+        } else {
+            let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
+            let node_id = peer_id_to_node_id(&peer_id).expect("convert peer_id to node_id");
+            let subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
+                node_id.raw(),
+                spec.custody_requirement,
+                spec,
+            )
+            .expect("should compute custody subnets")
+            .collect();
+            peer_info.set_custody_subnets(subnets);
         }
 
         peer_id

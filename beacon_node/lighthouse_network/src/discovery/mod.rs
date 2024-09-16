@@ -1072,10 +1072,7 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                             // NOTE: We assume libp2p itself can keep track of IP changes and we do
                             // not inform it about IP changes found via discovery.
                         }
-                        discv5::Event::EnrAdded { .. }
-                        | discv5::Event::TalkRequest(_)
-                        | discv5::Event::NodeInserted { .. }
-                        | discv5::Event::SessionEstablished { .. } => {} // Ignore all other discv5 server events
+                        _ => {} // Ignore all other discv5 server events
                     }
                 }
             }

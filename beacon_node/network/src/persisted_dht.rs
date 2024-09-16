@@ -45,14 +45,23 @@ impl StoreItem for PersistedDht {
     }
 
     fn as_store_bytes(&self) -> Vec<u8> {
-        rlp::encode_list(&self.enrs).to_vec()
+        let mut buffer = Vec::<u8>::new();
+        alloy_rlp::encode_list(&self.enrs, &mut buffer);
+        buffer
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
-        let rlp = rlp::Rlp::new(bytes);
-        let enrs: Vec<Enr> = rlp
-            .as_list()
-            .map_err(|e| StoreError::RlpError(format!("{}", e)))?;
+        let mut enrs: Vec<Enr> = Vec::new();
+        let mut rlp = alloy_rlp::Rlp::new(bytes)
+            .map_err(|e| StoreError::RlpError(format!("Failed to decode RLP: {}", e)))?;
+        loop {
+            match rlp.get_next() {
+                Ok(Some(enr)) => enrs.push(enr),
+                Ok(None) => break, // No more list elements
+                Err(e) => return Err(StoreError::RlpError(format!("{}", e))),
+            }
+        }
+
         Ok(PersistedDht { enrs })
     }
 }
