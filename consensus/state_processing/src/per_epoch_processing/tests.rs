@@ -4,6 +4,7 @@ use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_chain::types::{EthSpec, MinimalEthSpec};
 use bls::{FixedBytesExtended, Hash256};
 use env_logger::{Builder, Env};
+use std::sync::Arc;
 use types::Slot;
 
 #[tokio::test]
@@ -56,7 +57,7 @@ mod release_tests {
 
         let altair_state = {
             let harness = BeaconChainHarness::builder(MainnetEthSpec)
-                .spec(spec.clone())
+                .spec(Arc::new(spec.clone()))
                 .deterministic_keypairs(8)
                 .fresh_ephemeral_store()
                 .build();
@@ -116,7 +117,7 @@ mod release_tests {
 
         let base_state = {
             let harness = BeaconChainHarness::builder(MainnetEthSpec)
-                .spec(spec.clone())
+                .spec(Arc::new(spec.clone()))
                 .deterministic_keypairs(8)
                 .fresh_ephemeral_store()
                 .build();

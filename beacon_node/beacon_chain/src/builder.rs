@@ -1188,8 +1188,12 @@ mod test {
             MinimalEthSpec,
             MemoryStore<MinimalEthSpec>,
             MemoryStore<MinimalEthSpec>,
-        > = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
-            .unwrap();
+        > = HotColdDB::open_ephemeral(
+            StoreConfig::default(),
+            ChainSpec::minimal().into(),
+            log.clone(),
+        )
+        .unwrap();
         let spec = MinimalEthSpec::default_spec();
 
         let genesis_state = interop_genesis_state(

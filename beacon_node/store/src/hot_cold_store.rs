@@ -1868,7 +1868,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Get a reference to the `ChainSpec` used by the database.
-    pub fn get_chain_spec(&self) -> &ChainSpec {
+    pub fn get_chain_spec(&self) -> &Arc<ChainSpec> {
         &self.spec
     }
 
