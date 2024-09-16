@@ -55,6 +55,8 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             db.store_schema_version_atomically(to, ops)
         }
         (SchemaVersion(21), SchemaVersion(22)) => {
+            // This migration needs to sync data between hot and cold DBs. The schema version is
+            // bumped inside the upgrade_to_v22 fn
             migration_schema_v22::upgrade_to_v22::<T>(db.clone(), genesis_state_root, log)
         }
         // Anything else is an error.

@@ -77,6 +77,9 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// LOCK ORDERING: this lock must always be locked *after* the `split` if both are required.
     state_cache: Mutex<StateCache<E>>,
     /// Cache of hierarchical diff buffers.
+    ///
+    /// This cache is never pruned. It is only populated in response to historical queries from the
+    /// HTTP API.
     hdiff_buffer_cache: Mutex<LruCache<Slot, HDiffBuffer>>,
     /// Chain spec.
     pub(crate) spec: ChainSpec,
@@ -463,6 +466,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_BYTE_SIZE,
             hdiff_buffer_cache_byte_size as i64,
         );
+
+        if let Some(anchor_info) = self.get_anchor_info() {
+            metrics::set_gauge(
+                &metrics::STORE_BEACON_ANCHOR_SLOT,
+                anchor_info.anchor_slot.as_u64() as i64,
+            );
+            metrics::set_gauge(
+                &metrics::STORE_BEACON_OLDEST_BLOCK_SLOT,
+                anchor_info.oldest_block_slot.as_u64() as i64,
+            );
+            metrics::set_gauge(
+                &metrics::STORE_BEACON_STATE_LOWER_LIMIT,
+                anchor_info.state_lower_limit.as_u64() as i64,
+            );
+        }
     }
 
     /// Store a block and update the LRU cache.
@@ -1605,6 +1623,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     "from_slot" => from,
                     "slot" => state.slot(),
                 );
+                // Already have persisted the state summary, don't persist anything else
             }
             StorageStrategy::Snapshot => {
                 debug!(
@@ -1688,7 +1707,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         // Load diff base state bytes.
-        let (_, base_buffer) = self.load_hdiff_buffer_for_slot(from_slot, 0)?;
+        let (_, base_buffer) = {
+            let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_LOAD_FOR_STORE_TIME);
+            self.load_hdiff_buffer_for_slot(from_slot)?
+        };
         let target_buffer = HDiffBuffer::from_state(state.clone());
         let diff = {
             let _timer = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_COMPUTE_TIME);
@@ -1718,7 +1740,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// Will reconstruct the state if it lies between restore points.
     pub fn load_cold_state_by_slot(&self, slot: Slot) -> Result<Option<BeaconState<E>>, Error> {
-        let (base_slot, hdiff_buffer) = self.load_hdiff_buffer_for_slot(slot, 0)?;
+        let (base_slot, hdiff_buffer) = {
+            let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_LOAD_TIME);
+            self.load_hdiff_buffer_for_slot(slot)?
+        };
         let base_state = hdiff_buffer.into_state(&self.spec)?;
         debug_assert_eq!(base_slot, base_state.slot());
 
@@ -1728,7 +1753,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let blocks = self.load_cold_blocks(base_state.slot() + 1, slot)?;
 
-        // Include state root for base state as it is required by block processing.
+        // Include state root for base state as it is required by block processing to not have to
+        // hash the state.
         let state_root_iter =
             self.forwards_state_roots_iterator_until(base_state.slot(), slot, || {
                 Err(Error::StateShouldNotBeRequired(slot))
@@ -1751,11 +1777,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Returns `HDiffBuffer` for the specified slot, or `HDiffBuffer` for the `ReplayFrom` slot if
     /// the diff for the specified slot is not stored.
-    fn load_hdiff_buffer_for_slot(
-        &self,
-        slot: Slot,
-        recursion: usize,
-    ) -> Result<(Slot, HDiffBuffer), Error> {
+    fn load_hdiff_buffer_for_slot(&self, slot: Slot) -> Result<(Slot, HDiffBuffer), Error> {
         if let Some(buffer) = self.hdiff_buffer_cache.lock().get(&slot) {
             debug!(
                 self.log,
@@ -1767,10 +1789,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         } else {
             metrics::inc_counter(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS);
         }
-
-        // Do not time recursive calls into load_hdiff_buffer_for_slot to not double count
-        let _timer = (recursion == 0)
-            .then(|| metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_LOAD_TIME));
 
         // Load buffer for the previous state.
         // This amount of recursion (<10 levels) should be OK.
@@ -1795,8 +1813,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
             // Recursive case.
             StorageStrategy::DiffFrom(from) => {
-                let (_buffer_slot, mut buffer) =
-                    self.load_hdiff_buffer_for_slot(from, recursion + 1)?;
+                let (_buffer_slot, mut buffer) = self.load_hdiff_buffer_for_slot(from)?;
 
                 // Load diff and apply it to buffer.
                 let diff = self.load_hdiff_for_slot(slot)?;
@@ -1816,9 +1833,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
                 Ok((slot, buffer))
             }
-            StorageStrategy::ReplayFrom(from) => {
-                self.load_hdiff_buffer_for_slot(from, recursion + 1)
-            }
+            StorageStrategy::ReplayFrom(from) => self.load_hdiff_buffer_for_slot(from),
         }
     }
 
@@ -2920,6 +2935,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     let mut epoch_boundary_blocks = HashSet::new();
     let mut non_checkpoint_block_roots = HashSet::new();
 
+    // Iterate in descending order until the current split slot
     let state_roots = RootsIterator::new(&store, finalized_state)
         .take_while(|result| match result {
             Ok((_, _, slot)) => {
@@ -2930,7 +2946,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    // Iterate states in slot ascending order, as they are stored wrt previous states.
+    // Then, iterate states in slot ascending order, as they are stored wrt previous states.
     for (block_root, state_root, slot) in state_roots.into_iter().rev() {
         // Delete the execution payload if payload pruning is enabled. At a skipped slot we may
         // delete the payload for the finalized block itself, but that's OK as we only guarantee
@@ -2982,7 +2998,9 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 
         let mut cold_db_ops = vec![];
 
-        // Only store the cold state if it's on a diff boundary
+        // Only store the cold state if it's on a diff boundary.
+        // Calling `store_cold_state_summary` instead of `store_cold_state` for those allows us
+        // to skip loading many hot states.
         if matches!(
             store.hierarchy.storage_strategy(slot)?,
             StorageStrategy::ReplayFrom(..)

@@ -1,5 +1,6 @@
 //! Implementation of historic state reconstruction (given complete block history).
 use crate::hot_cold_store::{HotColdDB, HotColdDBError};
+use crate::metrics;
 use crate::{Error, ItemStore};
 use itertools::{process_results, Itertools};
 use slog::{debug, info};
@@ -37,6 +38,8 @@ where
             "Starting state reconstruction batch";
             "start_slot" => anchor.state_lower_limit,
         );
+
+        let _t = metrics::start_timer(&metrics::STORE_BEACON_RECONSTRUCTION_TIME);
 
         // Iterate blocks from the state lower limit to the upper limit.
         let split = self.get_split_info();

@@ -88,17 +88,47 @@ impl StoreItem for CompactionTimestamp {
 /// Database parameters relevant to weak subjectivity sync.
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct AnchorInfo {
-    /// The slot at which the anchor state is present and which we cannot revert.
+    /// The slot at which the anchor state is present and which we cannot revert. Values on start:
+    /// - Genesis start: 0
+    /// - Checkpoint sync: Slot of the finalized checkpoint block
+    ///
+    /// Immutable
     pub anchor_slot: Slot,
-    /// The slot from which historical blocks are available (>=).
+    /// All blocks with slots greater than or equal to this value are available in the database.
+    /// Additionally, the genesis block is always available.
+    ///
+    /// Values on start:
+    /// - Genesis start: 0
+    /// - Checkpoint sync: Slot of the finalized checkpoint block
+    ///
+    /// Progressively decreases during backfill sync until reaching 0.
     pub oldest_block_slot: Slot,
     /// The block root of the next block that needs to be added to fill in the history.
     ///
     /// Zero if we know all blocks back to genesis.
     pub oldest_block_parent: Hash256,
-    /// The slot from which historical states are available (>=).
+    /// All states with slots _greater than or equal to_ `min(split.slot, state_upper_limit)` are
+    /// available in the database. If `state_upper_limit` is higher than `split.slot`, states are
+    /// not being written to the freezer database.
+    ///
+    /// Values on start if state reconstruction is enabled:
+    /// - Genesis start: 0
+    /// - Checkpoint sync: Slot of the next scheduled snapshot
+    ///
+    /// Value on start if state reconstruction is disabled:
+    /// - 2^64 - 1 representing no historic state storage.
+    ///
+    /// Immutable until state reconstruction completes.
     pub state_upper_limit: Slot,
-    /// The slot before which historical states are available (<=).
+    /// All states with slots _less than or equal to_ this value are available in the database.
+    /// The minimum value is 0, indicating that the genesis state is always available.
+    ///
+    /// Values on start:
+    /// - Genesis start: 0
+    /// - Checkpoint sync: 0
+    ///
+    /// When full block backfill completes (`oldest_block_slot == 0`) state reconstruction starts and
+    /// this value will progressively increase until reaching `state_upper_limit`.
     pub state_lower_limit: Slot,
 }
 

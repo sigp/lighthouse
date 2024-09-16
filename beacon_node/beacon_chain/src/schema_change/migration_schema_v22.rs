@@ -68,12 +68,12 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
         db.store_cold_state(&genesis_state_root, &genesis_state, &mut cold_ops)?;
     }
 
-    // Write the block roots in the new format. Similar to above, we do this separately from
-    // deleting the old format block roots so that this is crash safe.
+    // Write the block roots in the new format in a new column. Similar to above, we do this
+    // separately from deleting the old format block roots so that this is crash safe.
     let oldest_block_slot = old_anchor
         .as_ref()
         .map_or(Slot::new(0), |a| a.oldest_block_slot);
-    rewrite_block_roots::<T>(
+    write_new_schema_block_roots::<T>(
         &db,
         genesis_block_root,
         oldest_block_slot,
@@ -158,7 +158,7 @@ pub fn delete_old_schema_freezer_data<T: BeaconChainTypes>(
     Ok(())
 }
 
-pub fn rewrite_block_roots<T: BeaconChainTypes>(
+pub fn write_new_schema_block_roots<T: BeaconChainTypes>(
     db: &HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>,
     genesis_block_root: Hash256,
     oldest_block_slot: Slot,

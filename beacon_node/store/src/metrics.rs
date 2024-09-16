@@ -74,6 +74,27 @@ pub static DISK_DB_DELETE_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new
     )
 });
 /*
+ * Anchor Info
+ */
+pub static STORE_BEACON_ANCHOR_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "store_beacon_anchor_slot",
+        "Current anchor info anchor_slot value",
+    )
+});
+pub static STORE_BEACON_OLDEST_BLOCK_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "store_beacon_oldest_block_slot",
+        "Current anchor info oldest_block_slot value",
+    )
+});
+pub static STORE_BEACON_STATE_LOWER_LIMIT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "store_beacon_state_lower_limit",
+        "Current anchor info state_lower_limit value",
+    )
+});
+/*
  * Beacon State
  */
 pub static BEACON_STATE_GET_COUNT: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
@@ -227,6 +248,13 @@ pub static STORE_BEACON_HDIFF_BUFFER_LOAD_TIME: LazyLock<Result<Histogram>> = La
         "Time taken to load an hdiff buffer",
     )
 });
+pub static STORE_BEACON_HDIFF_BUFFER_LOAD_FOR_STORE_TIME: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "store_beacon_hdiff_buffer_load_for_store_seconds",
+            "Time taken to load an hdiff buffer to store another hdiff",
+        )
+    });
 pub static STORE_BEACON_HDIFF_BUFFER_CACHE_HIT: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
@@ -245,6 +273,12 @@ pub static STORE_BEACON_REPLAYED_BLOCKS: LazyLock<Result<IntCounter>> = LazyLock
     try_create_int_counter(
         "store_beacon_replayed_blocks_total",
         "Total count of replayed blocks",
+    )
+});
+pub static STORE_BEACON_RECONSTRUCTION_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "store_beacon_reconstruction_time_seconds",
+        "Time taken to run a reconstruct historic states batch",
     )
 });
 pub static BEACON_DATA_COLUMNS_CACHE_HIT_COUNT: LazyLock<Result<IntCounter>> =
