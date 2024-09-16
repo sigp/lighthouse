@@ -33,7 +33,7 @@ tokio-stream = { workspace = true }
 smallvec = { workspace = true }
 rand = { workspace = true }
 fnv = { workspace = true }
-rlp = "0.5.0"
+alloy-rlp = { workspace = true }
 lighthouse_metrics = { workspace = true }
 logging = { workspace = true }
 task_executor = { workspace = true }
