@@ -112,6 +112,42 @@ impl<E: EthSpec> LightClientBootstrap<E> {
         fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }
 
+    pub fn new(
+        block: &SignedBlindedBeaconBlock<E>,
+        current_sync_committee: Arc<SyncCommittee<E>>,
+        current_sync_committee_branch: FixedVector<Hash256, CurrentSyncCommitteeProofLen>,
+        chain_spec: &ChainSpec,
+    ) -> Result<Self, Error> {
+        let light_client_bootstrap = match block
+            .fork_name(chain_spec)
+            .map_err(|_| Error::InconsistentFork)?
+        {
+            ForkName::Base => return Err(Error::AltairForkNotActive),
+            ForkName::Altair | ForkName::Bellatrix => Self::Altair(LightClientBootstrapAltair {
+                header: LightClientHeaderAltair::block_to_light_client_header(block)?,
+                current_sync_committee,
+                current_sync_committee_branch,
+            }),
+            ForkName::Capella => Self::Capella(LightClientBootstrapCapella {
+                header: LightClientHeaderCapella::block_to_light_client_header(block)?,
+                current_sync_committee,
+                current_sync_committee_branch,
+            }),
+            ForkName::Deneb => Self::Deneb(LightClientBootstrapDeneb {
+                header: LightClientHeaderDeneb::block_to_light_client_header(block)?,
+                current_sync_committee,
+                current_sync_committee_branch,
+            }),
+            ForkName::Electra => Self::Electra(LightClientBootstrapElectra {
+                header: LightClientHeaderElectra::block_to_light_client_header(block)?,
+                current_sync_committee,
+                current_sync_committee_branch,
+            }),
+        };
+
+        Ok(light_client_bootstrap)
+    }
+
     pub fn from_beacon_state(
         beacon_state: &mut BeaconState<E>,
         block: &SignedBlindedBeaconBlock<E>,
