@@ -203,7 +203,6 @@ async fn light_client_bootstrap_test() {
             1,
         )))
         .execution_layer(Some(mock.el))
-        .kzg(kzg)
         .build()
         .expect("should build");
 
