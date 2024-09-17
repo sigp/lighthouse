@@ -195,16 +195,17 @@ where
             None
         };
 
-        let trusted_setup = config.clone().trusted_setup;
         let kzg_err_msg = |e| format!("Failed to load trusted setup: {:?}", e);
-
+        let trusted_setup = config.trusted_setup.clone();
         let kzg = if spec.is_peer_das_scheduled() {
-            Arc::new(Kzg::new_from_trusted_setup_das_enabled(trusted_setup).map_err(kzg_err_msg)?)
+            Kzg::new_from_trusted_setup_das_enabled(trusted_setup).map_err(kzg_err_msg)?
+        } else if spec.deneb_fork_epoch.is_some() {
+            Kzg::new_from_trusted_setup(trusted_setup).map_err(kzg_err_msg)?
         } else {
-            Arc::new(Kzg::new_from_trusted_setup(trusted_setup).map_err(kzg_err_msg)?)
+            Kzg::new_from_trusted_setup_no_precomp(trusted_setup).map_err(kzg_err_msg)?
         };
 
-        let builder = BeaconChainBuilder::new(eth_spec_instance, kzg.clone())
+        let builder = BeaconChainBuilder::new(eth_spec_instance, Arc::new(kzg))
             .logger(context.log().clone())
             .store(store)
             .task_executor(context.executor.clone())
