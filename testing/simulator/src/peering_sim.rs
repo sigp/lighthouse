@@ -32,14 +32,9 @@ pub fn run_peering_sim(matches: &ArgMatches) -> Result<(), String> {
         .expect("missing nodes default")
         .parse::<usize>()
         .expect("missing nodes default");
-    let proposer_nodes = matches
-        .get_one::<String>("proposer-nodes")
-        .unwrap_or(&String::from("0"))
-        .parse::<usize>()
-        .unwrap_or(0);
+
     // extra beacon node added with delay
     let extra_nodes: usize = 8;
-    println!("PROPOSER-NODES: {}", proposer_nodes);
     let validators_per_node = matches
         .get_one::<String>("validators-per-node")
         .expect("missing validators-per-node default")
@@ -58,7 +53,6 @@ pub fn run_peering_sim(matches: &ArgMatches) -> Result<(), String> {
 
     println!("Peering Simulator:");
     println!(" nodes: {}", node_count);
-    println!(" proposer-nodes: {}", proposer_nodes);
     println!(" validators-per-node: {}", validators_per_node);
     println!(" speed-up-factor: {}", speed_up_factor);
     println!(" continue-after-checks: {}", continue_after_checks);
@@ -132,7 +126,7 @@ pub fn run_peering_sim(matches: &ArgMatches) -> Result<(), String> {
                     validator_count: total_validator_count,
                     node_count,
                     extra_nodes,
-                    proposer_nodes,
+                    proposer_nodes: 0,
                     genesis_delay,
                 },
                 context.clone(),
@@ -144,16 +138,6 @@ pub fn run_peering_sim(matches: &ArgMatches) -> Result<(), String> {
         for _ in 0..node_count {
             network
                 .add_beacon_node(beacon_config.clone(), mock_execution_config.clone(), false)
-                .await?;
-        }
-
-        /*
-         * One by one, add proposer nodes to the network.
-         */
-        for _ in 0..proposer_nodes {
-            println!("Adding a proposer node");
-            network
-                .add_beacon_node(beacon_config.clone(), mock_execution_config.clone(), true)
                 .await?;
         }
 
