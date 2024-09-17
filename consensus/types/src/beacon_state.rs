@@ -2477,64 +2477,55 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(())
     }
 
-    pub fn compute_sync_committee_proof(
+    pub fn compute_current_sync_committee_proof(
         &self,
-        generalized_index: usize,
     ) -> Result<Vec<Hash256>, Error> {
-        // 1. Convert generalized index to field index.
-        let field_index = match generalized_index {
+        // Sync committees are top-level fields, subtract off the generalized indices
+        // for the internal nodes. Result should be 22 or 23, the field offset of the committee
+        // in the `BeaconState`:
+        // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
+        let field_index = if self.fork_name_unchecked().electra_enabled() {
             light_client_update::CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
-            | light_client_update::CURRENT_SYNC_COMMITTEE_INDEX
-            | light_client_update::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
-            | light_client_update::NEXT_SYNC_COMMITTEE_INDEX => {
-                // Sync committees are top-level fields, subtract off the generalized indices
-                // for the internal nodes. Result should be 22 or 23, the field offset of the committee
-                // in the `BeaconState`:
-                // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
-                generalized_index
-                    .checked_sub(self.num_fields_pow2())
-                    .ok_or(Error::IndexNotSupported(generalized_index))?
-            }
-            _ => return Err(Error::IndexNotSupported(generalized_index)),
+        } else {
+            light_client_update::CURRENT_SYNC_COMMITTEE_INDEX
         };
-
-        // 2. get beacon state leaves
         let leaves = self.get_beacon_state_leaves();
+        self.generate_proof(field_index, &leaves)
+    }
 
-        // 3. generate proof
+    pub fn compute_next_sync_committee_proof(
+        &self,
+    ) -> Result<Vec<Hash256>, Error> {
+        // Sync committees are top-level fields, subtract off the generalized indices
+        // for the internal nodes. Result should be 22 or 23, the field offset of the committee
+        // in the `BeaconState`:
+        // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
+        let field_index = if self.fork_name_unchecked().electra_enabled() {
+            light_client_update::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
+        } else {
+            light_client_update::NEXT_SYNC_COMMITTEE_INDEX
+        };
+        let leaves = self.get_beacon_state_leaves();
         self.generate_proof(field_index, &leaves)
     }
 
     pub fn compute_finalized_root_proof(
         &self,
-        generalized_index: usize,
     ) -> Result<Vec<Hash256>, Error> {
-        // 1. Convert generalized index to field index.
-        let field_index = match generalized_index {
+         // Finalized root is the right child of `finalized_checkpoint`, divide by two to get
+        // the generalized index of `state.finalized_checkpoint`.
+        let field_index = if self.fork_name_unchecked().electra_enabled() {
+            // Index should be 169/2 - 64 = 20 which matches the position 
+            // of `finalized_checkpoint` in `BeaconState`
             light_client_update::FINALIZED_ROOT_INDEX_ELECTRA
-            | light_client_update::FINALIZED_ROOT_INDEX => {
-                // Finalized root is the right child of `finalized_checkpoint`, divide by two to get
-                // the generalized index of `state.finalized_checkpoint`.
-                let finalized_checkpoint_generalized_index = generalized_index / 2;
-                // Subtract off the internal nodes. Result should be 105/2 - 32 = 20 pre-electra
-                // or 169/2 - 64 = 20 post-electra which matches the position of `finalized_checkpoint`
-                // in `BeaconState`.
-                finalized_checkpoint_generalized_index
-                    .checked_sub(self.num_fields_pow2())
-                    .ok_or(Error::IndexNotSupported(generalized_index))?
-            }
-            _ => return Err(Error::IndexNotSupported(generalized_index)),
+        } else {
+            // Index should be 105/2 - 32 = 20 which matches the position 
+            // of `finalized_checkpoint` in `BeaconState`
+            light_client_update::FINALIZED_ROOT_INDEX
         };
-
-        // 2. get beacon state leaves
         let leaves = self.get_beacon_state_leaves();
-
-        // 3. generate proof
         let mut proof = self.generate_proof(field_index, &leaves)?;
-
-        // 4. patch in the finalized epoch to complete the proof.
         proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
-
         Ok(proof)
     }
 
@@ -2544,10 +2535,8 @@ impl<E: EthSpec> BeaconState<E> {
         leaves: &[Hash256],
     ) -> Result<Vec<Hash256>, Error> {
         let depth = self.num_fields_pow2().ilog2() as usize;
-
         let tree = merkle_proof::MerkleTree::create(leaves, depth);
         let (_, proof) = tree.generate_proof(field_index, depth)?;
-
         Ok(proof)
     }
 

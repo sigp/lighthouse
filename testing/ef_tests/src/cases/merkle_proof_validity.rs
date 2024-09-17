@@ -56,14 +56,16 @@ impl<E: EthSpec> Case for BeaconStateMerkleProofValidity<E> {
 
         let proof = match self.merkle_proof.leaf_index {
             light_client_update::CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
-            | light_client_update::CURRENT_SYNC_COMMITTEE_INDEX
-            | light_client_update::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
+            | light_client_update::CURRENT_SYNC_COMMITTEE_INDEX => {
+                state.compute_current_sync_committee_proof()
+            }
+            light_client_update::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
             | light_client_update::NEXT_SYNC_COMMITTEE_INDEX => {
-                state.compute_sync_committee_proof(self.merkle_proof.leaf_index)
+                state.compute_next_sync_committee_proof()
             }
             light_client_update::FINALIZED_ROOT_INDEX_ELECTRA
             | light_client_update::FINALIZED_ROOT_INDEX => {
-                state.compute_finalized_root_proof(self.merkle_proof.leaf_index)
+                state.compute_finalized_root_proof()
             }
             _ => {
                 return Err(Error::FailedToParseTest(

@@ -164,15 +164,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
     ) -> Result<Self, Error> {
         let mut header = beacon_state.latest_block_header().clone();
         header.state_root = beacon_state.update_tree_hash_cache()?;
-        let current_sync_committee_branch = if block
-            .fork_name(chain_spec)
-            .map_err(|_| Error::InconsistentFork)?
-            .electra_enabled()
-        {
-            beacon_state.compute_sync_committee_proof(CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA)?
-        } else {
-            beacon_state.compute_sync_committee_proof(CURRENT_SYNC_COMMITTEE_INDEX)?
-        };
+        let current_sync_committee_branch = beacon_state.compute_current_sync_committee_proof()?;
         let current_sync_committee = beacon_state.current_sync_committee()?.clone();
 
         let light_client_bootstrap = match block
