@@ -141,14 +141,6 @@ pub fn cli_app() -> Command {
                         .help("Number of beacon nodes"),
                 )
                 .arg(
-                    Arg::new("proposer-nodes")
-                        .short('p')
-                        .long("proposer-nodes")
-                        .action(ArgAction::Set)
-                        .default_value("0")
-                        .help("Number of proposer-only beacon nodes"),
-                )
-                .arg(
                     Arg::new("validators-per-node")
                         .short('v')
                         .long("validators-per-node")
