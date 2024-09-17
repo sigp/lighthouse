@@ -1290,7 +1290,10 @@ mod tests {
             bitfield.set(id, true).unwrap();
         }
 
-        builder.add_value(ATTESTATION_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
+        builder.add_value::<Bytes>(
+            ATTESTATION_BITFIELD_ENR_KEY,
+            &bitfield.as_ssz_bytes().into(),
+        );
         builder.build(&enr_key).unwrap()
     }
 
