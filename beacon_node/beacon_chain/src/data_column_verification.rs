@@ -376,8 +376,8 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
     let parent_block = verify_parent_block_and_finalized_descendant(data_column.clone(), chain)?;
     verify_slot_higher_than_parent(&parent_block, column_slot)?;
     verify_proposer_and_signature(&data_column, &parent_block, chain)?;
-    let kzg = chain.kzg.clone();
-    let kzg_verified_data_column = verify_kzg_for_data_column(data_column.clone(), &kzg)
+    let kzg = &chain.kzg;
+    let kzg_verified_data_column = verify_kzg_for_data_column(data_column.clone(), kzg)
         .map_err(GossipDataColumnError::InvalidKzgProof)?;
 
     chain

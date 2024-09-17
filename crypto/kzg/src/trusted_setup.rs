@@ -36,20 +36,6 @@ pub struct TrustedSetup {
     g2_points: Vec<G2Point>,
 }
 
-impl Default for TrustedSetup {
-    fn default() -> Self {
-        if let Ok(trusted_setup) = serde_json::from_slice(get_trusted_setup().as_slice()) {
-            trusted_setup
-        } else {
-            Self {
-                g1_monomial_points: Default::default(),
-                g1_points: Default::default(),
-                g2_points: Default::default(),
-            }
-        }
-    }
-}
-
 impl TrustedSetup {
     pub fn g1_points(&self) -> Vec<[u8; BYTES_PER_G1_POINT]> {
         self.g1_points.iter().map(|p| p.0).collect()

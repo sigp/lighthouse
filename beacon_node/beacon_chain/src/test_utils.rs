@@ -630,7 +630,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         prague_time,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec.clone(),
-        kzg_opt,
+        Some(kzg),
     )
 }
 
