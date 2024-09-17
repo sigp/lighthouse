@@ -6,22 +6,17 @@ use crate::block_verification_types::{
 };
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
-use crate::metrics;
 use crate::BeaconChainTypes;
-use kzg::Kzg;
 use lru::LruCache;
 use parking_lot::RwLock;
 use ssz_types::{FixedVector, VariableList};
-use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, Hash256, SignedBeaconBlock,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar, Epoch, EthSpec,
+    Hash256, SignedBeaconBlock,
 };
-
-pub type DataColumnsToPublish<E> = Option<DataColumnSidecarList<E>>;
 
 /// This represents the components of a partially available block
 ///
@@ -311,6 +306,11 @@ impl<E: EthSpec> PendingComponents<E> {
         )))
     }
 
+    /// Mark reconstruction as started for this `PendingComponent`.
+    ///
+    /// NOTE: currently this value never reverts to false once it's set here. This means
+    /// reconstruction will only be attempted once. This is intentional because currently
+    /// reconstruction could only fail due to code errors or kzg errors, which shouldn't be retried.
     pub fn reconstruction_started(&mut self) {
         self.reconstruction_started = true;
     }
@@ -448,28 +448,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
     }
 
-    /// Potentially trigger reconstruction if:
-    /// - Our custody requirement is all columns
-    /// - We >= 50% of columns, but not all columns
-    fn should_reconstruct(
-        &self,
-        block_import_requirement: &BlockImportRequirement,
-        pending_components: &PendingComponents<T::EthSpec>,
-    ) -> bool {
-        let BlockImportRequirement::CustodyColumns(num_expected_columns) = block_import_requirement
-        else {
-            return false;
-        };
-
-        let num_of_columns = self.spec.number_of_columns;
-        let has_missing_columns = pending_components.verified_data_columns.len() < num_of_columns;
-
-        has_missing_columns
-            && !pending_components.reconstruction_started
-            && *num_expected_columns == num_of_columns
-            && pending_components.verified_data_columns.len() >= num_of_columns / 2
-    }
-
     pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
         &self,
         block_root: Hash256,
@@ -514,12 +492,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,
     >(
         &self,
-        kzg: &Kzg,
         block_root: Hash256,
         epoch: Epoch,
         kzg_verified_data_columns: I,
-    ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
-    {
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut write_lock = self.critical.write();
 
         // Grab existing entry or create a new entry.
@@ -533,64 +509,22 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         let block_import_requirement = self.block_import_requirement(epoch)?;
 
-        // Potentially trigger reconstruction if:
-        // - Our custody requirement is all columns
-        // - We >= 50% of columns
-        let data_columns_to_publish =
-            if self.should_reconstruct(&block_import_requirement, &pending_components) {
-                pending_components.reconstruction_started();
-
-                let timer = metrics::start_timer(&metrics::DATA_AVAILABILITY_RECONSTRUCTION_TIME);
-
-                let existing_column_indices = pending_components
-                    .verified_data_columns
-                    .iter()
-                    .map(|d| d.index())
-                    .collect::<HashSet<_>>();
-
-                // Will only return an error if:
-                // - < 50% of columns
-                // - There are duplicates
-                let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
-                    kzg,
-                    pending_components.verified_data_columns.as_slice(),
-                    &self.spec,
-                )?;
-
-                let data_columns_to_publish = all_data_columns
-                    .iter()
-                    .filter(|d| !existing_column_indices.contains(&d.index()))
-                    .map(|d| d.clone_arc())
-                    .collect::<Vec<_>>();
-
-                pending_components.verified_data_columns = all_data_columns;
-
-                metrics::stop_timer(timer);
-                metrics::inc_counter_by(
-                    &metrics::DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS,
-                    data_columns_to_publish.len() as u64,
-                );
-
-                Some(data_columns_to_publish)
-            } else {
-                None
-            };
-
         if pending_components.is_available(&block_import_requirement) {
             write_lock.put(block_root, pending_components.clone());
             // No need to hold the write lock anymore
             drop(write_lock);
-            pending_components
-                .make_available(block_import_requirement, &self.spec, |diet_block| {
-                    self.state_cache.recover_pending_executed_block(diet_block)
-                })
-                .map(|availability| (availability, data_columns_to_publish))
+            pending_components.make_available(block_import_requirement, &self.spec, |diet_block| {
+                self.state_cache.recover_pending_executed_block(diet_block)
+            })
         } else {
             write_lock.put(block_root, pending_components);
-            Ok((
-                Availability::MissingComponents(block_root),
-                data_columns_to_publish,
-            ))
+            Ok(Availability::MissingComponents(block_root))
+        }
+    }
+
+    pub fn set_reconstruction_started(&self, block_root: &Hash256) {
+        if let Some(pending_components_mut) = self.critical.write().get_mut(block_root) {
+            pending_components_mut.reconstruction_started();
         }
     }
 

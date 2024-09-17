@@ -2,7 +2,9 @@ use crate::sync::manager::BlockProcessType;
 use crate::sync::SamplingId;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend, BeaconChain};
+use beacon_chain::{
+    builder::Witness, eth1_chain::CachingEth1Backend, AvailabilityProcessingStatus, BeaconChain,
+};
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{
     work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorChannels, BeaconProcessorSend,
@@ -14,9 +16,9 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
-    Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
+    Client, MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage,
 };
-use slog::{debug, Logger};
+use slog::{debug, error, trace, Logger};
 use slot_clock::ManualSlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -766,6 +768,73 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             debug!(self.log, "Could not send message to the network service. Likely shutdown";
                 "error" => %e)
         });
+    }
+
+    /// Attempt to reconstruct all data columns if the following conditions satisfies:
+    /// - Our custody requirement is all columns
+    /// - We have >= 50% of columns, but not all columns
+    ///
+    /// Returns `Some(AvailabilityProcessingStatus)` if reconstruction is successfully performed,
+    /// otherwise returns `None`.
+    async fn attempt_data_column_reconstruction(
+        &self,
+        block_root: Hash256,
+    ) -> Option<AvailabilityProcessingStatus> {
+        let result = self.chain.reconstruct_data_columns(block_root).await;
+        match result {
+            Ok(Some((availability_processing_status, data_columns_to_publish))) => {
+                match &availability_processing_status {
+                    AvailabilityProcessingStatus::Imported(hash) => {
+                        debug!(
+                            self.log,
+                            "Block components available via reconstruction";
+                            "result" => "imported block and custody columns",
+                            "block_hash" => %hash,
+                        );
+                        self.chain.recompute_head_at_current_slot().await;
+                    }
+                    AvailabilityProcessingStatus::MissingComponents(_, _) => {
+                        debug!(
+                            self.log,
+                            "Block components still missing block after reconstruction";
+                            "result" => "imported all custody columns",
+                            "block_hash" => %block_root,
+                        );
+                    }
+                }
+
+                self.send_network_message(NetworkMessage::Publish {
+                    messages: data_columns_to_publish
+                        .iter()
+                        .map(|d| {
+                            let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
+                                d.index as usize,
+                                &self.chain.spec,
+                            );
+                            PubsubMessage::DataColumnSidecar(Box::new((subnet, d.clone())))
+                        })
+                        .collect(),
+                });
+
+                Some(availability_processing_status)
+            }
+            Ok(None) => {
+                trace!(
+                    self.log,
+                    "Reconstruction not required for block";
+                    "block_hash" => %block_root,
+                );
+                None
+            }
+            Err(e) => {
+                error!(
+                    self.log,
+                    "Error during data column reconstruction";
+                    "error" => ?e
+                );
+                None
+            }
+        }
     }
 }
 
