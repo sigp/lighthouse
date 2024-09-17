@@ -5,7 +5,9 @@ use store::chunked_iter::ChunkedVectorIter;
 use store::{
     chunked_vector::BlockRootsChunked,
     get_key_for_col,
-    metadata::{SchemaVersion, STATE_UPPER_LIMIT_NO_RETAIN},
+    metadata::{
+        SchemaVersion, ANCHOR_FOR_ARCHIVE_NODE, ANCHOR_UNINITIALIZED, STATE_UPPER_LIMIT_NO_RETAIN,
+    },
     partial_beacon_state::PartialBeaconState,
     AnchorInfo, DBColumn, Error, HotColdDB, KeyValueStore, KeyValueStoreOp,
 };
@@ -43,7 +45,14 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
 ) -> Result<(), Error> {
     info!(log, "Upgrading from v21 to v22");
 
-    let old_anchor = db.get_anchor_info();
+    let mut old_anchor = db.get_anchor_info();
+
+    // If the anchor was uninitialized in the old schema (`None`), this represents a full archive
+    // node.
+    if old_anchor == ANCHOR_UNINITIALIZED {
+        old_anchor = ANCHOR_FOR_ARCHIVE_NODE;
+    }
+
     let split_slot = db.get_split_slot();
     let genesis_state_root = genesis_state_root.ok_or(Error::GenesisStateUnknown)?;
 

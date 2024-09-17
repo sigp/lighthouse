@@ -2126,7 +2126,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Load the anchor info from disk.
     fn load_anchor_info(hot_db: &Hot) -> Result<AnchorInfo, Error> {
-        // FIXME(sproul): add migration
         Ok(hot_db
             .get(&ANCHOR_INFO_KEY)?
             .unwrap_or(ANCHOR_UNINITIALIZED))
