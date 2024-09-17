@@ -2,7 +2,7 @@ use super::*;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
-    test_utils::{KZG, KZG_NO_PRECOMP},
+    test_utils::get_kzg,
     BeaconChain,
 };
 use futures::prelude::*;
@@ -46,11 +46,7 @@ impl TestBeaconChain {
         let store =
             HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone()).unwrap();
 
-        let kzg = if spec.deneb_fork_epoch.is_some() {
-            KZG.clone()
-        } else {
-            KZG_NO_PRECOMP.clone()
-        };
+        let kzg = get_kzg(&spec);
 
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
 

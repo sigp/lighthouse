@@ -7,8 +7,8 @@ use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::SyncCommitteeStrategy;
 use beacon_chain::test_utils::{
-    mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
-    BlockStrategy, DiskHarnessType, KZG_NO_PRECOMP,
+    get_kzg, mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
+    BlockStrategy, DiskHarnessType,
 };
 use beacon_chain::{
     data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
@@ -164,7 +164,7 @@ async fn light_client_bootstrap_test() {
         .unwrap()
         .unwrap();
 
-    let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone());
+    let kzg = get_kzg(&spec);
 
     let mock =
         mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
@@ -299,7 +299,7 @@ async fn light_client_updates_test() {
         .unwrap()
         .unwrap();
 
-    let kzg = KZG_NO_PRECOMP.clone();
+    let kzg = get_kzg(&spec);
 
     let mock =
         mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
@@ -2680,7 +2680,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     let spec = test_spec::<E>();
     let seconds_per_slot = spec.seconds_per_slot;
 
-    let kzg = KZG_NO_PRECOMP.clone();
+    let kzg = get_kzg(&spec);
 
     let mock =
         mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());

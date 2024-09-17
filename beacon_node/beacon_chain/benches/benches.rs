@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, reconstruct_data_columns};
-use beacon_chain::test_utils::{KZG, KZG_NO_PRECOMP};
+use beacon_chain::test_utils::get_kzg;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 use bls::Signature;
@@ -35,12 +35,7 @@ fn all_benches(c: &mut Criterion) {
     type E = MainnetEthSpec;
     let spec = Arc::new(E::default_spec());
 
-    let kzg = if spec.deneb_fork_epoch.is_some() {
-        KZG.clone()
-    } else {
-        KZG_NO_PRECOMP.clone()
-    };
-
+    let kzg = get_kzg(&spec);
     for blob_count in [1, 2, 3, 6] {
         let kzg = kzg.clone();
         let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(blob_count, &spec);

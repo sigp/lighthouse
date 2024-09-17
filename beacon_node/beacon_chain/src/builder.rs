@@ -1152,7 +1152,7 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::{EphemeralHarnessType, KZG, KZG_NO_PRECOMP};
+    use crate::test_utils::{EphemeralHarnessType, get_kzg};
     use ethereum_hashing::hash;
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
@@ -1199,11 +1199,7 @@ mod test {
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let runtime = TestRuntime::default();
 
-        let kzg = if spec.deneb_fork_epoch.is_some() {
-            KZG.clone()
-        } else {
-            KZG_NO_PRECOMP.clone()
-        };
+        let kzg = get_kzg(&spec);
 
         let chain = Builder::new(MinimalEthSpec, kzg)
             .logger(log.clone())
