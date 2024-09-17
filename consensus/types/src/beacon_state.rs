@@ -2477,9 +2477,7 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(())
     }
 
-    pub fn compute_current_sync_committee_proof(
-        &self,
-    ) -> Result<Vec<Hash256>, Error> {
+    pub fn compute_current_sync_committee_proof(&self) -> Result<Vec<Hash256>, Error> {
         // Sync committees are top-level fields, subtract off the generalized indices
         // for the internal nodes. Result should be 22 or 23, the field offset of the committee
         // in the `BeaconState`:
@@ -2493,9 +2491,7 @@ impl<E: EthSpec> BeaconState<E> {
         self.generate_proof(field_index, &leaves)
     }
 
-    pub fn compute_next_sync_committee_proof(
-        &self,
-    ) -> Result<Vec<Hash256>, Error> {
+    pub fn compute_next_sync_committee_proof(&self) -> Result<Vec<Hash256>, Error> {
         // Sync committees are top-level fields, subtract off the generalized indices
         // for the internal nodes. Result should be 22 or 23, the field offset of the committee
         // in the `BeaconState`:
@@ -2509,17 +2505,15 @@ impl<E: EthSpec> BeaconState<E> {
         self.generate_proof(field_index, &leaves)
     }
 
-    pub fn compute_finalized_root_proof(
-        &self,
-    ) -> Result<Vec<Hash256>, Error> {
-         // Finalized root is the right child of `finalized_checkpoint`, divide by two to get
+    pub fn compute_finalized_root_proof(&self) -> Result<Vec<Hash256>, Error> {
+        // Finalized root is the right child of `finalized_checkpoint`, divide by two to get
         // the generalized index of `state.finalized_checkpoint`.
         let field_index = if self.fork_name_unchecked().electra_enabled() {
-            // Index should be 169/2 - 64 = 20 which matches the position 
+            // Index should be 169/2 - 64 = 20 which matches the position
             // of `finalized_checkpoint` in `BeaconState`
             light_client_update::FINALIZED_ROOT_INDEX_ELECTRA
         } else {
-            // Index should be 105/2 - 32 = 20 which matches the position 
+            // Index should be 105/2 - 32 = 20 which matches the position
             // of `finalized_checkpoint` in `BeaconState`
             light_client_update::FINALIZED_ROOT_INDEX
         };

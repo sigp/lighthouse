@@ -64,9 +64,7 @@ impl<E: EthSpec> Case for BeaconStateMerkleProofValidity<E> {
                 state.compute_next_sync_committee_proof()
             }
             light_client_update::FINALIZED_ROOT_INDEX_ELECTRA
-            | light_client_update::FINALIZED_ROOT_INDEX => {
-                state.compute_finalized_root_proof()
-            }
+            | light_client_update::FINALIZED_ROOT_INDEX => state.compute_finalized_root_proof(),
             _ => {
                 return Err(Error::FailedToParseTest(
                     "Could not retrieve merkle proof, invalid index".to_string(),
