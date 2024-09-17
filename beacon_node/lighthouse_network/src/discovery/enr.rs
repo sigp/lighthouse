@@ -6,6 +6,7 @@ use super::enr_ext::CombinedKeyExt;
 use super::ENR_FILENAME;
 use crate::types::{Enr, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use crate::NetworkConfig;
+use alloy_rlp::bytes::Bytes;
 use libp2p::identity::Keypair;
 use slog::{debug, warn};
 use ssz::{Decode, Encode};
@@ -45,7 +46,7 @@ pub trait Eth2Enr {
 
 impl Eth2Enr for Enr {
     fn attestation_bitfield<E: EthSpec>(&self) -> Result<EnrAttestationBitfield<E>, &'static str> {
-        let bitfield_bytes: Vec<u8> = self
+        let bitfield_bytes: Bytes = self
             .get_decodable(ATTESTATION_BITFIELD_ENR_KEY)
             .ok_or("ENR attestation bitfield non-existent")?
             .map_err(|_| "Invalid RLP Encoding")?;
@@ -57,7 +58,7 @@ impl Eth2Enr for Enr {
     fn sync_committee_bitfield<E: EthSpec>(
         &self,
     ) -> Result<EnrSyncCommitteeBitfield<E>, &'static str> {
-        let bitfield_bytes: Vec<u8> = self
+        let bitfield_bytes: Bytes = self
             .get_decodable(SYNC_COMMITTEE_BITFIELD_ENR_KEY)
             .ok_or("ENR sync committee bitfield non-existent")?
             .map_err(|_| "Invalid RLP Encoding")?;
@@ -80,7 +81,7 @@ impl Eth2Enr for Enr {
     }
 
     fn eth2(&self) -> Result<EnrForkId, &'static str> {
-        let eth2_bytes: Vec<u8> = self
+        let eth2_bytes: Bytes = self
             .get_decodable(ETH2_ENR_KEY)
             .ok_or("ENR has no eth2 field")?
             .map_err(|_| "Invalid RLP Encoding")?;
@@ -369,5 +370,14 @@ mod test {
         let enr_fork_id = EnrForkId::default();
         let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, spec).unwrap();
         (enr, enr_key)
+    }
+
+    #[test]
+    fn test_eth2_enr_encodings() {
+        let my_enr_str = "enr:-Ma4QM2I1AxBU116QcMV2wKVrSr5Nsko90gMVkstZO4APysQCEwJJJeuTvODKmv7fDsLhVFjrlidVNhBOxSZ8sZPbCWCCcqHYXR0bmV0c4gAAAAAAAAMAIRldGgykGqVoakEAAAA__________-CaWSCdjSCaXCEJq-HPYRxdWljgiMziXNlY3AyNTZrMaECMPAnmmHQpD1k6DuOxWVoFXBoTYY6Wuv9BP4lxauAlmiIc3luY25ldHMAg3RjcIIjMoN1ZHCCIzI";
+        let enr = Enr::from_str(&my_enr_str).unwrap();
+        enr.eth2().unwrap();
+        enr.attestation_bitfield::<MainnetEthSpec>().unwrap();
+        enr.sync_committee_bitfield::<MainnetEthSpec>().unwrap();
     }
 }

@@ -5063,6 +5063,7 @@ name = "lighthouse_network"
 version = "0.2.0"
 dependencies = [
  "alloy-primitives",
+ "alloy-rlp",
  "async-channel",
  "bytes",
  "delay_map",
