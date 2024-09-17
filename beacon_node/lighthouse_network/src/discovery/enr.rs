@@ -235,17 +235,23 @@ pub fn build_enr<E: EthSpec>(
     }
 
     // set the `eth2` field on our ENR
-    builder.add_value(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes());
+    builder.add_value::<Bytes>(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes().into());
 
     // set the "attnets" field on our ENR
     let bitfield = BitVector::<E::SubnetBitfieldLength>::new();
 
-    builder.add_value(ATTESTATION_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
+    builder.add_value::<Bytes>(
+        ATTESTATION_BITFIELD_ENR_KEY,
+        &bitfield.as_ssz_bytes().into(),
+    );
 
     // set the "syncnets" field on our ENR
     let bitfield = BitVector::<E::SyncCommitteeSubnetCount>::new();
 
-    builder.add_value(SYNC_COMMITTEE_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
+    builder.add_value::<Bytes>(
+        SYNC_COMMITTEE_BITFIELD_ENR_KEY,
+        &bitfield.as_ssz_bytes().into(),
+    );
 
     // only set `csc` if PeerDAS fork epoch has been scheduled
     if spec.is_peer_das_scheduled() {
@@ -276,16 +282,16 @@ fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
         && local_enr.quic4() == disk_enr.quic4()
         && local_enr.quic6() == disk_enr.quic6()
         // must match on the same fork
-        && local_enr.get_decodable::<Vec<u8>>(ETH2_ENR_KEY) == disk_enr.get_decodable(ETH2_ENR_KEY)
+        && local_enr.get_decodable::<Bytes>(ETH2_ENR_KEY) == disk_enr.get_decodable(ETH2_ENR_KEY)
         // take preference over disk udp port if one is not specified
         && (local_enr.udp4().is_none() || local_enr.udp4() == disk_enr.udp4())
         && (local_enr.udp6().is_none() || local_enr.udp6() == disk_enr.udp6())
         // we need the ATTESTATION_BITFIELD_ENR_KEY and SYNC_COMMITTEE_BITFIELD_ENR_KEY and
         // PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY key to match, otherwise we use a new ENR. This will
         // likely only be true for non-validating nodes.
-        && local_enr.get_decodable::<Vec<u8>>(ATTESTATION_BITFIELD_ENR_KEY) == disk_enr.get_decodable(ATTESTATION_BITFIELD_ENR_KEY)
-        && local_enr.get_decodable::<Vec<u8>>(SYNC_COMMITTEE_BITFIELD_ENR_KEY) == disk_enr.get_decodable(SYNC_COMMITTEE_BITFIELD_ENR_KEY)
-        && local_enr.get_decodable::<Vec<u8>>(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY) == disk_enr.get_decodable(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY)
+        && local_enr.get_decodable::<Bytes>(ATTESTATION_BITFIELD_ENR_KEY) == disk_enr.get_decodable(ATTESTATION_BITFIELD_ENR_KEY)
+        && local_enr.get_decodable::<Bytes>(SYNC_COMMITTEE_BITFIELD_ENR_KEY) == disk_enr.get_decodable(SYNC_COMMITTEE_BITFIELD_ENR_KEY)
+        && local_enr.get_decodable::<Bytes>(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY) == disk_enr.get_decodable(PEERDAS_CUSTODY_SUBNET_COUNT_ENR_KEY)
 }
 
 /// Loads enr from the given directory

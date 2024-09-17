@@ -15,6 +15,7 @@ pub use enr::{build_enr, load_enr_from_disk, use_or_load_enr, CombinedKey, Eth2E
 pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 pub use libp2p::identity::{Keypair, PublicKey};
 
+use alloy_rlp::bytes::Bytes;
 use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
@@ -582,7 +583,7 @@ impl<E: EthSpec> Discovery<E> {
 
         let _ = self
             .discv5
-            .enr_insert(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes())
+            .enr_insert(ETH2_ENR_KEY, &Bytes::from(enr_fork_id.as_ssz_bytes()))
             .map_err(|e| {
                 warn!(
                     self.log,
