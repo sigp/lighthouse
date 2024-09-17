@@ -620,7 +620,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
     });
 
-    let kzg = get_kzg(&spec);
+    let kzg = get_kzg(spec);
 
     MockExecutionLayer::new(
         task_executor,

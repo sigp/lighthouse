@@ -4,13 +4,13 @@ use beacon_chain::TrustedSetup;
 use beacon_processor::BeaconProcessorConfig;
 use directory::DEFAULT_ROOT_DIR;
 use environment::LoggerConfig;
+use kzg::trusted_setup::get_trusted_setup;
 use network::NetworkConfig;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
-use kzg::trusted_setup::get_trusted_setup;
 
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
@@ -90,8 +90,8 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        let trusted_setup: TrustedSetup =
-            serde_json::from_reader(get_trusted_setup().as_slice()).expect("Unable to read trusted setup file");
+        let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
+            .expect("Unable to read trusted setup file");
 
         Self {
             data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
