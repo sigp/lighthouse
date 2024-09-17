@@ -375,7 +375,7 @@ mod test {
     #[test]
     fn test_eth2_enr_encodings() {
         let my_enr_str = "enr:-Ma4QM2I1AxBU116QcMV2wKVrSr5Nsko90gMVkstZO4APysQCEwJJJeuTvODKmv7fDsLhVFjrlidVNhBOxSZ8sZPbCWCCcqHYXR0bmV0c4gAAAAAAAAMAIRldGgykGqVoakEAAAA__________-CaWSCdjSCaXCEJq-HPYRxdWljgiMziXNlY3AyNTZrMaECMPAnmmHQpD1k6DuOxWVoFXBoTYY6Wuv9BP4lxauAlmiIc3luY25ldHMAg3RjcIIjMoN1ZHCCIzI";
-        let enr = Enr::from_str(&my_enr_str).unwrap();
+        let enr = Enr::from_str(my_enr_str).unwrap();
         enr.eth2().unwrap();
         enr.attestation_bitfield::<MainnetEthSpec>().unwrap();
         enr.sync_committee_bitfield::<MainnetEthSpec>().unwrap();
