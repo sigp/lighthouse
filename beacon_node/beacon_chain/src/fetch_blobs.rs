@@ -15,7 +15,7 @@ use execution_layer::Error as ExecutionLayerError;
 use itertools::Either;
 use lighthouse_metrics::{inc_counter, TryExt};
 use rand::prelude::SliceRandom;
-use slog::{debug, error, warn};
+use slog::{debug, error};
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
@@ -262,7 +262,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
             data_columns_receiver_opt,
         )
         .await
-        .map_err(|e| FetchEngineBlobError::BlobProcessingError(e))?;
+        .map_err(FetchEngineBlobError::BlobProcessingError)?;
 
     Ok(Some(availability_processing_status))
 }
