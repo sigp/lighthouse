@@ -521,9 +521,9 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
         };
 
         debug!(
-            deposit_root = format!("{:?}", eth1_data.deposit_root),
+            deposit_root = ?eth1_data.deposit_root,
             deposit_count = eth1_data.deposit_count,
-            block_hash = format!("{:?}", eth1_data.block_hash),
+            block_hash = ?eth1_data.block_hash,
             "Produced vote for eth1 chain"
         );
 

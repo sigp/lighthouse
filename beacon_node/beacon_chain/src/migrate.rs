@@ -243,7 +243,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 // halted normally just now as a result of us dropping the old `mpsc::Sender`.
                 if let Err(thread_err) = old_thread.join() {
                     warn!(
-                        reason = format!("{:?}", thread_err),
+                        reason = ?thread_err,
                         "Migration thread died, so it was restarted"
                     );
                 }
@@ -351,7 +351,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 );
             }
             Err(e) => {
-                warn!(error = format!("{:?}", e), "Database migration failed");
+                warn!(error = ?e, "Database migration failed");
                 return;
             }
         };
@@ -363,7 +363,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             notif.finalized_checkpoint.epoch,
             log,
         ) {
-            warn!(error = format!("{:?}", e), "Database compaction failed");
+            warn!(error = ?e, "Database compaction failed");
         }
 
         debug!("Database consolidation complete");
@@ -503,8 +503,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
         let heads = head_tracker.heads();
         debug!(
-            old_finalized_root = format!("{:?}", old_finalized_checkpoint.root),
-            new_finalized_root = format!("{:?}", new_finalized_checkpoint.root),
+            old_finalized_root = ?old_finalized_checkpoint.root,
+            new_finalized_root = ?new_finalized_checkpoint.root,
             head_count = heads.len(),
             "Extra pruning information"
         );
@@ -561,7 +561,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                             // checkpoint, i.e. there aren't any forks starting at a block that is a
                             // strict ancestor of old_finalized_checkpoint.
                             warn!(
-                                head_block_root = format!("{:?}", head_hash),
+                                head_block_root = ?head_hash,
                                 ?head_slot,
                                 "Found a chain that should already have been pruned"
                             );
@@ -617,7 +617,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
             if let Some(abandoned_head) = potentially_abandoned_head {
                 debug!(
-                    head_block_root = format!("{:?}", abandoned_head),
+                    head_block_root = ?abandoned_head,
                     ?head_slot,
                     "Pruning head"
                 );

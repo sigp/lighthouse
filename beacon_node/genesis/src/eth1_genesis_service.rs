@@ -159,7 +159,7 @@ impl Eth1GenesisService {
                 }
                 Err(e) => {
                     error!(
-                        error = format!("{:?}", e),
+                        error = ?e,
                         "Failed to update eth1 block cache"
                     );
                     0

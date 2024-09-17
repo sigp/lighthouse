@@ -1263,7 +1263,7 @@ impl InitializedValidators {
                                     .insert(init.voting_public_key().compress(), init);
                                 info!(
                                     signing_method = "local_keystore",
-                                    voting_pubkey = format!("{:?}", def.voting_public_key),
+                                    voting_pubkey = ?def.voting_public_key,
                                     "Enabled validator"
                                 );
 
@@ -1279,9 +1279,9 @@ impl InitializedValidators {
                             }
                             Err(e) => {
                                 error!(
-                                    error = format!("{:?}", e),
+                                    error = ?e,
                                     signing_method = "local_keystore",
-                                    validator = format!("{:?}", def.voting_public_key),
+                                    validator = ?def.voting_public_key,
                                     "Failed to initialize validator"
                                 );
 
@@ -1306,15 +1306,15 @@ impl InitializedValidators {
 
                                 info!(
                                     signing_method = "remote_signer",
-                                    voting_pubkey = format!("{:?}", def.voting_public_key),
+                                    voting_pubkey = ?def.voting_public_key,
                                     "Enabled validator"
                                 );
                             }
                             Err(e) => {
                                 error!(
-                                    error = format!("{:?}", e),
+                                    error = ?e,
                                     signing_method = "remote_signer",
-                                    validator = format!("{:?}", def.voting_public_key),
+                                    validator = ?def.voting_public_key,
                                     "Failed to initialize validator"
                                 );
 
@@ -1340,7 +1340,7 @@ impl InitializedValidators {
                 }
 
                 info!(
-                    voting_pubkey = format!("{:?}", def.voting_public_key),
+                    voting_pubkey = ?def.voting_public_key,
                     "Disabled validator"
                 );
             }
@@ -1357,7 +1357,7 @@ impl InitializedValidators {
         if has_local_definitions && key_cache.is_modified() {
             tokio::task::spawn_blocking(move || {
                 match key_cache.save(validators_dir) {
-                    Err(e) => warn!(err = format!("{:?}", e), "Error during saving of key_cache"),
+                    Err(e) => warn!(err = ?e, "Error during saving of key_cache"),
                     Ok(true) => info!("Modified key_cache saved successfully"),
                     _ => {}
                 };

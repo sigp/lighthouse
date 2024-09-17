@@ -1181,7 +1181,7 @@ fn detect_reorg<E: EthSpec>(
             match find_reorg_slot(old_state, old_block_root, new_state, new_block_root, spec) {
                 Ok(slot) => old_state.slot().saturating_sub(slot),
                 Err(e) => {
-                    warn!(error = format!("{:?}", e), "Could not find re-org depth");
+                    warn!(error = ?e, "Could not find re-org depth");
                     return None;
                 }
             };

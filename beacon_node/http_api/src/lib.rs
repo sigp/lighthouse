@@ -194,9 +194,7 @@ impl From<String> for Error {
 }
 
 /// Creates a `warp` logging wrapper which we use to create `slog` logs.
-pub fn slog_logging(
-    log: Logger,
-) -> warp::filters::log::Log<impl Fn(warp::filters::log::Info) + Clone> {
+pub fn slog_logging() -> warp::filters::log::Log<impl Fn(warp::filters::log::Info) + Clone> {
     warp::log::custom(move |info| {
         match info.status() {
             status
@@ -205,7 +203,7 @@ pub fn slog_logging(
                     || status == StatusCode::PARTIAL_CONTENT =>
             {
                 debug!(
-                    elapsed = format!("{:?}", info.elapsed()),
+                    elapsed = ?info.elapsed(),
                     status = status.to_string(),
                     path = info.path(),
                     method = info.method().to_string(),
@@ -214,7 +212,7 @@ pub fn slog_logging(
             }
             status => {
                 warn!(
-                    elapsed = format!("{:?}", info.elapsed()),
+                    elapsed = ?info.elapsed(),
                     status = status.to_string(),
                     path = info.path(),
                     method = info.method().to_string(),
@@ -3508,7 +3506,7 @@ pub fn serve<T: BeaconChainTypes>(
                             Err(AttnError::AggregatorAlreadyKnown(_)) => continue,
                             Err(e) => {
                                 error!(
-                                    error = format!("{:?}", e),
+                                    error = ?e,
                                     request_index = index,
                                     aggregator_index = aggregate.message().aggregator_index(),
                                     attestation_index = aggregate.message().aggregate().committee_index(),
@@ -3529,7 +3527,7 @@ pub fn serve<T: BeaconChainTypes>(
                     for (index, verified_aggregate) in verified_aggregates {
                         if let Err(e) = chain.apply_attestation_to_fork_choice(&verified_aggregate) {
                             error!(
-                                error = format!("{:?}", e),
+                                error = ?e,
                                 request_index = index,
                                 aggregator_index = verified_aggregate.aggregate().message().aggregator_index(),
                                 attestation_index = verified_aggregate.attestation().committee_index(),
@@ -4726,7 +4724,7 @@ pub fn serve<T: BeaconChainTypes>(
             ),
         )
         .recover(warp_utils::reject::handle_rejection)
-        .with(slog_logging(log.clone()))
+        .with(slog_logging())
         .with(prometheus_metrics())
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))

@@ -141,8 +141,8 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         };
 
         info!(
-            beacon_nodes = format!("{:?}", &config.beacon_nodes),
-            validator_dir = format!("{:?}", config.validator_dir),
+            beacon_nodes = ?config.beacon_nodes,
+            validator_dir = ?config.validator_dir,
             "Starting validator client"
         );
 
@@ -157,7 +157,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             let ctx: Arc<http_metrics::Context<E>> = Arc::new(http_metrics::Context {
                 config: config.http_metrics.clone(),
                 shared: RwLock::new(shared),
-                log: log.clone(),
             });
 
             let exit = context.executor.exit();

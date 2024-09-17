@@ -48,7 +48,6 @@ pub struct Shared<E: EthSpec> {
 pub struct Context<E: EthSpec> {
     pub config: Config,
     pub shared: RwLock<Shared<E>>,
-    pub log: Logger,
 }
 
 /// Configuration for the HTTP server.
@@ -93,7 +92,6 @@ pub fn serve<E: EthSpec>(
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
-    let log = ctx.log.clone();
 
     // Configure CORS.
     let cors_builder = {

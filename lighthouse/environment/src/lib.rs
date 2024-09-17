@@ -23,7 +23,11 @@ use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use tracing::{error, info, warn};
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::Layer;
 use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
 #[cfg(target_family = "unix")]
 use {
@@ -199,6 +203,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     /// does not have to wait for the logs to be flushed.
     /// The logger can be duplicated and more detailed logs can be output to `logfile`.
     /// Note that background file logging will spawn a new thread.
+
     pub fn initialize_logger(mut self, config: LoggerConfig) -> Result<Self, String> {
         // Setting up the initial logger format and build it.
         let stdout_drain = if let Some(ref format) = config.log_format {
@@ -308,7 +313,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
         let mut log = Logger::root(Duplicate::new(stdout_logger, file_logger).fuse(), o!());
 
-        info!(path = format!("{:?}", path), "Logging to file");
+        info!(?path, "Logging to file");
 
         // If the http API is enabled, we may need to send logs to be consumed by subscribers.
         if config.sse_logging {

@@ -721,8 +721,8 @@ impl Service {
             ),
             Ok((deposit, block)) => debug!(
                 retry_millis = update_interval.as_millis(),
-                blocks = format!("{:?}", block),
-                deposits = format!("{:?}", deposit),
+                ?block,
+                ?deposit,
                 "Updated deposit contract cache"
             ),
         };

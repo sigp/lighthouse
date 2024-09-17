@@ -18,7 +18,6 @@ use http_api::TlsConfig;
 use lighthouse_network::ListenAddress;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
-use slog::Logger;
 use std::cmp::max;
 use std::fmt::Debug;
 use std::fs;
@@ -110,7 +109,7 @@ pub fn get_config<E: EthSpec>(
 
     let data_dir_ref = client_config.data_dir().clone();
 
-    set_network_config(&mut client_config.network, cli_args, &data_dir_ref, log)?;
+    set_network_config(&mut client_config.network, cli_args, &data_dir_ref)?;
 
     /*
      * Staking flag
@@ -312,7 +311,7 @@ pub fn get_config<E: EthSpec>(
 
         // Parse a single execution endpoint, logging warnings if multiple endpoints are supplied.
         let execution_endpoint =
-            parse_only_one_value(endpoints, SensitiveUrl::parse, "--execution-endpoint", log)?;
+            parse_only_one_value(endpoints, SensitiveUrl::parse, "--execution-endpoint")?;
 
         // JWTs are required if `--execution-endpoint` is supplied. They can be either passed via
         // file_path or directly as string.
@@ -320,8 +319,7 @@ pub fn get_config<E: EthSpec>(
         let secret_file: PathBuf;
         // Parse a single JWT secret from a given file_path, logging warnings if multiple are supplied.
         if let Some(secret_files) = cli_args.get_one::<String>("execution-jwt") {
-            secret_file =
-                parse_only_one_value(secret_files, PathBuf::from_str, "--execution-jwt", log)?;
+            secret_file = parse_only_one_value(secret_files, PathBuf::from_str, "--execution-jwt")?;
 
         // Check if the JWT secret key is passed directly via cli flag and persist it to the default
         // file location.
@@ -346,8 +344,7 @@ pub fn get_config<E: EthSpec>(
 
         // Parse and set the payload builder, if any.
         if let Some(endpoint) = cli_args.get_one::<String>("builder") {
-            let payload_builder =
-                parse_only_one_value(endpoint, SensitiveUrl::parse, "--builder", log)?;
+            let payload_builder = parse_only_one_value(endpoint, SensitiveUrl::parse, "--builder")?;
             el_config.builder_url = Some(payload_builder);
 
             el_config.builder_user_agent =
@@ -918,10 +915,7 @@ pub fn get_config<E: EthSpec>(
 }
 
 /// Gets the listening_addresses for lighthouse based on the cli options.
-pub fn parse_listening_addresses(
-    cli_args: &ArgMatches,
-    log: &Logger,
-) -> Result<ListenAddress, String> {
+pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress, String> {
     let listen_addresses_str = cli_args
         .get_many::<String>("listen-address")
         .expect("--listen_addresses has a default value");
@@ -1146,7 +1140,6 @@ pub fn set_network_config(
     config: &mut NetworkConfig,
     cli_args: &ArgMatches,
     data_dir: &Path,
-    log: &Logger,
 ) -> Result<(), String> {
     // If a network dir has been specified, override the `datadir` definition.
     if let Some(dir) = cli_args.get_one::<String>("network-dir") {
@@ -1171,7 +1164,7 @@ pub fn set_network_config(
         config.shutdown_after_sync = true;
     }
 
-    config.set_listening_addr(parse_listening_addresses(cli_args, log)?);
+    config.set_listening_addr(parse_listening_addresses(cli_args)?);
 
     // A custom target-peers command will overwrite the --proposer-only default.
     if let Some(target_peers_str) = cli_args.get_one::<String>("target-peers") {
@@ -1527,7 +1520,6 @@ pub fn parse_only_one_value<F, T, U>(
     cli_value: &str,
     parser: F,
     flag_name: &str,
-    log: &Logger,
 ) -> Result<T, String>
 where
     F: Fn(&str) -> Result<T, U>,

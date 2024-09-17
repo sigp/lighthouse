@@ -41,7 +41,7 @@ pub async fn check_synced<T: SlotClock>(
 
     if let Some(log) = log_opt {
         if !is_synced {
-            debug!(status = format!("{:?}", resp), "Beacon node sync status");
+            debug!(status = ?resp, "Beacon node sync status");
 
             warn!(
                 sync_distance = resp.data.sync_distance.as_u64(),

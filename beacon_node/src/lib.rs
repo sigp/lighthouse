@@ -138,7 +138,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .await?;
         let builder = if client_config.sync_eth1_chain && !client_config.dummy_eth1_backend {
             info!(
-                endpoint = format!("{:?}", &client_config.eth1.endpoint),
+                endpoint = ?client_config.eth1.endpoint,
                 method = "json rpc via http",
                 "Block production enabled"
             );

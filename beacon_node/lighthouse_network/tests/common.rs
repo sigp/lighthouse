@@ -4,10 +4,11 @@ use lighthouse_network::Enr;
 use lighthouse_network::EnrExt;
 use lighthouse_network::Multiaddr;
 use lighthouse_network::{NetworkConfig, NetworkEvent};
-use slog::{debug, error, o, Drain};
+use slog::{o, Drain};
 use std::sync::Arc;
 use std::sync::Weak;
 use tokio::runtime::Runtime;
+use tracing::{debug, error};
 use types::{
     ChainSpec, EnrForkId, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256,
     MinimalEthSpec, Slot,
@@ -204,9 +205,9 @@ pub async fn build_node_pair(
 
     match sender.testing_dial(receiver_multiaddr.clone()) {
         Ok(()) => {
-            debug!(log, "Sender dialed receiver"; "address" => format!("{:?}", receiver_multiaddr))
+            debug!(address = ?receiver_multiaddr, "Sender dialed receiver")
         }
-        Err(_) => error!(log, "Dialing failed"),
+        Err(_) => error!("Dialing failed"),
     };
     (sender, receiver)
 }
@@ -231,8 +232,8 @@ pub async fn build_linear(
         .collect();
     for i in 0..n - 1 {
         match nodes[i].testing_dial(multiaddrs[i + 1].clone()) {
-            Ok(()) => debug!(log, "Connected"),
-            Err(_) => error!(log, "Failed to connect"),
+            Ok(()) => debug!("Connected"),
+            Err(_) => error!("Failed to connect"),
         };
     }
     nodes

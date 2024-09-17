@@ -186,7 +186,7 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
     tokio::time::sleep(ENGINE_VERSION_CACHE_PRELOAD_STARTUP_DELAY).await;
     if let Err(e) = execution_layer.get_engine_version(None).await {
         debug!(
-            error = format!("{:?}", e),
+            error = ?e,
             "Failed to preload engine version cache"
         );
     }

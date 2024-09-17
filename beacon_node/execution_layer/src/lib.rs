@@ -642,7 +642,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                             .await
                             .map_err(|e| {
                                 error!(
-                                    error = format!("{:?}", e),
+                                    error = ?e,
                                     "Failed to clean proposer preparation cache"
                                 )
                             })

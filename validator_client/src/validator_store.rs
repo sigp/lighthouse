@@ -612,14 +612,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             Err(NotSafe::UnregisteredValidator(pk)) => {
                 warn!(
                     msg = "Carefully consider running with --init-slashing-protection (see --help)",
-                    public_key = format!("{:?}", pk),
+                    public_key = ?pk,
                     "Not signing block for unregistered validator"
                 );
                 metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::UNREGISTERED]);
                 Err(Error::Slashable(NotSafe::UnregisteredValidator(pk)))
             }
             Err(e) => {
-                crit!(error = format!("{:?}", e), "Not signing slashable block");
+                crit!(error = ?e, "Not signing slashable block");
                 metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SLASHABLE]);
                 Err(Error::Slashable(e))
             }
@@ -690,7 +690,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             Err(NotSafe::UnregisteredValidator(pk)) => {
                 warn!(
                     msg = "Carefully consider running with --init-slashing-protection (see --help)",
-                    public_key = format!("{:?}", pk),
+                    public_key = ?pk,
                     "Not signing attestation for unregistered validator"
                 );
                 metrics::inc_counter_vec(
@@ -701,8 +701,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             }
             Err(e) => {
                 crit!(
-                    attestation = format!("{:?}", attestation.data()),
-                    error = format!("{:?}", e),
+                    attestation = ?attestation.data(),
+                    error = ?e,
                     "Not signing slashable attestation"
                 );
                 metrics::inc_counter_vec(

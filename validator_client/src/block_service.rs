@@ -293,7 +293,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         if slot == self.context.eth2_config.spec.genesis_slot {
             debug!(
-                proposers = format!("{:?}", notification.block_proposers),
+                proposers = ?notification.block_proposers,
                 "Not producing block at genesis slot"
             );
             return Ok(());

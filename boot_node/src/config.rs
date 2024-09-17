@@ -55,7 +55,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
 
         let logger = slog_scope::logger();
 
-        set_network_config(&mut network_config, matches, &data_dir, &logger)?;
+        set_network_config(&mut network_config, matches, &data_dir)?;
 
         // Set the Enr Discovery ports to the listening ports if not present.
         if let Some(listening_addr_v4) = network_config.listen_addrs().v4() {

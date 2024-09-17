@@ -612,8 +612,6 @@ fn run<E: EthSpec>(
         .eth2_network_config(eth2_network_config)?
         .build()?;
 
-    let log = environment.core_context().log().clone();
-
     // Log panics properly.
     {
         //let log = log.clone();
@@ -643,7 +641,7 @@ fn run<E: EthSpec>(
     logging::create_tracing_layer(path);
 
     // Allow Prometheus to export the time at which the process was started.
-    metrics::expose_process_start_time(&log);
+    metrics::expose_process_start_time();
 
     // Allow Prometheus access to the version and commit of the Lighthouse build.
     metrics::expose_lighthouse_version();

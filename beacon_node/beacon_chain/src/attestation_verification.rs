@@ -409,8 +409,8 @@ fn process_slash_info<T: BeaconChainTypes>(
                     Ok((indexed, _)) => (indexed, true, err),
                     Err(e) => {
                         debug!(
-                            attestation_root = format!("{:?}", attestation.tree_hash_root()),
-                            error = format!("{:?}", e),
+                            attestation_root = ?attestation.tree_hash_root(),
+                            error =  ?e,
                             "Unable to obtain indexed form of attestation for slasher"
                         );
                         return err;
@@ -425,7 +425,7 @@ fn process_slash_info<T: BeaconChainTypes>(
         if check_signature {
             if let Err(e) = verify_attestation_signature(chain, &indexed_attestation) {
                 debug!(
-                    error = format!("{:?}", e),
+                    error = ?e,
                     "Signature verification for slasher failed"
                 );
                 return err;

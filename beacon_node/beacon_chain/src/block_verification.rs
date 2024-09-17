@@ -2247,8 +2247,8 @@ fn write_state<E: EthSpec>(prefix: &str, state: &BeaconState<E>, log: &Logger) {
                 let _ = file.write_all(&state.as_ssz_bytes());
             }
             Err(e) => error!(
-                path = format!("{:?}", path),
-                error = format!("{:?}", e),
+                ?path,
+                error = ?e,
                 "Failed to log state"
             ),
         }
@@ -2267,8 +2267,8 @@ fn write_block<E: EthSpec>(block: &SignedBeaconBlock<E>, root: Hash256, log: &Lo
                 let _ = file.write_all(&block.as_ssz_bytes());
             }
             Err(e) => error!(
-                path = format!("{:?}", path),
-                error = format!("{:?}", e),
+                ?path,
+                error = ?e,
                 "Failed to log block"
             ),
         }

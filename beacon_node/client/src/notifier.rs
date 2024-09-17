@@ -123,7 +123,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             let current_slot = match beacon_chain.slot() {
                 Ok(slot) => slot,
                 Err(e) => {
-                    error!(error = format!("{:?}", e), "Unable to read current slot");
+                    error!(error = ?e, "Unable to read current slot");
                     break;
                 }
             };
@@ -180,12 +180,12 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             debug!(
                 peers = peer_count_pretty(connected_peer_count),
-                finalized_root = format!("{}", finalized_checkpoint.root),
+                finalized_root = ?finalized_checkpoint.root,
                 finalized_epoch = ?finalized_checkpoint.epoch,
-                head_block = format!("{}", head_root),
+                head_block = ?head_root,
                 ?head_slot,
                 ?current_slot,
-                sync_state =format!("{}", current_sync_state),
+                sync_state =?current_sync_state,
                 "Slot timer"
             );
 
@@ -301,7 +301,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
                     exec_hash = block_hash,
-                    finalized_root = format!("{}", finalized_checkpoint.root),
+                    finalized_root = ?finalized_checkpoint.root,
                     finalized_epoch = ?finalized_checkpoint.epoch,
                     epoch = ?current_epoch,
                     block = block_info,
@@ -312,7 +312,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 metrics::set_gauge(&metrics::IS_SYNCED, 0);
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
-                    finalized_root = format!("{}", finalized_checkpoint.root),
+                    finalized_root = ?finalized_checkpoint.root,
                     finalized_epoch = ?finalized_checkpoint.epoch,
                     ?head_slot,
                     ?current_slot,

@@ -234,7 +234,7 @@ impl<E: EthSpec> Slasher<E> {
                 }
                 Err(e) => {
                     error!(
-                        error = format!("{:?}", e),
+                        error = ?e,
                         "Error checking for double votes"
                     );
                     return Err(e);
@@ -258,7 +258,7 @@ impl<E: EthSpec> Slasher<E> {
                 self.attester_slashings.lock().extend(slashings);
             }
             Err(e) => {
-                error!(error = format!("{:?}", e), "Error processing array update");
+                error!(error = ?e, "Error processing array update");
                 return Err(e);
             }
         }

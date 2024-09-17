@@ -1178,9 +1178,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(task_executor_filter.clone())
         .and(log_filter.clone())
         .then(|request, validator_store, task_executor, log| {
-            blocking_json_task(move || {
-                remotekeys::import(request, validator_store, task_executor, log)
-            })
+            blocking_json_task(move || remotekeys::import(request, validator_store, task_executor))
         });
 
     // DELETE /eth/v1/remotekeys
@@ -1190,9 +1188,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(task_executor_filter)
         .and(log_filter.clone())
         .then(|request, validator_store, task_executor, log| {
-            blocking_json_task(move || {
-                remotekeys::delete(request, validator_store, task_executor, log)
-            })
+            blocking_json_task(move || remotekeys::delete(request, validator_store, task_executor))
         });
 
     // Subscribe to get VC logs via Server side events

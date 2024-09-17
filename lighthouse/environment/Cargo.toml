@@ -7,8 +7,10 @@ edition = { workspace = true }
 [dependencies]
 async-channel = { workspace = true }
 tokio = { workspace = true }
-tracing-subscriber = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["json"] }
 tracing = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-log = { workspace = true }
 slog = { workspace = true }
 sloggers = { workspace = true }
 types = { workspace = true }

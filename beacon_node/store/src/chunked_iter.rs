@@ -100,7 +100,7 @@ where
             .map_err(|e| {
                 error!(
                     chunk_index = self.next_cindex,
-                    error = format!("{:?}", e),
+                    error = ?e,
                     "Database error in forwards iterator"
                 );
                 e

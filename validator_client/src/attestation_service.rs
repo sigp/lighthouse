@@ -251,7 +251,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .await
             .map_err(move |e| {
                 crit!(
-                    error = format!("{:?}", e),
+                    error = ?e,
                     committee_index,
                     slot = slot.as_u64(),
                     "Error during attestation routine"
@@ -287,7 +287,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             .await
             .map_err(move |e| {
                 crit!(
-                    error = format!("{:?}", e),
+                    error = ?e,
                     committee_index,
                     slot = slot.as_u64(),
                     "Error during attestation routine"
@@ -649,7 +649,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         info!(
                             aggregator = signed_aggregate_and_proof.message().aggregator_index(),
                             signatures = attestation.num_set_aggregation_bits(),
-                            head_block = format!("{:?}", attestation.data().beacon_block_root),
+                            head_block = ?attestation.data().beacon_block_root,
                             committee_index = attestation.committee_index(),
                             slot = attestation.data().slot.as_u64(),
                             r#type = "aggregated",

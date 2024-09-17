@@ -52,7 +52,6 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     request: ImportRemotekeysRequest,
     validator_store: Arc<ValidatorStore<T, E>>,
     task_executor: TaskExecutor,
-    log: Logger,
 ) -> Result<ImportRemotekeysResponse, Rejection> {
     info!(
         count = request.remote_keys.len(),
@@ -146,7 +145,6 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
     request: DeleteRemotekeysRequest,
     validator_store: Arc<ValidatorStore<T, E>>,
     task_executor: TaskExecutor,
-    log: Logger,
 ) -> Result<DeleteRemotekeysResponse, Rejection> {
     info!(
         count = request.pubkeys.len(),

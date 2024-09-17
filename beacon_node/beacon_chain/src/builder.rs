@@ -1010,11 +1010,11 @@ where
                 &head.beacon_state,
             ) {
                 crit!(
-                    head_block_root = format!("{}", head.beacon_block_root),
-                    head_slot = format!("{}", head.beacon_block.slot()),
-                    finalized_epoch = format!("{}", head.beacon_state.finalized_checkpoint().epoch),
-                    wss_checkpoint_epoch = format!("{}", wss_checkpoint.epoch),
-                    error = format!("{:?}", e),
+                    head_block_root =?head.beacon_block_root,
+                    head_slot =?head.beacon_block.slot(),
+                    finalized_epoch =?head.beacon_state.finalized_checkpoint().epoch,
+                    wss_checkpoint_epoch =?wss_checkpoint.epoch,
+                    error = ?e,
                     "Weak subjectivity checkpoint verification failed on startup!"
                 );
                 crit!("You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
@@ -1023,9 +1023,9 @@ where
         }
 
         info!(
-            head_state = format!("{}", head.beacon_state_root()),
-            head_block = format!("{}", head.beacon_block_root),
-            head_slot = format!("{}", head.beacon_block.slot()),
+            head_state =?head.beacon_state_root(),
+            head_block =?head.beacon_block_root,
+            head_slot =?head.beacon_block.slot(),
             "Beacon chain initialized"
         );
 
