@@ -513,9 +513,9 @@ impl<E: EthSpec> Discovery<E> {
 
                 // insert the bitfield into the ENR record
                 self.discv5
-                    .enr_insert(
+                    .enr_insert::<Bytes>(
                         ATTESTATION_BITFIELD_ENR_KEY,
-                        &current_bitfield.as_ssz_bytes(),
+                        &current_bitfield.as_ssz_bytes().into(),
                     )
                     .map_err(|e| format!("{:?}", e))?;
             }
@@ -547,9 +547,9 @@ impl<E: EthSpec> Discovery<E> {
 
                 // insert the bitfield into the ENR record
                 self.discv5
-                    .enr_insert(
+                    .enr_insert::<Bytes>(
                         SYNC_COMMITTEE_BITFIELD_ENR_KEY,
-                        &current_bitfield.as_ssz_bytes(),
+                        &current_bitfield.as_ssz_bytes().into(),
                     )
                     .map_err(|e| format!("{:?}", e))?;
             }
@@ -583,7 +583,7 @@ impl<E: EthSpec> Discovery<E> {
 
         let _ = self
             .discv5
-            .enr_insert(ETH2_ENR_KEY, &Bytes::from(enr_fork_id.as_ssz_bytes()))
+            .enr_insert::<Bytes>(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes().into())
             .map_err(|e| {
                 warn!(
                     self.log,

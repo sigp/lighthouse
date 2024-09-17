@@ -339,6 +339,14 @@ mod test {
         spec
     }
 
+    fn build_enr_with_config(config: NetworkConfig, spec: &ChainSpec) -> (Enr, CombinedKey) {
+        let keypair = libp2p::identity::secp256k1::Keypair::generate();
+        let enr_key = CombinedKey::from_secp256k1(&keypair);
+        let enr_fork_id = EnrForkId::default();
+        let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, spec).unwrap();
+        (enr, enr_key)
+    }
+
     #[test]
     fn custody_subnet_count_default() {
         let config = NetworkConfig {
@@ -370,18 +378,20 @@ mod test {
         );
     }
 
-    fn build_enr_with_config(config: NetworkConfig, spec: &ChainSpec) -> (Enr, CombinedKey) {
-        let keypair = libp2p::identity::secp256k1::Keypair::generate();
-        let enr_key = CombinedKey::from_secp256k1(&keypair);
-        let enr_fork_id = EnrForkId::default();
-        let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, spec).unwrap();
-        (enr, enr_key)
+    #[test]
+    fn test_encode_decode_eth2_enr() {
+        let (enr, _key) = build_enr_with_config(NetworkConfig::default(), &E::default_spec());
+        // Check all Eth2 Mappings are decodeable
+        enr.eth2().unwrap();
+        enr.attestation_bitfield::<MainnetEthSpec>().unwrap();
+        enr.sync_committee_bitfield::<MainnetEthSpec>().unwrap();
     }
 
     #[test]
     fn test_eth2_enr_encodings() {
-        let my_enr_str = "enr:-Ma4QM2I1AxBU116QcMV2wKVrSr5Nsko90gMVkstZO4APysQCEwJJJeuTvODKmv7fDsLhVFjrlidVNhBOxSZ8sZPbCWCCcqHYXR0bmV0c4gAAAAAAAAMAIRldGgykGqVoakEAAAA__________-CaWSCdjSCaXCEJq-HPYRxdWljgiMziXNlY3AyNTZrMaECMPAnmmHQpD1k6DuOxWVoFXBoTYY6Wuv9BP4lxauAlmiIc3luY25ldHMAg3RjcIIjMoN1ZHCCIzI";
-        let enr = Enr::from_str(my_enr_str).unwrap();
+        let enr_str = "enr:-Mm4QEX9fFRi1n4H3M9sGIgFQ6op1IysTU4Gz6tpIiOGRM1DbJtIih1KgGgv3Xl-oUlwco3HwdXsbYuXStBuNhUVIPoBh2F0dG5ldHOIAAAAAAAAAACDY3NjBIRldGgykI-3hTFgAAA4AOH1BQAAAACCaWSCdjSCaXCErBAADoRxdWljgiMpiXNlY3AyNTZrMaECph91xMyTVyE5MVj6lBpPgz6KP2--Kr9lPbo6_GjrfRKIc3luY25ldHMAg3RjcIIjKIN1ZHCCIyg";
+        //let my_enr_str = "enr:-Ma4QM2I1AxBU116QcMV2wKVrSr5Nsko90gMVkstZO4APysQCEwJJJeuTvODKmv7fDsLhVFjrlidVNhBOxSZ8sZPbCWCCcqHYXR0bmV0c4gAAAAAAAAMAIRldGgykGqVoakEAAAA__________-CaWSCdjSCaXCEJq-HPYRxdWljgiMziXNlY3AyNTZrMaECMPAnmmHQpD1k6DuOxWVoFXBoTYY6Wuv9BP4lxauAlmiIc3luY25ldHMAg3RjcIIjMoN1ZHCCIzI";
+        let enr = Enr::from_str(enr_str).unwrap();
         enr.eth2().unwrap();
         enr.attestation_bitfield::<MainnetEthSpec>().unwrap();
         enr.sync_committee_bitfield::<MainnetEthSpec>().unwrap();
