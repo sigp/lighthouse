@@ -561,8 +561,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 })
                 .collect::<Vec<_>>(),
             Err(e) => match e {
-                AvailabilityCheckError::StoreError(_)
-                | AvailabilityCheckError::KzgNotInitialized => {
+                AvailabilityCheckError::StoreError(_) => {
                     return (
                         0,
                         Err(ChainSegmentFailed {

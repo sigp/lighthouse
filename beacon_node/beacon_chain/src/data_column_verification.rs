@@ -52,12 +52,6 @@ pub enum GossipDataColumnError {
         data_column_slot: Slot,
         parent_slot: Slot,
     },
-    /// `Kzg` struct hasn't been initialized. This is an internal error.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The peer isn't faulty, This is an internal error.
-    KzgNotInitialized,
     /// The kzg verification failed.
     ///
     /// ## Peer scoring

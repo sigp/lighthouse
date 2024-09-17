@@ -115,14 +115,6 @@ pub enum GossipBlobError {
         index: u64,
     },
 
-    // TODO(kzg) maybe delete?
-    /// `Kzg` struct hasn't been initialized. This is an internal error.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The peer isn't faulty, This is an internal error.
-    KzgNotInitialized,
-
     /// The kzg verification failed.
     ///
     /// ## Peer scoring

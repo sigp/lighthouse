@@ -696,7 +696,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             column_sidecar,
                         ));
                     }
-                    GossipDataColumnError::KzgNotInitialized
                     | GossipDataColumnError::PubkeyCacheTimeout
                     | GossipDataColumnError::BeaconChainError(_) => {
                         crit!(
@@ -839,7 +838,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             blob_sidecar,
                         ));
                     }
-                    GossipBlobError::KzgNotInitialized
                     | GossipBlobError::PubkeyCacheTimeout
                     | GossipBlobError::BeaconChainError(_) => {
                         crit!(
