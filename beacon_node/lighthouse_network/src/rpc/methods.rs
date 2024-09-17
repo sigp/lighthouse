@@ -81,7 +81,7 @@ pub struct StatusMessage {
 }
 
 /// The PING request/response message.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Copy, Clone, Debug, PartialEq)]
 pub struct Ping {
     /// The metadata sequence number.
     pub data: u64,
