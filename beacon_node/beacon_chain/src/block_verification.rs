@@ -789,7 +789,10 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
         // Only attempt to build data columns if blobs is non empty to avoid skewing the metrics.
         .filter(|b| !b.is_empty())
         .map(|blobs| {
-            let timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_COMPUTATION);
+            let mut timer = metrics::start_timer_vec(
+                &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
+                &[&blobs.len().to_string()],
+            );
             let sidecars = blobs_to_data_column_sidecars(&blobs, block, &chain.kzg, &chain.spec)
                 .discard_timer_on_break(&mut timer)?;
             drop(timer);

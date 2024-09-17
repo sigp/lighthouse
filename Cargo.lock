@@ -5659,6 +5659,7 @@ dependencies = [
  "operation_pool",
  "parking_lot 0.12.3",
  "rand",
+ "serde_json",
  "slog",
  "slog-async",
  "slog-term",
