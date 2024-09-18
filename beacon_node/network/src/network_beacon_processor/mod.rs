@@ -783,6 +783,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let result = self.chain.reconstruct_data_columns(block_root).await;
         match result {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {
+                self.send_network_message(NetworkMessage::Publish {
+                    messages: data_columns_to_publish
+                        .iter()
+                        .map(|d| {
+                            let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
+                                d.index as usize,
+                                &self.chain.spec,
+                            );
+                            PubsubMessage::DataColumnSidecar(Box::new((subnet, d.clone())))
+                        })
+                        .collect(),
+                });
+
                 match &availability_processing_status {
                     AvailabilityProcessingStatus::Imported(hash) => {
                         debug!(
@@ -802,19 +815,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
                 }
-
-                self.send_network_message(NetworkMessage::Publish {
-                    messages: data_columns_to_publish
-                        .iter()
-                        .map(|d| {
-                            let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
-                                d.index as usize,
-                                &self.chain.spec,
-                            );
-                            PubsubMessage::DataColumnSidecar(Box::new((subnet, d.clone())))
-                        })
-                        .collect(),
-                });
 
                 Some(availability_processing_status)
             }

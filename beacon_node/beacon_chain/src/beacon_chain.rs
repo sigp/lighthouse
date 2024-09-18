@@ -3036,7 +3036,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let r = self
             .check_gossip_data_columns_availability_and_import(slot, block_root, data_columns)
             .await;
-        self.remove_notified_custody_columns(&block_root, r)
+        self.remove_notified(&block_root, r)
     }
 
     /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was
@@ -3133,7 +3133,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let r = self
             .check_rpc_custody_columns_availability_and_import(slot, block_root, custody_columns)
             .await;
-        self.remove_notified_custody_columns(&block_root, r)
+        self.remove_notified(&block_root, r)
     }
 
     pub async fn reconstruct_data_columns(
@@ -3169,7 +3169,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let r = self.process_availability(slot, availability).await;
-        self.remove_notified_custody_columns(&block_root, r)
+        self.remove_notified(&block_root, r)
             .map(|availability_processing_status| {
                 Some((availability_processing_status, data_columns_to_publish))
             })
@@ -3178,21 +3178,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Remove any block components from the *processing cache* if we no longer require them. If the
     /// block was imported full or erred, we no longer require them.
     fn remove_notified(
-        &self,
-        block_root: &Hash256,
-        r: Result<AvailabilityProcessingStatus, BlockError>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        let has_missing_components =
-            matches!(r, Ok(AvailabilityProcessingStatus::MissingComponents(_, _)));
-        if !has_missing_components {
-            self.reqresp_pre_import_cache.write().remove(block_root);
-        }
-        r
-    }
-
-    /// Remove any block components from the *processing cache* if we no longer require them. If the
-    /// block was imported full or erred, we no longer require them.
-    fn remove_notified_custody_columns(
         &self,
         block_root: &Hash256,
         r: Result<AvailabilityProcessingStatus, BlockError>,
