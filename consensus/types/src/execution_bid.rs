@@ -21,18 +21,20 @@ use tree_hash_derive::TreeHash;
 #[derivative(PartialEq, Hash)]
 // This is what Potuz' spec calls an `ExecutionPayload` even though it's clearly a bid.
 pub struct ExecutionBid {
-    parent_block_hash: ExecutionBlockHash,
-    parent_block_root: Hash256,
-    block_hash: ExecutionBlockHash,
+    pub parent_block_hash: ExecutionBlockHash,
+    pub parent_block_root: Hash256,
+    pub block_hash: ExecutionBlockHash,
     #[serde(with = "serde_utils::quoted_u64")]
-    gas_limit: u64,
+    pub gas_limit: u64,
     #[serde(with = "serde_utils::quoted_u64")]
-    builder_index: u64,
-    slot: Slot,
+    pub builder_index: u64,
+    pub slot: Slot,
     #[serde(with = "serde_utils::quoted_u64")]
-    value: u64,
-    blob_kzg_commitments_root: Hash256,
+    pub value: u64,
+    pub blob_kzg_commitments_root: Hash256,
 }
+
+impl SignedRoot for ExecutionBid {}
 
 #[cfg(test)]
 mod tests {

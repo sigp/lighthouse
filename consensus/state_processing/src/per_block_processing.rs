@@ -1,8 +1,12 @@
+use crate::common::{decrease_balance, increase_balance};
 use crate::consensus_context::ConsensusContext;
-use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid};
+use errors::{BlockOperationError, BlockProcessingError, ExecutionBidInvalid, HeaderInvalid};
 use rayon::prelude::*;
 use safe_arith::{ArithError, SafeArith};
-use signature_sets::{block_proposal_signature_set, get_pubkey_from_state, randao_signature_set};
+use signature_sets::{
+    block_proposal_signature_set, execution_bid_signature_set, get_pubkey_from_state,
+    randao_signature_set,
+};
 use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::*;
@@ -42,8 +46,6 @@ mod verify_deposit;
 mod verify_exit;
 mod verify_payload_attestation;
 mod verify_proposer_slashing;
-
-use crate::common::decrease_balance;
 
 use crate::common::update_progressive_balances_cache::{
     initialize_progressive_balances_cache, update_progressive_balances_metrics,
@@ -177,6 +179,8 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
         process_withdrawals::<E, Payload>(state, body.execution_payload()?, spec)?;
         process_execution_payload::<E, Payload>(state, body, spec)?;
     }
+
+    process_execution_bid(state, block, verify_signatures, spec)?;
 
     process_randao(state, block, verify_randao, ctxt, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
@@ -670,4 +674,95 @@ pub fn process_withdrawals<E: EthSpec, Payload: AbstractExecPayload<E>>(
         BeaconState::Base(_) | BeaconState::Altair(_) | BeaconState::Bellatrix(_) => Ok(()),
         BeaconState::EIP7732(_) => todo!("implement potuz' changes to process_withdrawals()"),
     }
+}
+
+pub fn process_execution_bid<E: EthSpec, Payload: AbstractExecPayload<E>>(
+    state: &mut BeaconState<E>,
+    block: BeaconBlockRef<'_, E, Payload>,
+    verify_signatures: VerifySignatures,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    if !state
+        .fork_name(&spec)
+        .map_err(BlockProcessingError::InconsistentStateFork)?
+        .eip7732_enabled()
+    {
+        return Ok(());
+    }
+
+    let signed_bid = block.body().signed_execution_bid()?;
+    if verify_signatures.is_true() {
+        // Verify the bid signature
+        block_verify!(
+            execution_bid_signature_set(
+                state,
+                |i| get_pubkey_from_state(state, i),
+                signed_bid,
+                spec
+            )?
+            .verify(),
+            ExecutionBidInvalid::BadSignature.into()
+        );
+    }
+
+    let bid = &signed_bid.message;
+    let builder_index = bid.builder_index;
+
+    // Verify the bid is for the current slot
+    block_verify!(
+        bid.slot == state.slot(),
+        ExecutionBidInvalid::SlotMismatch {
+            state_slot: state.slot(),
+            bid_slot: bid.slot,
+        }
+        .into()
+    );
+    // Verify the bid is for the correct parent block
+    let state_block_hash = state.latest_block_hash()?;
+    block_verify!(
+        bid.parent_block_hash == state_block_hash,
+        ExecutionBidInvalid::ParentBlockHashMismatch {
+            state_block_hash,
+            bid_parent_hash: bid.parent_block_hash,
+        }
+        .into()
+    );
+    let block_parent_root = block.parent_root();
+    block_verify!(
+        bid.parent_block_root == block_parent_root,
+        ExecutionBidInvalid::ParentBlockRootMismatch {
+            block_parent_root,
+            bid_parent_root: bid.parent_block_root,
+        }
+        .into()
+    );
+
+    // Check the builder is active, non-slashed, and has funds to cover the bid
+    let builder = state.get_validator(builder_index as usize)?;
+    block_verify!(
+        builder.is_active_at(state.current_epoch()),
+        ExecutionBidInvalid::BuilderNotActive(builder_index).into()
+    );
+    block_verify!(
+        !builder.slashed,
+        ExecutionBidInvalid::BuilderSlashed(builder_index).into()
+    );
+    let builder_balance = state.get_balance(builder_index as usize)?;
+    block_verify!(
+        builder_balance >= bid.value,
+        ExecutionBidInvalid::InsufficientBalance {
+            builder_index,
+            builder_balance,
+            bid_value: bid.value,
+        }
+        .into()
+    );
+
+    // Transfer the funds from the builder to the proposer
+    decrease_balance(state, builder_index as usize, bid.value)?;
+    increase_balance(state, block.proposer_index() as usize, bid.value)?;
+
+    *state.latest_execution_bid_eip7732_mut()? = bid.clone();
+
+    Ok(())
 }

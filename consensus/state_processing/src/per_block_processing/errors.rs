@@ -60,6 +60,9 @@ pub enum BlockProcessingError {
     SyncAggregateInvalid {
         reason: SyncAggregateInvalid,
     },
+    ExecutionBidInvalid {
+        reason: ExecutionBidInvalid,
+    },
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
@@ -147,6 +150,12 @@ impl From<EpochCacheError> for BlockProcessingError {
 impl From<milhouse::Error> for BlockProcessingError {
     fn from(e: milhouse::Error) -> Self {
         Self::MilhouseError(e)
+    }
+}
+
+impl From<ExecutionBidInvalid> for BlockProcessingError {
+    fn from(reason: ExecutionBidInvalid) -> Self {
+        BlockProcessingError::ExecutionBidInvalid { reason }
     }
 }
 
@@ -503,4 +512,32 @@ pub enum SyncAggregateInvalid {
     PubkeyInvalid,
     /// The signature is invalid.
     SignatureInvalid,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum ExecutionBidInvalid {
+    /// The signature is invalid.
+    BadSignature,
+    /// The builder is not an active validator.
+    BuilderNotActive(u64),
+    /// The builder is slashed
+    BuilderSlashed(u64),
+    /// The builder has insufficient balance to cover the bid
+    InsufficientBalance {
+        builder_index: u64,
+        builder_balance: u64,
+        bid_value: u64,
+    },
+    /// Bid slot doesn't match state slot
+    SlotMismatch { state_slot: Slot, bid_slot: Slot },
+    /// The bid's parent block hash doesn't match the state's latest block hash
+    ParentBlockHashMismatch {
+        state_block_hash: ExecutionBlockHash,
+        bid_parent_hash: ExecutionBlockHash,
+    },
+    /// The bid's parent block root doesn't match the block's parent root
+    ParentBlockRootMismatch {
+        block_parent_root: Hash256,
+        bid_parent_root: Hash256,
+    },
 }
