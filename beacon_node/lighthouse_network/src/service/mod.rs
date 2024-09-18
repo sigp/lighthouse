@@ -1399,7 +1399,10 @@ impl<E: EthSpec> Network<E> {
         let peer_id = event.peer_id;
 
         // Do not permit Inbound events from peers that are being disconnected, or RPC requests.
-        if !self.peer_manager().is_connected(&peer_id) {
+        if !self.peer_manager().is_connected(&peer_id)
+            && (matches!(event.message, Err(HandlerErr::Inbound { .. }))
+                || matches!(event.message, Ok(RPCReceived::Request(..))))
+        {
             debug!(
                 self.log,
                 "Ignoring rpc message of disconnecting peer";
