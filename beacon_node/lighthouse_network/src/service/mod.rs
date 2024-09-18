@@ -159,38 +159,36 @@ impl<E: EthSpec> Network<E> {
             .collect();
 
         // set up a collection of variables accessible outside of the network crate
-        let network_globals = {
-            // Create an ENR or load from disk if appropriate
-            let enr = crate::discovery::enr::build_or_load_enr::<E>(
-                local_keypair.clone(),
-                &config,
-                &ctx.enr_fork_id,
-                &log,
-                &ctx.chain_spec,
-            )?;
-            // Construct the metadata
-            let custody_subnet_count = if ctx.chain_spec.is_peer_das_scheduled() {
-                if config.subscribe_all_data_column_subnets {
-                    Some(ctx.chain_spec.data_column_sidecar_subnet_count)
-                } else {
-                    Some(ctx.chain_spec.custody_requirement)
-                }
+        // Create an ENR or load from disk if appropriate
+        let enr = crate::discovery::enr::build_or_load_enr::<E>(
+            local_keypair.clone(),
+            &config,
+            &ctx.enr_fork_id,
+            &log,
+            &ctx.chain_spec,
+        )?;
+
+        // Construct the metadata
+        let custody_subnet_count = ctx.chain_spec.is_peer_das_scheduled().then(|| {
+            if config.subscribe_all_data_column_subnets {
+                ctx.chain_spec.data_column_sidecar_subnet_count
             } else {
-                None
-            };
-            let meta_data =
-                utils::load_or_build_metadata(&config.network_dir, custody_subnet_count, &log);
-            let globals = NetworkGlobals::new(
-                enr,
-                meta_data,
-                trusted_peers,
-                config.disable_peer_scoring,
-                &log,
-                config.clone(),
-                ctx.chain_spec.clone(),
-            );
-            Arc::new(globals)
-        };
+                ctx.chain_spec.custody_requirement
+            }
+        });
+        let meta_data =
+            utils::load_or_build_metadata(&config.network_dir, custody_subnet_count, &log);
+        let seq_number = *meta_data.seq_number();
+        let globals = NetworkGlobals::new(
+            enr,
+            meta_data,
+            trusted_peers,
+            config.disable_peer_scoring,
+            &log,
+            config.clone(),
+            ctx.chain_spec.clone(),
+        );
+        let network_globals = Arc::new(globals);
 
         // Grab our local ENR FORK ID
         let enr_fork_id = network_globals
@@ -338,6 +336,7 @@ impl<E: EthSpec> Network<E> {
             config.outbound_rate_limiter_config.clone(),
             log.clone(),
             network_params,
+            seq_number,
         );
 
         let discovery = {
@@ -1104,22 +1103,21 @@ impl<E: EthSpec> Network<E> {
             .sync_committee_bitfield::<E>()
             .expect("Local discovery must have sync committee bitfield");
 
-        {
-            // write lock scope
-            let mut meta_data = self.network_globals.local_metadata.write();
+        // write lock scope
+        let mut meta_data_w = self.network_globals.local_metadata.write();
 
-            *meta_data.seq_number_mut() += 1;
-            *meta_data.attnets_mut() = local_attnets;
-            if let Ok(syncnets) = meta_data.syncnets_mut() {
-                *syncnets = local_syncnets;
-            }
+        *meta_data_w.seq_number_mut() += 1;
+        *meta_data_w.attnets_mut() = local_attnets;
+        if let Ok(syncnets) = meta_data_w.syncnets_mut() {
+            *syncnets = local_syncnets;
         }
+        let seq_number = *meta_data_w.seq_number();
+        let meta_data = meta_data_w.clone();
+
+        drop(meta_data_w);
+        self.eth2_rpc_mut().update_seq_number(seq_number);
         // Save the updated metadata to disk
-        utils::save_metadata_to_disk(
-            &self.network_dir,
-            self.network_globals.local_metadata.read().clone(),
-            &self.log,
-        );
+        utils::save_metadata_to_disk(&self.network_dir, meta_data, &self.log);
     }
 
     /// Sends a Ping request to the peer.
