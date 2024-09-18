@@ -83,6 +83,59 @@ pub fn cli_app() -> Command {
                 .display_order(0),
         )
         .arg(
+            Arg::new(PASSWORD)
+                .long(PASSWORD)
+                .value_name("STRING")
+                .help("Password of the keystore file.")
+                .action(ArgAction::Set)
+                .display_order(0),
+        )
+        .arg(
+            Arg::new(FEE_RECIPIENT)
+                .long(FEE_RECIPIENT)
+                .value_name("ETH1_ADDRESS")
+                .help("When provided, the imported validator will use the suggested fee recipient. Omit this flag to use the default value from the VC.")
+                .action(ArgAction::Set)
+                .display_order(0),
+        )
+        .arg(
+            Arg::new(GAS_LIMIT)
+                .long(GAS_LIMIT)
+                .value_name("UINT64")
+                .help("When provided, the imported validator will use this gas limit. It is recommended \
+                to leave this as the default value by not specifying this flag.",)
+                .action(ArgAction::Set)
+                .display_order(0),
+        )
+        .arg(
+            Arg::new(BUILDER_PROPOSALS)
+                .long(BUILDER_PROPOSALS)
+                .help("When provided, the imported validator will attempt to create \
+                blocks via builder rather than the local EL.",)
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0),
+        )
+        .arg(
+            Arg::new(BUILDER_BOOST_FACTOR)
+                .long(BUILDER_BOOST_FACTOR)
+                .value_name("UINT64")
+                .help("When provided, the imported validator will use this \
+                percentage multiplier to apply to the builder's payload value \
+                when choosing between a builder payload header and payload from \
+                the local execution node.",)
+                .action(ArgAction::Set)
+                .display_order(0),
+        )
+        .arg(
+            Arg::new(PREFER_BUILDER_PROPOSALS)
+                .long(PREFER_BUILDER_PROPOSALS)
+                .help("When provided, the imported validator will always prefer blocks \
+                constructed by builders, regardless of payload value.",)
+                .action(ArgAction::SetTrue)
+                .display_order(0),
+        )
+        .arg(
             Arg::new(STANDARD_FORMAT)
                 .long(STANDARD_FORMAT)
                 .action(ArgAction::SetTrue)
@@ -101,7 +154,7 @@ pub struct ImportConfig {
     pub vc_url: SensitiveUrl,
     pub vc_token_path: PathBuf,
     pub ignore_duplicates: bool,
-    pub password: ZeroizeString,
+    pub password: Option<ZeroizeString>,
     pub fee_recipient: Option<Address>,
     pub gas_limit: Option<u64>,
     pub builder_proposals: Option<bool>,
@@ -118,7 +171,7 @@ impl ImportConfig {
             vc_url: clap_utils::parse_required(matches, VC_URL_FLAG)?,
             vc_token_path: clap_utils::parse_required(matches, VC_TOKEN_FLAG)?,
             ignore_duplicates: matches.get_flag(IGNORE_DUPLICATES_FLAG),
-            password: clap_utils::parse_optional(matches, PASSWORD)?.expect("Password is required"),
+            password: clap_utils::parse_optional(matches, PASSWORD)?,
             fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT)?,
             gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT)?,
             builder_proposals: Some(matches.get_flag(BUILDER_PROPOSALS)),
@@ -171,7 +224,7 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
             voting_keystore: KeystoreJsonStr(
                 Keystore::from_json_file(&validators_file_path).map_err(|e| format!("{e:?}"))?,
             ),
-            voting_keystore_password: password,
+            voting_keystore_password: password.expect("Password is required"),
             slashing_protection: None,
             fee_recipient,
             gas_limit,
