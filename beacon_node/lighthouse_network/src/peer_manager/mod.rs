@@ -2330,7 +2330,6 @@ mod tests {
         use libp2p::PeerId;
         use quickcheck::{Arbitrary, Gen, TestResult};
         use quickcheck_macros::quickcheck;
-        use rand::Rng;
         use tokio::runtime::Runtime;
         use types::Unsigned;
         use types::{EthSpec, MainnetEthSpec as E};
@@ -2346,9 +2345,14 @@ mod tests {
             gossipsub_score: f64,
         }
 
-        fn rand_f64() -> f64 {
-            let mut rng = rand::thread_rng();
-            rng.gen()
+        // generate an arbitrary f64 while preventing NaN values
+        fn arbitrary_f64(g: &mut Gen) -> f64 {
+            loop {
+                let val = f64::arbitrary(g);
+                if !val.is_nan() {
+                    return val;
+                }
+            }
         }
 
         impl Arbitrary for PeerCondition {
@@ -2376,9 +2380,9 @@ mod tests {
                     outgoing: bool::arbitrary(g),
                     attestation_net_bitfield,
                     sync_committee_net_bitfield,
-                    score: rand_f64(),
+                    score: arbitrary_f64(g),
                     trusted: bool::arbitrary(g),
-                    gossipsub_score: rand_f64(),
+                    gossipsub_score: arbitrary_f64(g),
                 }
             }
         }
