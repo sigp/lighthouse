@@ -224,7 +224,9 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
             voting_keystore: KeystoreJsonStr(
                 Keystore::from_json_file(&validators_file_path).map_err(|e| format!("{e:?}"))?,
             ),
-            voting_keystore_password: password.expect("Password is required"),
+            voting_keystore_password: password.ok_or_else(|| {
+                "The --password flag is required to supply the keystore password".to_string()
+            })?,
             slashing_protection: None,
             fee_recipient,
             gas_limit,
