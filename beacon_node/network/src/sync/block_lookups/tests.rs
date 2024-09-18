@@ -1,6 +1,6 @@
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::sync::manager::{BlockProcessType, SyncManager};
-use crate::sync::sampling::SamplingConfig;
+use crate::sync::peer_sampling::SamplingConfig;
 use crate::sync::{SamplingId, SyncMessage};
 use crate::NetworkMessage;
 use std::sync::Arc;
