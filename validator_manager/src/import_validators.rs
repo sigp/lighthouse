@@ -21,10 +21,9 @@ pub const BUILDER_PROPOSALS: &str = "builder-proposals";
 pub const BUILDER_BOOST_FACTOR: &str = "builder-boost-factor";
 pub const PREFER_BUILDER_PROPOSALS: &str = "prefer-builder-proposals";
 pub const ENABLED: &str = "enabled";
+pub const STANDARD_FORMAT: &str = "standard-format";
 
 pub const DETECTED_DUPLICATE_MESSAGE: &str = "Duplicate validator detected!";
-
-pub const STANDARD_FORMAT: &str = "standard-format";
 
 pub fn cli_app() -> Command {
     Command::new(CMD)
@@ -87,7 +86,7 @@ pub fn cli_app() -> Command {
             Arg::new(STANDARD_FORMAT)
                 .long(STANDARD_FORMAT)
                 .action(ArgAction::SetTrue)
-                .help_heading(STANDARD_FORMAT)
+                .help_heading(FLAG_HEADER)
                 .help(
                     "Use this flag when the validator keystore files are generated using staking-deposit-cli \
                     or ethstaker-deposit-cli."
@@ -166,18 +165,9 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
         .create(false)
         .open(&validators_file_path)
         .map_err(|e| format!("Unable to open {:?}: {:?}", validators_file_path, e))?;
-    let validators: Vec<ValidatorSpecification> = serde_json::from_reader(&validators_file)
-        .map_err(|e| {
-            format!(
-                "Unable to parse JSON in {:?}: {:?}",
-                validators_file_path, e
-            )
-        })?;
 
-    let count = validators.len();
-
-    if standard_format {
-        let validators = ValidatorSpecification {
+    let validators: Vec<ValidatorSpecification> = if standard_format {
+        vec![ValidatorSpecification {
             voting_keystore: KeystoreJsonStr(
                 Keystore::from_json_file(&validators_file_path).map_err(|e| format!("{e:?}"))?,
             ),
@@ -189,8 +179,17 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
             builder_boost_factor,
             prefer_builder_proposals,
             enabled,
-        };
-    }
+        }]
+    } else {
+        serde_json::from_reader(&validators_file).map_err(|e| {
+            format!(
+                "Unable to parse JSON in {:?}: {:?}",
+                validators_file_path, e
+            )
+        })?
+    };
+
+    let count = validators.len();
 
     let (http_client, _keystores) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
 
