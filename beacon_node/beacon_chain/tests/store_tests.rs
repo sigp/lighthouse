@@ -180,7 +180,7 @@ async fn light_client_bootstrap_test() {
 
     let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
 
-    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, &kzg)
+    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, kzg)
         .store(store.clone())
         .custom_spec(test_spec::<E>())
         .task_executor(harness.chain.task_executor.clone())
@@ -2693,7 +2693,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     );
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
-    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, &kzg)
+    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, kzg)
         .store(store.clone())
         .custom_spec(test_spec::<E>())
         .task_executor(harness.chain.task_executor.clone())
