@@ -27,9 +27,9 @@ pub struct NetworkGlobals<E: EthSpec> {
     pub sync_state: RwLock<SyncState>,
     /// The current state of the backfill sync.
     pub backfill_state: RwLock<BackFillState>,
-    /// The computed custody subnets and columns is stored to avoid re-computing.
-    pub custody_subnets: Vec<DataColumnSubnetId>,
-    pub custody_columns: Vec<ColumnIndex>,
+    /// The computed sampling subnets and columns is stored to avoid re-computing.
+    pub sampling_subnets: Vec<DataColumnSubnetId>,
+    pub sampling_columns: Vec<ColumnIndex>,
     pub spec: ChainSpec,
 }
 
@@ -42,24 +42,31 @@ impl<E: EthSpec> NetworkGlobals<E> {
         log: &slog::Logger,
         spec: ChainSpec,
     ) -> Self {
-        let (custody_subnets, custody_columns) = if spec.is_peer_das_scheduled() {
+        let (sampling_subnets, sampling_columns) = if spec.is_peer_das_scheduled() {
+            let node_id = enr.node_id().raw();
+
             let custody_subnet_count = local_metadata
                 .custody_subnet_count()
                 .copied()
                 .expect("custody subnet count must be set if PeerDAS is scheduled");
-            let custody_subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
-                enr.node_id().raw(),
-                custody_subnet_count,
+
+            let subnet_sampling_size = std::cmp::max(custody_subnet_count, spec.samples_per_slot);
+
+            let sampling_subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
+                node_id,
+                subnet_sampling_size,
                 &spec,
             )
-            .expect("custody subnet count must be valid")
+            .expect("sampling subnet count must be valid")
             .collect::<Vec<_>>();
-            let custody_columns = custody_subnets
+
+            let sampling_columns = sampling_subnets
                 .iter()
                 .flat_map(|subnet| subnet.columns::<E>(&spec))
                 .sorted()
                 .collect();
-            (custody_subnets, custody_columns)
+
+            (sampling_subnets, sampling_columns)
         } else {
             (vec![], vec![])
         };
@@ -73,8 +80,8 @@ impl<E: EthSpec> NetworkGlobals<E> {
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
             sync_state: RwLock::new(SyncState::Stalled),
             backfill_state: RwLock::new(BackFillState::NotRequired),
-            custody_subnets,
-            custody_columns,
+            sampling_subnets,
+            sampling_columns,
             spec,
         }
     }
@@ -191,32 +198,39 @@ mod test {
     use types::{Epoch, EthSpec, MainnetEthSpec as E};
 
     #[test]
-    fn test_custody_subnets() {
+    fn test_sampling_subnets() {
         let log = logging::test_logger();
         let mut spec = E::default_spec();
         spec.eip7594_fork_epoch = Some(Epoch::new(0));
 
         let custody_subnet_count = spec.data_column_sidecar_subnet_count / 2;
+        let subnet_sampling_size = std::cmp::max(custody_subnet_count, spec.samples_per_slot);
         let metadata = get_metadata(custody_subnet_count);
 
         let globals =
             NetworkGlobals::<E>::new_test_globals_with_metadata(vec![], metadata, &log, spec);
-        assert_eq!(globals.custody_subnets.len(), custody_subnet_count as usize);
+        assert_eq!(
+            globals.sampling_subnets.len(),
+            subnet_sampling_size as usize
+        );
     }
 
     #[test]
-    fn test_custody_columns() {
+    fn test_sampling_columns() {
         let log = logging::test_logger();
         let mut spec = E::default_spec();
         spec.eip7594_fork_epoch = Some(Epoch::new(0));
 
         let custody_subnet_count = spec.data_column_sidecar_subnet_count / 2;
-        let custody_columns_count = spec.number_of_columns / 2;
+        let subnet_sampling_size = std::cmp::max(custody_subnet_count, spec.samples_per_slot);
         let metadata = get_metadata(custody_subnet_count);
 
         let globals =
             NetworkGlobals::<E>::new_test_globals_with_metadata(vec![], metadata, &log, spec);
-        assert_eq!(globals.custody_columns.len(), custody_columns_count);
+        assert_eq!(
+            globals.sampling_columns.len(),
+            subnet_sampling_size as usize
+        );
     }
 
     fn get_metadata(custody_subnet_count: u64) -> MetaData<E> {

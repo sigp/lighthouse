@@ -273,14 +273,13 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     }
 
     if let Some(gossip_verified_data_columns) = gossip_verified_data_columns {
-        let custody_columns_indices = &network_globals.custody_columns;
-
-        let custody_columns = gossip_verified_data_columns
+        let sampling_columns_indices = &network_globals.sampling_columns;
+        let sampling_columns = gossip_verified_data_columns
             .into_iter()
-            .filter(|data_column| custody_columns_indices.contains(&data_column.index()))
+            .filter(|data_column| sampling_columns_indices.contains(&data_column.index()))
             .collect();
 
-        if let Err(e) = Box::pin(chain.process_gossip_data_columns(custody_columns)).await {
+        if let Err(e) = Box::pin(chain.process_gossip_data_columns(sampling_columns)).await {
             let msg = format!("Invalid data column: {e}");
             return if let BroadcastValidation::Gossip = validation_level {
                 Err(warp_utils::reject::broadcast_without_import(msg))

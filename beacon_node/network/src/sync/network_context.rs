@@ -387,13 +387,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             false
         };
 
-        let (expects_custody_columns, num_of_custody_column_req) =
+        let (expects_columns, num_of_column_req) =
             if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
-                let custody_indexes = self.network_globals().custody_columns.clone();
+                let column_indexes = self.network_globals().sampling_columns.clone();
                 let mut num_of_custody_column_req = 0;
 
                 for (peer_id, columns_by_range_request) in
-                    self.make_columns_by_range_requests(request, &custody_indexes)?
+                    self.make_columns_by_range_requests(request, &column_indexes)?
                 {
                     requested_peers.push(peer_id);
 
@@ -417,15 +417,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     num_of_custody_column_req += 1;
                 }
 
-                (Some(custody_indexes), Some(num_of_custody_column_req))
+                (Some(column_indexes), Some(num_of_custody_column_req))
             } else {
                 (None, None)
             };
 
         let info = RangeBlockComponentsRequest::new(
             expected_blobs,
-            expects_custody_columns,
-            num_of_custody_column_req,
+            expects_columns,
+            num_of_column_req,
             requested_peers,
         );
         self.range_block_components_requests
@@ -637,7 +637,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let imported_blob_indexes = self
             .chain
             .data_availability_checker
-            .imported_blob_indexes(&block_root)
+            .cached_blob_indexes(&block_root)
             .unwrap_or_default();
         // Include only the blob indexes not yet imported (received through gossip)
         let indices = (0..expected_blobs as u64)
@@ -755,13 +755,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let custody_indexes_imported = self
             .chain
             .data_availability_checker
-            .imported_custody_column_indexes(&block_root)
+            .cached_data_column_indexes(&block_root)
             .unwrap_or_default();
 
         // Include only the blob indexes not yet imported (received through gossip)
         let custody_indexes_to_fetch = self
             .network_globals()
-            .custody_columns
+            .sampling_columns
             .clone()
             .into_iter()
             .filter(|index| !custody_indexes_imported.contains(index))

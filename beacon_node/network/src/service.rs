@@ -807,7 +807,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
             }
         } else {
-            for column_subnet in &self.network_globals.custody_subnets {
+            for column_subnet in &self.network_globals.sampling_subnets {
                 for fork_digest in self.required_gossip_fork_digests() {
                     let gossip_kind = Subnet::DataColumn(*column_subnet).into();
                     let topic =
