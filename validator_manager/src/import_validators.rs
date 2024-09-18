@@ -304,7 +304,7 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
 pub mod tests {
     use super::*;
     use crate::create_validators::tests::TestBuilder as CreateTestBuilder;
-    use std::fs;
+    use std::{fs, str::FromStr};
     use tempfile::{tempdir, TempDir};
     use validator_client::http_api::{test_utils::ApiTester, Config as HttpConfig};
 
@@ -337,6 +337,14 @@ pub mod tests {
                     vc_url: vc.url.clone(),
                     vc_token_path,
                     ignore_duplicates: false,
+                    password: ZeroizeString::from_str("password").unwrap(),
+                    fee_recipient: None,
+                    builder_boost_factor: None,
+                    gas_limit: None,
+                    builder_proposals: None,
+                    enabled: None,
+                    prefer_builder_proposals: None,
+                    standard_format: false,
                 },
                 vc,
                 create_dir: None,
