@@ -1098,8 +1098,8 @@ async fn block_gossip_verification() {
     assert!(
         matches!(
             unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
-            BlockError::ParentUnknown(block)
-            if block.parent_root() == parent_root
+            BlockError::ParentUnknown {parent_root: p}
+            if p == parent_root
         ),
         "should not import a block for an unknown parent"
     );
