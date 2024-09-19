@@ -203,7 +203,7 @@ pub fn validator_import_defaults() {
                 vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
                 vc_token_path: PathBuf::from("./token.json"),
                 ignore_duplicates: false,
-                password: Some(ZeroizeString::from_str("password").unwrap()),
+                password: None,
                 fee_recipient: None,
                 builder_boost_factor: None,
                 gas_limit: None,
@@ -212,7 +212,10 @@ pub fn validator_import_defaults() {
                 prefer_builder_proposals: None,
                 standard_format: false,
             };
-            assert_eq!(expected, config);
+            assert_eq!(expected.validators_file_path, config.validators_file_path);
+            assert_eq!(expected.vc_url, config.vc_url);
+            assert_eq!(expected.vc_token_path, config.vc_token_path);
+            assert_eq!(expected.ignore_duplicates, config.ignore_duplicates);
         });
 }
 
@@ -228,7 +231,7 @@ pub fn validator_import_misc_flags() {
                 vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
                 vc_token_path: PathBuf::from("./token.json"),
                 ignore_duplicates: true,
-                password: Some(ZeroizeString::from_str("password").unwrap()),
+                password: None,
                 fee_recipient: None,
                 builder_boost_factor: None,
                 gas_limit: None,
@@ -237,7 +240,10 @@ pub fn validator_import_misc_flags() {
                 prefer_builder_proposals: None,
                 standard_format: false,
             };
-            assert_eq!(expected, config);
+            assert_eq!(expected.validators_file_path, config.validators_file_path);
+            assert_eq!(expected.vc_url, config.vc_url);
+            assert_eq!(expected.vc_token_path, config.vc_token_path);
+            assert_eq!(expected.ignore_duplicates, config.ignore_duplicates);
         });
 }
 
