@@ -246,7 +246,7 @@ impl StoreItem for OnDiskStoreConfig {
 mod test {
     use super::*;
     use crate::{
-        metadata::{ANCHOR_UNINITIALIZED, STATE_UPPER_LIMIT_NO_RETAIN},
+        metadata::{ANCHOR_FOR_ARCHIVE_NODE, ANCHOR_UNINITIALIZED, STATE_UPPER_LIMIT_NO_RETAIN},
         AnchorInfo, Split,
     };
     use ssz::DecodeError;
@@ -282,15 +282,16 @@ mod test {
 
     #[test]
     fn check_compatibility_hierarchy_config_incompatible() {
-        let store_config = StoreConfig {
-            ..Default::default()
-        };
+        let store_config = StoreConfig::default();
         let on_disk_config = OnDiskStoreConfig::V22(OnDiskStoreConfigV22::new(HierarchyConfig {
             exponents: vec![5, 8, 11, 13, 16, 18, 21],
         }));
-        let split = Split::default();
+        let split = Split {
+            slot: Slot::new(32),
+            ..Default::default()
+        };
         assert!(store_config
-            .check_compatibility(&on_disk_config, &split, &ANCHOR_UNINITIALIZED)
+            .check_compatibility(&on_disk_config, &split, &ANCHOR_FOR_ARCHIVE_NODE)
             .is_err());
     }
 
