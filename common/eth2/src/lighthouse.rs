@@ -361,7 +361,7 @@ pub struct DatabaseInfo {
     pub schema_version: u64,
     pub config: StoreConfig,
     pub split: Split,
-    pub anchor: Option<AnchorInfo>,
+    pub anchor: AnchorInfo,
     pub blob_info: BlobInfo,
 }
 

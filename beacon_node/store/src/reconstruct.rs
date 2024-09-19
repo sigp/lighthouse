@@ -1,5 +1,6 @@
 //! Implementation of historic state reconstruction (given complete block history).
 use crate::hot_cold_store::{HotColdDB, HotColdDBError};
+use crate::metadata::ANCHOR_FOR_ARCHIVE_NODE;
 use crate::metrics;
 use crate::{Error, ItemStore};
 use itertools::{process_results, Itertools};
@@ -21,10 +22,12 @@ where
         self: &Arc<Self>,
         num_blocks: Option<usize>,
     ) -> Result<(), Error> {
-        let Some(mut anchor) = self.get_anchor_info() else {
-            // Nothing to do, history is complete.
+        let mut anchor = self.get_anchor_info();
+
+        // Nothing to do, history is complete.
+        if anchor.all_historic_states_stored() {
             return Ok(());
-        };
+        }
 
         // Check that all historic blocks are known.
         if anchor.oldest_block_slot != 0 {
@@ -132,7 +135,7 @@ where
                     self.cold_db.do_atomically(std::mem::take(&mut io_batch))?;
 
                     // Update anchor.
-                    let old_anchor = Some(anchor.clone());
+                    let old_anchor = anchor.clone();
 
                     if reconstruction_complete {
                         // The two limits have met in the middle! We're done!
@@ -146,17 +149,17 @@ where
                             });
                         }
 
-                        self.compare_and_set_anchor_info_with_write(old_anchor, None)?;
+                        self.compare_and_set_anchor_info_with_write(
+                            old_anchor,
+                            ANCHOR_FOR_ARCHIVE_NODE,
+                        )?;
 
                         return Ok(());
                     } else {
                         // The lower limit has been raised, store it.
                         anchor.state_lower_limit = slot;
 
-                        self.compare_and_set_anchor_info_with_write(
-                            old_anchor,
-                            Some(anchor.clone()),
-                        )?;
+                        self.compare_and_set_anchor_info_with_write(old_anchor, anchor.clone())?;
                     }
 
                     // If this is the end of the batch, return Ok. The caller will run another

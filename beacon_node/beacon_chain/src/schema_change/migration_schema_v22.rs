@@ -5,7 +5,9 @@ use store::chunked_iter::ChunkedVectorIter;
 use store::{
     chunked_vector::BlockRootsChunked,
     get_key_for_col,
-    metadata::{SchemaVersion, STATE_UPPER_LIMIT_NO_RETAIN},
+    metadata::{
+        SchemaVersion, ANCHOR_FOR_ARCHIVE_NODE, ANCHOR_UNINITIALIZED, STATE_UPPER_LIMIT_NO_RETAIN,
+    },
     partial_beacon_state::PartialBeaconState,
     AnchorInfo, DBColumn, Error, HotColdDB, KeyValueStore, KeyValueStoreOp,
 };
@@ -43,7 +45,14 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
 ) -> Result<(), Error> {
     info!(log, "Upgrading from v21 to v22");
 
-    let old_anchor = db.get_anchor_info();
+    let mut old_anchor = db.get_anchor_info();
+
+    // If the anchor was uninitialized in the old schema (`None`), this represents a full archive
+    // node.
+    if old_anchor == ANCHOR_UNINITIALIZED {
+        old_anchor = ANCHOR_FOR_ARCHIVE_NODE;
+    }
+
     let split_slot = db.get_split_slot();
     let genesis_state_root = genesis_state_root.ok_or(Error::GenesisStateUnknown)?;
 
@@ -70,9 +79,7 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
 
     // Write the block roots in the new format in a new column. Similar to above, we do this
     // separately from deleting the old format block roots so that this is crash safe.
-    let oldest_block_slot = old_anchor
-        .as_ref()
-        .map_or(Slot::new(0), |a| a.oldest_block_slot);
+    let oldest_block_slot = old_anchor.oldest_block_slot;
     write_new_schema_block_roots::<T>(
         &db,
         genesis_block_root,
@@ -90,22 +97,12 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
     // If we crash after commiting this change, then there will be some leftover cruft left in the
     // freezer database, but no corruption because all the new-format data has already been written
     // above.
-    let new_anchor = if let Some(old_anchor) = &old_anchor {
-        AnchorInfo {
-            state_upper_limit: STATE_UPPER_LIMIT_NO_RETAIN,
-            state_lower_limit: Slot::new(0),
-            ..old_anchor.clone()
-        }
-    } else {
-        AnchorInfo {
-            anchor_slot: Slot::new(0),
-            oldest_block_slot: Slot::new(0),
-            oldest_block_parent: Hash256::ZERO,
-            state_upper_limit: STATE_UPPER_LIMIT_NO_RETAIN,
-            state_lower_limit: Slot::new(0),
-        }
+    let new_anchor = AnchorInfo {
+        state_upper_limit: STATE_UPPER_LIMIT_NO_RETAIN,
+        state_lower_limit: Slot::new(0),
+        ..old_anchor.clone()
     };
-    let hot_ops = vec![db.compare_and_set_anchor_info(old_anchor, Some(new_anchor))?];
+    let hot_ops = vec![db.compare_and_set_anchor_info(old_anchor, new_anchor)?];
     db.store_schema_version_atomically(SchemaVersion(22), hot_ops)?;
 
     // Finally, clean up the old-format data from the freezer database.

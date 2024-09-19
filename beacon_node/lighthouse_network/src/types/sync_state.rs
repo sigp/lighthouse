@@ -35,8 +35,6 @@ pub enum BackFillState {
     Syncing,
     /// A backfill sync has completed.
     Completed,
-    /// A backfill sync is not required.
-    NotRequired,
     /// Too many failed attempts at backfilling. Consider it failed.
     Failed,
 }

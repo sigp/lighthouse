@@ -33,8 +33,6 @@ pub enum HistoricalBlockError {
     InvalidSignature,
     /// Transitory error, caller should retry with the same blocks.
     ValidatorPubkeyCacheTimeout,
-    /// No historical sync needed.
-    NoAnchorInfo,
     /// Logic error: should never occur.
     IndexOutOfBounds,
 }
@@ -62,10 +60,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         mut blocks: Vec<AvailableBlock<T::EthSpec>>,
     ) -> Result<usize, Error> {
-        let anchor_info = self
-            .store
-            .get_anchor_info()
-            .ok_or(HistoricalBlockError::NoAnchorInfo)?;
+        let anchor_info = self.store.get_anchor_info();
         let blob_info = self.store.get_blob_info();
         let data_column_info = self.store.get_data_column_info();
 
@@ -263,7 +258,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let backfill_complete = new_anchor.block_backfill_complete(self.genesis_backfill_slot);
         anchor_and_blob_batch.push(
             self.store
-                .compare_and_set_anchor_info(Some(anchor_info), Some(new_anchor))?,
+                .compare_and_set_anchor_info(anchor_info, new_anchor)?,
         );
         self.store.hot_db.do_atomically(anchor_and_blob_batch)?;
 
