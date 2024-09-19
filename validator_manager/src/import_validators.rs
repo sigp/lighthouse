@@ -432,23 +432,23 @@ pub mod tests {
                 "precondition: validators are created"
             );
 
-            let validators_file_path = create_result.validators_file_path();
+            // let validators_file_path = create_result.validators_file_path();
 
-            let validators_file = fs::OpenOptions::new()
-                .read(true)
-                .create(false)
-                .open(&validators_file_path)
-                .map_err(|e| format!("Unable to open {:?}: {:?}", validators_file_path, e))
-                .unwrap();
+            // let validators_file = fs::OpenOptions::new()
+            //     .read(true)
+            //     .create(false)
+            //     .open(&validators_file_path)
+            //     .map_err(|e| format!("Unable to open {:?}: {:?}", validators_file_path, e))
+            //     .unwrap();
 
-            let validators: Vec<ValidatorSpecification> = serde_json::from_reader(&validators_file)
-                .map_err(|e| {
-                    format!(
-                        "Unable to parse JSON in {:?}: {:?}",
-                        validators_file_path, e
-                    )
-                })
-                .unwrap();
+            // let validators: Vec<ValidatorSpecification> = serde_json::from_reader(&validators_file)
+            //     .map_err(|e| {
+            //         format!(
+            //             "Unable to parse JSON in {:?}: {:?}",
+            //             validators_file_path, e
+            //         )
+            //     })
+            //     .unwrap();
 
             // let validator_standard = &validators[0];
             // let validator_json = validator_standard.voting_keystore.0.clone();
@@ -457,7 +457,7 @@ pub mod tests {
             // validator_json.to_json_writer(keystore_file).unwrap();
 
             self.import_config.validators_file_path = create_result.validators_file_path();
-            self.import_config.password = Some(validator_standard.voting_keystore_password.clone());
+            // self.import_config.password = Some(validator_standard.voting_keystore_password.clone());
             self.create_dir = Some(create_result.output_dir);
             self
         }
