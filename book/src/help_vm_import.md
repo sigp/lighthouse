@@ -141,6 +141,9 @@ Flags:
           contain sensitive information about your validator and so this flag
           should be used with caution. For Windows users, the log file
           permissions will be inherited from the parent folder.
+      --standard-format
+          Use this flag when the validator keystore files are generated using
+          staking-deposit-cli or ethstaker-deposit-cli.
       --stdin-inputs
           If present, read all user inputs from stdin instead of tty.
 ```
