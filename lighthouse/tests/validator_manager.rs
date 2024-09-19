@@ -203,6 +203,14 @@ pub fn validator_import_defaults() {
                 vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
                 vc_token_path: PathBuf::from("./token.json"),
                 ignore_duplicates: false,
+                password: Some(ZeroizeString::from_str("password").unwrap()),
+                fee_recipient: None,
+                builder_boost_factor: None,
+                gas_limit: None,
+                builder_proposals: None,
+                enabled: None,
+                prefer_builder_proposals: None,
+                standard_format: false,
             };
             assert_eq!(expected, config);
         });
@@ -220,6 +228,14 @@ pub fn validator_import_misc_flags() {
                 vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
                 vc_token_path: PathBuf::from("./token.json"),
                 ignore_duplicates: true,
+                password: Some(ZeroizeString::from_str("password").unwrap()),
+                fee_recipient: None,
+                builder_boost_factor: None,
+                gas_limit: None,
+                builder_proposals: None,
+                enabled: None,
+                prefer_builder_proposals: None,
+                standard_format: false,
             };
             assert_eq!(expected, config);
         });
