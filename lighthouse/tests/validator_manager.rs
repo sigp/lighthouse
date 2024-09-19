@@ -207,9 +207,9 @@ pub fn validator_import_defaults() {
                 fee_recipient: None,
                 builder_boost_factor: None,
                 gas_limit: None,
-                builder_proposals: None,
+                builder_proposals: Some(false),
                 enabled: None,
-                prefer_builder_proposals: None,
+                prefer_builder_proposals: Some(false),
                 standard_format: false,
             };
             assert_eq!(expected, config);
@@ -232,9 +232,9 @@ pub fn validator_import_misc_flags() {
                 fee_recipient: None,
                 builder_boost_factor: None,
                 gas_limit: None,
-                builder_proposals: None,
+                builder_proposals: Some(false),
                 enabled: None,
-                prefer_builder_proposals: None,
+                prefer_builder_proposals: Some(false),
                 standard_format: false,
             };
             assert_eq!(expected, config);
