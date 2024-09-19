@@ -9203,6 +9203,7 @@ dependencies = [
  "account_utils",
  "clap",
  "clap_utils",
+ "derivative",
  "environment",
  "eth2",
  "eth2_network_config",

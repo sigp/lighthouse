@@ -212,10 +212,7 @@ pub fn validator_import_defaults() {
                 prefer_builder_proposals: None,
                 standard_format: false,
             };
-            assert_eq!(expected.validators_file_path, config.validators_file_path);
-            assert_eq!(expected.vc_url, config.vc_url);
-            assert_eq!(expected.vc_token_path, config.vc_token_path);
-            assert_eq!(expected.ignore_duplicates, config.ignore_duplicates);
+            assert_eq!(expected, config);
         });
 }
 
@@ -240,10 +237,7 @@ pub fn validator_import_misc_flags() {
                 prefer_builder_proposals: None,
                 standard_format: false,
             };
-            assert_eq!(expected.validators_file_path, config.validators_file_path);
-            assert_eq!(expected.vc_url, config.vc_url);
-            assert_eq!(expected.vc_token_path, config.vc_token_path);
-            assert_eq!(expected.ignore_duplicates, config.ignore_duplicates);
+            assert_eq!(expected, config);
         });
 }
 
