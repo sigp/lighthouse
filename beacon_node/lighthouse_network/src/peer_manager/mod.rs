@@ -2345,6 +2345,16 @@ mod tests {
             gossipsub_score: f64,
         }
 
+        // generate an arbitrary f64 while preventing NaN values
+        fn arbitrary_f64(g: &mut Gen) -> f64 {
+            loop {
+                let val = f64::arbitrary(g);
+                if !val.is_nan() {
+                    return val;
+                }
+            }
+        }
+
         impl Arbitrary for PeerCondition {
             fn arbitrary(g: &mut Gen) -> Self {
                 let attestation_net_bitfield = {
@@ -2370,9 +2380,9 @@ mod tests {
                     outgoing: bool::arbitrary(g),
                     attestation_net_bitfield,
                     sync_committee_net_bitfield,
-                    score: f64::arbitrary(g),
+                    score: arbitrary_f64(g),
                     trusted: bool::arbitrary(g),
-                    gossipsub_score: f64::arbitrary(g),
+                    gossipsub_score: arbitrary_f64(g),
                 }
             }
         }
