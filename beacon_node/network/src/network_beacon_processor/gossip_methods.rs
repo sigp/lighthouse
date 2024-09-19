@@ -49,8 +49,7 @@ use beacon_processor::{
     work_reprocessing_queue::{
         QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
         ReprocessQueueMessage,
-    },
-    DuplicateCache, GossipAggregatePackage, GossipAttestationPackage,
+    }, BeaconProcessorSend, DuplicateCache, GossipAggregatePackage, GossipAttestationPackage
 };
 
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
@@ -1391,7 +1390,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 let inner_self = self.clone();
                 let process_fn = Box::pin(async move {
-                    let reprocess_tx = inner_self.reprocess_tx.clone();
+                    let reprocess_tx = inner_self.beacon_processor_send.clone();
                     let invalid_block_storage = inner_self.invalid_block_storage.clone();
                     inner_self
                         .process_gossip_verified_block(
@@ -1443,7 +1442,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         peer_id: PeerId,
         verified_block: GossipVerifiedBlock<T>,
-        reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
+        reprocess_tx: BeaconProcessorSend<E>,
         invalid_block_storage: InvalidBlockStorage,
         _seen_duration: Duration,
     ) {
@@ -1480,10 +1479,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
 
                 if reprocess_tx
-                    .try_send(ReprocessQueueMessage::BlockImported {
+                    .try_send(Work::Reprocess(ReprocessQueueMessage::BlockImported {
                         block_root: *block_root,
                         parent_root: block.message().parent_root(),
-                    })
+                    }))
                     .is_err()
                 {
                     error!(

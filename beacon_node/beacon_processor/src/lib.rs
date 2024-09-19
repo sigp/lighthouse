@@ -287,22 +287,17 @@ impl Default for BeaconProcessorConfig {
 pub struct BeaconProcessorChannels<E: EthSpec> {
     pub beacon_processor_tx: BeaconProcessorSend<E>,
     pub beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
-    pub work_reprocessing_tx: mpsc::Sender<ReprocessQueueMessage>,
-    pub work_reprocessing_rx: mpsc::Receiver<ReprocessQueueMessage>,
 }
 
 impl<E: EthSpec> BeaconProcessorChannels<E> {
     pub fn new(config: &BeaconProcessorConfig) -> Self {
         let (beacon_processor_tx, beacon_processor_rx) =
             mpsc::channel(config.max_work_event_queue_len);
-        let (work_reprocessing_tx, work_reprocessing_rx) =
-            mpsc::channel(config.max_scheduled_work_queue_len);
+      
 
         Self {
             beacon_processor_tx: BeaconProcessorSend(beacon_processor_tx),
             beacon_processor_rx,
-            work_reprocessing_rx,
-            work_reprocessing_tx,
         }
     }
 }
@@ -647,6 +642,7 @@ pub enum Work<E: EthSpec> {
     LightClientFinalityUpdateRequest(BlockingFn),
     ApiRequestP0(BlockingOrAsync),
     ApiRequestP1(BlockingOrAsync),
+    Reprocess(BlockingFn),
 }
 
 impl<E: EthSpec> fmt::Debug for Work<E> {
@@ -796,8 +792,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
     pub fn spawn_manager<S: SlotClock + 'static>(
         mut self,
         event_rx: mpsc::Receiver<WorkEvent<E>>,
-        work_reprocessing_tx: mpsc::Sender<ReprocessQueueMessage>,
-        work_reprocessing_rx: mpsc::Receiver<ReprocessQueueMessage>,
         work_journal_tx: Option<mpsc::Sender<&'static str>>,
         slot_clock: S,
         maximum_gossip_clock_disparity: Duration,
@@ -805,6 +799,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
     ) -> Result<(), String> {
         // Used by workers to communicate that they are finished a task.
         let (idle_tx, idle_rx) = mpsc::channel::<()>(MAX_IDLE_QUEUE_LEN);
+        
+        let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(self.config.max_scheduled_work_queue_len);
 
         // Using LIFO queues for attestations since validator profits rely upon getting fresh
         // attestations into blocks. Additionally, later attestations contain more information than
@@ -1375,6 +1371,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::ApiRequestP1 { .. } => {
                                 api_request_p1_queue.push(work, work_id, &self.log)
                             }
+                            Work::Reprocess { .. } => {
+                                // TODO(beacon-processor)
+                                todo!()
+                            }
                         }
                     }
                 }
@@ -1610,6 +1610,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::LightClientFinalityUpdateRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
+            Work::Reprocess(process_fn)
         };
     }
 }

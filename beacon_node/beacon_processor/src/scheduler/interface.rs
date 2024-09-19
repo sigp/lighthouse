@@ -1,14 +1,23 @@
-use types::EthSpec;
+// use tokio::sync::mpsc;
+// use types::EthSpec;
 
-use super::priority_scheduler;
+// use crate::WorkEvent;
 
-pub enum SchedulerType<E: EthSpec> {
-    PriorityScheduler(priority_scheduler::Scheduler<E>),
-}
+// use super::priority_scheduler;
 
-impl<E: EthSpec> SchedulerType<E> {
-    // TODO(beacon-processor) make this config driven
-    pub fn new() {}
+// pub enum SchedulerType<E: EthSpec> {
+//     PriorityScheduler(priority_scheduler::Scheduler<E>),
+// }
 
-    pub fn process_work_event(&self) {}
-}
+// impl<E: EthSpec> SchedulerType<E> {
+//     // TODO(beacon-processor) make this config driven
+//     pub fn run(
+//         &self, 
+//         event_rx: mpsc::Receiver<WorkEvent<E>>,
+//         work_journal_tx: Option<mpsc::Sender<&'static str>>,
+//     ) {
+
+//     }
+
+//     pub fn process_work_event(&self) {}
+// }

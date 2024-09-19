@@ -189,8 +189,6 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     let BeaconProcessorChannels {
         beacon_processor_tx,
         beacon_processor_rx,
-        work_reprocessing_tx,
-        work_reprocessing_rx,
     } = BeaconProcessorChannels::new(&beacon_processor_config);
 
     let beacon_processor_send = beacon_processor_tx;
@@ -204,8 +202,6 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     }
     .spawn_manager(
         beacon_processor_rx,
-        work_reprocessing_tx,
-        work_reprocessing_rx,
         None,
         chain.slot_clock.clone(),
         chain.spec.maximum_gossip_clock_disparity(),

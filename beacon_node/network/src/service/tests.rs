@@ -80,8 +80,6 @@ mod tests {
             let BeaconProcessorChannels {
                 beacon_processor_tx,
                 beacon_processor_rx: _beacon_processor_rx,
-                work_reprocessing_tx,
-                work_reprocessing_rx: _work_reprocessing_rx,
             } = <_>::default();
 
             let _network_service = NetworkService::start(

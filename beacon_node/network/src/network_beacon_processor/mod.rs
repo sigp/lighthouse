@@ -54,7 +54,6 @@ pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     pub network_tx: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     pub sync_tx: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
-    pub reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
     pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     pub invalid_block_storage: InvalidBlockStorage,
     pub executor: TaskExecutor,
@@ -786,8 +785,6 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         let BeaconProcessorChannels {
             beacon_processor_tx,
             beacon_processor_rx,
-            work_reprocessing_tx,
-            work_reprocessing_rx: _work_reprocessing_rx,
         } = <_>::default();
 
         let (network_tx, _network_rx) = mpsc::unbounded_channel();
@@ -799,7 +796,6 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
             chain,
             network_tx,
             sync_tx,
-            reprocess_tx: work_reprocessing_tx,
             network_globals,
             invalid_block_storage: InvalidBlockStorage::Disabled,
             executor,
