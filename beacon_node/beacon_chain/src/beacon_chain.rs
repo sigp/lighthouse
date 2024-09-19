@@ -5639,7 +5639,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut ctxt = ConsensusContext::new(block.slot());
 
         let consensus_block_value = self
-            .compute_beacon_block_reward(block.message(), Hash256::zero(), &mut state)
+            .compute_beacon_block_reward(block.message(), &mut state)
             .map(|reward| reward.total)
             .unwrap_or(0);
 
@@ -6987,32 +6987,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<(LightClientBootstrap<T::EthSpec>, ForkName)>, Error> {
-        let Some(block) = self.get_blinded_block(block_root)? else {
-            return Ok(None);
-        };
+        let head_state = &self.head().snapshot.beacon_state;
+        let finalized_period = head_state
+            .finalized_checkpoint()
+            .epoch
+            .sync_committee_period(&self.spec)?;
 
-        let (state_root, slot) = (block.state_root(), block.slot());
-
-        let Some(mut state) = self.get_state(&state_root, Some(slot))? else {
-            return Ok(None);
-        };
-
-        let fork_name = state
-            .fork_name(&self.spec)
-            .map_err(Error::InconsistentFork)?;
-
-        match fork_name {
-            ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra => {
-                LightClientBootstrap::from_beacon_state(&mut state, &block, &self.spec)
-                    .map(|bootstrap| Some((bootstrap, fork_name)))
-                    .map_err(Error::LightClientError)
-            }
-            ForkName::Base => Err(Error::UnsupportedFork),
-        }
+        self.light_client_server_cache.get_light_client_bootstrap(
+            &self.store,
+            block_root,
+            finalized_period,
+            &self.spec,
+        )
     }
 
     pub fn metrics(&self) -> BeaconChainMetrics {

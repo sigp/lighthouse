@@ -1032,17 +1032,17 @@ impl TestRig {
         match response_type {
             ResponseType::Block => self
                 .pop_received_processor_event(|ev| {
-                    (ev.work_type() == beacon_processor::RPC_BLOCK).then_some(())
+                    (ev.work_type() == beacon_processor::WorkType::RpcBlock).then_some(())
                 })
                 .unwrap_or_else(|e| panic!("Expected block work event: {e}")),
             ResponseType::Blob => self
                 .pop_received_processor_event(|ev| {
-                    (ev.work_type() == beacon_processor::RPC_BLOBS).then_some(())
+                    (ev.work_type() == beacon_processor::WorkType::RpcBlobs).then_some(())
                 })
                 .unwrap_or_else(|e| panic!("Expected blobs work event: {e}")),
             ResponseType::CustodyColumn => self
                 .pop_received_processor_event(|ev| {
-                    (ev.work_type() == beacon_processor::RPC_CUSTODY_COLUMN).then_some(())
+                    (ev.work_type() == beacon_processor::WorkType::RpcCustodyColumn).then_some(())
                 })
                 .unwrap_or_else(|e| panic!("Expected column work event: {e}")),
         }
@@ -1050,7 +1050,7 @@ impl TestRig {
 
     fn expect_rpc_custody_column_work_event(&mut self) {
         self.pop_received_processor_event(|ev| {
-            if ev.work_type() == beacon_processor::RPC_CUSTODY_COLUMN {
+            if ev.work_type() == beacon_processor::WorkType::RpcCustodyColumn {
                 Some(())
             } else {
                 None
@@ -1061,7 +1061,7 @@ impl TestRig {
 
     fn expect_rpc_sample_verify_work_event(&mut self) {
         self.pop_received_processor_event(|ev| {
-            if ev.work_type() == beacon_processor::RPC_VERIFY_DATA_COLUMNS {
+            if ev.work_type() == beacon_processor::WorkType::RpcVerifyDataColumn {
                 Some(())
             } else {
                 None
@@ -1072,7 +1072,7 @@ impl TestRig {
 
     fn expect_sampling_result_work(&mut self) {
         self.pop_received_processor_event(|ev| {
-            if ev.work_type() == beacon_processor::SAMPLING_RESULT {
+            if ev.work_type() == beacon_processor::WorkType::SamplingResult {
                 Some(())
             } else {
                 None
@@ -1103,7 +1103,7 @@ impl TestRig {
         match self.beacon_processor_rx.try_recv() {
             Ok(work) => {
                 // Parent chain sends blocks one by one
-                assert_eq!(work.work_type(), beacon_processor::RPC_BLOCK);
+                assert_eq!(work.work_type(), beacon_processor::WorkType::RpcBlock);
             }
             other => panic!(
                 "Expected rpc_block from chain segment process, found {:?}",
@@ -1972,12 +1972,13 @@ fn sampling_happy_path() {
 }
 
 #[test]
-#[ignore] // Ignoring due to flakiness https://github.com/sigp/lighthouse/issues/6319
 fn sampling_with_retries() {
     let Some(mut r) = TestRig::test_setup_after_peerdas() else {
         return;
     };
     r.new_connected_peers_for_peerdas();
+    // Add another supernode to ensure that the node can retry.
+    r.new_connected_supernode_peer();
     let (block, data_columns) = r.rand_block_and_data_columns();
     let block_root = block.canonical_root();
     r.trigger_sample_block(block_root, block.slot());
