@@ -207,7 +207,6 @@ pub struct ChainSpec {
     pub target_aggregators_per_committee: u64,
     pub gossip_max_size: u64,
     pub max_request_blocks: u64,
-    pub epochs_per_subnet_subscription: u64,
     pub min_epochs_for_block_requests: u64,
     pub max_chunk_size: u64,
     pub ttfb_timeout: u64,
@@ -218,9 +217,7 @@ pub struct ChainSpec {
     pub message_domain_valid_snappy: [u8; 4],
     pub subnets_per_node: u8,
     pub attestation_subnet_count: u64,
-    pub attestation_subnet_extra_bits: u8,
     pub attestation_subnet_prefix_bits: u8,
-    pub attestation_subnet_shuffling_prefix_bits: u8,
 
     /*
      * Networking Deneb
@@ -822,7 +819,6 @@ impl ChainSpec {
             subnets_per_node: 2,
             maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
             target_aggregators_per_committee: 16,
-            epochs_per_subnet_subscription: default_epochs_per_subnet_subscription(),
             gossip_max_size: default_gossip_max_size(),
             min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
             max_chunk_size: default_max_chunk_size(),
@@ -830,10 +826,7 @@ impl ChainSpec {
             resp_timeout: default_resp_timeout(),
             message_domain_invalid_snappy: default_message_domain_invalid_snappy(),
             message_domain_valid_snappy: default_message_domain_valid_snappy(),
-            attestation_subnet_extra_bits: default_attestation_subnet_extra_bits(),
             attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
-            attestation_subnet_shuffling_prefix_bits:
-                default_attestation_subnet_shuffling_prefix_bits(),
             max_request_blocks: default_max_request_blocks(),
 
             /*
@@ -1142,7 +1135,6 @@ impl ChainSpec {
             subnets_per_node: 4, // Make this larger than usual to avoid network damage
             maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
             target_aggregators_per_committee: 16,
-            epochs_per_subnet_subscription: default_epochs_per_subnet_subscription(),
             gossip_max_size: default_gossip_max_size(),
             min_epochs_for_block_requests: 33024,
             max_chunk_size: default_max_chunk_size(),
@@ -1150,11 +1142,8 @@ impl ChainSpec {
             resp_timeout: default_resp_timeout(),
             message_domain_invalid_snappy: default_message_domain_invalid_snappy(),
             message_domain_valid_snappy: default_message_domain_valid_snappy(),
-            attestation_subnet_extra_bits: default_attestation_subnet_extra_bits(),
-            attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
-            attestation_subnet_shuffling_prefix_bits:
-                default_attestation_subnet_shuffling_prefix_bits(),
             max_request_blocks: default_max_request_blocks(),
+            attestation_subnet_prefix_bits: default_attestation_subnet_prefix_bits(),
 
             /*
              * Networking Deneb Specific
@@ -1314,9 +1303,6 @@ pub struct Config {
     #[serde(default = "default_max_request_blocks")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blocks: u64,
-    #[serde(default = "default_epochs_per_subnet_subscription")]
-    #[serde(with = "serde_utils::quoted_u64")]
-    epochs_per_subnet_subscription: u64,
     #[serde(default = "default_min_epochs_for_block_requests")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_epochs_for_block_requests: u64,
@@ -1341,15 +1327,9 @@ pub struct Config {
     #[serde(default = "default_message_domain_valid_snappy")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     message_domain_valid_snappy: [u8; 4],
-    #[serde(default = "default_attestation_subnet_extra_bits")]
-    #[serde(with = "serde_utils::quoted_u8")]
-    attestation_subnet_extra_bits: u8,
     #[serde(default = "default_attestation_subnet_prefix_bits")]
     #[serde(with = "serde_utils::quoted_u8")]
     attestation_subnet_prefix_bits: u8,
-    #[serde(default = "default_attestation_subnet_shuffling_prefix_bits")]
-    #[serde(with = "serde_utils::quoted_u8")]
-    attestation_subnet_shuffling_prefix_bits: u8,
     #[serde(default = "default_max_request_blocks_deneb")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blocks_deneb: u64,
@@ -1432,6 +1412,10 @@ fn default_subnets_per_node() -> u8 {
     2u8
 }
 
+fn default_attestation_subnet_prefix_bits() -> u8 {
+    6
+}
+
 const fn default_max_per_epoch_activation_churn_limit() -> u64 {
     8
 }
@@ -1464,18 +1448,6 @@ const fn default_message_domain_valid_snappy() -> [u8; 4] {
     [1, 0, 0, 0]
 }
 
-const fn default_attestation_subnet_extra_bits() -> u8 {
-    0
-}
-
-const fn default_attestation_subnet_prefix_bits() -> u8 {
-    6
-}
-
-const fn default_attestation_subnet_shuffling_prefix_bits() -> u8 {
-    3
-}
-
 const fn default_max_request_blocks() -> u64 {
     1024
 }
@@ -1506,10 +1478,6 @@ const fn default_min_per_epoch_churn_limit_electra() -> u64 {
 
 const fn default_max_per_epoch_activation_exit_churn_limit() -> u64 {
     256_000_000_000
-}
-
-const fn default_epochs_per_subnet_subscription() -> u64 {
-    256
 }
 
 const fn default_attestation_propagation_slot_range() -> u64 {
@@ -1686,6 +1654,7 @@ impl Config {
             shard_committee_period: spec.shard_committee_period,
             eth1_follow_distance: spec.eth1_follow_distance,
             subnets_per_node: spec.subnets_per_node,
+            attestation_subnet_prefix_bits: spec.attestation_subnet_prefix_bits,
 
             inactivity_score_bias: spec.inactivity_score_bias,
             inactivity_score_recovery_rate: spec.inactivity_score_recovery_rate,
@@ -1702,7 +1671,6 @@ impl Config {
 
             gossip_max_size: spec.gossip_max_size,
             max_request_blocks: spec.max_request_blocks,
-            epochs_per_subnet_subscription: spec.epochs_per_subnet_subscription,
             min_epochs_for_block_requests: spec.min_epochs_for_block_requests,
             max_chunk_size: spec.max_chunk_size,
             ttfb_timeout: spec.ttfb_timeout,
@@ -1711,9 +1679,6 @@ impl Config {
             maximum_gossip_clock_disparity_millis: spec.maximum_gossip_clock_disparity_millis,
             message_domain_invalid_snappy: spec.message_domain_invalid_snappy,
             message_domain_valid_snappy: spec.message_domain_valid_snappy,
-            attestation_subnet_extra_bits: spec.attestation_subnet_extra_bits,
-            attestation_subnet_prefix_bits: spec.attestation_subnet_prefix_bits,
-            attestation_subnet_shuffling_prefix_bits: spec.attestation_subnet_shuffling_prefix_bits,
             max_request_blocks_deneb: spec.max_request_blocks_deneb,
             max_request_blob_sidecars: spec.max_request_blob_sidecars,
             max_request_data_column_sidecars: spec.max_request_data_column_sidecars,
@@ -1767,6 +1732,7 @@ impl Config {
             shard_committee_period,
             eth1_follow_distance,
             subnets_per_node,
+            attestation_subnet_prefix_bits,
             inactivity_score_bias,
             inactivity_score_recovery_rate,
             ejection_balance,
@@ -1784,11 +1750,7 @@ impl Config {
             resp_timeout,
             message_domain_invalid_snappy,
             message_domain_valid_snappy,
-            attestation_subnet_extra_bits,
-            attestation_subnet_prefix_bits,
-            attestation_subnet_shuffling_prefix_bits,
             max_request_blocks,
-            epochs_per_subnet_subscription,
             attestation_propagation_slot_range,
             maximum_gossip_clock_disparity_millis,
             max_request_blocks_deneb,
@@ -1852,11 +1814,8 @@ impl Config {
             resp_timeout,
             message_domain_invalid_snappy,
             message_domain_valid_snappy,
-            attestation_subnet_extra_bits,
             attestation_subnet_prefix_bits,
-            attestation_subnet_shuffling_prefix_bits,
             max_request_blocks,
-            epochs_per_subnet_subscription,
             attestation_propagation_slot_range,
             maximum_gossip_clock_disparity_millis,
             max_request_blocks_deneb,
@@ -2153,9 +2112,7 @@ mod yaml_tests {
         check_default!(resp_timeout);
         check_default!(message_domain_invalid_snappy);
         check_default!(message_domain_valid_snappy);
-        check_default!(attestation_subnet_extra_bits);
         check_default!(attestation_subnet_prefix_bits);
-        check_default!(attestation_subnet_shuffling_prefix_bits);
 
         assert_eq!(chain_spec.bellatrix_fork_epoch, None);
     }
