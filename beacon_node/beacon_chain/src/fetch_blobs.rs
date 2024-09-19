@@ -132,87 +132,83 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         let blobs_cloned = fixed_blob_sidecar_list.clone();
         let chain_cloned = chain.clone();
         let (data_columns_sender, data_columns_receiver) = tokio::sync::mpsc::channel(1);
-        chain
-            .task_executor
-            .spawn_handle(
-                async move {
-                    let mut timer = metrics::start_timer_vec(
-                        &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
-                        &[&blobs_cloned.len().to_string()],
-                    );
-                    let blob_refs = blobs_cloned
-                        .iter()
-                        .filter_map(|b| b.as_ref().map(|b| &b.blob))
-                        .collect::<Vec<_>>();
-                    let data_columns_result =
-                        blobs_to_data_column_sidecars(&blob_refs, &block_cloned, &kzg, &spec)
-                            .discard_timer_on_break(&mut timer);
-                    drop(timer);
+        chain.task_executor.spawn_blocking(
+            move || {
+                let mut timer = metrics::start_timer_vec(
+                    &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
+                    &[&blobs_cloned.len().to_string()],
+                );
+                let blob_refs = blobs_cloned
+                    .iter()
+                    .filter_map(|b| b.as_ref().map(|b| &b.blob))
+                    .collect::<Vec<_>>();
+                let data_columns_result =
+                    blobs_to_data_column_sidecars(&blob_refs, &block_cloned, &kzg, &spec)
+                        .discard_timer_on_break(&mut timer);
+                drop(timer);
 
-                    let mut all_data_columns = match data_columns_result {
-                        Ok(d) => d,
-                        Err(e) => {
-                            error!(
-                                logger,
-                                "Failed to build data column sidecars from blobs";
-                                "error" => ?e
-                            );
-                            return;
-                        }
-                    };
-
-                    if let Err(e) = data_columns_sender.try_send(all_data_columns.clone()) {
-                        error!(logger, "Failed to send computed data columns"; "error" => ?e);
-                    };
-
-                    // Check indices from cache before sending the columns, to make sure we don't
-                    // publish components already seen on gossip.
-                    let is_supernode = chain_cloned
-                        .data_availability_checker
-                        .get_custody_columns_count()
-                        == spec.number_of_columns;
-
-                    // At the moment non supernodes are not required to publish any columns.
-                    // TODO(das): we could experiment with having full nodes publish their custodied
-                    // columns here.
-                    if !is_supernode {
+                let mut all_data_columns = match data_columns_result {
+                    Ok(d) => d,
+                    Err(e) => {
+                        error!(
+                            logger,
+                            "Failed to build data column sidecars from blobs";
+                            "error" => ?e
+                        );
                         return;
                     }
+                };
 
-                    // To reduce bandwidth for supernodes: permute the columns to publish and
-                    // publish them in batches. Our hope is that some columns arrive from
-                    // other supernodes in the meantime, obviating the need for us to publish
-                    // them. If no other publisher exists for a column, it will eventually get
-                    // published here.
-                    // FIXME(das): deduplicate this wrt to gossip/sync methods
-                    all_data_columns.shuffle(&mut rand::thread_rng());
+                if let Err(e) = data_columns_sender.try_send(all_data_columns.clone()) {
+                    error!(logger, "Failed to send computed data columns"; "error" => ?e);
+                };
 
-                    let batch_size =
-                        all_data_columns.len() / SUPERNODE_DATA_COLUMN_PUBLICATION_BATCHES;
-                    for batch in all_data_columns.chunks(batch_size) {
-                        let already_seen = chain_cloned
-                            .data_availability_checker
-                            .imported_custody_column_indexes(&block_root)
-                            .unwrap_or_default();
-                        let publishable = batch
-                            .iter()
-                            .filter(|col| !already_seen.contains(&col.index()))
-                            .cloned()
-                            .collect::<Vec<_>>();
-                        if !publishable.is_empty() {
-                            debug!(
-                                chain_cloned.log,
-                                "Publishing data columns from EL";
-                                "count" => publishable.len()
-                            );
-                            publish_fn(BlobsOrDataColumns::DataColumns(publishable));
-                        }
-                        tokio::time::sleep(SUPERNODE_DATA_COLUMN_PUBLICATION_BATCH_INTERVAL).await;
+                // Check indices from cache before sending the columns, to make sure we don't
+                // publish components already seen on gossip.
+                let is_supernode = chain_cloned
+                    .data_availability_checker
+                    .get_custody_columns_count()
+                    == spec.number_of_columns;
+
+                // At the moment non supernodes are not required to publish any columns.
+                // TODO(das): we could experiment with having full nodes publish their custodied
+                // columns here.
+                if !is_supernode {
+                    return;
+                }
+
+                // To reduce bandwidth for supernodes: permute the columns to publish and
+                // publish them in batches. Our hope is that some columns arrive from
+                // other supernodes in the meantime, obviating the need for us to publish
+                // them. If no other publisher exists for a column, it will eventually get
+                // published here.
+                // FIXME(das): deduplicate this wrt to gossip/sync methods
+                all_data_columns.shuffle(&mut rand::thread_rng());
+
+                let batch_size = all_data_columns.len() / SUPERNODE_DATA_COLUMN_PUBLICATION_BATCHES;
+                for batch in all_data_columns.chunks(batch_size) {
+                    let already_seen = chain_cloned
+                        .data_availability_checker
+                        .imported_custody_column_indexes(&block_root)
+                        .unwrap_or_default();
+                    let publishable = batch
+                        .iter()
+                        .filter(|col| !already_seen.contains(&col.index()))
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    if !publishable.is_empty() {
+                        debug!(
+                            chain_cloned.log,
+                            "Publishing data columns from EL";
+                            "count" => publishable.len()
+                        );
+                        publish_fn(BlobsOrDataColumns::DataColumns(publishable));
                     }
-                },
-                "compute_data_columns",
-            )
-            .ok_or(FetchEngineBlobError::RuntimeShutdown)?;
+                    std::thread::sleep(SUPERNODE_DATA_COLUMN_PUBLICATION_BATCH_INTERVAL);
+                }
+            },
+            "compute_data_columns",
+        );
 
         Some(data_columns_receiver)
     } else {
