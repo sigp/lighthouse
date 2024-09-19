@@ -362,10 +362,7 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
 pub mod tests {
     use super::*;
     use crate::create_validators::tests::TestBuilder as CreateTestBuilder;
-    use std::{
-        fs::{self, File},
-        str::FromStr,
-    };
+    use std::{fs, str::FromStr};
     use tempfile::{tempdir, TempDir};
     use validator_client::http_api::{test_utils::ApiTester, Config as HttpConfig};
 
@@ -453,11 +450,11 @@ pub mod tests {
                 })
                 .unwrap();
 
-            let validator_standard = &validators[0];
-            let validator_json = validator_standard.voting_keystore.0.clone();
+            // let validator_standard = &validators[0];
+            // let validator_json = validator_standard.voting_keystore.0.clone();
 
-            let keystore_file = File::create(&validators_file_path).unwrap();
-            validator_json.to_json_writer(keystore_file).unwrap();
+            // let keystore_file = File::create(&validators_file_path).unwrap();
+            // validator_json.to_json_writer(keystore_file).unwrap();
 
             self.import_config.validators_file_path = create_result.validators_file_path();
             self.import_config.password = Some(validator_standard.voting_keystore_password.clone());
