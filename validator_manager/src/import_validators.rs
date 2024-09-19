@@ -392,7 +392,7 @@ pub mod tests {
                     vc_url: vc.url.clone(),
                     vc_token_path,
                     ignore_duplicates: false,
-                    password: ZeroizeString::from_str("password").unwrap(),
+                    password: Some(ZeroizeString::from_str("password").unwrap()),
                     fee_recipient: None,
                     builder_boost_factor: None,
                     gas_limit: None,
