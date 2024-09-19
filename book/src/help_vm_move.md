@@ -88,8 +88,6 @@ Options:
           A HTTP(S) address of a validator client using the keymanager-API. This
           validator client is the "source" and contains the validators that are
           to be moved.
-      --stdin-inputs
-          If present, read all user inputs from stdin instead of tty.
       --suggested-fee-recipient <ETH1_ADDRESS>
           All created validators will use this value for the suggested fee
           recipient. Omit this flag to use the default value from the VC.
@@ -142,6 +140,8 @@ Flags:
           contain sensitive information about your validator and so this flag
           should be used with caution. For Windows users, the log file
           permissions will be inherited from the parent folder.
+      --stdin-inputs
+          If present, read all user inputs from stdin instead of tty.
 ```
 
 <style> .content main {max-width:88%;} </style>

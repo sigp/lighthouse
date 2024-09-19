@@ -104,6 +104,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     kzg: Option<Arc<Kzg>>,
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
+    import_all_data_columns: bool,
 }
 
 impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
@@ -145,6 +146,7 @@ where
             kzg: None,
             task_executor: None,
             validator_monitor_config: None,
+            import_all_data_columns: false,
         }
     }
 
@@ -407,6 +409,11 @@ where
                 .init_blob_info(genesis.beacon_block.slot())
                 .map_err(|e| format!("Failed to initialize genesis blob info: {:?}", e))?,
         );
+        self.pending_io_batch.push(
+            store
+                .init_data_column_info(genesis.beacon_block.slot())
+                .map_err(|e| format!("Failed to initialize genesis data column info: {:?}", e))?,
+        );
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis)
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
@@ -571,6 +578,11 @@ where
                 .init_blob_info(weak_subj_block.slot())
                 .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
         );
+        self.pending_io_batch.push(
+            store
+                .init_data_column_info(weak_subj_block.slot())
+                .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
+        );
 
         // Store pruning checkpoint to prevent attempting to prune before the anchor state.
         self.pending_io_batch
@@ -612,6 +624,12 @@ where
     /// Sets the `BeaconChain` execution layer.
     pub fn execution_layer(mut self, execution_layer: Option<ExecutionLayer<E>>) -> Self {
         self.execution_layer = execution_layer;
+        self
+    }
+
+    /// Sets whether to require and import all data columns when importing block.
+    pub fn import_all_data_columns(mut self, import_all_data_columns: bool) -> Self {
+        self.import_all_data_columns = import_all_data_columns;
         self
     }
 
@@ -965,8 +983,14 @@ where
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
             data_availability_checker: Arc::new(
-                DataAvailabilityChecker::new(slot_clock, self.kzg.clone(), store, &log, self.spec)
-                    .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
+                DataAvailabilityChecker::new(
+                    slot_clock,
+                    self.kzg.clone(),
+                    store,
+                    self.import_all_data_columns,
+                    self.spec,
+                )
+                .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
         };

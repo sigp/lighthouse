@@ -1,6 +1,7 @@
 mod block_root;
 mod check_deposit_data;
 mod generate_bootnode_enr;
+mod http_sync;
 mod indexed_attestations;
 mod mnemonic_validators;
 mod mock_el;
@@ -552,6 +553,74 @@ fn main() {
                         .display_order(0)
                 )
         )
+        .subcommand(
+            Command::new("http-sync")
+                .about("Manual sync")
+                .arg(
+                    Arg::new("start-block")
+                        .long("start-block")
+                        .value_name("BLOCK_ID")
+                        .action(ArgAction::Set)
+                        .help("Block ID of source's head")
+                        .default_value("head")
+                        .required(true)
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("source-url")
+                        .long("source-url")
+                        .value_name("URL")
+                        .action(ArgAction::Set)
+                        .help("URL to a synced beacon-API provider")
+                        .required(true)
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("target-url")
+                        .long("target-url")
+                        .value_name("URL")
+                        .action(ArgAction::Set)
+                        .help("URL to an unsynced beacon-API provider")
+                        .required(true)
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("testnet-dir")
+                        .short('d')
+                        .long("testnet-dir")
+                        .value_name("PATH")
+                        .action(ArgAction::Set)
+                        .global(true)
+                        .help("The testnet dir.")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("network")
+                        .long("network")
+                        .value_name("NAME")
+                        .action(ArgAction::Set)
+                        .global(true)
+                        .help("The network to use. Defaults to mainnet.")
+                        .conflicts_with("testnet-dir")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("known-common-ancestor")
+                        .long("known-common-ancestor")
+                        .value_name("BLOCK_ID")
+                        .action(ArgAction::Set)
+                        .help("Block ID of common ancestor, if known.")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("block-cache-dir")
+                        .long("block-cache-dir")
+                        .value_name("PATH")
+                        .action(ArgAction::Set)
+                        .help("Directory to keep a cache of the downloaded SSZ blocks.")
+                        .display_order(0)
+                )
+        )
         .get_matches();
 
     let result = matches
@@ -638,8 +707,10 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
         }
         Some(("check-deposit-data", matches)) => check_deposit_data::run(matches)
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
-        Some(("generate-bootnode-enr", matches)) => generate_bootnode_enr::run::<E>(matches)
-            .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
+        Some(("generate-bootnode-enr", matches)) => {
+            generate_bootnode_enr::run::<E>(matches, &env.eth2_config.spec)
+                .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e))
+        }
         Some(("mnemonic-validators", matches)) => mnemonic_validators::run(matches)
             .map_err(|e| format!("Failed to run mnemonic-validators command: {}", e)),
         Some(("indexed-attestations", matches)) => indexed_attestations::run::<E>(matches)
@@ -656,6 +727,11 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
         }
         Some(("mock-el", matches)) => mock_el::run::<E>(env, matches)
             .map_err(|e| format!("Failed to run mock-el command: {}", e)),
+        Some(("http-sync", matches)) => {
+            let network_config = get_network_config()?;
+            http_sync::run::<E>(env, network_config, matches)
+                .map_err(|e| format!("Failed to run http-sync command: {}", e))
+        }
         Some((other, _)) => Err(format!("Unknown subcommand {}. See --help.", other)),
         _ => Err("No subcommand provided. See --help.".to_string()),
     }
