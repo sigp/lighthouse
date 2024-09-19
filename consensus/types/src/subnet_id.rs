@@ -172,17 +172,11 @@ mod tests {
         for x in 0..node_ids.len() {
             println!("Test: {}", x);
             println!(
-<<<<<<< HEAD
-                "NodeId: {}\nExpected_subnets: {:?}",
+                "NodeId: {:?}\nExpected_subnets: {:?}",
                 node_ids[x], expected_subnets[x]
-=======
-                "NodeId: {:?}\n Epoch: {}\n, expected_update_time: {}\n, expected_subnets: {:?}",
-                node_ids[x], epochs[x], expected_valid_time[x], expected_subnets[x]
->>>>>>> network/unstable
             );
 
-            let computed_subnets =
-                SubnetId::compute_attestation_subnets::<crate::MainnetEthSpec>(node_ids[x], &spec);
+            let computed_subnets = SubnetId::compute_attestation_subnets(node_ids[x], &spec);
 
             assert_eq!(
                 expected_subnets[x],

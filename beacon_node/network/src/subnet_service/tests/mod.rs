@@ -22,7 +22,7 @@ use types::{
 
 // Set to enable/disable logging
 const TEST_LOG_LEVEL: Option<slog::Level> = Some(slog::Level::Debug);
-//const TEST_LOG_LEVEL: Option<slog::Level> = None;
+// const TEST_LOG_LEVEL: Option<slog::Level> = None;
 
 const SLOT_DURATION_MILLIS: u64 = 400;
 
@@ -45,7 +45,7 @@ impl TestBeaconChain {
 
         let keypairs = generate_deterministic_keypairs(1);
 
-        let log = get_logger(None);
+        let log = get_logger(TEST_LOG_LEVEL);
         let store =
             HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone()).unwrap();
 

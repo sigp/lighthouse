@@ -140,7 +140,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
         } else {
             // Not subscribed to all subnets, so just calculate the required subnets from the
             for subnet_id in
-                SubnetId::compute_attestation_subnets(node_id.raw().into(), &beacon_chain.spec)
+                SubnetId::compute_attestation_subnets(node_id.raw(), &beacon_chain.spec)
             {
                 permanent_attestation_subscriptions.insert(Subnet::Attestation(subnet_id));
             }
