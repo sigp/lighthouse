@@ -5640,7 +5640,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut ctxt = ConsensusContext::new(block.slot());
 
         let consensus_block_value = self
-            .compute_beacon_block_reward(block.message(), Hash256::zero(), &mut state)
+            .compute_beacon_block_reward(block.message(), &mut state)
             .map(|reward| reward.total)
             .unwrap_or(0);
 
