@@ -462,6 +462,7 @@ pub mod tests {
             let validator_standard = &validators[0];
             let validator_json = validator_standard.voting_keystore.0.clone();
 
+            // Let the created file to have a file name so that it will not overwrite the file created before
             let keystore_file_path = validators_file_path.with_file_name("keystore.json");
             let keystore_file = File::create(&keystore_file_path).unwrap();
             validator_json.to_json_writer(keystore_file).unwrap();
