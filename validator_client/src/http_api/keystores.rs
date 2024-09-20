@@ -163,8 +163,6 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
         );
     }
 
-    println!("testing");
-
     Ok(ImportKeystoresResponse { data: statuses })
 }
 
