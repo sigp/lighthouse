@@ -97,7 +97,8 @@ pub fn cli_app() -> Command {
                 .value_name("ETH1_ADDRESS")
                 .help("When provided, the imported validator will use the suggested fee recipient. Omit this flag to use the default value from the VC.")
                 .action(ArgAction::Set)
-                .display_order(0),
+                .display_order(0)
+                .requires(STANDARD_FORMAT),
         )
         .arg(
             Arg::new(GAS_LIMIT)
@@ -106,7 +107,8 @@ pub fn cli_app() -> Command {
                 .help("When provided, the imported validator will use this gas limit. It is recommended \
                 to leave this as the default value by not specifying this flag.",)
                 .action(ArgAction::Set)
-                .display_order(0),
+                .display_order(0)
+                .requires(STANDARD_FORMAT),
         )
         .arg(
             Arg::new(BUILDER_PROPOSALS)
@@ -115,7 +117,8 @@ pub fn cli_app() -> Command {
                 blocks via builder rather than the local EL.",)
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
-                .display_order(0),
+                .display_order(0)
+                .requires(STANDARD_FORMAT),
         )
         .arg(
             Arg::new(BUILDER_BOOST_FACTOR)
@@ -126,7 +129,8 @@ pub fn cli_app() -> Command {
                 when choosing between a builder payload header and payload from \
                 the local execution node.",)
                 .action(ArgAction::Set)
-                .display_order(0),
+                .display_order(0)
+                .requires(STANDARD_FORMAT),
         )
         .arg(
             Arg::new(PREFER_BUILDER_PROPOSALS)
@@ -134,7 +138,8 @@ pub fn cli_app() -> Command {
                 .help("When provided, the imported validator will always prefer blocks \
                 constructed by builders, regardless of payload value.",)
                 .action(ArgAction::SetTrue)
-                .display_order(0),
+                .display_order(0)
+                .requires(STANDARD_FORMAT),
         )
         .arg(
             Arg::new(STANDARD_FORMAT)
@@ -145,7 +150,8 @@ pub fn cli_app() -> Command {
                     "Use this flag when the validator keystore files are generated using staking-deposit-cli \
                     or ethstaker-deposit-cli."
                 )
-                .display_order(0),
+                .display_order(0)
+                .requires(PASSWORD),
         )
 }
 
