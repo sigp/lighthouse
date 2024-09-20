@@ -1061,6 +1061,7 @@ name = "boot_node"
 version = "5.3.0"
 dependencies = [
  "beacon_node",
+ "bytes",
  "clap",
  "clap_utils",
  "eth2_network_config",
@@ -5063,6 +5064,7 @@ name = "lighthouse_network"
 version = "0.2.0"
 dependencies = [
  "alloy-primitives",
+ "alloy-rlp",
  "async-channel",
  "bytes",
  "delay_map",
