@@ -75,12 +75,6 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
         )));
     }
 
-    info!(
-        log,
-        "Importing keystores via standard HTTP API";
-        "count" => request.keystores.len(),
-    );
-
     // Import slashing protection data before keystores, so that new keystores don't start signing
     // without it. Do not return early on failure, propagate the failure to each key.
     let slashing_protection_status =
@@ -155,6 +149,21 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
         };
         statuses.push(status);
     }
+
+    let successful_import = statuses
+        .iter()
+        .filter(|status| matches!(status.status, ImportKeystoreStatus::Imported))
+        .count();
+
+    if successful_import > 0 {
+        info!(
+            log,
+            "Imported keystores via standard HTTP API";
+            "count" => successful_import,
+        );
+    }
+
+    println!("testing");
 
     Ok(ImportKeystoresResponse { data: statuses })
 }
@@ -241,17 +250,17 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
     let export_response = export(request, validator_store, task_executor, log.clone())?;
 
     // Check the status is Deleted to confirm deletion is successful, then only display the log
-    let successful_deletion: Vec<_> = export_response
+    let successful_deletion = export_response
         .data
         .iter()
         .filter(|response| matches!(response.status.status, DeleteKeystoreStatus::Deleted))
-        .collect();
+        .count();
 
-    if !successful_deletion.is_empty() {
+    if successful_deletion > 0 {
         info!(
             log,
             "Deleted keystore via standard HTTP API";
-            "count" => successful_deletion.len(),
+            "count" => successful_deletion,
         );
     }
 
