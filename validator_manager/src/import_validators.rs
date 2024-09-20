@@ -645,7 +645,7 @@ pub mod tests {
             .await
             .create_validators(1, 0)
             .await
-            .run_test()
+            .run_test_standard()
             .await
             .assert_ok();
     }
@@ -656,7 +656,7 @@ pub mod tests {
             .await
             .create_validators(1, 42)
             .await
-            .run_test()
+            .run_test_standard()
             .await
             .assert_ok();
     }
@@ -669,7 +669,7 @@ pub mod tests {
             .await
             .import_validators_without_checks()
             .await
-            .run_test()
+            .run_test_standard()
             .await
             .assert_err_contains("DuplicateValidator");
     }
@@ -685,7 +685,7 @@ pub mod tests {
             .await
             .import_validators_without_checks()
             .await
-            .run_test()
+            .run_test_standard()
             .await
             .assert_ok();
     }
