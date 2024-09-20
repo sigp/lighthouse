@@ -362,7 +362,10 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
 pub mod tests {
     use super::*;
     use crate::create_validators::tests::TestBuilder as CreateTestBuilder;
-    use std::{fs, str::FromStr};
+    use std::{
+        fs::{self, File},
+        str::FromStr,
+    };
     use tempfile::{tempdir, TempDir};
     use validator_client::http_api::{test_utils::ApiTester, Config as HttpConfig};
 
@@ -432,32 +435,33 @@ pub mod tests {
                 "precondition: validators are created"
             );
 
-            // let validators_file_path = create_result.validators_file_path();
+            let validators_file_path = create_result.validators_file_path();
 
-            // let validators_file = fs::OpenOptions::new()
-            //     .read(true)
-            //     .create(false)
-            //     .open(&validators_file_path)
-            //     .map_err(|e| format!("Unable to open {:?}: {:?}", validators_file_path, e))
-            //     .unwrap();
+            let validators_file = fs::OpenOptions::new()
+                .read(true)
+                .create(false)
+                .open(&validators_file_path)
+                .map_err(|e| format!("Unable to open {:?}: {:?}", validators_file_path, e))
+                .unwrap();
 
-            // let validators: Vec<ValidatorSpecification> = serde_json::from_reader(&validators_file)
-            //     .map_err(|e| {
-            //         format!(
-            //             "Unable to parse JSON in {:?}: {:?}",
-            //             validators_file_path, e
-            //         )
-            //     })
-            //     .unwrap();
+            let validators: Vec<ValidatorSpecification> = serde_json::from_reader(&validators_file)
+                .map_err(|e| {
+                    format!(
+                        "Unable to parse JSON in {:?}: {:?}",
+                        validators_file_path, e
+                    )
+                })
+                .unwrap();
 
-            // let validator_standard = &validators[0];
-            // let validator_json = validator_standard.voting_keystore.0.clone();
+            let validator_standard = &validators[0];
+            let validator_json = validator_standard.voting_keystore.0.clone();
 
-            // let keystore_file = File::create(&validators_file_path).unwrap();
-            // validator_json.to_json_writer(keystore_file).unwrap();
+            let keystore_file_path = validators_file_path.with_file_name("keystore.json");
+            let keystore_file = File::create(&keystore_file_path).unwrap();
+            validator_json.to_json_writer(keystore_file).unwrap();
 
             self.import_config.validators_file_path = create_result.validators_file_path();
-            // self.import_config.password = Some(validator_standard.voting_keystore_password.clone());
+            self.import_config.password = Some(validator_standard.voting_keystore_password.clone());
             self.create_dir = Some(create_result.output_dir);
             self
         }
@@ -498,6 +502,38 @@ pub mod tests {
                     assert_eq!(&remote_validator.derivation_path, &local_keystore.path());
                     assert_eq!(remote_validator.readonly, Some(false));
                 }
+            }
+
+            TestResult {
+                result,
+                vc: self.vc,
+            }
+        }
+
+        pub async fn run_test_standard(self) -> TestResult {
+            let result = run(self.import_config.clone()).await;
+
+            if result.is_ok() {
+                self.vc.ensure_key_cache_consistency().await;
+
+                let local_keystore: Keystore =
+                    Keystore::from_json_file(&self.import_config.validators_file_path).unwrap();
+
+                let list_keystores_response = self.vc.client.get_keystores().await.unwrap().data;
+
+                assert_eq!(
+                    1,
+                    list_keystores_response.len(),
+                    "vc should have exactly the number of validators imported"
+                );
+
+                let local_pubkey = local_keystore.public_key().unwrap().into();
+                let remote_validator = list_keystores_response
+                    .iter()
+                    .find(|validator| validator.validating_pubkey == local_pubkey)
+                    .expect("validator must exist on VC");
+                assert_eq!(&remote_validator.derivation_path, &local_keystore.path());
+                assert_eq!(remote_validator.readonly, Some(false));
             }
 
             TestResult {
@@ -582,6 +618,57 @@ pub mod tests {
 
     #[tokio::test]
     async fn import_duplicates_when_allowed() {
+        TestBuilder::new()
+            .await
+            .mutate_import_config(|config| {
+                config.ignore_duplicates = true;
+            })
+            .create_validators(1, 0)
+            .await
+            .import_validators_without_checks()
+            .await
+            .run_test()
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn create_one_validator_standard() {
+        TestBuilder::new()
+            .await
+            .create_validators(1, 0)
+            .await
+            .run_test()
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn create_one_validator_with_offset_standard() {
+        TestBuilder::new()
+            .await
+            .create_validators(1, 42)
+            .await
+            .run_test()
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn import_duplicates_when_disallowed_standard() {
+        TestBuilder::new()
+            .await
+            .create_validators(1, 0)
+            .await
+            .import_validators_without_checks()
+            .await
+            .run_test()
+            .await
+            .assert_err_contains("DuplicateValidator");
+    }
+
+    #[tokio::test]
+    async fn import_duplicates_when_allowed_standard() {
         TestBuilder::new()
             .await
             .mutate_import_config(|config| {
