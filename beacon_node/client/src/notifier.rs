@@ -8,7 +8,6 @@ use beacon_chain::{
 };
 use lighthouse_network::{types::SyncState, NetworkGlobals};
 use logging::crit;
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -40,7 +39,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     let slot_duration = Duration::from_secs(seconds_per_slot);
 
     let speedo = Mutex::new(Speedo::default());
-    let log = executor.log().clone();
 
     // Keep track of sync state and reset the speedo on specific sync state changes.
     // Specifically, if we switch between a sync and a backfill sync, reset the speedo.

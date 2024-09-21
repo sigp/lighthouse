@@ -13,7 +13,6 @@ use eth2::lighthouse_vc::{
     types::{ExportKeystoresResponse, SingleExportKeystoresResponse},
 };
 use eth2_keystore::Keystore;
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -230,9 +229,8 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
     request: DeleteKeystoresRequest,
     validator_store: Arc<ValidatorStore<T, E>>,
     task_executor: TaskExecutor,
-    log: Logger,
 ) -> Result<DeleteKeystoresResponse, Rejection> {
-    let export_response = export(request, validator_store, task_executor, log)?;
+    let export_response = export(request, validator_store, task_executor)?;
     Ok(DeleteKeystoresResponse {
         data: export_response
             .data
@@ -247,7 +245,6 @@ pub fn export<T: SlotClock + 'static, E: EthSpec>(
     request: DeleteKeystoresRequest,
     validator_store: Arc<ValidatorStore<T, E>>,
     task_executor: TaskExecutor,
-    log: Logger,
 ) -> Result<ExportKeystoresResponse, Rejection> {
     // Remove from initialized validators.
     let initialized_validators_rwlock = validator_store.initialized_validators();

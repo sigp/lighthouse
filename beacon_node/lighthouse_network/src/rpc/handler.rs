@@ -143,9 +143,6 @@ where
     /// Waker, to be sure the handler gets polled when needed.
     waker: Option<std::task::Waker>,
 
-    /// Logger for handling RPC streams
-    log: slog::Logger,
-
     /// Timeout that will me used for inbound and outbound responses.
     resp_timeout: Duration,
 }
@@ -231,7 +228,6 @@ where
         peer_id: PeerId,
         listen_protocol: SubstreamProtocol<RPCProtocol<E>, ()>,
         fork_context: Arc<ForkContext>,
-        log: &slog::Logger,
         resp_timeout: Duration,
     ) -> Self {
         RPCHandler {
@@ -252,7 +248,6 @@ where
             outbound_io_error_retries: 0,
             fork_context,
             waker: None,
-            log: log.clone(),
             resp_timeout,
         }
     }

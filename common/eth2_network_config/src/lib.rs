@@ -18,7 +18,6 @@ use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::{Client, Error};
 use sensitive_url::SensitiveUrl;
 use sha2::{Digest, Sha256};
-use slog::Logger;
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -192,7 +191,6 @@ impl Eth2NetworkConfig {
         &self,
         genesis_state_url: Option<&str>,
         timeout: Duration,
-        log: &Logger,
     ) -> Result<Option<BeaconState<E>>, String> {
         let spec = self.chain_spec::<E>()?;
         match &self.genesis_state_source {
@@ -210,9 +208,9 @@ impl Eth2NetworkConfig {
                     format!("Unable to parse genesis state bytes checksum: {:?}", e)
                 })?;
                 let bytes = if let Some(specified_url) = genesis_state_url {
-                    download_genesis_state(&[specified_url], timeout, checksum, log).await
+                    download_genesis_state(&[specified_url], timeout, checksum).await
                 } else {
-                    download_genesis_state(built_in_urls, timeout, checksum, log).await
+                    download_genesis_state(built_in_urls, timeout, checksum).await
                 }?;
                 let state = BeaconState::from_ssz_bytes(bytes.as_ref(), &spec).map_err(|e| {
                     format!("Downloaded genesis state SSZ bytes are invalid: {:?}", e)
@@ -380,7 +378,6 @@ async fn download_genesis_state(
     urls: &[&str],
     timeout: Duration,
     checksum: Hash256,
-    log: &Logger,
 ) -> Result<Vec<u8>, String> {
     if urls.is_empty() {
         return Err(

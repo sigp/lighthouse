@@ -2594,7 +2594,7 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.blocking_json_task(Priority::P1, move || {
                     let (rewards, execution_optimistic, finalized) =
                         sync_committee_rewards::compute_sync_committee_rewards(
-                            chain, block_id, validators, log,
+                            chain, block_id, validators,
                         )?;
 
                     Ok(api_types::GenericResponse::from(rewards)).map(|resp| {

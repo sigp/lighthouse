@@ -3,7 +3,7 @@ use crate::BeaconChainTypes;
 use execution_layer::{http::ENGINE_GET_CLIENT_VERSION_V1, CommitPrefix, ExecutionLayer};
 use logging::crit;
 use serde::{Deserialize, Serialize};
-use slog::Logger;
+
 use slot_clock::SlotClock;
 use std::{fmt::Debug, time::Duration};
 use task_executor::TaskExecutor;
@@ -53,7 +53,6 @@ pub struct GraffitiCalculator<T: BeaconChainTypes> {
     pub beacon_graffiti: GraffitiOrigin,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     pub epoch_duration: Duration,
-    log: Logger,
 }
 
 impl<T: BeaconChainTypes> GraffitiCalculator<T> {
@@ -61,13 +60,11 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
         beacon_graffiti: GraffitiOrigin,
         execution_layer: Option<ExecutionLayer<T::EthSpec>>,
         epoch_duration: Duration,
-        log: Logger,
     ) -> Self {
         Self {
             beacon_graffiti,
             execution_layer,
             epoch_duration,
-            log,
         }
     }
 
@@ -163,13 +160,8 @@ pub fn start_engine_version_cache_refresh_service<T: BeaconChainTypes>(
     let epoch_duration = chain.graffiti_calculator.epoch_duration;
     executor.spawn(
         async move {
-            engine_version_cache_refresh_service::<T>(
-                execution_layer,
-                slot_clock,
-                epoch_duration,
-                log,
-            )
-            .await
+            engine_version_cache_refresh_service::<T>(execution_layer, slot_clock, epoch_duration)
+                .await
         },
         "engine_version_cache_refresh_service",
     );
@@ -179,7 +171,6 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
     execution_layer: ExecutionLayer<T::EthSpec>,
     slot_clock: T::SlotClock,
     epoch_duration: Duration,
-    log: Logger,
 ) {
     // Preload the engine version cache after a brief delay to allow for EL initialization.
     // This initial priming ensures cache readiness before the service's regular update cycle begins.

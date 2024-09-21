@@ -104,7 +104,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
 
                 if eth2_network_config.genesis_state_is_known() {
                     let mut genesis_state = eth2_network_config
-                        .genesis_state::<E>(genesis_state_url.as_deref(), genesis_state_url_timeout, &logger).await?
+                        .genesis_state::<E>(genesis_state_url.as_deref(), genesis_state_url_timeout).await?
                         .ok_or_else(|| {
                             "The genesis state for this network is not known, this is an unsupported mode"
                                 .to_string()

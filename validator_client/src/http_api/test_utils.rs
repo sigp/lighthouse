@@ -115,7 +115,6 @@ impl ApiTester {
             slot_clock.clone(),
             &config,
             test_runtime.task_executor.clone(),
-            log.clone(),
         ));
 
         validator_store

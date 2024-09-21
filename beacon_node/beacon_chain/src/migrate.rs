@@ -3,7 +3,6 @@ use crate::errors::BeaconChainError;
 use crate::head_tracker::{HeadTracker, SszHeadTracker};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use parking_lot::Mutex;
-use slog::Logger;
 use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::sync::{mpsc, Arc};
@@ -39,7 +38,6 @@ pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     tx_thread: Option<Mutex<(mpsc::Sender<Notification>, thread::JoinHandle<()>)>>,
     /// Genesis block root, for persisting the `PersistedBeaconChain`.
     genesis_block_root: Hash256,
-    log: Logger,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,7 +133,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         db: Arc<HotColdDB<E, Hot, Cold>>,
         config: MigratorConfig,
         genesis_block_root: Hash256,
-        log: Logger,
     ) -> Self {
         // Estimate last migration run from DB split slot.
         let prev_migration = Arc::new(Mutex::new(PrevMigration {
@@ -145,14 +142,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         let tx_thread = if config.blocking {
             None
         } else {
-            Some(Mutex::new(Self::spawn_thread(db.clone(), log.clone())))
+            Some(Mutex::new(Self::spawn_thread(db.clone())))
         };
         Self {
             db,
             tx_thread,
             prev_migration,
             genesis_block_root,
-            log,
         }
     }
 
@@ -179,7 +175,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         if let Some(Notification::Finalization(notif)) =
             self.send_background_notification(Notification::Finalization(notif))
         {
-            Self::run_migration(self.db.clone(), notif, &self.log);
+            Self::run_migration(self.db.clone(), notif);
         }
 
         Ok(())
@@ -189,7 +185,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         if let Some(Notification::Reconstruction) =
             self.send_background_notification(Notification::Reconstruction)
         {
-            Self::run_reconstruction(self.db.clone(), &self.log);
+            Self::run_reconstruction(self.db.clone());
         }
     }
 
@@ -197,11 +193,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         if let Some(Notification::PruneBlobs(data_availability_boundary)) =
             self.send_background_notification(Notification::PruneBlobs(data_availability_boundary))
         {
-            Self::run_prune_blobs(self.db.clone(), data_availability_boundary, &self.log);
+            Self::run_prune_blobs(self.db.clone(), data_availability_boundary);
         }
     }
 
-    pub fn run_reconstruction(db: Arc<HotColdDB<E, Hot, Cold>>, log: &Logger) {
+    pub fn run_reconstruction(db: Arc<HotColdDB<E, Hot, Cold>>) {
         if let Err(e) = db.reconstruct_historic_states() {
             error!(
                 error = ?e,
@@ -210,11 +206,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         }
     }
 
-    pub fn run_prune_blobs(
-        db: Arc<HotColdDB<E, Hot, Cold>>,
-        data_availability_boundary: Epoch,
-        log: &Logger,
-    ) {
+    pub fn run_prune_blobs(db: Arc<HotColdDB<E, Hot, Cold>>, data_availability_boundary: Epoch) {
         if let Err(e) = db.try_prune_blobs(false, data_availability_boundary) {
             error!(
                 error = ?e,
@@ -234,7 +226,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
             // Restart the background thread if it has crashed.
             if let Err(tx_err) = tx.send(notif) {
-                let (new_tx, new_thread) = Self::spawn_thread(self.db.clone(), self.log.clone());
+                let (new_tx, new_thread) = Self::spawn_thread(self.db.clone());
 
                 *tx = new_tx;
                 let old_thread = mem::replace(thread, new_thread);
@@ -259,11 +251,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     }
 
     /// Perform the actual work of `process_finalization`.
-    fn run_migration(
-        db: Arc<HotColdDB<E, Hot, Cold>>,
-        notif: FinalizationNotification,
-        log: &Logger,
-    ) {
+    fn run_migration(db: Arc<HotColdDB<E, Hot, Cold>>, notif: FinalizationNotification) {
         // Do not run too frequently.
         let epoch = notif.finalized_checkpoint.epoch;
         let mut prev_migration = notif.prev_migration.lock();
@@ -307,7 +295,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             &finalized_state,
             notif.finalized_checkpoint,
             notif.genesis_block_root,
-            log,
         ) {
             Ok(PruningOutcome::Successful {
                 old_finalized_checkpoint,
@@ -361,7 +348,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             db,
             old_finalized_checkpoint.epoch,
             notif.finalized_checkpoint.epoch,
-            log,
         ) {
             warn!(error = ?e, "Database compaction failed");
         }
@@ -374,7 +360,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     /// Return a channel handle for sending requests to the thread.
     fn spawn_thread(
         db: Arc<HotColdDB<E, Hot, Cold>>,
-        log: Logger,
     ) -> (mpsc::Sender<Notification>, thread::JoinHandle<()>) {
         let (tx, rx) = mpsc::channel();
         let thread = thread::spawn(move || {
@@ -409,13 +394,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 }
                 // If reconstruction is on-going, ignore finalization migration and blob pruning.
                 if reconstruction_notif.is_some() {
-                    Self::run_reconstruction(db.clone(), &log);
+                    Self::run_reconstruction(db.clone());
                 } else {
                     if let Some(fin) = finalization_notif {
-                        Self::run_migration(db.clone(), fin, &log);
+                        Self::run_migration(db.clone(), fin);
                     }
                     if let Some(dab) = prune_blobs_notif {
-                        Self::run_prune_blobs(db.clone(), dab, &log);
+                        Self::run_prune_blobs(db.clone(), dab);
                     }
                 }
             }
@@ -434,7 +419,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         new_finalized_state: &BeaconState<E>,
         new_finalized_checkpoint: Checkpoint,
         genesis_block_root: Hash256,
-        log: &Logger,
     ) -> Result<PruningOutcome, BeaconChainError> {
         let old_finalized_checkpoint =
             store
@@ -706,7 +690,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         db: Arc<HotColdDB<E, Hot, Cold>>,
         old_finalized_epoch: Epoch,
         new_finalized_epoch: Epoch,
-        log: &Logger,
     ) -> Result<(), Error> {
         if !db.compact_on_prune() {
             return Ok(());

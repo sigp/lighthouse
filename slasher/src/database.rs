@@ -12,7 +12,6 @@ use interface::{Environment, OpenDatabases, RwTransaction};
 use lru::LruCache;
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
-use slog::Logger;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::borrow::{Borrow, Cow};

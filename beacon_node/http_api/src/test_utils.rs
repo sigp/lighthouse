@@ -175,8 +175,7 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     }));
     *network_globals.sync_state.write() = SyncState::Synced;
 
-    let eth1_service =
-        eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone()).unwrap();
+    let eth1_service = eth1::Service::new(eth1::Config::default(), chain.spec.clone()).unwrap();
 
     let beacon_processor_config = BeaconProcessorConfig {
         // The number of workers must be greater than one. Tests which use the

@@ -8,7 +8,6 @@ use eth2::lighthouse_vc::std_types::{
     ImportRemotekeyStatus, ImportRemotekeysRequest, ImportRemotekeysResponse,
     ListRemotekeysResponse, SingleListRemotekeysResponse, Status,
 };
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;

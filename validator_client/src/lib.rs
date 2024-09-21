@@ -440,7 +440,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             slot_clock.clone(),
             &config,
             context.executor.clone(),
-            log.clone(),
         ));
 
         // Ensure all validators are registered in doppelganger protection.

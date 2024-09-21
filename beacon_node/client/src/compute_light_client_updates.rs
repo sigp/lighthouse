@@ -2,7 +2,6 @@ use beacon_chain::{BeaconChain, BeaconChainTypes, LightClientProducerEvent};
 use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
 use futures::channel::mpsc::Receiver;
 use futures::StreamExt;
-use slog::Logger;
 use tokio::sync::mpsc::Sender;
 use tracing::error;
 

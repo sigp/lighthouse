@@ -5,7 +5,6 @@ use proto_array::{
     Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, ProposerHeadError,
     ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
-use slog::Logger;
 use ssz_derive::{Decode, Encode};
 use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,

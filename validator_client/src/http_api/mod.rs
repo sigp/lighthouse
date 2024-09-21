@@ -776,7 +776,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .then(move |request, validator_store, task_executor, log| {
             blocking_json_task(move || {
                 if allow_keystore_export {
-                    keystores::export(request, validator_store, task_executor, log)
+                    keystores::export(request, validator_store, task_executor)
                 } else {
                     Err(warp_utils::reject::custom_bad_request(
                         "keystore export is disabled".to_string(),
@@ -1156,9 +1156,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(task_executor_filter.clone())
         .and(log_filter.clone())
         .then(|request, validator_store, task_executor, log| {
-            blocking_json_task(move || {
-                keystores::delete(request, validator_store, task_executor, log)
-            })
+            blocking_json_task(move || keystores::delete(request, validator_store, task_executor))
         });
 
     // GET /eth/v1/remotekeys

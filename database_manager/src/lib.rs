@@ -261,7 +261,6 @@ fn parse_compact_config(compact_config: &Compact) -> Result<CompactConfig, Strin
 pub fn compact_db<E: EthSpec>(
     compact_config: CompactConfig,
     client_config: ClientConfig,
-    log: Logger,
 ) -> Result<(), Error> {
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
@@ -502,7 +501,6 @@ pub fn run<E: EthSpec>(
                     network_config.genesis_state::<E>(
                         client_config.genesis_state_url.as_deref(),
                         client_config.genesis_state_url_timeout,
-                        &log,
                     ),
                     "get_genesis_state",
                 )
@@ -516,7 +514,7 @@ pub fn run<E: EthSpec>(
         }
         cli::DatabaseManagerSubcommand::Compact(compact_config) => {
             let compact_config = parse_compact_config(compact_config)?;
-            compact_db::<E>(compact_config, client_config, log).map_err(format_err)
+            compact_db::<E>(compact_config, client_config).map_err(format_err)
         }
     }
 }

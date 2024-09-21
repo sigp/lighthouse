@@ -3,7 +3,6 @@ use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2::lighthouse::Eth1SyncStatusData;
 use ethereum_hashing::hash;
 use int_to_bytes::int_to_bytes32;
-use slog::Logger;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::get_new_eth1_data;
@@ -284,11 +283,9 @@ where
     pub fn from_ssz_container(
         ssz_container: &SszEth1,
         config: Eth1Config,
-        log: &Logger,
         spec: ChainSpec,
     ) -> Result<Self, String> {
-        let backend =
-            Eth1ChainBackend::from_bytes(&ssz_container.backend_bytes, config, log.clone(), spec)?;
+        let backend = Eth1ChainBackend::from_bytes(&ssz_container.backend_bytes, config, spec)?;
         Ok(Self {
             use_dummy_backend: ssz_container.use_dummy_backend,
             backend,
@@ -352,12 +349,7 @@ pub trait Eth1ChainBackend<E: EthSpec>: Sized + Send + Sync {
     fn as_bytes(&self) -> Vec<u8>;
 
     /// Create a `Eth1ChainBackend` instance given encoded bytes.
-    fn from_bytes(
-        bytes: &[u8],
-        config: Eth1Config,
-        log: Logger,
-        spec: ChainSpec,
-    ) -> Result<Self, String>;
+    fn from_bytes(bytes: &[u8], config: Eth1Config, spec: ChainSpec) -> Result<Self, String>;
 }
 
 /// Provides a simple, testing-only backend that generates deterministic, meaningless eth1 data.
@@ -410,12 +402,7 @@ impl<E: EthSpec> Eth1ChainBackend<E> for DummyEth1ChainBackend<E> {
     }
 
     /// Create dummy eth1 backend.
-    fn from_bytes(
-        _bytes: &[u8],
-        _config: Eth1Config,
-        _log: Logger,
-        _spec: ChainSpec,
-    ) -> Result<Self, String> {
+    fn from_bytes(_bytes: &[u8], _config: Eth1Config, _spec: ChainSpec) -> Result<Self, String> {
         Ok(Self(PhantomData))
     }
 }
@@ -434,7 +421,6 @@ impl<E: EthSpec> Default for DummyEth1ChainBackend<E> {
 #[derive(Clone)]
 pub struct CachingEth1Backend<E: EthSpec> {
     pub core: HttpService,
-    log: Logger,
     _phantom: PhantomData<E>,
 }
 
@@ -442,11 +428,10 @@ impl<E: EthSpec> CachingEth1Backend<E> {
     /// Instantiates `self` with empty caches.
     ///
     /// Does not connect to the eth1 node or start any tasks to keep the cache updated.
-    pub fn new(config: Eth1Config, log: Logger, spec: ChainSpec) -> Result<Self, String> {
+    pub fn new(config: Eth1Config, spec: ChainSpec) -> Result<Self, String> {
         Ok(Self {
-            core: HttpService::new(config, log.clone(), spec)
+            core: HttpService::new(config, spec)
                 .map_err(|e| format!("Failed to create eth1 http service: {:?}", e))?,
-            log,
             _phantom: PhantomData,
         })
     }
@@ -459,7 +444,6 @@ impl<E: EthSpec> CachingEth1Backend<E> {
     /// Instantiates `self` from an existing service.
     pub fn from_service(service: HttpService) -> Self {
         Self {
-            log: service.log.clone(),
             core: service,
             _phantom: PhantomData,
         }
@@ -589,16 +573,10 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
     }
 
     /// Recover the cached backend from encoded bytes.
-    fn from_bytes(
-        bytes: &[u8],
-        config: Eth1Config,
-        log: Logger,
-        spec: ChainSpec,
-    ) -> Result<Self, String> {
-        let inner = HttpService::from_bytes(bytes, config, log.clone(), spec)?;
+    fn from_bytes(bytes: &[u8], config: Eth1Config, spec: ChainSpec) -> Result<Self, String> {
+        let inner = HttpService::from_bytes(bytes, config, spec)?;
         Ok(Self {
             core: inner,
-            log,
             _phantom: PhantomData,
         })
     }
@@ -749,7 +727,7 @@ mod test {
 
             let log = test_logger();
             Eth1Chain::new(
-                CachingEth1Backend::new(eth1_config, log, MainnetEthSpec::default_spec()).unwrap(),
+                CachingEth1Backend::new(eth1_config, MainnetEthSpec::default_spec()).unwrap(),
             )
         }
 

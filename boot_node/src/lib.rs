@@ -48,8 +48,6 @@ pub fn run(
         log::Level::Error => drain.filter_level(Level::Error),
     };
 
-    let log = Logger::root(drain.fuse(), o!());
-
     // Run the main function emitting any errors
     if let Err(e) = match eth_spec_id {
         EthSpecId::Minimal => {

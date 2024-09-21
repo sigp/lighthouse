@@ -31,8 +31,7 @@ pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     /// Peers that have recently failed to successfully respond to a columns by root request.
     /// Having a LRUTimeCache allows this request to not have to track disconnecting peers.
     failed_peers: LRUTimeCache<PeerId>,
-    /// Logger for the `SyncNetworkContext`.
-    pub log: slog::Logger,
+
     _phantom: PhantomData<T>,
 }
 
@@ -63,7 +62,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         block_root: Hash256,
         custody_id: CustodyId,
         column_indices: &[ColumnIndex],
-        log: slog::Logger,
     ) -> Self {
         Self {
             block_root,
@@ -75,7 +73,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             ),
             active_batch_columns_requests: <_>::default(),
             failed_peers: LRUTimeCache::new(Duration::from_secs(FAILED_PEERS_CACHE_EXPIRY_SECONDS)),
-            log,
             _phantom: PhantomData,
         }
     }

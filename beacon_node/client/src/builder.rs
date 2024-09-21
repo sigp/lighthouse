@@ -288,7 +288,7 @@ where
             ClientGenesis::GenesisState => {
                 info!("Starting from known genesis state");
 
-                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
+                let genesis_state = genesis_state(&runtime_context, &config).await?;
 
                 // If the user has not explicitly allowed genesis sync, prevent
                 // them from trying to sync from genesis if we're outside of the
@@ -355,7 +355,7 @@ where
                 } else {
                     None
                 };
-                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
+                let genesis_state = genesis_state(&runtime_context, &config).await?;
 
                 builder
                     .weak_subjectivity_state(
@@ -473,7 +473,7 @@ where
                     None
                 };
 
-                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
+                let genesis_state = genesis_state(&runtime_context, &config).await?;
 
                 info!(
                     block_slot = ?block.slot(),
@@ -801,7 +801,6 @@ where
             let (listen_addr, server) = http_api::serve(ctx, exit)
                 .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
-            let http_log = runtime_context.log().clone();
             let http_api_task = async move {
                 server.await;
                 debug!("HTTP API server task ended");
@@ -1112,22 +1111,15 @@ where
 
             CachingEth1Backend::from_service(eth1_service_from_genesis)
         } else if config.purge_cache {
-            CachingEth1Backend::new(config, context.log().clone(), spec)?
+            CachingEth1Backend::new(config, spec)?
         } else {
             beacon_chain_builder
                 .get_persisted_eth1_backend()?
                 .map(|persisted| {
-                    Eth1Chain::from_ssz_container(
-                        &persisted,
-                        config.clone(),
-                        &context.log().clone(),
-                        spec.clone(),
-                    )
-                    .map(|chain| chain.into_backend())
+                    Eth1Chain::from_ssz_container(&persisted, config.clone(), spec.clone())
+                        .map(|chain| chain.into_backend())
                 })
-                .unwrap_or_else(|| {
-                    CachingEth1Backend::new(config, context.log().clone(), spec.clone())
-                })?
+                .unwrap_or_else(|| CachingEth1Backend::new(config, spec.clone()))?
         };
 
         self.eth1_service = Some(backend.core.clone());
@@ -1210,7 +1202,6 @@ where
 async fn genesis_state<E: EthSpec>(
     context: &RuntimeContext<E>,
     config: &ClientConfig,
-    log: &Logger,
 ) -> Result<BeaconState<E>, String> {
     let eth2_network_config = context
         .eth2_network_config
@@ -1220,7 +1211,6 @@ async fn genesis_state<E: EthSpec>(
         .genesis_state::<E>(
             config.genesis_state_url.as_deref(),
             config.genesis_state_url_timeout,
-            log,
         )
         .await?
         .ok_or_else(|| "Genesis state is unknown".to_string())

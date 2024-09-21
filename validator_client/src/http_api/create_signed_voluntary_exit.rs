@@ -1,7 +1,6 @@
 use crate::validator_store::ValidatorStore;
 use bls::{PublicKey, PublicKeyBytes};
 use eth2::types::GenericResponse;
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tracing::info;

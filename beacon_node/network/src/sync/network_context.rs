@@ -776,7 +776,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // TODO(das): req_id is duplicated here, also present in id
             CustodyId { requester, req_id },
             &custody_indexes_to_fetch,
-            self.log.clone(),
         );
 
         // TODO(das): start request

@@ -8,7 +8,6 @@ use lighthouse_version::version_with_platform;
 use logging::crit;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use slog::Logger;
 use slot_clock::SystemTimeSlotClock;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};

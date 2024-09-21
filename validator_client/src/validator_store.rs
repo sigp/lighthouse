@@ -11,7 +11,6 @@ use parking_lot::{Mutex, RwLock};
 use slashing_protection::{
     interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
 };
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::path::Path;
@@ -66,7 +65,6 @@ pub struct ValidatorStore<T, E: EthSpec> {
     slashing_protection_last_prune: Arc<Mutex<Epoch>>,
     genesis_validators_root: Hash256,
     spec: Arc<ChainSpec>,
-    log: Logger,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     slot_clock: T,
     fee_recipient_process: Option<Address>,
@@ -92,7 +90,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         slot_clock: T,
         config: &Config,
         task_executor: TaskExecutor,
-        log: Logger,
     ) -> Self {
         Self {
             validators: Arc::new(RwLock::new(validators)),
@@ -100,7 +97,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             slashing_protection_last_prune: Arc::new(Mutex::new(Epoch::new(0))),
             genesis_validators_root,
             spec: Arc::new(spec),
-            log,
             doppelganger_service,
             slot_clock,
             fee_recipient_process: config.fee_recipient,

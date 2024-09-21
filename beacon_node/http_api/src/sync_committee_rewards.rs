@@ -2,7 +2,6 @@ use crate::{BlockId, ExecutionOptimistic};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::SyncCommitteeReward;
 use eth2::types::ValidatorId;
-use slog::Logger;
 use state_processing::BlockReplayer;
 use std::sync::Arc;
 use tracing::debug;
@@ -13,7 +12,6 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_id: BlockId,
     validators: Vec<ValidatorId>,
-    log: Logger,
 ) -> Result<(Option<Vec<SyncCommitteeReward>>, ExecutionOptimistic, bool), warp::Rejection> {
     let (block, execution_optimistic, finalized) = block_id.blinded_block(&chain)?;
 

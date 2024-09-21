@@ -9,7 +9,6 @@ use crate::{
     IndexedAttestationId, ProposerSlashingStatus, RwTransaction, SimpleBatch, SlasherDB,
 };
 use parking_lot::Mutex;
-use slog::Logger;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, error, info};
@@ -26,26 +25,21 @@ pub struct Slasher<E: EthSpec> {
     attester_slashings: Mutex<HashSet<AttesterSlashing<E>>>,
     proposer_slashings: Mutex<HashSet<ProposerSlashing>>,
     config: Arc<Config>,
-    log: Logger,
 }
 
 impl<E: EthSpec> Slasher<E> {
-    pub fn open(config: Config, spec: Arc<ChainSpec>, log: Logger) -> Result<Self, Error> {
+    pub fn open(config: Config, spec: Arc<ChainSpec>) -> Result<Self, Error> {
         config.validate()?;
         let config = Arc::new(config);
         let db = SlasherDB::open(config.clone(), spec)?;
-        Self::from_config_and_db(config, db, log)
+        Self::from_config_and_db(config, db)
     }
 
     /// TESTING ONLY.
     ///
     /// Initialise a slasher database from an existing `db`. The caller must ensure that the
     /// database's config matches the one provided.
-    pub fn from_config_and_db(
-        config: Arc<Config>,
-        db: SlasherDB<E>,
-        log: Logger,
-    ) -> Result<Self, Error> {
+    pub fn from_config_and_db(config: Arc<Config>, db: SlasherDB<E>) -> Result<Self, Error> {
         config.validate()?;
         let attester_slashings = Mutex::new(HashSet::new());
         let proposer_slashings = Mutex::new(HashSet::new());
@@ -58,7 +52,6 @@ impl<E: EthSpec> Slasher<E> {
             attester_slashings,
             proposer_slashings,
             config,
-            log,
         })
     }
 
@@ -81,9 +74,9 @@ impl<E: EthSpec> Slasher<E> {
         &self.config
     }
 
-    pub fn log(&self) -> &Logger {
-        &self.log
-    }
+    // pub fn log(&self) -> &Logger {
+    //     &self.log
+    // }
 
     /// Accept an attestation from the network and queue it for processing.
     pub fn accept_attestation(&self, attestation: IndexedAttestation<E>) {

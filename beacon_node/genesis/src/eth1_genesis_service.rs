@@ -66,7 +66,7 @@ impl Eth1GenesisService {
         };
 
         Ok(Self {
-            eth1_service: Eth1Service::new(config, log, spec)
+            eth1_service: Eth1Service::new(config, spec)
                 .map_err(|e| format!("Failed to create eth1 service: {:?}", e))?,
             stats: Arc::new(Statistics {
                 highest_processed_block: AtomicU64::new(0),
@@ -104,7 +104,6 @@ impl Eth1GenesisService {
         spec: ChainSpec,
     ) -> Result<BeaconState<E>, String> {
         let eth1_service = &self.eth1_service;
-        let log = &eth1_service.log;
 
         let mut sync_blocks = false;
         let mut highest_processed_block = None;
@@ -238,7 +237,6 @@ impl Eth1GenesisService {
         spec: &ChainSpec,
     ) -> Result<Option<BeaconState<E>>, String> {
         let eth1_service = &self.eth1_service;
-        let log = &eth1_service.log;
 
         for block in eth1_service.blocks().read().iter() {
             // It's possible that the block and deposit caches aren't synced. Ignore any blocks

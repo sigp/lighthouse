@@ -1,7 +1,6 @@
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
 use fork_choice::{ForkChoice, PayloadVerificationStatus};
 use itertools::process_results;
-use slog::Logger;
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
     per_block_processing, per_block_processing::BlockSignatureStrategy, ConsensusContext,

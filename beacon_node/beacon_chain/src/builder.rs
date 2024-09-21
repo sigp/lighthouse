@@ -820,12 +820,8 @@ where
         })?;
 
         let migrator_config = self.store_migrator_config.unwrap_or_default();
-        let store_migrator = BackgroundMigrator::new(
-            store.clone(),
-            migrator_config,
-            genesis_block_root,
-            log.clone(),
-        );
+        let store_migrator =
+            BackgroundMigrator::new(store.clone(), migrator_config, genesis_block_root);
 
         if let Some(slot) = slot_clock.now() {
             validator_monitor.process_valid_state(
@@ -970,7 +966,6 @@ where
                 self.beacon_graffiti,
                 self.execution_layer,
                 slot_clock.slot_duration() * E::slots_per_epoch() as u32,
-                log.clone(),
             ),
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
@@ -1077,8 +1072,7 @@ where
             .as_ref()
             .ok_or("dummy_eth1_backend requires a log")?;
 
-        let backend =
-            CachingEth1Backend::new(Eth1Config::default(), log.clone(), self.spec.clone())?;
+        let backend = CachingEth1Backend::new(Eth1Config::default(), self.spec.clone())?;
 
         self.eth1_chain = Some(Eth1Chain::new_dummy(backend));
 
@@ -1158,6 +1152,7 @@ mod test {
     use std::time::Duration;
     use store::config::StoreConfig;
     use store::{HotColdDB, MemoryStore};
+
     use task_executor::test_utils::TestRuntime;
     use types::{EthSpec, MinimalEthSpec, Slot};
 

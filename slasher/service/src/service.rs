@@ -8,7 +8,6 @@ use slasher::{
     metrics::{self, SLASHER_DATABASE_SIZE, SLASHER_RUN_TIME},
     Slasher,
 };
-use slog::Logger;
 use slot_clock::SlotClock;
 use state_processing::{
     per_block_processing::errors::{
@@ -48,7 +47,6 @@ impl<T: BeaconChainTypes> SlasherService<T> {
             .slasher
             .clone()
             .ok_or("No slasher is configured")?;
-        let log = slasher.log().clone();
 
         info!(broadcast = slasher.config().broadcast, "Starting slasher");
 
@@ -66,7 +64,6 @@ impl<T: BeaconChainTypes> SlasherService<T> {
                 update_period,
                 slot_offset,
                 notif_sender,
-                log,
             ),
             "slasher_server_notifier",
         );
@@ -85,7 +82,6 @@ impl<T: BeaconChainTypes> SlasherService<T> {
         update_period: u64,
         slot_offset: f64,
         notif_sender: SyncSender<Epoch>,
-        log: Logger,
     ) {
         let slot_offset = Duration::from_secs_f64(slot_offset);
         let start_instant =
@@ -117,7 +113,6 @@ impl<T: BeaconChainTypes> SlasherService<T> {
         notif_receiver: Receiver<Epoch>,
         network_sender: UnboundedSender<NetworkMessage<T::EthSpec>>,
     ) {
-        let log = slasher.log();
         while let Ok(current_epoch) = notif_receiver.recv() {
             let t = Instant::now();
 
@@ -179,7 +174,6 @@ impl<T: BeaconChainTypes> SlasherService<T> {
         slasher: &Slasher<T::EthSpec>,
         network_sender: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     ) {
-        let log = slasher.log();
         let attester_slashings = slasher.get_attester_slashings();
 
         for slashing in attester_slashings {
@@ -233,7 +227,6 @@ impl<T: BeaconChainTypes> SlasherService<T> {
         slasher: &Slasher<T::EthSpec>,
         network_sender: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     ) {
-        let log = slasher.log();
         let proposer_slashings = slasher.get_proposer_slashings();
 
         for slashing in proposer_slashings {

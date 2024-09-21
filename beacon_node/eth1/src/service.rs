@@ -59,11 +59,7 @@ type EndpointState = Result<(), EndpointError>;
 
 /// Returns `Ok` if the endpoint is usable, i.e. is reachable and has a correct network id and
 /// chain id. Otherwise it returns `Err`.
-async fn endpoint_state(
-    endpoint: &HttpJsonRpc,
-    config_chain_id: &Eth1Id,
-    log: &Logger,
-) -> EndpointState {
+async fn endpoint_state(endpoint: &HttpJsonRpc, config_chain_id: &Eth1Id) -> EndpointState {
     let error_connecting = |e: String| {
         debug!(
             %endpoint,
@@ -387,12 +383,11 @@ pub fn endpoint_from_config(config: &Config) -> Result<HttpJsonRpc, String> {
 #[derive(Clone)]
 pub struct Service {
     inner: Arc<Inner>,
-    pub log: Logger,
 }
 
 impl Service {
     /// Creates a new service. Does not attempt to connect to the eth1 node.
-    pub fn new(config: Config, log: Logger, spec: ChainSpec) -> Result<Self, String> {
+    pub fn new(config: Config, spec: ChainSpec) -> Result<Self, String> {
         Ok(Self {
             inner: Arc::new(Inner {
                 block_cache: <_>::default(),
@@ -405,7 +400,6 @@ impl Service {
                 config: RwLock::new(config),
                 spec,
             }),
-            log,
         })
     }
 
@@ -435,7 +429,6 @@ impl Service {
                 config: RwLock::new(config),
                 spec,
             }),
-            log,
         })
     }
 
@@ -455,16 +448,10 @@ impl Service {
     }
 
     /// Recover the deposit and block caches from encoded bytes.
-    pub fn from_bytes(
-        bytes: &[u8],
-        config: Config,
-        log: Logger,
-        spec: ChainSpec,
-    ) -> Result<Self, String> {
+    pub fn from_bytes(bytes: &[u8], config: Config, spec: ChainSpec) -> Result<Self, String> {
         let inner = Inner::from_bytes(bytes, config, spec)?;
         Ok(Self {
             inner: Arc::new(inner),
-            log,
         })
     }
 
@@ -611,11 +598,10 @@ impl Service {
         &self,
     ) -> Result<(DepositCacheUpdateOutcome, BlockCacheUpdateOutcome), String> {
         let client = self.client();
-        let log = self.log.clone();
         let chain_id = self.config().chain_id.clone();
         let node_far_behind_seconds = self.inner.config.read().node_far_behind_seconds;
 
-        match endpoint_state(client, &chain_id, &log).await {
+        match endpoint_state(client, &chain_id).await {
             Ok(()) => crate::metrics::set_gauge(&metrics::ETH1_CONNECTED, 1),
             Err(e) => {
                 crate::metrics::set_gauge(&metrics::ETH1_CONNECTED, 0);
