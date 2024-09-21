@@ -735,7 +735,7 @@ fn run<E: EthSpec>(
         Some(("validator_client", matches)) => {
             let context = environment.core_context();
             let executor = context.executor.clone();
-            let config = validator_client::Config::from_cli(matches, context.log())
+            let config = validator_client::Config::from_cli(matches)
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
             // Dump configs if `dump-config` or `dump-chain-config` flags are set
             clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;

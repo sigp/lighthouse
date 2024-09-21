@@ -65,7 +65,6 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     secrets_dir: Option<PathBuf>,
     validator_store: Arc<ValidatorStore<T, E>>,
     task_executor: TaskExecutor,
-    log: Logger,
 ) -> Result<ImportKeystoresResponse, Rejection> {
     // Check request validity. This is the only cases in which we should return a 4xx code.
     if request.keystores.len() != request.passwords.len() {

@@ -53,13 +53,13 @@ pub fn run(
     // Run the main function emitting any errors
     if let Err(e) = match eth_spec_id {
         EthSpecId::Minimal => {
-            main::<types::MinimalEthSpec>(lh_matches, bn_matches, eth2_network_config, log)
+            main::<types::MinimalEthSpec>(lh_matches, bn_matches, eth2_network_config)
         }
         EthSpecId::Mainnet => {
-            main::<types::MainnetEthSpec>(lh_matches, bn_matches, eth2_network_config, log)
+            main::<types::MainnetEthSpec>(lh_matches, bn_matches, eth2_network_config)
         }
         EthSpecId::Gnosis => {
-            main::<types::GnosisEthSpec>(lh_matches, bn_matches, eth2_network_config, log)
+            main::<types::GnosisEthSpec>(lh_matches, bn_matches, eth2_network_config)
         }
     } {
         logging::crit!(?e);
@@ -70,7 +70,6 @@ fn main<E: EthSpec>(
     lh_matches: &ArgMatches,
     bn_matches: &ArgMatches,
     eth2_network_config: &Eth2NetworkConfig,
-    log: slog::Logger,
 ) -> Result<(), String> {
     // Builds a custom executor for the bootnode
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -83,7 +82,6 @@ fn main<E: EthSpec>(
         lh_matches,
         bn_matches,
         eth2_network_config,
-        log,
     ))?;
 
     Ok(())

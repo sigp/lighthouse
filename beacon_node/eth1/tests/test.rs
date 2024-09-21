@@ -829,8 +829,7 @@ mod persist {
             drop(service);
 
             let recovered_service =
-                Service::from_bytes(&eth1_bytes, config, log, MainnetEthSpec::default_spec())
-                    .unwrap();
+                Service::from_bytes(&eth1_bytes, config, MainnetEthSpec::default_spec()).unwrap();
             assert_eq!(
                 recovered_service.block_cache_len(),
                 block_count,

@@ -161,7 +161,6 @@ impl DoppelgangerState {
 /// doppelganger progression.
 async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-    log: Logger,
     current_epoch: Epoch,
     validator_indices: Vec<u64>,
 ) -> LivenessResponses {
@@ -293,18 +292,13 @@ impl DoppelgangerService {
         let get_index = move |pubkey| validator_store.validator_index(&pubkey);
 
         // Define the `get_liveness` function as one that queries the beacon node API.
-        let log = service.log.clone();
+
         let get_liveness = move |current_epoch, validator_indices| {
-            beacon_node_liveness(
-                beacon_nodes.clone(),
-                log.clone(),
-                current_epoch,
-                validator_indices,
-            )
+            beacon_node_liveness(beacon_nodes.clone(), current_epoch, validator_indices)
         };
 
         let mut shutdown_sender = context.executor.shutdown_sender();
-        let log = service.log.clone();
+
         let mut shutdown_func = move || {
             if let Err(e) =
                 shutdown_sender.try_send(ShutdownReason::Failure("Doppelganger detected."))

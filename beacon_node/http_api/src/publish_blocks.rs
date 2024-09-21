@@ -12,7 +12,6 @@ use execution_layer::ProvenancedPayload;
 use lighthouse_network::{NetworkGlobals, PubsubMessage};
 use network::NetworkMessage;
 use rand::seq::SliceRandom;
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -53,7 +52,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     provenanced_block: ProvenancedBlock<T, B>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-    log: Logger,
     validation_level: BroadcastValidation,
     duplicate_status_code: StatusCode,
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
@@ -80,7 +78,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
                               blobs_opt: Option<BlobSidecarList<T::EthSpec>>,
                               data_cols_opt: Option<DataColumnSidecarList<T::EthSpec>>,
                               sender,
-                              log,
                               seen_timestamp| {
         let publish_timestamp = timestamp_now();
         let publish_delay = publish_timestamp
@@ -154,7 +151,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     let slot = block.message().slot();
     let proposer_index = block.message().proposer_index();
     let sender_clone = network_tx.clone();
-    let log_clone = log.clone();
 
     /* if we can form a `GossipVerifiedBlock`, we've passed our basic gossip checks */
     let (gossip_verified_block, gossip_verified_blobs, gossip_verified_data_columns) =
@@ -216,7 +212,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             blobs_opt.clone(),
             data_cols_opt.clone(),
             sender_clone.clone(),
-            log.clone(),
             seen_timestamp,
         )
         .map_err(|_| warp_utils::reject::custom_server_error("unable to publish".into()))?;
@@ -231,23 +226,15 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             blobs_opt,
             data_cols_opt,
             sender_clone,
-            log_clone,
             seen_timestamp,
         ),
         BroadcastValidation::ConsensusAndEquivocation => {
-            check_slashable(
-                &chain_clone,
-                &blobs_opt,
-                block_root,
-                &block_clone,
-                &log_clone,
-            )?;
+            check_slashable(&chain_clone, &blobs_opt, block_root, &block_clone)?;
             publish_block(
                 block_clone,
                 blobs_opt,
                 data_cols_opt,
                 sender_clone,
-                log_clone,
                 seen_timestamp,
             )
         }
@@ -320,7 +307,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             // blocks built with builders we consider the broadcast time to be
             // when the blinded block is published to the builder.
             if is_locally_built_block {
-                late_block_logging(&chain, seen_timestamp, block.message(), root, "local", &log)
+                late_block_logging(&chain, seen_timestamp, block.message(), root, "local")
             }
             Ok(warp::reply().into_response())
         }
@@ -361,20 +348,18 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     blinded_block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-    log: Logger,
     validation_level: BroadcastValidation,
     duplicate_status_code: StatusCode,
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
 ) -> Result<Response, Rejection> {
     let block_root = blinded_block.canonical_root();
     let full_block: ProvenancedBlock<T, PublishBlockRequest<T::EthSpec>> =
-        reconstruct_block(chain.clone(), block_root, blinded_block, log.clone()).await?;
+        reconstruct_block(chain.clone(), block_root, blinded_block).await?;
     publish_block::<T, _>(
         Some(block_root),
         full_block,
         chain,
         network_tx,
-        log,
         validation_level,
         duplicate_status_code,
         network_globals,
@@ -389,7 +374,6 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
     block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
-    log: Logger,
 ) -> Result<ProvenancedBlock<T, PublishBlockRequest<T::EthSpec>>, Rejection> {
     let full_payload_opt = if let Ok(payload_header) = block.message().body().execution_payload() {
         let el = chain.execution_layer.as_ref().ok_or_else(|| {
@@ -428,7 +412,6 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
                 block.message(),
                 block_root,
                 "builder",
-                &log,
             );
 
             let full_payload = el
@@ -479,7 +462,6 @@ fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
     block: BeaconBlockRef<T::EthSpec, P>,
     root: Hash256,
     provenance: &str,
-    log: &Logger,
 ) {
     let delay = get_block_delay_ms(seen_timestamp, block, &chain.slot_clock);
 
@@ -523,7 +505,6 @@ fn check_slashable<T: BeaconChainTypes>(
     blobs_opt: &Option<BlobSidecarList<T::EthSpec>>,
     block_root: Hash256,
     block_clone: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
-    log_clone: &Logger,
 ) -> Result<(), BlockError> {
     let slashable_cache = chain_clone.observed_slashable.read();
     if let Some(blobs) = blobs_opt.as_ref() {

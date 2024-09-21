@@ -288,7 +288,7 @@ fn ssz_decode<T: Decode>(bytes: Cow<[u8]>) -> Result<T, Error> {
 }
 
 impl<E: EthSpec> SlasherDB<E> {
-    pub fn open(config: Arc<Config>, spec: Arc<ChainSpec>, log: Logger) -> Result<Self, Error> {
+    pub fn open(config: Arc<Config>, spec: Arc<ChainSpec>) -> Result<Self, Error> {
         info!(backend = %config.backend, "Opening slasher database");
 
         std::fs::create_dir_all(&config.database_path)?;

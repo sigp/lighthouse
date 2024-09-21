@@ -252,8 +252,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         self,
         mut notification_rx: mpsc::Receiver<BlockServiceNotification>,
     ) -> Result<(), String> {
-        let log = self.context.log().clone();
-
         info!("Block production service started");
 
         let executor = self.inner.context.executor.clone();
@@ -466,7 +464,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         let graffiti = determine_graffiti(
             &validator_pubkey,
-            log,
             self.graffiti_file.clone(),
             self.validator_store.graffiti(&validator_pubkey),
             self.graffiti,

@@ -113,7 +113,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         context: RuntimeContext<E>,
         cli_args: &ArgMatches,
     ) -> Result<Self, String> {
-        let config = Config::from_cli(cli_args, context.log())
+        let config = Config::from_cli(cli_args)
             .map_err(|e| format!("Unable to initialize config: {}", e))?;
         Self::new(context, config).await
     }
@@ -826,7 +826,6 @@ pub fn load_pem_certificate<P: AsRef<Path>>(pem_path: P) -> Result<Certificate, 
 // the next block produced by the validator with the given public key.
 pub fn determine_graffiti(
     validator_pubkey: &PublicKeyBytes,
-    log: &Logger,
     graffiti_file: Option<GraffitiFile>,
     validator_definition_graffiti: Option<Graffiti>,
     graffiti_flag: Option<Graffiti>,

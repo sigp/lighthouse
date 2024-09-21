@@ -671,7 +671,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         store: BeaconStore<T>,
         reset_payload_statuses: ResetPayloadStatuses,
         spec: &ChainSpec,
-        log: &Logger,
     ) -> Result<Option<BeaconForkChoice<T>>, Error> {
         let Some(persisted_fork_choice) =
             store.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?
@@ -687,7 +686,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             reset_payload_statuses,
             fc_store,
             spec,
-            log,
         )?))
     }
 
@@ -3837,7 +3835,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 ),
                 &self.store,
                 &self.spec,
-                &self.log,
             ) {
                 crit!(
                     error = ?e,

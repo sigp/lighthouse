@@ -941,7 +941,6 @@ where
                             &inner_chain,
                             light_client_server_rv,
                             beacon_processor_channels.work_reprocessing_tx,
-                            &log,
                         )
                         .await
                     },

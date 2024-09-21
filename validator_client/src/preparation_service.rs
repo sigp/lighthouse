@@ -172,8 +172,6 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
     /// Starts the service which periodically produces proposer preparations.
     pub fn start_proposer_prepare_service(self, spec: &ChainSpec) -> Result<(), String> {
-        let log = self.context.log().clone();
-
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         info!("Proposer preparation service started");
 
@@ -211,8 +209,6 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
     /// Starts the service which periodically sends connected beacon nodes validator registration information.
     pub fn start_validator_registration_service(self, spec: &ChainSpec) -> Result<(), String> {
-        let log = self.context.log().clone();
-
         info!("Validator registration service started");
 
         let spec = spec.clone();

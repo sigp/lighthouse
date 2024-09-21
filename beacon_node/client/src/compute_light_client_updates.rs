@@ -16,7 +16,6 @@ pub async fn compute_light_client_updates<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     mut light_client_server_rv: Receiver<LightClientProducerEvent<T::EthSpec>>,
     reprocess_tx: Sender<ReprocessQueueMessage>,
-    log: &Logger,
 ) {
     // Should only receive events for recent blocks, import_block filters by blocks close to clock.
     //

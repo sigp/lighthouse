@@ -49,7 +49,6 @@ use fork_choice::{
 use itertools::process_results;
 use logging::crit;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use slog::Logger;
 use slot_clock::SlotClock;
 use state_processing::AllCaches;
 use std::sync::Arc;
@@ -287,10 +286,9 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         reset_payload_statuses: ResetPayloadStatuses,
         store: &BeaconStore<T>,
         spec: &ChainSpec,
-        log: &Logger,
     ) -> Result<(), Error> {
         let fork_choice =
-            <BeaconChain<T>>::load_fork_choice(store.clone(), reset_payload_statuses, spec, log)?
+            <BeaconChain<T>>::load_fork_choice(store.clone(), reset_payload_statuses, spec)?
                 .ok_or(Error::MissingPersistedForkChoice)?;
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let beacon_block_root = fork_choice_view.head_block_root;
@@ -631,7 +629,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let new_forkchoice_update_parameters =
             fork_choice_read_lock.get_forkchoice_update_parameters();
 
-        perform_debug_logging::<T>(&old_view, &new_view, &fork_choice_read_lock, &self.log);
+        perform_debug_logging::<T>(&old_view, &new_view, &fork_choice_read_lock);
 
         // Drop the read lock, it's no longer required and holding it any longer than necessary
         // will just cause lock contention.
@@ -781,7 +779,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &new_snapshot.beacon_state,
             new_snapshot.beacon_block_root,
             &self.spec,
-            &self.log,
         );
 
         // Determine if the new head is in a later epoch to the previous head.
@@ -833,7 +830,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .as_utf8_lossy(),
             &self.slot_clock,
             self.event_handler.as_ref(),
-            &self.log,
         );
 
         if is_epoch_transition || reorg_distance.is_some() {
@@ -1070,7 +1066,6 @@ fn perform_debug_logging<T: BeaconChainTypes>(
     old_view: &ForkChoiceView,
     new_view: &ForkChoiceView,
     fork_choice: &BeaconForkChoice<T>,
-    log: &Logger,
 ) {
     if new_view.head_block_root != old_view.head_block_root {
         debug!(
@@ -1170,7 +1165,6 @@ fn detect_reorg<E: EthSpec>(
     new_state: &BeaconState<E>,
     new_block_root: Hash256,
     spec: &ChainSpec,
-    log: &Logger,
 ) -> Option<Slot> {
     let is_reorg = new_state
         .get_block_root(old_state.slot())
@@ -1282,7 +1276,6 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
     head_block_graffiti: String,
     slot_clock: &S,
     event_handler: Option<&ServerSentEventHandler<E>>,
-    log: &Logger,
 ) {
     let block_time_set_as_head = timestamp_now();
     let head_block_root = head_block.root;

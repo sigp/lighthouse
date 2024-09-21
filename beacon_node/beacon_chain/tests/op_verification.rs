@@ -42,7 +42,6 @@ fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
         |_, _, _| Ok(()),
         config,
         spec,
-        log,
     )
     .expect("disk store should initialize")
 }

@@ -12,7 +12,6 @@ pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone, E: Eth
     maybe_epoch: Option<Epoch>,
     validator_store: Arc<ValidatorStore<T, E>>,
     slot_clock: T,
-    log: Logger,
 ) -> Result<GenericResponse<SignedVoluntaryExit>, warp::Rejection> {
     let epoch = match maybe_epoch {
         Some(epoch) => epoch,

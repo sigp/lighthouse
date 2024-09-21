@@ -719,7 +719,6 @@ mod test {
             |_, _, _| Ok(()),
             config,
             spec,
-            log,
         )
         .expect("disk store should initialize")
     }

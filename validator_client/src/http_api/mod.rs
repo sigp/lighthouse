@@ -387,7 +387,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     {
                         let graffiti = determine_graffiti(
                             key,
-                            &log,
                             graffiti_file.clone(),
                             graffiti_definition,
                             graffiti_flag,
@@ -1035,7 +1034,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 query.epoch,
                                 validator_store,
                                 slot_clock,
-                                log,
                             ))?;
                         Ok(signed_voluntary_exit)
                     } else {
@@ -1146,7 +1144,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         secrets_dir,
                         validator_store,
                         task_executor,
-                        log,
                     )
                 })
             },

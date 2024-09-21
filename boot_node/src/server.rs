@@ -15,7 +15,6 @@ pub async fn run<E: EthSpec>(
     lh_matches: &ArgMatches,
     bn_matches: &ArgMatches,
     eth2_network_config: &Eth2NetworkConfig,
-    log: slog::Logger,
 ) -> Result<(), String> {
     // parse the CLI args into a useable config
     let config: BootNodeConfig<E> = BootNodeConfig::new(bn_matches, eth2_network_config).await?;

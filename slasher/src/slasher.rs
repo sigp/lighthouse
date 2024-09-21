@@ -33,7 +33,7 @@ impl<E: EthSpec> Slasher<E> {
     pub fn open(config: Config, spec: Arc<ChainSpec>, log: Logger) -> Result<Self, Error> {
         config.validate()?;
         let config = Arc::new(config);
-        let db = SlasherDB::open(config.clone(), spec, log.clone())?;
+        let db = SlasherDB::open(config.clone(), spec)?;
         Self::from_config_and_db(config, db, log)
     }
 

@@ -5,7 +5,6 @@ use crate::block_verification_types::{
 use crate::data_availability_checker::overflow_lru_cache::DataAvailabilityCheckerInner;
 use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::fmt;
 use std::fmt::Debug;

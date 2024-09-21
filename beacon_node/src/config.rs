@@ -46,7 +46,6 @@ pub fn get_config<E: EthSpec>(
     context: &RuntimeContext<E>,
 ) -> Result<ClientConfig, String> {
     let spec = &context.eth2_config.spec;
-    let log = context.log();
 
     let mut client_config = ClientConfig::default();
 

@@ -90,7 +90,6 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
     }
 
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
-        let log = self.context.log().clone();
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         let duration_to_next_slot = self
             .slot_clock
@@ -108,7 +107,6 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
                     // Wait for contribution broadcast interval 1/3 of the way through the slot.
-                    let log = self.context.log();
                     sleep(duration_to_next_slot + slot_duration / 3).await;
 
                     // Do nothing if the Altair fork has not yet occurred.
@@ -140,7 +138,6 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
     }
 
     async fn spawn_contribution_tasks(&self, slot_duration: Duration) -> Result<(), String> {
-        let log = self.context.log().clone();
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
@@ -459,7 +456,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
     fn spawn_subscription_tasks(&self) {
         let service = self.clone();
-        let log = self.context.log().clone();
+
         self.inner.context.executor.spawn(
             async move {
                 service.publish_subscriptions().await.unwrap_or_else(|e| {
@@ -474,7 +471,6 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
     }
 
     async fn publish_subscriptions(self) -> Result<(), String> {
-        let log = self.context.log().clone();
         let spec = &self.duties_service.spec;
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
 

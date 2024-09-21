@@ -11,7 +11,6 @@ use beacon_chain::{
 use eth2::types::{self as api_types};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::cmp::max;
 use std::collections::HashMap;
@@ -179,7 +178,6 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
     sync_committee_signatures: Vec<SyncCommitteeMessage>,
     network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
     chain: &BeaconChain<T>,
-    log: Logger,
 ) -> Result<(), warp::reject::Rejection> {
     let mut failures = vec![];
 
@@ -309,7 +307,6 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
     signed_contribution_and_proofs: Vec<SignedContributionAndProof<T::EthSpec>>,
     network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
     chain: &BeaconChain<T>,
-    log: Logger,
 ) -> Result<(), warp::reject::Rejection> {
     let mut verified_contributions = Vec::with_capacity(signed_contribution_and_proofs.len());
     let mut failures = vec![];

@@ -924,7 +924,7 @@ where
 
         // If we received a Ping, we queue a Pong response.
         if let InboundRequest::Ping(ping) = req {
-            trace!(self.log, "Received Ping, queueing Pong";"connection_id" => %self.id, "peer_id" => %self.peer_id);
+            trace!(connection_id = %self.id, peer_id = %self.peer_id, "Received Ping, queueing Pong");
             self.send_response(
                 self.current_inbound_substream_id,
                 RPCCodedResponse::Success(RPCResponse::Pong(ping)),

@@ -78,7 +78,6 @@ use lighthouse_metrics::TryExt;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
-use slog::Logger;
 use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -1668,12 +1667,8 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
          * invalid.
          */
 
-        write_state(
-            &format!("state_pre_block_{}", block_root),
-            &state,
-            &chain.log,
-        );
-        write_block(block.as_block(), block_root, &chain.log);
+        write_state(&format!("state_pre_block_{}", block_root), &state);
+        write_block(block.as_block(), block_root);
 
         let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
 
@@ -1706,11 +1701,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         metrics::stop_timer(state_root_timer);
 
-        write_state(
-            &format!("state_post_block_{}", block_root),
-            &state,
-            &chain.log,
-        );
+        write_state(&format!("state_post_block_{}", block_root), &state);
 
         /*
          * Check to ensure the state root on the block matches the one we have calculated.
@@ -2230,7 +2221,7 @@ pub fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
     }
 }
 
-fn write_state<E: EthSpec>(prefix: &str, state: &BeaconState<E>, log: &Logger) {
+fn write_state<E: EthSpec>(prefix: &str, state: &BeaconState<E>) {
     if WRITE_BLOCK_PROCESSING_SSZ {
         let mut state = state.clone();
         let Ok(root) = state.canonical_root() else {
@@ -2255,7 +2246,7 @@ fn write_state<E: EthSpec>(prefix: &str, state: &BeaconState<E>, log: &Logger) {
     }
 }
 
-fn write_block<E: EthSpec>(block: &SignedBeaconBlock<E>, root: Hash256, log: &Logger) {
+fn write_block<E: EthSpec>(block: &SignedBeaconBlock<E>, root: Hash256) {
     if WRITE_BLOCK_PROCESSING_SSZ {
         let filename = format!("block_slot_{}_root{}.ssz", block.slot(), root);
         let mut path = std::env::temp_dir().join("lighthouse");

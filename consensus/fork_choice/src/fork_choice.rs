@@ -1410,7 +1410,6 @@ where
         persisted: &PersistedForkChoice,
         reset_payload_statuses: ResetPayloadStatuses,
         spec: &ChainSpec,
-        log: &Logger,
     ) -> Result<ProtoArrayForkChoice, Error<T::Error>> {
         let mut proto_array = ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
             .map_err(Error::InvalidProtoArrayBytes)?;
@@ -1456,10 +1455,9 @@ where
         reset_payload_statuses: ResetPayloadStatuses,
         fc_store: T,
         spec: &ChainSpec,
-        log: &Logger,
     ) -> Result<Self, Error<T::Error>> {
         let proto_array =
-            Self::proto_array_from_persisted(&persisted, reset_payload_statuses, spec, log)?;
+            Self::proto_array_from_persisted(&persisted, reset_payload_statuses, spec)?;
 
         let current_slot = fc_store.get_current_slot();
 

@@ -285,7 +285,6 @@ where
                     self.chain_config.always_reset_payload_statuses,
                 ),
                 &self.spec,
-                log,
             )
             .map_err(|e| format!("Unable to load fork choice from disk: {:?}", e))?
             .ok_or("Fork choice not found in store")?;
@@ -762,7 +761,6 @@ where
                         initial_head_block_root,
                         store.clone(),
                         &self.spec,
-                        &log,
                     )?;
 
                     // Update head tracker.

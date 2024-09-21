@@ -28,7 +28,6 @@ pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
     head_block_root: Hash256,
     store: Arc<HotColdDB<E, Hot, Cold>>,
     spec: &ChainSpec,
-    log: &Logger,
 ) -> Result<(Hash256, SignedBeaconBlock<E>), String> {
     let current_fork = spec.fork_name_at_slot::<E>(current_slot);
     let fork_epoch = spec

@@ -64,10 +64,10 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         wait_time = estimated_time_pretty(Some(next_slot.as_secs() as f64)),
                         "Waiting for genesis"
                     );
-                    eth1_logging(&beacon_chain, &log);
-                    bellatrix_readiness_logging(Slot::new(0), &beacon_chain, &log).await;
-                    capella_readiness_logging(Slot::new(0), &beacon_chain, &log).await;
-                    genesis_execution_payload_logging(&beacon_chain, &log).await;
+                    eth1_logging(&beacon_chain);
+                    bellatrix_readiness_logging(Slot::new(0), &beacon_chain).await;
+                    capella_readiness_logging(Slot::new(0), &beacon_chain).await;
+                    genesis_execution_payload_logging(&beacon_chain).await;
                     sleep(slot_duration).await;
                 }
                 _ => break,
@@ -320,11 +320,11 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 );
             }
 
-            eth1_logging(&beacon_chain, &log);
-            bellatrix_readiness_logging(current_slot, &beacon_chain, &log).await;
-            capella_readiness_logging(current_slot, &beacon_chain, &log).await;
-            deneb_readiness_logging(current_slot, &beacon_chain, &log).await;
-            electra_readiness_logging(current_slot, &beacon_chain, &log).await;
+            eth1_logging(&beacon_chain);
+            bellatrix_readiness_logging(current_slot, &beacon_chain).await;
+            capella_readiness_logging(current_slot, &beacon_chain).await;
+            deneb_readiness_logging(current_slot, &beacon_chain).await;
+            electra_readiness_logging(current_slot, &beacon_chain).await;
         }
     };
 
@@ -339,7 +339,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 async fn bellatrix_readiness_logging<T: BeaconChainTypes>(
     current_slot: Slot,
     beacon_chain: &BeaconChain<T>,
-    log: &Logger,
 ) {
     let merge_completed = beacon_chain
         .canonical_head
@@ -424,7 +423,6 @@ async fn bellatrix_readiness_logging<T: BeaconChainTypes>(
 async fn capella_readiness_logging<T: BeaconChainTypes>(
     current_slot: Slot,
     beacon_chain: &BeaconChain<T>,
-    log: &Logger,
 ) {
     let capella_completed = beacon_chain
         .canonical_head
@@ -480,7 +478,6 @@ async fn capella_readiness_logging<T: BeaconChainTypes>(
 async fn deneb_readiness_logging<T: BeaconChainTypes>(
     current_slot: Slot,
     beacon_chain: &BeaconChain<T>,
-    log: &Logger,
 ) {
     let deneb_completed = beacon_chain
         .canonical_head
@@ -532,7 +529,6 @@ async fn deneb_readiness_logging<T: BeaconChainTypes>(
 async fn electra_readiness_logging<T: BeaconChainTypes>(
     current_slot: Slot,
     beacon_chain: &BeaconChain<T>,
-    log: &Logger,
 ) {
     let electra_completed = beacon_chain
         .canonical_head
@@ -582,10 +578,7 @@ async fn electra_readiness_logging<T: BeaconChainTypes>(
     }
 }
 
-async fn genesis_execution_payload_logging<T: BeaconChainTypes>(
-    beacon_chain: &BeaconChain<T>,
-    log: &Logger,
-) {
+async fn genesis_execution_payload_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     match beacon_chain
         .check_genesis_execution_payload_is_correct()
         .await
@@ -645,7 +638,7 @@ async fn genesis_execution_payload_logging<T: BeaconChainTypes>(
     }
 }
 
-fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger) {
+fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     let current_slot_opt = beacon_chain.slot().ok();
 
     // Perform some logging about the eth1 chain

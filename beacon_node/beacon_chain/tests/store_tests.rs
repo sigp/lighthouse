@@ -70,7 +70,6 @@ fn get_store_generic(
         |_, _, _| Ok(()),
         config,
         spec,
-        log,
     )
     .expect("disk store should initialize")
 }

@@ -1297,7 +1297,6 @@ pub fn serve<T: BeaconChainTypes>(
                         ProvenancedBlock::local(block_contents),
                         chain,
                         &network_tx,
-                        log,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
                         network_globals,
@@ -1339,7 +1338,6 @@ pub fn serve<T: BeaconChainTypes>(
                         ProvenancedBlock::local(block_contents),
                         chain,
                         &network_tx,
-                        log,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
                         network_globals,
@@ -1374,7 +1372,6 @@ pub fn serve<T: BeaconChainTypes>(
                         ProvenancedBlock::local(block_contents),
                         chain,
                         &network_tx,
-                        log,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
                         network_globals,
@@ -1418,7 +1415,6 @@ pub fn serve<T: BeaconChainTypes>(
                         ProvenancedBlock::local(block_contents),
                         chain,
                         &network_tx,
-                        log,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
                         network_globals,
@@ -1455,7 +1451,6 @@ pub fn serve<T: BeaconChainTypes>(
                         block_contents,
                         chain,
                         &network_tx,
-                        log,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
                         network_globals,
@@ -1496,7 +1491,6 @@ pub fn serve<T: BeaconChainTypes>(
                         block,
                         chain,
                         &network_tx,
-                        log,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
                         network_globals,
@@ -1530,7 +1524,6 @@ pub fn serve<T: BeaconChainTypes>(
                         blinded_block,
                         chain,
                         &network_tx,
-                        log,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
                         network_globals,
@@ -1572,7 +1565,6 @@ pub fn serve<T: BeaconChainTypes>(
                         block,
                         chain,
                         &network_tx,
-                        log,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
                         network_globals,
@@ -2139,7 +2131,7 @@ pub fn serve<T: BeaconChainTypes>(
              log: Logger| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     sync_committees::process_sync_committee_signatures(
-                        signatures, network_tx, &chain, log,
+                        signatures, network_tx, &chain,
                     )?;
                     Ok(api_types::GenericResponse::from(()))
                 })
@@ -3580,7 +3572,6 @@ pub fn serve<T: BeaconChainTypes>(
                         contributions,
                         network_tx,
                         &chain,
-                        log,
                     )?;
                     Ok(api_types::GenericResponse::from(()))
                 })

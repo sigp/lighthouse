@@ -23,11 +23,7 @@ use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use tracing::{error, info, warn};
-use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::Layer;
 use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
-
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
 #[cfg(target_family = "unix")]
 use {

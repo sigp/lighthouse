@@ -1,7 +1,6 @@
 use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes, BlockProcessStatus};
 use execution_layer::{ExecutionLayer, ExecutionPayloadBody};
 use logging::crit;
-use slog::Logger;
 use std::collections::HashMap;
 use std::sync::Arc;
 use store::{DatabaseBlock, ExecutionPayloadDeneb};
