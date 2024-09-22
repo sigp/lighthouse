@@ -315,7 +315,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         })?;
 
         let (subnets, next_subscription_epoch) = SubnetId::compute_subnets_for_epoch::<T::EthSpec>(
-            self.node_id.raw().into(),
+            self.node_id.raw(),
             current_epoch,
             &self.beacon_chain.spec,
         )

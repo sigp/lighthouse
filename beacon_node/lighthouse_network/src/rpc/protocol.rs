@@ -1,5 +1,5 @@
 use super::methods::*;
-use crate::rpc::codec::{base::BaseInboundCodec, ssz_snappy::SSZSnappyInboundCodec, InboundCodec};
+use crate::rpc::codec::SSZSnappyInboundCodec;
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, StreamExt};
@@ -18,10 +18,10 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockElectra,
-    BlobSidecar, ChainSpec, EmptyBlock, EthSpec, ForkContext, ForkName, LightClientBootstrap,
-    LightClientBootstrapAltair, LightClientFinalityUpdate, LightClientFinalityUpdateAltair,
-    LightClientOptimisticUpdate, LightClientOptimisticUpdateAltair, MainnetEthSpec, Signature,
-    SignedBeaconBlock,
+    BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, ForkContext, ForkName,
+    LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
+    LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
+    LightClientOptimisticUpdateAltair, MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -268,6 +268,12 @@ pub enum Protocol {
     /// The `BlobsByRoot` protocol name.
     #[strum(serialize = "blob_sidecars_by_root")]
     BlobsByRoot,
+    /// The `DataColumnSidecarsByRoot` protocol name.
+    #[strum(serialize = "data_column_sidecars_by_root")]
+    DataColumnsByRoot,
+    /// The `DataColumnSidecarsByRange` protocol name.
+    #[strum(serialize = "data_column_sidecars_by_range")]
+    DataColumnsByRange,
     /// The `Ping` protocol name.
     Ping,
     /// The `MetaData` protocol name.
@@ -293,6 +299,8 @@ impl Protocol {
             Protocol::BlocksByRoot => Some(ResponseTermination::BlocksByRoot),
             Protocol::BlobsByRange => Some(ResponseTermination::BlobsByRange),
             Protocol::BlobsByRoot => Some(ResponseTermination::BlobsByRoot),
+            Protocol::DataColumnsByRoot => Some(ResponseTermination::DataColumnsByRoot),
+            Protocol::DataColumnsByRange => Some(ResponseTermination::DataColumnsByRange),
             Protocol::Ping => None,
             Protocol::MetaData => None,
             Protocol::LightClientBootstrap => None,
@@ -319,9 +327,12 @@ pub enum SupportedProtocol {
     BlocksByRootV2,
     BlobsByRangeV1,
     BlobsByRootV1,
+    DataColumnsByRootV1,
+    DataColumnsByRangeV1,
     PingV1,
     MetaDataV1,
     MetaDataV2,
+    MetaDataV3,
     LightClientBootstrapV1,
     LightClientOptimisticUpdateV1,
     LightClientFinalityUpdateV1,
@@ -338,9 +349,12 @@ impl SupportedProtocol {
             SupportedProtocol::BlocksByRootV2 => "2",
             SupportedProtocol::BlobsByRangeV1 => "1",
             SupportedProtocol::BlobsByRootV1 => "1",
+            SupportedProtocol::DataColumnsByRootV1 => "1",
+            SupportedProtocol::DataColumnsByRangeV1 => "1",
             SupportedProtocol::PingV1 => "1",
             SupportedProtocol::MetaDataV1 => "1",
             SupportedProtocol::MetaDataV2 => "2",
+            SupportedProtocol::MetaDataV3 => "3",
             SupportedProtocol::LightClientBootstrapV1 => "1",
             SupportedProtocol::LightClientOptimisticUpdateV1 => "1",
             SupportedProtocol::LightClientFinalityUpdateV1 => "1",
@@ -357,9 +371,12 @@ impl SupportedProtocol {
             SupportedProtocol::BlocksByRootV2 => Protocol::BlocksByRoot,
             SupportedProtocol::BlobsByRangeV1 => Protocol::BlobsByRange,
             SupportedProtocol::BlobsByRootV1 => Protocol::BlobsByRoot,
+            SupportedProtocol::DataColumnsByRootV1 => Protocol::DataColumnsByRoot,
+            SupportedProtocol::DataColumnsByRangeV1 => Protocol::DataColumnsByRange,
             SupportedProtocol::PingV1 => Protocol::Ping,
             SupportedProtocol::MetaDataV1 => Protocol::MetaData,
             SupportedProtocol::MetaDataV2 => Protocol::MetaData,
+            SupportedProtocol::MetaDataV3 => Protocol::MetaData,
             SupportedProtocol::LightClientBootstrapV1 => Protocol::LightClientBootstrap,
             SupportedProtocol::LightClientOptimisticUpdateV1 => {
                 Protocol::LightClientOptimisticUpdate
@@ -378,13 +395,30 @@ impl SupportedProtocol {
             ProtocolId::new(Self::BlocksByRootV2, Encoding::SSZSnappy),
             ProtocolId::new(Self::BlocksByRootV1, Encoding::SSZSnappy),
             ProtocolId::new(Self::PingV1, Encoding::SSZSnappy),
-            ProtocolId::new(Self::MetaDataV2, Encoding::SSZSnappy),
-            ProtocolId::new(Self::MetaDataV1, Encoding::SSZSnappy),
         ];
+        if fork_context.spec.is_peer_das_scheduled() {
+            supported.extend_from_slice(&[
+                // V3 variants have higher preference for protocol negotation
+                ProtocolId::new(Self::MetaDataV3, Encoding::SSZSnappy),
+                ProtocolId::new(Self::MetaDataV2, Encoding::SSZSnappy),
+                ProtocolId::new(Self::MetaDataV1, Encoding::SSZSnappy),
+            ]);
+        } else {
+            supported.extend_from_slice(&[
+                ProtocolId::new(Self::MetaDataV2, Encoding::SSZSnappy),
+                ProtocolId::new(Self::MetaDataV1, Encoding::SSZSnappy),
+            ]);
+        }
         if fork_context.fork_exists(ForkName::Deneb) {
             supported.extend_from_slice(&[
                 ProtocolId::new(SupportedProtocol::BlobsByRootV1, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::BlobsByRangeV1, Encoding::SSZSnappy),
+            ]);
+        }
+        if fork_context.spec.is_peer_das_scheduled() {
+            supported.extend_from_slice(&[
+                ProtocolId::new(SupportedProtocol::DataColumnsByRootV1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::DataColumnsByRangeV1, Encoding::SSZSnappy),
             ]);
         }
         supported
@@ -495,6 +529,11 @@ impl ProtocolId {
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlobsByRoot => RpcLimits::new(0, spec.max_blobs_by_root_request),
+            Protocol::DataColumnsByRoot => RpcLimits::new(0, spec.max_data_columns_by_root_request),
+            Protocol::DataColumnsByRange => RpcLimits::new(
+                DataColumnsByRangeRequest::ssz_min_len(),
+                DataColumnsByRangeRequest::ssz_max_len(spec),
+            ),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -521,13 +560,15 @@ impl ProtocolId {
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
+            Protocol::DataColumnsByRoot => rpc_data_column_limits::<E>(),
+            Protocol::DataColumnsByRange => rpc_data_column_limits::<E>(),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
             ),
             Protocol::MetaData => RpcLimits::new(
                 <MetaDataV1<E> as Encode>::ssz_fixed_len(),
-                <MetaDataV2<E> as Encode>::ssz_fixed_len(),
+                <MetaDataV3<E> as Encode>::ssz_fixed_len(),
             ),
             Protocol::LightClientBootstrap => {
                 rpc_light_client_bootstrap_limits_by_fork(fork_context.current_fork())
@@ -549,6 +590,8 @@ impl ProtocolId {
             | SupportedProtocol::BlocksByRootV2
             | SupportedProtocol::BlobsByRangeV1
             | SupportedProtocol::BlobsByRootV1
+            | SupportedProtocol::DataColumnsByRootV1
+            | SupportedProtocol::DataColumnsByRangeV1
             | SupportedProtocol::LightClientBootstrapV1
             | SupportedProtocol::LightClientOptimisticUpdateV1
             | SupportedProtocol::LightClientFinalityUpdateV1 => true,
@@ -558,6 +601,7 @@ impl ProtocolId {
             | SupportedProtocol::PingV1
             | SupportedProtocol::MetaDataV1
             | SupportedProtocol::MetaDataV2
+            | SupportedProtocol::MetaDataV3
             | SupportedProtocol::GoodbyeV1 => false,
         }
     }
@@ -589,6 +633,13 @@ pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
     )
 }
 
+pub fn rpc_data_column_limits<E: EthSpec>() -> RpcLimits {
+    RpcLimits::new(
+        DataColumnSidecar::<E>::empty().as_ssz_bytes().len(),
+        DataColumnSidecar::<E>::max_size(),
+    )
+}
+
 /* Inbound upgrade */
 
 // The inbound protocol reads the request, decodes it and returns the stream to the protocol
@@ -596,7 +647,7 @@ pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
 
 pub type InboundOutput<TSocket, E> = (InboundRequest<E>, InboundFramed<TSocket, E>);
 pub type InboundFramed<TSocket, E> =
-    Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, InboundCodec<E>>;
+    Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, SSZSnappyInboundCodec<E>>;
 
 impl<TSocket, E> InboundUpgrade<TSocket> for RPCProtocol<E>
 where
@@ -613,15 +664,13 @@ where
             // convert the socket to tokio compatible socket
             let socket = socket.compat();
             let codec = match protocol.encoding {
-                Encoding::SSZSnappy => {
-                    let ssz_snappy_codec = BaseInboundCodec::new(SSZSnappyInboundCodec::new(
-                        protocol,
-                        self.max_rpc_size,
-                        self.fork_context.clone(),
-                    ));
-                    InboundCodec::SSZSnappy(ssz_snappy_codec)
-                }
+                Encoding::SSZSnappy => SSZSnappyInboundCodec::new(
+                    protocol,
+                    self.max_rpc_size,
+                    self.fork_context.clone(),
+                ),
             };
+
             let mut timed_socket = TimeoutStream::new(socket);
             timed_socket.set_read_timeout(Some(self.ttfb_timeout));
 
@@ -634,6 +683,9 @@ where
                 }
                 SupportedProtocol::MetaDataV2 => {
                     Ok((InboundRequest::MetaData(MetadataRequest::new_v2()), socket))
+                }
+                SupportedProtocol::MetaDataV3 => {
+                    Ok((InboundRequest::MetaData(MetadataRequest::new_v3()), socket))
                 }
                 SupportedProtocol::LightClientOptimisticUpdateV1 => {
                     Ok((InboundRequest::LightClientOptimisticUpdate, socket))
@@ -668,6 +720,8 @@ pub enum InboundRequest<E: EthSpec> {
     BlocksByRoot(BlocksByRootRequest),
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
+    DataColumnsByRoot(DataColumnsByRootRequest),
+    DataColumnsByRange(DataColumnsByRangeRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
     LightClientOptimisticUpdate,
     LightClientFinalityUpdate,
@@ -688,6 +742,8 @@ impl<E: EthSpec> InboundRequest<E> {
             InboundRequest::BlocksByRoot(req) => req.block_roots().len() as u64,
             InboundRequest::BlobsByRange(req) => req.max_blobs_requested::<E>(),
             InboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
+            InboundRequest::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
+            InboundRequest::DataColumnsByRange(req) => req.max_requested::<E>(),
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
             InboundRequest::LightClientBootstrap(_) => 1,
@@ -711,10 +767,13 @@ impl<E: EthSpec> InboundRequest<E> {
             },
             InboundRequest::BlobsByRange(_) => SupportedProtocol::BlobsByRangeV1,
             InboundRequest::BlobsByRoot(_) => SupportedProtocol::BlobsByRootV1,
+            InboundRequest::DataColumnsByRoot(_) => SupportedProtocol::DataColumnsByRootV1,
+            InboundRequest::DataColumnsByRange(_) => SupportedProtocol::DataColumnsByRangeV1,
             InboundRequest::Ping(_) => SupportedProtocol::PingV1,
             InboundRequest::MetaData(req) => match req {
                 MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
                 MetadataRequest::V2(_) => SupportedProtocol::MetaDataV2,
+                MetadataRequest::V3(_) => SupportedProtocol::MetaDataV3,
             },
             InboundRequest::LightClientBootstrap(_) => SupportedProtocol::LightClientBootstrapV1,
             InboundRequest::LightClientOptimisticUpdate => {
@@ -736,6 +795,8 @@ impl<E: EthSpec> InboundRequest<E> {
             InboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
             InboundRequest::BlobsByRange(_) => ResponseTermination::BlobsByRange,
             InboundRequest::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
+            InboundRequest::DataColumnsByRoot(_) => ResponseTermination::DataColumnsByRoot,
+            InboundRequest::DataColumnsByRange(_) => ResponseTermination::DataColumnsByRange,
             InboundRequest::Status(_) => unreachable!(),
             InboundRequest::Goodbye(_) => unreachable!(),
             InboundRequest::Ping(_) => unreachable!(),
@@ -846,6 +907,10 @@ impl<E: EthSpec> std::fmt::Display for InboundRequest<E> {
             InboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
             InboundRequest::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
             InboundRequest::BlobsByRoot(req) => write!(f, "Blobs by root: {:?}", req),
+            InboundRequest::DataColumnsByRoot(req) => write!(f, "Data columns by root: {:?}", req),
+            InboundRequest::DataColumnsByRange(req) => {
+                write!(f, "Data columns by range: {:?}", req)
+            }
             InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
             InboundRequest::LightClientBootstrap(bootstrap) => {

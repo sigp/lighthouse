@@ -7,7 +7,7 @@ use rusqlite::TransactionBehavior;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use tempfile::tempdir;
-use types::{Epoch, Hash256, PublicKeyBytes, Slot};
+use types::{Epoch, FixedBytesExtended, Hash256, PublicKeyBytes, Slot};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]

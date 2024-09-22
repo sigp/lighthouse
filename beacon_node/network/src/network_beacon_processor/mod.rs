@@ -1,4 +1,5 @@
 use crate::sync::manager::BlockProcessType;
+use crate::sync::SamplingId;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend, BeaconChain};
@@ -8,7 +9,9 @@ use beacon_processor::{
     DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
     WorkEvent as BeaconWorkEvent,
 };
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
+};
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
@@ -474,6 +477,67 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for some custody columns. `process_rpc_custody_columns` reports
+    /// the result back to sync.
+    pub fn send_rpc_custody_columns(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        custody_columns: DataColumnSidecarList<T::EthSpec>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let s = self.clone();
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::RpcCustodyColumn(Box::pin(async move {
+                s.process_rpc_custody_columns(
+                    block_root,
+                    custody_columns,
+                    seen_timestamp,
+                    process_type,
+                )
+                .await;
+            })),
+        })
+    }
+
+    /// Create a new `Work` event for some sampling columns, and reports the verification result
+    /// back to sync.
+    pub fn send_rpc_validate_data_columns(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        data_columns: Vec<Arc<DataColumnSidecar<T::EthSpec>>>,
+        seen_timestamp: Duration,
+        id: SamplingId,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let s = self.clone();
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::RpcVerifyDataColumn(Box::pin(async move {
+                let result = s
+                    .clone()
+                    .validate_rpc_data_columns(block_root, data_columns, seen_timestamp)
+                    .await;
+                // Sync handles these results
+                s.send_sync_message(SyncMessage::SampleVerified { id, result });
+            })),
+        })
+    }
+
+    /// Create a new `Work` event with a block sampling completed result
+    pub fn send_sampling_completed(
+        self: &Arc<Self>,
+        block_root: Hash256,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let nbp = self.clone();
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::SamplingResult(Box::pin(async move {
+                nbp.process_sampling_completed(block_root).await;
+            })),
+        })
+    }
+
     /// Create a new work event to import `blocks` as a beacon chain segment.
     pub fn send_chain_segment(
         self: &Arc<Self>,
@@ -599,6 +663,40 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::BlobsByRootsRequest(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process `DataColumnsByRootRequest`s from the RPC network.
+    pub fn send_data_columns_by_roots_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: DataColumnsByRootRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn =
+            move || processor.handle_data_columns_by_root_request(peer_id, request_id, request);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::DataColumnsByRootsRequest(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process `DataColumnsByRange`s from the RPC network.
+    pub fn send_data_columns_by_range_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: DataColumnsByRangeRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn =
+            move || processor.handle_data_columns_by_range_request(peer_id, request_id, request);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::DataColumnsByRangeRequest(Box::new(process_fn)),
         })
     }
 

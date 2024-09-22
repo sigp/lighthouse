@@ -406,7 +406,7 @@ mod tests {
     use std::collections::HashSet;
     use store::MemoryStore;
     use tokio::sync::mpsc;
-    use types::{ForkName, MinimalEthSpec as E};
+    use types::{FixedBytesExtended, ForkName, MinimalEthSpec as E};
 
     #[derive(Debug)]
     struct FakeStorage {
@@ -652,7 +652,10 @@ mod tests {
         fn expect_empty_processor(&mut self) {
             match self.beacon_processor_rx.try_recv() {
                 Ok(work) => {
-                    panic!("Expected empty processor. Instead got {}", work.work_type());
+                    panic!(
+                        "Expected empty processor. Instead got {}",
+                        work.work_type_str()
+                    );
                 }
                 Err(e) => match e {
                     mpsc::error::TryRecvError::Empty => {}
@@ -665,7 +668,7 @@ mod tests {
         fn expect_chain_segment(&mut self) {
             match self.beacon_processor_rx.try_recv() {
                 Ok(work) => {
-                    assert_eq!(work.work_type(), beacon_processor::CHAIN_SEGMENT);
+                    assert_eq!(work.work_type(), beacon_processor::WorkType::ChainSegment);
                 }
                 other => panic!("Expected chain segment process, found {:?}", other),
             }
@@ -689,7 +692,11 @@ mod tests {
             log.new(o!("component" => "range")),
         );
         let (network_tx, network_rx) = mpsc::unbounded_channel();
-        let globals = Arc::new(NetworkGlobals::new_test_globals(Vec::new(), &log));
+        let globals = Arc::new(NetworkGlobals::new_test_globals(
+            Vec::new(),
+            &log,
+            chain.spec.clone(),
+        ));
         let (network_beacon_processor, beacon_processor_rx) =
             NetworkBeaconProcessor::null_for_testing(
                 globals.clone(),

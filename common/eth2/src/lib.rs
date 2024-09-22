@@ -121,6 +121,7 @@ impl fmt::Display for Error {
 pub struct Timeouts {
     pub attestation: Duration,
     pub attester_duties: Duration,
+    pub attestation_subscriptions: Duration,
     pub liveness: Duration,
     pub proposal: Duration,
     pub proposer_duties: Duration,
@@ -137,6 +138,7 @@ impl Timeouts {
         Timeouts {
             attestation: timeout,
             attester_duties: timeout,
+            attestation_subscriptions: timeout,
             liveness: timeout,
             proposal: timeout,
             proposer_duties: timeout,
@@ -1139,7 +1141,8 @@ impl BeaconNodeHttpClient {
         &self,
         block_id: BlockId,
         indices: Option<&[u64]>,
-    ) -> Result<Option<GenericResponse<BlobSidecarList<E>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedForkVersionedResponse<BlobSidecarList<E>>>, Error>
+    {
         let mut path = self.get_blobs_path(block_id)?;
         if let Some(indices) = indices {
             let indices_string = indices
@@ -2540,7 +2543,12 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("beacon_committee_subscriptions");
 
-        self.post(path, &subscriptions).await?;
+        self.post_with_timeout(
+            path,
+            &subscriptions,
+            self.timeouts.attestation_subscriptions,
+        )
+        .await?;
 
         Ok(())
     }

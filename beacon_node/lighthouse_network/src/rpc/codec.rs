@@ -1,9 +1,9 @@
 use crate::rpc::methods::*;
-use crate::rpc::{
-    codec::base::OutboundCodec,
-    protocol::{Encoding, ProtocolId, RPCError, SupportedProtocol, ERROR_TYPE_MAX, ERROR_TYPE_MIN},
+use crate::rpc::protocol::{
+    Encoding, ProtocolId, RPCError, SupportedProtocol, ERROR_TYPE_MAX, ERROR_TYPE_MIN,
 };
 use crate::rpc::{InboundRequest, OutboundRequest};
+use libp2p::bytes::BufMut;
 use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
@@ -16,10 +16,11 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
-    BlobSidecar, ChainSpec, EthSpec, ForkContext, ForkName, Hash256, LightClientBootstrap,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, RuntimeVariableList, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
+    BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, ForkContext, ForkName, Hash256,
+    LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
+    SignedBeaconBlockBellatrix, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
+    SignedBeaconBlockElectra,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -56,13 +57,13 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
             max_packet_size,
         }
     }
-}
 
-// Encoder for inbound streams: Encodes RPC Responses sent to peers.
-impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
-    type Error = RPCError;
-
-    fn encode(&mut self, item: RPCCodedResponse<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    /// Encodes RPC Responses sent to peers.
+    fn encode_response(
+        &mut self,
+        item: RPCCodedResponse<E>,
+        dst: &mut BytesMut,
+    ) -> Result<(), RPCError> {
         let bytes = match &item {
             RPCCodedResponse::Success(resp) => match &resp {
                 RPCResponse::Status(res) => res.as_ssz_bytes(),
@@ -70,6 +71,8 @@ impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::BlobsByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlobsByRoot(res) => res.as_ssz_bytes(),
+                RPCResponse::DataColumnsByRoot(res) => res.as_ssz_bytes(),
+                RPCResponse::DataColumnsByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientOptimisticUpdate(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientFinalityUpdate(res) => res.as_ssz_bytes(),
@@ -79,9 +82,10 @@ impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
                 {
                     match self.protocol.versioned_protocol {
                         SupportedProtocol::MetaDataV1 => res.metadata_v1().as_ssz_bytes(),
-                        // We always send V2 metadata responses from the behaviour
-                        // No change required.
                         SupportedProtocol::MetaDataV2 => res.metadata_v2().as_ssz_bytes(),
+                        SupportedProtocol::MetaDataV3 => {
+                            res.metadata_v3(&self.fork_context.spec).as_ssz_bytes()
+                        }
                         _ => unreachable!(
                             "We only send metadata responses on negotiating metadata requests"
                         ),
@@ -121,6 +125,21 @@ impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
     }
 }
 
+// Encoder for inbound streams: Encodes RPC Responses sent to peers.
+impl<E: EthSpec> Encoder<RPCCodedResponse<E>> for SSZSnappyInboundCodec<E> {
+    type Error = RPCError;
+
+    fn encode(&mut self, item: RPCCodedResponse<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        dst.clear();
+        dst.reserve(1);
+        dst.put_u8(
+            item.as_u8()
+                .expect("Should never encode a stream termination"),
+        );
+        self.encode_response(item, dst)
+    }
+}
+
 // Decoder for inbound streams: Decodes RPC requests from peers
 impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
     type Item = InboundRequest<E>;
@@ -132,6 +151,9 @@ impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
         }
         if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV2 {
             return Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v2())));
+        }
+        if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV3 {
+            return Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v3())));
         }
         let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
             return Ok(None);
@@ -181,6 +203,8 @@ pub struct SSZSnappyOutboundCodec<E: EthSpec> {
     /// The fork name corresponding to the received context bytes.
     fork_name: Option<ForkName>,
     fork_context: Arc<ForkContext>,
+    /// Keeps track of the current response code for a chunk.
+    current_response_code: Option<u8>,
     phantom: PhantomData<E>,
 }
 
@@ -202,64 +226,12 @@ impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
             fork_name: None,
             fork_context,
             phantom: PhantomData,
+            current_response_code: None,
         }
     }
-}
 
-// Encoder for outbound streams: Encodes RPC Requests to peers
-impl<E: EthSpec> Encoder<OutboundRequest<E>> for SSZSnappyOutboundCodec<E> {
-    type Error = RPCError;
-
-    fn encode(&mut self, item: OutboundRequest<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let bytes = match item {
-            OutboundRequest::Status(req) => req.as_ssz_bytes(),
-            OutboundRequest::Goodbye(req) => req.as_ssz_bytes(),
-            OutboundRequest::BlocksByRange(r) => match r {
-                OldBlocksByRangeRequest::V1(req) => req.as_ssz_bytes(),
-                OldBlocksByRangeRequest::V2(req) => req.as_ssz_bytes(),
-            },
-            OutboundRequest::BlocksByRoot(r) => match r {
-                BlocksByRootRequest::V1(req) => req.block_roots.as_ssz_bytes(),
-                BlocksByRootRequest::V2(req) => req.block_roots.as_ssz_bytes(),
-            },
-            OutboundRequest::BlobsByRange(req) => req.as_ssz_bytes(),
-            OutboundRequest::BlobsByRoot(req) => req.blob_ids.as_ssz_bytes(),
-            OutboundRequest::Ping(req) => req.as_ssz_bytes(),
-            OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
-        };
-        // SSZ encoded bytes should be within `max_packet_size`
-        if bytes.len() > self.max_packet_size {
-            return Err(RPCError::InternalError(
-                "attempting to encode data > max_packet_size",
-            ));
-        }
-
-        // Inserts the length prefix of the uncompressed bytes into dst
-        // encoded as a unsigned varint
-        self.inner
-            .encode(bytes.len(), dst)
-            .map_err(RPCError::from)?;
-
-        let mut writer = FrameEncoder::new(Vec::new());
-        writer.write_all(&bytes).map_err(RPCError::from)?;
-        writer.flush().map_err(RPCError::from)?;
-
-        // Write compressed bytes to `dst`
-        dst.extend_from_slice(writer.get_ref());
-        Ok(())
-    }
-}
-
-// Decoder for outbound streams: Decodes RPC responses from peers.
-//
-// The majority of the decoding has now been pushed upstream due to the changing specification.
-// We prefer to decode blocks and attestations with extra knowledge about the chain to perform
-// faster verification checks before decoding entire blocks/attestations.
-impl<E: EthSpec> Decoder for SSZSnappyOutboundCodec<E> {
-    type Item = RPCResponse<E>;
-    type Error = RPCError;
-
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+    // Decode an Rpc response.
+    fn decode_response(&mut self, src: &mut BytesMut) -> Result<Option<RPCResponse<E>>, RPCError> {
         // Read the context bytes if required
         if self.protocol.has_context_bytes() && self.fork_name.is_none() {
             if src.len() >= CONTEXT_BYTES_LEN {
@@ -309,15 +281,8 @@ impl<E: EthSpec> Decoder for SSZSnappyOutboundCodec<E> {
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
     }
-}
 
-impl<E: EthSpec> OutboundCodec<OutboundRequest<E>> for SSZSnappyOutboundCodec<E> {
-    type CodecErrorType = ErrorType;
-
-    fn decode_error(
-        &mut self,
-        src: &mut BytesMut,
-    ) -> Result<Option<Self::CodecErrorType>, RPCError> {
+    fn decode_error(&mut self, src: &mut BytesMut) -> Result<Option<ErrorType>, RPCError> {
         let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
             return Ok(None);
         };
@@ -349,6 +314,95 @@ impl<E: EthSpec> OutboundCodec<OutboundRequest<E>> for SSZSnappyOutboundCodec<E>
             }
             Err(e) => handle_error(e, reader.get_ref().get_ref().position(), max_compressed_len),
         }
+    }
+}
+
+// Encoder for outbound streams: Encodes RPC Requests to peers
+impl<E: EthSpec> Encoder<OutboundRequest<E>> for SSZSnappyOutboundCodec<E> {
+    type Error = RPCError;
+
+    fn encode(&mut self, item: OutboundRequest<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+        let bytes = match item {
+            OutboundRequest::Status(req) => req.as_ssz_bytes(),
+            OutboundRequest::Goodbye(req) => req.as_ssz_bytes(),
+            OutboundRequest::BlocksByRange(r) => match r {
+                OldBlocksByRangeRequest::V1(req) => req.as_ssz_bytes(),
+                OldBlocksByRangeRequest::V2(req) => req.as_ssz_bytes(),
+            },
+            OutboundRequest::BlocksByRoot(r) => match r {
+                BlocksByRootRequest::V1(req) => req.block_roots.as_ssz_bytes(),
+                BlocksByRootRequest::V2(req) => req.block_roots.as_ssz_bytes(),
+            },
+            OutboundRequest::BlobsByRange(req) => req.as_ssz_bytes(),
+            OutboundRequest::BlobsByRoot(req) => req.blob_ids.as_ssz_bytes(),
+            OutboundRequest::DataColumnsByRange(req) => req.as_ssz_bytes(),
+            OutboundRequest::DataColumnsByRoot(req) => req.data_column_ids.as_ssz_bytes(),
+            OutboundRequest::Ping(req) => req.as_ssz_bytes(),
+            OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
+        };
+        // SSZ encoded bytes should be within `max_packet_size`
+        if bytes.len() > self.max_packet_size {
+            return Err(RPCError::InternalError(
+                "attempting to encode data > max_packet_size",
+            ));
+        }
+
+        // Inserts the length prefix of the uncompressed bytes into dst
+        // encoded as a unsigned varint
+        self.inner
+            .encode(bytes.len(), dst)
+            .map_err(RPCError::from)?;
+
+        let mut writer = FrameEncoder::new(Vec::new());
+        writer.write_all(&bytes).map_err(RPCError::from)?;
+        writer.flush().map_err(RPCError::from)?;
+
+        // Write compressed bytes to `dst`
+        dst.extend_from_slice(writer.get_ref());
+        Ok(())
+    }
+}
+
+// Decoder for outbound streams: Decodes RPC responses from peers.
+//
+// The majority of the decoding has now been pushed upstream due to the changing specification.
+// We prefer to decode blocks and attestations with extra knowledge about the chain to perform
+// faster verification checks before decoding entire blocks/attestations.
+impl<E: EthSpec> Decoder for SSZSnappyOutboundCodec<E> {
+    type Item = RPCCodedResponse<E>;
+    type Error = RPCError;
+
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        // if we have only received the response code, wait for more bytes
+        if src.len() <= 1 {
+            return Ok(None);
+        }
+        // using the response code determine which kind of payload needs to be decoded.
+        let response_code = self.current_response_code.unwrap_or_else(|| {
+            let resp_code = src.split_to(1)[0];
+            self.current_response_code = Some(resp_code);
+            resp_code
+        });
+
+        let inner_result = {
+            if RPCCodedResponse::<E>::is_response(response_code) {
+                // decode an actual response and mutates the buffer if enough bytes have been read
+                // returning the result.
+                self.decode_response(src)
+                    .map(|r| r.map(RPCCodedResponse::Success))
+            } else {
+                // decode an error
+                self.decode_error(src)
+                    .map(|r| r.map(|resp| RPCCodedResponse::from_error(response_code, resp)))
+            }
+        };
+        // if the inner decoder was capable of decoding a chunk, we need to reset the current
+        // response code for the next chunk
+        if let Ok(Some(_)) = inner_result {
+            self.current_response_code = None;
+        }
+        // return the result
+        inner_result
     }
 }
 
@@ -416,6 +470,17 @@ fn context_bytes<E: EthSpec>(
                 }
                 RPCResponse::BlobsByRange(_) | RPCResponse::BlobsByRoot(_) => {
                     return fork_context.to_context_bytes(ForkName::Deneb);
+                }
+                RPCResponse::DataColumnsByRoot(d) | RPCResponse::DataColumnsByRange(d) => {
+                    // TODO(das): Remove deneb fork after `peerdas-devnet-2`.
+                    return if matches!(
+                        fork_context.spec.fork_name_at_slot::<E>(d.slot()),
+                        ForkName::Deneb
+                    ) {
+                        fork_context.to_context_bytes(ForkName::Deneb)
+                    } else {
+                        fork_context.to_context_bytes(ForkName::Electra)
+                    };
                 }
                 RPCResponse::LightClientBootstrap(lc_bootstrap) => {
                     return lc_bootstrap
@@ -512,6 +577,17 @@ fn handle_rpc_request<E: EthSpec>(
                 )?,
             })))
         }
+        SupportedProtocol::DataColumnsByRangeV1 => Ok(Some(InboundRequest::DataColumnsByRange(
+            DataColumnsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+        ))),
+        SupportedProtocol::DataColumnsByRootV1 => Ok(Some(InboundRequest::DataColumnsByRoot(
+            DataColumnsByRootRequest {
+                data_column_ids: RuntimeVariableList::from_ssz_bytes(
+                    decoded_buffer,
+                    spec.max_request_data_column_sidecars as usize,
+                )?,
+            },
+        ))),
         SupportedProtocol::PingV1 => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -528,6 +604,15 @@ fn handle_rpc_request<E: EthSpec>(
         }
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
+        SupportedProtocol::MetaDataV3 => {
+            if !decoded_buffer.is_empty() {
+                Err(RPCError::InternalError(
+                    "Metadata requests shouldn't reach decoder",
+                ))
+            } else {
+                Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v3())))
+            }
+        }
         SupportedProtocol::MetaDataV2 => {
             if !decoded_buffer.is_empty() {
                 Err(RPCError::InternalError(
@@ -604,6 +689,51 @@ fn handle_rpc_response<E: EthSpec>(
                 ),
             )),
         },
+        SupportedProtocol::DataColumnsByRootV1 => match fork_name {
+            Some(fork_name) => {
+                // TODO(das): PeerDAS is currently supported for both deneb and electra. This check
+                // does not advertise the topic on deneb, simply allows it to decode it. Advertise
+                // logic is in `SupportedTopic::currently_supported`.
+                if fork_name.deneb_enabled() {
+                    Ok(Some(RPCResponse::DataColumnsByRoot(Arc::new(
+                        DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RPCResponseErrorCode::InvalidRequest,
+                        "Invalid fork name for data columns by root".to_string(),
+                    ))
+                }
+            }
+            None => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
+        SupportedProtocol::DataColumnsByRangeV1 => match fork_name {
+            Some(fork_name) => {
+                if fork_name.deneb_enabled() {
+                    Ok(Some(RPCResponse::DataColumnsByRange(Arc::new(
+                        DataColumnSidecar::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RPCResponseErrorCode::InvalidRequest,
+                        "Invalid fork name for data columns by range".to_string(),
+                    ))
+                }
+            }
+            None => Err(RPCError::ErrorResponse(
+                RPCResponseErrorCode::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
         SupportedProtocol::PingV1 => Ok(Some(RPCResponse::Pong(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -646,7 +776,10 @@ fn handle_rpc_response<E: EthSpec>(
                 ),
             )),
         },
-        // MetaData V2 responses have no context bytes, so behave similarly to V1 responses
+        // MetaData V2/V3 responses have no context bytes, so behave similarly to V1 responses
+        SupportedProtocol::MetaDataV3 => Ok(Some(RPCResponse::MetaData(MetaData::V3(
+            MetaDataV3::from_ssz_bytes(decoded_buffer)?,
+        )))),
         SupportedProtocol::MetaDataV2 => Ok(Some(RPCResponse::MetaData(MetaData::V2(
             MetaDataV2::from_ssz_bytes(decoded_buffer)?,
         )))),
@@ -747,7 +880,8 @@ mod tests {
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
     use types::{
         blob_sidecar::BlobIdentifier, BeaconBlock, BeaconBlockAltair, BeaconBlockBase,
-        BeaconBlockBellatrix, EmptyBlock, Epoch, FullPayload, Signature, Slot,
+        BeaconBlockBellatrix, DataColumnIdentifier, EmptyBlock, Epoch, FixedBytesExtended,
+        FullPayload, Signature, Slot,
     };
 
     type Spec = types::MainnetEthSpec;
@@ -794,6 +928,10 @@ mod tests {
         Arc::new(BlobSidecar::empty())
     }
 
+    fn empty_data_column_sidecar() -> Arc<DataColumnSidecar<Spec>> {
+        Arc::new(DataColumnSidecar::empty())
+    }
+
     /// Bellatrix block with length < max_rpc_size.
     fn bellatrix_block_small(
         fork_context: &ForkContext,
@@ -833,9 +971,9 @@ mod tests {
     fn status_message() -> StatusMessage {
         StatusMessage {
             fork_digest: [0; 4],
-            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
-            head_root: Hash256::from_low_u64_be(0),
+            head_root: Hash256::zero(),
             head_slot: Slot::new(1),
         }
     }
@@ -852,6 +990,27 @@ mod tests {
         BlobsByRangeRequest {
             start_slot: 0,
             count: 10,
+        }
+    }
+
+    fn dcbrange_request() -> DataColumnsByRangeRequest {
+        DataColumnsByRangeRequest {
+            start_slot: 0,
+            count: 10,
+            columns: vec![1, 2, 3],
+        }
+    }
+
+    fn dcbroot_request(spec: &ChainSpec) -> DataColumnsByRootRequest {
+        DataColumnsByRootRequest {
+            data_column_ids: RuntimeVariableList::new(
+                vec![DataColumnIdentifier {
+                    block_root: Hash256::zero(),
+                    index: 0,
+                }],
+                spec.max_request_data_column_sidecars as usize,
+            )
+            .unwrap(),
         }
     }
 
@@ -892,6 +1051,15 @@ mod tests {
         })
     }
 
+    fn metadata_v3() -> MetaData<Spec> {
+        MetaData::V3(MetaDataV3 {
+            seq_number: 1,
+            attnets: EnrAttestationBitfield::<Spec>::default(),
+            syncnets: EnrSyncCommitteeBitfield::<Spec>::default(),
+            custody_subnet_count: 1,
+        })
+    }
+
     /// Encodes the given protocol response as bytes.
     fn encode_response(
         protocol: SupportedProtocol,
@@ -907,7 +1075,7 @@ mod tests {
         let mut snappy_inbound_codec =
             SSZSnappyInboundCodec::<Spec>::new(snappy_protocol_id, max_packet_size, fork_context);
 
-        snappy_inbound_codec.encode(message, &mut buf)?;
+        snappy_inbound_codec.encode_response(message, &mut buf)?;
         Ok(buf)
     }
 
@@ -952,7 +1120,7 @@ mod tests {
         let mut snappy_outbound_codec =
             SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, max_packet_size, fork_context);
         // decode message just as snappy message
-        snappy_outbound_codec.decode(message)
+        snappy_outbound_codec.decode_response(message)
     }
 
     /// Encodes the provided protocol message as bytes and tries to decode the encoding bytes.
@@ -1011,6 +1179,12 @@ mod tests {
             }
             OutboundRequest::BlobsByRoot(bbroot) => {
                 assert_eq!(decoded, InboundRequest::BlobsByRoot(bbroot))
+            }
+            OutboundRequest::DataColumnsByRoot(dcbroot) => {
+                assert_eq!(decoded, InboundRequest::DataColumnsByRoot(dcbroot))
+            }
+            OutboundRequest::DataColumnsByRange(dcbrange) => {
+                assert_eq!(decoded, InboundRequest::DataColumnsByRange(dcbrange))
             }
             OutboundRequest::Ping(ping) => {
                 assert_eq!(decoded, InboundRequest::Ping(ping))
@@ -1119,6 +1293,17 @@ mod tests {
             Ok(Some(RPCResponse::MetaData(metadata()))),
         );
 
+        // A MetaDataV3 still encodes as a MetaDataV2 since version is Version::V2
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::MetaDataV2,
+                RPCCodedResponse::Success(RPCResponse::MetaData(metadata_v3())),
+                ForkName::Base,
+                &chain_spec,
+            ),
+            Ok(Some(RPCResponse::MetaData(metadata_v2()))),
+        );
+
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::BlobsByRangeV1,
@@ -1137,6 +1322,34 @@ mod tests {
                 &chain_spec
             ),
             Ok(Some(RPCResponse::BlobsByRoot(empty_blob_sidecar()))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::DataColumnsByRangeV1,
+                RPCCodedResponse::Success(RPCResponse::DataColumnsByRange(
+                    empty_data_column_sidecar()
+                )),
+                ForkName::Deneb,
+                &chain_spec
+            ),
+            Ok(Some(RPCResponse::DataColumnsByRange(
+                empty_data_column_sidecar()
+            ))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::DataColumnsByRootV1,
+                RPCCodedResponse::Success(RPCResponse::DataColumnsByRoot(
+                    empty_data_column_sidecar()
+                )),
+                ForkName::Deneb,
+                &chain_spec
+            ),
+            Ok(Some(RPCResponse::DataColumnsByRoot(
+                empty_data_column_sidecar()
+            ))),
         );
     }
 
@@ -1491,6 +1704,8 @@ mod tests {
             OutboundRequest::MetaData(MetadataRequest::new_v1()),
             OutboundRequest::BlobsByRange(blbrange_request()),
             OutboundRequest::BlobsByRoot(blbroot_request(&chain_spec)),
+            OutboundRequest::DataColumnsByRange(dcbrange_request()),
+            OutboundRequest::DataColumnsByRoot(dcbroot_request(&chain_spec)),
             OutboundRequest::MetaData(MetadataRequest::new_v2()),
         ];
 
@@ -1517,9 +1732,9 @@ mod tests {
         // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
         let status_message_bytes = StatusMessage {
             fork_digest: [0; 4],
-            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
-            head_root: Hash256::from_low_u64_be(0),
+            head_root: Hash256::zero(),
             head_slot: Slot::new(1),
         }
         .as_ssz_bytes();
@@ -1640,9 +1855,9 @@ mod tests {
         // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
         let status_message_bytes = StatusMessage {
             fork_digest: [0; 4],
-            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
-            head_root: Hash256::from_low_u64_be(0),
+            head_root: Hash256::zero(),
             head_slot: Slot::new(1),
         }
         .as_ssz_bytes();
@@ -1674,6 +1889,131 @@ mod tests {
                 &chain_spec
             )
             .unwrap_err(),
+            RPCError::InvalidData(_)
+        ));
+    }
+
+    #[test]
+    fn test_decode_status_message() {
+        let message = hex::decode("0054ff060000734e615070590032000006e71e7b54989925efd6c9cbcb8ceb9b5f71216f5137282bf6a1e3b50f64e42d6c7fb347abe07eb0db8200000005029e2800").unwrap();
+        let mut buf = BytesMut::new();
+        buf.extend_from_slice(&message);
+
+        let snappy_protocol_id = ProtocolId::new(SupportedProtocol::StatusV1, Encoding::SSZSnappy);
+
+        let fork_context = Arc::new(fork_context(ForkName::Base));
+
+        let chain_spec = Spec::default_spec();
+
+        let mut snappy_outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
+            snappy_protocol_id,
+            max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize),
+            fork_context,
+        );
+
+        // remove response code
+        let mut snappy_buf = buf.clone();
+        let _ = snappy_buf.split_to(1);
+
+        // decode message just as snappy message
+        let _snappy_decoded_message = snappy_outbound_codec
+            .decode_response(&mut snappy_buf)
+            .unwrap();
+
+        // decode message as ssz snappy chunk
+        let _snappy_decoded_chunk = snappy_outbound_codec.decode(&mut buf).unwrap();
+    }
+
+    #[test]
+    fn test_invalid_length_prefix() {
+        let mut uvi_codec: Uvi<u128> = Uvi::default();
+        let mut dst = BytesMut::with_capacity(1024);
+
+        // Smallest > 10 byte varint
+        let len: u128 = 2u128.pow(70);
+
+        // Insert length-prefix
+        uvi_codec.encode(len, &mut dst).unwrap();
+
+        let snappy_protocol_id = ProtocolId::new(SupportedProtocol::StatusV1, Encoding::SSZSnappy);
+
+        let fork_context = Arc::new(fork_context(ForkName::Base));
+
+        let chain_spec = Spec::default_spec();
+
+        let mut snappy_outbound_codec = SSZSnappyOutboundCodec::<Spec>::new(
+            snappy_protocol_id,
+            max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize),
+            fork_context,
+        );
+
+        let snappy_decoded_message = snappy_outbound_codec.decode_response(&mut dst).unwrap_err();
+
+        assert_eq!(
+            snappy_decoded_message,
+            RPCError::IoError("input bytes exceed maximum".to_string()),
+            "length-prefix of > 10 bytes is invalid"
+        );
+    }
+
+    #[test]
+    fn test_length_limits() {
+        fn encode_len(len: usize) -> BytesMut {
+            let mut uvi_codec: Uvi<usize> = Uvi::default();
+            let mut dst = BytesMut::with_capacity(1024);
+            uvi_codec.encode(len, &mut dst).unwrap();
+            dst
+        }
+
+        let protocol_id = ProtocolId::new(SupportedProtocol::BlocksByRangeV1, Encoding::SSZSnappy);
+
+        // Response limits
+        let fork_context = Arc::new(fork_context(ForkName::Base));
+
+        let chain_spec = Spec::default_spec();
+
+        let max_rpc_size = max_rpc_size(&fork_context, chain_spec.max_chunk_size as usize);
+        let limit = protocol_id.rpc_response_limits::<Spec>(&fork_context);
+        let mut max = encode_len(limit.max + 1);
+        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
+            protocol_id.clone(),
+            max_rpc_size,
+            fork_context.clone(),
+        );
+        assert!(matches!(
+            codec.decode_response(&mut max).unwrap_err(),
+            RPCError::InvalidData(_)
+        ));
+
+        let mut min = encode_len(limit.min - 1);
+        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
+            protocol_id.clone(),
+            max_rpc_size,
+            fork_context.clone(),
+        );
+        assert!(matches!(
+            codec.decode_response(&mut min).unwrap_err(),
+            RPCError::InvalidData(_)
+        ));
+
+        // Request limits
+        let limit = protocol_id.rpc_request_limits(&fork_context.spec);
+        let mut max = encode_len(limit.max + 1);
+        let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
+            protocol_id.clone(),
+            max_rpc_size,
+            fork_context.clone(),
+        );
+        assert!(matches!(
+            codec.decode_response(&mut max).unwrap_err(),
+            RPCError::InvalidData(_)
+        ));
+
+        let mut min = encode_len(limit.min - 1);
+        let mut codec =
+            SSZSnappyOutboundCodec::<Spec>::new(protocol_id, max_rpc_size, fork_context);
+        assert!(matches!(
+            codec.decode_response(&mut min).unwrap_err(),
             RPCError::InvalidData(_)
         ));
     }

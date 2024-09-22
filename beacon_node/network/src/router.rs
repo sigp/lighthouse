@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use types::{BlobSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobSidecar, DataColumnSidecar, EthSpec, SignedBeaconBlock};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
 pub struct Router<T: BeaconChainTypes> {
@@ -216,6 +216,14 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.network_beacon_processor
                     .send_blobs_by_roots_request(peer_id, request_id, request),
             ),
+            Request::DataColumnsByRoot(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_data_columns_by_roots_request(peer_id, request_id, request),
+            ),
+            Request::DataColumnsByRange(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_data_columns_by_range_request(peer_id, request_id, request),
+            ),
             Request::LightClientBootstrap(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
                     .send_light_client_bootstrap_request(peer_id, request_id, request),
@@ -257,6 +265,12 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             Response::BlobsByRoot(blob) => {
                 self.on_blobs_by_root_response(peer_id, request_id, blob);
+            }
+            Response::DataColumnsByRoot(data_column) => {
+                self.on_data_columns_by_root_response(peer_id, request_id, data_column);
+            }
+            Response::DataColumnsByRange(data_column) => {
+                self.on_data_columns_by_range_response(peer_id, request_id, data_column);
             }
             // Light client responses should not be received
             Response::LightClientBootstrap(_)
@@ -507,11 +521,11 @@ impl<T: BeaconChainTypes> Router<T> {
     ) {
         let request_id = match request_id {
             AppRequestId::Sync(sync_id) => match sync_id {
-                SyncRequestId::SingleBlock { .. } | SyncRequestId::SingleBlob { .. } => {
-                    crit!(self.log, "Block lookups do not request BBRange requests"; "peer_id" => %peer_id);
+                id @ SyncRequestId::RangeBlockAndBlobs { .. } => id,
+                other => {
+                    crit!(self.log, "BlocksByRange response on incorrect request"; "request" => ?other);
                     return;
                 }
-                id @ SyncRequestId::RangeBlockAndBlobs { .. } => id,
             },
             AppRequestId::Router => {
                 crit!(self.log, "All BBRange requests belong to sync"; "peer_id" => %peer_id);
@@ -570,12 +584,8 @@ impl<T: BeaconChainTypes> Router<T> {
         let request_id = match request_id {
             AppRequestId::Sync(sync_id) => match sync_id {
                 id @ SyncRequestId::SingleBlock { .. } => id,
-                SyncRequestId::RangeBlockAndBlobs { .. } => {
-                    crit!(self.log, "Batch syncing do not request BBRoot requests"; "peer_id" => %peer_id);
-                    return;
-                }
-                SyncRequestId::SingleBlob { .. } => {
-                    crit!(self.log, "Blob response to block by roots request"; "peer_id" => %peer_id);
+                other => {
+                    crit!(self.log, "BlocksByRoot response on incorrect request"; "request" => ?other);
                     return;
                 }
             },
@@ -608,12 +618,8 @@ impl<T: BeaconChainTypes> Router<T> {
         let request_id = match request_id {
             AppRequestId::Sync(sync_id) => match sync_id {
                 id @ SyncRequestId::SingleBlob { .. } => id,
-                SyncRequestId::SingleBlock { .. } => {
-                    crit!(self.log, "Block response to blobs by roots request"; "peer_id" => %peer_id);
-                    return;
-                }
-                SyncRequestId::RangeBlockAndBlobs { .. } => {
-                    crit!(self.log, "Batch syncing does not request BBRoot requests"; "peer_id" => %peer_id);
+                other => {
+                    crit!(self.log, "BlobsByRoot response on incorrect request"; "request" => ?other);
                     return;
                 }
             },
@@ -636,6 +642,67 @@ impl<T: BeaconChainTypes> Router<T> {
         });
     }
 
+    /// Handle a `DataColumnsByRoot` response from the peer.
+    pub fn on_data_columns_by_root_response(
+        &mut self,
+        peer_id: PeerId,
+        request_id: AppRequestId,
+        data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
+    ) {
+        let request_id = match request_id {
+            AppRequestId::Sync(sync_id) => match sync_id {
+                id @ SyncRequestId::DataColumnsByRoot { .. } => id,
+                other => {
+                    crit!(self.log, "DataColumnsByRoot response on incorrect request"; "request" => ?other);
+                    return;
+                }
+            },
+            AppRequestId::Router => {
+                crit!(self.log, "All DataColumnsByRoot requests belong to sync"; "peer_id" => %peer_id);
+                return;
+            }
+        };
+
+        trace!(
+            self.log,
+            "Received DataColumnsByRoot Response";
+            "peer" => %peer_id,
+        );
+        self.send_to_sync(SyncMessage::RpcDataColumn {
+            request_id,
+            peer_id,
+            data_column,
+            seen_timestamp: timestamp_now(),
+        });
+    }
+
+    pub fn on_data_columns_by_range_response(
+        &mut self,
+        peer_id: PeerId,
+        request_id: AppRequestId,
+        data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
+    ) {
+        trace!(
+            self.log,
+            "Received DataColumnsByRange Response";
+            "peer" => %peer_id,
+        );
+
+        if let AppRequestId::Sync(id) = request_id {
+            self.send_to_sync(SyncMessage::RpcDataColumn {
+                peer_id,
+                request_id: id,
+                data_column,
+                seen_timestamp: timestamp_now(),
+            });
+        } else {
+            crit!(
+                self.log,
+                "All data columns by range responses should belong to sync"
+            );
+        }
+    }
+
     fn handle_beacon_processor_send_result(
         &mut self,
         result: Result<(), crate::network_beacon_processor::Error<T::EthSpec>>,
@@ -643,7 +710,7 @@ impl<T: BeaconChainTypes> Router<T> {
         if let Err(e) = result {
             let work_type = match &e {
                 mpsc::error::TrySendError::Closed(work) | mpsc::error::TrySendError::Full(work) => {
-                    work.work_type()
+                    work.work_type_str()
                 }
             };
 

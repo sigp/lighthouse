@@ -13,7 +13,7 @@ use std::sync::LazyLock;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, EthSpec, Keypair, SignedBeaconBlock,
 };
-use types::{Hash256, MainnetEthSpec, Slot};
+use types::{FixedBytesExtended, Hash256, MainnetEthSpec, Slot};
 
 type E = MainnetEthSpec;
 

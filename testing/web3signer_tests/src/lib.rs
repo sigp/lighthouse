@@ -23,6 +23,7 @@ mod tests {
     use eth2::types::AttesterData;
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
+    use logging::test_logger;
     use parking_lot::Mutex;
     use reqwest::Client;
     use serde::Serialize;
@@ -321,7 +322,7 @@ mod tests {
             using_web3signer: bool,
             spec: ChainSpec,
         ) -> Self {
-            let log = environment::null_logger().unwrap();
+            let log = test_logger();
             let validator_dir = TempDir::new().unwrap();
 
             let config = validator_client::Config::default();
