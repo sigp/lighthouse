@@ -81,7 +81,7 @@ pub struct StatusMessage {
 }
 
 /// The PING request/response message.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Copy, Clone, Debug, PartialEq)]
 pub struct Ping {
     /// The metadata sequence number.
     pub data: u64,
@@ -89,7 +89,7 @@ pub struct Ping {
 
 /// The METADATA request structure.
 #[superstruct(
-    variants(V1, V2),
+    variants(V1, V2, V3),
     variant_attributes(derive(Clone, Debug, PartialEq, Serialize),)
 )]
 #[derive(Clone, Debug, PartialEq)]
@@ -109,11 +109,17 @@ impl<E: EthSpec> MetadataRequest<E> {
             _phantom_data: PhantomData,
         })
     }
+
+    pub fn new_v3() -> Self {
+        Self::V3(MetadataRequestV3 {
+            _phantom_data: PhantomData,
+        })
+    }
 }
 
 /// The METADATA response structure.
 #[superstruct(
-    variants(V1, V2),
+    variants(V1, V2, V3),
     variant_attributes(
         derive(Encode, Decode, Clone, Debug, PartialEq, Serialize),
         serde(bound = "E: EthSpec", deny_unknown_fields),
@@ -127,8 +133,10 @@ pub struct MetaData<E: EthSpec> {
     /// The persistent attestation subnet bitfield.
     pub attnets: EnrAttestationBitfield<E>,
     /// The persistent sync committee bitfield.
-    #[superstruct(only(V2))]
+    #[superstruct(only(V2, V3))]
     pub syncnets: EnrSyncCommitteeBitfield<E>,
+    #[superstruct(only(V3))]
+    pub custody_subnet_count: u64,
 }
 
 impl<E: EthSpec> MetaData<E> {
@@ -137,6 +145,10 @@ impl<E: EthSpec> MetaData<E> {
         match self {
             md @ MetaData::V1(_) => md.clone(),
             MetaData::V2(metadata) => MetaData::V1(MetaDataV1 {
+                seq_number: metadata.seq_number,
+                attnets: metadata.attnets.clone(),
+            }),
+            MetaData::V3(metadata) => MetaData::V1(MetaDataV1 {
                 seq_number: metadata.seq_number,
                 attnets: metadata.attnets.clone(),
             }),
@@ -152,6 +164,30 @@ impl<E: EthSpec> MetaData<E> {
                 syncnets: Default::default(),
             }),
             md @ MetaData::V2(_) => md.clone(),
+            MetaData::V3(metadata) => MetaData::V2(MetaDataV2 {
+                seq_number: metadata.seq_number,
+                attnets: metadata.attnets.clone(),
+                syncnets: metadata.syncnets.clone(),
+            }),
+        }
+    }
+
+    /// Returns a V3 MetaData response from self by filling unavailable fields with default.
+    pub fn metadata_v3(&self, spec: &ChainSpec) -> Self {
+        match self {
+            MetaData::V1(metadata) => MetaData::V3(MetaDataV3 {
+                seq_number: metadata.seq_number,
+                attnets: metadata.attnets.clone(),
+                syncnets: Default::default(),
+                custody_subnet_count: spec.custody_requirement,
+            }),
+            MetaData::V2(metadata) => MetaData::V3(MetaDataV3 {
+                seq_number: metadata.seq_number,
+                attnets: metadata.attnets.clone(),
+                syncnets: metadata.syncnets.clone(),
+                custody_subnet_count: spec.custody_requirement,
+            }),
+            md @ MetaData::V3(_) => md.clone(),
         }
     }
 
@@ -159,6 +195,7 @@ impl<E: EthSpec> MetaData<E> {
         match self {
             MetaData::V1(md) => md.as_ssz_bytes(),
             MetaData::V2(md) => md.as_ssz_bytes(),
+            MetaData::V3(md) => md.as_ssz_bytes(),
         }
     }
 }
@@ -738,6 +775,16 @@ impl std::fmt::Display for BlobsByRangeRequest {
             f,
             "Request: BlobsByRange: Start Slot: {}, Count: {}",
             self.start_slot, self.count
+        )
+    }
+}
+
+impl std::fmt::Display for DataColumnsByRootRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Request: DataColumnsByRoot: Number of Requested Data Column Ids: {}",
+            self.data_column_ids.len()
         )
     }
 }

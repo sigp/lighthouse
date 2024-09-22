@@ -24,8 +24,8 @@ use types::{
     signed_aggregate_and_proof::SignedAggregateAndProofRefMut,
     test_utils::generate_deterministic_keypair, Address, AggregateSignature, Attestation,
     AttestationRef, AttestationRefMut, BeaconStateError, BitList, ChainSpec, Epoch, EthSpec,
-    ForkName, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof, SignedAggregateAndProof,
-    Slot, SubnetId, Unsigned,
+    FixedBytesExtended, ForkName, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
+    SignedAggregateAndProof, Slot, SubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
