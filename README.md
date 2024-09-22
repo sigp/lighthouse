@@ -6,7 +6,7 @@ An open-source Ethereum consensus client, written in Rust and maintained by Sigm
 
 [Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
 [Chat Link]: https://discord.gg/cyAszAh
-[Book Status]:https://img.shields.io/badge/user--docs-stable-informational
+[Book Status]:https://img.shields.io/badge/user--docs-unstable-informational
 [Book Link]: https://lighthouse-book.sigmaprime.io
 [stable]: https://github.com/sigp/lighthouse/tree/stable
 [unstable]: https://github.com/sigp/lighthouse/tree/unstable
