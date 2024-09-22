@@ -2,7 +2,6 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, StateSkipConfig};
 use attesting_indices_base::get_attesting_indices;
 use eth2::lighthouse::StandardBlockReward;
 use safe_arith::SafeArith;
-use slog::error;
 use state_processing::common::attesting_indices_base;
 use state_processing::{
     common::{

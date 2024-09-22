@@ -11,7 +11,7 @@ use std::time::Duration;
 use store::metadata::DataColumnInfo;
 use store::{chunked_vector::BlockRoots, AnchorInfo, BlobInfo, ChunkWriter, KeyValueStore};
 use tracing::debug;
-use types::{FixedBytesExtended,Hash256, Slot};
+use types::{FixedBytesExtended, Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
 ///

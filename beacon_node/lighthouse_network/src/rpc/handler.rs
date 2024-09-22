@@ -17,7 +17,6 @@ use libp2p::swarm::handler::{
 use libp2p::swarm::{ConnectionId, Stream};
 use libp2p::PeerId;
 use logging::crit;
-use tracing::{debug, trace};
 use smallvec::SmallVec;
 use std::{
     collections::{hash_map::Entry, VecDeque},
