@@ -417,30 +417,18 @@ impl<E: EthSpec> LightClientUpdate<E> {
         return Ok(new.signature_slot() < self.signature_slot());
     }
 
-    fn is_next_sync_committee_branch_empty(&self) -> bool {
-        match self {
-            LightClientUpdate::Electra(update) => {
-                is_empty_branch(update.next_sync_committee_branch.as_ref())
-            }
-            LightClientUpdate::Deneb(update) => {
-                is_empty_branch(update.next_sync_committee_branch.as_ref())
-            }
-            LightClientUpdate::Capella(update) => {
-                is_empty_branch(update.next_sync_committee_branch.as_ref())
-            }
-            LightClientUpdate::Altair(update) => {
-                is_empty_branch(update.next_sync_committee_branch.as_ref())
-            }
-        }
+    fn is_next_sync_committee_branch_empty<'a>(&'a self) -> bool {
+        map_light_client_update_ref!(&'a _, self.to_ref(), |update, cons| {
+            cons(update);
+            is_empty_branch(update.next_sync_committee_branch.as_ref())
+        })
     }
 
-    pub fn is_finality_branch_empty(&self) -> bool {
-        match self {
-            LightClientUpdate::Electra(update) => is_empty_branch(update.finality_branch.as_ref()),
-            LightClientUpdate::Deneb(update) => is_empty_branch(update.finality_branch.as_ref()),
-            LightClientUpdate::Capella(update) => is_empty_branch(update.finality_branch.as_ref()),
-            LightClientUpdate::Altair(update) => is_empty_branch(update.finality_branch.as_ref()),
-        }
+    pub fn is_finality_branch_empty<'a>(&'a self) -> bool {
+        map_light_client_update_ref!(&'a _, self.to_ref(), |update, cons| {
+            cons(update);
+            is_empty_branch(update.finality_branch.as_ref())
+        })
     }
 }
 
