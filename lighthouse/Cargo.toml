@@ -61,7 +61,6 @@ database_manager = { path = "../database_manager" }
 slasher = { workspace = true }
 validator_manager = { path = "../validator_manager" }
 logging = { workspace = true }
-rustc_version = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
