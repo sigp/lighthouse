@@ -1972,12 +1972,13 @@ fn sampling_happy_path() {
 }
 
 #[test]
-#[ignore] // Ignoring due to flakiness https://github.com/sigp/lighthouse/issues/6319
 fn sampling_with_retries() {
     let Some(mut r) = TestRig::test_setup_after_peerdas() else {
         return;
     };
     r.new_connected_peers_for_peerdas();
+    // Add another supernode to ensure that the node can retry.
+    r.new_connected_supernode_peer();
     let (block, data_columns) = r.rand_block_and_data_columns();
     let block_root = block.canonical_root();
     r.trigger_sample_block(block_root, block.slot());
