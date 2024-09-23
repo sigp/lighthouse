@@ -48,7 +48,7 @@ install:
 # architecture are bit-identical. We remap the source directory to `/project/` as that is what
 # the Cross builds use.
 reproducible:
-	env SOURCE_DATE_EPOCH="1" RUSTFLAGS="--remap-path-prefix=$(CURDIR)=/project -C split-debuginfo=packed" cargo build --bin lighthouse --locked \
+	env SOURCE_DATE_EPOCH="1" RUSTFLAGS="--remap-path-prefix=$(CURDIR)=/project" cargo build --bin lighthouse --locked \
 		--features "$(FEATURES)" \
 		--profile "$(PROFILE)"
 
