@@ -440,6 +440,23 @@ pub mod tests {
                 create_result.result.is_ok(),
                 "precondition: validators are created"
             );
+            self.import_config.validators_file_path = create_result.validators_file_path();
+            self.create_dir = Some(create_result.output_dir);
+            self
+        }
+
+        pub async fn create_validators_standard(mut self, count: u32, first_index: u32) -> Self {
+            let create_result = CreateTestBuilder::default()
+                .mutate_config(|config| {
+                    config.count = count;
+                    config.first_index = first_index;
+                })
+                .run_test()
+                .await;
+            assert!(
+                create_result.result.is_ok(),
+                "precondition: validators are created"
+            );
 
             let validators_file_path = create_result.validators_file_path();
 
@@ -459,16 +476,14 @@ pub mod tests {
                 })
                 .unwrap();
 
-            let validator_standard = &validators[0];
-            let validator_json = validator_standard.voting_keystore.0.clone();
+            let validator = &validators[0];
+            let validator_json = validator.voting_keystore.0.clone();
 
-            // Let the created file to have a file name so that it will not overwrite the file created before
-            let keystore_file_path = validators_file_path.with_file_name("keystore.json");
-            let keystore_file = File::create(&keystore_file_path).unwrap();
-            validator_json.to_json_writer(keystore_file).unwrap();
+            let keystore_file = File::create(&validators_file_path).unwrap();
+            validator_json.to_json_writer(keystore_file);
 
             self.import_config.validators_file_path = create_result.validators_file_path();
-            self.import_config.password = Some(validator_standard.voting_keystore_password.clone());
+            self.import_config.password = Some(validator.voting_keystore_password.clone());
             self.create_dir = Some(create_result.output_dir);
             self
         }
@@ -643,7 +658,7 @@ pub mod tests {
     async fn create_one_validator_standard() {
         TestBuilder::new()
             .await
-            .create_validators(1, 0)
+            .create_validators_standard(1, 0)
             .await
             .run_test_standard()
             .await
@@ -654,7 +669,7 @@ pub mod tests {
     async fn create_one_validator_with_offset_standard() {
         TestBuilder::new()
             .await
-            .create_validators(1, 42)
+            .create_validators_standard(1, 42)
             .await
             .run_test_standard()
             .await
@@ -665,7 +680,7 @@ pub mod tests {
     async fn import_duplicates_when_disallowed_standard() {
         TestBuilder::new()
             .await
-            .create_validators(1, 0)
+            .create_validators_standard(1, 0)
             .await
             .import_validators_without_checks()
             .await
@@ -681,7 +696,7 @@ pub mod tests {
             .mutate_import_config(|config| {
                 config.ignore_duplicates = true;
             })
-            .create_validators(1, 0)
+            .create_validators_standard(1, 0)
             .await
             .import_validators_without_checks()
             .await
