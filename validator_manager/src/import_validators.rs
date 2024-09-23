@@ -480,7 +480,7 @@ pub mod tests {
             let validator_json = validator.voting_keystore.0.clone();
 
             let keystore_file = File::create(&validators_file_path).unwrap();
-            validator_json.to_json_writer(keystore_file);
+            let _ = validator_json.to_json_writer(keystore_file);
 
             self.import_config.validators_file_path = create_result.validators_file_path();
             self.import_config.password = Some(validator.voting_keystore_password.clone());
