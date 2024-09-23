@@ -25,7 +25,7 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
     let mut blob_event_receiver = event_handler.subscribe_blob_sidecar();
 
     // build and process a gossip verified blob
-    let kzg = harness.chain.kzg.as_ref().unwrap();
+    let kzg = harness.chain.kzg.as_ref();
     let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
     let sidecar = BlobSidecar::random_valid(&mut rng, kzg)
         .map(Arc::new)
@@ -59,7 +59,7 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
     let mut blob_event_receiver = event_handler.subscribe_blob_sidecar();
 
     // build and process multiple rpc blobs
-    let kzg = harness.chain.kzg.as_ref().unwrap();
+    let kzg = harness.chain.kzg.as_ref();
     let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
 
     let mut blob_1 = BlobSidecar::random_valid(&mut rng, kzg).unwrap();
