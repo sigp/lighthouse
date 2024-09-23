@@ -555,7 +555,8 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
                     kzg,
                     pending_components.verified_data_columns.as_slice(),
                     &self.spec,
-                )?;
+                )
+                .map_err(AvailabilityCheckError::ReconstructColumnsError)?;
 
                 let data_columns_to_publish = all_data_columns
                     .iter()
