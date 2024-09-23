@@ -76,7 +76,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     #[allow(clippy::type_complexity)]
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     runtime_context: Option<RuntimeContext<T::EthSpec>>,
-    chain_spec: Option<ChainSpec>,
+    chain_spec: Option<Arc<ChainSpec>>,
     beacon_chain_builder: Option<BeaconChainBuilder<T>>,
     beacon_chain: Option<Arc<BeaconChain<T>>>,
     eth1_service: Option<Eth1Service>,
@@ -137,7 +137,7 @@ where
     }
 
     /// Specifies the `ChainSpec`.
-    pub fn chain_spec(mut self, spec: ChainSpec) -> Self {
+    pub fn chain_spec(mut self, spec: Arc<ChainSpec>) -> Self {
         self.chain_spec = Some(spec);
         self
     }
@@ -604,10 +604,9 @@ where
                 };
 
                 let genesis_state = genesis_service
-                    .wait_for_genesis_state(
-                        Duration::from_millis(ETH1_GENESIS_UPDATE_INTERVAL_MILLIS),
-                        context.eth2_config().spec.clone(),
-                    )
+                    .wait_for_genesis_state(Duration::from_millis(
+                        ETH1_GENESIS_UPDATE_INTERVAL_MILLIS,
+                    ))
                     .await?;
 
                 let _ = exit_tx.send(());
@@ -641,7 +640,7 @@ where
     }
 
     /// Starts the networking stack.
-    pub async fn network(mut self, config: &NetworkConfig) -> Result<Self, String> {
+    pub async fn network(mut self, config: Arc<NetworkConfig>) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
             .clone()

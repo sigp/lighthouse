@@ -91,6 +91,14 @@ impl SyncState {
     pub fn is_synced(&self) -> bool {
         matches!(self, SyncState::Synced | SyncState::BackFillSyncing { .. })
     }
+
+    /// Returns true if the node is *stalled*, i.e. has no synced peers.
+    ///
+    /// Usually this state is treated as unsynced, except in some places where we make an exception
+    /// for single-node testnets where having 0 peers is desired.
+    pub fn is_stalled(&self) -> bool {
+        matches!(self, SyncState::Stalled)
+    }
 }
 
 impl std::fmt::Display for SyncState {

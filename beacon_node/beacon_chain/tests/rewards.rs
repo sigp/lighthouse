@@ -32,7 +32,7 @@ fn get_harness(spec: ChainSpec) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     };
 
     let harness = BeaconChainHarness::builder(E::default())
-        .spec(spec)
+        .spec(Arc::new(spec))
         .keypairs(KEYPAIRS.to_vec())
         .fresh_ephemeral_store()
         .chain_config(chain_config)

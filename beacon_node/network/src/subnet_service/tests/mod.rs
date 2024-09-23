@@ -38,7 +38,7 @@ pub struct TestBeaconChain {
 
 impl TestBeaconChain {
     pub fn new_with_system_clock() -> Self {
-        let spec = MainnetEthSpec::default_spec();
+        let spec = Arc::new(MainnetEthSpec::default_spec());
 
         let keypairs = generate_deterministic_keypairs(1);
 

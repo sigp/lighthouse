@@ -5,6 +5,7 @@ use eth1_test_rig::{AnvilEth1Instance, DelayThenDeposit, Middleware};
 use genesis::{Eth1Config, Eth1GenesisService};
 use sensitive_url::SensitiveUrl;
 use state_processing::is_valid_genesis_state;
+use std::sync::Arc;
 use std::time::Duration;
 use types::{
     test_utils::generate_deterministic_keypair, FixedBytesExtended, Hash256, MinimalEthSpec,
@@ -24,7 +25,10 @@ pub fn new_env() -> Environment<MinimalEthSpec> {
 fn basic() {
     let env = new_env();
     let log = env.core_context().log().clone();
-    let mut spec = env.eth2_config().spec.clone();
+    let mut spec = (*env.eth2_config().spec).clone();
+    spec.min_genesis_time = 0;
+    spec.min_genesis_active_validator_count = 8;
+    let spec = Arc::new(spec);
 
     env.runtime().block_on(async {
         let eth1 = AnvilEth1Instance::new(DEFAULT_CHAIN_ID.into())
@@ -60,9 +64,6 @@ fn basic() {
         // you're experiencing failures, try increasing the update_interval.
         let update_interval = Duration::from_millis(500);
 
-        spec.min_genesis_time = 0;
-        spec.min_genesis_active_validator_count = 8;
-
         let deposits = (0..spec.min_genesis_active_validator_count + 2)
             .map(|i| {
                 deposit_contract.deposit_helper::<MinimalEthSpec>(
@@ -79,8 +80,7 @@ fn basic() {
 
         let deposit_future = deposit_contract.deposit_multiple(deposits);
 
-        let wait_future =
-            service.wait_for_genesis_state::<MinimalEthSpec>(update_interval, spec.clone());
+        let wait_future = service.wait_for_genesis_state::<MinimalEthSpec>(update_interval);
 
         let state = futures::try_join!(deposit_future, wait_future)
             .map(|(_, state)| state)

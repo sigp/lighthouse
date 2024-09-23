@@ -100,9 +100,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         kzg: Arc<Kzg>,
         store: BeaconStore<T>,
         import_all_data_columns: bool,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
-        let spec = Arc::new(spec);
         let custody_subnet_count = if import_all_data_columns {
             spec.data_column_sidecar_subnet_count as usize
         } else {
