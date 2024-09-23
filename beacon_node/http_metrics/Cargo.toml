@@ -14,7 +14,7 @@ beacon_chain = { workspace = true }
 store = { workspace = true }
 lighthouse_network = { workspace = true }
 slot_clock = { workspace = true }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 lighthouse_version = { workspace = true }
 warp_utils = { workspace = true }
 malloc_utils = { workspace = true }

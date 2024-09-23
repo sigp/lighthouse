@@ -33,7 +33,7 @@ sensitive_url = { workspace = true }
 genesis = { workspace = true }
 task_executor = { workspace = true }
 environment = { workspace = true }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 time = "0.3.5"
 directory = { workspace = true }
 http_api = { workspace = true }

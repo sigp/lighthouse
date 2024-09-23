@@ -1,4 +1,4 @@
-pub use lighthouse_metrics::*;
+pub use metrics::*;
 use std::sync::LazyLock;
 
 pub static HTTP_API_PATHS_TOTAL: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {

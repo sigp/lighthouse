@@ -1,4 +1,4 @@
-pub use lighthouse_metrics::{set_gauge, try_create_int_gauge, *};
+pub use metrics::{set_gauge, try_create_int_gauge, *};
 
 use directory::size_of_dir;
 use std::path::Path;

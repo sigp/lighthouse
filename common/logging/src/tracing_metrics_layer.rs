@@ -1,6 +1,6 @@
 //! Exposes [`MetricsLayer`]: A tracing layer that registers metrics of logging events.
 
-use lighthouse_metrics as metrics;
+use metrics;
 use std::sync::LazyLock;
 use tracing_log::NormalizeEvent;
 
