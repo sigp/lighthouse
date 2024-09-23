@@ -3,7 +3,6 @@ use lighthouse_metrics::{
 };
 use slog::Logger;
 use slog_term::Decorator;
-use std::fs::metadata;
 use std::io::{Result, Write};
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -223,7 +222,7 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
     // Ensure that `tracing_log_path` only contains directories.
     for p in base_tracing_log_path.iter() {
         tracing_log_path = tracing_log_path.join(p);
-        if let Ok(metadata) = metadata(p) {
+        if let Ok(metadata) = tracing_log_path.metadata() {
             if !metadata.is_dir() {
                 tracing_log_path.pop();
                 break;
