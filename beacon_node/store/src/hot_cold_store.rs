@@ -637,7 +637,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Get the sync committee branch for the given block root
     /// Note: we only persist sync committee branches for checkpoint slots
-    pub fn get_sync_committee_branch(&self, block_root: &Hash256) -> Result<Option<MerkleProof>, Error> {
+    pub fn get_sync_committee_branch(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<MerkleProof>, Error> {
         let column = DBColumn::SyncCommitteeBranch;
 
         if let Some(bytes) = self

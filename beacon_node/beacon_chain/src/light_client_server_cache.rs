@@ -11,7 +11,9 @@ use store::KeyValueStore;
 use tree_hash::TreeHash;
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
-    BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, EthSpec, ForkName, Hash256, LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, MerkleProof, Slot, SyncAggregate, SyncCommittee
+    BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, EthSpec, ForkName, Hash256,
+    LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    LightClientUpdate, MerkleProof, Slot, SyncAggregate, SyncCommittee,
 };
 
 /// A prev block cache miss requires to re-generate the state of the post-parent block. Items in the
