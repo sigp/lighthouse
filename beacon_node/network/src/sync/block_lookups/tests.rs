@@ -2449,7 +2449,7 @@ mod deneb_only {
             self.rig.single_blob_component_processed(
                 self.blob_req_id.expect("blob request id").lookup_id,
                 BlockProcessingResult::Err(BlockError::AvailabilityCheck(
-                    AvailabilityCheckError::KzgVerificationFailed,
+                    AvailabilityCheckError::InvalidBlobs(kzg::Error::KzgVerificationFailed),
                 )),
             );
             self.rig.assert_single_lookups_count(1);
