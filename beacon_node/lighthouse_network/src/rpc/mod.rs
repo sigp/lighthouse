@@ -222,6 +222,15 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     pub fn update_seq_number(&mut self, seq_number: u64) {
         self.seq_number = seq_number
     }
+
+    /// Send a Ping request to the destination `PeerId` via `ConnectionId`.
+    pub fn ping(&mut self, peer_id: PeerId, id: Id) {
+        let ping = Ping {
+            data: self.seq_number,
+        };
+        trace!(self.log, "Sending Ping"; "peer_id" => %peer_id);
+        self.send_request(peer_id, id, OutboundRequest::Ping(ping));
+    }
 }
 
 impl<Id, E> NetworkBehaviour for RPC<Id, E>
