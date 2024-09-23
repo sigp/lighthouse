@@ -9,12 +9,9 @@ use std::sync::Arc;
 use store::DBColumn;
 use store::KeyValueStore;
 use tree_hash::TreeHash;
-use types::light_client_update::Proof;
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
-    BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, EthSpec, ForkName, Hash256,
-    LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    LightClientUpdate, Slot, SyncAggregate, SyncCommittee,
+    BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, EthSpec, ForkName, Hash256, LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, MerkleProof, Slot, SyncAggregate, SyncCommittee
 };
 
 /// A prev block cache miss requires to re-generate the state of the post-parent block. Items in the
@@ -408,9 +405,9 @@ impl<T: BeaconChainTypes> Default for LightClientServerCache<T> {
 #[derive(Clone)]
 struct LightClientCachedData<E: EthSpec> {
     finalized_checkpoint: Checkpoint,
-    finality_branch: Proof,
-    next_sync_committee_branch: Proof,
-    current_sync_committee_branch: Proof,
+    finality_branch: MerkleProof,
+    next_sync_committee_branch: MerkleProof,
+    current_sync_committee_branch: MerkleProof,
     next_sync_committee: Arc<SyncCommittee<E>>,
     current_sync_committee: Arc<SyncCommittee<E>>,
     finalized_block_root: Hash256,

@@ -46,7 +46,7 @@ pub const FINALIZED_ROOT_PROOF_LEN_ELECTRA: usize = 7;
 pub const NEXT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA: usize = 6;
 pub const CURRENT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA: usize = 6;
 
-pub type Proof = Vec<Hash256>;
+pub type MerkleProof = Vec<Hash256>;
 
 type FinalityBranch = FixedVector<Hash256, FinalizedRootProofLen>;
 type FinalityBranchElectra = FixedVector<Hash256, FinalizedRootProofLenElectra>;
