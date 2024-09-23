@@ -5,6 +5,7 @@ use derivative::Derivative;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_types::typenum::Unsigned;
 use ssz_types::BitVector;
 use std::hash::{Hash, Hasher};
 use superstruct::superstruct;
@@ -24,6 +25,7 @@ pub enum Error {
     IncorrectStateVariant,
     InvalidCommitteeLength,
     InvalidCommitteeIndex,
+    InvalidAggregationBit,
 }
 
 impl From<ssz_types::Error> for Error {
@@ -350,6 +352,29 @@ impl<E: EthSpec> AttestationElectra<E> {
             Ok(())
         }
     }
+
+    pub fn from_single_attestation(single_attestation: SingleAttestation) -> Result<Self, Error> {
+        let mut committee_bits = BitVector::new();
+        committee_bits.set(single_attestation.committee_index, true)?;
+
+        if committee_bits.num_set_bits() != 1 {
+            return Err(Error::InvalidCommitteeIndex);
+        }
+
+        let mut aggregation_bits = BitList::with_capacity(E::MaxValidatorsPerSlot::to_usize())?;
+        aggregation_bits.set(single_attestation.attester_index, true)?;
+
+        if aggregation_bits.num_set_bits() != 1 {
+            return Err(Error::InvalidAggregationBit);
+        }
+
+        Ok(Self {
+            data: single_attestation.data,
+            signature: single_attestation.signature,
+            committee_bits,
+            aggregation_bits,
+        })
+    }
 }
 
 impl<E: EthSpec> AttestationBase<E> {
@@ -524,6 +549,56 @@ impl<E: EthSpec> ForkVersionDeserialize for Vec<Attestation<E>> {
                 .map(Attestation::Base)
                 .collect::<Vec<_>>())
         }
+    }
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Decode,
+    Encode,
+    TestRandom,
+    Derivative,
+    arbitrary::Arbitrary,
+    TreeHash,
+    PartialEq,
+)]
+pub struct SingleAttestation {
+    pub committee_index: usize,
+    pub attester_index: usize,
+    pub data: AttestationData,
+    pub signature: AggregateSignature,
+}
+
+impl SingleAttestation {
+    /// Produces a `SingleAttestation` with empty signature and empty attester index.
+    /// ONLY USE IN ELECTRA
+    pub fn empty_for_signing(
+        committee_index: usize,
+        slot: Slot,
+        beacon_block_root: Hash256,
+        source: Checkpoint,
+        target: Checkpoint,
+    ) -> Self {
+        Self {
+            committee_index,
+            attester_index: 0,
+            data: AttestationData {
+                slot,
+                index: 0,
+                beacon_block_root,
+                source,
+                target,
+            },
+            signature: AggregateSignature::infinity(),
+        }
+    }
+
+    pub fn add_signature(&mut self, signature: &AggregateSignature, committee_position: usize) {
+        self.attester_index = committee_position;
+        self.signature = signature.clone();
     }
 }
 
