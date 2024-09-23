@@ -27,7 +27,9 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use types::{Attestation, AttestationElectra, BlobSidecar, DataColumnSidecar, EthSpec, SignedBeaconBlock};
+use types::{
+    Attestation, AttestationElectra, BlobSidecar, DataColumnSidecar, EthSpec, SignedBeaconBlock,
+};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
 pub struct Router<T: BeaconChainTypes> {
@@ -313,19 +315,21 @@ impl<T: BeaconChainTypes> Router<T> {
                 ),
             PubsubMessage::SingleAttestation(subnet_single_attestation) => {
                 // TODO(single-attestation) unwrap
-                let attestation = Attestation::Electra(AttestationElectra::from_single_attestation(subnet_single_attestation.1).unwrap());
+                let attestation = Attestation::Electra(
+                    AttestationElectra::from_single_attestation(subnet_single_attestation.1)
+                        .unwrap(),
+                );
 
-                self
-                    .handle_beacon_processor_send_result(
-                        self.network_beacon_processor.send_unaggregated_attestation(
-                            message_id,
-                            peer_id,
-                            attestation,
-                            subnet_single_attestation.0,
-                            should_process,
-                            timestamp_now(),
-                        )
-                    )
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_unaggregated_attestation(
+                        message_id,
+                        peer_id,
+                        attestation,
+                        subnet_single_attestation.0,
+                        should_process,
+                        timestamp_now(),
+                    ),
+                )
             }
             PubsubMessage::BeaconBlock(block) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor.send_gossip_beacon_block(
