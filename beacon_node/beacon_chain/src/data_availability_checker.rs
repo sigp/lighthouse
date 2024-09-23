@@ -69,7 +69,7 @@ pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
     slot_clock: T::SlotClock,
-    kzg: Option<Arc<Kzg>>,
+    kzg: Arc<Kzg>,
     spec: Arc<ChainSpec>,
 }
 
@@ -97,7 +97,7 @@ impl<E: EthSpec> Debug for Availability<E> {
 impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn new(
         slot_clock: T::SlotClock,
-        kzg: Option<Arc<Kzg>>,
+        kzg: Arc<Kzg>,
         store: BeaconStore<T>,
         import_all_data_columns: bool,
         spec: ChainSpec,
@@ -190,18 +190,17 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         epoch: Epoch,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let Some(kzg) = self.kzg.as_ref() else {
-            return Err(AvailabilityCheckError::KzgNotInitialized);
-        };
-
         let seen_timestamp = self
             .slot_clock
             .now_duration()
             .ok_or(AvailabilityCheckError::SlotClockError)?;
 
-        let verified_blobs =
-            KzgVerifiedBlobList::new(Vec::from(blobs).into_iter().flatten(), kzg, seen_timestamp)
-                .map_err(AvailabilityCheckError::Kzg)?;
+        let verified_blobs = KzgVerifiedBlobList::new(
+            Vec::from(blobs).into_iter().flatten(),
+            &self.kzg,
+            seen_timestamp,
+        )
+        .map_err(AvailabilityCheckError::Kzg)?;
 
         self.availability_cache
             .put_kzg_verified_blobs(block_root, epoch, verified_blobs)
@@ -217,23 +216,20 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
     {
-        let Some(kzg) = self.kzg.as_ref() else {
-            return Err(AvailabilityCheckError::KzgNotInitialized);
-        };
-
         // TODO(das): report which column is invalid for proper peer scoring
         // TODO(das): batch KZG verification here
         let verified_custody_columns = custody_columns
             .into_iter()
             .map(|column| {
                 Ok(KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                    KzgVerifiedDataColumn::new(column, kzg).map_err(AvailabilityCheckError::Kzg)?,
+                    KzgVerifiedDataColumn::new(column, &self.kzg)
+                        .map_err(AvailabilityCheckError::Kzg)?,
                 ))
             })
             .collect::<Result<Vec<_>, AvailabilityCheckError>>()?;
 
         self.availability_cache.put_kzg_verified_data_columns(
-            kzg,
+            &self.kzg,
             block_root,
             epoch,
             verified_custody_columns,
@@ -269,9 +265,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         gossip_data_columns: Vec<GossipVerifiedDataColumn<T>>,
     ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
     {
-        let Some(kzg) = self.kzg.as_ref() else {
-            return Err(AvailabilityCheckError::KzgNotInitialized);
-        };
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
 
         let custody_columns = gossip_data_columns
@@ -280,7 +273,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .collect::<Vec<_>>();
 
         self.availability_cache.put_kzg_verified_data_columns(
-            kzg,
+            &self.kzg,
             block_root,
             epoch,
             custody_columns,
@@ -314,11 +307,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let (block_root, block, blobs, data_columns) = block.deconstruct();
         if self.blobs_required_for_block(&block) {
             return if let Some(blob_list) = blobs.as_ref() {
-                let kzg = self
-                    .kzg
-                    .as_ref()
-                    .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-                verify_kzg_for_blob_list(blob_list.iter(), kzg)
+                verify_kzg_for_blob_list(blob_list.iter(), &self.kzg)
                     .map_err(AvailabilityCheckError::Kzg)?;
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
@@ -334,15 +323,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
         if self.data_columns_required_for_block(&block) {
             return if let Some(data_column_list) = data_columns.as_ref() {
-                let kzg = self
-                    .kzg
-                    .as_ref()
-                    .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
                 verify_kzg_for_data_column_list(
                     data_column_list
                         .iter()
                         .map(|custody_column| custody_column.as_data_column()),
-                    kzg,
+                    &self.kzg,
                 )
                 .map_err(AvailabilityCheckError::Kzg)?;
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
@@ -395,11 +380,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         // verify kzg for all blobs at once
         if !all_blobs.is_empty() {
-            let kzg = self
-                .kzg
-                .as_ref()
-                .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-            verify_kzg_for_blob_list(all_blobs.iter(), kzg)?;
+            verify_kzg_for_blob_list(all_blobs.iter(), &self.kzg)?;
         }
 
         let all_data_columns = blocks
@@ -415,11 +396,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         // verify kzg for all data columns at once
         if !all_data_columns.is_empty() {
-            let kzg = self
-                .kzg
-                .as_ref()
-                .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-            verify_kzg_for_data_column_list(all_data_columns.iter(), kzg)?;
+            verify_kzg_for_data_column_list(all_data_columns.iter(), &self.kzg)?;
         }
 
         for block in blocks {

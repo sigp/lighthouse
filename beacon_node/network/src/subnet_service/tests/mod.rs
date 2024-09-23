@@ -2,6 +2,7 @@ use super::*;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
+    test_utils::get_kzg,
     BeaconChain,
 };
 use futures::prelude::*;
@@ -45,12 +46,14 @@ impl TestBeaconChain {
         let store =
             HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone()).unwrap();
 
+        let kzg = get_kzg(&spec);
+
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
 
         let test_runtime = TestRuntime::default();
 
         let chain = Arc::new(
-            BeaconChainBuilder::new(MainnetEthSpec)
+            BeaconChainBuilder::new(MainnetEthSpec, kzg.clone())
                 .logger(log.clone())
                 .custom_spec(spec.clone())
                 .store(Arc::new(store))

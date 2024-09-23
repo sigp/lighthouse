@@ -101,7 +101,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     // Pending I/O batch that is constructed during building and should be executed atomically
     // alongside `PersistedBeaconChain` storage when `BeaconChainBuilder::build` is called.
     pending_io_batch: Vec<KeyValueStoreOp>,
-    kzg: Option<Arc<Kzg>>,
+    kzg: Arc<Kzg>,
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     import_all_data_columns: bool,
@@ -120,7 +120,7 @@ where
     ///
     /// The `_eth_spec_instance` parameter is only supplied to make concrete the `E` trait.
     /// This should generally be either the `MinimalEthSpec` or `MainnetEthSpec` types.
-    pub fn new(_eth_spec_instance: E) -> Self {
+    pub fn new(_eth_spec_instance: E, kzg: Arc<Kzg>) -> Self {
         Self {
             store: None,
             store_migrator_config: None,
@@ -143,7 +143,7 @@ where
             beacon_graffiti: GraffitiOrigin::default(),
             slasher: None,
             pending_io_batch: vec![],
-            kzg: None,
+            kzg,
             task_executor: None,
             validator_monitor_config: None,
             import_all_data_columns: false,
@@ -694,11 +694,6 @@ where
         self
     }
 
-    pub fn kzg(mut self, kzg: Option<Arc<Kzg>>) -> Self {
-        self.kzg = kzg;
-        self
-    }
-
     /// Consumes `self`, returning a `BeaconChain` if all required parameters have been supplied.
     ///
     /// An error will be returned at runtime if all required parameters have not been configured.
@@ -1157,7 +1152,7 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::EphemeralHarnessType;
+    use crate::test_utils::{get_kzg, EphemeralHarnessType};
     use ethereum_hashing::hash;
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
@@ -1204,7 +1199,9 @@ mod test {
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let runtime = TestRuntime::default();
 
-        let chain = Builder::new(MinimalEthSpec)
+        let kzg = get_kzg(&spec);
+
+        let chain = Builder::new(MinimalEthSpec, kzg)
             .logger(log.clone())
             .store(Arc::new(store))
             .task_executor(runtime.task_executor.clone())
