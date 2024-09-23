@@ -710,7 +710,8 @@ fn run<E: EthSpec>(
                 return Ok(());
             }
 
-            let mut tracing_log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
+            let mut tracing_log_path: Option<PathBuf> =
+                clap_utils::parse_optional(matches, "logfile")?;
 
             if tracing_log_path.is_none() {
                 tracing_log_path = Some(
