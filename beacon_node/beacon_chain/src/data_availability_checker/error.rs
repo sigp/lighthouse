@@ -6,7 +6,6 @@ pub enum Error {
     InvalidBlobs(KzgError),
     InvalidColumn(ColumnIndex, KzgError),
     ReconstructColumnsError(KzgError),
-    KzgNotInitialized,
     KzgCommitmentMismatch {
         blob_commitment: KzgCommitment,
         block_commitment: KzgCommitment,
@@ -37,8 +36,7 @@ pub enum ErrorCategory {
 impl Error {
     pub fn category(&self) -> ErrorCategory {
         match self {
-            Error::KzgNotInitialized
-            | Error::SszTypes(_)
+            Error::SszTypes(_)
             | Error::MissingBlobs
             | Error::MissingCustodyColumns
             | Error::StoreError(_)

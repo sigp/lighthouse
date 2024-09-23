@@ -475,10 +475,10 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
             voting_period_start_slot,
         );
 
-        let blocks = self.core.blocks().read();
-
-        let votes_to_consider =
-            get_votes_to_consider(blocks.iter(), voting_period_start_seconds, spec);
+        let votes_to_consider = {
+            let blocks = self.core.blocks().read();
+            get_votes_to_consider(blocks.iter(), voting_period_start_seconds, spec)
+        };
 
         trace!(
             self.log,
