@@ -696,8 +696,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             column_sidecar,
                         ));
                     }
-                    GossipDataColumnError::KzgNotInitialized
-                    | GossipDataColumnError::PubkeyCacheTimeout
+                    GossipDataColumnError::PubkeyCacheTimeout
                     | GossipDataColumnError::BeaconChainError(_) => {
                         crit!(
                             self.log,
@@ -839,9 +838,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             blob_sidecar,
                         ));
                     }
-                    GossipBlobError::KzgNotInitialized
-                    | GossipBlobError::PubkeyCacheTimeout
-                    | GossipBlobError::BeaconChainError(_) => {
+                    GossipBlobError::PubkeyCacheTimeout | GossipBlobError::BeaconChainError(_) => {
                         crit!(
                             self.log,
                             "Internal error when verifying blob sidecar";

@@ -4,7 +4,6 @@ use types::{BeaconStateError, Hash256};
 #[derive(Debug)]
 pub enum Error {
     Kzg(KzgError),
-    KzgNotInitialized,
     KzgVerificationFailed,
     KzgCommitmentMismatch {
         blob_commitment: KzgCommitment,
@@ -36,8 +35,7 @@ pub enum ErrorCategory {
 impl Error {
     pub fn category(&self) -> ErrorCategory {
         match self {
-            Error::KzgNotInitialized
-            | Error::SszTypes(_)
+            Error::SszTypes(_)
             | Error::MissingBlobs
             | Error::MissingCustodyColumns
             | Error::StoreError(_)

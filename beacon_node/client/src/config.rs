@@ -4,6 +4,7 @@ use beacon_chain::TrustedSetup;
 use beacon_processor::BeaconProcessorConfig;
 use directory::DEFAULT_ROOT_DIR;
 use environment::LoggerConfig;
+use kzg::trusted_setup::get_trusted_setup;
 use network::NetworkConfig;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
@@ -75,7 +76,7 @@ pub struct Config {
     pub chain: beacon_chain::ChainConfig,
     pub eth1: eth1::Config,
     pub execution_layer: Option<execution_layer::Config>,
-    pub trusted_setup: Option<TrustedSetup>,
+    pub trusted_setup: TrustedSetup,
     pub http_api: http_api::Config,
     pub http_metrics: http_metrics::Config,
     pub monitoring_api: Option<monitoring_api::Config>,
@@ -89,6 +90,9 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
+        let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
+            .expect("Unable to read trusted setup file");
+
         Self {
             data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
             db_name: "chain_db".to_string(),
@@ -103,7 +107,7 @@ impl Default for Config {
             sync_eth1_chain: false,
             eth1: <_>::default(),
             execution_layer: None,
-            trusted_setup: None,
+            trusted_setup,
             beacon_graffiti: GraffitiOrigin::default(),
             http_api: <_>::default(),
             http_metrics: <_>::default(),
