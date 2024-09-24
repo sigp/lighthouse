@@ -102,7 +102,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 
     /* actually publish a block */
     let publish_block_p2p = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
-                                  should_publish: bool,
+                                  should_publish_block: bool,
                                   blob_sidecars: Vec<Arc<BlobSidecar<T::EthSpec>>>,
                                   mut data_column_sidecars: DataColumnSidecarList<T::EthSpec>,
                                   sender,
@@ -120,7 +120,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             publish_delay,
         );
 
-        let mut pubsub_messages = if should_publish {
+        let mut pubsub_messages = if should_publish_block {
             info!(
                 log,
                 "Signed block published to network via HTTP API";
@@ -334,7 +334,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         .map_err(|_| warp_utils::reject::custom_server_error("unable to publish".into()))?;
     }
 
-    let published = Arc::new(AtomicBool::new(false));
+    let publish_fn_completed = Arc::new(AtomicBool::new(false));
     let block_to_publish = block.clone();
     let publish_fn = || {
         match validation_level {
@@ -361,7 +361,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 )?;
             }
         };
-        published.store(true, Ordering::SeqCst);
+        publish_fn_completed.store(true, Ordering::SeqCst);
         Ok(())
     };
 
@@ -438,7 +438,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             .await
         }
         Err(BlockError::DuplicateFullyImported(root)) => {
-            if published.load(Ordering::SeqCst) {
+            if publish_fn_completed.load(Ordering::SeqCst) {
                 post_block_import_logging_and_response(
                     Ok(AvailabilityProcessingStatus::Imported(root)),
                     validation_level,
