@@ -420,7 +420,15 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_withdrawals::<_, FullPayload<_>>(state, self.payload.to_ref(), spec)
+        if state.fork_name_unchecked().eip7732_enabled() {
+            process_withdrawals::eip7732::process_withdrawals(state, spec)
+        } else {
+            process_withdrawals::capella::process_withdrawals::<_, FullPayload<_>>(
+                state,
+                self.payload.to_ref(),
+                spec,
+            )
+        }
     }
 }
 
