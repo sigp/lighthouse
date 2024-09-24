@@ -61,9 +61,10 @@ Options:
           values: mainnet, gnosis, chiado, sepolia, holesky]
       --password <STRING>
           Password of the keystore file.
-      --prefer-builder-proposals
+      --prefer-builder-proposals <prefer-builder-proposals>
           When provided, the imported validator will always prefer blocks
-          constructed by builders, regardless of payload value.
+          constructed by builders, regardless of payload value. [possible
+          values: true, false]
       --safe-slots-to-import-optimistically <INTEGER>
           Used to coordinate manual overrides of the
           SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should only
@@ -112,9 +113,9 @@ Options:
           http://localhost:5062]
 
 Flags:
-      --builder-proposals
+      --builder-proposals <builder-proposals>
           When provided, the imported validator will attempt to create blocks
-          via builder rather than the local EL.
+          via builder rather than the local EL. [possible values: true, false]
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning
