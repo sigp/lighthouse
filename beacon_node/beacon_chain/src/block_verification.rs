@@ -745,17 +745,12 @@ pub fn build_blob_data_column_sidecars<T: BeaconChainTypes>(
     if blobs.is_empty() {
         return Ok(vec![]);
     }
-    // NOTE: we expect KZG to be initialized if the blobs are present
-    let kzg = chain
-        .kzg
-        .as_ref()
-        .ok_or(DataColumnSidecarError::KzgNotInitialized)?;
 
     let mut timer = metrics::start_timer_vec(
         &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
         &[&blobs.len().to_string()],
     );
-    let sidecars = blobs_to_data_column_sidecars(&blobs, block, kzg, &chain.spec)
+    let sidecars = blobs_to_data_column_sidecars(&blobs, block, &chain.kzg, &chain.spec)
         .discard_timer_on_break(&mut timer)?;
     drop(timer);
     Ok(sidecars)

@@ -28,7 +28,7 @@ use lighthouse_network::service::api_types::{
     SyncRequestId,
 };
 use lighthouse_network::types::SyncState;
-use lighthouse_network::{NetworkGlobals, Request};
+use lighthouse_network::{NetworkConfig, NetworkGlobals, Request};
 use slog::info;
 use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
 use store::MemoryStore;
@@ -116,7 +116,7 @@ impl TestRig {
 
         // Initialise a new beacon chain
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
-            .spec(spec)
+            .spec(Arc::new(spec))
             .logger(log.clone())
             .deterministic_keypairs(1)
             .fresh_ephemeral_store()
@@ -132,9 +132,11 @@ impl TestRig {
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         // TODO(das): make the generation of the ENR use the deterministic rng to have consistent
         // column assignments
+        let network_config = Arc::new(NetworkConfig::default());
         let globals = Arc::new(NetworkGlobals::new_test_globals(
             Vec::new(),
             &log,
+            network_config,
             chain.spec.clone(),
         ));
         let (beacon_processor, beacon_processor_rx) = NetworkBeaconProcessor::null_for_testing(
@@ -2449,7 +2451,7 @@ mod deneb_only {
             self.rig.single_blob_component_processed(
                 self.blob_req_id.expect("blob request id").lookup_id,
                 BlockProcessingResult::Err(BlockError::AvailabilityCheck(
-                    AvailabilityCheckError::KzgVerificationFailed,
+                    AvailabilityCheckError::InvalidBlobs(kzg::Error::KzgVerificationFailed),
                 )),
             );
             self.rig.assert_single_lookups_count(1);

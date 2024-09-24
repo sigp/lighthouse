@@ -16,7 +16,7 @@ use lighthouse_network::{
     },
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
-    ConnectedPoint, Enr, NetworkGlobals, PeerId, PeerManager,
+    ConnectedPoint, Enr, NetworkConfig, NetworkGlobals, PeerId, PeerManager,
 };
 use logging::test_logger;
 use network::{NetworkReceivers, NetworkSenders};
@@ -73,7 +73,7 @@ impl<E: EthSpec> InteractiveTester<E> {
         config: Config,
     ) -> Self {
         let mut harness_builder = BeaconChainHarness::builder(E::default())
-            .spec_or_default(spec)
+            .spec_or_default(spec.map(Arc::new))
             .logger(test_logger())
             .mock_execution_layer();
 
@@ -157,12 +157,14 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     });
     let enr_key = CombinedKey::generate_secp256k1();
     let enr = Enr::builder().build(&enr_key).unwrap();
+    let network_config = Arc::new(NetworkConfig::default());
     let network_globals = Arc::new(NetworkGlobals::new(
         enr.clone(),
         meta_data,
         vec![],
         false,
         &log,
+        network_config,
         chain.spec.clone(),
     ));
 

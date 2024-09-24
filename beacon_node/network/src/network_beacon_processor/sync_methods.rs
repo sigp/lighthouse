@@ -385,8 +385,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         data_columns: Vec<Arc<DataColumnSidecar<T::EthSpec>>>,
         _seen_timestamp: Duration,
     ) -> Result<(), String> {
-        let kzg = self.chain.kzg.as_ref().ok_or("Kzg not initialized")?;
-        verify_kzg_for_data_column_list(data_columns.iter(), kzg).map_err(|err| format!("{err:?}"))
+        verify_kzg_for_data_column_list(data_columns.iter(), &self.chain.kzg)
+            .map_err(|err| format!("{err:?}"))
     }
 
     /// Process a sampling completed event, inserting it into fork-choice
@@ -561,8 +561,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 })
                 .collect::<Vec<_>>(),
             Err(e) => match e {
-                AvailabilityCheckError::StoreError(_)
-                | AvailabilityCheckError::KzgNotInitialized => {
+                AvailabilityCheckError::StoreError(_) => {
                     return (
                         0,
                         Err(ChainSegmentFailed {

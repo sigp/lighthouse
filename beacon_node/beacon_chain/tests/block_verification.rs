@@ -1354,7 +1354,7 @@ async fn add_base_block_to_altair_chain() {
     spec.altair_fork_epoch = Some(Epoch::new(1));
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec)
+        .spec(spec.into())
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -1489,7 +1489,7 @@ async fn add_altair_block_to_base_chain() {
     spec.altair_fork_epoch = None;
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec)
+        .spec(spec.into())
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -1622,7 +1622,7 @@ async fn import_duplicate_block_unrealized_justification() {
     let spec = MainnetEthSpec::default_spec();
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec)
+        .spec(spec.into())
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
