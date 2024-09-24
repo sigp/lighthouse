@@ -347,7 +347,7 @@ pub struct BeaconNodeFallback<T, E> {
     candidates: Vec<CandidateBeaconNode<E>>,
     slot_clock: Option<T>,
     broadcast_topics: Vec<ApiTopic>,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
     log: Logger,
 }
 
@@ -355,7 +355,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub fn new(
         candidates: Vec<CandidateBeaconNode<E>>,
         broadcast_topics: Vec<ApiTopic>,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         log: Logger,
     ) -> Self {
         Self {

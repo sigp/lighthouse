@@ -206,7 +206,7 @@ pub fn test_spec<E: EthSpec>() -> ChainSpec {
 
 pub struct Builder<T: BeaconChainTypes> {
     eth_spec_instance: T::EthSpec,
-    spec: Option<ChainSpec>,
+    spec: Option<Arc<ChainSpec>>,
     validator_keypairs: Option<Vec<Keypair>>,
     withdrawal_keypairs: Vec<Option<Keypair>>,
     chain_config: Option<ChainConfig>,
@@ -395,12 +395,12 @@ where
         self.spec_or_default(None)
     }
 
-    pub fn spec(self, spec: ChainSpec) -> Self {
+    pub fn spec(self, spec: Arc<ChainSpec>) -> Self {
         self.spec_or_default(Some(spec))
     }
 
-    pub fn spec_or_default(mut self, spec: Option<ChainSpec>) -> Self {
-        self.spec = Some(spec.unwrap_or_else(test_spec::<E>));
+    pub fn spec_or_default(mut self, spec: Option<Arc<ChainSpec>>) -> Self {
+        self.spec = Some(spec.unwrap_or_else(|| Arc::new(test_spec::<E>())));
         self
     }
 
@@ -648,7 +648,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub withdrawal_keypairs: Vec<Option<Keypair>>,
 
     pub chain: Arc<BeaconChain<T>>,
-    pub spec: ChainSpec,
+    pub spec: Arc<ChainSpec>,
     pub shutdown_receiver: Arc<Mutex<Receiver<ShutdownReason>>>,
     pub runtime: TestRuntime,
 

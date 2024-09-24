@@ -49,7 +49,7 @@ async fn merge_with_terminal_block_hash_override() {
     spec.terminal_block_hash = genesis_pow_block_hash;
 
     let harness = BeaconChainHarness::builder(E::default())
-        .spec(spec)
+        .spec(spec.into())
         .logger(logging::test_logger())
         .deterministic_keypairs(VALIDATOR_COUNT)
         .fresh_ephemeral_store()
@@ -106,7 +106,7 @@ async fn base_altair_bellatrix_with_terminal_block_after_fork() {
     let mut execution_payloads = vec![];
 
     let harness = BeaconChainHarness::builder(E::default())
-        .spec(spec)
+        .spec(spec.into())
         .logger(logging::test_logger())
         .deterministic_keypairs(VALIDATOR_COUNT)
         .fresh_ephemeral_store()
