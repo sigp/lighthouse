@@ -28,7 +28,7 @@ use lighthouse_network::service::api_types::{
     SyncRequestId,
 };
 use lighthouse_network::types::SyncState;
-use lighthouse_network::{NetworkGlobals, Request};
+use lighthouse_network::{NetworkConfig, NetworkGlobals, Request};
 use slog::info;
 use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
 use store::MemoryStore;
@@ -116,7 +116,7 @@ impl TestRig {
 
         // Initialise a new beacon chain
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
-            .spec(spec)
+            .spec(Arc::new(spec))
             .logger(log.clone())
             .deterministic_keypairs(1)
             .fresh_ephemeral_store()
@@ -132,9 +132,11 @@ impl TestRig {
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         // TODO(das): make the generation of the ENR use the deterministic rng to have consistent
         // column assignments
+        let network_config = Arc::new(NetworkConfig::default());
         let globals = Arc::new(NetworkGlobals::new_test_globals(
             Vec::new(),
             &log,
+            network_config,
             chain.spec.clone(),
         ));
         let (beacon_processor, beacon_processor_rx) = NetworkBeaconProcessor::null_for_testing(
@@ -1469,7 +1471,7 @@ fn test_parent_lookup_happy_path() {
     // Processing succeeds, now the rest of the chain should be sent for processing.
     rig.parent_block_processed(
         block_root,
-        BlockError::BlockIsAlreadyKnown(block_root).into(),
+        BlockError::DuplicateFullyImported(block_root).into(),
     );
     rig.expect_parent_chain_process();
     rig.parent_chain_processed_success(block_root, &[]);
@@ -1837,7 +1839,7 @@ fn test_same_chain_race_condition() {
             rig.log(&format!("Block {i} was removed and is already known"));
             rig.parent_block_processed(
                 chain_hash,
-                BlockError::BlockIsAlreadyKnown(block.canonical_root()).into(),
+                BlockError::DuplicateFullyImported(block.canonical_root()).into(),
             )
         } else {
             rig.log(&format!("Block {i} ParentUnknown"));
@@ -1972,12 +1974,13 @@ fn sampling_happy_path() {
 }
 
 #[test]
-#[ignore] // Ignoring due to flakiness https://github.com/sigp/lighthouse/issues/6319
 fn sampling_with_retries() {
     let Some(mut r) = TestRig::test_setup_after_peerdas() else {
         return;
     };
     r.new_connected_peers_for_peerdas();
+    // Add another supernode to ensure that the node can retry.
+    r.new_connected_supernode_peer();
     let (block, data_columns) = r.rand_block_and_data_columns();
     let block_root = block.canonical_root();
     r.trigger_sample_block(block_root, block.slot());
@@ -2448,7 +2451,7 @@ mod deneb_only {
             self.rig.single_blob_component_processed(
                 self.blob_req_id.expect("blob request id").lookup_id,
                 BlockProcessingResult::Err(BlockError::AvailabilityCheck(
-                    AvailabilityCheckError::KzgVerificationFailed,
+                    AvailabilityCheckError::InvalidBlobs(kzg::Error::KzgVerificationFailed),
                 )),
             );
             self.rig.assert_single_lookups_count(1);
