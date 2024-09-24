@@ -327,10 +327,17 @@ impl Score {
 
     /// Instead of implementing `Ord` for `Score`, as we are underneath dealing with f64,
     /// follow std convention and impl `Score::total_cmp` similar to `f64::total_cmp`.
-    pub fn total_cmp(&self, other: &Score) -> Ordering {
-        // Handle NaN values explicitly
+    pub fn total_cmp(&self, other: &Score, reverse: bool) -> Ordering {
         match self.score().partial_cmp(&other.score()) {
-            Some(v) => v,
+            Some(v) => {
+                // Only reverse when none of the items is NAN,
+                // so that NAN's are never considered.
+                if reverse {
+                    v.reverse()
+                } else {
+                    v
+                }
+            }
             None if self.score().is_nan() && !other.score().is_nan() => Ordering::Less,
             None if !self.score().is_nan() && other.score().is_nan() => Ordering::Greater,
             // Both are NAN.

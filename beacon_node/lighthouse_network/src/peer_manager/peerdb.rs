@@ -293,7 +293,7 @@ impl<E: EthSpec> PeerDB<E> {
         self.peers
             .iter()
             .filter(|(_, info)| info.is_connected())
-            .sorted_by(|(_, info_a), (_, info_b)| info_a.score().total_cmp(info_b.score()))
+            .sorted_by(|(_, info_a), (_, info_b)| info_a.score().total_cmp(info_b.score(), false))
             .collect::<Vec<_>>()
     }
 
@@ -306,7 +306,7 @@ impl<E: EthSpec> PeerDB<E> {
         self.peers
             .iter()
             .filter(|(_, info)| is_status(info))
-            .sorted_by(|(_, info_a), (_, info_b)| info_b.score().total_cmp(info_a.score()))
+            .sorted_by(|(_, info_a), (_, info_b)| info_a.score().total_cmp(info_b.score(), true))
             .collect::<Vec<_>>()
     }
 
@@ -318,7 +318,7 @@ impl<E: EthSpec> PeerDB<E> {
         self.peers
             .iter()
             .filter(|(_, info)| is_status(info))
-            .max_by(|(_, info_a), (_, info_b)| info_a.score().total_cmp(info_b.score()))
+            .max_by(|(_, info_a), (_, info_b)| info_a.score().total_cmp(info_b.score(), false))
             .map(|(id, _)| id)
     }
 
