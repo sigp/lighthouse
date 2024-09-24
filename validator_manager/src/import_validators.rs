@@ -89,7 +89,8 @@ pub fn cli_app() -> Command {
                 .value_name("STRING")
                 .help("Password of the keystore file.")
                 .action(ArgAction::Set)
-                .display_order(0),
+                .display_order(0)
+                .requires(STANDARD_FORMAT),
         )
         .arg(
             Arg::new(FEE_RECIPIENT)
