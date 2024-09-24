@@ -661,6 +661,9 @@ pub mod tests {
     async fn create_one_validator_standard() {
         TestBuilder::new()
             .await
+            .mutate_import_config(|config| {
+                config.standard_format = true;
+            })
             .create_validators_standard(1, 0)
             .await
             .run_test_standard()
@@ -672,6 +675,9 @@ pub mod tests {
     async fn create_one_validator_with_offset_standard() {
         TestBuilder::new()
             .await
+            .mutate_import_config(|config| {
+                config.standard_format = true;
+            })
             .create_validators_standard(1, 42)
             .await
             .run_test_standard()
@@ -683,6 +689,9 @@ pub mod tests {
     async fn import_duplicates_when_disallowed_standard() {
         TestBuilder::new()
             .await
+            .mutate_import_config(|config| {
+                config.standard_format = true;
+            })
             .create_validators_standard(1, 0)
             .await
             .import_validators_without_checks()
@@ -698,6 +707,7 @@ pub mod tests {
             .await
             .mutate_import_config(|config| {
                 config.ignore_duplicates = true;
+                config.standard_format = true;
             })
             .create_validators_standard(1, 0)
             .await
