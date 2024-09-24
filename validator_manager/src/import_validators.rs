@@ -118,7 +118,6 @@ pub fn cli_app() -> Command {
                 blocks via builder rather than the local EL.",)
                 .value_parser(["true","false"])
                 .action(ArgAction::Set)
-                .help_heading(FLAG_HEADER)
                 .display_order(0)
                 .requires(STANDARD_FORMAT),
         )
