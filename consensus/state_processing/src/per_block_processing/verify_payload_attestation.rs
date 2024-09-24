@@ -31,6 +31,7 @@ pub fn verify_payload_attestation<'ctxt, E: EthSpec>(
 
     let indexed_payload_attestation =
         ctxt.get_indexed_payload_attestation(state, data.slot, &payload_attestation)?;
+
     is_valid_indexed_payload_attestation(
         state,
         &indexed_payload_attestation,

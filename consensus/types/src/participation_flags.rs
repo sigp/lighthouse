@@ -22,6 +22,15 @@ impl ParticipationFlags {
         Ok(())
     }
 
+    pub fn remove_flag(&mut self, flag_index: usize) -> Result<(), ArithError> {
+        if flag_index >= NUM_FLAG_INDICES {
+            return Err(ArithError::Overflow);
+        }
+        let mask = 1u8.safe_shl(flag_index as u32)?;
+        self.bits &= !mask;
+        Ok(())
+    }
+
     pub fn has_flag(&self, flag_index: usize) -> Result<bool, ArithError> {
         if flag_index >= NUM_FLAG_INDICES {
             return Err(ArithError::Overflow);

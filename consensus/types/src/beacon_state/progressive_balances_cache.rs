@@ -60,7 +60,7 @@ impl EpochTotalBalances {
             .ok_or(BeaconStateError::InvalidFlagIndex(flag_index))
     }
 
-    pub fn on_new_attestation(
+    pub fn on_flag_added(
         &mut self,
         is_slashed: bool,
         flag_index: usize,
@@ -74,6 +74,23 @@ impl EpochTotalBalances {
             .get_mut(flag_index)
             .ok_or(BeaconStateError::InvalidFlagIndex(flag_index))?;
         balance.safe_add_assign(validator_effective_balance)?;
+        Ok(())
+    }
+
+    pub fn on_flag_removed(
+        &mut self,
+        is_slashed: bool,
+        flag_index: usize,
+        validator_effective_balance: u64,
+    ) -> Result<(), BeaconStateError> {
+        if is_slashed {
+            return Ok(());
+        }
+        let balance = self
+            .total_flag_balances
+            .get_mut(flag_index)
+            .ok_or(BeaconStateError::InvalidFlagIndex(flag_index))?;
+        balance.safe_sub_assign(validator_effective_balance)?;
         Ok(())
     }
 
@@ -148,10 +165,12 @@ impl ProgressiveBalancesCache {
             .map_or(false, |inner| inner.current_epoch == epoch)
     }
 
-    /// When a new target attestation has been processed, we update the cached
-    /// `current_epoch_target_attesting_balance` to include the validator effective balance.
+    /// Updates the `ProgressiveBalancesCache` when a participation flag is added for a validator.
+    ///
+    /// This function increments the total balance associated with the specified `flag_index`
+    /// by the validator's `effective_balance`, provided the validator is not slashed.
     /// If the epoch is neither the current epoch nor the previous epoch, an error is returned.
-    pub fn on_new_attestation(
+    pub fn on_flag_added(
         &mut self,
         epoch: Epoch,
         is_slashed: bool,
@@ -161,13 +180,46 @@ impl ProgressiveBalancesCache {
         let cache = self.get_inner_mut()?;
 
         if epoch == cache.current_epoch {
-            cache.current_epoch_cache.on_new_attestation(
+            cache.current_epoch_cache.on_flag_added(
                 is_slashed,
                 flag_index,
                 validator_effective_balance,
             )?;
         } else if epoch.safe_add(1)? == cache.current_epoch {
-            cache.previous_epoch_cache.on_new_attestation(
+            cache.previous_epoch_cache.on_flag_added(
+                is_slashed,
+                flag_index,
+                validator_effective_balance,
+            )?;
+        } else {
+            return Err(BeaconStateError::ProgressiveBalancesCacheInconsistent);
+        }
+
+        Ok(())
+    }
+
+    /// Updates the `ProgressiveBalancesCache` when a participation flag is removed for a validator.
+    ///
+    /// This function decrements the total balance associated with the specified `flag_index`
+    /// by the validator's `effective_balance`, provided the validator is not slashed.
+    /// If the epoch is neither the current epoch nor the previous epoch, an error is returned.
+    pub fn on_flag_removed(
+        &mut self,
+        epoch: Epoch,
+        is_slashed: bool,
+        flag_index: usize,
+        validator_effective_balance: u64,
+    ) -> Result<(), BeaconStateError> {
+        let cache = self.get_inner_mut()?;
+
+        if epoch == cache.current_epoch {
+            cache.current_epoch_cache.on_flag_removed(
+                is_slashed,
+                flag_index,
+                validator_effective_balance,
+            )?;
+        } else if epoch.safe_add(1)? == cache.current_epoch {
+            cache.previous_epoch_cache.on_flag_removed(
                 is_slashed,
                 flag_index,
                 validator_effective_balance,

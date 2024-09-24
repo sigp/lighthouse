@@ -1,4 +1,7 @@
 use super::*;
+use crate::common::update_progressive_balances_cache::{
+    update_progressive_balances_on_flag_added, update_progressive_balances_on_flag_removed,
+};
 use crate::common::{
     get_attestation_participation_flag_indices, increase_balance, initiate_validator_exit,
     slash_validator,
@@ -131,7 +134,6 @@ pub mod base {
 
 pub mod altair_deneb {
     use super::*;
-    use crate::common::update_progressive_balances_cache::update_progressive_balances_on_attestation;
 
     pub fn process_attestations<'a, E: EthSpec, I>(
         state: &mut BeaconState<E>,
@@ -200,7 +202,7 @@ pub mod altair_deneb {
                         proposer_reward_numerator
                             .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
 
-                        update_progressive_balances_on_attestation(
+                        update_progressive_balances_on_flag_added(
                             state,
                             data.target.epoch,
                             flag_index,
@@ -760,11 +762,103 @@ pub fn process_payload_attestation<E: EthSpec>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    let _indexed =
+    let current_epoch = ctxt.current_epoch;
+    let previous_epoch = ctxt.previous_epoch;
+    let target_epoch = if state.slot() % E::slots_per_epoch() == Slot::new(0) {
+        previous_epoch
+    } else {
+        current_epoch
+    };
+    let proposer_index = ctxt.get_proposer_index(state, spec)? as usize;
+
+    let indexed_payload_attestation =
         verify_payload_attestation(state, payload_attestation, ctxt, verify_signatures, spec)
             .map_err(|e| e.into_with_index(att_index))?;
 
-    // TODO((EIP-7732): finish implementing this function
+    let data = &payload_attestation.data;
+    let payload_was_present = data.slot == state.latest_full_slot()?;
+    let voted_present = data.payload_status == PayloadStatus::PayloadPresent;
+    let proposer_reward_denominator = WEIGHT_DENOMINATOR
+        .safe_sub(PROPOSER_WEIGHT)?
+        .safe_mul(WEIGHT_DENOMINATOR)?
+        .safe_div(PROPOSER_WEIGHT)?;
+
+    if voted_present != payload_was_present {
+        // Unset the flags in case they were set by equivocating PTC attestation
+        let mut proposer_penalty_numerator = 0;
+
+        for index in indexed_payload_attestation.attesting_indices_iter() {
+            let index = *index as usize;
+
+            let validator_effective_balance = state.epoch_cache().get_effective_balance(index)?;
+            let validator_slashed = state.slashings_cache().is_slashed(index);
+
+            for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
+                let epoch_participation = state.get_epoch_participation_mut(
+                    target_epoch,
+                    previous_epoch,
+                    current_epoch,
+                )?;
+                let validator_participation = epoch_participation
+                    .get_mut(index)
+                    .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
+                if validator_participation.has_flag(flag_index)? {
+                    validator_participation.remove_flag(flag_index)?;
+                    proposer_penalty_numerator
+                        .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
+
+                    update_progressive_balances_on_flag_removed(
+                        state,
+                        target_epoch,
+                        flag_index,
+                        validator_effective_balance,
+                        validator_slashed,
+                    )?;
+                }
+            }
+        }
+        // penalize the proposer
+        let proposer_penalty = proposer_penalty_numerator
+            .safe_mul(2)?
+            .safe_div(proposer_reward_denominator)?;
+        decrease_balance(state, proposer_index, proposer_penalty)?;
+
+        return Ok(());
+    }
+
+    // Reward the proposer and set all the participation flags in case of correct attestations
+    let mut proposer_reward_numerator = 0;
+    for index in indexed_payload_attestation.attesting_indices_iter() {
+        let index = *index as usize;
+
+        let validator_effective_balance = state.epoch_cache().get_effective_balance(index)?;
+        let validator_slashed = state.slashings_cache().is_slashed(index);
+
+        for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
+            let epoch_participation =
+                state.get_epoch_participation_mut(target_epoch, previous_epoch, current_epoch)?;
+            let validator_participation = epoch_participation
+                .get_mut(index)
+                .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
+            if !validator_participation.has_flag(flag_index)? {
+                validator_participation.add_flag(flag_index)?;
+                proposer_reward_numerator
+                    .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
+
+                update_progressive_balances_on_flag_added(
+                    state,
+                    target_epoch,
+                    flag_index,
+                    validator_effective_balance,
+                    validator_slashed,
+                )?;
+            }
+        }
+    }
+
+    // Reward the proposer
+    let proposer_reward = proposer_reward_numerator.safe_div(proposer_reward_denominator)?;
+    increase_balance(state, proposer_index, proposer_reward)?;
 
     Ok(())
 }
@@ -780,9 +874,12 @@ where
     I: Iterator<Item = &'a PayloadAttestation<E>>,
 {
     // Ensure required caches are all built. These should be no-ops during regular operation.
-    // TODO(EIP-7732): check necessary caches
+    // TODO(EIP-7732): verify necessary caches
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+    initialize_epoch_cache(state, spec)?;
+    initialize_progressive_balances_cache(state, spec)?;
+    state.build_slashings_cache()?;
 
     payload_attestations
         .enumerate()
