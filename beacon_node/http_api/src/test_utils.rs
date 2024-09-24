@@ -61,7 +61,8 @@ type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>>;
 
 impl<E: EthSpec> InteractiveTester<E> {
     pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
-        Self::new_with_initializer_and_mutator(spec, validator_count, None, None).await
+        Self::new_with_initializer_and_mutator(spec, validator_count, None, None, Config::default())
+            .await
     }
 
     pub async fn new_with_initializer_and_mutator(
@@ -69,6 +70,7 @@ impl<E: EthSpec> InteractiveTester<E> {
         validator_count: usize,
         initializer: Option<Initializer<E>>,
         mutator: Option<Mutator<E>>,
+        config: Config,
     ) -> Self {
         let mut harness_builder = BeaconChainHarness::builder(E::default())
             .spec_or_default(spec.map(Arc::new))
@@ -99,8 +101,9 @@ impl<E: EthSpec> InteractiveTester<E> {
             listening_socket,
             network_rx,
             ..
-        } = create_api_server(
+        } = create_api_server_with_config(
             harness.chain.clone(),
+            config,
             &harness.runtime,
             harness.logger().clone(),
         )
@@ -129,6 +132,15 @@ impl<E: EthSpec> InteractiveTester<E> {
 
 pub async fn create_api_server<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
+    test_runtime: &TestRuntime,
+    log: Logger,
+) -> ApiServer<T, impl Future<Output = ()>> {
+    create_api_server_with_config(chain, Config::default(), test_runtime, log).await
+}
+
+pub async fn create_api_server_with_config<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+    http_config: Config,
     test_runtime: &TestRuntime,
     log: Logger,
 ) -> ApiServer<T, impl Future<Output = ()>> {
@@ -220,12 +232,14 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     .unwrap();
 
     let ctx = Arc::new(Context {
+        // Override several config fields with defaults. If these need to be tweaked in future
+        // we could remove these overrides.
         config: Config {
             enabled: true,
             listen_port: port,
             data_dir: std::path::PathBuf::from(DEFAULT_ROOT_DIR),
             enable_light_client_server: true,
-            ..Config::default()
+            ..http_config
         },
         chain: Some(chain),
         network_senders: Some(network_senders),

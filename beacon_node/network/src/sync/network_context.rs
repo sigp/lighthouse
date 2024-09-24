@@ -629,8 +629,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // cache nor in the request state of this lookup. Therefore, the block must either: (1) not
             // be downloaded yet or (2) the block is already imported into the fork-choice.
             // In case (1) the lookup must either successfully download the block or get dropped.
-            // In case (2) the block will be downloaded, processed, reach `BlockIsAlreadyKnown` and
-            // get dropped as completed.
+            // In case (2) the block will be downloaded, processed, reach `DuplicateFullyImported`
+            // and get dropped as completed.
             return Ok(LookupRequestResult::Pending("waiting for block download"));
         };
         let expected_blobs = block.num_expected_blobs();

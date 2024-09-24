@@ -517,7 +517,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         let action = match result {
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
-            | BlockProcessingResult::Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            | BlockProcessingResult::Err(BlockError::DuplicateFullyImported(..)) => {
                 // Successfully imported
                 request_state.on_processing_success()?;
                 Action::Continue
@@ -540,6 +540,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     // Continue request, potentially request blobs
                     Action::Retry
                 }
+            }
+            BlockProcessingResult::Err(BlockError::DuplicateImportStatusUnknown(..)) => {
+                // This is unreachable because RPC blocks do not undergo gossip verification, and
+                // this error can *only* come from gossip verification.
+                error!(
+                    self.log,
+                    "Single block lookup hit unreachable condition";
+                    "block_root" => ?block_root
+                );
+                Action::Drop
             }
             BlockProcessingResult::Ignored => {
                 // Beacon processor signalled to ignore the block processing result.

@@ -1471,7 +1471,7 @@ fn test_parent_lookup_happy_path() {
     // Processing succeeds, now the rest of the chain should be sent for processing.
     rig.parent_block_processed(
         block_root,
-        BlockError::BlockIsAlreadyKnown(block_root).into(),
+        BlockError::DuplicateFullyImported(block_root).into(),
     );
     rig.expect_parent_chain_process();
     rig.parent_chain_processed_success(block_root, &[]);
@@ -1839,7 +1839,7 @@ fn test_same_chain_race_condition() {
             rig.log(&format!("Block {i} was removed and is already known"));
             rig.parent_block_processed(
                 chain_hash,
-                BlockError::BlockIsAlreadyKnown(block.canonical_root()).into(),
+                BlockError::DuplicateFullyImported(block.canonical_root()).into(),
             )
         } else {
             rig.log(&format!("Block {i} ParentUnknown"));
