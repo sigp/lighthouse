@@ -205,7 +205,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> NetworkService<T> {
     async fn build(
         beacon_chain: Arc<BeaconChain<T>>,
-        config: &NetworkConfig,
+        config: Arc<NetworkConfig>,
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
@@ -271,10 +271,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // construct the libp2p service context
         let service_context = Context {
-            config,
+            config: config.clone(),
             enr_fork_id,
             fork_context: fork_context.clone(),
-            chain_spec: &beacon_chain.spec,
+            chain_spec: beacon_chain.spec.clone(),
             libp2p_registry,
         };
 
@@ -318,12 +318,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let attestation_service = AttestationService::new(
             beacon_chain.clone(),
             network_globals.local_enr().node_id(),
-            config,
+            &config,
             &network_log,
         );
         // sync committee subnet service
         let sync_committee_service =
-            SyncCommitteeService::new(beacon_chain.clone(), config, &network_log);
+            SyncCommitteeService::new(beacon_chain.clone(), &config, &network_log);
 
         // create a timer for updating network metrics
         let metrics_update = tokio::time::interval(Duration::from_secs(METRIC_UPDATE_INTERVAL));
@@ -368,7 +368,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     #[allow(clippy::type_complexity)]
     pub async fn start(
         beacon_chain: Arc<BeaconChain<T>>,
-        config: &NetworkConfig,
+        config: Arc<NetworkConfig>,
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,

@@ -82,7 +82,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// HTTP API.
     hdiff_buffer_cache: Mutex<LruCache<Slot, HDiffBuffer>>,
     /// Chain spec.
-    pub(crate) spec: ChainSpec,
+    pub(crate) spec: Arc<ChainSpec>,
     /// Logger.
     pub log: Logger,
     /// Mere vessel for E.
@@ -200,7 +200,7 @@ pub enum HotColdDBError {
 impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
     pub fn open_ephemeral(
         config: StoreConfig,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         log: Logger,
     ) -> Result<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>, Error> {
         config.verify::<E>()?;
@@ -240,7 +240,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         blobs_db_path: &Path,
         migrate_schema: impl FnOnce(Arc<Self>, SchemaVersion, SchemaVersion) -> Result<(), Error>,
         config: StoreConfig,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         log: Logger,
     ) -> Result<Arc<Self>, Error> {
         config.verify::<E>()?;
@@ -2003,7 +2003,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Get a reference to the `ChainSpec` used by the database.
-    pub fn get_chain_spec(&self) -> &ChainSpec {
+    pub fn get_chain_spec(&self) -> &Arc<ChainSpec> {
         &self.spec
     }
 

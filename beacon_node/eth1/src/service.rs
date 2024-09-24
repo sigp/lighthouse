@@ -397,7 +397,7 @@ pub struct Service {
 
 impl Service {
     /// Creates a new service. Does not attempt to connect to the eth1 node.
-    pub fn new(config: Config, log: Logger, spec: ChainSpec) -> Result<Self, String> {
+    pub fn new(config: Config, log: Logger, spec: Arc<ChainSpec>) -> Result<Self, String> {
         Ok(Self {
             inner: Arc::new(Inner {
                 block_cache: <_>::default(),
@@ -414,6 +414,10 @@ impl Service {
         })
     }
 
+    pub fn chain_spec(&self) -> &Arc<ChainSpec> {
+        &self.inner.spec
+    }
+
     pub fn client(&self) -> &HttpJsonRpc {
         &self.inner.endpoint
     }
@@ -422,7 +426,7 @@ impl Service {
     pub fn from_deposit_snapshot(
         config: Config,
         log: Logger,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         deposit_snapshot: &DepositTreeSnapshot,
     ) -> Result<Self, Error> {
         let deposit_cache =
@@ -464,7 +468,7 @@ impl Service {
         bytes: &[u8],
         config: Config,
         log: Logger,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, String> {
         let inner = Inner::from_bytes(bytes, config, spec)?;
         Ok(Self {

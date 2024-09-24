@@ -396,13 +396,15 @@ pub fn get_config<E: EthSpec>(
     }
 
     // 4844 params
-    client_config.trusted_setup = context
+    if let Some(trusted_setup) = context
         .eth2_network_config
         .as_ref()
-        .and_then(|config| config.kzg_trusted_setup.as_ref())
-        .map(|trusted_setup_bytes| serde_json::from_slice(trusted_setup_bytes))
+        .map(|config| serde_json::from_slice(&config.kzg_trusted_setup))
         .transpose()
-        .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
+        .map_err(|e| format!("Unable to read trusted setup file: {}", e))?
+    {
+        client_config.trusted_setup = trusted_setup;
+    };
 
     // Override default trusted setup file if required
     if let Some(trusted_setup_file_path) = cli_args.get_one::<String>("trusted-setup-file-override")
@@ -411,7 +413,7 @@ pub fn get_config<E: EthSpec>(
             .map_err(|e| format!("Failed to open trusted setup file: {}", e))?;
         let trusted_setup: TrustedSetup = serde_json::from_reader(file)
             .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
-        client_config.trusted_setup = Some(trusted_setup);
+        client_config.trusted_setup = trusted_setup;
     }
 
     if let Some(freezer_dir) = cli_args.get_one::<String>("freezer-dir") {

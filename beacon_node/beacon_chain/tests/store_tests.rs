@@ -7,8 +7,8 @@ use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::SyncCommitteeStrategy;
 use beacon_chain::test_utils::{
-    mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
-    BlockStrategy, DiskHarnessType, KZG,
+    get_kzg, mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
+    BlockStrategy, DiskHarnessType,
 };
 use beacon_chain::{
     data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
@@ -66,7 +66,7 @@ fn get_store_generic(
         &blobs_path,
         |_, _, _| Ok(()),
         config,
-        spec,
+        spec.into(),
         log,
     )
     .expect("disk store should initialize")
@@ -2287,7 +2287,8 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
     let seconds_per_slot = spec.seconds_per_slot;
-    let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone());
+
+    let kzg = get_kzg(&spec);
 
     let mock =
         mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
@@ -2301,9 +2302,9 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     );
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
-    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec)
+    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, kzg)
         .store(store.clone())
-        .custom_spec(test_spec::<E>())
+        .custom_spec(test_spec::<E>().into())
         .task_executor(harness.chain.task_executor.clone())
         .logger(log.clone())
         .weak_subjectivity_state(
@@ -2324,7 +2325,6 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             1,
         )))
         .execution_layer(Some(mock.el))
-        .kzg(kzg)
         .build()
         .expect("should build");
 
@@ -2771,7 +2771,7 @@ async fn revert_minority_fork_on_resume() {
     let db_path1 = tempdir().unwrap();
     let store1 = get_store_generic(&db_path1, StoreConfig::default(), spec1.clone());
     let harness1 = BeaconChainHarness::builder(MinimalEthSpec)
-        .spec(spec1)
+        .spec(spec1.clone().into())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store1)
         .mock_execution_layer()
@@ -2781,7 +2781,7 @@ async fn revert_minority_fork_on_resume() {
     let db_path2 = tempdir().unwrap();
     let store2 = get_store_generic(&db_path2, StoreConfig::default(), spec2.clone());
     let harness2 = BeaconChainHarness::builder(MinimalEthSpec)
-        .spec(spec2.clone())
+        .spec(spec2.clone().into())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store2)
         .mock_execution_layer()
@@ -2877,7 +2877,7 @@ async fn revert_minority_fork_on_resume() {
     let resume_store = get_store_generic(&db_path1, StoreConfig::default(), spec2.clone());
 
     let resumed_harness = TestHarness::builder(MinimalEthSpec)
-        .spec(spec2)
+        .spec(spec2.clone().into())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .resumed_disk_store(resume_store)
         .override_store_mutator(Box::new(move |mut builder| {

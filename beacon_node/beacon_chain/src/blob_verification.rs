@@ -115,13 +115,6 @@ pub enum GossipBlobError {
         index: u64,
     },
 
-    /// `Kzg` struct hasn't been initialized. This is an internal error.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The peer isn't faulty, This is an internal error.
-    KzgNotInitialized,
-
     /// The kzg verification failed.
     ///
     /// ## Peer scoring
@@ -559,11 +552,9 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     }
 
     // Kzg verification for gossip blob sidecar
-    let kzg = chain
-        .kzg
-        .as_ref()
-        .ok_or(GossipBlobError::KzgNotInitialized)?;
-    let kzg_verified_blob = KzgVerifiedBlob::new(blob_sidecar, kzg, seen_timestamp)
+    let kzg = chain.kzg.as_ref();
+
+    let kzg_verified_blob = KzgVerifiedBlob::new(blob_sidecar.clone(), kzg, seen_timestamp)
         .map_err(GossipBlobError::KzgError)?;
     let blob_sidecar = &kzg_verified_blob.blob;
 
