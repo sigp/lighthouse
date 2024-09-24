@@ -116,7 +116,8 @@ pub fn cli_app() -> Command {
                 .long(BUILDER_PROPOSALS)
                 .help("When provided, the imported validator will attempt to create \
                 blocks via builder rather than the local EL.",)
-                .action(ArgAction::SetTrue)
+                .value_parser(["true","false"])
+                .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
                 .requires(STANDARD_FORMAT),
@@ -138,7 +139,8 @@ pub fn cli_app() -> Command {
                 .long(PREFER_BUILDER_PROPOSALS)
                 .help("When provided, the imported validator will always prefer blocks \
                 constructed by builders, regardless of payload value.",)
-                .action(ArgAction::SetTrue)
+                .value_parser(["true","false"])
+                .action(ArgAction::Set)
                 .display_order(0)
                 .requires(STANDARD_FORMAT),
         )
