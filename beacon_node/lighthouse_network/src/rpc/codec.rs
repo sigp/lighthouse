@@ -1,3 +1,4 @@
+use crate::metrics;
 use crate::rpc::methods::*;
 use crate::rpc::protocol::{
     Encoding, ProtocolId, RPCError, SupportedProtocol, ERROR_TYPE_MAX, ERROR_TYPE_MIN,
@@ -359,6 +360,11 @@ impl<E: EthSpec> Encoder<OutboundRequest<E>> for SSZSnappyOutboundCodec<E> {
 
         // Write compressed bytes to `dst`
         dst.extend_from_slice(writer.get_ref());
+        metrics::inc_counter_vec_by(
+            &metrics::TOTAL_RPC_REQUESTS_BYTES_SENT,
+            &[item.into()],
+            dst.len() as u64,
+        );
         Ok(())
     }
 }
@@ -538,38 +544,89 @@ fn handle_rpc_request<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<Option<InboundRequest<E>>, RPCError> {
     match versioned_protocol {
-        SupportedProtocol::StatusV1 => Ok(Some(InboundRequest::Status(
-            StatusMessage::from_ssz_bytes(decoded_buffer)?,
-        ))),
+        SupportedProtocol::StatusV1 => {
+            metrics::inc_counter_vec_by(
+                &metrics::TOTAL_RPC_REQUESTS_BYTES_RECEIVED,
+                &["status"],
+                decoded_buffer.len() as u64,
+            );
+            Ok(Some(InboundRequest::Status(StatusMessage::from_ssz_bytes(
+                decoded_buffer,
+            )?)))
+        }
         SupportedProtocol::GoodbyeV1 => Ok(Some(InboundRequest::Goodbye(
             GoodbyeReason::from_ssz_bytes(decoded_buffer)?,
         ))),
-        SupportedProtocol::BlocksByRangeV2 => Ok(Some(InboundRequest::BlocksByRange(
-            OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2::from_ssz_bytes(decoded_buffer)?),
-        ))),
-        SupportedProtocol::BlocksByRangeV1 => Ok(Some(InboundRequest::BlocksByRange(
-            OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1::from_ssz_bytes(decoded_buffer)?),
-        ))),
-        SupportedProtocol::BlocksByRootV2 => Ok(Some(InboundRequest::BlocksByRoot(
-            BlocksByRootRequest::V2(BlocksByRootRequestV2 {
-                block_roots: RuntimeVariableList::from_ssz_bytes(
+        SupportedProtocol::BlocksByRangeV2 => {
+            metrics::inc_counter_vec_by(
+                &metrics::TOTAL_RPC_REQUESTS_BYTES_RECEIVED,
+                &["blocks_by_range"],
+                decoded_buffer.len() as u64,
+            );
+            Ok(Some(InboundRequest::BlocksByRange(
+                OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2::from_ssz_bytes(
                     decoded_buffer,
-                    spec.max_request_blocks as usize,
-                )?,
-            }),
-        ))),
-        SupportedProtocol::BlocksByRootV1 => Ok(Some(InboundRequest::BlocksByRoot(
-            BlocksByRootRequest::V1(BlocksByRootRequestV1 {
-                block_roots: RuntimeVariableList::from_ssz_bytes(
+                )?),
+            )))
+        }
+        SupportedProtocol::BlocksByRangeV1 => {
+            metrics::inc_counter_vec_by(
+                &metrics::TOTAL_RPC_REQUESTS_BYTES_RECEIVED,
+                &["blocks_by_range"],
+                decoded_buffer.len() as u64,
+            );
+            Ok(Some(InboundRequest::BlocksByRange(
+                OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1::from_ssz_bytes(
                     decoded_buffer,
-                    spec.max_request_blocks as usize,
-                )?,
-            }),
-        ))),
-        SupportedProtocol::BlobsByRangeV1 => Ok(Some(InboundRequest::BlobsByRange(
-            BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
-        ))),
+                )?),
+            )))
+        }
+        SupportedProtocol::BlocksByRootV2 => {
+            metrics::inc_counter_vec_by(
+                &metrics::TOTAL_RPC_REQUESTS_BYTES_RECEIVED,
+                &["blocks_by_root"],
+                decoded_buffer.len() as u64,
+            );
+            Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest::V2(
+                BlocksByRootRequestV2 {
+                    block_roots: RuntimeVariableList::from_ssz_bytes(
+                        decoded_buffer,
+                        spec.max_request_blocks as usize,
+                    )?,
+                },
+            ))))
+        }
+        SupportedProtocol::BlocksByRootV1 => {
+            metrics::inc_counter_vec_by(
+                &metrics::TOTAL_RPC_REQUESTS_BYTES_RECEIVED,
+                &["blocks_by_root"],
+                decoded_buffer.len() as u64,
+            );
+            Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest::V1(
+                BlocksByRootRequestV1 {
+                    block_roots: RuntimeVariableList::from_ssz_bytes(
+                        decoded_buffer,
+                        spec.max_request_blocks as usize,
+                    )?,
+                },
+            ))))
+        }
+        SupportedProtocol::BlobsByRangeV1 => {
+            metrics::inc_counter_vec_by(
+                &metrics::TOTAL_RPC_REQUESTS_BYTES_RECEIVED,
+                &["blobs_by_range"],
+                decoded_buffer.len() as u64,
+            );
+            Ok(Some(InboundRequest::BlobsByRange(
+                BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+            )))
+        }
         SupportedProtocol::BlobsByRootV1 => {
+            metrics::inc_counter_vec_by(
+                &metrics::TOTAL_RPC_REQUESTS_BYTES_RECEIVED,
+                &["blobs_by_root"],
+                decoded_buffer.len() as u64,
+            );
             Ok(Some(InboundRequest::BlobsByRoot(BlobsByRootRequest {
                 blob_ids: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
@@ -577,29 +634,60 @@ fn handle_rpc_request<E: EthSpec>(
                 )?,
             })))
         }
-        SupportedProtocol::DataColumnsByRangeV1 => Ok(Some(InboundRequest::DataColumnsByRange(
-            DataColumnsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
-        ))),
-        SupportedProtocol::DataColumnsByRootV1 => Ok(Some(InboundRequest::DataColumnsByRoot(
-            DataColumnsByRootRequest {
-                data_column_ids: RuntimeVariableList::from_ssz_bytes(
-                    decoded_buffer,
-                    spec.max_request_data_column_sidecars as usize,
-                )?,
-            },
-        ))),
+        SupportedProtocol::DataColumnsByRangeV1 => {
+            metrics::inc_counter_vec_by(
+                &metrics::TOTAL_RPC_REQUESTS_BYTES_RECEIVED,
+                &["data_columns_by_range"],
+                decoded_buffer.len() as u64,
+            );
+            Ok(Some(InboundRequest::DataColumnsByRange(
+                DataColumnsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+            )))
+        }
+        SupportedProtocol::DataColumnsByRootV1 => {
+            metrics::inc_counter_vec_by(
+                &metrics::TOTAL_RPC_REQUESTS_BYTES_RECEIVED,
+                &["data_columns_by_root"],
+                decoded_buffer.len() as u64,
+            );
+            Ok(Some(InboundRequest::DataColumnsByRoot(
+                DataColumnsByRootRequest {
+                    data_column_ids: RuntimeVariableList::from_ssz_bytes(
+                        decoded_buffer,
+                        spec.max_request_data_column_sidecars as usize,
+                    )?,
+                },
+            )))
+        }
         SupportedProtocol::PingV1 => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
-        SupportedProtocol::LightClientBootstrapV1 => Ok(Some(
-            InboundRequest::LightClientBootstrap(LightClientBootstrapRequest {
-                root: Hash256::from_ssz_bytes(decoded_buffer)?,
-            }),
-        )),
+        SupportedProtocol::LightClientBootstrapV1 => {
+            metrics::inc_counter_vec_by(
+                &metrics::TOTAL_RPC_REQUESTS_BYTES_RECEIVED,
+                &["light_client_bootstrap"],
+                decoded_buffer.len() as u64,
+            );
+            Ok(Some(InboundRequest::LightClientBootstrap(
+                LightClientBootstrapRequest {
+                    root: Hash256::from_ssz_bytes(decoded_buffer)?,
+                },
+            )))
+        }
         SupportedProtocol::LightClientOptimisticUpdateV1 => {
+            metrics::inc_counter_vec_by(
+                &metrics::TOTAL_RPC_REQUESTS_BYTES_RECEIVED,
+                &["light_client_optimistic_update"],
+                decoded_buffer.len() as u64,
+            );
             Ok(Some(InboundRequest::LightClientOptimisticUpdate))
         }
         SupportedProtocol::LightClientFinalityUpdateV1 => {
+            metrics::inc_counter_vec_by(
+                &metrics::TOTAL_RPC_REQUESTS_BYTES_RECEIVED,
+                &["light_client_finality_update"],
+                decoded_buffer.len() as u64,
+            );
             Ok(Some(InboundRequest::LightClientFinalityUpdate))
         }
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
@@ -636,7 +724,7 @@ fn handle_rpc_request<E: EthSpec>(
 /// `decoded_buffer` should be an ssz-encoded bytestream with
 /// length = length-prefix received in the beginning of the stream.
 ///
-/// For BlocksByRange/BlocksByRoot reponses, decodes the appropriate response
+/// For BlocksByRange/BlocksByRoot responses, decodes the appropriate response
 /// according to the received `ForkName`.
 fn handle_rpc_response<E: EthSpec>(
     versioned_protocol: SupportedProtocol,
