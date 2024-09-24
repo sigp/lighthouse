@@ -151,13 +151,6 @@ pub static TOTAL_RPC_REQUESTS_BYTES_RECEIVED: LazyLock<Result<IntCounterVec>> =
             &["type"],
         )
     });
-pub static PEER_ACTION_EVENTS_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "libp2p_peer_actions_per_client",
-        "Score reports per client",
-        &["client", "action", "source"],
-    )
-});
 pub static TOTAL_RPC_RESPONSES_SENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "libp2p_rpc_responses_sent_total",
@@ -187,6 +180,13 @@ pub static TOTAL_RPC_RESPONSES_BYTES_RECEIVED: LazyLock<Result<IntCounterVec>> =
             &["type"],
         )
     });
+pub static PEER_ACTION_EVENTS_PER_CLIENT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "libp2p_peer_actions_per_client",
+        "Score reports per client",
+        &["client", "action", "source"],
+    )
+});
 pub static GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT: LazyLock<Result<IntCounterVec>> =
     LazyLock::new(|| {
         try_create_int_counter_vec(
