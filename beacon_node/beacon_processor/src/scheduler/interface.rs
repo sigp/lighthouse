@@ -1,23 +1,36 @@
-// use tokio::sync::mpsc;
-// use types::EthSpec;
+use std::time::Duration;
 
-// use crate::WorkEvent;
+use slot_clock::SlotClock;
+use tokio::sync::mpsc;
+use types::EthSpec;
 
-// use super::priority_scheduler;
+use crate::WorkEvent;
 
-// pub enum SchedulerType<E: EthSpec> {
-//     PriorityScheduler(priority_scheduler::Scheduler<E>),
-// }
+use super::priority_scheduler;
 
-// impl<E: EthSpec> SchedulerType<E> {
-//     // TODO(beacon-processor) make this config driven
-//     pub fn run(
-//         &self, 
-//         event_rx: mpsc::Receiver<WorkEvent<E>>,
-//         work_journal_tx: Option<mpsc::Sender<&'static str>>,
-//     ) {
+pub trait Scheduler<E: EthSpec, S: SlotClock> {
+    fn run(
+        &self, 
+        event_rx: mpsc::Receiver<WorkEvent<E>>,
+        work_journal_tx: Option<mpsc::Sender<&'static str>>,
+        slot_clock: S,
+        maximum_gossip_clock_disparity: Duration,
+    );
+}
 
-//     }
+pub enum SchedulerType<E: EthSpec, S: SlotClock> {
+    PriorityScheduler(priority_scheduler::Scheduler<E, S>),
+}
 
-//     pub fn process_work_event(&self) {}
-// }
+impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> for SchedulerType<E, S> {
+    // TODO(beacon-processor) make this config driven
+    fn run(
+        &self, 
+        event_rx: mpsc::Receiver<WorkEvent<E>>,
+        work_journal_tx: Option<mpsc::Sender<&'static str>>,
+        slot_clock: S,
+        maximum_gossip_clock_disparity: Duration,
+    ) {
+        todo!()
+    }
+}

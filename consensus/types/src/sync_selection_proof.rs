@@ -105,7 +105,7 @@ impl From<Signature> for SyncSelectionProof {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::{FixedBytesExtended, MainnetEthSpec};
     use eth2_interop_keypairs::keypair;
 
     #[test]

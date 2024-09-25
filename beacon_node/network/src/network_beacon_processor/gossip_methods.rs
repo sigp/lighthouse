@@ -695,8 +695,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             column_sidecar,
                         ));
                     }
-                    GossipDataColumnError::KzgNotInitialized
-                    | GossipDataColumnError::PubkeyCacheTimeout
+                    GossipDataColumnError::PubkeyCacheTimeout
                     | GossipDataColumnError::BeaconChainError(_) => {
                         crit!(
                             self.log,
@@ -779,7 +778,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         metrics::set_gauge(&metrics::BEACON_BLOB_DELAY_GOSSIP, delay.as_millis() as i64);
         match self
             .chain
-            .verify_blob_sidecar_for_gossip(blob_sidecar, blob_index)
+            .verify_blob_sidecar_for_gossip(blob_sidecar.clone(), blob_index)
         {
             Ok(gossip_verified_blob) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOB_VERIFIED_TOTAL);
@@ -824,20 +823,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(err) => {
                 match err {
-                    GossipBlobError::BlobParentUnknown(blob) => {
+                    GossipBlobError::BlobParentUnknown { parent_root } => {
                         debug!(
                             self.log,
                             "Unknown parent hash for blob";
                             "action" => "requesting parent",
-                            "block_root" => %blob.block_root(),
-                            "parent_root" => %blob.block_parent_root(),
+                            "block_root" => %root,
+                            "parent_root" => %parent_root,
                             "commitment" => %commitment,
                         );
-                        self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob));
+                        self.send_sync_message(SyncMessage::UnknownParentBlob(
+                            peer_id,
+                            blob_sidecar,
+                        ));
                     }
-                    GossipBlobError::KzgNotInitialized
-                    | GossipBlobError::PubkeyCacheTimeout
-                    | GossipBlobError::BeaconChainError(_) => {
+                    GossipBlobError::PubkeyCacheTimeout | GossipBlobError::BeaconChainError(_) => {
                         crit!(
                             self.log,
                             "Internal error when verifying blob sidecar";
@@ -935,7 +935,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
 
-        let result = self.chain.process_gossip_blob(verified_blob).await;
+        let result = self
+            .chain
+            .process_gossip_blob(verified_blob, || Ok(()))
+            .await;
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
@@ -962,7 +965,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "block_root" => %block_root,
                 );
             }
-            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!(
                     self.log,
                     "Ignoring gossip blob already imported";
@@ -1012,7 +1015,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match self
             .chain
-            .process_gossip_data_columns(vec![verified_data_column])
+            .process_gossip_data_columns(vec![verified_data_column], || Ok(()))
             .await
         {
             Ok((availability, data_columns_to_publish)) => {
@@ -1049,7 +1052,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 }
             }
-            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!(
                     self.log,
                     "Ignoring gossip column already imported";
@@ -1223,7 +1226,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 return None;
             }
-            Err(BlockError::ParentUnknown(block)) => {
+            Err(BlockError::ParentUnknown { .. }) => {
                 debug!(
                     self.log,
                     "Unknown parent for gossip block";
@@ -1241,7 +1244,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
-            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            Err(
+                BlockError::DuplicateFullyImported(_)
+                | BlockError::DuplicateImportStatusUnknown(..),
+            ) => {
                 debug!(
                     self.log,
                     "Gossip block is already known";
@@ -1515,7 +1521,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "block_root" => %block_root,
                 );
             }
-            Err(BlockError::ParentUnknown(_)) => {
+            Err(BlockError::ParentUnknown { .. }) => {
                 // This should not occur. It should be checked by `should_forward_block`.
                 // Do not send sync message UnknownParentBlock to prevent conflicts with the
                 // BlockComponentProcessed message below. If this error ever happens, lookup sync
@@ -3130,7 +3136,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         invalid_block_storage: &InvalidBlockStorage,
         block_root: Hash256,
         block: &SignedBeaconBlock<T::EthSpec>,
-        error: &BlockError<T::EthSpec>,
+        error: &BlockError,
         log: &Logger,
     ) {
         if let InvalidBlockStorage::Enabled(base_dir) = invalid_block_storage {

@@ -563,6 +563,7 @@ pub struct BlockHeaderData {
 pub struct DepositContractData {
     #[serde(with = "serde_utils::quoted_u64")]
     pub chain_id: u64,
+    #[serde(with = "serde_utils::address_hex")]
     pub address: Address,
 }
 
@@ -1035,6 +1036,7 @@ pub struct SsePayloadAttributes {
     #[superstruct(getter(copy))]
     pub prev_randao: Hash256,
     #[superstruct(getter(copy))]
+    #[serde(with = "serde_utils::address_hex")]
     pub suggested_fee_recipient: Address,
     #[superstruct(only(V2, V3))]
     pub withdrawals: Vec<Withdrawal>,
@@ -1050,6 +1052,7 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
     pub parent_block_root: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
     pub parent_block_number: u64,
+
     pub parent_block_hash: ExecutionBlockHash,
     pub payload_attributes: T,
 }
@@ -1790,12 +1793,12 @@ impl TryFrom<&HeaderMap> for ProduceBlockV3Metadata {
             })?;
         let execution_payload_value =
             parse_required_header(headers, EXECUTION_PAYLOAD_VALUE_HEADER, |s| {
-                Uint256::from_dec_str(s)
+                Uint256::from_str_radix(s, 10)
                     .map_err(|e| format!("invalid {EXECUTION_PAYLOAD_VALUE_HEADER}: {e:?}"))
             })?;
         let consensus_block_value =
             parse_required_header(headers, CONSENSUS_BLOCK_VALUE_HEADER, |s| {
-                Uint256::from_dec_str(s)
+                Uint256::from_str_radix(s, 10)
                     .map_err(|e| format!("invalid {CONSENSUS_BLOCK_VALUE_HEADER}: {e:?}"))
             })?;
 
@@ -1876,42 +1879,6 @@ impl<E: EthSpec> PublishBlockRequest<E> {
                 Some((block_and_sidecars.kzg_proofs, block_and_sidecars.blobs)),
             ),
             PublishBlockRequest::Block(block) => (block, None),
-        }
-    }
-}
-
-/// Converting from a `SignedBlindedBeaconBlock` into a full `SignedBlockContents`.
-pub fn into_full_block_and_blobs<E: EthSpec>(
-    blinded_block: SignedBlindedBeaconBlock<E>,
-    maybe_full_payload_contents: Option<FullPayloadContents<E>>,
-) -> Result<PublishBlockRequest<E>, String> {
-    match maybe_full_payload_contents {
-        None => {
-            let signed_block = blinded_block
-                .try_into_full_block(None)
-                .ok_or("Failed to build full block with payload".to_string())?;
-            Ok(PublishBlockRequest::new(Arc::new(signed_block), None))
-        }
-        // This variant implies a pre-deneb block
-        Some(FullPayloadContents::Payload(execution_payload)) => {
-            let signed_block = blinded_block
-                .try_into_full_block(Some(execution_payload))
-                .ok_or("Failed to build full block with payload".to_string())?;
-            Ok(PublishBlockRequest::new(Arc::new(signed_block), None))
-        }
-        // This variant implies a post-deneb block
-        Some(FullPayloadContents::PayloadAndBlobs(payload_and_blobs)) => {
-            let signed_block = blinded_block
-                .try_into_full_block(Some(payload_and_blobs.execution_payload))
-                .ok_or("Failed to build full block with payload".to_string())?;
-
-            Ok(PublishBlockRequest::new(
-                Arc::new(signed_block),
-                Some((
-                    payload_and_blobs.blobs_bundle.proofs,
-                    payload_and_blobs.blobs_bundle.blobs,
-                )),
-            ))
         }
     }
 }

@@ -10,7 +10,11 @@ use crate::peer_manager::{
 };
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
 use crate::rpc::methods::MetadataRequest;
-use crate::rpc::*;
+use crate::rpc::{
+    methods, BlocksByRangeRequest, GoodbyeReason, HandlerErr, InboundRequest, NetworkParams,
+    OutboundRequest, Protocol, RPCCodedResponse, RPCError, RPCMessage, RPCReceived, RPCResponse,
+    RPCResponseErrorCode, ResponseTermination, RPC,
+};
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
 use crate::types::{
@@ -162,7 +166,7 @@ impl<E: EthSpec> Network<E> {
                 &config,
                 &ctx.enr_fork_id,
                 &log,
-                ctx.chain_spec,
+                &ctx.chain_spec,
             )?;
             // Construct the metadata
             let custody_subnet_count = if ctx.chain_spec.is_peer_das_scheduled() {
@@ -182,6 +186,7 @@ impl<E: EthSpec> Network<E> {
                 trusted_peers,
                 config.disable_peer_scoring,
                 &log,
+                config.clone(),
                 ctx.chain_spec.clone(),
             );
             Arc::new(globals)
@@ -205,7 +210,7 @@ impl<E: EthSpec> Network<E> {
             E::slots_per_epoch(),
         );
 
-        let score_settings = PeerScoreSettings::new(ctx.chain_spec, gs_config.mesh_n());
+        let score_settings = PeerScoreSettings::new(&ctx.chain_spec, gs_config.mesh_n());
 
         let gossip_cache = {
             let slot_duration = std::time::Duration::from_secs(ctx.chain_spec.seconds_per_slot);
@@ -342,7 +347,7 @@ impl<E: EthSpec> Network<E> {
                 &config,
                 network_globals.clone(),
                 &log,
-                ctx.chain_spec,
+                &ctx.chain_spec,
             )
             .await?;
             // start searching for peers
@@ -1128,16 +1133,6 @@ impl<E: EthSpec> Network<E> {
             .send_request(peer_id, id, OutboundRequest::Ping(ping));
     }
 
-    /// Sends a Pong response to the peer.
-    fn pong(&mut self, id: PeerRequestId, peer_id: PeerId) {
-        let ping = crate::rpc::Ping {
-            data: *self.network_globals.local_metadata.read().seq_number(),
-        };
-        trace!(self.log, "Sending Pong"; "request_id" => id.1, "peer_id" => %peer_id);
-        let event = RPCCodedResponse::Success(RPCResponse::Pong(ping));
-        self.eth2_rpc_mut().send_response(peer_id, id, event);
-    }
-
     /// Sends a METADATA request to a peer.
     fn send_meta_data_request(&mut self, peer_id: PeerId) {
         let event = if self.fork_context.spec.is_peer_das_scheduled() {
@@ -1406,10 +1401,7 @@ impl<E: EthSpec> Network<E> {
         let peer_id = event.peer_id;
 
         // Do not permit Inbound events from peers that are being disconnected, or RPC requests.
-        if !self.peer_manager().is_connected(&peer_id)
-            && (matches!(event.event, HandlerEvent::Err(HandlerErr::Inbound { .. }))
-                || matches!(event.event, HandlerEvent::Ok(RPCReceived::Request(..))))
-        {
+        if !self.peer_manager().is_connected(&peer_id) {
             debug!(
                 self.log,
                 "Ignoring rpc message of disconnecting peer";
@@ -1420,8 +1412,8 @@ impl<E: EthSpec> Network<E> {
 
         let handler_id = event.conn_id;
         // The METADATA and PING RPC responses are handled within the behaviour and not propagated
-        match event.event {
-            HandlerEvent::Err(handler_err) => {
+        match event.message {
+            Err(handler_err) => {
                 match handler_err {
                     HandlerErr::Inbound {
                         id: _,
@@ -1456,15 +1448,13 @@ impl<E: EthSpec> Network<E> {
                     }
                 }
             }
-            HandlerEvent::Ok(RPCReceived::Request(id, request)) => {
+            Ok(RPCReceived::Request(id, request)) => {
                 let peer_request_id = (handler_id, id);
                 match request {
                     /* Behaviour managed protocols: Ping and Metadata */
                     InboundRequest::Ping(ping) => {
                         // inform the peer manager and send the response
                         self.peer_manager_mut().ping_request(&peer_id, ping.data);
-                        // send a ping response
-                        self.pong(peer_request_id, peer_id);
                         None
                     }
                     InboundRequest::MetaData(req) => {
@@ -1587,7 +1577,7 @@ impl<E: EthSpec> Network<E> {
                     }
                 }
             }
-            HandlerEvent::Ok(RPCReceived::Response(id, resp)) => {
+            Ok(RPCReceived::Response(id, resp)) => {
                 match resp {
                     /* Behaviour managed protocols */
                     RPCResponse::Pong(ping) => {
@@ -1640,7 +1630,7 @@ impl<E: EthSpec> Network<E> {
                     ),
                 }
             }
-            HandlerEvent::Ok(RPCReceived::EndOfStream(id, termination)) => {
+            Ok(RPCReceived::EndOfStream(id, termination)) => {
                 let response = match termination {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
@@ -1651,17 +1641,17 @@ impl<E: EthSpec> Network<E> {
                 };
                 self.build_response(id, peer_id, response)
             }
-            HandlerEvent::Close(_) => {
-                // NOTE: This is handled in the RPC behaviour.
-                None
-            }
         }
     }
 
     /// Handle an identify event.
     fn inject_identify_event(&mut self, event: identify::Event) -> Option<NetworkEvent<E>> {
         match event {
-            identify::Event::Received { peer_id, mut info } => {
+            identify::Event::Received {
+                peer_id,
+                mut info,
+                connection_id: _,
+            } => {
                 if info.listen_addrs.len() > MAX_IDENTIFY_ADDRESSES {
                     debug!(
                         self.log,
@@ -1805,6 +1795,7 @@ impl<E: EthSpec> Network<E> {
                         self.inject_upnp_event(e);
                         None
                     }
+                    #[allow(unreachable_patterns)]
                     BehaviourEvent::ConnectionLimits(le) => void::unreachable(le),
                 },
                 SwarmEvent::ConnectionEstablished { .. } => None,

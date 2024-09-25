@@ -716,16 +716,16 @@ pub mod tests {
                         assert_eq!(deposit.pubkey, validator_pubkey.clone().into());
                         if let Some(address) = config.eth1_withdrawal_address {
                             assert_eq!(
-                                deposit.withdrawal_credentials.as_bytes()[0],
+                                deposit.withdrawal_credentials.as_slice()[0],
                                 spec.eth1_address_withdrawal_prefix_byte
                             );
                             assert_eq!(
-                                &deposit.withdrawal_credentials.as_bytes()[12..],
-                                address.as_bytes()
+                                &deposit.withdrawal_credentials.as_slice()[12..],
+                                address.as_slice()
                             );
                         } else {
                             assert_eq!(
-                                deposit.withdrawal_credentials.as_bytes()[0],
+                                deposit.withdrawal_credentials.as_slice()[0],
                                 spec.bls_withdrawal_prefix_byte
                             );
                         }

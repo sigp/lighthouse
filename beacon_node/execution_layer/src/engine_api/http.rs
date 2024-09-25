@@ -734,54 +734,6 @@ impl HttpJsonRpc {
         .await
     }
 
-    pub async fn get_block_by_hash_with_txns<E: EthSpec>(
-        &self,
-        block_hash: ExecutionBlockHash,
-        fork: ForkName,
-    ) -> Result<Option<ExecutionBlockWithTransactions<E>>, Error> {
-        let params = json!([block_hash, true]);
-        Ok(Some(match fork {
-            ForkName::Bellatrix => ExecutionBlockWithTransactions::Bellatrix(
-                self.rpc_request(
-                    ETH_GET_BLOCK_BY_HASH,
-                    params,
-                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
-                )
-                .await?,
-            ),
-            ForkName::Capella => ExecutionBlockWithTransactions::Capella(
-                self.rpc_request(
-                    ETH_GET_BLOCK_BY_HASH,
-                    params,
-                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
-                )
-                .await?,
-            ),
-            ForkName::Deneb => ExecutionBlockWithTransactions::Deneb(
-                self.rpc_request(
-                    ETH_GET_BLOCK_BY_HASH,
-                    params,
-                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
-                )
-                .await?,
-            ),
-            ForkName::Electra => ExecutionBlockWithTransactions::Electra(
-                self.rpc_request(
-                    ETH_GET_BLOCK_BY_HASH,
-                    params,
-                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
-                )
-                .await?,
-            ),
-            ForkName::Base | ForkName::Altair => {
-                return Err(Error::UnsupportedForkVariant(format!(
-                    "called get_block_by_hash_with_txns with fork {:?}",
-                    fork
-                )))
-            }
-        }))
-    }
-
     pub async fn new_payload_v1<E: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<E>,
@@ -877,7 +829,7 @@ impl HttpJsonRpc {
             // Set the V1 payload values from the EE to be zero. This simulates
             // the pre-block-value functionality of always choosing the builder
             // block.
-            block_value: Uint256::zero(),
+            block_value: Uint256::ZERO,
         }))
     }
 
@@ -1414,7 +1366,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{MainnetEthSpec, Unsigned};
+    use types::{FixedBytesExtended, MainnetEthSpec, Unsigned};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,

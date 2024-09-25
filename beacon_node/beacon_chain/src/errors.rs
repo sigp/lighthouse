@@ -216,7 +216,8 @@ pub enum BeaconChainError {
     UnableToPublish,
     UnableToBuildColumnSidecar(String),
     AvailabilityCheckError(AvailabilityCheckError),
-    LightClientError(LightClientError),
+    LightClientUpdateError(LightClientUpdateError),
+    LightClientBootstrapError(String),
     UnsupportedFork,
     MilhouseError(MilhouseError),
     EmptyRpcCustodyColumns,
@@ -250,7 +251,7 @@ easy_from_to!(BlockReplayError, BeaconChainError);
 easy_from_to!(InconsistentFork, BeaconChainError);
 easy_from_to!(AvailabilityCheckError, BeaconChainError);
 easy_from_to!(EpochCacheError, BeaconChainError);
-easy_from_to!(LightClientError, BeaconChainError);
+easy_from_to!(LightClientUpdateError, BeaconChainError);
 easy_from_to!(MilhouseError, BeaconChainError);
 easy_from_to!(AttestationError, BeaconChainError);
 
@@ -290,7 +291,6 @@ pub enum BlockProductionError {
     TokioJoin(JoinError),
     BeaconChain(BeaconChainError),
     InvalidPayloadFork,
-    TrustedSetupNotInitialized,
     InvalidBlockVariant(String),
     KzgError(kzg::Error),
     FailedToBuildBlobSidecars(String),

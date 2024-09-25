@@ -507,7 +507,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockCapella<E, Payload>
                 message: BlsToExecutionChange {
                     validator_index: 0,
                     from_bls_pubkey: PublicKeyBytes::empty(),
-                    to_execution_address: Address::zero(),
+                    to_execution_address: Address::ZERO,
                 },
                 signature: Signature::empty()
             };
@@ -637,7 +637,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
                 message: BlsToExecutionChange {
                     validator_index: 0,
                     from_bls_pubkey: PublicKeyBytes::empty(),
-                    to_execution_address: Address::zero(),
+                    to_execution_address: Address::ZERO,
                 },
                 signature: Signature::empty()
             };
