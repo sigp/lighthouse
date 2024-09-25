@@ -13,12 +13,6 @@ pub type Transactions<E> = VariableList<
 >;
 
 pub type Withdrawals<E> = VariableList<Withdrawal, <E as EthSpec>::MaxWithdrawalsPerPayload>;
-// pub type DepositRequests<E> =
-//     VariableList<DepositRequest, <E as EthSpec>::MaxDepositRequestsPerPayload>;
-// pub type WithdrawalRequests<E> =
-//     VariableList<WithdrawalRequest, <E as EthSpec>::MaxWithdrawalRequestsPerPayload>;
-// pub type ConsolidationRequests<E> =
-//     VariableList<ConsolidationRequest, <E as EthSpec>::MaxConsolidationRequestsPerPayload>;
 
 #[superstruct(
     variants(Bellatrix, Capella, Deneb, Electra),

@@ -7,6 +7,13 @@ use ssz_types::VariableList;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+pub type DepositRequests<E> =
+    VariableList<DepositRequest, <E as EthSpec>::MaxDepositRequestsPerPayload>;
+pub type WithdrawalRequests<E> =
+    VariableList<WithdrawalRequest, <E as EthSpec>::MaxWithdrawalRequestsPerPayload>;
+pub type ConsolidationRequests<E> =
+    VariableList<ConsolidationRequest, <E as EthSpec>::MaxConsolidationRequestsPerPayload>;
+
 #[derive(
     arbitrary::Arbitrary,
     Debug,
@@ -24,9 +31,9 @@ use tree_hash_derive::TreeHash;
 #[arbitrary(bound = "E: EthSpec")]
 #[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
 pub struct ExecutionRequests<E: EthSpec> {
-    pub deposits: VariableList<DepositRequest, E::MaxDepositRequestsPerPayload>,
-    pub withdrawals: VariableList<WithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>,
-    pub consolidations: VariableList<ConsolidationRequest, E::MaxConsolidationRequestsPerPayload>,
+    pub deposits: DepositRequests<E>,
+    pub withdrawals: WithdrawalRequests<E>,
+    pub consolidations: ConsolidationRequests<E>,
 }
 
 #[cfg(test)]

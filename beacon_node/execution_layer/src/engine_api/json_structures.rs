@@ -106,11 +106,6 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     #[superstruct(only(V3, V4))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
-    #[superstruct(only(V4))]
-    // TODO(pawan): needs a hex encoded unbounded vec value serde transformation
-    // The transformation from JsonExecutionPayload to ExecutionPayload should fail
-    // if the length bounds are violated, but the json decoding should still pass
-    pub requests: Vec<Bytes>,
 }
 
 impl<E: EthSpec> From<ExecutionPayloadBellatrix<E>> for JsonExecutionPayloadV1<E> {
@@ -224,30 +219,6 @@ fn prefix_and_bytes<T: Encode>(request: &T, prefix: u8, max_size: usize) -> Byte
 
 impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> {
     fn from(payload: ExecutionPayloadElectra<E>) -> Self {
-        let deposit_requests = payload.deposit_requests.into_iter().map(|req| {
-            prefix_and_bytes(
-                &req,
-                RequestPrefix::Deposit.to_prefix(),
-                DepositRequest::max_size() + 1,
-            )
-        });
-
-        let withdrawal_requests = payload.withdrawal_requests.into_iter().map(|req| {
-            prefix_and_bytes(
-                &req,
-                RequestPrefix::Withdrawal.to_prefix(),
-                WithdrawalRequest::max_size() + 1,
-            )
-        });
-
-        let consolidation_requests = payload.consolidation_requests.into_iter().map(|req| {
-            prefix_and_bytes(
-                &req,
-                RequestPrefix::Consolidation.to_prefix(),
-                ConsolidationRequest::max_size() + 1,
-            )
-        });
-
         JsonExecutionPayloadV4 {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -271,10 +242,6 @@ impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> 
                 .into(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-            requests: deposit_requests
-                .chain(withdrawal_requests)
-                .chain(consolidation_requests)
-                .collect(),
         }
     }
 }
@@ -366,40 +333,9 @@ impl<E: EthSpec> From<JsonExecutionPayloadV3<E>> for ExecutionPayloadDeneb<E> {
     }
 }
 
-impl<E: EthSpec> TryFrom<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> {
-    type Error = String;
-
-    fn try_from(payload: JsonExecutionPayloadV4<E>) -> Result<Self, Self::Error> {
-        let mut deposit_requests = Vec::with_capacity(E::max_deposit_requests_per_payload());
-        let mut withdrawal_requests = Vec::with_capacity(E::max_withdrawal_requests_per_payload());
-        let mut consolidation_requests =
-            Vec::with_capacity(E::max_consolidation_requests_per_payload());
-
-        // TODO(pawan): enforce ordering constraints here
-        for request in payload.requests.into_iter() {
-            if let Some((first, rest)) = request.split_first() {
-                match RequestPrefix::from_prefix(*first) {
-                    Some(RequestPrefix::Deposit) => {
-                        deposit_requests.push(DepositRequest::from_ssz_bytes(rest).map_err(
-                            |e| format!("Failed to decode DepositRequest from EL: {:?}", e),
-                        )?)
-                    }
-                    Some(RequestPrefix::Withdrawal) => {
-                        withdrawal_requests.push(WithdrawalRequest::from_ssz_bytes(rest).map_err(
-                            |e| format!("Failed to decode WithdrawalRequest from EL: {:?}", e),
-                        )?)
-                    }
-                    Some(RequestPrefix::Consolidation) => consolidation_requests.push(
-                        ConsolidationRequest::from_ssz_bytes(rest).map_err(|e| {
-                            format!("Failed to decode ConsolidationRequest from EL: {:?}", e)
-                        })?,
-                    ),
-                    None => return Err("Empty requests json".to_string()),
-                }
-            }
-        }
-
-        Ok(ExecutionPayloadElectra {
+impl<E: EthSpec> From<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> {
+    fn from(payload: JsonExecutionPayloadV4<E>) -> Self {
+        ExecutionPayloadElectra {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -422,25 +358,67 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<
                 .into(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-            deposit_requests: VariableList::new(deposit_requests)
-                .map_err(|_| "DepositRequests from EL exceeded length limits".to_string())?,
-            withdrawal_requests: VariableList::new(withdrawal_requests)
-                .map_err(|_| "WithdrawalRequests from EL exceeded length limits".to_string())?,
-            consolidation_requests: VariableList::new(consolidation_requests)
-                .map_err(|_| "ConsolidationRequests from EL exceeded length limits".to_string())?,
-        })
+        }
     }
 }
 
-impl<E: EthSpec> TryFrom<JsonExecutionPayload<E>> for ExecutionPayload<E> {
-    type Error = String;
-    fn try_from(json_execution_payload: JsonExecutionPayload<E>) -> Result<Self, Self::Error> {
+impl<E: EthSpec> From<JsonExecutionPayload<E>> for ExecutionPayload<E> {
+    fn from(json_execution_payload: JsonExecutionPayload<E>) -> Self {
         match json_execution_payload {
-            JsonExecutionPayload::V1(payload) => Ok(ExecutionPayload::Bellatrix(payload.into())),
-            JsonExecutionPayload::V2(payload) => Ok(ExecutionPayload::Capella(payload.into())),
-            JsonExecutionPayload::V3(payload) => Ok(ExecutionPayload::Deneb(payload.into())),
-            JsonExecutionPayload::V4(payload) => Ok(ExecutionPayload::Electra(payload.try_into()?)),
+            JsonExecutionPayload::V1(payload) => ExecutionPayload::Bellatrix(payload.into()),
+            JsonExecutionPayload::V2(payload) => ExecutionPayload::Capella(payload.into()),
+            JsonExecutionPayload::V3(payload) => ExecutionPayload::Deneb(payload.into()),
+            JsonExecutionPayload::V4(payload) => ExecutionPayload::Electra(payload.into()),
         }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+/// TODO(pawan): https://github.com/ethereum/execution-apis/pull/587/ has a typed representation, but that's probably going to
+/// be changed in https://github.com/ethereum/execution-apis/pull/577/
+pub struct JsonExecutionRequests(pub Vec<Bytes>);
+
+impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequests<E> {
+    type Error = String;
+
+    fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
+        let mut deposits = Vec::with_capacity(E::max_deposit_requests_per_payload());
+        let mut withdrawals = Vec::with_capacity(E::max_withdrawal_requests_per_payload());
+        let mut consolidations = Vec::with_capacity(E::max_consolidation_requests_per_payload());
+
+        // TODO(pawan): enforce ordering constraints here
+        for request in value.0.into_iter() {
+            if let Some((first, rest)) = request.split_first() {
+                match RequestPrefix::from_prefix(*first) {
+                    Some(RequestPrefix::Deposit) => {
+                        deposits.push(DepositRequest::from_ssz_bytes(rest).map_err(|e| {
+                            format!("Failed to decode DepositRequest from EL: {:?}", e)
+                        })?)
+                    }
+                    Some(RequestPrefix::Withdrawal) => {
+                        withdrawals.push(WithdrawalRequest::from_ssz_bytes(rest).map_err(|e| {
+                            format!("Failed to decode WithdrawalRequest from EL: {:?}", e)
+                        })?)
+                    }
+                    Some(RequestPrefix::Consolidation) => {
+                        consolidations.push(ConsolidationRequest::from_ssz_bytes(rest).map_err(
+                            |e| format!("Failed to decode ConsolidationRequest from EL: {:?}", e),
+                        )?)
+                    }
+                    None => return Err("Empty requests json".to_string()),
+                }
+            }
+        }
+
+        Ok(ExecutionRequests {
+            deposits: VariableList::new(deposits)
+                .map_err(|_| "DepositRequests from EL exceeded length limits".to_string())?,
+            withdrawals: VariableList::new(withdrawals)
+                .map_err(|_| "WithdrawalRequests from EL exceeded length limits".to_string())?,
+            consolidations: VariableList::new(consolidations)
+                .map_err(|_| "ConsolidationRequests from EL exceeded length limits".to_string())?,
+        })
     }
 }
 
@@ -470,6 +448,8 @@ pub struct JsonGetPayloadResponse<E: EthSpec> {
     pub blobs_bundle: JsonBlobsBundleV1<E>,
     #[superstruct(only(V3, V4))]
     pub should_override_builder: bool,
+    #[superstruct(only(V4))]
+    pub requests: JsonExecutionRequests,
 }
 
 impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
@@ -498,10 +478,11 @@ impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
             }
             JsonGetPayloadResponse::V4(response) => {
                 Ok(GetPayloadResponse::Electra(GetPayloadResponseElectra {
-                    execution_payload: response.execution_payload.try_into()?,
+                    execution_payload: response.execution_payload.into(),
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle.into(),
                     should_override_builder: response.should_override_builder,
+                    requests: response.requests.try_into()?,
                 }))
             }
         }
@@ -818,180 +799,43 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
     }
 }
 
-#[superstruct(
-    variants(V1, V2),
-    variant_attributes(
-        derive(Clone, Debug, Serialize, Deserialize),
-        serde(bound = "E: EthSpec", rename_all = "camelCase"),
-    ),
-    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
-)]
-#[derive(Clone, Debug, Serialize)]
-#[serde(bound = "E: EthSpec", rename_all = "camelCase", untagged)]
-pub struct JsonExecutionPayloadBody<E: EthSpec> {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(bound = "E: EthSpec")]
+pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
     pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
-    #[superstruct(only(V2))]
-    pub requests: Option<Vec<Bytes>>,
+}
+
+impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
+    fn from(value: JsonExecutionPayloadBodyV1<E>) -> Self {
+        Self {
+            transactions: value.transactions,
+            withdrawals: value.withdrawals.map(|json_withdrawals| {
+                Withdrawals::<E>::from(
+                    json_withdrawals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>(),
+                )
+            }),
+        }
+    }
 }
 
 impl<E: EthSpec> From<ExecutionPayloadBodyV1<E>> for JsonExecutionPayloadBodyV1<E> {
     fn from(value: ExecutionPayloadBodyV1<E>) -> Self {
         Self {
             transactions: value.transactions,
-            withdrawals: value.withdrawals.map(|json_withdrawals| {
+            withdrawals: value.withdrawals.map(|withdrawals| {
                 VariableList::from(
-                    json_withdrawals
+                    withdrawals
                         .into_iter()
                         .map(Into::into)
                         .collect::<Vec<_>>(),
                 )
             }),
         }
-    }
-}
-
-impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
-    fn from(value: JsonExecutionPayloadBodyV1<E>) -> Self {
-        ExecutionPayloadBodyV1 {
-            transactions: value.transactions,
-            withdrawals: value.withdrawals.map(|json_withdrawals| {
-                Withdrawals::<E>::from(
-                    json_withdrawals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect::<Vec<_>>(),
-                )
-            }),
-        }
-    }
-}
-
-impl<E: EthSpec> From<ExecutionPayloadBodyV2<E>> for JsonExecutionPayloadBodyV2<E> {
-    fn from(value: ExecutionPayloadBodyV2<E>) -> Self {
-        let mut requests = vec![];
-        // TODO(pawan): make this more rusty
-        let mut flag = false;
-        if let Some(deposit_requests) = value.deposit_requests {
-            flag = true;
-            for req in deposit_requests.into_iter() {
-                requests.push(prefix_and_bytes(
-                    &req,
-                    RequestPrefix::Deposit.to_prefix(),
-                    DepositRequest::max_size() + 1,
-                ));
-            }
-        }
-
-        if let Some(withdrawal_requests) = value.withdrawal_requests {
-            flag = true;
-            for req in withdrawal_requests.into_iter() {
-                requests.push(prefix_and_bytes(
-                    &req,
-                    RequestPrefix::Withdrawal.to_prefix(),
-                    WithdrawalRequest::max_size() + 1,
-                ));
-            }
-        }
-
-        if let Some(consolidation_requests) = value.consolidation_requests {
-            flag = true;
-            for req in consolidation_requests.into_iter() {
-                requests.push(prefix_and_bytes(
-                    &req,
-                    RequestPrefix::Deposit.to_prefix(),
-                    DepositRequest::max_size() + 1,
-                ));
-            }
-        }
-
-        Self {
-            transactions: value.transactions,
-            withdrawals: value.withdrawals.map(|json_withdrawals| {
-                VariableList::from(
-                    json_withdrawals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect::<Vec<_>>(),
-                )
-            }),
-            requests: flag.then(|| requests),
-        }
-    }
-}
-
-impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV2<E>> for ExecutionPayloadBodyV2<E> {
-    type Error = String;
-
-    fn try_from(
-        body_v2: JsonExecutionPayloadBodyV2<E>,
-    ) -> Result<ExecutionPayloadBodyV2<E>, Self::Error> {
-        let (deposit_requests, withdrawal_requests, consolidation_requests) =
-            if let Some(requests) = body_v2.requests {
-                let mut deposit_requests =
-                    Vec::with_capacity(E::max_deposit_requests_per_payload());
-                let mut withdrawal_requests =
-                    Vec::with_capacity(E::max_withdrawal_requests_per_payload());
-                let mut consolidation_requests =
-                    Vec::with_capacity(E::max_consolidation_requests_per_payload());
-
-                // TODO(pawan): enforce ordering constraints here
-                // Extract into separate function
-                for request in requests.into_iter() {
-                    if let Some((first, rest)) = request.split_first() {
-                        match RequestPrefix::from_prefix(*first) {
-                            Some(RequestPrefix::Deposit) => deposit_requests.push(
-                                DepositRequest::from_ssz_bytes(rest).map_err(|e| {
-                                    format!("Failed to decode DepositRequest from EL: {:?}", e)
-                                })?,
-                            ),
-                            Some(RequestPrefix::Withdrawal) => withdrawal_requests.push(
-                                WithdrawalRequest::from_ssz_bytes(rest).map_err(|e| {
-                                    format!("Failed to decode WithdrawalRequest from EL: {:?}", e)
-                                })?,
-                            ),
-                            Some(RequestPrefix::Consolidation) => consolidation_requests.push(
-                                ConsolidationRequest::from_ssz_bytes(rest).map_err(|e| {
-                                    format!(
-                                        "Failed to decode ConsolidationRequest from EL: {:?}",
-                                        e
-                                    )
-                                })?,
-                            ),
-                            None => return Err("Empty requests json".to_string()),
-                        }
-                    }
-                }
-                (
-                    Some(VariableList::new(deposit_requests).map_err(|_| {
-                        "DepositRequests from EL exceeded length limits".to_string()
-                    })?),
-                    Some(VariableList::new(withdrawal_requests).map_err(|_| {
-                        "WithdrawalRequests from EL exceeded length limits".to_string()
-                    })?),
-                    Some(VariableList::new(consolidation_requests).map_err(|_| {
-                        "ConsolidationRequests from EL exceeded length limits".to_string()
-                    })?),
-                )
-            } else {
-                (None, None, None)
-            };
-
-        Ok(ExecutionPayloadBodyV2 {
-            transactions: body_v2.transactions,
-            withdrawals: body_v2.withdrawals.map(|json_withdrawals| {
-                Withdrawals::<E>::from(
-                    json_withdrawals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect::<Vec<_>>(),
-                )
-            }),
-            deposit_requests,
-            withdrawal_requests,
-            consolidation_requests,
-        })
     }
 }
 
