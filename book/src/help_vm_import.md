@@ -13,6 +13,9 @@ Options:
           multiplier to apply to the builder's payload value when choosing
           between a builder payload header and payload from the local execution
           node.
+      --builder-proposals <builder-proposals>
+          When provided, the imported validator will attempt to create blocks
+          via builder rather than the local EL. [possible values: true, false]
   -d, --datadir <DIR>
           Used to specify a custom root data directory for lighthouse keys and
           databases. Defaults to $HOME/.lighthouse/{network} where network is
@@ -113,9 +116,6 @@ Options:
           http://localhost:5062]
 
 Flags:
-      --builder-proposals <builder-proposals>
-          When provided, the imported validator will attempt to create blocks
-          via builder rather than the local EL. [possible values: true, false]
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning
