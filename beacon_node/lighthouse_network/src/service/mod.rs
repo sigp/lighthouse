@@ -11,7 +11,7 @@ use crate::peer_manager::{
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
 use crate::rpc::methods::MetadataRequest;
 use crate::rpc::{
-    methods, BlocksByRangeRequest, GoodbyeReason, HandlerErr, InboundRequest, NetworkParams,
+    self, methods, BlocksByRangeRequest, GoodbyeReason, HandlerErr, InboundRequest, NetworkParams,
     OutboundRequest, Protocol, RPCCodedResponse, RPCError, RPCMessage, RPCReceived, RPCResponse,
     RPCResponseErrorCode, ResponseTermination, RPC,
 };
@@ -1444,9 +1444,13 @@ impl<E: EthSpec> Network<E> {
                     }
                 }
             }
-            Ok(RPCReceived::Request(id, request)) => {
-                let peer_request_id = (handler_id, id);
-                match request {
+            Ok(RPCReceived::Request(rpc::Request {
+                substream_id,
+                r#type,
+                ..
+            })) => {
+                let peer_request_id = (handler_id, substream_id);
+                match r#type {
                     /* Behaviour managed protocols: Ping and Metadata */
                     InboundRequest::Ping(ping) => {
                         // inform the peer manager and send the response
@@ -1455,7 +1459,7 @@ impl<E: EthSpec> Network<E> {
                     }
                     InboundRequest::MetaData(req) => {
                         // send the requested meta-data
-                        self.send_meta_data_response(req, (handler_id, id), peer_id);
+                        self.send_meta_data_response(req, (handler_id, substream_id), peer_id);
                         None
                     }
                     InboundRequest::Goodbye(reason) => {
