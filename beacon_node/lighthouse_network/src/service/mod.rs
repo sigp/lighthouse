@@ -1392,7 +1392,8 @@ impl<E: EthSpec> Network<E> {
     fn inject_rpc_event(&mut self, event: RPCMessage<RequestId, E>) -> Option<NetworkEvent<E>> {
         let peer_id = event.peer_id;
 
-        // Do not permit Inbound events from peers that are being disconnected, or RPC requests.
+        // Do not permit Inbound events from peers that are being disconnected or RPC requests,
+        // but allow `RpcFailed` and `HandlerErr::Outbound` to be bubble up to sync for state management.
         if !self.peer_manager().is_connected(&peer_id)
             && (matches!(event.message, Err(HandlerErr::Inbound { .. }))
                 || matches!(event.message, Ok(RPCReceived::Request(..))))
