@@ -2,12 +2,11 @@
 use crate::peer_manager::peerdb::PeerDB;
 use crate::rpc::{MetaData, MetaDataV3};
 use crate::types::{BackFillState, SyncState};
-use crate::Client;
-use crate::EnrExt;
-use crate::{Enr, GossipTopic, Multiaddr, PeerId};
+use crate::{Client, Enr, EnrExt, GossipTopic, Multiaddr, NetworkConfig, PeerId};
 use itertools::Itertools;
 use parking_lot::RwLock;
 use std::collections::HashSet;
+use std::sync::Arc;
 use types::{ChainSpec, ColumnIndex, DataColumnSubnetId, EthSpec};
 
 pub struct NetworkGlobals<E: EthSpec> {
@@ -30,7 +29,10 @@ pub struct NetworkGlobals<E: EthSpec> {
     /// The computed sampling subnets and columns is stored to avoid re-computing.
     pub sampling_subnets: Vec<DataColumnSubnetId>,
     pub sampling_columns: Vec<ColumnIndex>,
-    pub spec: ChainSpec,
+    /// Network-related configuration. Immutable after initialization.
+    pub config: Arc<NetworkConfig>,
+    /// Ethereum chain configuration. Immutable after initialization.
+    pub spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> NetworkGlobals<E> {
@@ -40,7 +42,8 @@ impl<E: EthSpec> NetworkGlobals<E> {
         trusted_peers: Vec<PeerId>,
         disable_peer_scoring: bool,
         log: &slog::Logger,
-        spec: ChainSpec,
+        config: Arc<NetworkConfig>,
+        spec: Arc<ChainSpec>,
     ) -> Self {
         let (sampling_subnets, sampling_columns) = if spec.is_peer_das_scheduled() {
             let node_id = enr.node_id().raw();
@@ -82,6 +85,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
             backfill_state: RwLock::new(BackFillState::NotRequired),
             sampling_subnets,
             sampling_columns,
+            config,
             spec,
         }
     }
@@ -167,7 +171,8 @@ impl<E: EthSpec> NetworkGlobals<E> {
     pub fn new_test_globals(
         trusted_peers: Vec<PeerId>,
         log: &slog::Logger,
-        spec: ChainSpec,
+        config: Arc<NetworkConfig>,
+        spec: Arc<ChainSpec>,
     ) -> NetworkGlobals<E> {
         let metadata = MetaData::V3(MetaDataV3 {
             seq_number: 0,
@@ -175,20 +180,21 @@ impl<E: EthSpec> NetworkGlobals<E> {
             syncnets: Default::default(),
             custody_subnet_count: spec.custody_requirement,
         });
-        Self::new_test_globals_with_metadata(trusted_peers, metadata, log, spec)
+        Self::new_test_globals_with_metadata(trusted_peers, metadata, log, config, spec)
     }
 
     pub(crate) fn new_test_globals_with_metadata(
         trusted_peers: Vec<PeerId>,
         metadata: MetaData<E>,
         log: &slog::Logger,
-        spec: ChainSpec,
+        config: Arc<NetworkConfig>,
+        spec: Arc<ChainSpec>,
     ) -> NetworkGlobals<E> {
         use crate::CombinedKeyExt;
         let keypair = libp2p::identity::secp256k1::Keypair::generate();
         let enr_key: discv5::enr::CombinedKey = discv5::enr::CombinedKey::from_secp256k1(&keypair);
         let enr = discv5::enr::Enr::builder().build(&enr_key).unwrap();
-        NetworkGlobals::new(enr, metadata, trusted_peers, false, log, spec)
+        NetworkGlobals::new(enr, metadata, trusted_peers, false, log, config, spec)
     }
 }
 
@@ -206,9 +212,15 @@ mod test {
         let custody_subnet_count = spec.data_column_sidecar_subnet_count / 2;
         let subnet_sampling_size = std::cmp::max(custody_subnet_count, spec.samples_per_slot);
         let metadata = get_metadata(custody_subnet_count);
+        let config = Arc::new(NetworkConfig::default());
 
-        let globals =
-            NetworkGlobals::<E>::new_test_globals_with_metadata(vec![], metadata, &log, spec);
+        let globals = NetworkGlobals::<E>::new_test_globals_with_metadata(
+            vec![],
+            metadata,
+            &log,
+            config,
+            Arc::new(spec),
+        );
         assert_eq!(
             globals.sampling_subnets.len(),
             subnet_sampling_size as usize
@@ -224,9 +236,15 @@ mod test {
         let custody_subnet_count = spec.data_column_sidecar_subnet_count / 2;
         let subnet_sampling_size = std::cmp::max(custody_subnet_count, spec.samples_per_slot);
         let metadata = get_metadata(custody_subnet_count);
+        let config = Arc::new(NetworkConfig::default());
 
-        let globals =
-            NetworkGlobals::<E>::new_test_globals_with_metadata(vec![], metadata, &log, spec);
+        let globals = NetworkGlobals::<E>::new_test_globals_with_metadata(
+            vec![],
+            metadata,
+            &log,
+            config,
+            Arc::new(spec),
+        );
         assert_eq!(
             globals.sampling_columns.len(),
             subnet_sampling_size as usize
