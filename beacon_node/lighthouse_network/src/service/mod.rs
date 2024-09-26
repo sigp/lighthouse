@@ -166,7 +166,7 @@ impl<E: EthSpec> Network<E> {
                 &config,
                 &ctx.enr_fork_id,
                 &log,
-                ctx.chain_spec,
+                &ctx.chain_spec,
             )?;
             // Construct the metadata
             let custody_subnet_count = if ctx.chain_spec.is_peer_das_scheduled() {
@@ -186,6 +186,7 @@ impl<E: EthSpec> Network<E> {
                 trusted_peers,
                 config.disable_peer_scoring,
                 &log,
+                config.clone(),
                 ctx.chain_spec.clone(),
             );
             Arc::new(globals)
@@ -209,7 +210,7 @@ impl<E: EthSpec> Network<E> {
             E::slots_per_epoch(),
         );
 
-        let score_settings = PeerScoreSettings::new(ctx.chain_spec, gs_config.mesh_n());
+        let score_settings = PeerScoreSettings::new(&ctx.chain_spec, gs_config.mesh_n());
 
         let gossip_cache = {
             let slot_duration = std::time::Duration::from_secs(ctx.chain_spec.seconds_per_slot);
@@ -346,7 +347,7 @@ impl<E: EthSpec> Network<E> {
                 &config,
                 network_globals.clone(),
                 &log,
-                ctx.chain_spec,
+                &ctx.chain_spec,
             )
             .await?;
             // start searching for peers
