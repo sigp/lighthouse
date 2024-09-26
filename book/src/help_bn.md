@@ -603,4 +603,5 @@ Flags:
   -z, --zero-ports
           Sets all listening TCP/UDP ports to 0, allowing the OS to choose some
           arbitrary free ports.
-```n<style> .content main {max-width:88%;} </style>
+```
+<style> .content main {max-width:8%;} </style>

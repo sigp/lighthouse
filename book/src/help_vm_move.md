@@ -142,4 +142,5 @@ Flags:
           permissions will be inherited from the parent folder.
       --stdin-inputs
           If present, read all user inputs from stdin instead of tty.
-```n<style> .content main {max-width:88%;} </style>
+```
+<style> .content main {max-width:8%;} </style>
