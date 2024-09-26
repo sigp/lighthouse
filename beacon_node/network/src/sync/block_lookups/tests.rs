@@ -22,7 +22,7 @@ use beacon_chain::{
     AvailabilityPendingExecutedBlock, PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 use beacon_processor::WorkEvent;
-use lighthouse_network::rpc::{RPCError, RPCResponseErrorCode};
+use lighthouse_network::rpc::{RPCError, RpcErrorResponse};
 use lighthouse_network::service::api_types::{
     AppRequestId, DataColumnsByRootRequester, Id, SamplingRequester, SingleLookupReqId,
     SyncRequestId,
@@ -618,7 +618,7 @@ impl TestRig {
             id,
             peer_id,
             RPCError::ErrorResponse(
-                RPCResponseErrorCode::ResourceUnavailable,
+                RpcErrorResponse::ResourceUnavailable,
                 "older than deneb".into(),
             ),
         );

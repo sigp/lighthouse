@@ -24,14 +24,14 @@ use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::{HandlerErr, HandlerEvent};
 pub(crate) use methods::{
-    MetaData, MetaDataV1, MetaDataV2, MetaDataV3, Ping, RPCCodedResponse, RPCResponse,
+    MetaData, MetaDataV1, MetaDataV2, MetaDataV3, Ping, RpcResponse, RpcSuccessResponse,
 };
 pub(crate) use protocol::InboundRequest;
 
 pub use handler::SubstreamId;
 pub use methods::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, LightClientBootstrapRequest,
-    RPCResponseErrorCode, ResponseTermination, StatusMessage,
+    ResponseTermination, RpcErrorResponse, StatusMessage,
 };
 pub(crate) use outbound::OutboundRequest;
 pub use protocol::{max_rpc_size, Protocol, RPCError};
@@ -68,7 +68,7 @@ pub enum RPCSend<Id, E: EthSpec> {
     /// The `SubstreamId` must correspond to the RPC-given ID of the original request received from the
     /// peer. The second parameter is a single chunk of a response. These go over *inbound*
     /// connections.
-    Response(SubstreamId, RPCCodedResponse<E>),
+    Response(SubstreamId, RpcResponse<E>),
     /// Lighthouse has requested to terminate the connection with a goodbye message.
     Shutdown(Id, GoodbyeReason),
 }
@@ -86,7 +86,7 @@ pub enum RPCReceived<Id, E: EthSpec> {
     /// The `Id` corresponds to the application given ID of the original request sent to the
     /// peer. The second parameter is a single chunk of a response. These go over *outbound*
     /// connections.
-    Response(Id, RPCResponse<E>),
+    Response(Id, RpcSuccessResponse<E>),
     /// Marks a request as completed
     EndOfStream(Id, ResponseTermination),
 }
@@ -209,7 +209,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         &mut self,
         peer_id: PeerId,
         id: (ConnectionId, SubstreamId),
-        event: RPCCodedResponse<E>,
+        event: RpcResponse<E>,
     ) {
         self.events.push(ToSwarm::NotifyHandler {
             peer_id,
@@ -430,8 +430,8 @@ where
                             self.send_response(
                                 peer_id,
                                 (conn_id, substream_id),
-                                RPCCodedResponse::Error(
-                                    RPCResponseErrorCode::RateLimited,
+                                RpcResponse::Error(
+                                    RpcErrorResponse::RateLimited,
                                     "Rate limited. Request too large".into(),
                                 ),
                             );
@@ -445,8 +445,8 @@ where
                             self.send_response(
                                 peer_id,
                                 (conn_id, substream_id),
-                                RPCCodedResponse::Error(
-                                    RPCResponseErrorCode::RateLimited,
+                                RpcResponse::Error(
+                                    RpcErrorResponse::RateLimited,
                                     format!("Wait {:?}", wait_time).into(),
                                 ),
                             );
@@ -463,7 +463,7 @@ where
                     self.send_response(
                         peer_id,
                         (conn_id, substream_id),
-                        RPCCodedResponse::Success(RPCResponse::Pong(Ping {
+                        RpcResponse::Success(RpcSuccessResponse::Pong(Ping {
                             data: self.seq_number,
                         })),
                     );

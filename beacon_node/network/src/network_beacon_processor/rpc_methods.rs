@@ -45,7 +45,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_error_response(
         &self,
         peer_id: PeerId,
-        error: RPCResponseErrorCode,
+        error: RpcErrorResponse,
         reason: String,
         id: PeerRequestId,
     ) {
@@ -150,7 +150,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         request_id: PeerRequestId,
         request: BlocksByRootRequest,
-    ) -> Result<(), (RPCResponseErrorCode, &'static str)> {
+    ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let log_results = |peer_id, requested_blocks, send_block_count| {
             debug!(
                 self.log,
@@ -169,10 +169,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(block_stream) => block_stream,
             Err(e) => {
                 error!(self.log, "Error getting block stream"; "error" => ?e);
-                return Err((
-                    RPCResponseErrorCode::ServerError,
-                    "Error getting block stream",
-                ));
+                return Err((RpcErrorResponse::ServerError, "Error getting block stream"));
             }
         };
         // Fetching blocks is async because it may have to hit the execution layer for payloads.
@@ -204,7 +201,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                     log_results(peer_id, requested_blocks, send_block_count);
                     return Err((
-                        RPCResponseErrorCode::ResourceUnavailable,
+                        RpcErrorResponse::ResourceUnavailable,
                         "Execution layer not synced",
                     ));
                 }
@@ -245,7 +242,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         request_id: PeerRequestId,
         request: BlobsByRootRequest,
-    ) -> Result<(), (RPCResponseErrorCode, &'static str)> {
+    ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let Some(requested_root) = request.blob_ids.as_slice().first().map(|id| id.block_root)
         else {
             // No blob ids requested.
@@ -337,7 +334,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         request_id: PeerRequestId,
         request: DataColumnsByRootRequest,
-    ) -> Result<(), (RPCResponseErrorCode, &'static str)> {
+    ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let mut send_data_column_count = 0;
 
         for data_column_id in request.data_column_ids.as_slice() {
@@ -361,10 +358,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "peer" => %peer_id,
                         "error" => ?e
                     );
-                    return Err((
-                        RPCResponseErrorCode::ServerError,
-                        "Error getting data column",
-                    ));
+                    return Err((RpcErrorResponse::ServerError, "Error getting data column"));
                 }
             }
         }
@@ -393,7 +387,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             match self.chain.get_light_client_bootstrap(&request.root) {
                 Ok(Some((bootstrap, _))) => Ok(Arc::new(bootstrap)),
                 Ok(None) => Err((
-                    RPCResponseErrorCode::ResourceUnavailable,
+                    RpcErrorResponse::ResourceUnavailable,
                     "Bootstrap not available".to_string(),
                 )),
                 Err(e) => {
@@ -402,10 +396,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "peer" => %peer_id,
                         "error" => ?e
                     );
-                    Err((
-                        RPCResponseErrorCode::ResourceUnavailable,
-                        format!("{:?}", e),
-                    ))
+                    Err((RpcErrorResponse::ResourceUnavailable, format!("{:?}", e)))
                 }
             },
             Response::LightClientBootstrap,
@@ -428,7 +419,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             {
                 Some(update) => Ok(Arc::new(update)),
                 None => Err((
-                    RPCResponseErrorCode::ResourceUnavailable,
+                    RpcErrorResponse::ResourceUnavailable,
                     "Latest optimistic update not available".to_string(),
                 )),
             },
@@ -452,7 +443,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             {
                 Some(update) => Ok(Arc::new(update)),
                 None => Err((
-                    RPCResponseErrorCode::ResourceUnavailable,
+                    RpcErrorResponse::ResourceUnavailable,
                     "Latest finality update not available".to_string(),
                 )),
             },
@@ -483,7 +474,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         request_id: PeerRequestId,
         req: BlocksByRangeRequest,
-    ) -> Result<(), (RPCResponseErrorCode, &'static str)> {
+    ) -> Result<(), (RpcErrorResponse, &'static str)> {
         debug!(self.log, "Received BlocksByRange Request";
             "peer_id" => %peer_id,
             "count" => req.count(),
@@ -507,7 +498,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 });
         if *req.count() > max_request_size {
             return Err((
-                RPCResponseErrorCode::InvalidRequest,
+                RpcErrorResponse::InvalidRequest,
                 "Request exceeded max size",
             ));
         }
@@ -527,7 +518,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "requested_slot" => slot,
                     "oldest_known_slot" => oldest_block_slot
                 );
-                return Err((RPCResponseErrorCode::ResourceUnavailable, "Backfilling"));
+                return Err((RpcErrorResponse::ResourceUnavailable, "Backfilling"));
             }
             Err(e) => {
                 error!(self.log, "Unable to obtain root iter";
@@ -535,7 +526,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "peer" => %peer_id,
                     "error" => ?e
                 );
-                return Err((RPCResponseErrorCode::ServerError, "Database error"));
+                return Err((RpcErrorResponse::ServerError, "Database error"));
             }
         };
 
@@ -566,7 +557,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "peer" => %peer_id,
                     "error" => ?e
                 );
-                return Err((RPCResponseErrorCode::ServerError, "Iteration error"));
+                return Err((RpcErrorResponse::ServerError, "Iteration error"));
             }
         };
 
@@ -607,7 +598,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(block_stream) => block_stream,
             Err(e) => {
                 error!(self.log, "Error getting block stream"; "error" => ?e);
-                return Err((RPCResponseErrorCode::ServerError, "Iterator error"));
+                return Err((RpcErrorResponse::ServerError, "Iterator error"));
             }
         };
 
@@ -638,7 +629,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "request_root" => ?root
                     );
                     log_results(req, peer_id, blocks_sent);
-                    return Err((RPCResponseErrorCode::ServerError, "Database inconsistency"));
+                    return Err((RpcErrorResponse::ServerError, "Database inconsistency"));
                 }
                 Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
                     debug!(
@@ -650,7 +641,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     log_results(req, peer_id, blocks_sent);
                     // send the stream terminator
                     return Err((
-                        RPCResponseErrorCode::ResourceUnavailable,
+                        RpcErrorResponse::ResourceUnavailable,
                         "Execution layer not synced",
                     ));
                 }
@@ -677,7 +668,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                     log_results(req, peer_id, blocks_sent);
                     // send the stream terminator
-                    return Err((RPCResponseErrorCode::ServerError, "Failed fetching blocks"));
+                    return Err((RpcErrorResponse::ServerError, "Failed fetching blocks"));
                 }
             }
         }
@@ -707,7 +698,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         request_id: PeerRequestId,
         req: BlobsByRangeRequest,
-    ) -> Result<(), (RPCResponseErrorCode, &'static str)> {
+    ) -> Result<(), (RpcErrorResponse, &'static str)> {
         debug!(self.log, "Received BlobsByRange Request";
             "peer_id" => %peer_id,
             "count" => req.count,
@@ -717,7 +708,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Should not send more than max request blocks
         if req.max_blobs_requested::<T::EthSpec>() > self.chain.spec.max_request_blob_sidecars {
             return Err((
-                RPCResponseErrorCode::InvalidRequest,
+                RpcErrorResponse::InvalidRequest,
                 "Request exceeded `MAX_REQUEST_BLOBS_SIDECARS`",
             ));
         }
@@ -728,10 +719,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
             None => {
                 debug!(self.log, "Deneb fork is disabled");
-                return Err((
-                    RPCResponseErrorCode::InvalidRequest,
-                    "Deneb fork is disabled",
-                ));
+                return Err((RpcErrorResponse::InvalidRequest, "Deneb fork is disabled"));
             }
         };
 
@@ -752,12 +740,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
             return if data_availability_boundary_slot < oldest_blob_slot {
                 Err((
-                    RPCResponseErrorCode::ResourceUnavailable,
+                    RpcErrorResponse::ResourceUnavailable,
                     "blobs pruned within boundary",
                 ))
             } else {
                 Err((
-                    RPCResponseErrorCode::InvalidRequest,
+                    RpcErrorResponse::InvalidRequest,
                     "Req outside availability period",
                 ))
             };
@@ -776,7 +764,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "requested_slot" => slot,
                         "oldest_known_slot" => oldest_block_slot
                     );
-                    return Err((RPCResponseErrorCode::ResourceUnavailable, "Backfilling"));
+                    return Err((RpcErrorResponse::ResourceUnavailable, "Backfilling"));
                 }
                 Err(e) => {
                     error!(self.log, "Unable to obtain root iter";
@@ -784,7 +772,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "peer" => %peer_id,
                         "error" => ?e
                     );
-                    return Err((RPCResponseErrorCode::ServerError, "Database error"));
+                    return Err((RpcErrorResponse::ServerError, "Database error"));
                 }
             };
 
@@ -821,7 +809,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "peer" => %peer_id,
                     "error" => ?e
                 );
-                return Err((RPCResponseErrorCode::ServerError, "Database error"));
+                return Err((RpcErrorResponse::ServerError, "Database error"));
             }
         };
 
@@ -870,7 +858,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     log_results(peer_id, req, blobs_sent);
 
                     return Err((
-                        RPCResponseErrorCode::ServerError,
+                        RpcErrorResponse::ServerError,
                         "No blobs and failed fetching corresponding block",
                     ));
                 }
@@ -902,7 +890,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         request_id: PeerRequestId,
         req: DataColumnsByRangeRequest,
-    ) -> Result<(), (RPCResponseErrorCode, &'static str)> {
+    ) -> Result<(), (RpcErrorResponse, &'static str)> {
         debug!(self.log, "Received DataColumnsByRange Request";
             "peer_id" => %peer_id,
             "count" => req.count,
@@ -912,7 +900,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Should not send more than max request data columns
         if req.max_requested::<T::EthSpec>() > self.chain.spec.max_request_data_column_sidecars {
             return Err((
-                RPCResponseErrorCode::InvalidRequest,
+                RpcErrorResponse::InvalidRequest,
                 "Request exceeded `MAX_REQUEST_BLOBS_SIDECARS`",
             ));
         }
@@ -923,10 +911,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
             None => {
                 debug!(self.log, "Deneb fork is disabled");
-                return Err((
-                    RPCResponseErrorCode::InvalidRequest,
-                    "Deneb fork is disabled",
-                ));
+                return Err((RpcErrorResponse::InvalidRequest, "Deneb fork is disabled"));
             }
         };
 
@@ -948,12 +933,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
             return if data_availability_boundary_slot < oldest_data_column_slot {
                 Err((
-                    RPCResponseErrorCode::ResourceUnavailable,
+                    RpcErrorResponse::ResourceUnavailable,
                     "blobs pruned within boundary",
                 ))
             } else {
                 Err((
-                    RPCResponseErrorCode::InvalidRequest,
+                    RpcErrorResponse::InvalidRequest,
                     "Req outside availability period",
                 ))
             };
@@ -972,7 +957,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "requested_slot" => slot,
                         "oldest_known_slot" => oldest_block_slot
                     );
-                    return Err((RPCResponseErrorCode::ResourceUnavailable, "Backfilling"));
+                    return Err((RpcErrorResponse::ResourceUnavailable, "Backfilling"));
                 }
                 Err(e) => {
                     error!(self.log, "Unable to obtain root iter";
@@ -980,7 +965,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "peer" => %peer_id,
                         "error" => ?e
                     );
-                    return Err((RPCResponseErrorCode::ServerError, "Database error"));
+                    return Err((RpcErrorResponse::ServerError, "Database error"));
                 }
             };
 
@@ -1017,7 +1002,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "peer" => %peer_id,
                     "error" => ?e
                 );
-                return Err((RPCResponseErrorCode::ServerError, "Database error"));
+                return Err((RpcErrorResponse::ServerError, "Database error"));
             }
         };
 
@@ -1049,7 +1034,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "error" => ?e
                         );
                         return Err((
-                            RPCResponseErrorCode::ServerError,
+                            RpcErrorResponse::ServerError,
                             "No data columns and failed fetching corresponding block",
                         ));
                     }
@@ -1081,7 +1066,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         peer_id: PeerId,
         request_id: PeerRequestId,
-        result: Result<R, (RPCResponseErrorCode, String)>,
+        result: Result<R, (RpcErrorResponse, String)>,
         into_response: F,
     ) {
         match result {
@@ -1107,7 +1092,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         peer_id: PeerId,
         request_id: PeerRequestId,
-        result: Result<(), (RPCResponseErrorCode, &'static str)>,
+        result: Result<(), (RpcErrorResponse, &'static str)>,
         into_response: F,
     ) {
         match result {

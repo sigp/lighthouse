@@ -1,10 +1,11 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::cognitive_complexity)]
 
-use super::methods::{GoodbyeReason, RPCCodedResponse, RPCResponseErrorCode};
+use super::methods::{GoodbyeReason, RpcErrorResponse, RpcResponse};
 use super::outbound::OutboundRequestContainer;
 use super::protocol::{InboundOutput, InboundRequest, Protocol, RPCError, RPCProtocol};
-use super::{RPCReceived, RPCSend, ReqId, Request, RequestId};
+use super::RequestId;
+use super::{RPCReceived, RPCSend, ReqId, Request};
 use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
 use crate::rpc::protocol::InboundFramed;
 use fnv::FnvHashMap;
@@ -159,7 +160,7 @@ struct InboundInfo<E: EthSpec> {
     /// State of the substream.
     state: InboundState<E>,
     /// Responses queued for sending.
-    pending_items: VecDeque<RPCCodedResponse<E>>,
+    pending_items: VecDeque<RpcResponse<E>>,
     /// Protocol of the original request we received from the peer.
     protocol: Protocol,
     /// Responses that the peer is still expecting from us.
@@ -291,10 +292,10 @@ where
     /// Sends a response to a peer's request.
     // NOTE: If the substream has closed due to inactivity, or the substream is in the
     // wrong state a response will fail silently.
-    fn send_response(&mut self, inbound_id: SubstreamId, response: RPCCodedResponse<E>) {
+    fn send_response(&mut self, inbound_id: SubstreamId, response: RpcResponse<E>) {
         // check if the stream matching the response still exists
         let Some(inbound_info) = self.inbound_substreams.get_mut(&inbound_id) else {
-            if !matches!(response, RPCCodedResponse::StreamTermination(..)) {
+            if !matches!(response, RpcResponse::StreamTermination(..)) {
                 // the stream is closed after sending the expected number of responses
                 trace!(self.log, "Inbound stream has expired. Response not sent";
                     "response" => %response, "id" => inbound_id);
@@ -302,7 +303,7 @@ where
             return;
         };
         // If the response we are sending is an error, report back for handling
-        if let RPCCodedResponse::Error(ref code, ref reason) = response {
+        if let RpcResponse::Error(ref code, ref reason) = response {
             self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
                 error: RPCError::ErrorResponse(*code, reason.to_string()),
                 proto: inbound_info.protocol,
@@ -403,8 +404,8 @@ where
 
                 if info.pending_items.back().map(|l| l.close_after()) == Some(false) {
                     // if the last chunk does not close the stream, append an error
-                    info.pending_items.push_back(RPCCodedResponse::Error(
-                        RPCResponseErrorCode::ServerError,
+                    info.pending_items.push_back(RpcResponse::Error(
+                        RpcErrorResponse::ServerError,
                         "Request timed out".into(),
                     ));
                 }
@@ -672,13 +673,13 @@ where
                         let proto = entry.get().proto;
 
                         let received = match response {
-                            RPCCodedResponse::StreamTermination(t) => {
+                            RpcResponse::StreamTermination(t) => {
                                 HandlerEvent::Ok(RPCReceived::EndOfStream(id, t))
                             }
-                            RPCCodedResponse::Success(resp) => {
+                            RpcResponse::Success(resp) => {
                                 HandlerEvent::Ok(RPCReceived::Response(id, resp))
                             }
-                            RPCCodedResponse::Error(ref code, ref r) => {
+                            RpcResponse::Error(ref code, ref r) => {
                                 HandlerEvent::Err(HandlerErr::Outbound {
                                     id,
                                     proto,
@@ -1018,15 +1019,15 @@ impl slog::Value for SubstreamId {
 /// error that occurred with sending a message is reported also.
 async fn send_message_to_inbound_substream<E: EthSpec>(
     mut substream: InboundSubstream<E>,
-    message: RPCCodedResponse<E>,
+    message: RpcResponse<E>,
     last_chunk: bool,
 ) -> Result<(InboundSubstream<E>, bool), RPCError> {
-    if matches!(message, RPCCodedResponse::StreamTermination(_)) {
+    if matches!(message, RpcResponse::StreamTermination(_)) {
         substream.close().await.map(|_| (substream, true))
     } else {
         // chunks that are not stream terminations get sent, and the stream is closed if
         // the response is an error
-        let is_error = matches!(message, RPCCodedResponse::Error(..));
+        let is_error = matches!(message, RpcResponse::Error(..));
 
         let send_result = substream.send(message).await;
 

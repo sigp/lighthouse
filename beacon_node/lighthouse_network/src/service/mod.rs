@@ -12,8 +12,8 @@ use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY
 use crate::rpc::methods::MetadataRequest;
 use crate::rpc::{
     self, methods, BlocksByRangeRequest, GoodbyeReason, HandlerErr, InboundRequest, NetworkParams,
-    OutboundRequest, Protocol, RPCCodedResponse, RPCError, RPCMessage, RPCReceived, RPCResponse,
-    RPCResponseErrorCode, ResponseTermination, RPC,
+    OutboundRequest, Protocol, RPCError, RPCMessage, RPCReceived, ResponseTermination,
+    RpcErrorResponse, RpcResponse, RpcSuccessResponse, RPC,
 };
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
@@ -960,14 +960,11 @@ impl<E: EthSpec> Network<E> {
         &mut self,
         peer_id: PeerId,
         id: PeerRequestId,
-        error: RPCResponseErrorCode,
+        error: RpcErrorResponse,
         reason: String,
     ) {
-        self.eth2_rpc_mut().send_response(
-            peer_id,
-            id,
-            RPCCodedResponse::Error(error, reason.into()),
-        )
+        self.eth2_rpc_mut()
+            .send_response(peer_id, id, RpcResponse::Error(error, reason.into()))
     }
 
     /* Peer management functions */
@@ -1148,7 +1145,7 @@ impl<E: EthSpec> Network<E> {
     ) {
         let metadata = self.network_globals.local_metadata.read().clone();
         // The encoder is responsible for sending the negotiated version of the metadata
-        let event = RPCCodedResponse::Success(RPCResponse::MetaData(metadata));
+        let event = RpcResponse::Success(RpcSuccessResponse::MetaData(metadata));
         self.eth2_rpc_mut().send_response(peer_id, id, event);
     }
 
@@ -1580,50 +1577,50 @@ impl<E: EthSpec> Network<E> {
             Ok(RPCReceived::Response(id, resp)) => {
                 match resp {
                     /* Behaviour managed protocols */
-                    RPCResponse::Pong(ping) => {
+                    RpcSuccessResponse::Pong(ping) => {
                         self.peer_manager_mut().pong_response(&peer_id, ping.data);
                         None
                     }
-                    RPCResponse::MetaData(meta_data) => {
+                    RpcSuccessResponse::MetaData(meta_data) => {
                         self.peer_manager_mut()
                             .meta_data_response(&peer_id, meta_data);
                         None
                     }
                     /* Network propagated protocols */
-                    RPCResponse::Status(msg) => {
+                    RpcSuccessResponse::Status(msg) => {
                         // inform the peer manager that we have received a status from a peer
                         self.peer_manager_mut().peer_statusd(&peer_id);
                         // propagate the STATUS message upwards
                         self.build_response(id, peer_id, Response::Status(msg))
                     }
-                    RPCResponse::BlocksByRange(resp) => {
+                    RpcSuccessResponse::BlocksByRange(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRange(Some(resp)))
                     }
-                    RPCResponse::BlobsByRange(resp) => {
+                    RpcSuccessResponse::BlobsByRange(resp) => {
                         self.build_response(id, peer_id, Response::BlobsByRange(Some(resp)))
                     }
-                    RPCResponse::BlocksByRoot(resp) => {
+                    RpcSuccessResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
-                    RPCResponse::BlobsByRoot(resp) => {
+                    RpcSuccessResponse::BlobsByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlobsByRoot(Some(resp)))
                     }
-                    RPCResponse::DataColumnsByRoot(resp) => {
+                    RpcSuccessResponse::DataColumnsByRoot(resp) => {
                         self.build_response(id, peer_id, Response::DataColumnsByRoot(Some(resp)))
                     }
-                    RPCResponse::DataColumnsByRange(resp) => {
+                    RpcSuccessResponse::DataColumnsByRange(resp) => {
                         self.build_response(id, peer_id, Response::DataColumnsByRange(Some(resp)))
                     }
                     // Should never be reached
-                    RPCResponse::LightClientBootstrap(bootstrap) => {
+                    RpcSuccessResponse::LightClientBootstrap(bootstrap) => {
                         self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap))
                     }
-                    RPCResponse::LightClientOptimisticUpdate(update) => self.build_response(
+                    RpcSuccessResponse::LightClientOptimisticUpdate(update) => self.build_response(
                         id,
                         peer_id,
                         Response::LightClientOptimisticUpdate(update),
                     ),
-                    RPCResponse::LightClientFinalityUpdate(update) => self.build_response(
+                    RpcSuccessResponse::LightClientFinalityUpdate(update) => self.build_response(
                         id,
                         peer_id,
                         Response::LightClientFinalityUpdate(update),

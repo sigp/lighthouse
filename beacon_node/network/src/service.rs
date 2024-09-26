@@ -18,7 +18,7 @@ use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
-    rpc::{GoodbyeReason, RPCResponseErrorCode},
+    rpc::{GoodbyeReason, RpcErrorResponse},
     Context, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
 };
 use lighthouse_network::{
@@ -73,7 +73,7 @@ pub enum NetworkMessage<E: EthSpec> {
     /// Sends an error response to an RPC request.
     SendErrorResponse {
         peer_id: PeerId,
-        error: RPCResponseErrorCode,
+        error: RpcErrorResponse,
         reason: String,
         id: PeerRequestId,
     },

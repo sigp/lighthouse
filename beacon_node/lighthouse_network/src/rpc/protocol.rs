@@ -819,7 +819,7 @@ pub enum RPCError {
     /// IO Error.
     IoError(String),
     /// The peer returned a valid response but the response indicated an error.
-    ErrorResponse(RPCResponseErrorCode, String),
+    ErrorResponse(RpcErrorResponse, String),
     /// Timed out waiting for a response.
     StreamTimeout,
     /// Peer does not support the protocol.

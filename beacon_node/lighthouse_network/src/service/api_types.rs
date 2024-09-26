@@ -13,7 +13,7 @@ use crate::rpc::{
     methods::{
         BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest,
         OldBlocksByRangeRequest, OldBlocksByRangeRequestV1, OldBlocksByRangeRequestV2,
-        RPCCodedResponse, RPCResponse, ResponseTermination, StatusMessage,
+        ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage,
     },
     OutboundRequest, SubstreamId,
 };
@@ -186,44 +186,42 @@ pub enum Response<E: EthSpec> {
     LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
 }
 
-impl<E: EthSpec> std::convert::From<Response<E>> for RPCCodedResponse<E> {
-    fn from(resp: Response<E>) -> RPCCodedResponse<E> {
+impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
+    fn from(resp: Response<E>) -> RpcResponse<E> {
         match resp {
             Response::BlocksByRoot(r) => match r {
-                Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRoot(b)),
-                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRoot),
+                Some(b) => RpcResponse::Success(RpcSuccessResponse::BlocksByRoot(b)),
+                None => RpcResponse::StreamTermination(ResponseTermination::BlocksByRoot),
             },
             Response::BlocksByRange(r) => match r {
-                Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRange(b)),
-                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange),
+                Some(b) => RpcResponse::Success(RpcSuccessResponse::BlocksByRange(b)),
+                None => RpcResponse::StreamTermination(ResponseTermination::BlocksByRange),
             },
             Response::BlobsByRoot(r) => match r {
-                Some(b) => RPCCodedResponse::Success(RPCResponse::BlobsByRoot(b)),
-                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlobsByRoot),
+                Some(b) => RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(b)),
+                None => RpcResponse::StreamTermination(ResponseTermination::BlobsByRoot),
             },
             Response::BlobsByRange(r) => match r {
-                Some(b) => RPCCodedResponse::Success(RPCResponse::BlobsByRange(b)),
-                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlobsByRange),
+                Some(b) => RpcResponse::Success(RpcSuccessResponse::BlobsByRange(b)),
+                None => RpcResponse::StreamTermination(ResponseTermination::BlobsByRange),
             },
             Response::DataColumnsByRoot(r) => match r {
-                Some(d) => RPCCodedResponse::Success(RPCResponse::DataColumnsByRoot(d)),
-                None => RPCCodedResponse::StreamTermination(ResponseTermination::DataColumnsByRoot),
+                Some(d) => RpcResponse::Success(RpcSuccessResponse::DataColumnsByRoot(d)),
+                None => RpcResponse::StreamTermination(ResponseTermination::DataColumnsByRoot),
             },
             Response::DataColumnsByRange(r) => match r {
-                Some(d) => RPCCodedResponse::Success(RPCResponse::DataColumnsByRange(d)),
-                None => {
-                    RPCCodedResponse::StreamTermination(ResponseTermination::DataColumnsByRange)
-                }
+                Some(d) => RpcResponse::Success(RpcSuccessResponse::DataColumnsByRange(d)),
+                None => RpcResponse::StreamTermination(ResponseTermination::DataColumnsByRange),
             },
-            Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
+            Response::Status(s) => RpcResponse::Success(RpcSuccessResponse::Status(s)),
             Response::LightClientBootstrap(b) => {
-                RPCCodedResponse::Success(RPCResponse::LightClientBootstrap(b))
+                RpcResponse::Success(RpcSuccessResponse::LightClientBootstrap(b))
             }
             Response::LightClientOptimisticUpdate(o) => {
-                RPCCodedResponse::Success(RPCResponse::LightClientOptimisticUpdate(o))
+                RpcResponse::Success(RpcSuccessResponse::LightClientOptimisticUpdate(o))
             }
             Response::LightClientFinalityUpdate(f) => {
-                RPCCodedResponse::Success(RPCResponse::LightClientFinalityUpdate(f))
+                RpcResponse::Success(RpcSuccessResponse::LightClientFinalityUpdate(f))
             }
         }
     }
