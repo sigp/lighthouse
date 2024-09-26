@@ -77,11 +77,12 @@ pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
     }
 }
 
+pub fn build_config(mut boot_nodes: Vec<Enr>) -> Arc<NetworkConfig> {
 pub fn build_config(
     mut boot_nodes: Vec<Enr>,
     disable_peer_scoring: bool,
     inbound_rate_limiter: Option<InboundRateLimiterConfig>,
-) -> NetworkConfig {
+) -> Arc<NetworkConfig> {
     let mut config = NetworkConfig::default();
 
     // Find unused ports by using the 0 port.
@@ -99,7 +100,7 @@ pub fn build_config(
     config.network_dir = path.into_path();
     config.disable_peer_scoring = disable_peer_scoring;
     config.inbound_rate_limiter_config = inbound_rate_limiter;
-    config
+    Arc::new(config)
 }
 
 pub async fn build_libp2p_instance(
@@ -107,7 +108,7 @@ pub async fn build_libp2p_instance(
     boot_nodes: Vec<Enr>,
     log: slog::Logger,
     fork_name: ForkName,
-    spec: &ChainSpec,
+    chain_spec: Arc<ChainSpec>,
     disable_peer_scoring: bool,
     inbound_rate_limiter: Option<InboundRateLimiterConfig>,
 ) -> Libp2pInstance {
@@ -118,10 +119,10 @@ pub async fn build_libp2p_instance(
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
     let executor = task_executor::TaskExecutor::new(rt, exit, log.clone(), shutdown_tx);
     let libp2p_context = lighthouse_network::Context {
-        config: &config,
+        config,
         enr_fork_id: EnrForkId::default(),
         fork_context: Arc::new(fork_context(fork_name)),
-        chain_spec: spec,
+        chain_spec,
         libp2p_registry: None,
     };
     Libp2pInstance(
@@ -151,7 +152,7 @@ pub async fn build_node_pair(
     rt: Weak<Runtime>,
     log: &slog::Logger,
     fork_name: ForkName,
-    spec: &ChainSpec,
+    spec: Arc<ChainSpec>,
     protocol: Protocol,
     disable_peer_scoring: bool,
     inbound_rate_limiter: Option<InboundRateLimiterConfig>,
@@ -164,21 +165,19 @@ pub async fn build_node_pair(
         vec![],
         sender_log,
         fork_name,
-        spec,
+        spec.clone(),
         disable_peer_scoring,
         inbound_rate_limiter.clone(),
-    )
-    .await;
+    ).await;
     let mut receiver = build_libp2p_instance(
         rt,
         vec![],
         receiver_log,
         fork_name,
-        spec,
+        spec.clone(),
         disable_peer_scoring,
         inbound_rate_limiter,
-    )
-    .await;
+    ).await;
 
     // let the two nodes set up listeners
     let sender_fut = async {
@@ -247,7 +246,7 @@ pub async fn build_linear(
     log: slog::Logger,
     n: usize,
     fork_name: ForkName,
-    spec: &ChainSpec,
+    spec: Arc<ChainSpec>,
 ) -> Vec<Libp2pInstance> {
     let mut nodes = Vec::with_capacity(n);
     for _ in 0..n {
@@ -257,11 +256,10 @@ pub async fn build_linear(
                 vec![],
                 log.clone(),
                 fork_name,
-                spec,
+                spec.clone(),
                 false,
                 None,
-            )
-            .await,
+            ).await,
         );
     }
 

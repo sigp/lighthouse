@@ -63,7 +63,7 @@ fn test_tcp_status_rpc() {
 
     let log = common::build_log(log_level, enable_logging);
 
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     rt.block_on(async {
         // get sender/receiver
@@ -71,7 +71,7 @@ fn test_tcp_status_rpc() {
             Arc::downgrade(&rt),
             &log,
             ForkName::Base,
-            &spec,
+            spec,
             Protocol::Tcp,
             false,
             None,
@@ -167,7 +167,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     rt.block_on(async {
         // get sender/receiver
@@ -175,7 +175,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
             Arc::downgrade(&rt),
             &log,
             ForkName::Bellatrix,
-            &spec,
+            spec.clone(),
             Protocol::Tcp,
             false,
             None,
@@ -184,8 +184,6 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
 
         // BlocksByRange Request
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
-
-        let spec = E::default_spec();
 
         // BlocksByRange Response
         let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
@@ -306,12 +304,12 @@ fn test_blobs_by_range_chunked_rpc() {
 
     rt.block_on(async {
         // get sender/receiver
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
             &log,
             ForkName::Deneb,
-            &spec,
+            spec.clone(),
             Protocol::Tcp,
             false,
             None,
@@ -418,7 +416,7 @@ fn test_tcp_blocks_by_range_over_limit() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     rt.block_on(async {
         // get sender/receiver
@@ -426,7 +424,7 @@ fn test_tcp_blocks_by_range_over_limit() {
             Arc::downgrade(&rt),
             &log,
             ForkName::Bellatrix,
-            &spec,
+            spec.clone(),
             Protocol::Tcp,
             false,
             None,
@@ -512,7 +510,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     rt.block_on(async {
         // get sender/receiver
@@ -520,7 +518,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
             Arc::downgrade(&rt),
             &log,
             ForkName::Base,
-            &spec,
+            spec.clone(),
             Protocol::Tcp,
             false,
             None,
@@ -531,7 +529,6 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
 
         // BlocksByRange Response
-        let spec = E::default_spec();
         let empty_block = BeaconBlock::empty(&spec);
         let empty_signed = SignedBeaconBlock::from_block(empty_block, Signature::empty());
         let rpc_response = Response::BlocksByRange(Some(Arc::new(empty_signed)));
@@ -643,7 +640,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
     let log = common::build_log(log_level, enable_logging);
     let rt = Arc::new(Runtime::new().unwrap());
 
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     rt.block_on(async {
         // get sender/receiver
@@ -651,7 +648,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
             Arc::downgrade(&rt),
             &log,
             ForkName::Base,
-            &spec,
+            spec.clone(),
             Protocol::Tcp,
             false,
             None,
@@ -662,7 +659,6 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, 10));
 
         // BlocksByRange Response
-        let spec = E::default_spec();
         let empty_block = BeaconBlock::empty(&spec);
         let empty_signed = SignedBeaconBlock::from_block(empty_block, Signature::empty());
         let rpc_response = Response::BlocksByRange(Some(Arc::new(empty_signed)));
@@ -753,7 +749,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
     let messages_to_send = 6;
 
     let log = common::build_log(log_level, enable_logging);
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
@@ -762,7 +758,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
             Arc::downgrade(&rt),
             &log,
             ForkName::Bellatrix,
-            &spec,
+            spec.clone(),
             Protocol::Tcp,
             false,
             None,
@@ -893,7 +889,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
     let extra_messages_to_send: u64 = 10;
 
     let log = common::build_log(log_level, enable_logging);
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
@@ -902,7 +898,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
             Arc::downgrade(&rt),
             &log,
             ForkName::Base,
-            &spec,
+            spec.clone(),
             Protocol::Tcp,
             false,
             None,
@@ -1034,7 +1030,7 @@ fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     // get sender/receiver
     rt.block_on(async {
@@ -1042,7 +1038,7 @@ fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
             Arc::downgrade(&rt),
             &log,
             ForkName::Base,
-            &spec,
+            spec,
             protocol,
             false,
             None,

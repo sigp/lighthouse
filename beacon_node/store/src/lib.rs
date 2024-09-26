@@ -241,6 +241,7 @@ pub enum StoreOp<'a, E: EthSpec> {
     DeleteDataColumns(Hash256, Vec<ColumnIndex>),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
+    DeleteSyncCommitteeBranch(Hash256),
     KeyValueOp(KeyValueStoreOp),
 }
 
@@ -303,6 +304,12 @@ pub enum DBColumn {
     /// For persisting eagerly computed light client data
     #[strum(serialize = "lcu")]
     LightClientUpdate,
+    /// For helping persist eagerly computed light client bootstrap data
+    #[strum(serialize = "scb")]
+    SyncCommitteeBranch,
+    /// For helping persist eagerly computed light client bootstrap data
+    #[strum(serialize = "scm")]
+    SyncCommittee,
 }
 
 /// A block from the database, which might have an execution payload or not.
@@ -346,6 +353,8 @@ impl DBColumn {
             | Self::BeaconHistoricalRoots
             | Self::BeaconHistoricalSummaries
             | Self::BeaconRandaoMixes
+            | Self::SyncCommittee
+            | Self::SyncCommitteeBranch
             | Self::LightClientUpdate => 8,
             Self::BeaconDataColumn => DATA_COLUMN_DB_KEY_SIZE,
         }

@@ -15,7 +15,7 @@ use libp2p::swarm::{ConnectionClosed, FromSwarm, SubstreamProtocol, THandlerInEv
 use libp2p::PeerId;
 use parking_lot::Mutex;
 use rate_limiter::RPCRateLimiter as RateLimiter;
-use slog::{debug, o};
+use slog::{debug, o, trace};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -110,7 +110,7 @@ pub struct RPCMessage<Id, E: EthSpec> {
     /// Handler managing this message.
     pub conn_id: ConnectionId,
     /// The message that was sent.
-    pub event: HandlerEvent<Id, E>,
+    pub message: Result<RPCReceived<Id, E>, HandlerErr<Id>>,
 }
 
 type BehaviourAction<Id, E> = ToSwarm<RPCMessage<Id, E>, RPCSend<Id, E>>;
@@ -139,6 +139,8 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
     log: slog::Logger,
     /// Networking constant values
     network_params: NetworkParams,
+    /// A sequential counter indicating when data gets modified.
+    seq_number: u64,
 }
 
 impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
@@ -149,6 +151,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
         log: slog::Logger,
         network_params: NetworkParams,
+        seq_number: u64,
     ) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
 
@@ -173,6 +176,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             enable_light_client_server,
             log,
             network_params,
+            seq_number,
         }
     }
 
@@ -225,6 +229,19 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             handler: NotifyHandler::Any,
             event: RPCSend::Shutdown(id, reason),
         });
+    }
+
+    pub fn update_seq_number(&mut self, seq_number: u64) {
+        self.seq_number = seq_number
+    }
+
+    /// Send a Ping request to the destination `PeerId` via `ConnectionId`.
+    pub fn ping(&mut self, peer_id: PeerId, id: Id) {
+        let ping = Ping {
+            data: self.seq_number,
+        };
+        trace!(self.log, "Sending Ping"; "peer_id" => %peer_id);
+        self.send_request(peer_id, id, OutboundRequest::Ping(ping));
     }
 
     fn is_request_size_too_large(&self, request: &InboundRequest<E>) -> bool {
@@ -348,7 +365,7 @@ where
                     let error_msg = ToSwarm::GenerateEvent(RPCMessage {
                         peer_id,
                         conn_id: connection_id,
-                        event: HandlerEvent::Err(HandlerErr::Outbound {
+                        message: Err(HandlerErr::Outbound {
                             id,
                             proto,
                             error: RPCError::Disconnected,
@@ -369,7 +386,7 @@ where
                     *event = ToSwarm::GenerateEvent(RPCMessage {
                         peer_id,
                         conn_id: connection_id,
-                        event: HandlerEvent::Err(HandlerErr::Outbound {
+                        message: Err(HandlerErr::Outbound {
                             id: *request_id,
                             proto: req.versioned_protocol().protocol(),
                             error: RPCError::Disconnected,
@@ -388,7 +405,7 @@ where
         event: <Self::ConnectionHandler as ConnectionHandler>::ToBehaviour,
     ) {
         match event {
-            HandlerEvent::Ok(RPCReceived::Request(ref id, ref req)) => {
+            HandlerEvent::Ok(RPCReceived::Request(id, req)) => {
                 if !self.active_inbound_requests_limiter.allows(
                     peer_id,
                     req.versioned_protocol().protocol(),
@@ -409,7 +426,7 @@ where
                     return;
                 }
 
-                if self.is_request_size_too_large(req) {
+                if self.is_request_size_too_large(&req) {
                     // The request requires responses greater than the number defined in the spec.
                     debug!(self.log, "Request too large to process"; "request" => %req, "protocol" => %req.versioned_protocol().protocol());
                     // Send an error code to the peer.
@@ -423,13 +440,39 @@ where
                         ),
                     );
                 } else {
+                    // If we received a Ping, we queue a Pong response.
+                    if let InboundRequest::Ping(_) = req {
+                        trace!(self.log, "Received Ping, queueing Pong";"connection_id" => %conn_id, "peer_id" => %peer_id);
+                        self.send_response(
+                            peer_id,
+                            (conn_id, id),
+                            RPCCodedResponse::Success(RPCResponse::Pong(Ping {
+                                data: self.seq_number,
+                            })),
+                        );
+                    }
+
                     // Send the event to the user
                     self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                         peer_id,
                         conn_id,
-                        event,
-                    }))
+                        message: Ok(RPCReceived::Request(id, req)),
+                    }));
                 }
+            }
+            HandlerEvent::Ok(rpc) => {
+                self.events.push(ToSwarm::GenerateEvent(RPCMessage {
+                    peer_id,
+                    conn_id,
+                    message: Ok(rpc),
+                }));
+            }
+            HandlerEvent::Err(err) => {
+                self.events.push(ToSwarm::GenerateEvent(RPCMessage {
+                    peer_id,
+                    conn_id,
+                    message: Err(err),
+                }));
             }
             HandlerEvent::Close(_) => {
                 // Handle the close event here.
@@ -438,13 +481,6 @@ where
                     peer_id,
                     connection: CloseConnection::All,
                 });
-            }
-            _ => {
-                self.events.push(ToSwarm::GenerateEvent(RPCMessage {
-                    peer_id,
-                    conn_id,
-                    event,
-                }));
             }
         }
     }
@@ -480,8 +516,8 @@ where
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
         serializer.emit_arguments("peer_id", &format_args!("{}", self.peer_id))?;
-        match &self.event {
-            HandlerEvent::Ok(received) => {
+        match &self.message {
+            Ok(received) => {
                 let (msg_kind, protocol) = match received {
                     RPCReceived::Request(_, req) => {
                         ("request", req.versioned_protocol().protocol())
@@ -502,16 +538,13 @@ where
                 serializer.emit_str("msg_kind", msg_kind)?;
                 serializer.emit_arguments("protocol", &format_args!("{}", protocol))?;
             }
-            HandlerEvent::Err(error) => {
+            Err(error) => {
                 let (msg_kind, protocol) = match &error {
                     HandlerErr::Inbound { proto, .. } => ("inbound_err", *proto),
                     HandlerErr::Outbound { proto, .. } => ("outbound_err", *proto),
                 };
                 serializer.emit_str("msg_kind", msg_kind)?;
                 serializer.emit_arguments("protocol", &format_args!("{}", protocol))?;
-            }
-            HandlerEvent::Close(err) => {
-                serializer.emit_arguments("handler_close", &format_args!("{}", err))?;
             }
         };
 
