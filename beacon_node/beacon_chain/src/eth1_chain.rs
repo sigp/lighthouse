@@ -10,6 +10,7 @@ use state_processing::per_block_processing::get_new_eth1_data;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::{DBColumn, Error as StoreError, StoreItem};
 use task_executor::TaskExecutor;
@@ -284,7 +285,7 @@ where
         ssz_container: &SszEth1,
         config: Eth1Config,
         log: &Logger,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, String> {
         let backend =
             Eth1ChainBackend::from_bytes(&ssz_container.backend_bytes, config, log.clone(), spec)?;
@@ -355,7 +356,7 @@ pub trait Eth1ChainBackend<E: EthSpec>: Sized + Send + Sync {
         bytes: &[u8],
         config: Eth1Config,
         log: Logger,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, String>;
 }
 
@@ -413,7 +414,7 @@ impl<E: EthSpec> Eth1ChainBackend<E> for DummyEth1ChainBackend<E> {
         _bytes: &[u8],
         _config: Eth1Config,
         _log: Logger,
-        _spec: ChainSpec,
+        _spec: Arc<ChainSpec>,
     ) -> Result<Self, String> {
         Ok(Self(PhantomData))
     }
@@ -441,7 +442,7 @@ impl<E: EthSpec> CachingEth1Backend<E> {
     /// Instantiates `self` with empty caches.
     ///
     /// Does not connect to the eth1 node or start any tasks to keep the cache updated.
-    pub fn new(config: Eth1Config, log: Logger, spec: ChainSpec) -> Result<Self, String> {
+    pub fn new(config: Eth1Config, log: Logger, spec: Arc<ChainSpec>) -> Result<Self, String> {
         Ok(Self {
             core: HttpService::new(config, log.clone(), spec)
                 .map_err(|e| format!("Failed to create eth1 http service: {:?}", e))?,
@@ -596,7 +597,7 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
         bytes: &[u8],
         config: Eth1Config,
         log: Logger,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, String> {
         let inner = HttpService::from_bytes(bytes, config, log.clone(), spec)?;
         Ok(Self {
@@ -752,7 +753,8 @@ mod test {
 
             let log = test_logger();
             Eth1Chain::new(
-                CachingEth1Backend::new(eth1_config, log, MainnetEthSpec::default_spec()).unwrap(),
+                CachingEth1Backend::new(eth1_config, log, Arc::new(MainnetEthSpec::default_spec()))
+                    .unwrap(),
             )
         }
 

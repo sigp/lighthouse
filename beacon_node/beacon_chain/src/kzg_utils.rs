@@ -290,8 +290,7 @@ pub fn reconstruct_data_columns<E: EthSpec>(
 mod test {
     use crate::kzg_utils::{blobs_to_data_column_sidecars, reconstruct_data_columns};
     use bls::Signature;
-    use eth2_network_config::TRUSTED_SETUP_BYTES;
-    use kzg::{Kzg, KzgCommitment, TrustedSetup};
+    use kzg::{trusted_setup::get_trusted_setup, Kzg, KzgCommitment, TrustedSetup};
     use types::{
         beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockDeneb, Blob, BlobsList,
         ChainSpec, EmptyBlock, EthSpec, MainnetEthSpec, SignedBeaconBlock,
@@ -377,7 +376,7 @@ mod test {
     }
 
     fn get_kzg() -> Kzg {
-        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+        let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
             .map_err(|e| format!("Unable to read trusted setup file: {}", e))
             .expect("should have trusted setup");
         Kzg::new_from_trusted_setup_das_enabled(trusted_setup).expect("should create kzg")

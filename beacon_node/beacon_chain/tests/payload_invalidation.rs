@@ -57,7 +57,7 @@ impl InvalidPayloadRig {
         spec.bellatrix_fork_epoch = Some(Epoch::new(0));
 
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
-            .spec(spec)
+            .spec(spec.into())
             .chain_config(ChainConfig {
                 reconstruct_historic_states: true,
                 ..ChainConfig::default()

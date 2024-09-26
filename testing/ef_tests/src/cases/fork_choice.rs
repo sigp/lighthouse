@@ -350,11 +350,12 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
 /// A testing rig used to execute a test case.
 struct Tester<E: EthSpec> {
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> Tester<E> {
     pub fn new(case: &ForkChoiceTest<E>, spec: ChainSpec) -> Result<Self, Error> {
+        let spec = Arc::new(spec);
         let genesis_time = case.anchor_state.genesis_time();
 
         if case.anchor_state.slot() != spec.genesis_slot {
@@ -504,8 +505,8 @@ impl<E: EthSpec> Tester<E> {
                         }
                         Err(_) => GossipVerifiedBlob::__assumed_valid(blob_sidecar),
                     };
-                let result =
-                    self.block_on_dangerous(self.harness.chain.process_gossip_blob(blob))?;
+                let result = self
+                    .block_on_dangerous(self.harness.chain.process_gossip_blob(blob, || Ok(())))?;
                 if valid {
                     assert!(result.is_ok());
                 }

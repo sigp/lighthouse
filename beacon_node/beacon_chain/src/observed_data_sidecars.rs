@@ -6,6 +6,7 @@
 use crate::observed_block_producers::ProposalKey;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
+use std::sync::Arc;
 use types::{BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, Slot};
 
 #[derive(Debug, PartialEq)]
@@ -74,13 +75,13 @@ pub struct ObservedDataSidecars<T: ObservableDataSidecar> {
     finalized_slot: Slot,
     /// Stores all received data indices for a given `(ValidatorIndex, Slot)` tuple.
     items: HashMap<ProposalKey, HashSet<u64>>,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
     _phantom: PhantomData<T>,
 }
 
 impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
     /// Instantiates `Self` with `finalized_slot == 0`.
-    pub fn new(spec: ChainSpec) -> Self {
+    pub fn new(spec: Arc<ChainSpec>) -> Self {
         Self {
             finalized_slot: Slot::new(0),
             items: HashMap::new(),
@@ -167,7 +168,7 @@ mod tests {
 
     #[test]
     fn pruning() {
-        let spec = test_spec::<E>();
+        let spec = Arc::new(test_spec::<E>());
         let mut cache = ObservedDataSidecars::<BlobSidecar<E>>::new(spec);
 
         assert_eq!(cache.finalized_slot, 0, "finalized slot is zero");
@@ -306,7 +307,7 @@ mod tests {
 
     #[test]
     fn simple_observations() {
-        let spec = test_spec::<E>();
+        let spec = Arc::new(test_spec::<E>());
         let mut cache = ObservedDataSidecars::<BlobSidecar<E>>::new(spec);
 
         // Slot 0, index 0
