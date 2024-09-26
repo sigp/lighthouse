@@ -604,4 +604,6 @@ Flags:
           Sets all listening TCP/UDP ports to 0, allowing the OS to choose some
           arbitrary free ports.
 ```
-<style> .content main {max-width:8%;} </style>
+
+<style> .content main {max-width:88%;} </style>
+

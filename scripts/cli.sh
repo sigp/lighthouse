@@ -15,6 +15,7 @@ write_to_file() {
     # We need to add the header and the backticks to create the code block.
     printf "# %s\n\n\`\`\`\n%s\n\`\`\`" "$program" "$cmd" > "$file"
 
+    # Adjust the width of the help text and append to the end of file
     printf '%s\n\n' '' '<style> .content main {max-width:88%;} </style>' >> "$file"
 }
 

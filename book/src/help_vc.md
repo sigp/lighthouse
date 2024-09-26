@@ -276,4 +276,6 @@ Flags:
           made to the beacon node. This flag is generally not recommended,
           longer timeouts can cause missed duties when fallbacks are used.
 ```
-<style> .content main {max-width:8%;} </style>
+
+<style> .content main {max-width:88%;} </style>
+
