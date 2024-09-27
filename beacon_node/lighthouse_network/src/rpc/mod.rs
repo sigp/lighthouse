@@ -410,13 +410,13 @@ where
                     peer_id,
                     req.versioned_protocol().protocol(),
                     &conn_id,
-                    id,
+                    &id,
                 ) {
                     // There is already an active request with the same protocol. Send an error code to the peer.
                     debug!(self.log, "There is an active request with the same protocol"; "peer_id" => peer_id.to_string(), "request" => %req, "protocol" => %req.versioned_protocol().protocol());
                     self.send_response(
                         peer_id,
-                        (conn_id, *id),
+                        (conn_id, id),
                         RPCCodedResponse::Error(
                             RPCResponseErrorCode::RateLimited,
                             "Rate limited. There is an active request with the same protocol"
@@ -433,7 +433,7 @@ where
                     // The handler upon receiving the error code will send it back to the behaviour
                     self.send_response(
                         peer_id,
-                        (conn_id, *id),
+                        (conn_id, id),
                         RPCCodedResponse::Error(
                             RPCResponseErrorCode::InvalidRequest,
                             "The request requires responses greater than the number defined in the spec.".into(),

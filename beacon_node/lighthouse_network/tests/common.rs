@@ -77,7 +77,6 @@ pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
     }
 }
 
-pub fn build_config(mut boot_nodes: Vec<Enr>) -> Arc<NetworkConfig> {
 pub fn build_config(
     mut boot_nodes: Vec<Enr>,
     disable_peer_scoring: bool,

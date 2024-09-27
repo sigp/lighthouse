@@ -1112,7 +1112,7 @@ fn quic_test_goodbye_rpc() {
 fn test_delayed_rpc_response() {
     let rt = Arc::new(Runtime::new().unwrap());
     let log = logging::test_logger();
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     rt.block_on(async {
         // get sender/receiver
@@ -1120,7 +1120,7 @@ fn test_delayed_rpc_response() {
             Arc::downgrade(&rt),
             &log,
             ForkName::Base,
-            &spec,
+            spec,
             Protocol::Tcp,
             false,
             // Configure a quota for STATUS responses of 1 token every 3 seconds.
@@ -1234,14 +1234,14 @@ fn test_delayed_rpc_response() {
 fn test_request_too_large() {
     let rt = Arc::new(Runtime::new().unwrap());
     let log = logging::test_logger();
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     rt.block_on(async {
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
             &log,
             ForkName::Base,
-            &spec,
+            spec.clone(),
             Protocol::Tcp,
             // In this test, many RPC errors occur (which are expected). Disabling peer scoring to
             // avoid banning a peer and to ensure we can test that the receiver sends RPC errors to
@@ -1331,7 +1331,7 @@ fn test_request_too_large() {
 fn test_active_requests() {
     let rt = Arc::new(Runtime::new().unwrap());
     let log = logging::test_logger();
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     rt.block_on(async {
         // Get sender/receiver.
@@ -1339,7 +1339,7 @@ fn test_active_requests() {
             Arc::downgrade(&rt),
             &log,
             ForkName::Base,
-            &spec,
+            spec,
             Protocol::Tcp,
             false,
             None,
