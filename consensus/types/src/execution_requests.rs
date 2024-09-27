@@ -38,7 +38,9 @@ pub struct ExecutionRequests<E: EthSpec> {
 
 #[cfg(test)]
 mod tests {
+    use crate::MainnetEthSpec;
+
     use super::*;
 
-    ssz_and_tree_hash_tests!(ExecutionRequests);
+    ssz_and_tree_hash_tests!(ExecutionRequests<MainnetEthSpec>);
 }
