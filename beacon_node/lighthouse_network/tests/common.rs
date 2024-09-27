@@ -167,7 +167,8 @@ pub async fn build_node_pair(
         spec.clone(),
         disable_peer_scoring,
         inbound_rate_limiter.clone(),
-    ).await;
+    )
+    .await;
     let mut receiver = build_libp2p_instance(
         rt,
         vec![],
@@ -176,7 +177,8 @@ pub async fn build_node_pair(
         spec.clone(),
         disable_peer_scoring,
         inbound_rate_limiter,
-    ).await;
+    )
+    .await;
 
     // let the two nodes set up listeners
     let sender_fut = async {
@@ -258,7 +260,8 @@ pub async fn build_linear(
                 spec.clone(),
                 false,
                 None,
-            ).await,
+            )
+            .await,
         );
     }
 
