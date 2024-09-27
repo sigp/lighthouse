@@ -1153,6 +1153,7 @@ impl TestRig {
             penalty_msg, expect_penalty_msg,
             "Unexpected penalty msg for {peer_id}"
         );
+        self.log(&format!("Found expected penalty {penalty_msg}"));
     }
 
     pub fn expect_single_penalty(&mut self, peer_id: PeerId, expect_penalty_msg: &'static str) {
@@ -2551,11 +2552,6 @@ mod deneb_only {
             self.blobs.pop().expect("blobs");
             self
         }
-        fn invalidate_blobs_too_many(mut self) -> Self {
-            let first_blob = self.blobs.first().expect("blob").clone();
-            self.blobs.push(first_blob);
-            self
-        }
         fn expect_block_process(mut self) -> Self {
             self.rig.expect_block_process(ResponseType::Block);
             self
@@ -2641,21 +2637,6 @@ mod deneb_only {
             .blobs_response()
             .expect_penalty("NotEnoughResponsesReturned")
             .expect_blobs_request()
-            .expect_no_block_request();
-    }
-
-    #[test]
-    fn single_block_response_then_too_many_blobs_response_attestation() {
-        let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
-            return;
-        };
-        tester
-            .block_response_triggering_process()
-            .invalidate_blobs_too_many()
-            .blobs_response()
-            .expect_penalty("TooManyResponses")
-            // Network context returns "download success" because the request has enough blobs + it
-            // downscores the peer for returning too many.
             .expect_no_block_request();
     }
 

@@ -82,7 +82,7 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
         id: K,
         rpc_event: RpcEvent<T::Item>,
     ) -> Option<RpcResponseResult<Vec<T::Item>>> {
-        let Entry::Occupied(mut request) = self.requests.entry(id) else {
+        let Entry::Occupied(mut entry) = self.requests.entry(id) else {
             metrics::inc_counter_vec(&metrics::SYNC_UNKNOWN_NETWORK_REQUESTS, &[self.name]);
             return None;
         };
@@ -91,7 +91,7 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
             // Handler of a success ReqResp chunk. Adds the item to the request accumulator.
             // `ActiveRequestItems` validates the item before appending to its internal state.
             RpcEvent::Response(item, seen_timestamp) => {
-                let request = &mut request.get_mut();
+                let request = &mut entry.get_mut();
                 match &mut request.state {
                     State::Active(items) => {
                         match items.add(item) {
@@ -112,6 +112,10 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
                         }
                     }
                     // Should never happen, ReqResp network behaviour enforces a max count of chunks
+                    // When `max_remaining_chunks <= 1` a the inbound stream in terminated in
+                    // `rpc/handler.rs`. Handling this case adds complexity for no gain. Even if an
+                    // attacker could abuse this, there's no gain in sending garbage chunks that
+                    // will be ignored anyway.
                     State::CompletedEarly => None,
                     // Ignore items after errors. We may want to penalize repeated invalid chunks
                     // for the same response. But that's an optimization to ban peers sending
@@ -122,7 +126,7 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
             RpcEvent::StreamTermination => {
                 // After stream termination we must forget about this request, there will be no more
                 // messages coming from the network
-                match request.remove().state {
+                match entry.remove().state {
                     // Received a stream termination in a valid sequence, consume items
                     State::Active(mut items) => {
                         if self.expect_max_responses {
@@ -143,7 +147,7 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
             RpcEvent::RPCError(e) => {
                 // After an Error event from the network we must forget about this request as this
                 // may be the last message for this request.
-                match request.remove().state {
+                match entry.remove().state {
                     // Received error while request is still active, propagate error.
                     State::Active(_) => Some(Err(e.into())),
                     // Received error after completing the request, ignore the error. This is okay
