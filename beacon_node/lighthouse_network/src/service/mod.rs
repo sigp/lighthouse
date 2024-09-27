@@ -1168,56 +1168,6 @@ impl<E: EthSpec> Network<E> {
         }
     }
 
-    /// Convenience function to propagate a request.
-    #[must_use = "actually return the event"]
-    fn build_request(
-        &mut self,
-        id: PeerRequestId,
-        peer_id: PeerId,
-        request: Request,
-    ) -> NetworkEvent<E> {
-        // Increment metrics
-        match &request {
-            Request::Status(_) => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["status"])
-            }
-            Request::LightClientBootstrap(_) => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["light_client_bootstrap"])
-            }
-            Request::LightClientOptimisticUpdate => metrics::inc_counter_vec(
-                &metrics::TOTAL_RPC_REQUESTS,
-                &["light_client_optimistic_update"],
-            ),
-            Request::LightClientFinalityUpdate => metrics::inc_counter_vec(
-                &metrics::TOTAL_RPC_REQUESTS,
-                &["light_client_finality_update"],
-            ),
-            Request::BlocksByRange { .. } => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_range"])
-            }
-            Request::BlocksByRoot { .. } => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"])
-            }
-            Request::BlobsByRange { .. } => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"])
-            }
-            Request::BlobsByRoot { .. } => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_root"])
-            }
-            Request::DataColumnsByRoot { .. } => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["data_columns_by_root"])
-            }
-            Request::DataColumnsByRange { .. } => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["data_columns_by_range"])
-            }
-        }
-        NetworkEvent::RequestReceived {
-            peer_id,
-            id,
-            request,
-        }
-    }
-
     /// Dial cached Enrs in discovery service that are in the given `subnet_id` and aren't
     /// in Connected, Dialing or Banned state.
     fn dial_cached_enrs_in_subnet(&mut self, subnet: Subnet, spec: Arc<ChainSpec>) {
@@ -1477,10 +1427,13 @@ impl<E: EthSpec> Network<E> {
                     InboundRequest::Status(msg) => {
                         // inform the peer manager that we have received a status from a peer
                         self.peer_manager_mut().peer_statusd(&peer_id);
+                        metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["status"]);
                         // propagate the STATUS message upwards
-                        let event =
-                            self.build_request(peer_request_id, peer_id, Request::Status(msg));
-                        Some(event)
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            id: peer_request_id,
+                            request: Request::Status(msg),
+                        })
                     }
                     InboundRequest::BlocksByRange(req) => {
                         // Still disconnect the peer if the request is naughty.
@@ -1508,69 +1461,94 @@ impl<E: EthSpec> Network<E> {
                                 BlocksByRangeRequest::new(req.start_slot, count),
                             ),
                         };
-                        let event = self.build_request(peer_request_id, peer_id, request);
-                        Some(event)
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["blocks_by_range"],
+                        );
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            id: peer_request_id,
+                            request,
+                        })
                     }
                     InboundRequest::BlocksByRoot(req) => {
-                        let event = self.build_request(
-                            peer_request_id,
+                        metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"]);
+                        Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            Request::BlocksByRoot(req),
-                        );
-                        Some(event)
+                            id: peer_request_id,
+                            request: Request::BlocksByRoot(req),
+                        })
                     }
                     InboundRequest::BlobsByRange(req) => {
-                        let event = self.build_request(
-                            peer_request_id,
+                        metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"]);
+                        Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            Request::BlobsByRange(req),
-                        );
-                        Some(event)
+                            id: peer_request_id,
+                            request: Request::BlobsByRange(req),
+                        })
                     }
                     InboundRequest::BlobsByRoot(req) => {
-                        let event =
-                            self.build_request(peer_request_id, peer_id, Request::BlobsByRoot(req));
-                        Some(event)
+                        metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_root"]);
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            id: peer_request_id,
+                            request: Request::BlobsByRoot(req),
+                        })
                     }
                     InboundRequest::DataColumnsByRoot(req) => {
-                        let event = self.build_request(
-                            peer_request_id,
-                            peer_id,
-                            Request::DataColumnsByRoot(req),
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["data_columns_by_root"],
                         );
-                        Some(event)
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            id: peer_request_id,
+                            request: Request::DataColumnsByRoot(req),
+                        })
                     }
                     InboundRequest::DataColumnsByRange(req) => {
-                        let event = self.build_request(
-                            peer_request_id,
-                            peer_id,
-                            Request::DataColumnsByRange(req),
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["data_columns_by_range"],
                         );
-                        Some(event)
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            id: peer_request_id,
+                            request: Request::DataColumnsByRange(req),
+                        })
                     }
                     InboundRequest::LightClientBootstrap(req) => {
-                        let event = self.build_request(
-                            peer_request_id,
-                            peer_id,
-                            Request::LightClientBootstrap(req),
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["light_client_bootstrap"],
                         );
-                        Some(event)
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            id: peer_request_id,
+                            request: Request::LightClientBootstrap(req),
+                        })
                     }
                     InboundRequest::LightClientOptimisticUpdate => {
-                        let event = self.build_request(
-                            peer_request_id,
-                            peer_id,
-                            Request::LightClientOptimisticUpdate,
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["light_client_optimistic_update"],
                         );
-                        Some(event)
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            id: peer_request_id,
+                            request: Request::LightClientOptimisticUpdate,
+                        })
                     }
                     InboundRequest::LightClientFinalityUpdate => {
-                        let event = self.build_request(
-                            peer_request_id,
-                            peer_id,
-                            Request::LightClientFinalityUpdate,
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["light_client_finality_update"],
                         );
-                        Some(event)
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            id: peer_request_id,
+                            request: Request::LightClientFinalityUpdate,
+                        })
                     }
                 }
             }
