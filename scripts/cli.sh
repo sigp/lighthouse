@@ -16,7 +16,7 @@ write_to_file() {
     printf "# %s\n\n\`\`\`\n%s\n\`\`\`" "$program" "$cmd" > "$file"
 
     # Adjust the width of the help text and append to the end of file
-    printf '%s\n' '' '<style> .content main {max-width:88%;} </style>' >> "$file"
+    printf "\n\n%s\n" "<style> .content main {max-width:88%;} </style>" >> "$file"
 }
 
 CMD=./target/release/lighthouse
