@@ -241,15 +241,14 @@ impl fmt::Debug for Message {
 /// The byte size of a message
 impl Message {
     pub(crate) fn get_size(&self) -> usize {
-        0 + self
-            .source
+        self.source
             .as_ref()
             .map_or(0, |m| 1 + sizeof_len(m.to_bytes().len()))
             + sizeof_len(self.data.len())
             + self
                 .sequence_number
                 .as_ref()
-                .map_or(0, |m| 1 + sizeof_varint(*(m) as u64))
+                .map_or(0, |m| 1 + sizeof_varint(*(m)))
             + sizeof_len(self.topic.hash_byte_len())
     }
 }
