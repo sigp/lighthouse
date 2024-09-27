@@ -323,7 +323,7 @@ impl<E: EthSpec> Encoder<OutboundRequest<E>> for SSZSnappyOutboundCodec<E> {
     type Error = RPCError;
 
     fn encode(&mut self, item: OutboundRequest<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        let bytes = match item {
+        let bytes = match &item {
             OutboundRequest::Status(req) => req.as_ssz_bytes(),
             OutboundRequest::Goodbye(req) => req.as_ssz_bytes(),
             OutboundRequest::BlocksByRange(r) => match r {

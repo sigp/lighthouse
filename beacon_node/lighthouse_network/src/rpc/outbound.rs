@@ -9,6 +9,7 @@ use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, SinkExt};
 use libp2p::core::{OutboundUpgrade, UpgradeInfo};
 use std::sync::Arc;
+use strum::IntoStaticStr;
 use tokio_util::{
     codec::Framed,
     compat::{Compat, FuturesAsyncReadCompatExt},
@@ -26,7 +27,7 @@ pub struct OutboundRequestContainer<E: EthSpec> {
     pub max_rpc_size: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, IntoStaticStr)]
 pub enum OutboundRequest<E: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),

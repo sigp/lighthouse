@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use libp2p::swarm::ConnectionId;
+use strum::IntoStaticStr;
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, Hash256, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, SignedBeaconBlock,
@@ -98,7 +99,7 @@ pub enum RequestId {
 // NOTE: This is an application-level wrapper over the lower network level requests that can be
 //       sent. The main difference is the absence of the Ping, Metadata and Goodbye protocols, which don't
 //       leave the Behaviour. For all protocols managed by RPC see `RPCRequest`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, IntoStaticStr)]
 pub enum Request {
     /// A Status message.
     Status(StatusMessage),
@@ -162,7 +163,7 @@ impl<E: EthSpec> std::convert::From<Request> for OutboundRequest<E> {
 //       sent. The main difference is the absense of Pong and Metadata, which don't leave the
 //       Behaviour. For all protocol reponses managed by RPC see `RPCResponse` and
 //       `RPCCodedResponse`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, IntoStaticStr)]
 pub enum Response<E: EthSpec> {
     /// A Status message.
     Status(StatusMessage),
