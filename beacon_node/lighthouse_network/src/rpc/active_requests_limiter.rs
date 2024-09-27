@@ -47,7 +47,7 @@ impl ActiveRequestsLimiter {
         }
     }
 
-    /// Removes the request with the given SubstreamId.
+    /// Removes the request with the given SubstreamId and ConnectionId.
     pub(super) fn remove_request(
         &mut self,
         peer_id: PeerId,
