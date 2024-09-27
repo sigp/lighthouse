@@ -2711,9 +2711,12 @@ pub fn serve<T: BeaconChainTypes>(
                         let fork_name = state
                             .fork_name(&chain.spec)
                             .map_err(inconsistent_fork_rejection)?;
+                        let timer = metrics::start_timer(&metrics::HTTP_API_STATE_SSZ_ENCODE_TIMES);
+                        let response_bytes = state.as_ssz_bytes();
+                        drop(timer);
                         Response::builder()
                             .status(200)
-                            .body(state.as_ssz_bytes().into())
+                            .body(response_bytes.into())
                             .map(|res: Response<Body>| add_ssz_content_type_header(res))
                             .map(|resp: warp::reply::Response| {
                                 add_consensus_version_header(resp, fork_name)

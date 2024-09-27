@@ -1766,14 +1766,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     fn load_hdiff_for_slot(&self, slot: Slot) -> Result<HDiff, Error> {
-        self.cold_db
-            .get_bytes(
-                DBColumn::BeaconStateDiff.into(),
-                &slot.as_u64().to_be_bytes(),
-            )?
-            .map(|bytes| HDiff::from_ssz_bytes(&bytes))
-            .ok_or(HotColdDBError::MissingHDiff(slot))?
-            .map_err(Into::into)
+        let bytes = {
+            let _t = metrics::start_timer(&metrics::BEACON_HDIFF_READ_TIMES);
+            self.cold_db
+                .get_bytes(
+                    DBColumn::BeaconStateDiff.into(),
+                    &slot.as_u64().to_be_bytes(),
+                )?
+                .ok_or(HotColdDBError::MissingHDiff(slot))?
+        };
+        let hdiff = {
+            let _t = metrics::start_timer(&metrics::BEACON_HDIFF_DECODE_TIMES);
+            HDiff::from_ssz_bytes(&bytes)?
+        };
+        Ok(hdiff)
     }
 
     /// Returns `HDiffBuffer` for the specified slot, or `HDiffBuffer` for the `ReplayFrom` slot if

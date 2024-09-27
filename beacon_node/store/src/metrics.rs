@@ -151,6 +151,18 @@ pub static BEACON_STATE_WRITE_BYTES: LazyLock<Result<IntCounter>> = LazyLock::ne
         "Total number of beacon state bytes written to the DB",
     )
 });
+pub static BEACON_HDIFF_READ_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "store_hdiff_read_seconds",
+        "Time required to read the hierarchical diff bytes from the database",
+    )
+});
+pub static BEACON_HDIFF_DECODE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "store_hdiff_decode_seconds",
+        "Time required to decode hierarchical diff bytes",
+    )
+});
 /*
  * Beacon Block
  */
@@ -267,6 +279,20 @@ pub static STORE_BEACON_HDIFF_BUFFER_CACHE_MISS: LazyLock<Result<IntCounter>> =
         try_create_int_counter(
             "store_beacon_hdiff_buffer_cache_miss_total",
             "Total count of hdiff buffer cache miss",
+        )
+    });
+pub static STORE_BEACON_HDIFF_BUFFER_INTO_STATE_TIME: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "store_beacon_hdiff_buffer_into_state_seconds",
+            "Time taken to recreate a BeaconState from an hdiff buffer",
+        )
+    });
+pub static STORE_BEACON_HDIFF_BUFFER_FROM_STATE_TIME: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "store_beacon_hdiff_buffer_from_state_seconds",
+            "Time taken to create an hdiff buffer from a BeaconState",
         )
     });
 pub static STORE_BEACON_REPLAYED_BLOCKS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {

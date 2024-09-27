@@ -1,5 +1,5 @@
 //! Hierarchical diff implementation.
-use crate::{DBColumn, StoreConfig, StoreItem};
+use crate::{metrics, DBColumn, StoreConfig, StoreItem};
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
@@ -114,6 +114,7 @@ pub struct CompressedU64Diff {
 
 impl HDiffBuffer {
     pub fn from_state<E: EthSpec>(mut beacon_state: BeaconState<E>) -> Self {
+        let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_FROM_STATE_TIME);
         // Set state.balances to empty list, and then serialize state as ssz
         let balances_list = std::mem::take(beacon_state.balances_mut());
 
@@ -124,6 +125,7 @@ impl HDiffBuffer {
     }
 
     pub fn into_state<E: EthSpec>(self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
+        let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_INTO_STATE_TIME);
         let mut state =
             BeaconState::from_ssz_bytes(&self.state, spec).map_err(Error::InvalidSszState)?;
         *state.balances_mut() =
@@ -133,7 +135,7 @@ impl HDiffBuffer {
 
     /// Byte size of this instance
     pub fn size(&self) -> usize {
-        self.state.len() + self.balances.len()
+        self.state.len() + self.balances.len() * std::mem::size_of::<u64>()
     }
 }
 
