@@ -1,13 +1,13 @@
 use super::*;
 use alloy_rlp::RlpEncodable;
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use ssz::{Decode, Encode};
+use ssz::Decode;
 use strum::EnumString;
 use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobsList;
-use types::{DepositRequest, FixedVector, PublicKeyBytes, Signature, Unsigned, WithdrawalRequest};
+use types::{DepositRequest, FixedVector, Unsigned, WithdrawalRequest};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -191,15 +191,6 @@ enum RequestPrefix {
 }
 
 impl RequestPrefix {
-    // TODO(pawan): get the final values from the spec
-    pub fn to_prefix(&self) -> u8 {
-        match self {
-            Self::Deposit => 0,
-            Self::Withdrawal => 1,
-            Self::Consolidation => 2,
-        }
-    }
-
     pub fn from_prefix(prefix: u8) -> Option<Self> {
         match prefix {
             0 => Some(Self::Deposit),
@@ -208,13 +199,6 @@ impl RequestPrefix {
             _ => None,
         }
     }
-}
-
-fn prefix_and_bytes<T: Encode>(request: &T, prefix: u8, max_size: usize) -> Bytes {
-    let mut bytes: Vec<u8> = Vec::with_capacity(max_size);
-    bytes.push(prefix);
-    bytes.append(&mut request.as_ssz_bytes());
-    Bytes::from(bytes)
 }
 
 impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> {
@@ -828,12 +812,7 @@ impl<E: EthSpec> From<ExecutionPayloadBodyV1<E>> for JsonExecutionPayloadBodyV1<
         Self {
             transactions: value.transactions,
             withdrawals: value.withdrawals.map(|withdrawals| {
-                VariableList::from(
-                    withdrawals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect::<Vec<_>>(),
-                )
+                VariableList::from(withdrawals.into_iter().map(Into::into).collect::<Vec<_>>())
             }),
         }
     }

@@ -542,7 +542,8 @@ pub fn serve<E: EthSpec>(
 
                 let mut message = match payload_response_type {
                     crate::GetPayloadResponseType::Full(payload_response) => {
-                        let (payload, _block_value, maybe_blobs_bundle, maybe_requests): (
+                        #[allow(clippy::type_complexity)]
+                        let (payload, _block_value, maybe_blobs_bundle, _maybe_requests): (
                             ExecutionPayload<E>,
                             Uint256,
                             Option<BlobsBundle<E>>,
@@ -594,7 +595,8 @@ pub fn serve<E: EthSpec>(
                         }
                     }
                     crate::GetPayloadResponseType::Blinded(payload_response) => {
-                        let (payload, _block_value, maybe_blobs_bundle, maybe_requests): (
+                        #[allow(clippy::type_complexity)]
+                        let (payload, _block_value, maybe_blobs_bundle, _maybe_requests): (
                             ExecutionPayload<E>,
                             Uint256,
                             Option<BlobsBundle<E>>,
