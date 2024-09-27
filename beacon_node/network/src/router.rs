@@ -17,8 +17,9 @@ use beacon_processor::{
 use futures::prelude::*;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
+    rpc,
     service::api_types::{AppRequestId, SyncRequestId},
-    MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
+    MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Response,
 };
 use logging::TimeLatch;
 use slog::{crit, debug, o, trace};
@@ -56,7 +57,7 @@ pub enum RouterMessage<E: EthSpec> {
     RPCRequestReceived {
         peer_id: PeerId,
         id: PeerRequestId,
-        request: Request,
+        request: rpc::Request<E>,
     },
     /// An RPC response has been received.
     RPCResponseReceived {
@@ -191,51 +192,73 @@ impl<T: BeaconChainTypes> Router<T> {
     /* RPC - Related functionality */
 
     /// A new RPC request has been received from the network.
-    fn handle_rpc_request(&mut self, peer_id: PeerId, request_id: PeerRequestId, request: Request) {
+    fn handle_rpc_request<E: EthSpec>(
+        &mut self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: rpc::Request<E>,
+    ) {
         if !self.network_globals.peers.read().is_connected(&peer_id) {
             debug!(self.log, "Dropping request of disconnected peer"; "peer_id" => %peer_id, "request" => ?request);
             return;
         }
-        match request {
-            Request::Status(status_message) => {
+        match request.r#type {
+            RequestType::Status(status_message) => {
                 self.on_status_request(peer_id, request_id, status_message)
             }
-            Request::BlocksByRange(request) => self.handle_beacon_processor_send_result(
-                self.network_beacon_processor
-                    .send_blocks_by_range_request(peer_id, request_id, request),
-            ),
-            Request::BlocksByRoot(request) => self.handle_beacon_processor_send_result(
+            RequestType::BlocksByRange(request) => {
+                // return just one block in case the step parameter is used. https://github.com/ethereum/consensus-specs/pull/2856
+                let mut count = *request.count();
+                if *request.step() > 1 {
+                    count = 1;
+                }
+                let request = match request {
+                    methods::OldBlocksByRangeRequest::V1(req) => {
+                        BlocksByRangeRequest::new_v1(req.start_slot, count)
+                    }
+                    methods::OldBlocksByRangeRequest::V2(req) => {
+                        BlocksByRangeRequest::new(req.start_slot, count)
+                    }
+                };
+
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_blocks_by_range_request(peer_id, request_id, request),
+                )
+            }
+            RequestType::BlocksByRoot(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
                     .send_blocks_by_roots_request(peer_id, request_id, request),
             ),
-            Request::BlobsByRange(request) => self.handle_beacon_processor_send_result(
+            RequestType::BlobsByRange(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
                     .send_blobs_by_range_request(peer_id, request_id, request),
             ),
-            Request::BlobsByRoot(request) => self.handle_beacon_processor_send_result(
+            RequestType::BlobsByRoot(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
                     .send_blobs_by_roots_request(peer_id, request_id, request),
             ),
-            Request::DataColumnsByRoot(request) => self.handle_beacon_processor_send_result(
+            RequestType::DataColumnsByRoot(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
                     .send_data_columns_by_roots_request(peer_id, request_id, request),
             ),
-            Request::DataColumnsByRange(request) => self.handle_beacon_processor_send_result(
+            RequestType::DataColumnsByRange(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
                     .send_data_columns_by_range_request(peer_id, request_id, request),
             ),
-            Request::LightClientBootstrap(request) => self.handle_beacon_processor_send_result(
+            RequestType::LightClientBootstrap(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
                     .send_light_client_bootstrap_request(peer_id, request_id, request),
             ),
-            Request::LightClientOptimisticUpdate => self.handle_beacon_processor_send_result(
+            RequestType::LightClientOptimisticUpdate => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
                     .send_light_client_optimistic_update_request(peer_id, request_id),
             ),
-            Request::LightClientFinalityUpdate => self.handle_beacon_processor_send_result(
+            RequestType::LightClientFinalityUpdate => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
                     .send_light_client_finality_update_request(peer_id, request_id),
             ),
+            _ => {}
         }
     }
 
@@ -461,7 +484,7 @@ impl<T: BeaconChainTypes> Router<T> {
         let status_message = status_message(&self.chain);
         debug!(self.log, "Sending Status Request"; "peer" => %peer_id, &status_message);
         self.network
-            .send_processor_request(peer_id, Request::Status(status_message));
+            .send_processor_request(peer_id, RequestType::Status(status_message));
     }
 
     fn send_to_sync(&mut self, message: SyncMessage<T::EthSpec>) {
@@ -745,7 +768,7 @@ impl<E: EthSpec> HandlerNetworkContext<E> {
     }
 
     /// Sends a request to the network task.
-    pub fn send_processor_request(&mut self, peer_id: PeerId, request: Request) {
+    pub fn send_processor_request(&mut self, peer_id: PeerId, request: RequestType<E>) {
         self.inform_network(NetworkMessage::SendRequest {
             peer_id,
             request_id: AppRequestId::Router,

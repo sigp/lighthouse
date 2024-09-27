@@ -2,7 +2,7 @@ use crate::rpc::methods::*;
 use crate::rpc::protocol::{
     Encoding, ProtocolId, RPCError, SupportedProtocol, ERROR_TYPE_MAX, ERROR_TYPE_MIN,
 };
-use crate::rpc::{InboundRequest, OutboundRequest};
+use crate::rpc::RequestType;
 use libp2p::bytes::BufMut;
 use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
@@ -142,18 +142,18 @@ impl<E: EthSpec> Encoder<RpcResponse<E>> for SSZSnappyInboundCodec<E> {
 
 // Decoder for inbound streams: Decodes RPC requests from peers
 impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
-    type Item = InboundRequest<E>;
+    type Item = RequestType<E>;
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV1 {
-            return Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v1())));
+            return Ok(Some(RequestType::MetaData(MetadataRequest::new_v1())));
         }
         if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV2 {
-            return Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v2())));
+            return Ok(Some(RequestType::MetaData(MetadataRequest::new_v2())));
         }
         if self.protocol.versioned_protocol == SupportedProtocol::MetaDataV3 {
-            return Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v3())));
+            return Ok(Some(RequestType::MetaData(MetadataRequest::new_v3())));
         }
         let Some(length) = handle_length(&mut self.inner, &mut self.len, src)? else {
             return Ok(None);
@@ -321,28 +321,33 @@ impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
 }
 
 // Encoder for outbound streams: Encodes RPC Requests to peers
-impl<E: EthSpec> Encoder<OutboundRequest<E>> for SSZSnappyOutboundCodec<E> {
+impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: OutboundRequest<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: RequestType<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
-            OutboundRequest::Status(req) => req.as_ssz_bytes(),
-            OutboundRequest::Goodbye(req) => req.as_ssz_bytes(),
-            OutboundRequest::BlocksByRange(r) => match r {
+            RequestType::Status(req) => req.as_ssz_bytes(),
+            RequestType::Goodbye(req) => req.as_ssz_bytes(),
+            RequestType::BlocksByRange(r) => match r {
                 OldBlocksByRangeRequest::V1(req) => req.as_ssz_bytes(),
                 OldBlocksByRangeRequest::V2(req) => req.as_ssz_bytes(),
             },
-            OutboundRequest::BlocksByRoot(r) => match r {
+            RequestType::BlocksByRoot(r) => match r {
                 BlocksByRootRequest::V1(req) => req.block_roots.as_ssz_bytes(),
                 BlocksByRootRequest::V2(req) => req.block_roots.as_ssz_bytes(),
             },
-            OutboundRequest::BlobsByRange(req) => req.as_ssz_bytes(),
-            OutboundRequest::BlobsByRoot(req) => req.blob_ids.as_ssz_bytes(),
-            OutboundRequest::DataColumnsByRange(req) => req.as_ssz_bytes(),
-            OutboundRequest::DataColumnsByRoot(req) => req.data_column_ids.as_ssz_bytes(),
-            OutboundRequest::Ping(req) => req.as_ssz_bytes(),
-            OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
+            RequestType::BlobsByRange(req) => req.as_ssz_bytes(),
+            RequestType::BlobsByRoot(req) => req.blob_ids.as_ssz_bytes(),
+            RequestType::DataColumnsByRange(req) => req.as_ssz_bytes(),
+            RequestType::DataColumnsByRoot(req) => req.data_column_ids.as_ssz_bytes(),
+            RequestType::Ping(req) => req.as_ssz_bytes(),
+            RequestType::LightClientBootstrap(req) => req.as_ssz_bytes(),
+            // no metadata to encode
+            RequestType::MetaData(_)
+            | RequestType::LightClientOptimisticUpdate
+            | RequestType::LightClientFinalityUpdate => return Ok(()),
         };
+
         // SSZ encoded bytes should be within `max_packet_size`
         if bytes.len() > self.max_packet_size {
             return Err(RPCError::InternalError(
@@ -542,21 +547,21 @@ fn handle_rpc_request<E: EthSpec>(
     versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
     spec: &ChainSpec,
-) -> Result<Option<InboundRequest<E>>, RPCError> {
+) -> Result<Option<RequestType<E>>, RPCError> {
     match versioned_protocol {
-        SupportedProtocol::StatusV1 => Ok(Some(InboundRequest::Status(
+        SupportedProtocol::StatusV1 => Ok(Some(RequestType::Status(
             StatusMessage::from_ssz_bytes(decoded_buffer)?,
         ))),
-        SupportedProtocol::GoodbyeV1 => Ok(Some(InboundRequest::Goodbye(
+        SupportedProtocol::GoodbyeV1 => Ok(Some(RequestType::Goodbye(
             GoodbyeReason::from_ssz_bytes(decoded_buffer)?,
         ))),
-        SupportedProtocol::BlocksByRangeV2 => Ok(Some(InboundRequest::BlocksByRange(
+        SupportedProtocol::BlocksByRangeV2 => Ok(Some(RequestType::BlocksByRange(
             OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2::from_ssz_bytes(decoded_buffer)?),
         ))),
-        SupportedProtocol::BlocksByRangeV1 => Ok(Some(InboundRequest::BlocksByRange(
+        SupportedProtocol::BlocksByRangeV1 => Ok(Some(RequestType::BlocksByRange(
             OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1::from_ssz_bytes(decoded_buffer)?),
         ))),
-        SupportedProtocol::BlocksByRootV2 => Ok(Some(InboundRequest::BlocksByRoot(
+        SupportedProtocol::BlocksByRootV2 => Ok(Some(RequestType::BlocksByRoot(
             BlocksByRootRequest::V2(BlocksByRootRequestV2 {
                 block_roots: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
@@ -564,7 +569,7 @@ fn handle_rpc_request<E: EthSpec>(
                 )?,
             }),
         ))),
-        SupportedProtocol::BlocksByRootV1 => Ok(Some(InboundRequest::BlocksByRoot(
+        SupportedProtocol::BlocksByRootV1 => Ok(Some(RequestType::BlocksByRoot(
             BlocksByRootRequest::V1(BlocksByRootRequestV1 {
                 block_roots: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
@@ -572,21 +577,21 @@ fn handle_rpc_request<E: EthSpec>(
                 )?,
             }),
         ))),
-        SupportedProtocol::BlobsByRangeV1 => Ok(Some(InboundRequest::BlobsByRange(
+        SupportedProtocol::BlobsByRangeV1 => Ok(Some(RequestType::BlobsByRange(
             BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
         SupportedProtocol::BlobsByRootV1 => {
-            Ok(Some(InboundRequest::BlobsByRoot(BlobsByRootRequest {
+            Ok(Some(RequestType::BlobsByRoot(BlobsByRootRequest {
                 blob_ids: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
                     spec.max_request_blob_sidecars as usize,
                 )?,
             })))
         }
-        SupportedProtocol::DataColumnsByRangeV1 => Ok(Some(InboundRequest::DataColumnsByRange(
+        SupportedProtocol::DataColumnsByRangeV1 => Ok(Some(RequestType::DataColumnsByRange(
             DataColumnsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
-        SupportedProtocol::DataColumnsByRootV1 => Ok(Some(InboundRequest::DataColumnsByRoot(
+        SupportedProtocol::DataColumnsByRootV1 => Ok(Some(RequestType::DataColumnsByRoot(
             DataColumnsByRootRequest {
                 data_column_ids: RuntimeVariableList::from_ssz_bytes(
                     decoded_buffer,
@@ -594,19 +599,19 @@ fn handle_rpc_request<E: EthSpec>(
                 )?,
             },
         ))),
-        SupportedProtocol::PingV1 => Ok(Some(InboundRequest::Ping(Ping {
+        SupportedProtocol::PingV1 => Ok(Some(RequestType::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
-        SupportedProtocol::LightClientBootstrapV1 => Ok(Some(
-            InboundRequest::LightClientBootstrap(LightClientBootstrapRequest {
+        SupportedProtocol::LightClientBootstrapV1 => Ok(Some(RequestType::LightClientBootstrap(
+            LightClientBootstrapRequest {
                 root: Hash256::from_ssz_bytes(decoded_buffer)?,
-            }),
-        )),
+            },
+        ))),
         SupportedProtocol::LightClientOptimisticUpdateV1 => {
-            Ok(Some(InboundRequest::LightClientOptimisticUpdate))
+            Ok(Some(RequestType::LightClientOptimisticUpdate))
         }
         SupportedProtocol::LightClientFinalityUpdateV1 => {
-            Ok(Some(InboundRequest::LightClientFinalityUpdate))
+            Ok(Some(RequestType::LightClientFinalityUpdate))
         }
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
@@ -616,7 +621,7 @@ fn handle_rpc_request<E: EthSpec>(
                     "Metadata requests shouldn't reach decoder",
                 ))
             } else {
-                Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v3())))
+                Ok(Some(RequestType::MetaData(MetadataRequest::new_v3())))
             }
         }
         SupportedProtocol::MetaDataV2 => {
@@ -625,14 +630,14 @@ fn handle_rpc_request<E: EthSpec>(
                     "Metadata requests shouldn't reach decoder",
                 ))
             } else {
-                Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v2())))
+                Ok(Some(RequestType::MetaData(MetadataRequest::new_v2())))
             }
         }
         SupportedProtocol::MetaDataV1 => {
             if !decoded_buffer.is_empty() {
                 Err(RPCError::InvalidData("Metadata request".to_string()))
             } else {
-                Ok(Some(InboundRequest::MetaData(MetadataRequest::new_v1())))
+                Ok(Some(RequestType::MetaData(MetadataRequest::new_v1())))
             }
         }
     }
@@ -1149,11 +1154,7 @@ mod tests {
     }
 
     /// Verifies that requests we send are encoded in a way that we would correctly decode too.
-    fn encode_then_decode_request(
-        req: OutboundRequest<Spec>,
-        fork_name: ForkName,
-        spec: &ChainSpec,
-    ) {
+    fn encode_then_decode_request(req: RequestType<Spec>, fork_name: ForkName, spec: &ChainSpec) {
         let fork_context = Arc::new(fork_context(fork_name));
         let max_packet_size = max_rpc_size(&fork_context, spec.max_chunk_size as usize);
         let protocol = ProtocolId::new(req.versioned_protocol(), Encoding::SSZSnappy);
@@ -1176,36 +1177,43 @@ mod tests {
             )
         });
         match req {
-            OutboundRequest::Status(status) => {
-                assert_eq!(decoded, InboundRequest::Status(status))
+            RequestType::Status(status) => {
+                assert_eq!(decoded, RequestType::Status(status))
             }
-            OutboundRequest::Goodbye(goodbye) => {
-                assert_eq!(decoded, InboundRequest::Goodbye(goodbye))
+            RequestType::Goodbye(goodbye) => {
+                assert_eq!(decoded, RequestType::Goodbye(goodbye))
             }
-            OutboundRequest::BlocksByRange(bbrange) => {
-                assert_eq!(decoded, InboundRequest::BlocksByRange(bbrange))
+            RequestType::BlocksByRange(bbrange) => {
+                assert_eq!(decoded, RequestType::BlocksByRange(bbrange))
             }
-            OutboundRequest::BlocksByRoot(bbroot) => {
-                assert_eq!(decoded, InboundRequest::BlocksByRoot(bbroot))
+            RequestType::BlocksByRoot(bbroot) => {
+                assert_eq!(decoded, RequestType::BlocksByRoot(bbroot))
             }
-            OutboundRequest::BlobsByRange(blbrange) => {
-                assert_eq!(decoded, InboundRequest::BlobsByRange(blbrange))
+            RequestType::BlobsByRange(blbrange) => {
+                assert_eq!(decoded, RequestType::BlobsByRange(blbrange))
             }
-            OutboundRequest::BlobsByRoot(bbroot) => {
-                assert_eq!(decoded, InboundRequest::BlobsByRoot(bbroot))
+            RequestType::BlobsByRoot(bbroot) => {
+                assert_eq!(decoded, RequestType::BlobsByRoot(bbroot))
             }
-            OutboundRequest::DataColumnsByRoot(dcbroot) => {
-                assert_eq!(decoded, InboundRequest::DataColumnsByRoot(dcbroot))
+            RequestType::DataColumnsByRoot(dcbroot) => {
+                assert_eq!(decoded, RequestType::DataColumnsByRoot(dcbroot))
             }
-            OutboundRequest::DataColumnsByRange(dcbrange) => {
-                assert_eq!(decoded, InboundRequest::DataColumnsByRange(dcbrange))
+            RequestType::DataColumnsByRange(dcbrange) => {
+                assert_eq!(decoded, RequestType::DataColumnsByRange(dcbrange))
             }
-            OutboundRequest::Ping(ping) => {
-                assert_eq!(decoded, InboundRequest::Ping(ping))
+            RequestType::Ping(ping) => {
+                assert_eq!(decoded, RequestType::Ping(ping))
             }
-            OutboundRequest::MetaData(metadata) => {
-                assert_eq!(decoded, InboundRequest::MetaData(metadata))
+            RequestType::MetaData(metadata) => {
+                assert_eq!(decoded, RequestType::MetaData(metadata))
             }
+            RequestType::LightClientBootstrap(light_client_bootstrap_request) => {
+                assert_eq!(
+                    decoded,
+                    RequestType::LightClientBootstrap(light_client_bootstrap_request)
+                )
+            }
+            RequestType::LightClientOptimisticUpdate | RequestType::LightClientFinalityUpdate => {}
         }
     }
 
@@ -1737,20 +1745,20 @@ mod tests {
     fn test_encode_then_decode_request() {
         let chain_spec = Spec::default_spec();
 
-        let requests: &[OutboundRequest<Spec>] = &[
-            OutboundRequest::Ping(ping_message()),
-            OutboundRequest::Status(status_message()),
-            OutboundRequest::Goodbye(GoodbyeReason::Fault),
-            OutboundRequest::BlocksByRange(bbrange_request_v1()),
-            OutboundRequest::BlocksByRange(bbrange_request_v2()),
-            OutboundRequest::BlocksByRoot(bbroot_request_v1(&chain_spec)),
-            OutboundRequest::BlocksByRoot(bbroot_request_v2(&chain_spec)),
-            OutboundRequest::MetaData(MetadataRequest::new_v1()),
-            OutboundRequest::BlobsByRange(blbrange_request()),
-            OutboundRequest::BlobsByRoot(blbroot_request(&chain_spec)),
-            OutboundRequest::DataColumnsByRange(dcbrange_request()),
-            OutboundRequest::DataColumnsByRoot(dcbroot_request(&chain_spec)),
-            OutboundRequest::MetaData(MetadataRequest::new_v2()),
+        let requests: &[RequestType<Spec>] = &[
+            RequestType::Ping(ping_message()),
+            RequestType::Status(status_message()),
+            RequestType::Goodbye(GoodbyeReason::Fault),
+            RequestType::BlocksByRange(bbrange_request_v1()),
+            RequestType::BlocksByRange(bbrange_request_v2()),
+            RequestType::BlocksByRoot(bbroot_request_v1(&chain_spec)),
+            RequestType::BlocksByRoot(bbroot_request_v2(&chain_spec)),
+            RequestType::MetaData(MetadataRequest::new_v1()),
+            RequestType::BlobsByRange(blbrange_request()),
+            RequestType::BlobsByRoot(blbroot_request(&chain_spec)),
+            RequestType::DataColumnsByRange(dcbrange_request()),
+            RequestType::DataColumnsByRoot(dcbroot_request(&chain_spec)),
+            RequestType::MetaData(MetadataRequest::new_v2()),
         ];
 
         for req in requests.iter() {

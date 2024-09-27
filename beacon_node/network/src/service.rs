@@ -14,12 +14,13 @@ use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
 use futures::StreamExt;
+use lighthouse_network::rpc::RequestType;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
     rpc::{GoodbyeReason, RpcErrorResponse},
-    Context, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
+    Context, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Response, Subnet,
 };
 use lighthouse_network::{
     service::api_types::AppRequestId,
@@ -61,7 +62,7 @@ pub enum NetworkMessage<E: EthSpec> {
     /// Send an RPC request to the libp2p service.
     SendRequest {
         peer_id: PeerId,
-        request: Request,
+        request: RequestType<E>,
         request_id: AppRequestId,
     },
     /// Send a successful Response to the libp2p service.

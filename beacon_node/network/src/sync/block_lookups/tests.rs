@@ -22,13 +22,13 @@ use beacon_chain::{
     AvailabilityPendingExecutedBlock, PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 use beacon_processor::WorkEvent;
-use lighthouse_network::rpc::{RPCError, RpcErrorResponse};
+use lighthouse_network::rpc::{RPCError, RequestType, RpcErrorResponse};
 use lighthouse_network::service::api_types::{
     AppRequestId, DataColumnsByRootRequester, Id, SamplingRequester, SingleLookupReqId,
     SyncRequestId,
 };
 use lighthouse_network::types::SyncState;
-use lighthouse_network::{NetworkConfig, NetworkGlobals, Request};
+use lighthouse_network::NetworkGlobals;
 use slog::info;
 use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
 use store::MemoryStore;
@@ -894,7 +894,7 @@ impl TestRig {
         self.pop_received_network_event(|ev| match ev {
             NetworkMessage::SendRequest {
                 peer_id: _,
-                request: Request::BlocksByRoot(request),
+                request: RequestType::BlocksByRoot(request),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
             _ => None,
@@ -914,7 +914,7 @@ impl TestRig {
         self.pop_received_network_event(|ev| match ev {
             NetworkMessage::SendRequest {
                 peer_id: _,
-                request: Request::BlobsByRoot(request),
+                request: RequestType::BlobsByRoot(request),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             } if request
                 .blob_ids
@@ -939,7 +939,7 @@ impl TestRig {
         self.pop_received_network_event(|ev| match ev {
             NetworkMessage::SendRequest {
                 peer_id: _,
-                request: Request::BlocksByRoot(request),
+                request: RequestType::BlocksByRoot(request),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
             _ => None,
@@ -961,7 +961,7 @@ impl TestRig {
         self.pop_received_network_event(|ev| match ev {
             NetworkMessage::SendRequest {
                 peer_id: _,
-                request: Request::BlobsByRoot(request),
+                request: RequestType::BlobsByRoot(request),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             } if request
                 .blob_ids
@@ -989,7 +989,7 @@ impl TestRig {
                 .pop_received_network_event(|ev| match ev {
                     NetworkMessage::SendRequest {
                         peer_id: _,
-                        request: Request::DataColumnsByRoot(request),
+                        request: RequestType::DataColumnsByRoot(request),
                         request_id: AppRequestId::Sync(id @ SyncRequestId::DataColumnsByRoot { .. }),
                     } if request
                         .data_column_ids

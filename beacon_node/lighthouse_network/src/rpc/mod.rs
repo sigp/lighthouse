@@ -26,14 +26,13 @@ pub(crate) use handler::{HandlerErr, HandlerEvent};
 pub(crate) use methods::{
     MetaData, MetaDataV1, MetaDataV2, MetaDataV3, Ping, RpcResponse, RpcSuccessResponse,
 };
-pub(crate) use protocol::InboundRequest;
+pub use protocol::RequestType;
 
 pub use handler::SubstreamId;
 pub use methods::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, LightClientBootstrapRequest,
     ResponseTermination, RpcErrorResponse, StatusMessage,
 };
-pub(crate) use outbound::OutboundRequest;
 pub use protocol::{max_rpc_size, Protocol, RPCError};
 
 use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
@@ -62,7 +61,7 @@ pub enum RPCSend<Id, E: EthSpec> {
     ///
     /// The `Id` is given by the application making the request. These
     /// go over *outbound* connections.
-    Request(Id, OutboundRequest<E>),
+    Request(Id, RequestType<E>),
     /// A response sent from Lighthouse.
     ///
     /// The `SubstreamId` must correspond to the RPC-given ID of the original request received from the
@@ -117,7 +116,7 @@ impl RequestId {
 pub struct Request<E: EthSpec> {
     pub id: RequestId,
     pub substream_id: SubstreamId,
-    pub r#type: InboundRequest<E>,
+    pub r#type: RequestType<E>,
 }
 
 impl<E: EthSpec, Id: std::fmt::Debug> std::fmt::Display for RPCSend<Id, E> {
@@ -221,7 +220,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     /// Submits an RPC request.
     ///
     /// The peer must be connected for this to succeed.
-    pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: OutboundRequest<E>) {
+    pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: RequestType<E>) {
         let event = if let Some(self_limiter) = self.self_limiter.as_mut() {
             match self_limiter.allows(peer_id, request_id, req) {
                 Ok(event) => event,
@@ -261,7 +260,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             data: self.seq_number,
         };
         trace!(self.log, "Sending Ping"; "peer_id" => %peer_id);
-        self.send_request(peer_id, id, OutboundRequest::Ping(ping));
+        self.send_request(peer_id, id, RequestType::Ping(ping));
     }
 }
 
@@ -458,7 +457,7 @@ where
                 }
 
                 // If we received a Ping, we queue a Pong response.
-                if let InboundRequest::Ping(_) = r#type {
+                if let RequestType::Ping(_) = r#type {
                     trace!(self.log, "Received Ping, queueing Pong";"connection_id" => %conn_id, "peer_id" => %peer_id);
                     self.send_response(
                         peer_id,

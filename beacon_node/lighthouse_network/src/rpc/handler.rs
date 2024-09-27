@@ -3,10 +3,10 @@
 
 use super::methods::{GoodbyeReason, RpcErrorResponse, RpcResponse};
 use super::outbound::OutboundRequestContainer;
-use super::protocol::{InboundOutput, InboundRequest, Protocol, RPCError, RPCProtocol};
+use super::protocol::{InboundOutput, Protocol, RPCError, RPCProtocol, RequestType};
 use super::RequestId;
 use super::{RPCReceived, RPCSend, ReqId, Request};
-use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
+use crate::rpc::outbound::OutboundFramed;
 use crate::rpc::protocol::InboundFramed;
 use fnv::FnvHashMap;
 use futures::prelude::*;
@@ -96,7 +96,7 @@ where
     events_out: SmallVec<[HandlerEvent<Id, E>; 4]>,
 
     /// Queue of outbound substreams to open.
-    dial_queue: SmallVec<[(Id, OutboundRequest<E>); 4]>,
+    dial_queue: SmallVec<[(Id, RequestType<E>); 4]>,
 
     /// Current number of concurrent outbound substreams being opened.
     dial_negotiated: u32,
@@ -206,7 +206,7 @@ pub enum OutboundSubstreamState<E: EthSpec> {
         /// The framed negotiated substream.
         substream: Box<OutboundFramed<Stream, E>>,
         /// Keeps track of the actual request sent.
-        request: OutboundRequest<E>,
+        request: RequestType<E>,
     },
     /// Closing an outbound substream>
     Closing(Box<OutboundFramed<Stream, E>>),
@@ -264,7 +264,7 @@ where
 
             // Queue our goodbye message.
             if let Some((id, reason)) = goodbye_reason {
-                self.dial_queue.push((id, OutboundRequest::Goodbye(reason)));
+                self.dial_queue.push((id, RequestType::Goodbye(reason)));
             }
 
             self.state = HandlerState::ShuttingDown(Box::pin(sleep(Duration::from_secs(
@@ -274,7 +274,7 @@ where
     }
 
     /// Opens an outbound substream with a request.
-    fn send_request(&mut self, id: Id, req: OutboundRequest<E>) {
+    fn send_request(&mut self, id: Id, req: RequestType<E>) {
         match self.state {
             HandlerState::Active => {
                 self.dial_queue.push((id, req));
@@ -330,7 +330,7 @@ where
     type ToBehaviour = HandlerEvent<Id, E>;
     type InboundProtocol = RPCProtocol<E>;
     type OutboundProtocol = OutboundRequestContainer<E>;
-    type OutboundOpenInfo = (Id, OutboundRequest<E>); // Keep track of the id and the request
+    type OutboundOpenInfo = (Id, RequestType<E>); // Keep track of the id and the request
     type InboundOpenInfo = ();
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
@@ -889,7 +889,7 @@ where
         }
 
         // If we received a goodbye, shutdown the connection.
-        if let InboundRequest::Goodbye(_) = req {
+        if let RequestType::Goodbye(_) = req {
             self.shutdown(None);
         }
 
@@ -905,7 +905,7 @@ where
     fn on_fully_negotiated_outbound(
         &mut self,
         substream: OutboundFramed<Stream, E>,
-        (id, request): (Id, OutboundRequest<E>),
+        (id, request): (Id, RequestType<E>),
     ) {
         self.dial_negotiated -= 1;
         // Reset any io-retries counter.
@@ -961,7 +961,7 @@ where
     }
     fn on_dial_upgrade_error(
         &mut self,
-        request_info: (Id, OutboundRequest<E>),
+        request_info: (Id, RequestType<E>),
         error: StreamUpgradeError<RPCError>,
     ) {
         let (id, req) = request_info;

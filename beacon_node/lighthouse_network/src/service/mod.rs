@@ -11,9 +11,8 @@ use crate::peer_manager::{
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
 use crate::rpc::methods::MetadataRequest;
 use crate::rpc::{
-    self, methods, BlocksByRangeRequest, GoodbyeReason, HandlerErr, InboundRequest, NetworkParams,
-    OutboundRequest, Protocol, RPCError, RPCMessage, RPCReceived, ResponseTermination,
-    RpcErrorResponse, RpcResponse, RpcSuccessResponse, RPC,
+    self, GoodbyeReason, HandlerErr, NetworkParams, Protocol, RPCError, RPCMessage, RPCReceived,
+    RequestType, ResponseTermination, RpcErrorResponse, RpcResponse, RpcSuccessResponse, RPC,
 };
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
@@ -25,7 +24,7 @@ use crate::types::{
 use crate::EnrExt;
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
-use api_types::{AppRequestId, PeerRequestId, Request, RequestId, Response};
+use api_types::{AppRequestId, PeerRequestId, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub::{
     IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
@@ -84,7 +83,7 @@ pub enum NetworkEvent<E: EthSpec> {
         /// Identifier of the request. All responses to this request must use this id.
         id: PeerRequestId,
         /// Request the peer sent.
-        request: Request,
+        request: rpc::Request<E>,
     },
     ResponseReceived {
         /// Peer that sent the response.
@@ -934,18 +933,15 @@ impl<E: EthSpec> Network<E> {
         &mut self,
         peer_id: PeerId,
         request_id: AppRequestId,
-        request: Request,
+        request: RequestType<E>,
     ) -> Result<(), (AppRequestId, RPCError)> {
         // Check if the peer is connected before sending an RPC request
         if !self.swarm.is_connected(&peer_id) {
             return Err((request_id, RPCError::Disconnected));
         }
 
-        self.eth2_rpc_mut().send_request(
-            peer_id,
-            RequestId::Application(request_id),
-            request.into(),
-        );
+        self.eth2_rpc_mut()
+            .send_request(peer_id, RequestId::Application(request_id), request);
         Ok(())
     }
 
@@ -1127,10 +1123,10 @@ impl<E: EthSpec> Network<E> {
         let event = if self.fork_context.spec.is_peer_das_scheduled() {
             // Nodes with higher custody will probably start advertising it
             // before peerdas is activated
-            OutboundRequest::MetaData(MetadataRequest::new_v3())
+            RequestType::MetaData(MetadataRequest::new_v3())
         } else {
             // We always prefer sending V2 requests otherwise
-            OutboundRequest::MetaData(MetadataRequest::new_v2())
+            RequestType::MetaData(MetadataRequest::new_v2())
         };
         self.eth2_rpc_mut()
             .send_request(peer_id, RequestId::Internal, event);
@@ -1353,7 +1349,7 @@ impl<E: EthSpec> Network<E> {
             return None;
         }
 
-        let handler_id = event.conn_id;
+        let connection_id = event.conn_id;
         // The METADATA and PING RPC responses are handled within the behaviour and not propagated
         match event.message {
             Err(handler_err) => {
@@ -1391,25 +1387,24 @@ impl<E: EthSpec> Network<E> {
                     }
                 }
             }
-            Ok(RPCReceived::Request(rpc::Request {
-                substream_id,
-                r#type,
-                ..
-            })) => {
-                let peer_request_id = (handler_id, substream_id);
-                match r#type {
+            Ok(RPCReceived::Request(request)) => {
+                match request.r#type {
                     /* Behaviour managed protocols: Ping and Metadata */
-                    InboundRequest::Ping(ping) => {
+                    RequestType::Ping(ping) => {
                         // inform the peer manager and send the response
                         self.peer_manager_mut().ping_request(&peer_id, ping.data);
                         None
                     }
-                    InboundRequest::MetaData(req) => {
+                    RequestType::MetaData(req) => {
                         // send the requested meta-data
-                        self.send_meta_data_response(req, (handler_id, substream_id), peer_id);
+                        self.send_meta_data_response(
+                            req,
+                            (connection_id, request.substream_id),
+                            peer_id,
+                        );
                         None
                     }
-                    InboundRequest::Goodbye(reason) => {
+                    RequestType::Goodbye(reason) => {
                         // queue for disconnection without a goodbye message
                         debug!(
                             self.log, "Peer sent Goodbye";
@@ -1424,20 +1419,19 @@ impl<E: EthSpec> Network<E> {
                         None
                     }
                     /* Protocols propagated to the Network */
-                    InboundRequest::Status(msg) => {
+                    RequestType::Status(_) => {
                         // inform the peer manager that we have received a status from a peer
                         self.peer_manager_mut().peer_statusd(&peer_id);
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["status"]);
                         // propagate the STATUS message upwards
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: peer_request_id,
-                            request: Request::Status(msg),
+                            id: (connection_id, request.substream_id),
+                            request,
                         })
                     }
-                    InboundRequest::BlocksByRange(req) => {
+                    RequestType::BlocksByRange(ref req) => {
                         // Still disconnect the peer if the request is naughty.
-                        let mut count = *req.count();
                         if *req.step() == 0 {
                             self.peer_manager_mut().handle_rpc_error(
                                 &peer_id,
@@ -1449,105 +1443,93 @@ impl<E: EthSpec> Network<E> {
                             );
                             return None;
                         }
-                        // return just one block in case the step parameter is used. https://github.com/ethereum/consensus-specs/pull/2856
-                        if *req.step() > 1 {
-                            count = 1;
-                        }
-                        let request = match req {
-                            methods::OldBlocksByRangeRequest::V1(req) => Request::BlocksByRange(
-                                BlocksByRangeRequest::new_v1(req.start_slot, count),
-                            ),
-                            methods::OldBlocksByRangeRequest::V2(req) => Request::BlocksByRange(
-                                BlocksByRangeRequest::new(req.start_slot, count),
-                            ),
-                        };
                         metrics::inc_counter_vec(
                             &metrics::TOTAL_RPC_REQUESTS,
                             &["blocks_by_range"],
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: peer_request_id,
+                            id: (connection_id, request.substream_id),
                             request,
                         })
                     }
-                    InboundRequest::BlocksByRoot(req) => {
+                    RequestType::BlocksByRoot(_) => {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"]);
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: peer_request_id,
-                            request: Request::BlocksByRoot(req),
+                            id: (connection_id, request.substream_id),
+                            request,
                         })
                     }
-                    InboundRequest::BlobsByRange(req) => {
+                    RequestType::BlobsByRange(_) => {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"]);
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: peer_request_id,
-                            request: Request::BlobsByRange(req),
+                            id: (connection_id, request.substream_id),
+                            request,
                         })
                     }
-                    InboundRequest::BlobsByRoot(req) => {
+                    RequestType::BlobsByRoot(_) => {
                         metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_root"]);
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: peer_request_id,
-                            request: Request::BlobsByRoot(req),
+                            id: (connection_id, request.substream_id),
+                            request,
                         })
                     }
-                    InboundRequest::DataColumnsByRoot(req) => {
+                    RequestType::DataColumnsByRoot(_) => {
                         metrics::inc_counter_vec(
                             &metrics::TOTAL_RPC_REQUESTS,
                             &["data_columns_by_root"],
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: peer_request_id,
-                            request: Request::DataColumnsByRoot(req),
+                            id: (connection_id, request.substream_id),
+                            request,
                         })
                     }
-                    InboundRequest::DataColumnsByRange(req) => {
+                    RequestType::DataColumnsByRange(_) => {
                         metrics::inc_counter_vec(
                             &metrics::TOTAL_RPC_REQUESTS,
                             &["data_columns_by_range"],
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: peer_request_id,
-                            request: Request::DataColumnsByRange(req),
+                            id: (connection_id, request.substream_id),
+                            request,
                         })
                     }
-                    InboundRequest::LightClientBootstrap(req) => {
+                    RequestType::LightClientBootstrap(_) => {
                         metrics::inc_counter_vec(
                             &metrics::TOTAL_RPC_REQUESTS,
                             &["light_client_bootstrap"],
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: peer_request_id,
-                            request: Request::LightClientBootstrap(req),
+                            id: (connection_id, request.substream_id),
+                            request,
                         })
                     }
-                    InboundRequest::LightClientOptimisticUpdate => {
+                    RequestType::LightClientOptimisticUpdate => {
                         metrics::inc_counter_vec(
                             &metrics::TOTAL_RPC_REQUESTS,
                             &["light_client_optimistic_update"],
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: peer_request_id,
-                            request: Request::LightClientOptimisticUpdate,
+                            id: (connection_id, request.substream_id),
+                            request,
                         })
                     }
-                    InboundRequest::LightClientFinalityUpdate => {
+                    RequestType::LightClientFinalityUpdate => {
                         metrics::inc_counter_vec(
                             &metrics::TOTAL_RPC_REQUESTS,
                             &["light_client_finality_update"],
                         );
                         Some(NetworkEvent::RequestReceived {
                             peer_id,
-                            id: peer_request_id,
-                            request: Request::LightClientFinalityUpdate,
+                            id: (connection_id, request.substream_id),
+                            request,
                         })
                     }
                 }
