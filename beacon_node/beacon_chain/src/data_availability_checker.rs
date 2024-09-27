@@ -24,8 +24,8 @@ mod overflow_lru_cache;
 mod state_lru_cache;
 
 use crate::data_column_verification::{
-    verify_kzg_for_data_column_list, CustodyDataColumn, GossipVerifiedDataColumn,
-    KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
+    verify_kzg_for_data_column, verify_kzg_for_data_column_list, CustodyDataColumn,
+    GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
 };
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::non_zero_usize::new_non_zero_usize;
@@ -69,7 +69,7 @@ pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
     slot_clock: T::SlotClock,
-    kzg: Option<Arc<Kzg>>,
+    kzg: Arc<Kzg>,
     spec: Arc<ChainSpec>,
 }
 
@@ -97,12 +97,11 @@ impl<E: EthSpec> Debug for Availability<E> {
 impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn new(
         slot_clock: T::SlotClock,
-        kzg: Option<Arc<Kzg>>,
+        kzg: Arc<Kzg>,
         store: BeaconStore<T>,
         import_all_data_columns: bool,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
-        let spec = Arc::new(spec);
         let custody_subnet_count = if import_all_data_columns {
             spec.data_column_sidecar_subnet_count as usize
         } else {
@@ -189,18 +188,17 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let Some(kzg) = self.kzg.as_ref() else {
-            return Err(AvailabilityCheckError::KzgNotInitialized);
-        };
-
         let seen_timestamp = self
             .slot_clock
             .now_duration()
             .ok_or(AvailabilityCheckError::SlotClockError)?;
 
+        // Note: currently not reporting which specific blob is invalid because we fetch all blobs
+        // from the same peer for both lookup and range sync.
+
         let verified_blobs =
-            KzgVerifiedBlobList::new(blobs.iter().flatten().cloned(), kzg, seen_timestamp)
-                .map_err(AvailabilityCheckError::Kzg)?;
+            KzgVerifiedBlobList::new(blobs.iter().flatten().cloned(), &self.kzg, seen_timestamp)
+                .map_err(AvailabilityCheckError::InvalidBlobs)?;
 
         self.availability_cache
             .put_kzg_verified_blobs(block_root, verified_blobs)
@@ -216,23 +214,22 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
     {
-        let Some(kzg) = self.kzg.as_ref() else {
-            return Err(AvailabilityCheckError::KzgNotInitialized);
-        };
-
         // TODO(das): report which column is invalid for proper peer scoring
-        // TODO(das): batch KZG verification here
+        // TODO(das): batch KZG verification here, but fallback into checking each column
+        // individually to report which column(s) are invalid.
         let verified_custody_columns = custody_columns
             .into_iter()
             .map(|column| {
+                let index = column.index;
                 Ok(KzgVerifiedCustodyDataColumn::from_asserted_custody(
-                    KzgVerifiedDataColumn::new(column, kzg).map_err(AvailabilityCheckError::Kzg)?,
+                    KzgVerifiedDataColumn::new(column, &self.kzg)
+                        .map_err(|e| AvailabilityCheckError::InvalidColumn(index, e))?,
                 ))
             })
             .collect::<Result<Vec<_>, AvailabilityCheckError>>()?;
 
         self.availability_cache.put_kzg_verified_data_columns(
-            kzg,
+            &self.kzg,
             block_root,
             epoch,
             verified_custody_columns,
@@ -286,9 +283,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         gossip_data_columns: Vec<GossipVerifiedDataColumn<T>>,
     ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
     {
-        let Some(kzg) = self.kzg.as_ref() else {
-            return Err(AvailabilityCheckError::KzgNotInitialized);
-        };
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
 
         let custody_columns = gossip_data_columns
@@ -297,7 +291,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .collect::<Vec<_>>();
 
         self.availability_cache.put_kzg_verified_data_columns(
-            kzg,
+            &self.kzg,
             block_root,
             epoch,
             custody_columns,
@@ -331,12 +325,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let (block_root, block, blobs, data_columns) = block.deconstruct();
         if self.blobs_required_for_block(&block) {
             return if let Some(blob_list) = blobs.as_ref() {
-                let kzg = self
-                    .kzg
-                    .as_ref()
-                    .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-                verify_kzg_for_blob_list(blob_list.iter(), kzg)
-                    .map_err(AvailabilityCheckError::Kzg)?;
+                verify_kzg_for_blob_list(blob_list.iter(), &self.kzg)
+                    .map_err(AvailabilityCheckError::InvalidBlobs)?;
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
@@ -351,17 +341,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
         if self.data_columns_required_for_block(&block) {
             return if let Some(data_column_list) = data_columns.as_ref() {
-                let kzg = self
-                    .kzg
-                    .as_ref()
-                    .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-                verify_kzg_for_data_column_list(
+                verify_kzg_for_data_column_list_with_scoring(
                     data_column_list
                         .iter()
                         .map(|custody_column| custody_column.as_data_column()),
-                    kzg,
-                )
-                .map_err(AvailabilityCheckError::Kzg)?;
+                    &self.kzg,
+                )?;
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
@@ -412,11 +397,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         // verify kzg for all blobs at once
         if !all_blobs.is_empty() {
-            let kzg = self
-                .kzg
-                .as_ref()
-                .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-            verify_kzg_for_blob_list(all_blobs.iter(), kzg)?;
+            verify_kzg_for_blob_list(all_blobs.iter(), &self.kzg)
+                .map_err(AvailabilityCheckError::InvalidBlobs)?;
         }
 
         let all_data_columns = blocks
@@ -432,11 +414,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         // verify kzg for all data columns at once
         if !all_data_columns.is_empty() {
-            let kzg = self
-                .kzg
-                .as_ref()
-                .ok_or(AvailabilityCheckError::KzgNotInitialized)?;
-            verify_kzg_for_data_column_list(all_data_columns.iter(), kzg)?;
+            // TODO: Need to also attribute which specific block is faulty
+            verify_kzg_for_data_column_list_with_scoring(all_data_columns.iter(), &self.kzg)?;
         }
 
         for block in blocks {
@@ -636,6 +615,32 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
             }
         };
     }
+}
+
+fn verify_kzg_for_data_column_list_with_scoring<'a, E: EthSpec, I>(
+    data_column_iter: I,
+    kzg: &'a Kzg,
+) -> Result<(), AvailabilityCheckError>
+where
+    I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
+{
+    let Err(batch_err) = verify_kzg_for_data_column_list(data_column_iter.clone(), kzg) else {
+        return Ok(());
+    };
+
+    let data_columns = data_column_iter.collect::<Vec<_>>();
+    // Find which column is invalid. If len is 1 or 0 continue to default case below.
+    // If len > 1 at least one column MUST fail.
+    if data_columns.len() > 1 {
+        for data_column in data_columns {
+            if let Err(e) = verify_kzg_for_data_column(data_column.clone(), kzg) {
+                return Err(AvailabilityCheckError::InvalidColumn(data_column.index, e));
+            }
+        }
+    }
+
+    // len 0 should never happen
+    Err(AvailabilityCheckError::InvalidColumn(0, batch_err))
 }
 
 /// A fully available block that is ready to be imported into fork choice.

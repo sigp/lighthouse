@@ -122,7 +122,7 @@ impl ApiTester {
     }
 
     pub async fn new_from_config(config: ApiTesterConfig) -> Self {
-        let spec = config.spec;
+        let spec = Arc::new(config.spec);
 
         let mut harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.clone())
