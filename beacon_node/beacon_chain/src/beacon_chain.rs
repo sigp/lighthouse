@@ -3110,7 +3110,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .contains_block(&block_root)
         {
-            return Err(BlockError::BlockIsAlreadyKnown(block_root));
+            return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
         self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().flatten().map(Arc::as_ref));

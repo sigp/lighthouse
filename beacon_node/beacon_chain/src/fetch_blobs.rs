@@ -127,7 +127,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
 
         let logger = chain.log.clone();
         let block_cloned = block.clone();
-        let kzg = chain.kzg.clone().expect("KZG not initialized");
+        let kzg = chain.kzg.clone();
         let spec = chain.spec.clone();
         let blobs_cloned = fixed_blob_sidecar_list.clone();
         let chain_cloned = chain.clone();
