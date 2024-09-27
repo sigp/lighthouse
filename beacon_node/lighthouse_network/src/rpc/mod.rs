@@ -208,6 +208,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         &mut self,
         peer_id: PeerId,
         id: (ConnectionId, SubstreamId),
+        _request_id: RequestId,
         event: RpcResponse<E>,
     ) {
         self.events.push(ToSwarm::NotifyHandler {
@@ -429,6 +430,7 @@ where
                             self.send_response(
                                 peer_id,
                                 (conn_id, substream_id),
+                                id,
                                 RpcResponse::Error(
                                     RpcErrorResponse::RateLimited,
                                     "Rate limited. Request too large".into(),
@@ -444,6 +446,7 @@ where
                             self.send_response(
                                 peer_id,
                                 (conn_id, substream_id),
+                                id,
                                 RpcResponse::Error(
                                     RpcErrorResponse::RateLimited,
                                     format!("Wait {:?}", wait_time).into(),
@@ -462,6 +465,7 @@ where
                     self.send_response(
                         peer_id,
                         (conn_id, substream_id),
+                        id,
                         RpcResponse::Success(RpcSuccessResponse::Pong(Ping {
                             data: self.seq_number,
                         })),

@@ -28,6 +28,7 @@ use lighthouse_network::service::api_types::{
     SyncRequestId,
 };
 use lighthouse_network::types::SyncState;
+use lighthouse_network::NetworkConfig;
 use lighthouse_network::NetworkGlobals;
 use slog::info;
 use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};

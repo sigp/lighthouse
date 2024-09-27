@@ -946,9 +946,15 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Send a successful response to a peer over RPC.
-    pub fn send_response(&mut self, peer_id: PeerId, id: PeerRequestId, response: Response<E>) {
+    pub fn send_response(
+        &mut self,
+        peer_id: PeerId,
+        id: PeerRequestId,
+        request_id: rpc::RequestId,
+        response: Response<E>,
+    ) {
         self.eth2_rpc_mut()
-            .send_response(peer_id, id, response.into())
+            .send_response(peer_id, id, request_id, response.into())
     }
 
     /// Inform the peer that their request produced an error.
@@ -956,11 +962,16 @@ impl<E: EthSpec> Network<E> {
         &mut self,
         peer_id: PeerId,
         id: PeerRequestId,
+        request_id: rpc::RequestId,
         error: RpcErrorResponse,
         reason: String,
     ) {
-        self.eth2_rpc_mut()
-            .send_response(peer_id, id, RpcResponse::Error(error, reason.into()))
+        self.eth2_rpc_mut().send_response(
+            peer_id,
+            id,
+            request_id,
+            RpcResponse::Error(error, reason.into()),
+        )
     }
 
     /* Peer management functions */
@@ -1137,12 +1148,14 @@ impl<E: EthSpec> Network<E> {
         &mut self,
         _req: MetadataRequest<E>,
         id: PeerRequestId,
+        request_id: rpc::RequestId,
         peer_id: PeerId,
     ) {
         let metadata = self.network_globals.local_metadata.read().clone();
         // The encoder is responsible for sending the negotiated version of the metadata
         let event = RpcResponse::Success(RpcSuccessResponse::MetaData(metadata));
-        self.eth2_rpc_mut().send_response(peer_id, id, event);
+        self.eth2_rpc_mut()
+            .send_response(peer_id, id, request_id, event);
     }
 
     // RPC Propagation methods
@@ -1400,6 +1413,7 @@ impl<E: EthSpec> Network<E> {
                         self.send_meta_data_response(
                             req,
                             (connection_id, request.substream_id),
+                            request.id,
                             peer_id,
                         );
                         None

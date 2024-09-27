@@ -15,6 +15,7 @@ use beacon_processor::{
     work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend, DuplicateCache,
 };
 use futures::prelude::*;
+use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
     rpc,
@@ -196,23 +197,27 @@ impl<T: BeaconChainTypes> Router<T> {
         &mut self,
         peer_id: PeerId,
         request_id: PeerRequestId,
-        request: rpc::Request<E>,
+        rpc_request: rpc::Request<E>,
     ) {
         if !self.network_globals.peers.read().is_connected(&peer_id) {
-            debug!(self.log, "Dropping request of disconnected peer"; "peer_id" => %peer_id, "request" => ?request);
+            debug!(self.log, "Dropping request of disconnected peer"; "peer_id" => %peer_id, "request" => ?rpc_request);
             return;
         }
-        match request.r#type {
-            RequestType::Status(status_message) => {
-                self.on_status_request(peer_id, request_id, status_message)
-            }
+        match rpc_request.r#type {
+            RequestType::Status(status_message) => self.on_status_request(
+                peer_id,
+                request_id.0,
+                request_id.1,
+                rpc_request.id,
+                status_message,
+            ),
             RequestType::BlocksByRange(request) => {
                 // return just one block in case the step parameter is used. https://github.com/ethereum/consensus-specs/pull/2856
                 let mut count = *request.count();
                 if *request.step() > 1 {
                     count = 1;
                 }
-                let request = match request {
+                let blocks_request = match request {
                     methods::OldBlocksByRangeRequest::V1(req) => {
                         BlocksByRangeRequest::new_v1(req.start_slot, count)
                     }
@@ -222,41 +227,89 @@ impl<T: BeaconChainTypes> Router<T> {
                 };
 
                 self.handle_beacon_processor_send_result(
-                    self.network_beacon_processor
-                        .send_blocks_by_range_request(peer_id, request_id, request),
+                    self.network_beacon_processor.send_blocks_by_range_request(
+                        peer_id,
+                        request_id.0,
+                        request_id.1,
+                        rpc_request.id,
+                        blocks_request,
+                    ),
                 )
             }
             RequestType::BlocksByRoot(request) => self.handle_beacon_processor_send_result(
-                self.network_beacon_processor
-                    .send_blocks_by_roots_request(peer_id, request_id, request),
+                self.network_beacon_processor.send_blocks_by_roots_request(
+                    peer_id,
+                    request_id.0,
+                    request_id.1,
+                    rpc_request.id,
+                    request,
+                ),
             ),
             RequestType::BlobsByRange(request) => self.handle_beacon_processor_send_result(
-                self.network_beacon_processor
-                    .send_blobs_by_range_request(peer_id, request_id, request),
+                self.network_beacon_processor.send_blobs_by_range_request(
+                    peer_id,
+                    request_id.0,
+                    request_id.1,
+                    rpc_request.id,
+                    request,
+                ),
             ),
             RequestType::BlobsByRoot(request) => self.handle_beacon_processor_send_result(
-                self.network_beacon_processor
-                    .send_blobs_by_roots_request(peer_id, request_id, request),
+                self.network_beacon_processor.send_blobs_by_roots_request(
+                    peer_id,
+                    request_id.0,
+                    request_id.1,
+                    rpc_request.id,
+                    request,
+                ),
             ),
             RequestType::DataColumnsByRoot(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_data_columns_by_roots_request(peer_id, request_id, request),
+                    .send_data_columns_by_roots_request(
+                        peer_id,
+                        request_id.0,
+                        request_id.1,
+                        rpc_request.id,
+                        request,
+                    ),
             ),
             RequestType::DataColumnsByRange(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_data_columns_by_range_request(peer_id, request_id, request),
+                    .send_data_columns_by_range_request(
+                        peer_id,
+                        request_id.0,
+                        request_id.1,
+                        rpc_request.id,
+                        request,
+                    ),
             ),
             RequestType::LightClientBootstrap(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_light_client_bootstrap_request(peer_id, request_id, request),
+                    .send_light_client_bootstrap_request(
+                        peer_id,
+                        request_id.0,
+                        request_id.1,
+                        rpc_request.id,
+                        request,
+                    ),
             ),
             RequestType::LightClientOptimisticUpdate => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_light_client_optimistic_update_request(peer_id, request_id),
+                    .send_light_client_optimistic_update_request(
+                        peer_id,
+                        request_id.0,
+                        request_id.1,
+                        rpc_request.id,
+                    ),
             ),
             RequestType::LightClientFinalityUpdate => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
-                    .send_light_client_finality_update_request(peer_id, request_id),
+                    .send_light_client_finality_update_request(
+                        peer_id,
+                        request_id.0,
+                        request_id.1,
+                        rpc_request.id,
+                    ),
             ),
             _ => {}
         }
@@ -516,7 +569,9 @@ impl<T: BeaconChainTypes> Router<T> {
     pub fn on_status_request(
         &mut self,
         peer_id: PeerId,
-        request_id: PeerRequestId,
+        connection_id: ConnectionId,
+        substream_id: SubstreamId,
+        request_id: RequestId,
         status: StatusMessage,
     ) {
         debug!(self.log, "Received Status Request"; "peer_id" => %peer_id, &status);
@@ -525,6 +580,7 @@ impl<T: BeaconChainTypes> Router<T> {
         self.network.send_response(
             peer_id,
             Response::Status(status_message(&self.chain)),
+            (connection_id, substream_id),
             request_id,
         );
 
@@ -777,8 +833,15 @@ impl<E: EthSpec> HandlerNetworkContext<E> {
     }
 
     /// Sends a response to the network task.
-    pub fn send_response(&mut self, peer_id: PeerId, response: Response<E>, id: PeerRequestId) {
+    pub fn send_response(
+        &mut self,
+        peer_id: PeerId,
+        response: Response<E>,
+        id: PeerRequestId,
+        request_id: RequestId,
+    ) {
         self.inform_network(NetworkMessage::SendResponse {
+            request_id,
             peer_id,
             id,
             response,

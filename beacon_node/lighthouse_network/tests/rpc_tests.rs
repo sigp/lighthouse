@@ -131,7 +131,7 @@ fn test_tcp_status_rpc() {
                         if request.r#type == rpc_request {
                             // send the response
                             debug!(log, "Receiver Received");
-                            receiver.send_response(peer_id, id, rpc_response.clone());
+                            receiver.send_response(peer_id, id, request.id, rpc_response.clone());
                         }
                     }
                     _ => {} // Ignore other events
@@ -265,10 +265,20 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                                 } else {
                                     rpc_response_bellatrix_small.clone()
                                 };
-                                receiver.send_response(peer_id, id, rpc_response.clone());
+                                receiver.send_response(
+                                    peer_id,
+                                    id,
+                                    request.id,
+                                    rpc_response.clone(),
+                                );
                             }
                             // send the stream termination
-                            receiver.send_response(peer_id, id, Response::BlocksByRange(None));
+                            receiver.send_response(
+                                peer_id,
+                                id,
+                                request.id,
+                                Response::BlocksByRange(None),
+                            );
                         }
                     }
                     _ => {} // Ignore other events
@@ -378,10 +388,20 @@ fn test_blobs_by_range_chunked_rpc() {
                             for _ in 0..messages_to_send {
                                 // Send first third of responses as base blocks,
                                 // second as altair and third as bellatrix.
-                                receiver.send_response(peer_id, id, rpc_response.clone());
+                                receiver.send_response(
+                                    peer_id,
+                                    id,
+                                    request.id,
+                                    rpc_response.clone(),
+                                );
                             }
                             // send the stream termination
-                            receiver.send_response(peer_id, id, Response::BlobsByRange(None));
+                            receiver.send_response(
+                                peer_id,
+                                id,
+                                request.id,
+                                Response::BlobsByRange(None),
+                            );
                         }
                     }
                     _ => {} // Ignore other events
@@ -475,10 +495,20 @@ fn test_tcp_blocks_by_range_over_limit() {
                             warn!(log, "Receiver got request");
                             for _ in 0..messages_to_send {
                                 let rpc_response = rpc_response_bellatrix_large.clone();
-                                receiver.send_response(peer_id, id, rpc_response.clone());
+                                receiver.send_response(
+                                    peer_id,
+                                    id,
+                                    request.id,
+                                    rpc_response.clone(),
+                                );
                             }
                             // send the stream termination
-                            receiver.send_response(peer_id, id, Response::BlocksByRange(None));
+                            receiver.send_response(
+                                peer_id,
+                                id,
+                                request.id,
+                                Response::BlocksByRange(None),
+                            );
                         }
                     }
                     _ => {} // Ignore other events
@@ -601,7 +631,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                         if request.r#type == rpc_request {
                             // send the response
                             warn!(log, "Receiver got request");
-                            message_info = Some((peer_id, id));
+                            message_info = Some((peer_id, id, request.id));
                         }
                     }
                     futures::future::Either::Right((_, _)) => {} // The timeout hit, send messages if required
@@ -611,8 +641,8 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                 // if we need to send messages send them here. This will happen after a delay
                 if message_info.is_some() {
                     messages_sent += 1;
-                    let (peer_id, stream_id) = message_info.as_ref().unwrap();
-                    receiver.send_response(*peer_id, *stream_id, rpc_response.clone());
+                    let (peer_id, stream_id, request_id) = message_info.as_ref().unwrap();
+                    receiver.send_response(*peer_id, *stream_id, *request_id, rpc_response.clone());
                     debug!(log, "Sending message {}", messages_sent);
                     if messages_sent == messages_to_send + extra_messages_to_send {
                         // stop sending messages
@@ -721,10 +751,20 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                             warn!(log, "Receiver got request");
 
                             for _ in 1..=messages_to_send {
-                                receiver.send_response(peer_id, id, rpc_response.clone());
+                                receiver.send_response(
+                                    peer_id,
+                                    id,
+                                    request.id,
+                                    rpc_response.clone(),
+                                );
                             }
                             // send the stream termination
-                            receiver.send_response(peer_id, id, Response::BlocksByRange(None));
+                            receiver.send_response(
+                                peer_id,
+                                id,
+                                request.id,
+                                Response::BlocksByRange(None),
+                            );
                         }
                     }
                     _ => {} // Ignore other events
@@ -860,11 +900,16 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                                 } else {
                                     rpc_response_bellatrix_small.clone()
                                 };
-                                receiver.send_response(peer_id, id, rpc_response);
+                                receiver.send_response(peer_id, id, request.id, rpc_response);
                                 debug!(log, "Sending message");
                             }
                             // send the stream termination
-                            receiver.send_response(peer_id, id, Response::BlocksByRange(None));
+                            receiver.send_response(
+                                peer_id,
+                                id,
+                                request.id,
+                                Response::BlocksByRange(None),
+                            );
                             debug!(log, "Send stream term");
                         }
                     }
@@ -994,7 +1039,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                         if request.r#type == rpc_request {
                             // send the response
                             warn!(log, "Receiver got request");
-                            message_info = Some((peer_id, id));
+                            message_info = Some((peer_id, id, request.id));
                         }
                     }
                     futures::future::Either::Right((_, _)) => {} // The timeout hit, send messages if required
@@ -1004,8 +1049,8 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                 // if we need to send messages send them here. This will happen after a delay
                 if message_info.is_some() {
                     messages_sent += 1;
-                    let (peer_id, stream_id) = message_info.as_ref().unwrap();
-                    receiver.send_response(*peer_id, *stream_id, rpc_response.clone());
+                    let (peer_id, stream_id, request_id) = message_info.as_ref().unwrap();
+                    receiver.send_response(*peer_id, *stream_id, *request_id, rpc_response.clone());
                     debug!(log, "Sending message {}", messages_sent);
                     if messages_sent == messages_to_send + extra_messages_to_send {
                         // stop sending messages
