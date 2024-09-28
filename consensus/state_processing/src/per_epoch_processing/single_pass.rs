@@ -82,6 +82,7 @@ struct RewardsAndPenaltiesContext {
 struct SlashingsContext {
     adjusted_total_slashing_balance: u64,
     target_withdrawable_epoch: Epoch,
+    penalty_per_effective_balance_increment: u64,
 }
 
 struct PendingBalanceDepositsContext {
@@ -775,9 +776,16 @@ impl SlashingsContext {
             .current_epoch
             .safe_add(E::EpochsPerSlashingsVector::to_u64().safe_div(2)?)?;
 
+        let penalty_per_effective_balance_increment = adjusted_total_slashing_balance.safe_div(
+            state_ctxt
+                .total_active_balance
+                .safe_div(spec.effective_balance_increment)?,
+        )?;
+
         Ok(Self {
             adjusted_total_slashing_balance,
             target_withdrawable_epoch,
+            penalty_per_effective_balance_increment,
         })
     }
 }
@@ -792,13 +800,10 @@ fn process_single_slashing(
     if validator.slashed && slashings_ctxt.target_withdrawable_epoch == validator.withdrawable_epoch
     {
         let increment = spec.effective_balance_increment;
-        let penalty_numerator = validator
-            .effective_balance
-            .safe_div(increment)?
-            .safe_mul(slashings_ctxt.adjusted_total_slashing_balance)?;
-        let penalty = penalty_numerator
-            .safe_div(state_ctxt.total_active_balance)?
-            .safe_mul(increment)?;
+        let effective_balance_increments = validator.effective_balance.safe_div(increment)?;
+        let penalty = slashings_ctxt
+            .penalty_per_effective_balance_increment
+            .safe_mul(effective_balance_increments)?;
 
         *balance.make_mut()? = balance.saturating_sub(penalty);
     }
