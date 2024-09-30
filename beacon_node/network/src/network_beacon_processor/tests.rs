@@ -13,7 +13,7 @@ use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
-use beacon_processor::{work_reprocessing_queue::*, *};
+use beacon_processor::*;
 use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::rpc::SubstreamId;
@@ -47,6 +47,13 @@ const SEQ_NUMBER: u64 = 0;
 
 /// The default time to wait for `BeaconProcessor` events.
 const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
+
+// TODO(beacon-processor) import these two instead of defining
+/// For how long to queue rpc blocks before sending them back for reprocessing.
+pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(4);
+
+/// For how long to queue aggregated and unaggregated attestations for re-processing.
+pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 
 /// Provides utilities for testing the `BeaconProcessor`.
 struct TestRig {
@@ -232,6 +239,8 @@ impl TestRig {
         };
         let network_beacon_processor = Arc::new(network_beacon_processor);
 
+        let beacon_state = &chain.canonical_head.cached_head().snapshot.beacon_state;
+
         let beacon_processor = BeaconProcessor {
             network_globals,
             executor,
@@ -240,17 +249,11 @@ impl TestRig {
             log: log.clone(),
         }
         .spawn_manager(
+            beacon_state,
             beacon_processor_rx,
-            work_reprocessing_tx,
-            work_reprocessing_rx,
             Some(work_journal_tx),
             harness.chain.slot_clock.clone(),
-            chain.spec.maximum_gossip_clock_disparity(),
-            BeaconProcessorQueueLengths::from_state(
-                &chain.canonical_head.cached_head().snapshot.beacon_state,
-                &chain.spec,
-            )
-            .unwrap(),
+            &chain.spec,
         );
 
         assert!(beacon_processor.is_ok());
