@@ -544,7 +544,7 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
             Work::Reprocess(work_event) => {
                 if let Err(e) = reprocess_work_tx.try_send(work_event) {
                     error!(
-                        self.beacon_processor.log, 
+                        self.beacon_processor.log,
                         "Failed to reprocess work event";
                         "error" => %e
                     )
