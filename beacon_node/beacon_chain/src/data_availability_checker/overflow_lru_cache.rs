@@ -637,7 +637,7 @@ mod test {
 
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         log: Logger,
     ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
         let hot_path = db_path.path().join("hot_db");
@@ -674,6 +674,7 @@ mod test {
         spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
         spec.capella_fork_epoch = Some(capella_fork_epoch);
         spec.deneb_fork_epoch = Some(deneb_fork_epoch);
+        let spec = Arc::new(spec);
 
         let chain_store = get_store_with_spec::<E>(db_path, spec.clone(), log.clone());
         let validators_keypairs =
@@ -817,7 +818,7 @@ mod test {
         let log = test_logger();
         let chain_db_path = tempdir().expect("should get temp dir");
         let harness = get_deneb_chain(log.clone(), &chain_db_path).await;
-        let spec = Arc::new(harness.spec.clone());
+        let spec = harness.spec.clone();
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
         let cache = Arc::new(

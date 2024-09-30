@@ -21,7 +21,7 @@ use lighthouse_network::{
     discv5::enr::{self, CombinedKey},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
-    Client, MessageId, NetworkGlobals, PeerId, Response,
+    Client, MessageId, NetworkConfig, NetworkGlobals, PeerId, Response,
 };
 use slot_clock::SlotClock;
 use std::iter::Iterator;
@@ -91,6 +91,7 @@ impl TestRig {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
+        let spec = Arc::new(spec);
 
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.clone())
@@ -204,12 +205,14 @@ impl TestRig {
         });
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = enr::Enr::builder().build(&enr_key).unwrap();
+        let network_config = Arc::new(NetworkConfig::default());
         let network_globals = Arc::new(NetworkGlobals::new(
             enr,
             meta_data,
             vec![],
             false,
             &log,
+            network_config,
             spec,
         ));
 

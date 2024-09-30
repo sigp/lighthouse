@@ -229,7 +229,7 @@ pub struct DutiesService<T, E: EthSpec> {
     /// The runtime for spawning tasks.
     pub context: RuntimeContext<E>,
     /// The current chain spec.
-    pub spec: ChainSpec,
+    pub spec: Arc<ChainSpec>,
     //// Whether we permit large validator counts in the metrics.
     pub enable_high_validator_count_metrics: bool,
     /// If this validator is running in distributed mode.
