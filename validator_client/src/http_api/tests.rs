@@ -80,7 +80,7 @@ impl ApiTester {
         config.validator_dir = validator_dir.path().into();
         config.secrets_dir = secrets_dir.path().into();
 
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
 
         let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
@@ -121,7 +121,7 @@ impl ApiTester {
             validator_store: Some(validator_store.clone()),
             graffiti_file: None,
             graffiti_flag: Some(Graffiti::default()),
-            spec: E::default_spec(),
+            spec: E::default_spec().into(),
             config: HttpConfig {
                 enabled: true,
                 listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),

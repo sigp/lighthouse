@@ -4,9 +4,7 @@ use crate::discovery::enr_ext::EnrExt;
 use crate::discovery::peer_id_to_node_id;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::service::TARGET_SUBNET_PEERS;
-use crate::{error, metrics, Gossipsub};
-use crate::{NetworkGlobals, PeerId};
-use crate::{Subnet, SubnetDiscovery};
+use crate::{error, metrics, Gossipsub, NetworkGlobals, PeerId, Subnet, SubnetDiscovery};
 use delay_map::HashSetDelay;
 use discv5::Enr;
 use libp2p::identify::Info as IdentifyInfo;
@@ -1452,6 +1450,7 @@ enum ConnectingType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::NetworkConfig;
     use slog::{o, Drain};
     use types::MainnetEthSpec as E;
 
@@ -1468,15 +1467,7 @@ mod tests {
     }
 
     async fn build_peer_manager(target_peer_count: usize) -> PeerManager<E> {
-        let config = config::Config {
-            target_peer_count,
-            discovery_enabled: false,
-            ..Default::default()
-        };
-        let log = build_log(slog::Level::Debug, false);
-        let spec = E::default_spec();
-        let globals = NetworkGlobals::new_test_globals(vec![], &log, spec);
-        PeerManager::new(config, Arc::new(globals), &log).unwrap()
+        build_peer_manager_with_trusted_peers(vec![], target_peer_count).await
     }
 
     async fn build_peer_manager_with_trusted_peers(
@@ -1488,9 +1479,13 @@ mod tests {
             discovery_enabled: false,
             ..Default::default()
         };
+        let network_config = Arc::new(NetworkConfig {
+            target_peers: target_peer_count,
+            ..Default::default()
+        });
         let log = build_log(slog::Level::Debug, false);
-        let spec = E::default_spec();
-        let globals = NetworkGlobals::new_test_globals(trusted_peers, &log, spec);
+        let spec = Arc::new(E::default_spec());
+        let globals = NetworkGlobals::new_test_globals(trusted_peers, &log, network_config, spec);
         PeerManager::new(config, Arc::new(globals), &log).unwrap()
     }
 

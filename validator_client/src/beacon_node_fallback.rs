@@ -376,7 +376,7 @@ pub struct BeaconNodeFallback<T, E> {
     distance_tiers: BeaconNodeSyncDistanceTiers,
     slot_clock: Option<T>,
     broadcast_topics: Vec<ApiTopic>,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
     log: Logger,
 }
 
@@ -385,7 +385,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         candidates: Vec<CandidateBeaconNode<E>>,
         config: Config,
         broadcast_topics: Vec<ApiTopic>,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         log: Logger,
     ) -> Self {
         let distance_tiers = config.sync_tolerances;

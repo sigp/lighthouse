@@ -79,7 +79,7 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub secrets_dir: Option<PathBuf>,
     pub graffiti_file: Option<GraffitiFile>,
     pub graffiti_flag: Option<Graffiti>,
-    pub spec: ChainSpec,
+    pub spec: Arc<ChainSpec>,
     pub config: Config,
     pub log: Logger,
     pub sse_logging_components: Option<SSELoggingComponents>,
@@ -230,7 +230,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let inner_slot_clock = ctx.slot_clock.clone();
     let slot_clock_filter = warp::any().map(move || inner_slot_clock.clone());
 
-    let inner_spec = Arc::new(ctx.spec.clone());
+    let inner_spec = ctx.spec.clone();
     let spec_filter = warp::any().map(move || inner_spec.clone());
 
     let api_token_path_inner = api_token_path.clone();

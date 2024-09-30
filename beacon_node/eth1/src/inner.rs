@@ -9,6 +9,7 @@ use parking_lot::RwLock;
 use ssz::four_byte_option_impl;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use std::sync::Arc;
 use superstruct::superstruct;
 use types::{ChainSpec, DepositTreeSnapshot, Eth1Data};
 
@@ -51,7 +52,7 @@ pub struct Inner {
     pub to_finalize: RwLock<Option<Eth1Data>>,
     pub config: RwLock<Config>,
     pub remote_head_block: RwLock<Option<Eth1Block>>,
-    pub spec: ChainSpec,
+    pub spec: Arc<ChainSpec>,
 }
 
 impl Inner {
@@ -71,7 +72,7 @@ impl Inner {
     }
 
     /// Recover `Inner` given byte representation of eth1 deposit and block caches.
-    pub fn from_bytes(bytes: &[u8], config: Config, spec: ChainSpec) -> Result<Self, String> {
+    pub fn from_bytes(bytes: &[u8], config: Config, spec: Arc<ChainSpec>) -> Result<Self, String> {
         SszEth1Cache::from_ssz_bytes(bytes)
             .map_err(|e| format!("Ssz decoding error: {:?}", e))?
             .to_inner(config, spec)
@@ -109,7 +110,7 @@ impl SszEth1Cache {
         }
     }
 
-    pub fn to_inner(&self, config: Config, spec: ChainSpec) -> Result<Inner, String> {
+    pub fn to_inner(&self, config: Config, spec: Arc<ChainSpec>) -> Result<Inner, String> {
         Ok(Inner {
             block_cache: RwLock::new(self.block_cache.clone()),
             deposit_cache: RwLock::new(DepositUpdater {

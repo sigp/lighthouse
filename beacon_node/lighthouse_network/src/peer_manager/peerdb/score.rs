@@ -7,6 +7,7 @@
 //! The scoring algorithms are currently experimental.
 use crate::service::gossipsub_scoring_parameters::GREYLIST_THRESHOLD as GOSSIPSUB_GREYLIST_THRESHOLD;
 use serde::Serialize;
+use std::cmp::Ordering;
 use std::sync::LazyLock;
 use std::time::Instant;
 use strum::AsRefStr;
@@ -260,7 +261,7 @@ impl RealScore {
     }
 }
 
-#[derive(PartialEq, Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub enum Score {
     Max,
     Real(RealScore),
@@ -323,21 +324,25 @@ impl Score {
             Self::Real(score) => score.is_good_gossipsub_peer(),
         }
     }
-}
 
-impl Eq for Score {}
-
-impl PartialOrd for Score {
-    fn partial_cmp(&self, other: &Score) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Score {
-    fn cmp(&self, other: &Score) -> std::cmp::Ordering {
-        self.score()
-            .partial_cmp(&other.score())
-            .unwrap_or(std::cmp::Ordering::Equal)
+    /// Instead of implementing `Ord` for `Score`, as we are underneath dealing with f64,
+    /// follow std convention and impl `Score::total_cmp` similar to `f64::total_cmp`.
+    pub fn total_cmp(&self, other: &Score, reverse: bool) -> Ordering {
+        match self.score().partial_cmp(&other.score()) {
+            Some(v) => {
+                // Only reverse when none of the items is NAN,
+                // so that NAN's are never considered.
+                if reverse {
+                    v.reverse()
+                } else {
+                    v
+                }
+            }
+            None if self.score().is_nan() && !other.score().is_nan() => Ordering::Less,
+            None if !self.score().is_nan() && other.score().is_nan() => Ordering::Greater,
+            // Both are NAN.
+            None => Ordering::Equal,
+        }
     }
 }
 

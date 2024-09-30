@@ -96,7 +96,7 @@ impl ApiTester {
             ..Default::default()
         };
 
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
 
         let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
@@ -110,7 +110,7 @@ impl ApiTester {
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
-            spec,
+            spec.clone(),
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
             slot_clock.clone(),
             &config,
@@ -133,7 +133,7 @@ impl ApiTester {
             validator_store: Some(validator_store.clone()),
             graffiti_file: None,
             graffiti_flag: Some(Graffiti::default()),
-            spec: E::default_spec(),
+            spec,
             config: http_config,
             log,
             sse_logging_components: None,

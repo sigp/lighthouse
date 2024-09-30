@@ -14,7 +14,7 @@ use libp2p::swarm::{
 use libp2p::swarm::{ConnectionClosed, FromSwarm, SubstreamProtocol, THandlerInEvent};
 use libp2p::PeerId;
 use rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr};
-use slog::{crit, debug, o};
+use slog::{crit, debug, o, trace};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -106,7 +106,7 @@ pub struct RPCMessage<Id, E: EthSpec> {
     /// Handler managing this message.
     pub conn_id: ConnectionId,
     /// The message that was sent.
-    pub event: HandlerEvent<Id, E>,
+    pub message: Result<RPCReceived<Id, E>, HandlerErr<Id>>,
 }
 
 type BehaviourAction<Id, E> = ToSwarm<RPCMessage<Id, E>, RPCSend<Id, E>>;
@@ -132,6 +132,8 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
     log: slog::Logger,
     /// Networking constant values
     network_params: NetworkParams,
+    /// A sequential counter indicating when data gets modified.
+    seq_number: u64,
 }
 
 impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
@@ -142,6 +144,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
         log: slog::Logger,
         network_params: NetworkParams,
+        seq_number: u64,
     ) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
 
@@ -163,6 +166,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             enable_light_client_server,
             log,
             network_params,
+            seq_number,
         }
     }
 
@@ -213,6 +217,19 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             handler: NotifyHandler::Any,
             event: RPCSend::Shutdown(id, reason),
         });
+    }
+
+    pub fn update_seq_number(&mut self, seq_number: u64) {
+        self.seq_number = seq_number
+    }
+
+    /// Send a Ping request to the destination `PeerId` via `ConnectionId`.
+    pub fn ping(&mut self, peer_id: PeerId, id: Id) {
+        let ping = Ping {
+            data: self.seq_number,
+        };
+        trace!(self.log, "Sending Ping"; "peer_id" => %peer_id);
+        self.send_request(peer_id, id, OutboundRequest::Ping(ping));
     }
 }
 
@@ -311,7 +328,7 @@ where
                     let error_msg = ToSwarm::GenerateEvent(RPCMessage {
                         peer_id,
                         conn_id: connection_id,
-                        event: HandlerEvent::Err(HandlerErr::Outbound {
+                        message: Err(HandlerErr::Outbound {
                             id,
                             proto,
                             error: RPCError::Disconnected,
@@ -332,7 +349,7 @@ where
                     *event = ToSwarm::GenerateEvent(RPCMessage {
                         peer_id,
                         conn_id: connection_id,
-                        event: HandlerEvent::Err(HandlerErr::Outbound {
+                        message: Err(HandlerErr::Outbound {
                             id: *request_id,
                             proto: req.versioned_protocol().protocol(),
                             error: RPCError::Disconnected,
@@ -351,18 +368,10 @@ where
         event: <Self::ConnectionHandler as ConnectionHandler>::ToBehaviour,
     ) {
         match event {
-            HandlerEvent::Ok(RPCReceived::Request(ref id, ref req)) => {
+            HandlerEvent::Ok(RPCReceived::Request(id, req)) => {
                 if let Some(limiter) = self.limiter.as_mut() {
                     // check if the request is conformant to the quota
-                    match limiter.allows(&peer_id, req) {
-                        Ok(()) => {
-                            // send the event to the user
-                            self.events.push(ToSwarm::GenerateEvent(RPCMessage {
-                                peer_id,
-                                conn_id,
-                                event,
-                            }))
-                        }
+                    match limiter.allows(&peer_id, &req) {
                         Err(RateLimitedErr::TooLarge) => {
                             // we set the batch sizes, so this is a coding/config err for most protocols
                             let protocol = req.versioned_protocol().protocol();
@@ -384,12 +393,13 @@ where
                             // the handler upon receiving the error code will send it back to the behaviour
                             self.send_response(
                                 peer_id,
-                                (conn_id, *id),
+                                (conn_id, id),
                                 RPCCodedResponse::Error(
                                     RPCResponseErrorCode::RateLimited,
                                     "Rate limited. Request too large".into(),
                                 ),
                             );
+                            return;
                         }
                         Err(RateLimitedErr::TooSoon(wait_time)) => {
                             debug!(self.log, "Request exceeds the rate limit";
@@ -398,22 +408,49 @@ where
                             // the handler upon receiving the error code will send it back to the behaviour
                             self.send_response(
                                 peer_id,
-                                (conn_id, *id),
+                                (conn_id, id),
                                 RPCCodedResponse::Error(
                                     RPCResponseErrorCode::RateLimited,
                                     format!("Wait {:?}", wait_time).into(),
                                 ),
                             );
+                            return;
                         }
+                        // No rate limiting, continue.
+                        Ok(_) => {}
                     }
-                } else {
-                    // No rate limiting, send the event to the user
-                    self.events.push(ToSwarm::GenerateEvent(RPCMessage {
-                        peer_id,
-                        conn_id,
-                        event,
-                    }))
                 }
+                // If we received a Ping, we queue a Pong response.
+                if let InboundRequest::Ping(_) = req {
+                    trace!(self.log, "Received Ping, queueing Pong";"connection_id" => %conn_id, "peer_id" => %peer_id);
+                    self.send_response(
+                        peer_id,
+                        (conn_id, id),
+                        RPCCodedResponse::Success(RPCResponse::Pong(Ping {
+                            data: self.seq_number,
+                        })),
+                    );
+                }
+
+                self.events.push(ToSwarm::GenerateEvent(RPCMessage {
+                    peer_id,
+                    conn_id,
+                    message: Ok(RPCReceived::Request(id, req)),
+                }));
+            }
+            HandlerEvent::Ok(rpc) => {
+                self.events.push(ToSwarm::GenerateEvent(RPCMessage {
+                    peer_id,
+                    conn_id,
+                    message: Ok(rpc),
+                }));
+            }
+            HandlerEvent::Err(err) => {
+                self.events.push(ToSwarm::GenerateEvent(RPCMessage {
+                    peer_id,
+                    conn_id,
+                    message: Err(err),
+                }));
             }
             HandlerEvent::Close(_) => {
                 // Handle the close event here.
@@ -421,13 +458,6 @@ where
                     peer_id,
                     connection: CloseConnection::All,
                 });
-            }
-            _ => {
-                self.events.push(ToSwarm::GenerateEvent(RPCMessage {
-                    peer_id,
-                    conn_id,
-                    event,
-                }));
             }
         }
     }
@@ -463,8 +493,8 @@ where
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
         serializer.emit_arguments("peer_id", &format_args!("{}", self.peer_id))?;
-        match &self.event {
-            HandlerEvent::Ok(received) => {
+        match &self.message {
+            Ok(received) => {
                 let (msg_kind, protocol) = match received {
                     RPCReceived::Request(_, req) => {
                         ("request", req.versioned_protocol().protocol())
@@ -485,16 +515,13 @@ where
                 serializer.emit_str("msg_kind", msg_kind)?;
                 serializer.emit_arguments("protocol", &format_args!("{}", protocol))?;
             }
-            HandlerEvent::Err(error) => {
+            Err(error) => {
                 let (msg_kind, protocol) = match &error {
                     HandlerErr::Inbound { proto, .. } => ("inbound_err", *proto),
                     HandlerErr::Outbound { proto, .. } => ("outbound_err", *proto),
                 };
                 serializer.emit_str("msg_kind", msg_kind)?;
                 serializer.emit_arguments("protocol", &format_args!("{}", protocol))?;
-            }
-            HandlerEvent::Close(err) => {
-                serializer.emit_arguments("handler_close", &format_args!("{}", err))?;
             }
         };
 
