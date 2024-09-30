@@ -19,8 +19,8 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig, ServerSentEventHandler,
 };
 use beacon_chain::{Kzg, LightClientProducerEvent};
-use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::BeaconProcessorConfig;
+use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2::{
@@ -864,7 +864,7 @@ where
         if let Some(beacon_chain) = self.beacon_chain.as_ref() {
             if let Some(network_globals) = &self.network_globals {
                 let beacon_processor_context = runtime_context.service_context("bproc".into());
-                let beacon_state =  &beacon_chain
+                let beacon_state = &beacon_chain
                     .canonical_head
                     .cached_head()
                     .snapshot
@@ -881,7 +881,7 @@ where
                     beacon_processor_channels.beacon_processor_rx,
                     None,
                     beacon_chain.slot_clock.clone(),
-                    &beacon_chain.spec
+                    &beacon_chain.spec,
                 )?;
             }
 

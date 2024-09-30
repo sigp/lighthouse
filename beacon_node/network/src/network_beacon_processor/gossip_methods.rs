@@ -312,7 +312,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.subnet_id,
                 package.should_import,
                 package.seen_timestamp,
-                true
+                allow_reprocess,
             );
         }
     }

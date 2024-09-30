@@ -175,12 +175,12 @@ impl<E: EthSpec> TaskSpawner<E> {
                 ));
             };
 
-            return Ok(());
+            Ok(())
         } else {
-            return Err(warp_utils::reject::custom_server_error(
+            Err(warp_utils::reject::custom_server_error(
                 "The beacon processor is unavailable".to_string(),
-            ));
-        };
+            ))
+        }
     }
 }
 

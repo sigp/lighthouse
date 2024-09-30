@@ -39,31 +39,25 @@
 //! task.
 mod scheduler;
 use crate::scheduler::interface::SchedulerType;
-use futures::stream::{Stream, StreamExt};
-use futures::task::Poll;
 use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
-use logging::TimeLatch;
 use parking_lot::Mutex;
 use scheduler::interface::Scheduler;
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, trace, warn, Logger};
+use slog::{warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp;
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::Context;
 use std::time::Duration;
 use strum::AsRefStr;
 use strum::IntoStaticStr;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
-use types::{
-    Attestation, BeaconState, ChainSpec, Hash256, RelativeEpoch, SignedAggregateAndProof, SubnetId,
-};
+use types::{Attestation, BeaconState, ChainSpec, Hash256, SignedAggregateAndProof, SubnetId};
 use types::{EthSpec, Slot};
 mod metrics;
 
@@ -80,9 +74,6 @@ const MAX_IDLE_QUEUE_LEN: usize = 16_384;
 
 /// The maximum size of the channel for re-processing work events.
 const DEFAULT_MAX_SCHEDULED_WORK_QUEUE_LEN: usize = 3 * DEFAULT_MAX_WORK_EVENT_QUEUE_LEN / 4;
-
-/// The name of the manager tokio task.
-const MANAGER_TASK_NAME: &str = "beacon_processor_manager";
 
 /// The name of the worker tokio tasks.
 const WORKER_TASK_NAME: &str = "beacon_processor_worker";
@@ -597,8 +588,13 @@ impl<E: EthSpec> BeaconProcessor<E> {
         slot_clock: S,
         spec: &ChainSpec,
     ) -> Result<(), String> {
-        let scheduler = SchedulerType::<E, S>::new(self, beacon_state, event_rx, spec)?;
-        scheduler.run(work_journal_tx, slot_clock, spec.maximum_gossip_clock_disparity())
+        let scheduler = SchedulerType::<E, S>::new(self, beacon_state, spec)?;
+        scheduler.run(
+            event_rx,
+            work_journal_tx,
+            slot_clock,
+            spec.maximum_gossip_clock_disparity(),
+        )
     }
 }
 

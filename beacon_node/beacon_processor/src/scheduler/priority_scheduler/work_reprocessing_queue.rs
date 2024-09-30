@@ -10,8 +10,13 @@
 //!
 //! Aggregated and unaggregated attestations that failed verification due to referencing an unknown
 //! block will be re-queued until their block is imported, or until they expire.
-use crate::{metrics, IgnoredRpcBlock, QueuedAggregate, QueuedBackfillBatch, QueuedGossipBlock, QueuedLightClientUpdate, QueuedRpcBlock, QueuedSamplingRequest, QueuedUnaggregate, ReprocessQueueMessage};
-use crate::{AsyncFn, BlockingFn, Work, WorkEvent};
+use crate::ReprocessQueueMessage::*;
+use crate::{
+    metrics, IgnoredRpcBlock, QueuedAggregate, QueuedBackfillBatch, QueuedGossipBlock,
+    QueuedLightClientUpdate, QueuedRpcBlock, QueuedSamplingRequest, QueuedUnaggregate,
+    ReprocessQueueMessage,
+};
+use crate::{Work, WorkEvent};
 use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
@@ -25,12 +30,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
 use std::time::Duration;
-use strum::AsRefStr;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
-use types::{EthSpec, Hash256, Slot};
-use crate::ReprocessQueueMessage::*;
+use types::{EthSpec, Hash256};
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
@@ -82,7 +85,6 @@ pub const BACKFILL_SCHEDULE_IN_SLOT: [(u32, u32); 3] = [
     (4, 5),
 ];
 
-
 /// Events sent by the scheduler once they are ready for re-processing.
 pub enum ReadyWork {
     Block(QueuedGossipBlock),
@@ -94,7 +96,6 @@ pub enum ReadyWork {
     SamplingRequest(QueuedSamplingRequest),
     BackfillSync(QueuedBackfillBatch),
 }
-
 
 impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
     fn from(ready_work: ReadyWork) -> Self {
@@ -1022,6 +1023,7 @@ mod tests {
     use std::ops::Add;
     use std::sync::Arc;
     use task_executor::test_utils::TestRuntime;
+    use types::Slot;
 
     #[test]
     fn backfill_processing_schedule_calculation() {

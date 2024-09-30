@@ -203,11 +203,7 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         beacon_processor_rx,
     } = BeaconProcessorChannels::new(&beacon_processor_config);
 
-    let beacon_state =  &chain
-        .canonical_head
-        .cached_head()
-        .snapshot
-        .beacon_state;
+    let beacon_state = &chain.canonical_head.cached_head().snapshot.beacon_state;
 
     let beacon_processor_send = beacon_processor_tx;
     BeaconProcessor {

@@ -5,6 +5,7 @@ use beacon_chain::{
     ChainConfig,
 };
 use beacon_processor::ReprocessQueueMessage;
+use beacon_processor::{Work, WorkEvent};
 use eth2::types::ProduceBlockV3Response;
 use eth2::types::{DepositContractData, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
@@ -21,7 +22,6 @@ use types::{
     Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, FixedBytesExtended, ForkName,
     Hash256, MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot, Uint256,
 };
-use beacon_processor::{WorkEvent, Work};
 
 type E = MainnetEthSpec;
 
@@ -923,9 +923,10 @@ async fn queue_attestations_from_http() {
         .try_send(WorkEvent {
             drop_during_sync: false,
             work: Work::Reprocess(ReprocessQueueMessage::BlockImported {
-            block_root,
-            parent_root,
-        })})
+                block_root,
+                parent_root,
+            }),
+        })
         .unwrap();
 
     attestation_future.await.unwrap();
