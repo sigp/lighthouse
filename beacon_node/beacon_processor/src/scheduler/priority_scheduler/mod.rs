@@ -93,8 +93,6 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
 /// The name of the manager tokio task.
 const MANAGER_TASK_NAME: &str = "beacon_processor_manager";
 
-// TODO(beacon-processor) this will be impl specific
-
 // Backend trait inits a channel, a run function
 // A channel trait has send_work, reprocess_work etc.
 pub struct Scheduler<E: EthSpec, S: SlotClock> {
@@ -235,7 +233,6 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                         let work_event = self.priority_scheduler(&work_journal_tx);
                         if let Some(work_event) = work_event {
                             let work_type = work_event.to_type();
-                            // TODO(beacon-processor) check self.idle_tx
                             self.spawn_worker(idle_tx.clone(), work_event);
                             Some(work_type)
                         } else {
@@ -532,7 +529,6 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
         work_event
     }
 
-    // TODO(beacon-processor) this might be able to be moved to a more generalized location
     pub fn process_or_queue_work_event(
         &mut self,
         reprocess_work_tx: &Sender<ReprocessQueueMessage>,
@@ -546,8 +542,13 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
 
         match work {
             Work::Reprocess(work_event) => {
-                // TODO(beacon-processor) LOG ERROR
-                let _ = reprocess_work_tx.try_send(work_event);
+                if let Err(e) = reprocess_work_tx.try_send(work_event) {
+                    error!(
+                        self.beacon_processor.log, 
+                        "Failed to reprocess work event";
+                        "error" => %e
+                    )
+                }
             }
             _ if can_spawn => self.spawn_worker(idle_tx.clone(), work),
             Work::GossipAttestation { .. } => self.work_queues.attestation_queue.push(work),

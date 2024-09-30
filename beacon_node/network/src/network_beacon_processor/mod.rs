@@ -134,7 +134,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Define a closure for processing batches of attestations.
         let processor = self.clone();
-        // TODO(beacon-processor) allow reprocess?
         let process_batch =
             move |aggregates| processor.process_gossip_aggregate_batch(aggregates, true);
 
