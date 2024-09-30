@@ -35,7 +35,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
-use tokio::sync::mpsc;
 use types::{
     beacon_block::BlockImportSource, Attestation, AttestationRef, AttesterSlashing, BlobSidecar,
     DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation,
@@ -246,6 +245,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             subnet_id,
             should_import,
             seen_timestamp,
+            allow_reprocess,
         );
     }
 
@@ -312,6 +312,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.subnet_id,
                 package.should_import,
                 package.seen_timestamp,
+                true
             );
         }
     }
@@ -328,6 +329,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         subnet_id: SubnetId,
         should_import: bool,
         seen_timestamp: Duration,
+        allow_reprocess: bool,
     ) {
         match result {
             Ok(verified_attestation) => {
@@ -413,7 +415,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         seen_timestamp,
                     },
                     error,
-                    true, // TODO(beacon-processor) enable or disbleretry?
+                    allow_reprocess,
                     seen_timestamp,
                 );
             }

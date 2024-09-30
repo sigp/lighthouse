@@ -355,6 +355,7 @@ impl<E: EthSpec> BeaconProcessorSend<E> {
         match self.0.try_send(message) {
             Ok(res) => Ok(res),
             Err(e) => {
+                println!("{e}");
                 metrics::inc_counter_vec(
                     &metrics::BEACON_PROCESSOR_SEND_ERROR_PER_WORK_TYPE,
                     &[work_type.into()],
@@ -594,10 +595,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
         event_rx: mpsc::Receiver<WorkEvent<E>>,
         work_journal_tx: Option<mpsc::Sender<&'static str>>,
         slot_clock: S,
-        maximum_gossip_clock_disparity: Duration,
+        spec: &ChainSpec,
     ) -> Result<(), String> {
-        let scheduler = SchedulerType::<E, S>::new(self, beacon_state, event_rx);
-        scheduler.run(work_journal_tx, slot_clock, maximum_gossip_clock_disparity)
+        let scheduler = SchedulerType::<E, S>::new(self, beacon_state, event_rx, spec)?;
+        scheduler.run(work_journal_tx, slot_clock, spec.maximum_gossip_clock_disparity())
     }
 }
 

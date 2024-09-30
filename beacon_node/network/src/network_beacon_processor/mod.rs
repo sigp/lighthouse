@@ -6,7 +6,7 @@ use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend, BeaconChain
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{
     BeaconProcessorChannels, BeaconProcessorSend, DuplicateCache, GossipAggregatePackage,
-    GossipAttestationPackage, ReprocessQueueMessage, Work, WorkEvent as BeaconWorkEvent,
+    GossipAttestationPackage, Work, WorkEvent as BeaconWorkEvent,
 };
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,

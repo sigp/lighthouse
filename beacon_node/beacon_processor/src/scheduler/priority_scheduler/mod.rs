@@ -12,17 +12,16 @@ use lighthouse_metrics::HistogramTimer;
 use slog::error;
 use slog::{crit, debug, trace, warn};
 use slot_clock::SlotClock;
-use std::borrow::BorrowMut;
 use std::pin::Pin;
 use std::task::Context;
 use std::{cmp, marker::PhantomData, sync::Arc, time::Duration};
-use tokio::sync::mpsc::{self, error::TrySendError, Receiver, Sender};
+use tokio::sync::mpsc::{self, error::TrySendError, Sender};
 use types::{BeaconState, ChainSpec, EthSpec};
 use work_queue::{BeaconProcessorQueueLengths, WorkQueues};
 use work_reprocessing_queue::{spawn_reprocess_scheduler, ReadyWork};
 
 use crate::{
-    metrics, BeaconProcessor, BeaconProcessorConfig, BlockingOrAsync, QueuedBackfillBatch,
+    metrics, BeaconProcessor, BlockingOrAsync, QueuedBackfillBatch,
     ReprocessQueueMessage, SendOnDrop, TaskSpawner, Work, WorkEvent, WorkType, MAX_IDLE_QUEUE_LEN,
     NOTHING_TO_DO, WORKER_FREED,
 };
@@ -47,14 +46,16 @@ struct InboundEvents<E: EthSpec> {
     /// Used by upstream processes to send new work to the `BeaconProcessor`.
     event_rx: mpsc::Receiver<WorkEvent<E>>,
     /// Used internally for queuing work ready to be re-processed.
-    reprocess_work_rx: mpsc::Receiver<ReadyWork>,
+    ready_work_rx: mpsc::Receiver<ReadyWork>,
+    reprocess_work_rx: mpsc::Receiver<ReprocessQueueMessage>,
 }
 
 struct OutboundEvents {
     /// Sends tasks to workers.
     idle_tx: mpsc::Sender<()>,
     /// Used internally for queuing work ready to be re-processed.
-    reprocess_work_tx: mpsc::Sender<ReadyWork>,
+    reprocess_work_tx: mpsc::Sender<ReprocessQueueMessage>,
+    ready_work_tx: mpsc::Sender<ReadyWork>,
 }
 
 impl<E: EthSpec> Stream for InboundEvents<E> {
@@ -77,7 +78,11 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
         // block is required to successfully process some new work.
         match self.reprocess_work_rx.poll_recv(cx) {
             Poll::Ready(Some(ready_work)) => {
-                return Poll::Ready(Some(InboundEvent::ReprocessingWork(ready_work.into())));
+                return Poll::Ready(Some(InboundEvent::ReprocessingWork(
+                    WorkEvent { 
+                        drop_during_sync: false, 
+                        work: Work::Reprocess(ready_work)
+                    })));
             }
             Poll::Ready(None) => {
                 return Poll::Ready(None);
@@ -122,7 +127,7 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
         beacon_processor: BeaconProcessor<E>,
         beacon_state: &BeaconState<E>,
         event_rx: mpsc::Receiver<WorkEvent<E>>,
-        spec: Arc<ChainSpec>,
+        spec: &ChainSpec,
     ) -> Result<Self, String> {
         // Used by workers to communicate that they are finished a task.
         let (idle_tx, idle_rx) = mpsc::channel::<()>(MAX_IDLE_QUEUE_LEN);
@@ -137,27 +142,29 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
         let (ready_work_tx, ready_work_rx) =
             mpsc::channel::<ReadyWork>(beacon_processor.config.max_scheduled_work_queue_len);
 
-        let (work_reprocessing_tx, reprocess_work_rx) =
+        let (reprocess_work_tx, reprocess_work_rx) =
             mpsc::channel::<ReprocessQueueMessage>(beacon_processor.config.max_scheduled_work_queue_len);
 
         let inbound_events = InboundEvents {
             idle_rx,
             event_rx,
-            reprocess_work_rx: ready_work_rx,
+            ready_work_rx,
+            reprocess_work_rx
         };
 
         let outbound_events = OutboundEvents {
             idle_tx,
-            reprocess_work_tx: ready_work_tx
+            reprocess_work_tx,
+            ready_work_tx,
         };
 
-        Self {
+        Ok(Self {
             beacon_processor,
             inbound_events,
             outbound_events,
             work_queues,
             phantom_data: PhantomData
-        }
+        })
     }
 
     pub fn run(
@@ -166,29 +173,18 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
         slot_clock: S,
         maximum_gossip_clock_disparity: Duration,
     ) -> Result<(), String> {
-        // Channels for sending work to the re-process scheduler (`work_reprocessing_tx`) and to
-        // receive them back once they are ready (`ready_work_rx`).
-        let (ready_work_tx, ready_work_rx) =
-            mpsc::channel::<ReadyWork>(self.beacon_processor.config.max_scheduled_work_queue_len);
-
-        let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel::<ReprocessQueueMessage>(
-            self.beacon_processor.config.max_scheduled_work_queue_len,
-        );
-
         // TODO(beacon-processor) reprocess scheduler
-        spawn_reprocess_scheduler(
-            ready_work_tx,
-            work_reprocessing_rx,
-            &self.beacon_processor.executor,
-            Arc::new(slot_clock),
-            self.beacon_processor.log.clone(),
-            maximum_gossip_clock_disparity,
-        )?;
+        // spawn_reprocess_scheduler(
+        //     self.outbound_events.ready_work_tx.clone(),
+        //     self.inbound_events.reprocess_work_rx,
+        //     &self.beacon_processor.executor,
+        //     Arc::new(slot_clock),
+        //     self.beacon_processor.log.clone(),
+        //     maximum_gossip_clock_disparity,
+        // )?;
 
         let executor = self.beacon_processor.executor.clone();
-
         let manager_future = async move {
-            let idle_tx = self.outbound_events.idle_tx.clone();
             loop {
                 let work_event = match self.inbound_events.next().await {
                     Some(InboundEvent::WorkerIdle) => {
@@ -200,7 +196,7 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                     {
                         match QueuedBackfillBatch::try_from(event) {
                             Ok(backfill_batch) => {
-                                match work_reprocessing_tx
+                                match self.outbound_events.reprocess_work_tx
                                     .try_send(ReprocessQueueMessage::BackfillSync(backfill_batch))
                                 {
                                     Err(e) => {
@@ -571,6 +567,10 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
         let work_type = work.to_type();
 
         match work {
+            Work::Reprocess(work_event) => {
+                // TODO(beacon-processor) LOG ERROR
+                let _ = self.outbound_events.reprocess_work_tx.try_send(work_event);
+            }
             _ if can_spawn => self.spawn_worker(work),
             Work::GossipAttestation { .. } => self.work_queues.attestation_queue.push(work),
             // Attestation batches are formed internally within the
@@ -743,10 +743,6 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                 work_id,
                 &self.beacon_processor.log,
             ),
-            Work::Reprocess { .. } => {
-                // TODO(beacon-processor) what to do here
-                todo!()
-            }
         }
         Some(work_type)
     }
@@ -1011,9 +1007,8 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
             | Work::LightClientFinalityUpdateRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
-            Work::Reprocess(reprocess_message) => {
-                // TODO(beacon-processor) send to the reprocess queue
-                todo!()
+            Work::Reprocess(_) => {
+                ()
             }
         };
     }

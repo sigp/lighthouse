@@ -2,14 +2,14 @@ use std::time::Duration;
 
 use slot_clock::SlotClock;
 use tokio::sync::mpsc;
-use types::{BeaconState, EthSpec};
+use types::{BeaconState, ChainSpec, EthSpec};
 
 use crate::{BeaconProcessor, WorkEvent};
 
 use super::priority_scheduler;
 
 pub trait Scheduler<E: EthSpec, S: SlotClock> {
-    fn new(beacon_processor: BeaconProcessor<E>, beacon_state: &BeaconState<E>, event_rx: mpsc::Receiver<WorkEvent<E>>) -> Self;
+    fn new(beacon_processor: BeaconProcessor<E>, beacon_state: &BeaconState<E>, event_rx: mpsc::Receiver<WorkEvent<E>>, spec: &ChainSpec) -> Result<Box<Self>, String>;
 
     fn run(
         self,
@@ -24,12 +24,13 @@ pub enum SchedulerType<E: EthSpec, S: SlotClock> {
 }
 
 impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> for SchedulerType<E, S> {
-    fn new(beacon_processor: BeaconProcessor<E>, beacon_state: &BeaconState<E>, event_rx: mpsc::Receiver<WorkEvent<E>>) -> Self {
-        SchedulerType::PriorityScheduler(priority_scheduler::Scheduler::new(
+    fn new(beacon_processor: BeaconProcessor<E>, beacon_state: &BeaconState<E>, event_rx: mpsc::Receiver<WorkEvent<E>>, spec: &ChainSpec) -> Result<Box<Self>, String> {
+        Ok(Box::new(SchedulerType::PriorityScheduler(priority_scheduler::Scheduler::new(
             beacon_processor,
-            todo!(),
-            todo!(),
-        ))
+            beacon_state,
+            event_rx,
+            spec
+        )?)))
     }
     // TODO(beacon-processor) make this config driven
     fn run(

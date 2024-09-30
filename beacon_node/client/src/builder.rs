@@ -881,7 +881,7 @@ where
                     beacon_processor_channels.beacon_processor_rx,
                     None,
                     beacon_chain.slot_clock.clone(),
-                    beacon_chain.spec.maximum_gossip_clock_disparity(),
+                    &beacon_chain.spec
                 )?;
             }
 
