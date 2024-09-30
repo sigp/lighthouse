@@ -3,9 +3,7 @@ use beacon_chain::{
     test_utils::{BeaconChainHarness, BoxedMutator, Builder, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
 };
-use beacon_processor::{
-    BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig, BeaconProcessorQueueLengths,
-};
+use beacon_processor::{BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig};
 use directory::DEFAULT_ROOT_DIR;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use lighthouse_network::{
@@ -206,7 +204,6 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     } = BeaconProcessorChannels::new(&beacon_processor_config);
 
     let beacon_processor_send = beacon_processor_tx;
-    let reprocess_send = work_reprocessing_tx.clone();
     BeaconProcessor {
         network_globals: network_globals.clone(),
         executor: test_runtime.task_executor.clone(),
@@ -219,11 +216,6 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         None,
         chain.slot_clock.clone(),
         chain.spec.maximum_gossip_clock_disparity(),
-        BeaconProcessorQueueLengths::from_state(
-            &chain.canonical_head.cached_head().snapshot.beacon_state,
-            &chain.spec,
-        )
-        .unwrap(),
     )
     .unwrap();
 
@@ -241,7 +233,6 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         network_senders: Some(network_senders),
         network_globals: Some(network_globals),
         beacon_processor_send: Some(beacon_processor_send),
-        beacon_processor_reprocess_send: Some(reprocess_send),
         eth1_service: Some(eth1_service),
         sse_logging_components: None,
         log,
