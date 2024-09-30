@@ -3169,9 +3169,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         }
 
+        let data_availability_checker = self.data_availability_checker.clone();
         let Some((availability, data_columns_to_publish)) = self
-            .data_availability_checker
-            .reconstruct_data_columns(&block_root)?
+            .task_executor
+            .spawn_blocking_handle(
+                move || data_availability_checker.reconstruct_data_columns(&block_root),
+                "reconstruct_data_columns",
+            )
+            .ok_or(BeaconChainError::RuntimeShutdown)?
+            .await
+            .map_err(BeaconChainError::TokioJoin)??
         else {
             return Ok(None);
         };
