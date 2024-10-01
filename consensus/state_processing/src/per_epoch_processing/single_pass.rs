@@ -802,19 +802,17 @@ fn process_single_slashing(
         let increment = spec.effective_balance_increment;
         let penalty = if state_ctxt.fork_name.electra_enabled() {
             let effective_balance_increments = validator.effective_balance.safe_div(increment)?;
-            let penalty = slashings_ctxt
+            slashings_ctxt
                 .penalty_per_effective_balance_increment
-                .safe_mul(effective_balance_increments)?;
-            penalty
+                .safe_mul(effective_balance_increments)?
         } else {
             let penalty_numerator = validator
                 .effective_balance
                 .safe_div(increment)?
                 .safe_mul(slashings_ctxt.adjusted_total_slashing_balance)?;
-            let penalty = penalty_numerator
+            penalty_numerator
                 .safe_div(state_ctxt.total_active_balance)?
-                .safe_mul(increment)?;
-            penalty
+                .safe_mul(increment)?
         };
         *balance.make_mut()? = balance.saturating_sub(penalty);
     }
