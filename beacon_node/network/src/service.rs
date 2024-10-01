@@ -14,12 +14,13 @@ use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
 use futures::StreamExt;
+use lighthouse_network::rpc::{RequestId, RequestType};
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
-    rpc::{GoodbyeReason, RPCResponseErrorCode},
-    Context, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
+    rpc::{GoodbyeReason, RpcErrorResponse},
+    Context, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Response, Subnet,
 };
 use lighthouse_network::{
     service::api_types::AppRequestId,
@@ -61,19 +62,21 @@ pub enum NetworkMessage<E: EthSpec> {
     /// Send an RPC request to the libp2p service.
     SendRequest {
         peer_id: PeerId,
-        request: Request,
+        request: RequestType<E>,
         request_id: AppRequestId,
     },
     /// Send a successful Response to the libp2p service.
     SendResponse {
         peer_id: PeerId,
+        request_id: RequestId,
         response: Response<E>,
         id: PeerRequestId,
     },
     /// Sends an error response to an RPC request.
     SendErrorResponse {
         peer_id: PeerId,
-        error: RPCResponseErrorCode,
+        request_id: RequestId,
+        error: RpcErrorResponse,
         reason: String,
         id: PeerRequestId,
     },
@@ -623,16 +626,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 peer_id,
                 response,
                 id,
+                request_id,
             } => {
-                self.libp2p.send_response(peer_id, id, response);
+                self.libp2p.send_response(peer_id, id, request_id, response);
             }
             NetworkMessage::SendErrorResponse {
                 peer_id,
                 error,
                 id,
+                request_id,
                 reason,
             } => {
-                self.libp2p.send_error_response(peer_id, id, error, reason);
+                self.libp2p
+                    .send_error_response(peer_id, id, request_id, error, reason);
             }
             NetworkMessage::ValidationResult {
                 propagation_source,
