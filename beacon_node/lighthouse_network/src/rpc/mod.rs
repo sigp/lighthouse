@@ -276,7 +276,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         self.send_request(peer_id, id, RequestType::Ping(ping));
     }
 
-    fn is_request_size_too_large(&self, request: &InboundRequest<E>) -> bool {
+    fn is_request_size_too_large(&self, request: &RequestType<E>) -> bool {
         match request.protocol() {
             Protocol::Status
             | Protocol::Goodbye
@@ -446,7 +446,7 @@ where
                     peer_id,
                     r#type.versioned_protocol().protocol(),
                     &conn_id,
-                    &id,
+                    &substream_id,
                 ) {
                     // There is already an active request with the same protocol. Send an error code to the peer.
                     debug!(self.log, "There is an active request with the same protocol"; "peer_id" => peer_id.to_string(), "request" => %r#type, "protocol" => %r#type.versioned_protocol().protocol());

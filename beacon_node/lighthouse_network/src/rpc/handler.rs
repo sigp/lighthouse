@@ -228,7 +228,7 @@ pub enum OutboundSubstreamState<E: EthSpec> {
 }
 
 struct QueuedResponse<E: EthSpec> {
-    response: RPCCodedResponse<E>,
+    response: RpcResponse<E>,
     protocol: Protocol,
     inbound_id: SubstreamId,
 }
@@ -318,7 +318,7 @@ where
         limiter: &mut Arc<Mutex<RPCRateLimiter>>,
         peer_id: &PeerId,
         protocol: Protocol,
-        response: RPCCodedResponse<E>,
+        response: RpcResponse<E>,
         log: &slog::Logger,
     ) -> Result<(), Duration> {
         match limiter.lock().allows(peer_id, &(response, protocol)) {
@@ -412,7 +412,7 @@ where
     fn send_response_inner(
         inbound_id: SubstreamId,
         inbound_info: &mut InboundInfo<E>,
-        response: RPCCodedResponse<E>,
+        response: RpcResponse<E>,
         events_out: &mut SmallVec<[HandlerEvent<Id, E>; 4]>,
         handler_state: &HandlerState,
         log: &slog::Logger,

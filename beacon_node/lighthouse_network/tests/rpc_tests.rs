@@ -1192,7 +1192,7 @@ fn test_delayed_rpc_response() {
         .await;
 
         // Dummy STATUS RPC message
-        let rpc_request = Request::Status(StatusMessage {
+        let rpc_request = RequestType::Status(StatusMessage {
             fork_digest: [0; 4],
             finalized_root: Hash256::from_low_u64_be(0),
             finalized_epoch: Epoch::new(1),
@@ -1275,9 +1275,9 @@ fn test_delayed_rpc_response() {
                     request,
                 } = receiver.next_event().await
                 {
-                    assert_eq!(request, rpc_request);
+                    assert_eq!(request.r#type, rpc_request);
                     debug!(log, "Receiver received request");
-                    receiver.send_response(peer_id, id, rpc_response.clone());
+                    receiver.send_response(peer_id, id, request.id, rpc_response.clone());
                 }
             }
         };
@@ -1318,11 +1318,12 @@ fn test_request_too_large() {
         let max_request_blocks_count = spec.max_request_blocks(ForkName::Base) as u64;
         let max_request_blobs_count = spec.max_request_blob_sidecars / E::max_blobs_per_block() as u64;
         let mut rpc_requests = vec![
-            Request::BlocksByRange(BlocksByRangeRequest::new(
+            RequestType::BlocksByRange(OldBlocksByRangeRequest::new(
                 0,
                 max_request_blocks_count + 1, // exceeds the max request defined in the spec.
+                1,
             )),
-            Request::BlobsByRange(BlobsByRangeRequest {
+            RequestType::BlobsByRange(BlobsByRangeRequest {
                 start_slot: 0,
                 count: max_request_blobs_count + 1, // exceeds the max request defined in the spec.
             }),
@@ -1351,7 +1352,7 @@ fn test_request_too_large() {
                     NetworkEvent::RPCFailed { id, peer_id, error } => {
                         debug!(log, "RPC Failed"; "error" => ?error, "request_id" => ?id);
                         // Expect `InvalidRequest` since the request requires responses greater than the number defined in the spec.
-                        assert!(matches!(error, RPCError::ErrorResponse(RPCResponseErrorCode::InvalidRequest, .. )));
+                        assert!(matches!(error, RPCError::ErrorResponse(RpcErrorResponse::InvalidRequest, .. )));
 
                         failed_request_ids.push(id);
                         if let Some(request) = rpc_requests.pop() {
@@ -1410,7 +1411,7 @@ fn test_active_requests() {
         .await;
 
         // Dummy STATUS RPC message.
-        let rpc_request = Request::Status(StatusMessage {
+        let rpc_request = RequestType::Status(StatusMessage {
             fork_digest: [0; 4],
             finalized_root: Hash256::from_low_u64_be(0),
             finalized_epoch: Epoch::new(1),
@@ -1444,7 +1445,7 @@ fn test_active_requests() {
                         // Verify that the sender received a rate-limited error.
                         assert!(matches!(
                             error,
-                            RPCError::ErrorResponse(RPCResponseErrorCode::RateLimited, ..)
+                            RPCError::ErrorResponse(RpcErrorResponse::RateLimited, ..)
                         ));
                         // End the test.
                         return;
