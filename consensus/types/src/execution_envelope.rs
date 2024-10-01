@@ -38,7 +38,7 @@ use tree_hash_derive::TreeHash;
 #[arbitrary(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
-pub struct ExecutionPayloadEnvelope<E: EthSpec> {
+pub struct ExecutionEnvelope<E: EthSpec> {
     #[superstruct(only(EIP7732), partial_getter(rename = "payload_eip7732"))]
     pub payload: ExecutionPayloadEIP7732<E>,
     #[serde(with = "serde_utils::quoted_u64")]

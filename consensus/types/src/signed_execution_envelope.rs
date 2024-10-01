@@ -37,8 +37,8 @@ use tree_hash_derive::TreeHash;
 #[arbitrary(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
-pub struct SignedExecutionPayloadEnvelope<E: EthSpec> {
+pub struct SignedExecutionEnvelope<E: EthSpec> {
     #[superstruct(only(EIP7732), partial_getter(rename = "message_eip7732"))]
-    pub message: ExecutionPayloadEnvelopeEIP7732<E>,
+    pub message: ExecutionEnvelopeEIP7732<E>,
     pub signature: Signature,
 }

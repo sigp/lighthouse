@@ -41,8 +41,8 @@ pub mod eth1_data;
 pub mod eth_spec;
 pub mod execution_bid;
 pub mod execution_block_hash;
+pub mod execution_envelope;
 pub mod execution_payload;
-pub mod execution_payload_envelope;
 pub mod execution_payload_header;
 pub mod fork;
 pub mod fork_data;
@@ -77,7 +77,7 @@ pub mod signed_beacon_block_header;
 pub mod signed_bls_to_execution_change;
 pub mod signed_contribution_and_proof;
 pub mod signed_execution_bid;
-pub mod signed_execution_payload_envelope;
+pub mod signed_execution_envelope;
 pub mod signed_voluntary_exit;
 pub mod signing_data;
 pub mod sync_committee_subscription;
@@ -172,13 +172,11 @@ pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_bid::ExecutionBid;
 pub use crate::execution_block_hash::ExecutionBlockHash;
 pub use crate::execution_block_header::{EncodableExecutionBlockHeader, ExecutionBlockHeader};
+pub use crate::execution_envelope::{ExecutionEnvelope, ExecutionEnvelopeEIP7732};
 pub use crate::execution_payload::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadEIP7732, ExecutionPayloadElectra, ExecutionPayloadRef, Transaction,
     Transactions, Withdrawals,
-};
-pub use crate::execution_payload_envelope::{
-    ExecutionPayloadEnvelope, ExecutionPayloadEnvelopeEIP7732,
 };
 pub use crate::execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
@@ -255,7 +253,7 @@ pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_execution_bid::SignedExecutionBid;
-pub use crate::signed_execution_payload_envelope::SignedExecutionPayloadEnvelope;
+pub use crate::signed_execution_envelope::SignedExecutionEnvelope;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_data::{SignedRoot, SigningData};
 pub use crate::slot_epoch::{Epoch, Slot};
