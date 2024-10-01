@@ -1,0 +1,26 @@
+[package]
+name = "duties_service"
+version = "0.1.0"
+edition = { workspace = true }
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+
+[lib]
+name = "duties_service"
+path = "src/lib.rs"
+
+[dependencies]
+beacon_node_fallback = { workspace = true }
+validator_metrics = { workspace = true }
+validator_store = { workspace = true }
+doppelganger_service = { workspace = true }
+environment = { workspace = true }
+eth2 = { workspace = true }
+futures = { workspace = true }
+parking_lot = { workspace = true }
+safe_arith = { workspace = true }
+slog =  { workspace = true }
+slot_clock =  { workspace = true }
+tokio =  { workspace = true }
+types =  { workspace = true }
+
+[dev-dependencies]

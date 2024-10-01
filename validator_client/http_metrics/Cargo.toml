@@ -1,0 +1,23 @@
+[package]
+name = "validator_http_metrics"
+version = "0.1.0"
+edition = { workspace = true }
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+
+[lib]
+name = "validator_http_metrics"
+path = "src/lib.rs"
+
+[dependencies]
+axum = { workspace = true }
+malloc_utils = { workspace = true }
+slot_clock = { workspace = true }
+lighthouse_metrics = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+slog = { workspace = true }
+warp_utils = { workspace = true }
+warp = { workspace = true }
+lighthouse_version = { workspace = true }
+
+[dev-dependencies]

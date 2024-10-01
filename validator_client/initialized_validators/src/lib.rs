@@ -6,7 +6,8 @@
 //! The `InitializedValidators` struct in this file serves as the source-of-truth of which
 //! validators are managed by this validator client.
 
-use crate::signing_method::SigningMethod;
+pub mod key_cache;
+
 use account_utils::{
     read_password, read_password_from_user, read_password_string,
     validator_definitions::{
@@ -20,6 +21,7 @@ use lighthouse_metrics::set_gauge;
 use lockfile::{Lockfile, LockfileError};
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 use reqwest::{Certificate, Client, Error as ReqwestError, Identity};
+use signing_method::SigningMethod;
 use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
@@ -32,9 +34,7 @@ use types::{Address, Graffiti, Keypair, PublicKey, PublicKeyBytes};
 use url::{ParseError, Url};
 use validator_dir::Builder as ValidatorDirBuilder;
 
-use crate::key_cache;
-use crate::key_cache::KeyCache;
-use crate::Config;
+use key_cache::KeyCache;
 
 /// Default timeout for a request to a remote signer for a signature.
 ///
@@ -44,6 +44,12 @@ const DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 
 // Use TTY instead of stdin to capture passwords from users.
 const USE_STDIN: bool = false;
+
+// The configuration for initialised validators.
+pub struct Config {
+    pub web3_signer_keep_alive_timeout: Option<Duration>,
+    pub web3_signer_max_idle_connections: Option<usize>,
+}
 
 pub enum OnDecryptFailure {
     /// If the key cache fails to decrypt, create a new cache.
@@ -1380,11 +1386,11 @@ impl InitializedValidators {
 
         // Update the enabled and total validator counts
         set_gauge(
-            &crate::http_metrics::metrics::ENABLED_VALIDATORS_COUNT,
+            &validator_metrics::ENABLED_VALIDATORS_COUNT,
             self.num_enabled() as i64,
         );
         set_gauge(
-            &crate::http_metrics::metrics::TOTAL_VALIDATORS_COUNT,
+            &validator_metrics::TOTAL_VALIDATORS_COUNT,
             self.num_total() as i64,
         );
         Ok(())

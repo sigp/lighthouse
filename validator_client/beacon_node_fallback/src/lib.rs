@@ -2,8 +2,8 @@
 //! "fallback" behaviour; it will try a request on all of the nodes until one or none of them
 //! succeed.
 
-use crate::check_synced::check_synced;
-use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
+mod check_synced;
+use check_synced::check_synced;
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 use strum::{EnumString, EnumVariantNames};
 use tokio::{sync::RwLock, time::sleep};
 use types::{ChainSpec, Config, EthSpec};
+use validator_metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
 
 /// Message emitted when the VC detects the BN is using a different spec.
 const UPDATE_REQUIRED_LOG_HINT: &str = "this VC or the remote BN may need updating";

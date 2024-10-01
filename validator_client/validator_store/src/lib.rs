@@ -1,12 +1,8 @@
-use crate::{
-    doppelganger_service::DoppelgangerService,
-    http_metrics::metrics,
-    initialized_validators::InitializedValidators,
-    signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod},
-    Config,
-};
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
+use doppelganger_service::{DoppelgangerService, DoppelgangerStatus};
+use initialized_validators::InitializedValidators;
 use parking_lot::{Mutex, RwLock};
+use signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod};
 use slashing_protection::{
     interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
 };
@@ -26,9 +22,6 @@ use types::{
     ValidatorRegistrationData, VoluntaryExit,
 };
 
-pub use crate::doppelganger_service::DoppelgangerStatus;
-use crate::preparation_service::ProposalData;
-
 #[derive(Debug, PartialEq)]
 pub enum Error {
     DoppelgangerProtected(PublicKeyBytes),
@@ -46,6 +39,29 @@ impl From<SigningError> for Error {
     fn from(e: SigningError) -> Self {
         Error::UnableToSign(e)
     }
+}
+
+pub struct Config {
+    /// Fallback fallback address.
+    pub fee_recipient: Option<Address>,
+    /// Fallback gas limit.
+    pub gas_limit: Option<u64>,
+    /// Enable use of the blinded block endpoints during proposals.
+    pub builder_proposals: bool,
+    /// Enable slashing protection even while using web3signer keys.
+    pub enable_web3signer_slashing_protection: bool,
+    /// If true, Lighthouse will prefer builder proposals, if available.
+    pub prefer_builder_proposals: bool,
+    /// Specifies the boost factor, a percentage multiplier to apply to the builder's payload value.
+    pub builder_boost_factor: Option<u64>,
+}
+
+/// A helper struct, used for passing data from the validator store to services.
+pub struct ProposalData {
+    pub validator_index: Option<u64>,
+    pub fee_recipient: Option<Address>,
+    pub gas_limit: u64,
+    pub builder_proposals: bool,
 }
 
 /// Number of epochs of slashing protection history to keep.
@@ -591,7 +607,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         match slashing_status {
             // We can safely sign this block without slashing.
             Ok(Safe::Valid) => {
-                metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SUCCESS]);
+                validator_metrics::inc_counter_vec(
+                    &validator_metrics::SIGNED_BLOCKS_TOTAL,
+                    &[validator_metrics::SUCCESS],
+                );
 
                 let signature = signing_method
                     .get_signature::<E, Payload>(
@@ -608,7 +627,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     self.log,
                     "Skipping signing of previously signed block";
                 );
-                metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SAME_DATA]);
+                validator_metrics::inc_counter_vec(
+                    &validator_metrics::SIGNED_BLOCKS_TOTAL,
+                    &[validator_metrics::SAME_DATA],
+                );
                 Err(Error::SameData)
             }
             Err(NotSafe::UnregisteredValidator(pk)) => {
@@ -618,7 +640,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
                     "public_key" => format!("{:?}", pk)
                 );
-                metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::UNREGISTERED]);
+                validator_metrics::inc_counter_vec(
+                    &validator_metrics::SIGNED_BLOCKS_TOTAL,
+                    &[validator_metrics::UNREGISTERED],
+                );
                 Err(Error::Slashable(NotSafe::UnregisteredValidator(pk)))
             }
             Err(e) => {
@@ -627,7 +652,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     "Not signing slashable block";
                     "error" => format!("{:?}", e)
                 );
-                metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SLASHABLE]);
+                validator_metrics::inc_counter_vec(
+                    &validator_metrics::SIGNED_BLOCKS_TOTAL,
+                    &[validator_metrics::SLASHABLE],
+                );
                 Err(Error::Slashable(e))
             }
         }
@@ -682,7 +710,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     .add_signature(&signature, validator_committee_position)
                     .map_err(Error::UnableToSignAttestation)?;
 
-                metrics::inc_counter_vec(&metrics::SIGNED_ATTESTATIONS_TOTAL, &[metrics::SUCCESS]);
+                validator_metrics::inc_counter_vec(
+                    &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
+                    &[validator_metrics::SUCCESS],
+                );
 
                 Ok(())
             }
@@ -691,9 +722,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     self.log,
                     "Skipping signing of previously signed attestation"
                 );
-                metrics::inc_counter_vec(
-                    &metrics::SIGNED_ATTESTATIONS_TOTAL,
-                    &[metrics::SAME_DATA],
+                validator_metrics::inc_counter_vec(
+                    &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
+                    &[validator_metrics::SAME_DATA],
                 );
                 Err(Error::SameData)
             }
@@ -704,9 +735,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
                     "public_key" => format!("{:?}", pk)
                 );
-                metrics::inc_counter_vec(
-                    &metrics::SIGNED_ATTESTATIONS_TOTAL,
-                    &[metrics::UNREGISTERED],
+                validator_metrics::inc_counter_vec(
+                    &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
+                    &[validator_metrics::UNREGISTERED],
                 );
                 Err(Error::Slashable(NotSafe::UnregisteredValidator(pk)))
             }
@@ -717,9 +748,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     "attestation" => format!("{:?}", attestation.data()),
                     "error" => format!("{:?}", e)
                 );
-                metrics::inc_counter_vec(
-                    &metrics::SIGNED_ATTESTATIONS_TOTAL,
-                    &[metrics::SLASHABLE],
+                validator_metrics::inc_counter_vec(
+                    &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
+                    &[validator_metrics::SLASHABLE],
                 );
                 Err(Error::Slashable(e))
             }
@@ -744,7 +775,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             )
             .await?;
 
-        metrics::inc_counter_vec(&metrics::SIGNED_VOLUNTARY_EXITS_TOTAL, &[metrics::SUCCESS]);
+        validator_metrics::inc_counter_vec(
+            &validator_metrics::SIGNED_VOLUNTARY_EXITS_TOTAL,
+            &[validator_metrics::SUCCESS],
+        );
 
         Ok(SignedVoluntaryExit {
             message: voluntary_exit,
@@ -770,9 +804,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             )
             .await?;
 
-        metrics::inc_counter_vec(
-            &metrics::SIGNED_VALIDATOR_REGISTRATIONS_TOTAL,
-            &[metrics::SUCCESS],
+        validator_metrics::inc_counter_vec(
+            &validator_metrics::SIGNED_VALIDATOR_REGISTRATIONS_TOTAL,
+            &[validator_metrics::SUCCESS],
         );
 
         Ok(SignedValidatorRegistrationData {
@@ -808,7 +842,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             )
             .await?;
 
-        metrics::inc_counter_vec(&metrics::SIGNED_AGGREGATES_TOTAL, &[metrics::SUCCESS]);
+        validator_metrics::inc_counter_vec(
+            &validator_metrics::SIGNED_AGGREGATES_TOTAL,
+            &[validator_metrics::SUCCESS],
+        );
 
         Ok(SignedAggregateAndProof::from_aggregate_and_proof(
             message, signature,
@@ -844,7 +881,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .await
             .map_err(Error::UnableToSign)?;
 
-        metrics::inc_counter_vec(&metrics::SIGNED_SELECTION_PROOFS_TOTAL, &[metrics::SUCCESS]);
+        validator_metrics::inc_counter_vec(
+            &validator_metrics::SIGNED_SELECTION_PROOFS_TOTAL,
+            &[validator_metrics::SUCCESS],
+        );
 
         Ok(signature.into())
     }
@@ -863,9 +903,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
         let signing_method = self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
 
-        metrics::inc_counter_vec(
-            &metrics::SIGNED_SYNC_SELECTION_PROOFS_TOTAL,
-            &[metrics::SUCCESS],
+        validator_metrics::inc_counter_vec(
+            &validator_metrics::SIGNED_SYNC_SELECTION_PROOFS_TOTAL,
+            &[validator_metrics::SUCCESS],
         );
 
         let message = SyncAggregatorSelectionData {
@@ -912,9 +952,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .await
             .map_err(Error::UnableToSign)?;
 
-        metrics::inc_counter_vec(
-            &metrics::SIGNED_SYNC_COMMITTEE_MESSAGES_TOTAL,
-            &[metrics::SUCCESS],
+        validator_metrics::inc_counter_vec(
+            &validator_metrics::SIGNED_SYNC_COMMITTEE_MESSAGES_TOTAL,
+            &[validator_metrics::SUCCESS],
         );
 
         Ok(SyncCommitteeMessage {
@@ -954,9 +994,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .await
             .map_err(Error::UnableToSign)?;
 
-        metrics::inc_counter_vec(
-            &metrics::SIGNED_SYNC_COMMITTEE_CONTRIBUTIONS_TOTAL,
-            &[metrics::SUCCESS],
+        validator_metrics::inc_counter_vec(
+            &validator_metrics::SIGNED_SYNC_COMMITTEE_CONTRIBUTIONS_TOTAL,
+            &[validator_metrics::SUCCESS],
         );
 
         Ok(SignedContributionAndProof { message, signature })
@@ -1030,7 +1070,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             info!(self.log, "Pruning slashing protection DB"; "epoch" => current_epoch);
         }
 
-        let _timer = metrics::start_timer(&metrics::SLASHING_PROTECTION_PRUNE_TIMES);
+        let _timer =
+            validator_metrics::start_timer(&validator_metrics::SLASHING_PROTECTION_PRUNE_TIMES);
 
         let new_min_target_epoch = current_epoch.saturating_sub(SLASHING_PROTECTION_HISTORY_EPOCHS);
         let new_min_slot = new_min_target_epoch.start_slot(E::slots_per_epoch());

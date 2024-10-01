@@ -1,9 +1,6 @@
 //! This crate provides a HTTP server that is solely dedicated to serving the `/metrics` endpoint.
 //!
 //! For other endpoints, see the `http_api` crate.
-pub mod metrics;
-
-use crate::{DutiesService, ValidatorStore};
 use lighthouse_version::version_with_platform;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -12,7 +9,6 @@ use slot_clock::SystemTimeSlotClock;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use types::EthSpec;
 use warp::{http::Response, Filter};
 
 #[derive(Debug)]
@@ -34,18 +30,18 @@ impl From<String> for Error {
 }
 
 /// Contains objects which have shared access from inside/outside of the metrics server.
-pub struct Shared<E: EthSpec> {
-    pub validator_store: Option<Arc<ValidatorStore<SystemTimeSlotClock, E>>>,
-    pub duties_service: Option<Arc<DutiesService<SystemTimeSlotClock, E>>>,
+pub struct Shared<V, D> {
+    pub validator_store: Option<Arc<V>>,
+    pub duties_service: Option<Arc<D>>,
     pub genesis_time: Option<u64>,
 }
 
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
-pub struct Context<E: EthSpec> {
+pub struct Context<V, D> {
     pub config: Config,
-    pub shared: RwLock<Shared<E>>,
+    pub shared: RwLock<Shared<V, D>>,
     pub log: Logger,
 }
 
@@ -86,8 +82,8 @@ impl Default for Config {
 ///
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
-pub fn serve<E: EthSpec>(
-    ctx: Arc<Context<E>>,
+pub fn serve<V, D>(
+    ctx: Arc<Context<V, D>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
@@ -155,4 +151,57 @@ pub fn serve<E: EthSpec>(
     );
 
     Ok((listening_socket, server))
+}
+
+pub fn gather_prometheus_metrics<V, D>(ctx: &Context<V, D>) -> std::result::Result<String, String> {
+    let mut buffer = vec![];
+    let encoder = TextEncoder::new();
+
+    {
+        let shared = ctx.shared.read();
+
+        if let Some(genesis_time) = shared.genesis_time {
+            if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
+                let distance = now.as_secs() as i64 - genesis_time as i64;
+                set_gauge(&GENESIS_DISTANCE, distance);
+            }
+        }
+
+        if let Some(duties_service) = &shared.duties_service {
+            if let Some(slot) = duties_service.slot_clock.now() {
+                let current_epoch = slot.epoch(E::slots_per_epoch());
+                let next_epoch = current_epoch + 1;
+
+                set_int_gauge(
+                    &PROPOSER_COUNT,
+                    &[CURRENT_EPOCH],
+                    duties_service.proposer_count(current_epoch) as i64,
+                );
+                set_int_gauge(
+                    &ATTESTER_COUNT,
+                    &[CURRENT_EPOCH],
+                    duties_service.attester_count(current_epoch) as i64,
+                );
+                set_int_gauge(
+                    &ATTESTER_COUNT,
+                    &[NEXT_EPOCH],
+                    duties_service.attester_count(next_epoch) as i64,
+                );
+            }
+        }
+    }
+
+    // It's important to ensure these metrics are explicitly enabled in the case that users aren't
+    // using glibc and this function causes panics.
+    if ctx.config.allocator_metrics_enabled {
+        scrape_allocator_metrics();
+    }
+
+    warp_utils::metrics::scrape_health_metrics();
+
+    encoder
+        .encode(&lighthouse_metrics::gather(), &mut buffer)
+        .unwrap();
+
+    String::from_utf8(buffer).map_err(|e| format!("Failed to encode prometheus info: {:?}", e))
 }

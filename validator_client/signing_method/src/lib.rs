@@ -3,7 +3,6 @@
 //! - Via a local `Keypair`.
 //! - Via a remote signer (Web3Signer)
 
-use crate::http_metrics::metrics;
 use eth2_keystore::Keystore;
 use lockfile::Lockfile;
 use parking_lot::Mutex;
@@ -166,8 +165,10 @@ impl SigningMethod {
     ) -> Result<Signature, Error> {
         match self {
             SigningMethod::LocalKeystore { voting_keypair, .. } => {
-                let _timer =
-                    metrics::start_timer_vec(&metrics::SIGNING_TIMES, &[metrics::LOCAL_KEYSTORE]);
+                let _timer = validator_metrics::start_timer_vec(
+                    &validator_metrics::SIGNING_TIMES,
+                    &[validator_metrics::LOCAL_KEYSTORE],
+                );
 
                 let voting_keypair = voting_keypair.clone();
                 // Spawn a blocking task to produce the signature. This avoids blocking the core
@@ -187,8 +188,10 @@ impl SigningMethod {
                 http_client,
                 ..
             } => {
-                let _timer =
-                    metrics::start_timer_vec(&metrics::SIGNING_TIMES, &[metrics::WEB3SIGNER]);
+                let _timer = validator_metrics::start_timer_vec(
+                    &validator_metrics::SIGNING_TIMES,
+                    &[validator_metrics::WEB3SIGNER],
+                );
 
                 // Map the message into a Web3Signer type.
                 let object = match signable_message {

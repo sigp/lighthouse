@@ -8,13 +8,9 @@
 
 pub mod sync;
 
-use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback, OfflineOnFailure, RequireSynced};
-use crate::http_metrics::metrics::{get_int_gauge, set_int_gauge, ATTESTATION_DUTY};
-use crate::{
-    block_service::BlockServiceNotification,
-    http_metrics::metrics,
-    validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, ValidatorStore},
-};
+use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, OfflineOnFailure, RequireSynced};
+use block_service::BlockServiceNotification;
+use doppelganger_service::DoppelgangerStatus;
 use environment::RuntimeContext;
 use eth2::types::{
     AttesterData, BeaconCommitteeSubscription, DutiesResponse, ProposerData, StateId, ValidatorId,
@@ -33,6 +29,8 @@ use sync::poll_sync_committee_duties;
 use sync::SyncDutiesMap;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use types::{ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes, SelectionProof, Slot};
+use validator_metrics::{get_int_gauge, set_int_gauge, ATTESTATION_DUTY};
+use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 /// Only retain `HISTORICAL_DUTIES_EPOCHS` duties prior to the current epoch.
 const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
@@ -473,8 +471,10 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
 async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
     duties_service: &DutiesService<T, E>,
 ) {
-    let _timer =
-        metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::UPDATE_INDICES]);
+    let _timer = validator_metrics::start_timer_vec(
+        &validator_metrics::DUTIES_SERVICE_TIMES,
+        &[validator_metrics::UPDATE_INDICES],
+    );
 
     let log = duties_service.context.log();
 
@@ -521,9 +521,9 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                     RequireSynced::No,
                     OfflineOnFailure::Yes,
                     |beacon_node| async move {
-                        let _timer = metrics::start_timer_vec(
-                            &metrics::DUTIES_SERVICE_TIMES,
-                            &[metrics::VALIDATOR_ID_HTTP_GET],
+                        let _timer = validator_metrics::start_timer_vec(
+                            &validator_metrics::DUTIES_SERVICE_TIMES,
+                            &[validator_metrics::VALIDATOR_ID_HTTP_GET],
                         );
                         beacon_node
                             .get_beacon_states_validator_id(
@@ -608,9 +608,9 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
 async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     duties_service: &Arc<DutiesService<T, E>>,
 ) -> Result<(), Error> {
-    let current_epoch_timer = metrics::start_timer_vec(
-        &metrics::DUTIES_SERVICE_TIMES,
-        &[metrics::UPDATE_ATTESTERS_CURRENT_EPOCH],
+    let current_epoch_timer = validator_metrics::start_timer_vec(
+        &validator_metrics::DUTIES_SERVICE_TIMES,
+        &[validator_metrics::UPDATE_ATTESTERS_CURRENT_EPOCH],
     );
 
     let log = duties_service.context.log();
@@ -661,12 +661,16 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         )
     }
 
-    update_per_validator_duty_metrics::<T, E>(duties_service, current_epoch, current_slot);
+    update_per_validator_duty_validator_metrics::<T, E>(
+        duties_service,
+        current_epoch,
+        current_slot,
+    );
 
     drop(current_epoch_timer);
-    let next_epoch_timer = metrics::start_timer_vec(
-        &metrics::DUTIES_SERVICE_TIMES,
-        &[metrics::UPDATE_ATTESTERS_NEXT_EPOCH],
+    let next_epoch_timer = validator_metrics::start_timer_vec(
+        &validator_metrics::DUTIES_SERVICE_TIMES,
+        &[validator_metrics::UPDATE_ATTESTERS_NEXT_EPOCH],
     );
 
     // Download the duties and update the duties for the next epoch.
@@ -683,11 +687,13 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         )
     }
 
-    update_per_validator_duty_metrics::<T, E>(duties_service, next_epoch, current_slot);
+    update_per_validator_duty_validator_metrics::<T, E>(duties_service, next_epoch, current_slot);
 
     drop(next_epoch_timer);
-    let subscriptions_timer =
-        metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::SUBSCRIPTIONS]);
+    let subscriptions_timer = validator_metrics::start_timer_vec(
+        &validator_metrics::DUTIES_SERVICE_TIMES,
+        &[validator_metrics::SUBSCRIPTIONS],
+    );
 
     // This vector is intentionally oversized by 10% so that it won't reallocate.
     // Each validator has 2 attestation duties occuring in the current and next epoch, for which
@@ -749,9 +755,9 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
                 OfflineOnFailure::Yes,
                 ApiTopic::Subscriptions,
                 |beacon_node| async move {
-                    let _timer = metrics::start_timer_vec(
-                        &metrics::DUTIES_SERVICE_TIMES,
-                        &[metrics::SUBSCRIPTIONS_HTTP_POST],
+                    let _timer = validator_metrics::start_timer_vec(
+                        &validator_metrics::DUTIES_SERVICE_TIMES,
+                        &[validator_metrics::SUBSCRIPTIONS_HTTP_POST],
                     );
                     beacon_node
                         .post_validator_beacon_committee_subscriptions(subscriptions_ref)
@@ -824,9 +830,9 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         return Ok(());
     }
 
-    let fetch_timer = metrics::start_timer_vec(
-        &metrics::DUTIES_SERVICE_TIMES,
-        &[metrics::UPDATE_ATTESTERS_FETCH],
+    let fetch_timer = validator_metrics::start_timer_vec(
+        &validator_metrics::DUTIES_SERVICE_TIMES,
+        &[validator_metrics::UPDATE_ATTESTERS_FETCH],
     );
 
     // Request duties for all uninitialized validators. If there isn't any, we will just request for
@@ -892,9 +898,9 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
 
     drop(fetch_timer);
 
-    let _store_timer = metrics::start_timer_vec(
-        &metrics::DUTIES_SERVICE_TIMES,
-        &[metrics::UPDATE_ATTESTERS_STORE],
+    let _store_timer = validator_metrics::start_timer_vec(
+        &validator_metrics::DUTIES_SERVICE_TIMES,
+        &[validator_metrics::UPDATE_ATTESTERS_STORE],
     );
 
     debug!(
@@ -1041,9 +1047,9 @@ async fn post_validator_duties_attester<T: SlotClock + 'static, E: EthSpec>(
             RequireSynced::No,
             OfflineOnFailure::Yes,
             |beacon_node| async move {
-                let _timer = metrics::start_timer_vec(
-                    &metrics::DUTIES_SERVICE_TIMES,
-                    &[metrics::ATTESTER_DUTIES_HTTP_POST],
+                let _timer = validator_metrics::start_timer_vec(
+                    &validator_metrics::DUTIES_SERVICE_TIMES,
+                    &[validator_metrics::ATTESTER_DUTIES_HTTP_POST],
                 );
                 beacon_node
                     .post_validator_duties_attester(epoch, validator_indices)
@@ -1102,9 +1108,9 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
                 continue;
             }
 
-            let timer = metrics::start_timer_vec(
-                &metrics::DUTIES_SERVICE_TIMES,
-                &[metrics::ATTESTATION_SELECTION_PROOFS],
+            let timer = validator_metrics::start_timer_vec(
+                &validator_metrics::DUTIES_SERVICE_TIMES,
+                &[validator_metrics::ATTESTATION_SELECTION_PROOFS],
             );
 
             // Sign selection proofs (serially).
@@ -1236,8 +1242,10 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
     duties_service: &DutiesService<T, E>,
     block_service_tx: &mut Sender<BlockServiceNotification>,
 ) -> Result<(), Error> {
-    let _timer =
-        metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::UPDATE_PROPOSERS]);
+    let _timer = validator_metrics::start_timer_vec(
+        &validator_metrics::DUTIES_SERVICE_TIMES,
+        &[validator_metrics::UPDATE_PROPOSERS],
+    );
 
     let log = duties_service.context.log();
 
@@ -1277,9 +1285,9 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
-                    let _timer = metrics::start_timer_vec(
-                        &metrics::DUTIES_SERVICE_TIMES,
-                        &[metrics::PROPOSER_DUTIES_HTTP_GET],
+                    let _timer = validator_metrics::start_timer_vec(
+                        &validator_metrics::DUTIES_SERVICE_TIMES,
+                        &[validator_metrics::PROPOSER_DUTIES_HTTP_GET],
                     );
                     beacon_node
                         .get_validator_duties_proposer(current_epoch)
@@ -1358,7 +1366,7 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
                 "Detected new block proposer";
                 "current_slot" => current_slot,
             );
-            metrics::inc_counter(&metrics::PROPOSAL_CHANGED);
+            validator_metrics::inc_counter(&validator_metrics::PROPOSAL_CHANGED);
         }
     }
 

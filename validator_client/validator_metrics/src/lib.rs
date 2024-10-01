@@ -1,9 +1,4 @@
-use super::Context;
-use malloc_utils::scrape_allocator_metrics;
-use slot_clock::SlotClock;
 use std::sync::LazyLock;
-use std::time::{SystemTime, UNIX_EPOCH};
-use types::EthSpec;
 
 pub const SUCCESS: &str = "success";
 pub const SLASHABLE: &str = "slashable";
@@ -267,58 +262,3 @@ pub static VC_BEACON_NODE_LATENCY_PRIMARY_ENDPOINT: LazyLock<Result<Histogram>> 
             "Round-trip latency for the primary BN endpoint",
         )
     });
-
-pub fn gather_prometheus_metrics<E: EthSpec>(
-    ctx: &Context<E>,
-) -> std::result::Result<String, String> {
-    let mut buffer = vec![];
-    let encoder = TextEncoder::new();
-
-    {
-        let shared = ctx.shared.read();
-
-        if let Some(genesis_time) = shared.genesis_time {
-            if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
-                let distance = now.as_secs() as i64 - genesis_time as i64;
-                set_gauge(&GENESIS_DISTANCE, distance);
-            }
-        }
-
-        if let Some(duties_service) = &shared.duties_service {
-            if let Some(slot) = duties_service.slot_clock.now() {
-                let current_epoch = slot.epoch(E::slots_per_epoch());
-                let next_epoch = current_epoch + 1;
-
-                set_int_gauge(
-                    &PROPOSER_COUNT,
-                    &[CURRENT_EPOCH],
-                    duties_service.proposer_count(current_epoch) as i64,
-                );
-                set_int_gauge(
-                    &ATTESTER_COUNT,
-                    &[CURRENT_EPOCH],
-                    duties_service.attester_count(current_epoch) as i64,
-                );
-                set_int_gauge(
-                    &ATTESTER_COUNT,
-                    &[NEXT_EPOCH],
-                    duties_service.attester_count(next_epoch) as i64,
-                );
-            }
-        }
-    }
-
-    // It's important to ensure these metrics are explicitly enabled in the case that users aren't
-    // using glibc and this function causes panics.
-    if ctx.config.allocator_metrics_enabled {
-        scrape_allocator_metrics();
-    }
-
-    warp_utils::metrics::scrape_health_metrics();
-
-    encoder
-        .encode(&lighthouse_metrics::gather(), &mut buffer)
-        .unwrap();
-
-    String::from_utf8(buffer).map_err(|e| format!("Failed to encode prometheus info: {:?}", e))
-}

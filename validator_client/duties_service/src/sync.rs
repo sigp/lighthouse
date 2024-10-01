@@ -1,11 +1,6 @@
-use crate::beacon_node_fallback::{OfflineOnFailure, RequireSynced};
-use crate::{
-    doppelganger_service::DoppelgangerStatus,
-    duties_service::{DutiesService, Error},
-    http_metrics::metrics,
-    validator_store::Error as ValidatorStoreError,
-};
-
+use super::{DutiesService, Error};
+use beacon_node_fallback::{OfflineOnFailure, RequireSynced};
+use doppelganger_service::DoppelgangerStatus;
 use futures::future::join_all;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use slog::{crit, debug, info, warn};
@@ -14,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use types::{ChainSpec, EthSpec, PublicKeyBytes, Slot, SyncDuty, SyncSelectionProof, SyncSubnetId};
+use validator_store::Error as ValidatorStoreError;
 
 /// Number of epochs in advance to compute selection proofs when not in `distributed` mode.
 pub const AGGREGATION_PRE_COMPUTE_EPOCHS: u64 = 2;
@@ -446,9 +442,9 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
             RequireSynced::No,
             OfflineOnFailure::Yes,
             |beacon_node| async move {
-                let _timer = metrics::start_timer_vec(
-                    &metrics::DUTIES_SERVICE_TIMES,
-                    &[metrics::VALIDATOR_DUTIES_SYNC_HTTP_POST],
+                let _timer = validator_metrics::start_timer_vec(
+                    &validator_metrics::DUTIES_SERVICE_TIMES,
+                    &[validator_metrics::VALIDATOR_DUTIES_SYNC_HTTP_POST],
                 );
                 beacon_node
                     .post_validator_duties_sync(period_start_epoch, local_indices)

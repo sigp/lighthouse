@@ -5,7 +5,6 @@ mod check_synced;
 mod cli;
 mod duties_service;
 mod graffiti_file;
-mod http_metrics;
 mod key_cache;
 mod latency;
 mod notifier;
@@ -151,14 +150,14 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         );
 
         // Optionally start the metrics server.
-        let http_metrics_ctx = if config.http_metrics.enabled {
-            let shared = http_metrics::Shared {
+        let validator_metrics_ctx = if config.http_metrics.enabled {
+            let shared = validator_metrics::Shared {
                 validator_store: None,
                 genesis_time: None,
                 duties_service: None,
             };
 
-            let ctx: Arc<http_metrics::Context<E>> = Arc::new(http_metrics::Context {
+            let ctx: Arc<validator_metrics::Context<E>> = Arc::new(validator_metrics::Context {
                 config: config.http_metrics.clone(),
                 shared: RwLock::new(shared),
                 log: log.clone(),
@@ -166,7 +165,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
             let exit = context.executor.exit();
 
-            let (_listen_addr, server) = http_metrics::serve(ctx.clone(), exit)
+            let (_listen_addr, server) = validator_metrics::serve(ctx.clone(), exit)
                 .map_err(|e| format!("Unable to start metrics API server: {:?}", e))?;
 
             context
@@ -377,20 +376,20 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         // Set the count for beacon node fallbacks excluding the primary beacon node.
         set_gauge(
-            &http_metrics::metrics::ETH2_FALLBACK_CONFIGURED,
+            &validator_metrics::metrics::ETH2_FALLBACK_CONFIGURED,
             num_nodes.saturating_sub(1) as i64,
         );
         // Set the total beacon node count.
         set_gauge(
-            &http_metrics::metrics::TOTAL_BEACON_NODES_COUNT,
+            &validator_metrics::metrics::TOTAL_BEACON_NODES_COUNT,
             num_nodes as i64,
         );
 
         // Initialize the number of connected, synced beacon nodes to 0.
-        set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 0);
-        set_gauge(&http_metrics::metrics::SYNCED_BEACON_NODES_COUNT, 0);
+        set_gauge(&validator_metrics::metrics::ETH2_FALLBACK_CONNECTED, 0);
+        set_gauge(&validator_metrics::metrics::SYNCED_BEACON_NODES_COUNT, 0);
         // Initialize the number of connected, avaliable beacon nodes to 0.
-        set_gauge(&http_metrics::metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
+        set_gauge(&validator_metrics::metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
 
         let mut beacon_nodes: BeaconNodeFallback<_, E> = BeaconNodeFallback::new(
             candidates,
@@ -413,7 +412,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         };
 
         // Update the metrics server.
-        if let Some(ctx) = &http_metrics_ctx {
+        if let Some(ctx) = &validator_metrics_ctx {
             ctx.shared.write().genesis_time = Some(genesis_time);
         }
 
@@ -487,7 +486,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         });
 
         // Update the metrics server.
-        if let Some(ctx) = &http_metrics_ctx {
+        if let Some(ctx) = &validator_metrics_ctx {
             ctx.shared.write().validator_store = Some(validator_store.clone());
             ctx.shared.write().duties_service = Some(duties_service.clone());
         }

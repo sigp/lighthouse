@@ -83,7 +83,15 @@ members = [
     "testing/web3signer_tests",
 
     "validator_client",
+    "validator_client/beacon_node_fallback",
+    "validator_client/doppelganger_service",
+    "validator_client/duties_service",
+    "validator_client/http_metrics",
+    "validator_client/initialized_validators",
+    "validator_client/signing_method",
     "validator_client/slashing_protection",
+    "validator_client/validator_metrics",
+    "validator_client/validator_store",
 
     "validator_manager",
 
@@ -101,6 +109,7 @@ alloy-consensus = "0.3.0"
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 async-channel = "1.9.0"
+axum = "0.7.7"
 bincode = "1"
 bitvec = "1"
 byteorder = "1"
@@ -169,7 +178,7 @@ superstruct = "0.8"
 syn = "1"
 sysinfo = "0.26"
 tempfile = "3"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal", "macros"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["codec", "compat", "time"] }
 tracing = "0.1.40"
@@ -189,12 +198,15 @@ zip = "0.6"
 account_utils = { path = "common/account_utils" }
 beacon_chain = { path = "beacon_node/beacon_chain" }
 beacon_node = { path = "beacon_node" }
+beacon_node_fallback = { path = "validator_client/beacon_node_fallback" }
 beacon_processor = { path = "beacon_node/beacon_processor" }
 bls = { path = "crypto/bls" }
 clap_utils = { path = "common/clap_utils" }
 compare_fields = { path = "common/compare_fields" }
 deposit_contract = { path = "common/deposit_contract" }
 directory = { path = "common/directory" }
+doppelganger_service = { path = "validator_client/doppelganger_service" }
+duties_service = { path = "validator_client/duties_service" }
 environment = { path = "lighthouse/environment" }
 eth1 = { path = "beacon_node/eth1" }
 eth1_test_rig = { path = "testing/eth1_test_rig" }
@@ -211,6 +223,7 @@ fork_choice = { path = "consensus/fork_choice" }
 genesis = { path = "beacon_node/genesis" }
 gossipsub = { path = "beacon_node/lighthouse_network/gossipsub/" }
 http_api = { path = "beacon_node/http_api" }
+initialized_validators = { path = "validator_client/initialized_validators" }
 int_to_bytes = { path = "consensus/int_to_bytes" }
 kzg = { path = "crypto/kzg" }
 lighthouse_metrics = { path = "common/lighthouse_metrics" }
@@ -228,6 +241,7 @@ pretty_reqwest_error = { path = "common/pretty_reqwest_error" }
 proto_array = { path = "consensus/proto_array" }
 safe_arith = { path = "consensus/safe_arith" }
 sensitive_url = { path = "common/sensitive_url" }
+signing_method = { path = "validator_client/signing_method" }
 slasher = { path = "slasher", default-features = false }
 slashing_protection = { path = "validator_client/slashing_protection" }
 slot_clock = { path = "common/slot_clock" }
@@ -239,6 +253,9 @@ types = { path = "consensus/types" }
 unused_port = { path = "common/unused_port" }
 validator_client = { path = "validator_client" }
 validator_dir = { path = "common/validator_dir" }
+validator_http_metrics = { path = "validator_client/http_metrics" }
+validator_metrics = { path = "validator_client/validator_metrics" }
+validator_store= { path = "validator_client/validator_store" }
 warp_utils = { path = "common/warp_utils" }
 
 [profile.maxperf]

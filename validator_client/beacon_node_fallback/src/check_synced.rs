@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::CandidateError;
+use super::CandidateError;
 use eth2::BeaconNodeHttpClient;
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;

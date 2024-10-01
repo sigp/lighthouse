@@ -29,9 +29,7 @@
 //!
 //! Doppelganger protection is a best-effort, last-line-of-defence mitigation. Do not rely upon it.
 
-use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
-use crate::validator_store::ValidatorStore;
-use crate::OfflineOnFailure;
+use beacon_node_fallback::{BeaconNodeFallback, OfflineOnFailure, RequireSynced};
 use environment::RuntimeContext;
 use eth2::types::LivenessResponseData;
 use parking_lot::RwLock;
@@ -114,6 +112,13 @@ struct LivenessResponses {
 /// The number of epochs that must be checked before we assume that there are no other duplicate
 /// validators on the network.
 pub const DEFAULT_REMAINING_DETECTION_EPOCHS: u64 = 1;
+
+/// This crate cannot depend on ValidatorStore as validator_store depends on this crate and
+/// initialises the doppelganger protection. For this reason, we abstract the validator store
+/// functions this service needs through the following trait
+pub trait DoppelGangerValidatorStore {
+    fn validator_index(&self, pubkey: &PublicKeyBytes) -> Option<u64>;
+}
 
 /// Store the per-validator status of doppelganger checking.
 #[derive(Debug, PartialEq)]
@@ -283,13 +288,18 @@ impl DoppelgangerService {
 
     /// Starts a reoccurring future which will try to keep the doppelganger service updated each
     /// slot.
-    pub fn start_update_service<E: EthSpec, T: 'static + SlotClock>(
+    pub fn start_update_service<E, T, V>(
         service: Arc<Self>,
         context: RuntimeContext<E>,
-        validator_store: Arc<ValidatorStore<T, E>>,
+        validator_store: Arc<V>,
         beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
         slot_clock: T,
-    ) -> Result<(), String> {
+    ) -> Result<(), String>
+    where
+        E: EthSpec,
+        T: 'static + SlotClock,
+        V: DoppelGangerValidatorStore + Send + Sync + 'static,
+    {
         // Define the `get_index` function as one that uses the validator store.
         let get_index = move |pubkey| validator_store.validator_index(&pubkey);
 
