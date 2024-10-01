@@ -252,7 +252,7 @@ pub trait RateLimiterItem {
     fn max_responses(&self) -> u64;
 }
 
-impl<E: EthSpec> RateLimiterItem for super::InboundRequest<E> {
+impl<E: EthSpec> RateLimiterItem for super::RequestType<E> {
     fn protocol(&self) -> Protocol {
         self.versioned_protocol().protocol()
     }
@@ -262,15 +262,6 @@ impl<E: EthSpec> RateLimiterItem for super::InboundRequest<E> {
     }
 }
 
-impl<E: EthSpec> RateLimiterItem for super::OutboundRequest<E> {
-    fn protocol(&self) -> Protocol {
-        self.versioned_protocol().protocol()
-    }
-
-    fn max_responses(&self) -> u64 {
-        self.max_responses()
-    }
-}
 impl RPCRateLimiter {
     pub fn new_with_config(config: RateLimiterConfig) -> Result<Self, &'static str> {
         // Destructure to make sure every configuration value is used.

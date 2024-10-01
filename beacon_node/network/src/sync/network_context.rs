@@ -17,13 +17,16 @@ use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
 use custody::CustodyRequestResult;
 use fnv::FnvHashMap;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, DataColumnsByRangeRequest};
-use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError};
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, DataColumnsByRangeRequest, OldBlocksByRangeRequest,
+    OldBlocksByRangeRequestV1, OldBlocksByRangeRequestV2,
+};
+use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError, RequestType};
 use lighthouse_network::service::api_types::{
     AppRequestId, CustodyId, CustodyRequester, DataColumnsByRootRequestId,
     DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
-use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
+use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use requests::ActiveDataColumnsByRootRequest;
@@ -336,7 +339,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 "head_slot" => %status_message.head_slot,
             );
 
-            let request = Request::Status(status_message.clone());
+            let request = RequestType::Status(status_message.clone());
             let request_id = AppRequestId::Router;
             let _ = self.send_network_msg(NetworkMessage::SendRequest {
                 peer_id,
@@ -365,10 +368,26 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "epoch" => epoch,
             "peer" => %peer_id,
         );
+        let rpc_request = match request {
+            BlocksByRangeRequest::V1(ref req) => {
+                RequestType::BlocksByRange(OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1 {
+                    start_slot: req.start_slot,
+                    count: req.count,
+                    step: 1,
+                }))
+            }
+            BlocksByRangeRequest::V2(ref req) => {
+                RequestType::BlocksByRange(OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2 {
+                    start_slot: req.start_slot,
+                    count: req.count,
+                    step: 1,
+                }))
+            }
+        };
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: Request::BlocksByRange(request.clone()),
+                request: rpc_request,
                 request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
             })
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
@@ -387,7 +406,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.network_send
                 .send(NetworkMessage::SendRequest {
                     peer_id,
-                    request: Request::BlobsByRange(BlobsByRangeRequest {
+                    request: RequestType::BlobsByRange(BlobsByRangeRequest {
                         start_slot: *request.start_slot(),
                         count: *request.count(),
                     }),
@@ -421,7 +440,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
                     self.send_network_msg(NetworkMessage::SendRequest {
                         peer_id,
-                        request: Request::DataColumnsByRange(columns_by_range_request),
+                        request: RequestType::DataColumnsByRange(columns_by_range_request),
                         request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
                     })
                     .map_err(|_| RpcRequestSendError::NetworkSendError)?;
@@ -585,7 +604,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: Request::BlocksByRoot(request.into_request(&self.chain.spec)),
+                request: RequestType::BlocksByRoot(request.into_request(&self.chain.spec)),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             })
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
@@ -683,7 +702,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: Request::BlobsByRoot(request.clone().into_request(&self.chain.spec)),
+                request: RequestType::BlobsByRoot(request.clone().into_request(&self.chain.spec)),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             })
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
@@ -715,7 +734,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
-            request: Request::DataColumnsByRoot(request.clone().into_request(&self.chain.spec)),
+            request: RequestType::DataColumnsByRoot(request.clone().into_request(&self.chain.spec)),
             request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(req_id, requester)),
         })?;
 
