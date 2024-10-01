@@ -2,7 +2,7 @@
 
 use crate::discovery::enr_ext::EnrExt;
 use crate::discovery::peer_id_to_node_id;
-use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
+use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RpcErrorResponse};
 use crate::service::TARGET_SUBNET_PEERS;
 use crate::{error, metrics, Gossipsub, NetworkGlobals, PeerId, Subnet, SubnetDiscovery};
 use delay_map::HashSetDelay;
@@ -526,8 +526,8 @@ impl<E: EthSpec> PeerManager<E> {
                 PeerAction::HighToleranceError
             }
             RPCError::ErrorResponse(code, _) => match code {
-                RPCResponseErrorCode::Unknown => PeerAction::HighToleranceError,
-                RPCResponseErrorCode::ResourceUnavailable => {
+                RpcErrorResponse::Unknown => PeerAction::HighToleranceError,
+                RpcErrorResponse::ResourceUnavailable => {
                     // Don't ban on this because we want to retry with a block by root request.
                     if matches!(
                         protocol,
@@ -558,9 +558,9 @@ impl<E: EthSpec> PeerManager<E> {
                         ConnectionDirection::Incoming => return,
                     }
                 }
-                RPCResponseErrorCode::ServerError => PeerAction::MidToleranceError,
-                RPCResponseErrorCode::InvalidRequest => PeerAction::LowToleranceError,
-                RPCResponseErrorCode::RateLimited => match protocol {
+                RpcErrorResponse::ServerError => PeerAction::MidToleranceError,
+                RpcErrorResponse::InvalidRequest => PeerAction::LowToleranceError,
+                RpcErrorResponse::RateLimited => match protocol {
                     Protocol::Ping => PeerAction::MidToleranceError,
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
@@ -577,7 +577,7 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::MetaData => PeerAction::LowToleranceError,
                     Protocol::Status => PeerAction::LowToleranceError,
                 },
-                RPCResponseErrorCode::BlobsNotFoundForBlock => PeerAction::LowToleranceError,
+                RpcErrorResponse::BlobsNotFoundForBlock => PeerAction::LowToleranceError,
             },
             RPCError::SSZDecodeError(_) => PeerAction::Fatal,
             RPCError::UnsupportedProtocol => {
