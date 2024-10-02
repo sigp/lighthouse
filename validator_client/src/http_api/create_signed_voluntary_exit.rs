@@ -45,7 +45,7 @@ pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone, E: Eth
 
     info!(
         validator = pubkey_bytes.as_hex_string(),
-        ?epoch,
+        %epoch,
         "Signing voluntary exit"
     );
 

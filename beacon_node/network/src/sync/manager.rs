@@ -472,10 +472,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 debug!(
                     %peer_id,
                     new_state = rpr,
-                    our_head_slot = ?local_sync_info.head_slot,
-                    our_finalized_epoch = ?local_sync_info.finalized_epoch,
-                    their_head_slot = ?remote_sync_info.head_slot,
-                    their_finalized_epoch = ?remote_sync_info.finalized_epoch,
+                    our_head_slot = %local_sync_info.head_slot,
+                    our_finalized_epoch = %local_sync_info.finalized_epoch,
+                    their_head_slot = %remote_sync_info.head_slot,
+                    their_finalized_epoch = %remote_sync_info.finalized_epoch,
                     is_connected,
                     "Peer transitioned sync state"
                 );
@@ -731,7 +731,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
             SyncMessage::SampleBlock(block_root, block_slot) => {
-                debug!(%block_root, slot = ?block_slot, "Received SampleBlock message");
+                debug!(%block_root, slot = %block_slot, "Received SampleBlock message");
                 if let Some((requester, result)) = self
                     .sampling
                     .on_new_sample_request(block_root, &mut self.network)
@@ -740,7 +740,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
             SyncMessage::Disconnect(peer_id) => {
-                debug!(?peer_id, "Received disconnected message");
+                debug!(%peer_id, "Received disconnected message");
                 self.peer_disconnect(&peer_id);
             }
             SyncMessage::RpcError {

@@ -316,8 +316,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             debug!(
                 peer = %peer_id,
                 fork_digest = ?status_message.fork_digest,
-                finalized_root = %status_message.finalized_root,
-                finalized_epoch = %status_message.finalized_epoch,
+                finalized_root = ?status_message.finalized_root,
+                finalized_epoch = ?status_message.finalized_epoch,
                 head_root = %status_message.head_root,
                 head_slot = %status_message.head_slot,
                 "Sending Status Request"
@@ -347,7 +347,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         debug!(
             method = "BlocksByRange",
             count = request.count(),
-            ?epoch,
+            %epoch,
             %peer_id,
             "Sending BlocksByRange request"
         );
@@ -363,7 +363,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             debug!(
                 method = "BlobsByRange",
                 count = request.count(),
-                ?epoch,
+                %epoch,
                 peer = %peer_id,
                 "Sending BlobsByRange requests"
             );
@@ -397,7 +397,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     debug!(
                         method = "DataColumnsByRange",
                         count = columns_by_range_request.count,
-                        ?epoch,
+                        %epoch,
                         columns = ?columns_by_range_request.columns,
                         peer = %peer_id,
                         "Sending DataColumnsByRange requests"

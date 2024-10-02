@@ -192,7 +192,7 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
             Err(e) => {
                 error!(
                     error = ?e,
-                    slot = ?sync_committee_signature.slot,
+                    slot = %sync_committee_signature.slot,
                     "Unable to compute subnet positions for sync message"
                 );
                 failures.push(api_types::Failure::new(i, format!("Verification: {:?}", e)));
@@ -248,7 +248,7 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
                     debug!(
                         ?new_root,
                         ?prev_root,
-                        ?slot,
+                        %slot,
                         validator_index,
                         "Ignoring already-known sync message"
                     );
@@ -257,7 +257,7 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
                     error!(
                         error = ?e,
                         request_index = i,
-                        slot = ?sync_committee_signature.slot,
+                        slot = %sync_committee_signature.slot,
                         validator_index = sync_committee_signature.validator_index,
                         "Failure verifying sync committee signature for gossip"
                     );
@@ -270,7 +270,7 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
             if let Err(e) = chain.add_to_naive_sync_aggregation_pool(verified) {
                 error!(
                     error = ?e,
-                    slot = ?sync_committee_signature.slot,
+                    slot = %sync_committee_signature.slot,
                     validator_index = sync_committee_signature.validator_index,
                     "Unable to add sync committee signature to pool"
                 );
@@ -360,7 +360,7 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
                     request_index = index,
                     aggregator_index = aggregator_index,
                     subcommittee_index = subcommittee_index,
-                    contribution_slot = ?contribution_slot,
+                    contribution_slot = %contribution_slot,
                     "Failure verifying signed contribution and proof"
                 );
                 failures.push(api_types::Failure::new(

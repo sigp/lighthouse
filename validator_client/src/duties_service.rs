@@ -1175,7 +1175,7 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
                 Duration::from_secs_f64(timer.map_or(0.0, |t| t.stop_and_record())).as_millis();
             debug!(
                 batch_size,
-                ?lookahead_slot,
+                %lookahead_slot,
                 time_taken_ms,
                 "Computed attestation selection proofs"
             );
@@ -1328,7 +1328,7 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
                 log,
             )
             .await;
-            debug!(?current_slot, "Detected new block proposer");
+            debug!(%current_slot, "Detected new block proposer");
             metrics::inc_counter(&metrics::PROPOSAL_CHANGED);
         }
     }
@@ -1365,7 +1365,7 @@ async fn notify_block_production_service<T: SlotClock + 'static, E: EthSpec>(
             .await
         {
             error!(
-                ?current_slot,
+                %current_slot,
                 error = %e,
                 "Failed to notify block service"
             );

@@ -59,7 +59,7 @@ pub fn run_parse_ssz<E: EthSpec>(
         spec.config_name.as_deref().unwrap_or("unknown"),
         E::spec_name()
     );
-    info!(?type_str, "Type");
+    info!(%type_str, "Type");
 
     // More fork-specific decoders may need to be added in future, but shouldn't be 100% necessary,
     // as the fork-generic decoder will always be available (requires correct --network flag).

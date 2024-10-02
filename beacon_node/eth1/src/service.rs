@@ -735,8 +735,8 @@ impl Service {
                 }
             } else {
                 debug!(
-                    ?already_finalized,
-                    ?deposit_count_to_finalize,
+                    %already_finalized,
+                    %deposit_count_to_finalize,
                     "Deposits tree already finalized"
                 );
             }

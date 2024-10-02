@@ -263,7 +263,7 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
         // Calculate the duration to the unsubscription event.
         let expected_end_subscription_duration = if current_slot >= until_slot {
             warn!(
-                ?current_slot,
+                %current_slot,
                 ?exact_subnet,
                 "Sync committee subscription is past expiration"
             );

@@ -1269,7 +1269,7 @@ impl InitializedValidators {
 
                                 if let Some(lockfile_path) = existing_lockfile_path {
                                     warn!(
-                                        path = ?lockfile_path.display(),
+                                        path = %lockfile_path.display(),
                                         cause = "Ungraceful shutdown (harmless) OR \
                                                     non-Lighthouse client using this keystore \
                                                     (risky)",

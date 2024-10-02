@@ -69,7 +69,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
     };
     let block = block_contents.inner_block().clone();
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
-    debug!( slot = ?block.slot(),"Signed block received in HTTP API");
+    debug!( slot = %block.slot(),"Signed block received in HTTP API");
     let malicious_withhold_count = chain.config.malicious_withhold_count;
     let chain_cloned = chain.clone();
 
@@ -91,7 +91,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
         );
 
         info!(
-            slot = ?block.slot(),
+            slot = %block.slot(),
             publish_delay_ms = publish_delay.as_millis(),
             "Signed block published to network via HTTP API"
         );
@@ -173,7 +173,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
             }
             Err(e) => {
                 warn!(
-                    ?slot,
+                    %slot,
                     error = %e,
                     "Not publishing block - not gossip verified"
                 );
@@ -285,9 +285,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlockConten
         Ok(AvailabilityProcessingStatus::Imported(root)) => {
             info!(
                 block_delay = ?delay,
-                root = format!("{}", root),
+                %root,
                 proposer_index,
-                ?slot,
+                %slot,
                 "Valid block from HTTP API"
             );
 
@@ -483,7 +483,7 @@ fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
             msg = "system may be overloaded, block likely to be orphaned",
             provenance,
             delay_ms = delay.as_millis(),
-            slot = ?block.slot(),
+            slot = %block.slot(),
             ?root,
             "Block was broadcast too late"
         )
@@ -514,7 +514,7 @@ fn check_slashable<T: BeaconChainTypes>(
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?
             {
                 warn!(
-                    slot = ?block_clone.slot(),
+                    slot = %block_clone.slot(),
                     "Not publishing equivocating blob"
                 );
                 return Err(BlockError::Slashable);
@@ -531,7 +531,7 @@ fn check_slashable<T: BeaconChainTypes>(
         .map_err(|e| BlockError::BeaconChainError(e.into()))?
     {
         warn!(
-            slot = ?block_clone.slot(),
+            slot = %block_clone.slot(),
             "Not publishing equivocating block"
         );
         return Err(BlockError::Slashable);

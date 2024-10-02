@@ -541,8 +541,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 if &end_slot > current_end_slot {
                     trace!(
                         subnet = ?subnet_id,
-                        prev_end_slot = ?current_end_slot,
-                        new_end_slot = ?end_slot,
+                        prev_end_slot = %current_end_slot,
+                        new_end_slot = %end_slot,
                         ?subscription_kind,
                         "Extending subscription to subnet"
                     );
@@ -558,7 +558,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 if !already_subscribed_as_other_kind {
                     debug!(
                         subnet = ?subnet_id,
-                        ?end_slot,
+                        %end_slot,
                         ?subscription_kind,
                         "Subscribing to subnet"
                     );

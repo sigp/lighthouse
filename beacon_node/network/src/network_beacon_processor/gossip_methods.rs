@@ -954,7 +954,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(
                     outcome = ?err,
                     ?block_root,
-                    ?blob_slot,
+                    %blob_slot,
                     blob_index,
                     "Invalid gossip blob"
                 );
@@ -1036,7 +1036,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(
                     outcome = ?err,
                     ?block_root,
-                    block_slot =  ?data_column_slot,
+                    block_slot =  %data_column_slot,
                     data_column_index,
                     "Invalid gossip data column"
                 );
@@ -1456,7 +1456,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
                 trace!(
-                    ?slot,
+                    %slot,
                     %block_root,
                     "Processed block, waiting for other components"
                 );
@@ -1506,7 +1506,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(
                     outcome = ?other,
                     ?block_root,
-                    block_slot = ?block.slot(),
+                    block_slot = %block.slot(),
                     "Invalid gossip beacon block"
                 );
                 self.gossip_penalize_peer(

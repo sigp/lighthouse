@@ -140,7 +140,7 @@ where
                 }
 
                 // Finalized chain search
-                debug!(?peer_id, "Finalization sync peer joined");
+                debug!(%peer_id, "Finalization sync peer joined");
                 self.awaiting_head_peers.remove(&peer_id);
 
                 // Because of our change in finalized sync batch size from 2 to 1 and our transition
@@ -258,7 +258,7 @@ where
             }
 
             Err(_) => {
-                trace!(?chain_id, "BlocksByRange response for removed chain")
+                trace!(%chain_id, "BlocksByRange response for removed chain")
             }
         }
     }
@@ -320,7 +320,7 @@ where
                 }
             }
             Err(_) => {
-                trace!(?chain_id, "BlocksByRange response for removed chain")
+                trace!(%chain_id, "BlocksByRange response for removed chain")
             }
         }
     }

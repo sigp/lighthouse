@@ -57,8 +57,8 @@ pub async fn check_synced<T: SlotClock>(
             if remote_slot + 1 < local_slot || local_slot + 1 < remote_slot {
                 error!(
                     msg = "check the system time on this host and the beacon node",
-                    beacon_node_slot = ?remote_slot,
-                    local_slot = ?local_slot,
+                    beacon_node_slot = %remote_slot,
+                    local_slot = %local_slot,
                     endpoint = %beacon_node,
                     "Time discrepancy with beacon node"
                 );

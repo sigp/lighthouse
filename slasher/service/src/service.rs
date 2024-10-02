@@ -121,7 +121,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
                 Ok(stats) => Some(stats),
                 Err(e) => {
                     error!(
-                        epoch = ?current_epoch,
+                        epoch = %current_epoch,
                         error = ?e,
                         "Error during scheduled slasher processing"
                     );
@@ -134,7 +134,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
             // If the database is full then pruning could help to free it up.
             if let Err(e) = slasher.prune_database(current_epoch) {
                 error!(
-                    epoch = ?current_epoch,
+                    epoch = %current_epoch,
                     error = ?e,
                     "Error during slasher database pruning"
                 );
@@ -149,7 +149,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
 
             if let Some(stats) = stats {
                 debug!(
-                    epoch = ?current_epoch,
+                    epoch = %current_epoch,
                     time_taken = format!("{}ms", t.elapsed().as_millis()),
                     num_attestations = stats.attestation_stats.num_processed,
                     num_blocks = stats.block_stats.num_processed,

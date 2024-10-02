@@ -449,7 +449,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 warn!(
                     info = "a validator may have recently been removed from this VC",
                     ?pubkey,
-                    ?slot,
+                    %slot,
                     "Missing pubkey for block randao"
                 );
                 return Ok(());
@@ -679,14 +679,14 @@ fn handle_block_post_error(err: eth2::Error, slot: Slot, log: &Logger) -> Result
     if let Some(status) = err.status() {
         if status == StatusCode::ACCEPTED {
             info!(
-                ?slot,
+                %slot,
                 status_code = status.as_u16(),
                 "Block is already known to BN or might be invalid"
             );
             return Ok(());
         } else if status.is_success() {
             debug!(
-                ?slot,
+                %slot,
                 status_code = status.as_u16(),
                 "Block published with non-standard success code"
             );

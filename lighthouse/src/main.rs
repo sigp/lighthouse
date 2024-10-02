@@ -614,7 +614,6 @@ fn run<E: EthSpec>(
 
     // Log panics properly.
     {
-        //let log = log.clone();
         std::panic::set_hook(Box::new(move |info| {
             crit!(
                 location = info.location().map(ToString::to_string),

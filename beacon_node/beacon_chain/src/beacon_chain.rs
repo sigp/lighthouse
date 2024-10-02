@@ -1434,8 +1434,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ordering::Greater => {
                 if slot > head_state.slot() + T::EthSpec::slots_per_epoch() {
                     warn!(
-                        head_slot = ?head_state.slot(),
-                        request_slot = ?slot,
+                        head_slot = %head_state.slot(),
+                        request_slot = %slot,
                         "Skipping more than an epoch"
                     )
                 }
@@ -1456,8 +1456,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         Err(e) => {
                             warn!(
                                 error = ?e,
-                                head_slot= ?head_state_slot,
-                                requested_slot = ?slot,
+                                head_slot= %head_state_slot,
+                                requested_slot = %slot,
                                 "Unable to load state at slot"
                             );
                             return Err(Error::NoStateForSlot(slot));
@@ -2385,7 +2385,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .unwrap_or_else(|e| {
                 debug!(
                     ?block_root,
-                    ?target_epoch,
+                    %target_epoch,
                     reason = ?e,
                     "Skipping attestation with incompatible shuffling"
                 );
@@ -2429,7 +2429,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             debug!(
                 ?block_root,
-                ?target_epoch,
+                %target_epoch,
                 reason = "target epoch less than block epoch",
                 "Skipping attestation with incompatible shuffling"
             );
@@ -2441,7 +2441,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             debug!(
                 ?block_root,
-                ?target_epoch,
+                %target_epoch,
                 ?head_shuffling_id,
                 ?block_shuffling_id,
                 "Skipping attestation with incompatible shuffling"
@@ -2863,7 +2863,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
                                 warn!(
                                     ?block_root,
-                                    ?slot,
+                                    %slot,
                                     "Blobs missing in response to range request"
                                 );
                                 return ChainSegmentResult::Failed {
@@ -2932,10 +2932,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         Ok(verified) => {
                             let commitments_formatted = verified.block.commitments_formatted();
                             debug!(
-                                graffiti = ?graffiti_string,
-                                ?slot,
+                                graffiti = %graffiti_string,
+                                %slot,
                                 root = ?verified.block_root(),
-                                commitments = ?commitments_formatted,
+                                commitments = %commitments_formatted,
                                 "Successfully verified gossip block"
                             );
 
@@ -2945,7 +2945,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             debug!(
                                 error = e.to_string(),
                                 graffiti = graffiti_string,
-                                ?slot,
+                                %slot,
                                 "Rejected gossip block"
                             );
 
@@ -3277,7 +3277,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(status @ AvailabilityProcessingStatus::Imported(block_root)) => {
                 debug!(
                     ?block_root,
-                    ?block_slot,
+                    %block_slot,
                     source = %block_source,
                     "Beacon block imported"
                 );
@@ -3288,7 +3288,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(status)
             }
             Ok(status @ AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
-                debug!(?block_root, ?slot, "Beacon block awaiting blobs");
+                debug!(?block_root, %slot, "Beacon block awaiting blobs");
 
                 Ok(status)
             }
@@ -3338,7 +3338,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Log the PoS pandas if a merge transition just occurred.
         if payload_verification_outcome.is_valid_merge_transition_block {
             info!("{}", POS_PANDA_BANNER);
-            info!(slot = ?block.slot(), "Proof of Stake Activated");
+            info!(slot = %block.slot(), "Proof of Stake Activated");
             info!(
                 terminal_pow_block_hash = ?block
                 .message()
@@ -4020,7 +4020,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
                 Err(e) => {
                     warn!(
-                        epoch = ?duty_epoch,
+                        epoch = %duty_epoch,
                         purpose = "validator monitor",
                         error = ?e,
                         "Unable to fetch sync committee"
@@ -4036,7 +4036,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(e) => {
                     debug!(
                         purpose = "validator monitor",
-                        attestation_slot = ?attestation.data().slot,
+                        attestation_slot = %attestation.data().slot,
                         error = ?e,
                         "Failed to get indexed attestation"
                     );
@@ -4091,7 +4091,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(e) => {
                     debug!(
                         error = ?e,
-                        epoch = ?a.data().target.epoch,
+                        epoch = %a.data().target.epoch,
                         "Failed to register observed attestation"
                     );
                 }
@@ -4102,7 +4102,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(e) => {
                     debug!(
                         purpose = "observation",
-                        attestation_slot = ?a.data().slot,
+                        attestation_slot = %a.data().slot,
                         error = ?e,
                         "Failed to get indexed attestation"
                     );
@@ -4118,8 +4118,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 {
                     debug!(
                         error = ?e,
-                        epoch = ?a.data().target.epoch,
-                        ?validator_index,
+                        epoch = %a.data().target.epoch,
+                        %validator_index,
                         "Failed to register observed block attester"
                     )
                 }
@@ -4141,7 +4141,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     Err(e) => {
                         debug!(
                             purpose = "slasher",
-                            attestation_slot = ?attestation.data().slot,
+                            attestation_slot = %attestation.data().slot,
                             error = ?e,
                             "Failed to get indexed attestation"
                         );
@@ -4310,8 +4310,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let finalized_deposit_count = finalized_eth1_data.deposit_count;
                     eth1_chain.finalize_eth1_data(finalized_eth1_data);
                     debug!(
-                        epoch = ?current_finalized_checkpoint.epoch,
-                        deposit_count = ?finalized_deposit_count,
+                        epoch = %current_finalized_checkpoint.epoch,
+                        deposit_count = %finalized_deposit_count,
                         "called eth1_chain.finalize_eth1_data()"
                     );
                 }
@@ -4335,15 +4335,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 match rx.wait_for_fork_choice(slot, timeout) {
                     ForkChoiceWaitResult::Success(fc_slot) => {
                         debug!(
-                            ?slot,
-                            fork_choice_slot = ?fc_slot,
+                            %slot,
+                            fork_choice_slot = %fc_slot,
                             "Fork choice successfully updated before block production"
                         );
                     }
                     ForkChoiceWaitResult::Behind(fc_slot) => {
                         warn!(
-                            fork_choice_slot = ?fc_slot,
-                            ?slot,
+                            fork_choice_slot = %fc_slot,
+                            %slot,
                             message = "this block may be orphaned",
                             "Fork choice notifier out of sync with block production"
                         );
@@ -4357,8 +4357,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             } else {
                 error!(
-                    ?slot,
-                    ?current_slot,
+                    %slot,
+                    %current_slot,
                     message = "check clock sync, this block may be orphaned",
                     "Producing block at incorrect slot"
                 );
@@ -4436,7 +4436,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.get_state_for_re_org(slot, head_slot, head_block_root)
             {
                 info!(
-                    ?slot,
+                    %slot,
                     head_to_reorg = %head_block_root,
                     "Proposing block to re-org current head"
                 );
@@ -4454,7 +4454,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             warn!(
                 message = "this block is more likely to be orphaned",
-                ?slot,
+                %slot,
                 "Producing block that conflicts with head"
             );
             let state = self
@@ -4611,8 +4611,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 warn!(
                     msg = "this is a non-critical issue that can happen on unhealthy nodes or \
                               networks.",
-                    ?proposal_epoch,
-                    ?head_epoch,
+                    %proposal_epoch,
+                    %head_epoch,
                     "Skipping proposer preparation"
                 );
 
@@ -4708,7 +4708,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Advance the state using the partial method.
         debug!(
-            ?proposal_slot,
+            %proposal_slot,
             ?parent_block_root,
             "Advancing state for withdrawals calculation"
         );
@@ -4824,7 +4824,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .get_slot::<T::EthSpec>(shuffling_decision_root, re_org_block_slot)
                 .ok_or_else(|| {
                     debug!(
-                        slot = ?re_org_block_slot,
+                        slot = %re_org_block_slot,
                         decision_root = ?shuffling_decision_root,
                         "Fork choice override proposer shuffling miss"
                     );
@@ -4889,7 +4889,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         debug!(
             canonical_head = ?head_block_root,
             ?info.parent_node.root,
-            slot = ?fork_choice_slot,
+            slot = %fork_choice_slot,
             "Fork choice update overridden"
         );
 
@@ -5197,7 +5197,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| {
                     warn!(
                         err = ?e,
-                        block_slot = ?state.slot(),
+                        block_slot = $state.slot(),
                         attestation = ?att,
                         "Attempted to include an invalid attestation"
                     );
@@ -5212,7 +5212,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .map_err(|e| {
                         warn!(
                             err = ?e,
-                            block_slot = ?state.slot(),
+                            block_slot = %state.slot(),
                             ?slashing,
                             "Attempted to include an invalid proposer slashing"
                         );
@@ -5227,7 +5227,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .map_err(|e| {
                         warn!(
                             err = ?e,
-                            block_slot = ?state.slot(),
+                            block_slot = %state.slot(),
                             ?slashing,
                             "Attempted to include an invalid attester slashing"
                         );
@@ -5241,7 +5241,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .map_err(|e| {
                         warn!(
                             err = ?e,
-                            block_slot = ?state.slot(),
+                            block_slot = %state.slot(),
                             ?exit,
                             "Attempted to include an invalid proposer slashing"
                         );
@@ -5261,7 +5261,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(BlockProductionError::OpPoolError)?
                 .unwrap_or_else(|| {
                     warn!(
-                        slot = ?state.slot(),
+                        slot = %state.slot(),
                         "Producing block with no sync contributions"
                     );
                     SyncAggregate::new()
@@ -5528,7 +5528,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         let block_size = block.ssz_bytes_len();
-        debug!(?block_size, "Produced block on state");
+        debug!(%block_size, "Produced block on state");
 
         metrics::observe(&metrics::BLOCK_SIZE, block_size as f64);
 
@@ -5613,7 +5613,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         trace!(
             parent = ?block.parent_root(),
             attestations = block.body().attestations_len(),
-            slot = ?block.slot(),
+            slot = %block.slot(),
             "Produced beacon block"
         );
 
@@ -5776,7 +5776,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     if head_slot + T::EthSpec::slots_per_epoch() * PREPARE_PROPOSER_HISTORIC_EPOCHS
                         < current_slot
                     {
-                        debug!(?head_slot, ?current_slot, "Head too old for proposer prep");
+                        debug!(%head_slot, %current_slot, "Head too old for proposer prep");
                         return Ok(None);
                     }
 
@@ -5867,7 +5867,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Only push a log to the user if this is the first time we've seen this proposer for
             // this slot.
             info!(
-                ?prepare_slot,
+                %prepare_slot,
                 validator = proposer,
                 parent_root = ?head_root,
                 "Prepared beacon proposer"
@@ -5900,7 +5900,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             //
             // This scenario might occur on an overloaded/under-resourced node.
             warn!(
-                ?prepare_slot,
+                %prepare_slot,
                 validator = proposer,
                 "Delayed proposer preparation"
             );
@@ -5914,7 +5914,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             debug!(
                 ?till_prepare_slot,
-                ?prepare_slot,
+                %prepare_slot,
                 "Sending forkchoiceUpdate for proposer prep"
             );
 
@@ -6017,7 +6017,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             .map_err(Error::ForkchoiceUpdate)?
                         {
                             info!(
-                                slot = ?next_slot,
+                                slot = %next_slot,
                                 "Prepared POS transition block proposer"
                             );
                             (
@@ -6274,7 +6274,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state: &BeaconState<T::EthSpec>,
     ) -> Result<(), BeaconChainError> {
         let finalized_checkpoint = state.finalized_checkpoint();
-        info!(weak_subjectivity_epoch = ?wss_checkpoint.epoch, weak_subjectivity_root = ?wss_checkpoint.root,"Verifying the configured weak subjectivity checkpoint");
+        info!(weak_subjectivity_epoch = %wss_checkpoint.epoch, weak_subjectivity_root = ?wss_checkpoint.root,"Verifying the configured weak subjectivity checkpoint");
         // If epochs match, simply compare roots.
         if wss_checkpoint.epoch == finalized_checkpoint.epoch
             && wss_checkpoint.root != finalized_checkpoint.root
@@ -6346,7 +6346,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         if let Err(e) = tx.notify_fork_choice_complete(slot) {
                             warn!(
                                 error = ?e,
-                                ?slot,
+                                %slot,
                                 "Error signalling fork choice waiter"
                             );
                         }

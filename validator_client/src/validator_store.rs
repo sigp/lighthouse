@@ -556,8 +556,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         // Make sure the block slot is not higher than the current slot to avoid potential attacks.
         if block.slot() > current_slot {
             warn!(
-                block_slot = ?block.slot().as_u64(),
-                current_slot = ?current_slot.as_u64(),
+                block_slot = %block.slot().as_u64(),
+                current_slot = %current_slot.as_u64(),
                 "Not signing block with slot greater than current slot"
             );
             return Err(Error::GreaterThanCurrentSlot {
@@ -1005,12 +1005,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         if first_run {
             info!(
-                epoch = ?current_epoch,
+                epoch = %current_epoch,
                 msg = "pruning may take several minutes the first time it runs",
                 "Pruning slashing protection DB"
             );
         } else {
-            info!(epoch = ?current_epoch, "Pruning slashing protection DB");
+            info!(epoch = %current_epoch, "Pruning slashing protection DB");
         }
 
         let _timer = metrics::start_timer(&metrics::SLASHING_PROTECTION_PRUNE_TIMES);

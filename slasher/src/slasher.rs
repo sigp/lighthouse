@@ -74,9 +74,6 @@ impl<E: EthSpec> Slasher<E> {
         &self.config
     }
 
-    // pub fn log(&self) -> &Logger {
-    //     &self.log
-    // }
 
     /// Accept an attestation from the network and queue it for processing.
     pub fn accept_attestation(&self, attestation: IndexedAttestation<E>) {
@@ -146,7 +143,7 @@ impl<E: EthSpec> Slasher<E> {
         self.attestation_queue.requeue(deferred);
 
         debug!(
-            ?num_valid,
+            %num_valid,
             num_deferred, num_dropped, "Pre-processing attestations for slasher"
         );
         metrics::set_gauge(&SLASHER_NUM_ATTESTATIONS_VALID, num_valid as i64);
@@ -285,7 +282,7 @@ impl<E: EthSpec> Slasher<E> {
             if let Some(slashing) = slashing_status.into_slashing(attestation) {
                 debug!(
                     validator_index,
-                    epoch = ?slashing.attestation_1().data().target.epoch,
+                    epoch = %slashing.attestation_1().data().target.epoch,
                     "Found double-vote slashing"
                 );
                 slashings.insert(slashing);

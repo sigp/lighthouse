@@ -179,7 +179,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                 )?);
             } else {
                 debug!(
-                    finalized_block_root = format!("{}", cached_parts.finalized_block_root),
+                    finalized_block_root = %cached_parts.finalized_block_root,
                     "Finalized block not available in store for light_client server"
                 );
             }

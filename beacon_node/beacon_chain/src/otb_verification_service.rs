@@ -246,7 +246,7 @@ pub async fn validate_optimistic_transition_blocks<T: BeaconChainTypes>(
                         otb.remove_from_store::<T, _>(&chain.store)
                             .map_err(Error::StoreError)?;
                         info!(
-                            block_root = %otb.root(),
+                            block_root = ?otb.root(),
                             "type" = "not finalized",
                             "Validated merge transition block"
                         );

@@ -984,7 +984,7 @@ where
                 )
                 .is_some()
             {
-                crit!(id = ?self.current_outbound_substream_id, "Duplicate outbound substream id");
+                crit!(id = %self.current_outbound_substream_id, "Duplicate outbound substream id");
             }
             self.current_outbound_substream_id.0 += 1;
         }

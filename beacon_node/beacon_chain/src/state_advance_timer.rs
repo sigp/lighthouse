@@ -457,8 +457,8 @@ fn advance_head<T: BeaconChainTypes>(
 
     debug!(
         ?head_block_root,
-        advanced_slot = ?final_slot,
-        ?initial_slot,
+        advanced_slot = %final_slot,
+        %initial_slot,
         "Completed state advance"
     );
 

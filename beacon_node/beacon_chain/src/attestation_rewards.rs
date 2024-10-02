@@ -39,7 +39,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         validators: Vec<ValidatorId>,
     ) -> Result<StandardAttestationRewards, BeaconChainError> {
         debug!(
-            ?epoch,
+            %epoch,
             validator_count = validators.len(),
             "computing attestation rewards"
         );
@@ -219,8 +219,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Return 0s for unknown/inactive validator indices.
             let Ok(validator) = state.get_validator(validator_index) else {
                 debug!(
-                    index = ?validator_index,
-                    epoch = ?previous_epoch,
+                    index = validator_index,
+                    epoch = %previous_epoch,
                     "No rewards for inactive/unknown validator"
                 );
                 total_rewards.push(TotalAttestationRewards {

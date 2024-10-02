@@ -30,7 +30,7 @@ where
         }
 
         info!(
-            start_slot = ?anchor.state_lower_limit,
+            start_slot = %anchor.state_lower_limit,
             "Beginning historic state reconstruction"
         );
 
@@ -112,8 +112,8 @@ where
                 // If the slot lies on an epoch boundary, commit the batch and update the anchor.
                 if slot % slots_per_restore_point == 0 || slot + 1 == upper_limit_slot {
                     info!(
-                        ?slot,
-                        remaining = ?(upper_limit_slot - 1 - slot),
+                        %slot,
+                        remaining = %(upper_limit_slot - 1 - slot),
                         "State reconstruction in progress"
                     );
 

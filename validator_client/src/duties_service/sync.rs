@@ -517,8 +517,8 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
 
     debug!(
         period = sync_committee_period,
-        ?current_slot,
-        ?pre_compute_slot,
+        %current_slot,
+        %pre_compute_slot,
         "Calculating sync selection proofs"
     );
 
@@ -560,7 +560,7 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
                         debug!(
                             ?pubkey,
                             pubkey = ?duty.pubkey,
-                            slot = ?proof_slot,
+                            slot = %proof_slot,
                             "Missing pubkey for sync selection proof"
                         );
                         return None;
@@ -569,7 +569,7 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
                         warn!(
                             error = ?e,
                             pubkey = ?duty.pubkey,
-                            slot = ?proof_slot,
+                            slot = %proof_slot,
                             "Unable to sign selection proof"
                         );
                         return None;
@@ -580,7 +580,7 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
                     Ok(true) => {
                         debug!(
                             validator_index = duty.validator_index,
-                            slot = ?proof_slot,
+                            slot = %proof_slot,
                             %subnet_id,
                             "Validator is sync aggregator"
                         );
@@ -590,7 +590,7 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
                     Err(e) => {
                         warn!(
                             pubkey = ?duty.pubkey,
-                            slot = ?proof_slot,
+                            slot = %proof_slot,
                             error = ?e,
                             "Error determining is_aggregator"
                         );
@@ -632,7 +632,7 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
 
         if num_validators_updated > 0 {
             debug!(
-                ?slot,
+                %slot,
                 updated_validators = num_validators_updated,
                 "Finished computing sync selection proofs"
             );

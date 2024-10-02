@@ -161,7 +161,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         };
 
         if slot_duties.duties.is_empty() {
-            debug!(?slot, "No local validators in current sync committee");
+            debug!(%slot, "No local validators in current sync committee");
             return Ok(());
         }
 
@@ -191,7 +191,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             Err(errs) => {
                 warn!(
                     errors = errs.to_string(),
-                    ?slot,
+                    %slot,
                     "Refusing to sign sync committee messages for an optimistic head block or \
                     a block head with unknown optimistic status"
                 );
@@ -260,7 +260,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                     debug!(
                         ?pubkey,
                         validator_index = duty.validator_index,
-                        ?slot,
+                        %slot,
                         "Missing pubkey for sync committee signature"
                     );
                     None
@@ -268,7 +268,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 Err(e) => {
                     crit!(
                         validator_index = duty.validator_index,
-                        ?slot,
+                        %slot,
                         error = ?e,
                         "Failed to sign sync committee signature"
                     );
@@ -298,7 +298,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             .await
             .map_err(|e| {
                 error!(
-                    ?slot,
+                    %slot,
                     error = %e,
                     "Unable to publish sync committee messages"
                 );
@@ -307,7 +307,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         info!(
             count = committee_signatures.len(),
             head_block = ?beacon_block_root,
-            ?slot,
+            %slot,
             "Successfully published sync committee messages"
         );
 
@@ -373,14 +373,14 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             .await
             .map_err(|e| {
                 crit!(
-                    ?slot,
+                    %slot,
                     ?beacon_block_root,
                     error = %e,
                     "Failed to produce sync contribution"
                 )
             })?
             .ok_or_else(|| {
-                crit!(?slot, ?beacon_block_root, "No aggregate contribution found");
+                crit!(%slot, ?beacon_block_root, "No aggregate contribution found");
             })?
             .data;
 
@@ -401,12 +401,12 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                     Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
                         // A pubkey can be missing when a validator was recently
                         // removed via the API.
-                        debug!(?pubkey, ?slot, "Missing pubkey for sync contribution");
+                        debug!(?pubkey, %slot, "Missing pubkey for sync contribution");
                         None
                     }
                     Err(e) => {
                         crit!(
-                            ?slot,
+                            %slot,
                             error = ?e,
                             "Unable to sign sync committee contribution"
                         );
@@ -437,7 +437,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             .await
             .map_err(|e| {
                 error!(
-                    ?slot,
+                    %slot,
                     error = %e,
                     "Unable to publish signed contributions and proofs"
                 );
@@ -447,7 +447,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             subnet = %subnet_id,
             beacon_block_root = %beacon_block_root,
             num_signers = contribution.aggregation_bits.num_set_bits(),
-            ?slot,
+            %slot,
             "Successfully published sync contributions"
         );
 
@@ -507,7 +507,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         let mut subscriptions = vec![];
 
         for (duty_slot, sync_committee_period) in duty_slots {
-            debug!(?duty_slot, ?slot, "Fetching subscription duties");
+            debug!(%duty_slot, %slot, "Fetching subscription duties");
             match self
                 .duties_service
                 .sync_duties
@@ -520,7 +520,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 )),
                 None => {
                     debug!(
-                        slot = ?duty_slot,
+                        slot = %duty_slot,
                         "No duties for subscription"
                     );
                     all_succeeded = false;
@@ -529,7 +529,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         }
 
         if subscriptions.is_empty() {
-            debug!(?slot, "No sync subscriptions to send");
+            debug!(%slot, "No sync subscriptions to send");
             return Ok(());
         }
 
@@ -544,7 +544,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             debug!(
                 validator_index = subscription.validator_index,
                 validator_sync_committee_indices = ?subscription.sync_committee_indices,
-                until_epoch = ?subscription.until_epoch,
+                until_epoch = %subscription.until_epoch,
                 "Subscription"
             );
         }
@@ -564,7 +564,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             .await
         {
             error!(
-                ?slot,
+                %slot,
                 error = %e,
                 "Unable to post sync committee subscriptions"
             );

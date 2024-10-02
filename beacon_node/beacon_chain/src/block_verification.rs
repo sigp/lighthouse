@@ -2005,17 +2005,16 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
 
         if !state.all_caches_built() {
             debug!(
-                block_slot = ?block.slot(),
-                state_slot = ?state.slot(),
+                block_slot = %block.slot(),
+                state_slot = %state.slot(),
                 "Parent state lacks built caches"
             );
         }
 
         if block.slot() != state.slot() {
             debug!(
-                "{} {} {}",
-                block.slot(),
-                state.slot(),
+                block_slot = %block.slot(),
+                state_slot = %state.slot(),
                 "Parent state is not advanced"
             );
         }

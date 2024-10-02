@@ -106,7 +106,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 DatabaseBackendOverride::Failure(path) => {
                     warn!(
                         advice = "delete old MDBX database or enable MDBX backend",
-                        path = ?path.display(),
+                        path = %path.display(),
                         "Slasher backend override failed"
                     );
                 }

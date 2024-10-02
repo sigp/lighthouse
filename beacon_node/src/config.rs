@@ -100,7 +100,7 @@ pub fn get_config<E: EthSpec>(
     let mut log_dir = client_config.data_dir().clone();
     // remove /beacon from the end
     log_dir.pop();
-    info!(datadir = ?log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"), "Data directory initialised");
+    info!(datadir = %log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"), "Data directory initialised");
 
     /*
      * Networking

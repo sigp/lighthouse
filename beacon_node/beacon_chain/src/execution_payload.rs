@@ -156,7 +156,7 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
                     root = ?block.tree_hash_root(),
                     graffiti = block.body().graffiti().as_utf8_lossy(),
                     proposer_index = block.proposer_index(),
-                    slot = ?block.slot(),
+                    slot = %block.slot(),
                     method = "new_payload",
                     "Invalid execution payload"
                 );
@@ -201,7 +201,7 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
                     root = ?block.tree_hash_root(),
                     graffiti =block.body().graffiti().as_utf8_lossy(),
                     proposer_index = block.proposer_index(),
-                    slot = ?block.slot(),
+                    slot = %block.slot(),
                     method = "new_payload",
                     "Invalid execution payload block hash"
                 );

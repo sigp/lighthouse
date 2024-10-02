@@ -372,7 +372,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 match state {
                     BatchState::AwaitingProcessing(..) => {
                         // this batch is ready
-                        debug!(?epoch, "Processing optimistic start");
+                        debug!(%epoch, "Processing optimistic start");
                         return self.process_batch(network, epoch);
                     }
                     BatchState::Downloading(..) => {
@@ -400,7 +400,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         // batch has been requested and processed we can land here. We drop the
                         // optimistic candidate since we can't conclude whether the batch included
                         // blocks or not at this point
-                        debug!(batch = ?epoch,"Dropping optimistic candidate");
+                        debug!(batch = %epoch,"Dropping optimistic candidate");
                         self.optimistic_start = None;
                     }
                 }
@@ -434,7 +434,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     // inside the download buffer (between `self.processing_target` and
                     // `self.to_be_downloaded`). In this case, eventually the chain advances to the
                     // batch (`self.processing_target` reaches this point).
-                    debug!(batch = ?self.processing_target,"Chain encountered a robust batch awaiting validation");
+                    debug!(batch = %self.processing_target,"Chain encountered a robust batch awaiting validation");
 
                     self.processing_target += EPOCHS_PER_BATCH;
                     if self.to_be_downloaded <= self.processing_target {
@@ -470,11 +470,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let batch_state = self.visualize_batch_state();
         let batch = match &self.current_processing_batch {
             Some(processing_id) if *processing_id != batch_id => {
-                debug!(batch_epoch = ?batch_id, expected_batch_epoch = ?processing_id,"Unexpected batch result");
+                debug!(batch_epoch = %batch_id, expected_batch_epoch = %processing_id,"Unexpected batch result");
                 return Ok(KeepChain);
             }
             None => {
-                debug!(batch_epoch = ?batch_id,"Chain was not expecting a batch result");
+                debug!(batch_epoch = %batch_id,"Chain was not expecting a batch result");
                 return Ok(KeepChain);
             }
             _ => {
@@ -499,7 +499,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // Log the process result and the batch for debugging purposes.
         debug!(
             result = ?result,
-            batch_epoch = ?batch_id,
+            batch_epoch = %batch_id,
             client = %network.client_type(&peer),
             batch_state = ?batch_state,
             ?batch,
@@ -591,7 +591,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         // This should be unlikely, so we tolerate these errors, but not often.
                         warn!(
                             score_adjustment = %penalty,
-                            batch_epoch = ?batch_id,
+                            batch_epoch = %batch_id,
                             "Batch failed to download. Dropping chain scoring peers"
                         );
 
@@ -678,7 +678,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                                 // We negatively score the original peer.
                                 let action = PeerAction::LowToleranceError;
                                 debug!(
-                                    batch_epoch = ?id, score_adjustment = %action,
+                                    batch_epoch = %id, score_adjustment = %action,
                                     original_peer = %attempt.peer_id, new_peer = %processed_attempt.peer_id,
                                     "Re-processed batch validated. Scoring original peer"
                                 );
@@ -692,7 +692,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                                 // negative score the original peer.
                                 let action = PeerAction::MidToleranceError;
                                 debug!(
-                                    batch_epoch = ?id, score_adjustment = %action,
+                                    batch_epoch = %id, score_adjustment = %action,
                                     original_peer = %attempt.peer_id, new_peer = %processed_attempt.peer_id,
                                     "Re-processed batch validated by the same peer"
                                 );
@@ -716,7 +716,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
                 BatchState::AwaitingProcessing(..) => {}
                 BatchState::Processing(_) => {
-                    debug!(batch = ?id, ?batch,"Advancing chain while processing a batch");
+                    debug!(batch = %id, %batch,"Advancing chain while processing a batch");
                     if let Some(processing_id) = self.current_processing_batch {
                         if id <= processing_id {
                             self.current_processing_batch = None;
@@ -741,9 +741,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
         }
         debug!(
-            previous_start = ?old_start,
-            new_start = ?self.start_epoch,
-            processing_target = ?self.processing_target,
+            previous_start = %old_start,
+            new_start = %self.start_epoch,
+            processing_target = %self.processing_target,
             "Chain advanced"
         );
     }
@@ -883,10 +883,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // columns.
             if !batch.is_expecting_block(&request_id) {
                 debug!(
-                    batch_epoch = ?batch_id,
+                    batch_epoch = %batch_id,
                     batch_state = ?batch.state(),
-                    ?peer_id,
-                    ?request_id,
+                    %peer_id,
+                    %request_id,
                     ?batch_state,
                     "Batch not expecting block"
                 );
@@ -911,7 +911,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             self.retry_batch_download(network, batch_id)
         } else {
             debug!(
-                batch_epoch = ?batch_id,
+                batch_epoch = %batch_id,
                 %peer_id,
                 %request_id,
                 batch_state,
@@ -985,9 +985,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         .map(|epoch| epoch == batch_id)
                         .unwrap_or(false)
                     {
-                        debug!(epoch = ?batch_id, ?batch, ?batch_state, "Requesting optimistic batch");
+                        debug!(epoch = %batch_id, %batch, %batch_state, "Requesting optimistic batch");
                     } else {
-                        debug!(epoch = ?batch_id, ?batch, ?batch_state, "Requesting batch");
+                        debug!(epoch = %batch_id, %batch, %batch_state, "Requesting batch");
                     }
                     // register the batch for this peer
                     return self
@@ -1006,7 +1006,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
                 Err(e) => {
                     // NOTE: under normal conditions this shouldn't happen but we handle it anyway
-                    warn!(?batch_id, error = ?e, ?batch, "Could not send batch request");
+                    warn!(%batch_id, error = %e, %batch, "Could not send batch request");
                     // register the failed download and check if the batch can be retried
                     batch.start_downloading_from_peer(peer, 1)?; // fake request_id is not relevant
                     self.peers

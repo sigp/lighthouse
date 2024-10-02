@@ -170,7 +170,7 @@ impl Eth1FinalizationCache {
             self.last_finalized.clone()
         } else {
             debug!(
-                epoch = ?checkpoint.epoch,
+                epoch = %checkpoint.epoch,
                 "Eth1Cache: cache miss"
             );
             None

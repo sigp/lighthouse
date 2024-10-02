@@ -82,7 +82,7 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
         .map_err(beacon_chain_error)?;
 
     if block_replayer.state_root_miss() {
-        warn!(?start_slot, ?end_slot, "Block reward state root miss");
+        warn!(%start_slot, %end_slot, "Block reward state root miss");
     }
 
     drop(block_replayer);
@@ -107,14 +107,14 @@ pub fn compute_block_rewards<T: BeaconChainTypes>(
         let state = if let Some(state) = state_cache.get(&(parent_root, block.slot())) {
             debug!(
                 ?parent_root,
-                slot = ?block.slot(),
+                slot = %block.slot(),
                 "Re-using cached state for block rewards"
             );
             state
         } else {
             debug!(
                 ?parent_root,
-                slot = ?block.slot(),
+                slot = %block.slot(),
                 "Fetching state for block rewards"
             );
             let parent_block = chain
@@ -146,8 +146,8 @@ pub fn compute_block_rewards<T: BeaconChainTypes>(
 
             if block_replayer.state_root_miss() {
                 warn!(
-                    parent_slot = ?parent_block.slot(),
-                    slot = ?block.slot(),
+                    parent_slot = %parent_block.slot(),
+                    slot = %block.slot(),
                     "Block reward state root miss"
                 );
             }

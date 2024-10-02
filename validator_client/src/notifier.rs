@@ -118,8 +118,8 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
         } else {
             info!(
                 validators = total_validators,
-                ?epoch,
-                ?slot,
+                %epoch,
+                %slot,
                 "Awaiting activation"
             );
         }

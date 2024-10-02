@@ -42,7 +42,7 @@ pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
 
     warn!(
         target_fork = %current_fork,
-        ?fork_epoch,
+        %fork_epoch,
         "Reverting invalid head block"
     );
     let block_iter = ParentRootBlockIterator::fork_tolerant(&store, head_block_root);
@@ -54,7 +54,7 @@ pub fn revert_to_fork_boundary<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>
             } else {
                 info!(
                     ?block_root,
-                    slot = ?block.slot(),
+                    slot = %block.slot(),
                     "Reverting block"
                 );
                 None

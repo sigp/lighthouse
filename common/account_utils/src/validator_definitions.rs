@@ -316,7 +316,7 @@ impl ValidatorDefinitions {
                     Err(e) => {
                         error!(
                             error = ?e,
-                            keystore = format!("{:?}", voting_keystore_path),
+                            keystore = ?voting_keystore_path,
                             "Unable to read validator keystore"
                         );
                         return None;
@@ -339,7 +339,7 @@ impl ValidatorDefinitions {
                     }
                     None => {
                         error!(
-                            keystore = format!("{:?}", voting_keystore_path),
+                            keystore = ?voting_keystore_path,
                             "Invalid keystore public key"
                         );
                         return None;
