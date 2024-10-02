@@ -22,7 +22,6 @@ filesystem = { workspace = true }
 arbitrary = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
-lazy_static = { workspace = true }
 rayon = { workspace = true }
 
 [features]

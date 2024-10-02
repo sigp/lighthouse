@@ -19,7 +19,9 @@ type BlockRoot = Hash256;
 pub struct Timestamps {
     pub observed: Option<Duration>,
     pub all_blobs_observed: Option<Duration>,
-    pub execution_time: Option<Duration>,
+    pub consensus_verified: Option<Duration>,
+    pub started_execution: Option<Duration>,
+    pub executed: Option<Duration>,
     pub attestable: Option<Duration>,
     pub imported: Option<Duration>,
     pub set_as_head: Option<Duration>,
@@ -32,7 +34,9 @@ pub struct BlockDelays {
     pub observed: Option<Duration>,
     /// The time after the start of the slot we saw all blobs.
     pub all_blobs_observed: Option<Duration>,
-    /// The time it took to get verification from the EL for the block.
+    /// The time it took to complete consensus verification of the block.
+    pub consensus_verification_time: Option<Duration>,
+    /// The time it took to complete execution verification of the block.
     pub execution_time: Option<Duration>,
     /// The delay from the start of the slot before the block became available
     ///
@@ -58,13 +62,16 @@ impl BlockDelays {
         let all_blobs_observed = times
             .all_blobs_observed
             .and_then(|all_blobs_observed| all_blobs_observed.checked_sub(slot_start_time));
+        let consensus_verification_time = times
+            .consensus_verified
+            .and_then(|consensus_verified| consensus_verified.checked_sub(times.observed?));
         let execution_time = times
-            .execution_time
-            .and_then(|execution_time| execution_time.checked_sub(times.observed?));
+            .executed
+            .and_then(|executed| executed.checked_sub(times.started_execution?));
         // Duration since UNIX epoch at which block became available.
-        let available_time = times.execution_time.map(|execution_time| {
-            std::cmp::max(execution_time, times.all_blobs_observed.unwrap_or_default())
-        });
+        let available_time = times
+            .executed
+            .map(|executed| std::cmp::max(executed, times.all_blobs_observed.unwrap_or_default()));
         // Duration from the start of the slot until the block became available.
         let available_delay =
             available_time.and_then(|available_time| available_time.checked_sub(slot_start_time));
@@ -80,6 +87,7 @@ impl BlockDelays {
         BlockDelays {
             observed,
             all_blobs_observed,
+            consensus_verification_time,
             execution_time,
             available: available_delay,
             attestable,
@@ -155,6 +163,9 @@ impl BlockTimesCache {
         slot: Slot,
         timestamp: Duration,
     ) {
+        // Unlike other functions in this file, we update the blob observed time only if it is
+        // *greater* than existing blob observation times. This allows us to know the observation
+        // time of the last blob to arrive.
         let block_times = self
             .cache
             .entry(block_root)
@@ -168,48 +179,89 @@ impl BlockTimesCache {
         }
     }
 
-    pub fn set_execution_time(&mut self, block_root: BlockRoot, slot: Slot, timestamp: Duration) {
+    /// Set the timestamp for `field` if that timestamp is less than any previously known value.
+    ///
+    /// If no previous value is known for the field, then the supplied timestamp will always be
+    /// stored.
+    pub fn set_time_if_less(
+        &mut self,
+        block_root: BlockRoot,
+        slot: Slot,
+        field: impl Fn(&mut Timestamps) -> &mut Option<Duration>,
+        timestamp: Duration,
+    ) {
         let block_times = self
             .cache
             .entry(block_root)
             .or_insert_with(|| BlockTimesCacheValue::new(slot));
-        if block_times
-            .timestamps
-            .execution_time
-            .map_or(true, |prev| timestamp < prev)
-        {
-            block_times.timestamps.execution_time = Some(timestamp);
+        let existing_timestamp = field(&mut block_times.timestamps);
+        if existing_timestamp.map_or(true, |prev| timestamp < prev) {
+            *existing_timestamp = Some(timestamp);
         }
+    }
+
+    pub fn set_time_consensus_verified(
+        &mut self,
+        block_root: BlockRoot,
+        slot: Slot,
+        timestamp: Duration,
+    ) {
+        self.set_time_if_less(
+            block_root,
+            slot,
+            |timestamps| &mut timestamps.consensus_verified,
+            timestamp,
+        )
+    }
+
+    pub fn set_time_executed(&mut self, block_root: BlockRoot, slot: Slot, timestamp: Duration) {
+        self.set_time_if_less(
+            block_root,
+            slot,
+            |timestamps| &mut timestamps.executed,
+            timestamp,
+        )
+    }
+
+    pub fn set_time_started_execution(
+        &mut self,
+        block_root: BlockRoot,
+        slot: Slot,
+        timestamp: Duration,
+    ) {
+        self.set_time_if_less(
+            block_root,
+            slot,
+            |timestamps| &mut timestamps.started_execution,
+            timestamp,
+        )
     }
 
     pub fn set_time_attestable(&mut self, block_root: BlockRoot, slot: Slot, timestamp: Duration) {
-        let block_times = self
-            .cache
-            .entry(block_root)
-            .or_insert_with(|| BlockTimesCacheValue::new(slot));
-        if block_times
-            .timestamps
-            .attestable
-            .map_or(true, |prev| timestamp < prev)
-        {
-            block_times.timestamps.attestable = Some(timestamp);
-        }
+        self.set_time_if_less(
+            block_root,
+            slot,
+            |timestamps| &mut timestamps.attestable,
+            timestamp,
+        )
     }
 
     pub fn set_time_imported(&mut self, block_root: BlockRoot, slot: Slot, timestamp: Duration) {
-        let block_times = self
-            .cache
-            .entry(block_root)
-            .or_insert_with(|| BlockTimesCacheValue::new(slot));
-        block_times.timestamps.imported = Some(timestamp);
+        self.set_time_if_less(
+            block_root,
+            slot,
+            |timestamps| &mut timestamps.imported,
+            timestamp,
+        )
     }
 
     pub fn set_time_set_as_head(&mut self, block_root: BlockRoot, slot: Slot, timestamp: Duration) {
-        let block_times = self
-            .cache
-            .entry(block_root)
-            .or_insert_with(|| BlockTimesCacheValue::new(slot));
-        block_times.timestamps.set_as_head = Some(timestamp);
+        self.set_time_if_less(
+            block_root,
+            slot,
+            |timestamps| &mut timestamps.set_as_head,
+            timestamp,
+        )
     }
 
     pub fn get_block_delays(
@@ -242,6 +294,7 @@ impl BlockTimesCache {
 #[cfg(test)]
 mod test {
     use super::*;
+    use types::FixedBytesExtended;
 
     #[test]
     fn observed_time_uses_minimum() {

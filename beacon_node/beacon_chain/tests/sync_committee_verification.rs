@@ -3,35 +3,34 @@
 use beacon_chain::sync_committee_verification::{Error as SyncCommitteeError, SyncCommitteeData};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee};
 use int_to_bytes::int_to_bytes32;
-use lazy_static::lazy_static;
 use safe_arith::SafeArith;
 use state_processing::{
     per_block_processing::{altair::sync_committee::process_sync_aggregate, VerifySignatures},
     state_advance::complete_state_advance,
 };
+use std::sync::LazyLock;
 use store::{SignedContributionAndProof, SyncCommitteeMessage};
 use tree_hash::TreeHash;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{
-    AggregateSignature, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, SecretKey, Slot,
-    SyncContributionData, SyncSelectionProof, SyncSubnetId, Unsigned,
+    AggregateSignature, Epoch, EthSpec, FixedBytesExtended, Hash256, Keypair, MainnetEthSpec,
+    SecretKey, Slot, SyncContributionData, SyncSelectionProof, SyncSubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
 
 pub const VALIDATOR_COUNT: usize = 256;
 
-lazy_static! {
-    /// A cached set of keys.
-    static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
-}
+/// A cached set of keys.
+static KEYPAIRS: LazyLock<Vec<Keypair>> =
+    LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 /// Returns a beacon chain harness.
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let mut spec = E::default_spec();
     spec.altair_fork_epoch = Some(Epoch::new(0));
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec)
+        .spec(spec.into())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()

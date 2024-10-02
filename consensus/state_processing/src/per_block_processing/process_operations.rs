@@ -4,7 +4,6 @@ use crate::common::{
     slash_validator,
 };
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
-use crate::signature_sets::consolidation_signature_set;
 use crate::VerifySignatures;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 use types::typenum::U33;
@@ -40,15 +39,16 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     }
 
     if state.fork_name_unchecked().electra_enabled() {
-        let requests = block_body.execution_payload()?.withdrawal_requests()?;
-        if let Some(requests) = requests {
-            process_execution_layer_withdrawal_requests(state, &requests, spec)?;
+        state.update_pubkey_cache()?;
+        if let Some(deposit_requests) = block_body.execution_payload()?.deposit_requests()? {
+            process_deposit_requests(state, &deposit_requests, spec)?;
         }
-        let receipts = block_body.execution_payload()?.deposit_receipts()?;
-        if let Some(receipts) = receipts {
-            process_deposit_receipts(state, &receipts, spec)?;
+        if let Some(withdrawal_requests) = block_body.execution_payload()?.withdrawal_requests()? {
+            process_withdrawal_requests(state, &withdrawal_requests, spec)?;
         }
-        process_consolidations(state, block_body.consolidations()?, verify_signatures, spec)?;
+        if let Some(consolidations) = block_body.execution_payload()?.consolidation_requests()? {
+            process_consolidation_requests(state, &consolidations, spec)?;
+        }
     }
 
     Ok(())
@@ -371,10 +371,11 @@ pub fn process_deposits<E: EthSpec>(
 ) -> Result<(), BlockProcessingError> {
     // [Modified in Electra:EIP6110]
     // Disable former deposit mechanism once all prior deposits are processed
-    //
-    // If `deposit_receipts_start_index` does not exist as a field on `state`, electra is disabled
-    // which means we always want to use the old check, so this field defaults to `u64::MAX`.
-    let eth1_deposit_index_limit = state.deposit_receipts_start_index().unwrap_or(u64::MAX);
+    let deposit_requests_start_index = state.deposit_requests_start_index().unwrap_or(u64::MAX);
+    let eth1_deposit_index_limit = std::cmp::min(
+        deposit_requests_start_index,
+        state.eth1_data().deposit_count,
+    );
 
     if state.eth1_deposit_index() < eth1_deposit_index_limit {
         let expected_deposit_len = std::cmp::min(
@@ -528,9 +529,10 @@ pub fn apply_deposit<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_execution_layer_withdrawal_requests<E: EthSpec>(
+// Make sure to build the pubkey cache before calling this function
+pub fn process_withdrawal_requests<E: EthSpec>(
     state: &mut BeaconState<E>,
-    requests: &[ExecutionLayerWithdrawalRequest],
+    requests: &[WithdrawalRequest],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for request in requests {
@@ -545,13 +547,11 @@ pub fn process_execution_layer_withdrawal_requests<E: EthSpec>(
         }
 
         // Verify pubkey exists
-        let index_opt = state.get_validator_index(&request.validator_pubkey)?;
-        let Some(index) = index_opt else {
+        let Some(index) = state.pubkey_cache().get(&request.validator_pubkey) else {
             continue;
         };
 
         let validator = state.get_validator(index)?;
-
         // Verify withdrawal credentials
         let has_correct_credential = validator.has_execution_withdrawal_credential(spec);
         let is_correct_source_address = validator
@@ -625,21 +625,21 @@ pub fn process_execution_layer_withdrawal_requests<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_deposit_receipts<E: EthSpec>(
+pub fn process_deposit_requests<E: EthSpec>(
     state: &mut BeaconState<E>,
-    receipts: &[DepositReceipt],
+    deposit_requests: &[DepositRequest],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    for receipt in receipts {
+    for request in deposit_requests {
         // Set deposit receipt start index
-        if state.deposit_receipts_start_index()? == spec.unset_deposit_receipts_start_index {
-            *state.deposit_receipts_start_index_mut()? = receipt.index
+        if state.deposit_requests_start_index()? == spec.unset_deposit_requests_start_index {
+            *state.deposit_requests_start_index_mut()? = request.index
         }
         let deposit_data = DepositData {
-            pubkey: receipt.pubkey,
-            withdrawal_credentials: receipt.withdrawal_credentials,
-            amount: receipt.amount,
-            signature: receipt.signature.clone().into(),
+            pubkey: request.pubkey,
+            withdrawal_credentials: request.withdrawal_credentials,
+            amount: request.amount,
+            signature: request.signature.clone().into(),
         };
         apply_deposit(state, deposit_data, None, false, spec)?
     }
@@ -647,149 +647,96 @@ pub fn process_deposit_receipts<E: EthSpec>(
     Ok(())
 }
 
-pub fn process_consolidations<E: EthSpec>(
+// Make sure to build the pubkey cache before calling this function
+pub fn process_consolidation_requests<E: EthSpec>(
     state: &mut BeaconState<E>,
-    consolidations: &[SignedConsolidation],
-    verify_signatures: VerifySignatures,
+    consolidation_requests: &[ConsolidationRequest],
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    if consolidations.is_empty() {
+    for request in consolidation_requests {
+        process_consolidation_request(state, request, spec)?;
+    }
+
+    Ok(())
+}
+
+pub fn process_consolidation_request<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    consolidation_request: &ConsolidationRequest,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    // If the pending consolidations queue is full, consolidation requests are ignored
+    if state.pending_consolidations()?.len() == E::PendingConsolidationsLimit::to_usize() {
+        return Ok(());
+    }
+    // If there is too little available consolidation churn limit, consolidation requests are ignored
+    if state.get_consolidation_churn_limit(spec)? <= spec.min_activation_balance {
         return Ok(());
     }
 
-    // If the pending consolidations queue is full, no consolidations are allowed in the block
-    let pending_consolidations = state.pending_consolidations()?.len();
-    let pending_consolidations_limit = E::pending_consolidations_limit();
-    block_verify! {
-        pending_consolidations < pending_consolidations_limit,
-        BlockProcessingError::TooManyPendingConsolidations {
-            consolidations: pending_consolidations,
-            limit: pending_consolidations_limit
-        }
+    let Some(source_index) = state
+        .pubkey_cache()
+        .get(&consolidation_request.source_pubkey)
+    else {
+        // source validator doesn't exist
+        return Ok(());
+    };
+    let Some(target_index) = state
+        .pubkey_cache()
+        .get(&consolidation_request.target_pubkey)
+    else {
+        // target validator doesn't exist
+        return Ok(());
+    };
+    // Verify that source != target, so a consolidation cannot be used as an exit.
+    if source_index == target_index {
+        return Ok(());
     }
 
-    // If there is too little available consolidation churn limit, no consolidations are allowed in the block
-    let churn_limit = state.get_consolidation_churn_limit(spec)?;
-    block_verify! {
-        churn_limit > spec.min_activation_balance,
-        BlockProcessingError::ConsolidationChurnLimitTooLow {
-            churn_limit,
-            minimum: spec.min_activation_balance
+    let source_validator = state.get_validator(source_index)?;
+    // Verify the source withdrawal credentials
+    if let Some(withdrawal_address) = source_validator.get_execution_withdrawal_address(spec) {
+        if withdrawal_address != consolidation_request.source_address {
+            return Ok(());
         }
+    } else {
+        // Source doen't have execution withdrawal credentials
+        return Ok(());
     }
 
-    for signed_consolidation in consolidations {
-        let consolidation = signed_consolidation.message.clone();
-
-        // Verify that source != target, so a consolidation cannot be used as an exit.
-        block_verify! {
-            consolidation.source_index != consolidation.target_index,
-            BlockProcessingError::MatchingSourceTargetConsolidation  {
-                index: consolidation.source_index
-            }
-        }
-
-        let source_validator = state.get_validator(consolidation.source_index as usize)?;
-        let target_validator = state.get_validator(consolidation.target_index as usize)?;
-
-        // Verify the source and the target are active
-        let current_epoch = state.current_epoch();
-        block_verify! {
-            source_validator.is_active_at(current_epoch),
-            BlockProcessingError::InactiveConsolidationSource{
-                index: consolidation.source_index,
-                current_epoch
-            }
-        }
-        block_verify! {
-            target_validator.is_active_at(current_epoch),
-            BlockProcessingError::InactiveConsolidationTarget{
-                index: consolidation.target_index,
-                current_epoch
-            }
-        }
-
-        // Verify exits for source and target have not been initiated
-        block_verify! {
-            source_validator.exit_epoch == spec.far_future_epoch,
-            BlockProcessingError::SourceValidatorExiting{
-                index: consolidation.source_index,
-            }
-        }
-        block_verify! {
-            target_validator.exit_epoch == spec.far_future_epoch,
-            BlockProcessingError::TargetValidatorExiting{
-                index: consolidation.target_index,
-            }
-        }
-
-        // Consolidations must specify an epoch when they become valid; they are not valid before then
-        block_verify! {
-            current_epoch >= consolidation.epoch,
-            BlockProcessingError::FutureConsolidationEpoch {
-                current_epoch,
-                consolidation_epoch: consolidation.epoch
-            }
-        }
-
-        // Verify the source and the target have Execution layer withdrawal credentials
-        block_verify! {
-            source_validator.has_execution_withdrawal_credential(spec),
-            BlockProcessingError::NoSourceExecutionWithdrawalCredential {
-                index: consolidation.source_index,
-            }
-        }
-        block_verify! {
-            target_validator.has_execution_withdrawal_credential(spec),
-            BlockProcessingError::NoTargetExecutionWithdrawalCredential {
-                index: consolidation.target_index,
-            }
-        }
-
-        // Verify the same withdrawal address
-        let source_address = source_validator
-            .get_execution_withdrawal_address(spec)
-            .ok_or(BeaconStateError::NonExecutionAddresWithdrawalCredential)?;
-        let target_address = target_validator
-            .get_execution_withdrawal_address(spec)
-            .ok_or(BeaconStateError::NonExecutionAddresWithdrawalCredential)?;
-        block_verify! {
-            source_address == target_address,
-            BlockProcessingError::MismatchedWithdrawalCredentials {
-                source_address,
-                target_address
-            }
-        }
-
-        if verify_signatures.is_true() {
-            let signature_set = consolidation_signature_set(
-                state,
-                |i| get_pubkey_from_state(state, i),
-                signed_consolidation,
-                spec,
-            )?;
-            block_verify! {
-                signature_set.verify(),
-                BlockProcessingError::InavlidConsolidationSignature
-            }
-        }
-        let exit_epoch = state.compute_consolidation_epoch_and_update_churn(
-            source_validator.effective_balance,
-            spec,
-        )?;
-        let source_validator = state.get_validator_mut(consolidation.source_index as usize)?;
-        // Initiate source validator exit and append pending consolidation
-        source_validator.exit_epoch = exit_epoch;
-        source_validator.withdrawable_epoch = source_validator
-            .exit_epoch
-            .safe_add(spec.min_validator_withdrawability_delay)?;
-        state
-            .pending_consolidations_mut()?
-            .push(PendingConsolidation {
-                source_index: consolidation.source_index,
-                target_index: consolidation.target_index,
-            })?;
+    let target_validator = state.get_validator(target_index)?;
+    // Verify the target has execution withdrawal credentials
+    if !target_validator.has_execution_withdrawal_credential(spec) {
+        return Ok(());
     }
+
+    // Verify the source and target are active
+    let current_epoch = state.current_epoch();
+    if !source_validator.is_active_at(current_epoch)
+        || !target_validator.is_active_at(current_epoch)
+    {
+        return Ok(());
+    }
+    // Verify exits for source and target have not been initiated
+    if source_validator.exit_epoch != spec.far_future_epoch
+        || target_validator.exit_epoch != spec.far_future_epoch
+    {
+        return Ok(());
+    }
+
+    // Initiate source validator exit and append pending consolidation
+    let source_exit_epoch = state
+        .compute_consolidation_epoch_and_update_churn(source_validator.effective_balance, spec)?;
+    let source_validator = state.get_validator_mut(source_index)?;
+    source_validator.exit_epoch = source_exit_epoch;
+    source_validator.withdrawable_epoch =
+        source_exit_epoch.safe_add(spec.min_validator_withdrawability_delay)?;
+    state
+        .pending_consolidations_mut()?
+        .push(PendingConsolidation {
+            source_index: source_index as u64,
+            target_index: target_index as u64,
+        })?;
 
     Ok(())
 }

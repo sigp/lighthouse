@@ -9,7 +9,7 @@
 //! sync as failed, log an error and attempt to retry once a new peer joins the node.
 
 use crate::network_beacon_processor::ChainSegmentProcessId;
-use crate::sync::manager::{BatchProcessResult, Id};
+use crate::sync::manager::BatchProcessResult;
 use crate::sync::network_context::RangeRequestId;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::range_sync::{
@@ -17,6 +17,7 @@ use crate::sync::range_sync::{
 };
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use lighthouse_network::service::api_types::Id;
 use lighthouse_network::types::{BackFillState, NetworkGlobals};
 use lighthouse_network::{PeerAction, PeerId};
 use rand::seq::SliceRandom;
@@ -307,7 +308,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// A peer has disconnected.
     /// If the peer has active batches, those are considered failed and re-requested.
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
-    pub fn peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), BackFillError> {
+    pub fn peer_disconnected(
+        &mut self,
+        peer_id: &PeerId,
+        network: &mut SyncNetworkContext<T>,
+    ) -> Result<(), BackFillError> {
         if matches!(
             self.state(),
             BackFillState::Failed | BackFillState::NotRequired
@@ -315,7 +320,37 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             return Ok(());
         }
 
-        self.active_requests.remove(peer_id);
+        if let Some(batch_ids) = self.active_requests.remove(peer_id) {
+            // fail the batches.
+            for id in batch_ids {
+                if let Some(batch) = self.batches.get_mut(&id) {
+                    match batch.download_failed(false) {
+                        Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
+                            self.fail_sync(BackFillError::BatchDownloadFailed(id))?;
+                        }
+                        Ok(BatchOperationOutcome::Continue) => {}
+                        Err(e) => {
+                            self.fail_sync(BackFillError::BatchInvalidState(id, e.0))?;
+                        }
+                    }
+                    // If we have run out of peers in which to retry this batch, the backfill state
+                    // transitions to a paused state.
+                    // We still need to reset the state for all the affected batches, so we should not
+                    // short circuit early.
+                    if self.retry_batch_download(network, id).is_err() {
+                        debug!(
+                            self.log,
+                            "Batch could not be retried";
+                            "batch_id" => id,
+                            "error" => "no synced peers"
+                        );
+                    }
+                } else {
+                    debug!(self.log, "Batch not found while removing peer";
+                        "peer" => %peer_id, "batch" => id)
+                }
+            }
+        }
 
         // Remove the peer from the participation list
         self.participating_peers.remove(peer_id);
@@ -337,7 +372,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             // A batch could be retried without the peer failing the request (disconnecting/
             // sending an error /timeout) if the peer is removed from the chain for other
             // reasons. Check that this block belongs to the expected peer
-            if !batch.is_expecting_block(peer_id, &request_id) {
+            // TODO(das): removed peer_id matching as the node may request a different peer for data
+            // columns.
+            if !batch.is_expecting_block(&request_id) {
                 return Ok(());
             }
             debug!(self.log, "Batch failed"; "batch_epoch" => batch_id, "error" => "rpc_error");
@@ -385,7 +422,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 // sending an error /timeout) if the peer is removed from the chain for other
                 // reasons. Check that this block belongs to the expected peer, and that the
                 // request_id matches
-                if !batch.is_expecting_block(peer_id, &request_id) {
+                // TODO(das): removed peer_id matching as the node may request a different peer for data
+                // columns.
+                if !batch.is_expecting_block(&request_id) {
                     return Ok(ProcessResult::Successful);
                 }
                 batch
@@ -493,7 +532,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // result callback. This is done, because an empty batch could end a chain and the logic
         // for removing chains and checking completion is in the callback.
 
-        let blocks = match batch.start_processing() {
+        let (blocks, _) = match batch.start_processing() {
             Err(e) => {
                 return self
                     .fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))
@@ -580,13 +619,15 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             "batch_epoch" => batch_id, "peer" => %peer, "client" => %network.client_type(&peer));
 
         match result {
-            BatchProcessResult::Success { was_non_empty } => {
+            BatchProcessResult::Success {
+                imported_blocks, ..
+            } => {
                 if let Err(e) = batch.processing_completed(BatchProcessingResult::Success) {
                     self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?;
                 }
                 // If the processed batch was not empty, we can validate previous unvalidated
                 // blocks.
-                if *was_non_empty {
+                if *imported_blocks > 0 {
                     self.advance_chain(network, batch_id);
                 }
 
@@ -642,7 +683,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
                     Ok(BatchOperationOutcome::Continue) => {
                         // chain can continue. Check if it can be progressed
-                        if *imported_blocks {
+                        if *imported_blocks > 0 {
                             // At least one block was successfully verified and imported, then we can be sure all
                             // previous batches are valid and we only need to download the current failed
                             // batch.
@@ -884,24 +925,22 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // Find a peer to request the batch
         let failed_peers = batch.failed_peers();
 
-        let new_peer = {
-            let mut priorized_peers = self
-                .network_globals
-                .peers
-                .read()
-                .synced_peers()
-                .map(|peer| {
-                    (
-                        failed_peers.contains(peer),
-                        self.active_requests.get(peer).map(|v| v.len()).unwrap_or(0),
-                        *peer,
-                    )
-                })
-                .collect::<Vec<_>>();
+        let new_peer = self
+            .network_globals
+            .peers
+            .read()
+            .synced_peers()
+            .map(|peer| {
+                (
+                    failed_peers.contains(peer),
+                    self.active_requests.get(peer).map(|v| v.len()).unwrap_or(0),
+                    rand::random::<u32>(),
+                    *peer,
+                )
+            })
             // Sort peers prioritizing unrelated peers with less active requests.
-            priorized_peers.sort_unstable();
-            priorized_peers.first().map(|&(_, _, peer)| peer)
-        };
+            .min()
+            .map(|(_, _, _, peer)| peer);
 
         if let Some(peer) = new_peer {
             self.participating_peers.insert(peer);
@@ -923,7 +962,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     ) -> Result<(), BackFillError> {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let (request, is_blob_batch) = batch.to_blocks_by_range_request();
-            match network.blocks_and_blobs_by_range_request(
+            match network.block_components_by_range_request(
                 peer,
                 is_blob_batch,
                 request,

@@ -1,6 +1,6 @@
 use crate::{
-    test_utils::TestRandom, Address, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
-    PublicKeyBytes,
+    test_utils::TestRandom, Address, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec,
+    FixedBytesExtended, ForkName, Hash256, PublicKeyBytes,
 };
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -87,15 +87,25 @@ impl Validator {
     }
 
     /// Returns `true` if the validator is eligible to be activated.
-    ///
-    /// Spec v0.12.1
     pub fn is_eligible_for_activation<E: EthSpec>(
         &self,
         state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> bool {
+        self.is_eligible_for_activation_with_finalized_checkpoint(
+            &state.finalized_checkpoint(),
+            spec,
+        )
+    }
+
+    /// Returns `true` if the validator is eligible to be activated.
+    pub fn is_eligible_for_activation_with_finalized_checkpoint(
+        &self,
+        finalized_checkpoint: &Checkpoint,
+        spec: &ChainSpec,
+    ) -> bool {
         // Placement in queue is finalized
-        self.activation_eligibility_epoch <= state.finalized_checkpoint().epoch
+        self.activation_eligibility_epoch <= finalized_checkpoint.epoch
         // Has not yet been activated
         && self.activation_epoch == spec.far_future_epoch
     }
@@ -119,7 +129,7 @@ impl Validator {
     /// Returns `true` if the validator has eth1 withdrawal credential.
     pub fn has_eth1_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
         self.withdrawal_credentials
-            .as_bytes()
+            .as_slice()
             .first()
             .map(|byte| *byte == spec.eth1_address_withdrawal_prefix_byte)
             .unwrap_or(false)
@@ -135,7 +145,7 @@ impl Validator {
         self.has_execution_withdrawal_credential(spec)
             .then(|| {
                 self.withdrawal_credentials
-                    .as_bytes()
+                    .as_slice()
                     .get(12..)
                     .map(Address::from_slice)
             })
@@ -148,7 +158,7 @@ impl Validator {
     pub fn change_withdrawal_credentials(&mut self, execution_address: &Address, spec: &ChainSpec) {
         let mut bytes = [0u8; 32];
         bytes[0] = spec.eth1_address_withdrawal_prefix_byte;
-        bytes[12..].copy_from_slice(execution_address.as_bytes());
+        bytes[12..].copy_from_slice(execution_address.as_slice());
         self.withdrawal_credentials = Hash256::from(bytes);
     }
 
@@ -209,6 +219,7 @@ impl Validator {
         }
     }
 
+    /// TODO(electra): refactor these functions and make it simpler.. this is a mess
     /// Returns `true` if the validator is partially withdrawable.
     fn is_partially_withdrawable_validator_capella(&self, balance: u64, spec: &ChainSpec) -> bool {
         self.has_eth1_withdrawal_credential(spec)
@@ -255,6 +266,16 @@ impl Validator {
             spec.max_effective_balance
         }
     }
+
+    pub fn get_active_balance(
+        &self,
+        validator_balance: u64,
+        spec: &ChainSpec,
+        current_fork: ForkName,
+    ) -> u64 {
+        let max_effective_balance = self.get_validator_max_effective_balance(spec, current_fork);
+        std::cmp::min(validator_balance, max_effective_balance)
+    }
 }
 
 impl Default for Validator {
@@ -262,7 +283,7 @@ impl Default for Validator {
     fn default() -> Self {
         Self {
             pubkey: PublicKeyBytes::empty(),
-            withdrawal_credentials: Hash256::default(),
+            withdrawal_credentials: Hash256::zero(),
             activation_eligibility_epoch: Epoch::from(u64::MAX),
             activation_epoch: Epoch::from(u64::MAX),
             exit_epoch: Epoch::from(u64::MAX),
@@ -278,7 +299,7 @@ pub fn is_compounding_withdrawal_credential(
     spec: &ChainSpec,
 ) -> bool {
     withdrawal_credentials
-        .as_bytes()
+        .as_slice()
         .first()
         .map(|prefix_byte| *prefix_byte == spec.compounding_withdrawal_prefix_byte)
         .unwrap_or(false)

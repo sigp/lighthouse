@@ -16,8 +16,8 @@ use std::time::Duration;
 use store::MemoryStore;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlockRef, BeaconState, ChainSpec, Checkpoint,
-    Epoch, EthSpec, ForkName, Hash256, IndexedAttestation, MainnetEthSpec, RelativeEpoch,
-    SignedBeaconBlock, Slot, SubnetId,
+    Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, IndexedAttestation, MainnetEthSpec,
+    RelativeEpoch, SignedBeaconBlock, Slot, SubnetId,
 };
 
 pub type E = MainnetEthSpec;
@@ -55,7 +55,7 @@ impl ForkChoiceTest {
         // Run fork choice tests against the latest fork.
         let spec = ForkName::latest().make_genesis_spec(ChainSpec::default());
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
-            .spec(spec)
+            .spec(spec.into())
             .chain_config(chain_config)
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
@@ -1344,7 +1344,7 @@ async fn progressive_balances_cache_attester_slashing() {
         // (`HeaderInvalid::ProposerSlashed`). The harness should be re-worked to successfully skip
         // the slot in this scenario rather than panic-ing. The same applies to
         // `progressive_balances_cache_proposer_slashing`.
-        .apply_blocks(1)
+        .apply_blocks(2)
         .await
         .add_previous_epoch_attester_slashing()
         .await

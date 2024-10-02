@@ -10,6 +10,7 @@ use node_test_rig::{
 };
 use rayon::prelude::*;
 use std::cmp::max;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, MinimalEthSpec};
@@ -105,7 +106,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
         .multi_threaded_tokio_runtime()?
         .build()?;
 
-    let spec = &mut env.eth2_config.spec;
+    let mut spec = (*env.eth2_config.spec).clone();
 
     let total_validator_count = validators_per_vc * vc_count;
     let node_count = vc_count * bns_per_vc;
@@ -122,6 +123,8 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.capella_fork_epoch = Some(Epoch::new(CAPELLA_FORK_EPOCH));
     spec.deneb_fork_epoch = Some(Epoch::new(DENEB_FORK_EPOCH));
     //spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
+    let spec = Arc::new(spec);
+    env.eth2_config.spec = spec.clone();
 
     let slot_duration = Duration::from_secs(spec.seconds_per_slot);
     let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
@@ -143,6 +146,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
                 LocalNetworkParams {
                     validator_count: total_validator_count,
                     node_count,
+                    extra_nodes: 0,
                     proposer_nodes: 0,
                     genesis_delay,
                 },

@@ -2,17 +2,16 @@ use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
 use beacon_chain::validator_monitor::{ValidatorMonitorConfig, MISSED_BLOCK_LAG_SLOTS};
-use lazy_static::lazy_static;
 use logging::test_logger;
-use types::{Epoch, EthSpec, Keypair, MainnetEthSpec, PublicKeyBytes, Slot};
+use std::sync::LazyLock;
+use types::{Epoch, EthSpec, ForkName, Keypair, MainnetEthSpec, PublicKeyBytes, Slot};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 48;
 
-lazy_static! {
-    /// A cached set of keys.
-    static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
-}
+/// A cached set of keys.
+static KEYPAIRS: LazyLock<Vec<Keypair>> =
+    LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 type E = MainnetEthSpec;
 
@@ -129,7 +128,7 @@ async fn produces_missed_blocks() {
     let initial_blocks = slots_per_epoch * nb_epoch_to_simulate.as_u64() - 1;
 
     // The validator index of the validator that is 'supposed' to miss a block
-    let mut validator_index_to_monitor = 1;
+    let validator_index_to_monitor = 1;
 
     // 1st scenario //
     //
@@ -202,34 +201,22 @@ async fn produces_missed_blocks() {
     // Missed block happens when slot and prev_slot are not in the same epoch
     // making sure that the cache reloads when the epoch changes
     // in that scenario the slot that missed a block is the first slot of the epoch
-    validator_index_to_monitor = 7;
     // We are adding other validators to monitor as these ones will miss a block depending on
     // the fork name specified when running the test as the proposer cache differs depending on
     // the fork name (cf. seed)
     //
     // If you are adding a new fork and seeing errors, print
     // `validator_indexes[slot_in_epoch.as_usize()]` and add it below.
-    let validator_index_to_monitor_altair = 2;
-    // Same as above but for the merge upgrade
-    let validator_index_to_monitor_bellatrix = 4;
-    // Same as above but for the capella upgrade
-    let validator_index_to_monitor_capella = 11;
-    // Same as above but for the deneb upgrade
-    let validator_index_to_monitor_deneb = 3;
-    // Same as above but for the electra upgrade
-    let validator_index_to_monitor_electra = 6;
+    let validator_index_to_monitor = match harness1.spec.fork_name_at_slot::<E>(Slot::new(0)) {
+        ForkName::Base => 7,
+        ForkName::Altair => 2,
+        ForkName::Bellatrix => 4,
+        ForkName::Capella => 11,
+        ForkName::Deneb => 3,
+        ForkName::Electra => 1,
+    };
 
-    let harness2 = get_harness(
-        validator_count,
-        vec![
-            validator_index_to_monitor,
-            validator_index_to_monitor_altair,
-            validator_index_to_monitor_bellatrix,
-            validator_index_to_monitor_capella,
-            validator_index_to_monitor_deneb,
-            validator_index_to_monitor_electra,
-        ],
-    );
+    let harness2 = get_harness(validator_count, vec![validator_index_to_monitor]);
     let advance_slot_by = 9;
     harness2
         .extend_chain(
@@ -301,6 +288,12 @@ async fn produces_missed_blocks() {
         duplicate_block_root = *_state2.block_roots().get(idx as usize).unwrap();
         validator_indexes = _state2.get_beacon_proposer_indices(&harness2.spec).unwrap();
         let not_monitored_validator_index = validator_indexes[slot_in_epoch.as_usize()];
+        // This could do with a refactor: https://github.com/sigp/lighthouse/issues/6293
+        assert_ne!(
+            not_monitored_validator_index,
+            validator_index_to_monitor,
+            "this test has a fragile dependency on hardcoded indices. you need to tweak some settings or rewrite this"
+        );
 
         assert_eq!(
             _state2.set_block_root(prev_slot, duplicate_block_root),

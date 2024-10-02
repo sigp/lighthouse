@@ -15,9 +15,11 @@ pub use enr::{build_enr, load_enr_from_disk, use_or_load_enr, CombinedKey, Eth2E
 pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 pub use libp2p::identity::{Keypair, PublicKey};
 
+use alloy_rlp::bytes::Bytes;
 use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
+use libp2p::core::transport::PortUse;
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
 use libp2p::swarm::THandlerInEvent;
@@ -43,7 +45,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::mpsc;
-use types::{EnrForkId, EthSpec};
+use types::{ChainSpec, EnrForkId, EthSpec};
 
 mod subnet_predicate;
 pub use subnet_predicate::subnet_predicate;
@@ -192,6 +194,7 @@ pub struct Discovery<E: EthSpec> {
 
     /// Logger for the discovery behaviour.
     log: slog::Logger,
+    spec: Arc<ChainSpec>,
 }
 
 impl<E: EthSpec> Discovery<E> {
@@ -201,6 +204,7 @@ impl<E: EthSpec> Discovery<E> {
         config: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<E>>,
         log: &slog::Logger,
+        spec: &ChainSpec,
     ) -> error::Result<Self> {
         let log = log.clone();
 
@@ -325,6 +329,7 @@ impl<E: EthSpec> Discovery<E> {
             update_ports,
             log,
             enr_dir,
+            spec: Arc::new(spec.clone()),
         })
     }
 
@@ -508,9 +513,9 @@ impl<E: EthSpec> Discovery<E> {
 
                 // insert the bitfield into the ENR record
                 self.discv5
-                    .enr_insert(
+                    .enr_insert::<Bytes>(
                         ATTESTATION_BITFIELD_ENR_KEY,
-                        &current_bitfield.as_ssz_bytes(),
+                        &current_bitfield.as_ssz_bytes().into(),
                     )
                     .map_err(|e| format!("{:?}", e))?;
             }
@@ -542,12 +547,14 @@ impl<E: EthSpec> Discovery<E> {
 
                 // insert the bitfield into the ENR record
                 self.discv5
-                    .enr_insert(
+                    .enr_insert::<Bytes>(
                         SYNC_COMMITTEE_BITFIELD_ENR_KEY,
-                        &current_bitfield.as_ssz_bytes(),
+                        &current_bitfield.as_ssz_bytes().into(),
                     )
                     .map_err(|e| format!("{:?}", e))?;
             }
+            // Data column subnets are computed from node ID. No subnet bitfield in the ENR.
+            Subnet::DataColumn(_) => return Ok(()),
         }
 
         // replace the global version
@@ -576,7 +583,7 @@ impl<E: EthSpec> Discovery<E> {
 
         let _ = self
             .discv5
-            .enr_insert(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes())
+            .enr_insert::<Bytes>(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes().into())
             .map_err(|e| {
                 warn!(
                     self.log,
@@ -753,7 +760,8 @@ impl<E: EthSpec> Discovery<E> {
         // Only start a discovery query if we have a subnet to look for.
         if !filtered_subnet_queries.is_empty() {
             // build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
-            let subnet_predicate = subnet_predicate::<E>(filtered_subnets, &self.log);
+            let subnet_predicate =
+                subnet_predicate::<E>(filtered_subnets, &self.log, self.spec.clone());
 
             debug!(
                 self.log,
@@ -867,6 +875,7 @@ impl<E: EthSpec> Discovery<E> {
                             let query_str = match query.subnet {
                                 Subnet::Attestation(_) => "attestation",
                                 Subnet::SyncCommittee(_) => "sync_committee",
+                                Subnet::DataColumn(_) => "data_column",
                             };
 
                             if let Some(v) = metrics::get_int_counter(
@@ -879,8 +888,11 @@ impl<E: EthSpec> Discovery<E> {
                             self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
 
                             // Check the specific subnet against the enr
-                            let subnet_predicate =
-                                subnet_predicate::<E>(vec![query.subnet], &self.log);
+                            let subnet_predicate = subnet_predicate::<E>(
+                                vec![query.subnet],
+                                &self.log,
+                                self.spec.clone(),
+                            );
 
                             r.clone()
                                 .into_iter()
@@ -973,6 +985,7 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
         _peer: PeerId,
         _addr: &Multiaddr,
         _role_override: libp2p::core::Endpoint,
+        _port_use: PortUse,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         Ok(ConnectionHandler)
     }
@@ -1060,10 +1073,7 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                             // NOTE: We assume libp2p itself can keep track of IP changes and we do
                             // not inform it about IP changes found via discovery.
                         }
-                        discv5::Event::EnrAdded { .. }
-                        | discv5::Event::TalkRequest(_)
-                        | discv5::Event::NodeInserted { .. }
-                        | discv5::Event::SessionEstablished { .. } => {} // Ignore all other discv5 server events
+                        _ => {} // Ignore all other discv5 server events
                     }
                 }
             }
@@ -1156,8 +1166,19 @@ impl<E: EthSpec> Discovery<E> {
     fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: &DialError) {
         if let Some(peer_id) = peer_id {
             match error {
+                DialError::Denied { .. } => {
+                    if self.network_globals.peers.read().is_connected(&peer_id) {
+                        // There's an active connection, so we don’t disconnect the peer.
+                        // Lighthouse dials to a peer twice using TCP and QUIC (if QUIC is not
+                        // disabled). Usually, one establishes a connection, and the other fails
+                        // because the peer allows only one connection per peer.
+                        return;
+                    }
+                    // set peer as disconnected in discovery DHT
+                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id, "error" => %ClearDialError(error));
+                    self.disconnect_peer(&peer_id);
+                }
                 DialError::LocalPeerId { .. }
-                | DialError::Denied { .. }
                 | DialError::NoAddresses
                 | DialError::Transport(_)
                 | DialError::WrongPeerId { .. } => {
@@ -1194,11 +1215,13 @@ mod tests {
     }
 
     async fn build_discovery() -> Discovery<E> {
+        let spec = Arc::new(ChainSpec::default());
         let keypair = secp256k1::Keypair::generate();
         let mut config = NetworkConfig::default();
         config.set_listening_addr(crate::ListenAddress::unused_v4_ports());
+        let config = Arc::new(config);
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
-        let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default()).unwrap();
+        let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default(), &spec).unwrap();
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,
@@ -1210,9 +1233,11 @@ mod tests {
             vec![],
             false,
             &log,
+            config.clone(),
+            spec.clone(),
         );
         let keypair = keypair.into();
-        Discovery::new(keypair, &config, Arc::new(globals), &log)
+        Discovery::new(keypair, &config, Arc::new(globals), &log, &spec)
             .await
             .unwrap()
     }
@@ -1267,7 +1292,10 @@ mod tests {
             bitfield.set(id, true).unwrap();
         }
 
-        builder.add_value(ATTESTATION_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
+        builder.add_value::<Bytes>(
+            ATTESTATION_BITFIELD_ENR_KEY,
+            &bitfield.as_ssz_bytes().into(),
+        );
         builder.build(&enr_key).unwrap()
     }
 

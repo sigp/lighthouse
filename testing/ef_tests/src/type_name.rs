@@ -1,5 +1,4 @@
 //! Mapping from types to canonical string identifiers used in testing.
-use types::blob_sidecar::BlobIdentifier;
 use types::historical_summary::HistoricalSummary;
 use types::*;
 
@@ -54,25 +53,33 @@ type_name_generic!(BeaconBlockBodyAltair, "BeaconBlockBody");
 type_name_generic!(BeaconBlockBodyBellatrix, "BeaconBlockBody");
 type_name_generic!(BeaconBlockBodyCapella, "BeaconBlockBody");
 type_name_generic!(BeaconBlockBodyDeneb, "BeaconBlockBody");
+type_name_generic!(BeaconBlockBodyElectra, "BeaconBlockBody");
 type_name!(BeaconBlockHeader);
 type_name_generic!(BeaconState);
 type_name!(BlobIdentifier);
+type_name!(DataColumnIdentifier);
 type_name_generic!(BlobSidecar);
+type_name_generic!(DataColumnSidecar);
 type_name!(Checkpoint);
+type_name!(ConsolidationRequest);
 type_name_generic!(ContributionAndProof);
 type_name!(Deposit);
 type_name!(DepositData);
 type_name!(DepositMessage);
+type_name!(DepositRequest);
 type_name!(Eth1Data);
+type_name!(WithdrawalRequest);
 type_name_generic!(ExecutionPayload);
 type_name_generic!(ExecutionPayloadBellatrix, "ExecutionPayload");
 type_name_generic!(ExecutionPayloadCapella, "ExecutionPayload");
 type_name_generic!(ExecutionPayloadDeneb, "ExecutionPayload");
+type_name_generic!(ExecutionPayloadElectra, "ExecutionPayload");
 type_name_generic!(FullPayload, "ExecutionPayload");
 type_name_generic!(ExecutionPayloadHeader);
 type_name_generic!(ExecutionPayloadHeaderBellatrix, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadHeaderCapella, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadHeaderDeneb, "ExecutionPayloadHeader");
+type_name_generic!(ExecutionPayloadHeaderElectra, "ExecutionPayloadHeader");
 type_name_generic!(BlindedPayload, "ExecutionPayloadHeader");
 type_name!(Fork);
 type_name!(ForkData);
@@ -84,6 +91,7 @@ type_name_generic!(LightClientBootstrap);
 type_name_generic!(LightClientBootstrapAltair, "LightClientBootstrap");
 type_name_generic!(LightClientBootstrapCapella, "LightClientBootstrap");
 type_name_generic!(LightClientBootstrapDeneb, "LightClientBootstrap");
+type_name_generic!(LightClientBootstrapElectra, "LightClientBootstrap");
 type_name_generic!(LightClientFinalityUpdate);
 type_name_generic!(LightClientFinalityUpdateAltair, "LightClientFinalityUpdate");
 type_name_generic!(
@@ -91,10 +99,15 @@ type_name_generic!(
     "LightClientFinalityUpdate"
 );
 type_name_generic!(LightClientFinalityUpdateDeneb, "LightClientFinalityUpdate");
+type_name_generic!(
+    LightClientFinalityUpdateElectra,
+    "LightClientFinalityUpdate"
+);
 type_name_generic!(LightClientHeader);
-type_name_generic!(LightClientHeaderDeneb, "LightClientHeader");
-type_name_generic!(LightClientHeaderCapella, "LightClientHeader");
 type_name_generic!(LightClientHeaderAltair, "LightClientHeader");
+type_name_generic!(LightClientHeaderCapella, "LightClientHeader");
+type_name_generic!(LightClientHeaderDeneb, "LightClientHeader");
+type_name_generic!(LightClientHeaderElectra, "LightClientHeader");
 type_name_generic!(LightClientOptimisticUpdate);
 type_name_generic!(
     LightClientOptimisticUpdateAltair,
@@ -108,11 +121,19 @@ type_name_generic!(
     LightClientOptimisticUpdateDeneb,
     "LightClientOptimisticUpdate"
 );
+type_name_generic!(
+    LightClientOptimisticUpdateElectra,
+    "LightClientOptimisticUpdate"
+);
 type_name_generic!(LightClientUpdate);
 type_name_generic!(LightClientUpdateAltair, "LightClientUpdate");
 type_name_generic!(LightClientUpdateCapella, "LightClientUpdate");
 type_name_generic!(LightClientUpdateDeneb, "LightClientUpdate");
+type_name_generic!(LightClientUpdateElectra, "LightClientUpdate");
 type_name_generic!(PendingAttestation);
+type_name!(PendingConsolidation);
+type_name!(PendingPartialWithdrawal);
+type_name!(PendingBalanceDeposit);
 type_name!(ProposerSlashing);
 type_name_generic!(SignedAggregateAndProof);
 type_name_generic!(SignedAggregateAndProofBase, "SignedAggregateAndProof");

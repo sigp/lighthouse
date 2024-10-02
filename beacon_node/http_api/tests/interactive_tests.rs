@@ -1,7 +1,7 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
 use beacon_chain::{
     chain_config::{DisallowedReOrgOffsets, ReOrgThreshold},
-    test_utils::{AttestationStrategy, BlockStrategy, SyncCommitteeStrategy},
+    test_utils::{AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy},
     ChainConfig,
 };
 use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
@@ -17,10 +17,9 @@ use state_processing::{
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tree_hash::TreeHash;
 use types::{
-    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, MainnetEthSpec,
-    MinimalEthSpec, ProposerPreparationData, Slot,
+    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, FixedBytesExtended, ForkName,
+    Hash256, MainnetEthSpec, MinimalEthSpec, ProposerPreparationData, Slot, Uint256,
 };
 
 type E = MainnetEthSpec;
@@ -73,6 +72,7 @@ async fn state_by_root_pruned_from_fork_choice() {
                 })
         })),
         None,
+        Default::default(),
     )
     .await;
 
@@ -89,6 +89,7 @@ async fn state_by_root_pruned_from_fork_choice() {
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
             SyncCommitteeStrategy::NoValidators,
+            LightClientStrategy::Disabled,
         )
         .await;
 
@@ -395,7 +396,7 @@ pub async fn proposer_boost_re_org_test(
 
     // Test using the latest fork so that we simulate conditions as similar to mainnet as possible.
     let mut spec = ForkName::latest().make_genesis_spec(E::default_spec());
-    spec.terminal_total_difficulty = 1.into();
+    spec.terminal_total_difficulty = Uint256::from(1);
 
     // Ensure there are enough validators to have `attesters_per_slot`.
     let attesters_per_slot = 10;
@@ -427,6 +428,7 @@ pub async fn proposer_boost_re_org_test(
                     DisallowedReOrgOffsets::new::<E>(disallowed_offsets).unwrap(),
                 )
         })),
+        Default::default(),
     )
     .await;
     let harness = &tester.harness;
@@ -470,6 +472,7 @@ pub async fn proposer_boost_re_org_test(
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
             SyncCommitteeStrategy::AllValidators,
+            LightClientStrategy::Disabled,
         )
         .await;
 
@@ -515,16 +518,17 @@ pub async fn proposer_boost_re_org_test(
     }
 
     harness.advance_slot();
-    let (block_a_root, block_a, state_a) = harness
+    let (block_a_root, block_a, mut state_a) = harness
         .add_block_at_slot(slot_a, harness.get_current_state())
         .await
         .unwrap();
+    let state_a_root = state_a.canonical_root().unwrap();
 
     // Attest to block A during slot A.
     let (block_a_parent_votes, _) = harness.make_attestations_with_limit(
         &all_validators,
         &state_a,
-        state_a.canonical_root(),
+        state_a_root,
         block_a_root,
         slot_a,
         num_parent_votes,
@@ -538,7 +542,7 @@ pub async fn proposer_boost_re_org_test(
     let (block_a_empty_votes, block_a_attesters) = harness.make_attestations_with_limit(
         &all_validators,
         &state_a,
-        state_a.canonical_root(),
+        state_a_root,
         block_a_root,
         slot_b,
         num_empty_votes,
@@ -553,6 +557,7 @@ pub async fn proposer_boost_re_org_test(
 
     // Produce block B and process it halfway through the slot.
     let (block_b, mut state_b) = harness.make_block(state_a.clone(), slot_b).await;
+    let state_b_root = state_b.canonical_root().unwrap();
     let block_b_root = block_b.0.canonical_root();
 
     let obs_time = slot_clock.start_of(slot_b).unwrap() + slot_clock.slot_duration() / 2;
@@ -570,7 +575,7 @@ pub async fn proposer_boost_re_org_test(
     let (block_b_head_votes, _) = harness.make_attestations_with_limit(
         &remaining_attesters,
         &state_b,
-        state_b.canonical_root(),
+        state_b_root,
         block_b_root.into(),
         slot_b,
         num_head_votes,
@@ -638,18 +643,20 @@ pub async fn proposer_boost_re_org_test(
 
     if should_re_org {
         // Block C should build on A.
-        assert_eq!(block_c.parent_root(), block_a_root.into());
+        assert_eq!(block_c.parent_root(), Hash256::from(block_a_root));
     } else {
         // Block C should build on B.
         assert_eq!(block_c.parent_root(), block_b_root);
     }
 
     // Applying block C should cause it to become head regardless (re-org or continuation).
-    let block_root_c = harness
-        .process_block_result((block_c.clone(), block_c_blobs))
-        .await
-        .unwrap()
-        .into();
+    let block_root_c = Hash256::from(
+        harness
+            .process_block_result((block_c.clone(), block_c_blobs))
+            .await
+            .unwrap(),
+    );
+
     assert_eq!(harness.head_block_root(), block_root_c);
 
     // Check the fork choice updates that were sent.
@@ -774,32 +781,34 @@ pub async fn fork_choice_before_proposal() {
     let slot_d = slot_a + 3;
 
     let state_a = harness.get_current_state();
-    let (block_b, state_b) = harness.make_block(state_a.clone(), slot_b).await;
+    let (block_b, mut state_b) = harness.make_block(state_a.clone(), slot_b).await;
     let block_root_b = harness
         .process_block(slot_b, block_b.0.canonical_root(), block_b)
         .await
         .unwrap();
+    let state_root_b = state_b.canonical_root().unwrap();
 
     // Create attestations to B but keep them in reserve until after C has been processed.
     let attestations_b = harness.make_attestations(
         &all_validators,
         &state_b,
-        state_b.tree_hash_root(),
+        state_root_b,
         block_root_b,
         slot_b,
     );
 
-    let (block_c, state_c) = harness.make_block(state_a, slot_c).await;
+    let (block_c, mut state_c) = harness.make_block(state_a, slot_c).await;
     let block_root_c = harness
         .process_block(slot_c, block_c.0.canonical_root(), block_c.clone())
         .await
         .unwrap();
+    let state_root_c = state_c.canonical_root().unwrap();
 
     // Create attestations to C from a small number of validators and process them immediately.
     let attestations_c = harness.make_attestations(
         &all_validators[..validator_count / 2],
         &state_c,
-        state_c.tree_hash_root(),
+        state_root_c,
         block_root_c,
         slot_c,
     );
@@ -811,7 +820,7 @@ pub async fn fork_choice_before_proposal() {
     // Due to proposer boost, the head should be C during slot C.
     assert_eq!(
         harness.chain.canonical_head.cached_head().head_block_root(),
-        block_root_c.into()
+        Hash256::from(block_root_c)
     );
 
     // Ensure that building a block via the HTTP API re-runs fork choice and builds block D upon B.
@@ -838,10 +847,10 @@ pub async fn fork_choice_before_proposal() {
     // Head is now B.
     assert_eq!(
         harness.chain.canonical_head.cached_head().head_block_root(),
-        block_root_b.into()
+        Hash256::from(block_root_b)
     );
     // D's parent is B.
-    assert_eq!(block_d.parent_root(), block_root_b.into());
+    assert_eq!(block_d.parent_root(), Hash256::from(block_root_b));
 }
 
 // Test that attestations to unknown blocks are requeued and processed when their block arrives.
@@ -890,9 +899,10 @@ async fn queue_attestations_from_http() {
         .flat_map(|attestations| attestations.into_iter().map(|(att, _subnet)| att))
         .collect::<Vec<_>>();
 
+    let fork_name = tester.harness.spec.fork_name_at_slot::<E>(attestation_slot);
     let attestation_future = tokio::spawn(async move {
         client
-            .post_beacon_pool_attestations(&attestations)
+            .post_beacon_pool_attestations_v2(&attestations, fork_name)
             .await
             .expect("attestations should be processed successfully")
     });

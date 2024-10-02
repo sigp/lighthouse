@@ -1,4 +1,5 @@
 use beacon_node::{get_data_dir, set_network_config};
+use bytes::Bytes;
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::discv5::{self, enr::CombinedKey, Enr};
@@ -102,14 +103,17 @@ impl<E: EthSpec> BootNodeConfig<E> {
                         .map(Duration::from_secs)?;
 
                 if eth2_network_config.genesis_state_is_known() {
-                    let genesis_state = eth2_network_config
+                    let mut genesis_state = eth2_network_config
                         .genesis_state::<E>(genesis_state_url.as_deref(), genesis_state_url_timeout, &logger).await?
                         .ok_or_else(|| {
                             "The genesis state for this network is not known, this is an unsupported mode"
                                 .to_string()
                         })?;
 
-                    slog::info!(logger, "Genesis state found"; "root" => genesis_state.canonical_root().to_string());
+                    let genesis_state_root = genesis_state
+                        .canonical_root()
+                        .map_err(|e| format!("Error hashing genesis state: {e:?}"))?;
+                    slog::info!(logger, "Genesis state found"; "root" => ?genesis_state_root);
                     let enr_fork = spec.enr_fork_id::<E>(
                         types::Slot::from(0u64),
                         genesis_state.genesis_validators_root(),
@@ -149,7 +153,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
 
                 // If we know of the ENR field, add it to the initial construction
                 if let Some(enr_fork_bytes) = enr_fork {
-                    builder.add_value("eth2", &enr_fork_bytes);
+                    builder.add_value::<Bytes>("eth2", &enr_fork_bytes.into());
                 }
                 builder
                     .build(&local_key)

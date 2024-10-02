@@ -1,5 +1,5 @@
 use crate::checks::epoch_delay;
-use eth2_network_config::TRUSTED_SETUP_BYTES;
+use kzg::trusted_setup::get_trusted_setup;
 use node_test_rig::{
     environment::RuntimeContext,
     eth2::{types::StateId, BeaconNodeHttpClient},
@@ -27,6 +27,7 @@ pub struct LocalNetworkParams {
     pub validator_count: usize,
     pub node_count: usize,
     pub proposer_nodes: usize,
+    pub extra_nodes: usize,
     pub genesis_delay: u64,
 }
 
@@ -38,15 +39,15 @@ fn default_client_config(network_params: LocalNetworkParams, genesis_time: u64) 
         genesis_time,
     };
     beacon_config.network.target_peers =
-        network_params.node_count + network_params.proposer_nodes - 1;
+        network_params.node_count + network_params.proposer_nodes + network_params.extra_nodes - 1;
     beacon_config.network.enr_address = (Some(Ipv4Addr::LOCALHOST), None);
     beacon_config.network.enable_light_client_server = true;
     beacon_config.network.discv5_config.enable_packet_filter = false;
     beacon_config.chain.enable_light_client_server = true;
     beacon_config.http_api.enable_light_client_server = true;
     beacon_config.chain.optimistic_finalized_sync = false;
-    beacon_config.trusted_setup =
-        serde_json::from_reader(TRUSTED_SETUP_BYTES).expect("Trusted setup bytes should be valid");
+    beacon_config.trusted_setup = serde_json::from_reader(get_trusted_setup().as_slice())
+        .expect("Trusted setup bytes should be valid");
 
     let el_config = execution_layer::Config {
         execution_endpoint: Some(

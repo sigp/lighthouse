@@ -35,7 +35,6 @@
 mod batch;
 
 use crate::{
-    beacon_chain::VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     metrics,
     observed_aggregates::{ObserveOutcome, ObservedAttestationKey},
     observed_attesters::Error as ObservedAttestersError,
@@ -457,11 +456,10 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         Self::verify_slashable(signed_aggregate, chain)
-            .map(|verified_aggregate| {
+            .inspect(|verified_aggregate| {
                 if let Some(slasher) = chain.slasher.as_ref() {
                     slasher.accept_attestation(verified_aggregate.indexed_attestation.clone());
                 }
-                verified_aggregate
             })
             .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
@@ -893,11 +891,10 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         Self::verify_slashable(attestation.to_ref(), subnet_id, chain)
-            .map(|verified_unaggregated| {
+            .inspect(|verified_unaggregated| {
                 if let Some(slasher) = chain.slasher.as_ref() {
                     slasher.accept_attestation(verified_unaggregated.indexed_attestation.clone());
                 }
-                verified_unaggregated
             })
             .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
@@ -1174,10 +1171,7 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
     let signature_setup_timer =
         metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES);
 
-    let pubkey_cache = chain
-        .validator_pubkey_cache
-        .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-        .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
+    let pubkey_cache = chain.validator_pubkey_cache.read();
 
     let fork = chain
         .spec
@@ -1272,10 +1266,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
     signed_aggregate: &SignedAggregateAndProof<T::EthSpec>,
     indexed_attestation: &IndexedAttestation<T::EthSpec>,
 ) -> Result<bool, Error> {
-    let pubkey_cache = chain
-        .validator_pubkey_cache
-        .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-        .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
+    let pubkey_cache = chain.validator_pubkey_cache.read();
 
     let aggregator_index = signed_aggregate.message().aggregator_index();
     if aggregator_index >= pubkey_cache.len() as u64 {

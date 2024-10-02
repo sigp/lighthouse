@@ -3,12 +3,15 @@ use crate::common::base::SqrtTotalActiveBalance;
 use crate::common::{altair, base};
 use safe_arith::SafeArith;
 use types::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
-use types::{ActivationQueue, BeaconState, ChainSpec, EthSpec, ForkName, Hash256};
+use types::{
+    ActivationQueue, BeaconState, ChainSpec, EthSpec, FixedBytesExtended, ForkName, Hash256,
+};
 
 /// Precursor to an `EpochCache`.
 pub struct PreEpochCache {
     epoch_key: EpochCacheKey,
     effective_balances: Vec<u64>,
+    total_active_balance: u64,
 }
 
 impl PreEpochCache {
@@ -36,27 +39,59 @@ impl PreEpochCache {
         Ok(Self {
             epoch_key,
             effective_balances: Vec::with_capacity(state.validators().len()),
+            total_active_balance: 0,
         })
     }
 
-    pub fn push_effective_balance(&mut self, effective_balance: u64) {
-        self.effective_balances.push(effective_balance);
+    pub fn update_effective_balance(
+        &mut self,
+        validator_index: usize,
+        effective_balance: u64,
+        is_active_next_epoch: bool,
+    ) -> Result<(), EpochCacheError> {
+        if validator_index == self.effective_balances.len() {
+            self.effective_balances.push(effective_balance);
+            if is_active_next_epoch {
+                self.total_active_balance
+                    .safe_add_assign(effective_balance)?;
+            }
+
+            Ok(())
+        } else if let Some(existing_balance) = self.effective_balances.get_mut(validator_index) {
+            // Update total active balance for a late change in effective balance. This happens when
+            // processing consolidations.
+            if is_active_next_epoch {
+                self.total_active_balance
+                    .safe_add_assign(effective_balance)?;
+                self.total_active_balance
+                    .safe_sub_assign(*existing_balance)?;
+            }
+            *existing_balance = effective_balance;
+            Ok(())
+        } else {
+            Err(EpochCacheError::ValidatorIndexOutOfBounds { validator_index })
+        }
+    }
+
+    pub fn get_total_active_balance(&self) -> u64 {
+        self.total_active_balance
     }
 
     pub fn into_epoch_cache(
         self,
-        total_active_balance: u64,
         activation_queue: ActivationQueue,
         spec: &ChainSpec,
     ) -> Result<EpochCache, EpochCacheError> {
         let epoch = self.epoch_key.epoch;
+        let total_active_balance = self.total_active_balance;
         let sqrt_total_active_balance = SqrtTotalActiveBalance::new(total_active_balance);
         let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
 
         let effective_balance_increment = spec.effective_balance_increment;
-        let max_effective_balance_eth = spec
-            .max_effective_balance
-            .safe_div(effective_balance_increment)?;
+        let max_effective_balance =
+            spec.max_effective_balance_for_fork(spec.fork_name_at_epoch(epoch));
+        let max_effective_balance_eth =
+            max_effective_balance.safe_div(effective_balance_increment)?;
 
         let mut base_rewards = Vec::with_capacity(max_effective_balance_eth.safe_add(1)? as usize);
 
@@ -131,9 +166,9 @@ pub fn initialize_epoch_cache<E: EthSpec>(
             decision_block_root,
         },
         effective_balances,
+        total_active_balance,
     };
-    *state.epoch_cache_mut() =
-        pre_epoch_cache.into_epoch_cache(total_active_balance, activation_queue, spec)?;
+    *state.epoch_cache_mut() = pre_epoch_cache.into_epoch_cache(activation_queue, spec)?;
 
     Ok(())
 }

@@ -4,6 +4,7 @@ use clap::{builder::ArgPredicate, crate_version, Arg, ArgAction, ArgGroup, Comma
 use clap_utils::{get_color_style, FLAG_HEADER};
 use strum::VariantNames;
 
+#[allow(clippy::large_stack_frames)]
 pub fn cli_app() -> Command {
     Command::new("beacon_node")
         .display_order(0)
@@ -54,6 +55,37 @@ pub fn cli_app() -> Command {
         /*
          * Network parameters.
          */
+        .arg(
+            Arg::new("subscribe-all-data-column-subnets")
+                .long("subscribe-all-data-column-subnets")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .help("Subscribe to all data column subnets and participate in data custody for \
+                        all columns. This will also advertise the beacon node as being long-lived \
+                        subscribed to all data column subnets. \
+                        NOTE: this is an experimental flag and may change any time without notice!")
+                .display_order(0)
+                .hide(true)
+        )
+        .arg(
+            // TODO(das): remove this before PeerDAS release
+            Arg::new("malicious-withhold-count")
+                .long("malicious-withhold-count")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .help("TESTING ONLY do not use this")
+                .hide(true)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("enable-sampling")
+                .long("enable-sampling")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .help("Enable peer sampling on data columns. Disabled by default.")
+                .hide(true)
+                .display_order(0)
+        )
         .arg(
             Arg::new("subscribe-all-subnets")
                 .long("subscribe-all-subnets")
@@ -372,16 +404,21 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("self-limiter")
             .long("self-limiter")
-            .help(
-                "Enables the outbound rate limiter (requests made by this node). \
-                Use the self-limiter-protocol flag to set per protocol configurations. \
-                If the self rate limiter is enabled and a protocol is not \
-                present in the configuration, the quotas used for the inbound rate limiter will be \
-                used."
-            )
+            .help("This flag is deprecated and has no effect.")
+            .hide(true)
             .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
             .display_order(0)
+        )
+        .arg(
+            Arg::new("disable-self-limiter")
+                .long("disable-self-limiter")
+                .help(
+                    "Disables the outbound rate limiter (requests sent by this node)."
+                )
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
         )
         .arg(
             Arg::new("self-limiter-protocols")
@@ -397,7 +434,7 @@ pub fn cli_app() -> Command {
             )
             .action(ArgAction::Append)
             .value_delimiter(';')
-            .requires("self-limiter")
+            .conflicts_with("disable-self-limiter")
             .display_order(0)
         )
         .arg(
@@ -903,7 +940,15 @@ pub fn cli_app() -> Command {
                 .long("purge-db")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
-                .help("If present, the chain database will be deleted. Use with caution.")
+                .help("If present, the chain database will be deleted. Requires manual confirmation.")
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("purge-db-force")
+                .long("purge-db-force")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .help("If present, the chain database will be deleted without confirmation. Use with caution.")
                 .display_order(0)
         )
         .arg(
@@ -1242,9 +1287,7 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("disable-lock-timeouts")
                 .long("disable-lock-timeouts")
-                .help("Disable the timeouts applied to some internal locks by default. This can \
-                       lead to less spurious failures on slow hardware but is considered \
-                       experimental as it may obscure performance issues.")
+                .help("This flag is deprecated and has no effect.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
@@ -1334,6 +1377,7 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
+                .requires("suggested-fee-recipient")
         )
         .arg(
             Arg::new("fork-choice-before-proposal-timeout")
@@ -1400,14 +1444,6 @@ pub fn cli_app() -> Command {
                         conditions.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("builder-profit-threshold")
-                .long("builder-profit-threshold")
-                .value_name("WEI_VALUE")
-                .help("This flag is deprecated and has no effect.")
-                .action(ArgAction::Set)
                 .display_order(0)
         )
         .arg(
