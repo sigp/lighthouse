@@ -1,7 +1,6 @@
-use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback, RequireSynced};
-use crate::validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, ValidatorStore};
-use crate::OfflineOnFailure;
+use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, OfflineOnFailure, RequireSynced};
 use bls::PublicKeyBytes;
+use doppelganger_service::DoppelgangerStatus;
 use environment::RuntimeContext;
 use parking_lot::RwLock;
 use slog::{debug, error, info, warn};
@@ -16,6 +15,7 @@ use types::{
     Address, ChainSpec, EthSpec, ProposerPreparationData, SignedValidatorRegistrationData,
     ValidatorRegistrationData,
 };
+use validator_store::{Error as ValidatorStoreError, ProposalData, ValidatorStore};
 
 /// Number of epochs before the Bellatrix hard fork to begin posting proposer preparations.
 const PROPOSER_PREPARATION_LOOKAHEAD_EPOCHS: u64 = 2;
@@ -501,12 +501,4 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         }
         Ok(())
     }
-}
-
-/// A helper struct, used for passing data from the validator store to services.
-pub struct ProposalData {
-    pub(crate) validator_index: Option<u64>,
-    pub(crate) fee_recipient: Option<Address>,
-    pub(crate) gas_limit: u64,
-    pub(crate) builder_proposals: bool,
 }

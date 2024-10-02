@@ -1,14 +1,20 @@
 //! This crate provides a HTTP server that is solely dedicated to serving the `/metrics` endpoint.
 //!
 //! For other endpoints, see the `http_api` crate.
+
 use lighthouse_version::version_with_platform;
+use malloc_utils::scrape_allocator_metrics;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, Logger};
-use slot_clock::SystemTimeSlotClock;
+use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+use types::EthSpec;
+use validator_services::duties_service::DutiesService;
+use validator_store::ValidatorStore;
 use warp::{http::Response, Filter};
 
 #[derive(Debug)]
@@ -30,18 +36,18 @@ impl From<String> for Error {
 }
 
 /// Contains objects which have shared access from inside/outside of the metrics server.
-pub struct Shared<V, D> {
-    pub validator_store: Option<Arc<V>>,
-    pub duties_service: Option<Arc<D>>,
+pub struct Shared<E: EthSpec> {
+    pub validator_store: Option<Arc<ValidatorStore<SystemTimeSlotClock, E>>>,
+    pub duties_service: Option<Arc<DutiesService<SystemTimeSlotClock, E>>>,
     pub genesis_time: Option<u64>,
 }
 
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
-pub struct Context<V, D> {
+pub struct Context<E: EthSpec> {
     pub config: Config,
-    pub shared: RwLock<Shared<V, D>>,
+    pub shared: RwLock<Shared<E>>,
     pub log: Logger,
 }
 
@@ -82,8 +88,8 @@ impl Default for Config {
 ///
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
-pub fn serve<V, D>(
-    ctx: Arc<Context<V, D>>,
+pub fn serve<E: EthSpec>(
+    ctx: Arc<Context<E>>,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
@@ -116,7 +122,7 @@ pub fn serve<V, D>(
         .map(move || inner_ctx.clone())
         .and_then(|ctx: Arc<Context<E>>| async move {
             Ok::<_, warp::Rejection>(
-                metrics::gather_prometheus_metrics(&ctx)
+                gather_prometheus_metrics(&ctx)
                     .map(|body| {
                         Response::builder()
                             .status(200)
@@ -153,7 +159,11 @@ pub fn serve<V, D>(
     Ok((listening_socket, server))
 }
 
-pub fn gather_prometheus_metrics<V, D>(ctx: &Context<V, D>) -> std::result::Result<String, String> {
+pub fn gather_prometheus_metrics<E: EthSpec>(
+    ctx: &Context<E>,
+) -> std::result::Result<String, String> {
+    use validator_metrics::*;
+
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
 

@@ -85,7 +85,6 @@ members = [
     "validator_client",
     "validator_client/beacon_node_fallback",
     "validator_client/doppelganger_service",
-    "validator_client/duties_service",
     "validator_client/graffiti_file",
     "validator_client/http_api",
     "validator_client/http_metrics",
@@ -93,6 +92,7 @@ members = [
     "validator_client/signing_method",
     "validator_client/slashing_protection",
     "validator_client/validator_metrics",
+    "validator_client/validator_services",
     "validator_client/validator_store",
 
     "validator_manager",
@@ -209,7 +209,7 @@ compare_fields = { path = "common/compare_fields" }
 deposit_contract = { path = "common/deposit_contract" }
 directory = { path = "common/directory" }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
-duties_service = { path = "validator_client/duties_service" }
+validator_services = { path = "validator_client/validator_services" }
 environment = { path = "lighthouse/environment" }
 eth1 = { path = "beacon_node/eth1" }
 eth1_test_rig = { path = "testing/eth1_test_rig" }

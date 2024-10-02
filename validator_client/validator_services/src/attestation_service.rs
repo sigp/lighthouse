@@ -1,10 +1,5 @@
-use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback, RequireSynced};
-use crate::{
-    duties_service::{DutiesService, DutyAndProof},
-    http_metrics::metrics,
-    validator_store::{Error as ValidatorStoreError, ValidatorStore},
-    OfflineOnFailure,
-};
+use crate::duties_service::{DutiesService, DutyAndProof};
+use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, OfflineOnFailure, RequireSynced};
 use environment::RuntimeContext;
 use futures::future::join_all;
 use slog::{crit, debug, error, info, trace, warn};
@@ -15,6 +10,7 @@ use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
 use tree_hash::TreeHash;
 use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
+use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 /// Builds an `AttestationService`.
 pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
@@ -239,9 +235,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         aggregate_production_instant: Instant,
     ) -> Result<(), ()> {
         let log = self.context.log();
-        let attestations_timer = metrics::start_timer_vec(
-            &metrics::ATTESTATION_SERVICE_TIMES,
-            &[metrics::ATTESTATIONS],
+        let attestations_timer = validator_metrics::start_timer_vec(
+            &validator_metrics::ATTESTATION_SERVICE_TIMES,
+            &[validator_metrics::ATTESTATIONS],
         );
 
         // There's not need to produce `Attestation` or `SignedAggregateAndProof` if we do not have
@@ -279,9 +275,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             sleep_until(aggregate_production_instant).await;
 
             // Start the metrics timer *after* we've done the delay.
-            let _aggregates_timer = metrics::start_timer_vec(
-                &metrics::ATTESTATION_SERVICE_TIMES,
-                &[metrics::AGGREGATES],
+            let _aggregates_timer = validator_metrics::start_timer_vec(
+                &validator_metrics::ATTESTATION_SERVICE_TIMES,
+                &[validator_metrics::AGGREGATES],
             );
 
             // Then download, sign and publish a `SignedAggregateAndProof` for each
@@ -343,9 +339,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
-                    let _timer = metrics::start_timer_vec(
-                        &metrics::ATTESTATION_SERVICE_TIMES,
-                        &[metrics::ATTESTATIONS_HTTP_GET],
+                    let _timer = validator_metrics::start_timer_vec(
+                        &validator_metrics::ATTESTATION_SERVICE_TIMES,
+                        &[validator_metrics::ATTESTATIONS_HTTP_GET],
                     );
                     beacon_node
                         .get_validator_attestation_data(slot, committee_index)
@@ -463,9 +459,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 OfflineOnFailure::Yes,
                 ApiTopic::Attestations,
                 |beacon_node| async move {
-                    let _timer = metrics::start_timer_vec(
-                        &metrics::ATTESTATION_SERVICE_TIMES,
-                        &[metrics::ATTESTATIONS_HTTP_POST],
+                    let _timer = validator_metrics::start_timer_vec(
+                        &validator_metrics::ATTESTATION_SERVICE_TIMES,
+                        &[validator_metrics::ATTESTATIONS_HTTP_POST],
                     );
                     if fork_name.electra_enabled() {
                         beacon_node
@@ -544,9 +540,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
-                    let _timer = metrics::start_timer_vec(
-                        &metrics::ATTESTATION_SERVICE_TIMES,
-                        &[metrics::AGGREGATES_HTTP_GET],
+                    let _timer = validator_metrics::start_timer_vec(
+                        &validator_metrics::ATTESTATION_SERVICE_TIMES,
+                        &[validator_metrics::AGGREGATES_HTTP_GET],
                     );
                     if fork_name.electra_enabled() {
                         beacon_node
@@ -641,9 +637,9 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     RequireSynced::No,
                     OfflineOnFailure::Yes,
                     |beacon_node| async move {
-                        let _timer = metrics::start_timer_vec(
-                            &metrics::ATTESTATION_SERVICE_TIMES,
-                            &[metrics::AGGREGATES_HTTP_POST],
+                        let _timer = validator_metrics::start_timer_vec(
+                            &validator_metrics::ATTESTATION_SERVICE_TIMES,
+                            &[validator_metrics::AGGREGATES_HTTP_POST],
                         );
                         if fork_name.electra_enabled() {
                             beacon_node

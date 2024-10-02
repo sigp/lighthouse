@@ -41,6 +41,7 @@ impl From<SigningError> for Error {
     }
 }
 
+#[derive(Default, Clone)]
 pub struct Config {
     /// Fallback fallback address.
     pub fee_recipient: Option<Address>,

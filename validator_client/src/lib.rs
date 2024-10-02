@@ -1,50 +1,30 @@
-mod attestation_service;
-mod beacon_node_fallback;
-mod block_service;
-mod check_synced;
 mod cli;
-mod duties_service;
-mod graffiti_file;
-mod key_cache;
+pub mod config;
 mod latency;
 mod notifier;
-mod preparation_service;
-mod signing_method;
-mod sync_committee_service;
 
-pub mod config;
-mod doppelganger_service;
-pub mod http_api;
-pub mod initialized_validators;
-pub mod validator_store;
-
-pub use beacon_node_fallback::ApiTopic;
 pub use cli::cli_app;
 pub use config::Config;
 use initialized_validators::InitializedValidators;
 use lighthouse_metrics::set_gauge;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use sensitive_url::SensitiveUrl;
-pub use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 
-use crate::beacon_node_fallback::{
-    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, OfflineOnFailure,
-    RequireSynced,
+use beacon_node_fallback::{
+    start_fallback_updater_service, ApiTopic, BeaconNodeFallback, CandidateBeaconNode,
+    OfflineOnFailure, RequireSynced,
 };
-use crate::doppelganger_service::DoppelgangerService;
-use crate::graffiti_file::GraffitiFile;
-use crate::initialized_validators::Error::UnableToOpenVotingKeystore;
+
 use account_utils::validator_definitions::ValidatorDefinitions;
-use attestation_service::{AttestationService, AttestationServiceBuilder};
-use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
-use duties_service::{sync::SyncDutiesMap, DutiesService};
+use doppelganger_service::DoppelgangerService;
 use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, types::Graffiti, BeaconNodeHttpClient, StatusCode, Timeouts};
-use http_api::ApiSecret;
+use graffiti_file::GraffitiFile;
+use initialized_validators::Error::UnableToOpenVotingKeystore;
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
-use preparation_service::{PreparationService, PreparationServiceBuilder};
 use reqwest::Certificate;
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -56,12 +36,20 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use sync_committee_service::SyncCommitteeService;
 use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
 };
 use types::{EthSpec, Hash256, PublicKeyBytes};
+use validator_http_api::ApiSecret;
+use validator_services::{
+    attestation_service::{AttestationService, AttestationServiceBuilder},
+    block_service::{BlockService, BlockServiceBuilder},
+    duties_service::{self, DutiesService},
+    preparation_service::{PreparationService, PreparationServiceBuilder},
+    sync::SyncDutiesMap,
+    sync_committee_service::SyncCommitteeService,
+};
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
@@ -559,7 +547,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let api_secret = ApiSecret::create_or_open(&self.config.validator_dir)?;
 
         self.http_api_listen_addr = if self.config.http_api.enabled {
-            let ctx = Arc::new(http_api::Context {
+            let ctx = Arc::new(validator_http_api::Context {
                 task_executor: self.context.executor.clone(),
                 api_secret,
                 validator_store: Some(self.validator_store.clone()),
@@ -577,7 +565,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
             let exit = self.context.executor.exit();
 
-            let (listen_addr, server) = http_api::serve(ctx, exit)
+            let (listen_addr, server) = validator_http_api::serve(ctx, exit)
                 .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
             self.context

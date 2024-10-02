@@ -46,6 +46,7 @@ const DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 const USE_STDIN: bool = false;
 
 // The configuration for initialised validators.
+#[derive(Default, Clone)]
 pub struct Config {
     pub web3_signer_keep_alive_timeout: Option<Duration>,
     pub web3_signer_max_idle_connections: Option<usize>,

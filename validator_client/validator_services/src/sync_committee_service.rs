@@ -1,9 +1,5 @@
-use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback, RequireSynced};
-use crate::{
-    duties_service::DutiesService,
-    validator_store::{Error as ValidatorStoreError, ValidatorStore},
-    OfflineOnFailure,
-};
+use crate::duties_service::DutiesService;
+use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, OfflineOnFailure, RequireSynced};
 use environment::RuntimeContext;
 use eth2::types::BlockId;
 use futures::future::join_all;
@@ -19,6 +15,7 @@ use types::{
     ChainSpec, EthSpec, Hash256, PublicKeyBytes, Slot, SyncCommitteeSubscription,
     SyncContributionData, SyncDuty, SyncSelectionProof, SyncSubnetId,
 };
+use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 pub const SUBSCRIPTION_LOOKAHEAD_EPOCHS: u64 = 4;
 

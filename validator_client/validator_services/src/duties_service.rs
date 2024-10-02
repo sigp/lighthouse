@@ -6,11 +6,10 @@
 //! The `DutiesService` is also responsible for sending events to the `BlockService` which trigger
 //! block production.
 
-mod block_service;
-pub mod sync;
-
+use crate::block_service::BlockServiceNotification;
+use crate::sync::poll_sync_committee_duties;
+use crate::sync::SyncDutiesMap;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, OfflineOnFailure, RequireSynced};
-use block_service::BlockServiceNotification;
 use doppelganger_service::DoppelgangerStatus;
 use environment::RuntimeContext;
 use eth2::types::{
@@ -26,8 +25,6 @@ use std::collections::{hash_map, BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use sync::poll_sync_committee_duties;
-use sync::SyncDutiesMap;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use types::{ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes, SelectionProof, Slot};
 use validator_metrics::{get_int_gauge, set_int_gauge, ATTESTATION_DUTY};

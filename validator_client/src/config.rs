@@ -1,6 +1,4 @@
-use crate::beacon_node_fallback::ApiTopic;
-use crate::graffiti_file::GraffitiFile;
-use crate::{http_api, http_metrics};
+use beacon_node_fallback::ApiTopic;
 use clap::ArgMatches;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional, parse_required};
 use directory::{
@@ -8,6 +6,7 @@ use directory::{
     DEFAULT_VALIDATOR_DIR,
 };
 use eth2::types::Graffiti;
+use graffiti_file::GraffitiFile;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{info, warn, Logger};
@@ -16,6 +15,9 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
+use validator_http_api;
+use validator_http_metrics;
+use validator_store::Config as ValidatorStoreConfig;
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 pub const DEFAULT_WEB3SIGNER_KEEP_ALIVE: Option<Duration> = Some(Duration::from_secs(20));
@@ -23,6 +25,9 @@ pub const DEFAULT_WEB3SIGNER_KEEP_ALIVE: Option<Duration> = Some(Duration::from_
 /// Stores the core configuration for this validator instance.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(flatten)]
+    /// Configuration parameters for the validator store.
+    pub validator_store: ValidatorStoreConfig,
     /// The data directory, which stores all validator databases
     pub validator_dir: PathBuf,
     /// The directory containing the passwords to unlock validator keystores.
@@ -46,12 +51,10 @@ pub struct Config {
     pub graffiti: Option<Graffiti>,
     /// Graffiti file to load per validator graffitis.
     pub graffiti_file: Option<GraffitiFile>,
-    /// Fallback fallback address.
-    pub fee_recipient: Option<Address>,
     /// Configuration for the HTTP REST API.
-    pub http_api: http_api::Config,
+    pub http_api: validator_http_api::Config,
     /// Configuration for the HTTP REST API.
-    pub http_metrics: http_metrics::Config,
+    pub http_metrics: validator_http_metrics::Config,
     /// Configuration for sending metrics to a remote explorer endpoint.
     pub monitoring_api: Option<monitoring_api::Config>,
     /// If true, enable functionality that monitors the network for attestations or proposals from
@@ -63,11 +66,7 @@ pub struct Config {
     /// (<= 64 validators)
     pub enable_high_validator_count_metrics: bool,
     /// Enable use of the blinded block endpoints during proposals.
-    pub builder_proposals: bool,
-    /// Overrides the timestamp field in builder api ValidatorRegistrationV1
     pub builder_registration_timestamp_override: Option<u64>,
-    /// Fallback gas limit.
-    pub gas_limit: Option<u64>,
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
@@ -77,12 +76,6 @@ pub struct Config {
     pub enable_latency_measurement_service: bool,
     /// Defines the number of validators per `validator/register_validator` request sent to the BN.
     pub validator_registration_batch_size: usize,
-    /// Enable slashing protection even while using web3signer keys.
-    pub enable_web3signer_slashing_protection: bool,
-    /// Specifies the boost factor, a percentage multiplier to apply to the builder's payload value.
-    pub builder_boost_factor: Option<u64>,
-    /// If true, Lighthouse will prefer builder proposals, if available.
-    pub prefer_builder_proposals: bool,
     /// Whether we are running with distributed network support.
     pub distributed: bool,
     pub web3_signer_keep_alive_timeout: Option<Duration>,
@@ -104,6 +97,7 @@ impl Default for Config {
         let beacon_nodes = vec![SensitiveUrl::parse(DEFAULT_BEACON_NODE)
             .expect("beacon_nodes must always be a valid url.")];
         Self {
+            validator_store: ValidatorStoreConfig::default(),
             validator_dir,
             secrets_dir,
             beacon_nodes,
@@ -114,22 +108,16 @@ impl Default for Config {
             use_long_timeouts: false,
             graffiti: None,
             graffiti_file: None,
-            fee_recipient: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
             enable_high_validator_count_metrics: false,
             beacon_nodes_tls_certs: None,
-            builder_proposals: false,
             builder_registration_timestamp_override: None,
-            gas_limit: None,
             broadcast_topics: vec![ApiTopic::Subscriptions],
             enable_latency_measurement_service: true,
             validator_registration_batch_size: 500,
-            enable_web3signer_slashing_protection: true,
-            builder_boost_factor: None,
-            prefer_builder_proposals: false,
             distributed: false,
             web3_signer_keep_alive_timeout: DEFAULT_WEB3SIGNER_KEEP_ALIVE,
             web3_signer_max_idle_connections: None,

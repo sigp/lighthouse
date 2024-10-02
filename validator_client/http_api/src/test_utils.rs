@@ -13,7 +13,7 @@ use eth2::{
 };
 use eth2_keystore::KeystoreBuilder;
 use initialized_validators::key_cache::{KeyCache, CACHE_FILENAME};
-use initialized_validators::{Config, InitializedValidators, OnDecryptFailure};
+use initialized_validators::{InitializedValidators, OnDecryptFailure};
 use logging::test_logger;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
@@ -27,7 +27,7 @@ use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::oneshot;
-use validator_store::ValidatorStore;
+use validator_store::{Config as ValidatorStoreConfig, ValidatorStore};
 
 pub const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
@@ -88,16 +88,14 @@ impl ApiTester {
         let api_secret = ApiSecret::create_or_open(validator_dir.path()).unwrap();
         let api_pubkey = api_secret.api_token();
 
-        let config = Config {
-            validator_dir: validator_dir.path().into(),
-            secrets_dir: secrets_dir.path().into(),
+        let config = ValidatorStoreConfig {
             fee_recipient: Some(TEST_DEFAULT_FEE_RECIPIENT),
             ..Default::default()
         };
 
         let spec = E::default_spec();
 
-        let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
+        let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
 
         let slot_clock =

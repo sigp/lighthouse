@@ -1,4 +1,4 @@
-use super::{DutiesService, Error};
+use crate::duties_service::{DutiesService, Error};
 use beacon_node_fallback::{OfflineOnFailure, RequireSynced};
 use doppelganger_service::DoppelgangerStatus;
 use futures::future::join_all;

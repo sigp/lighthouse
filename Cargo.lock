@@ -2268,27 +2268,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
-name = "duties_service"
-version = "0.1.0"
-dependencies = [
- "beacon_node_fallback",
- "bls",
- "doppelganger_service",
- "environment",
- "eth2",
- "futures",
- "graffiti_file",
- "parking_lot 0.12.3",
- "safe_arith",
- "slog",
- "slot_clock",
- "tokio",
- "types",
- "validator_metrics",
- "validator_store",
-]
-
-[[package]]
 name = "ecdsa"
 version = "0.14.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9261,55 +9240,30 @@ name = "validator_client"
 version = "0.3.5"
 dependencies = [
  "account_utils",
- "bincode",
- "bls",
+ "beacon_node_fallback",
  "clap",
  "clap_utils",
- "deposit_contract",
  "directory",
  "dirs",
- "environment",
  "eth2",
- "eth2_keystore",
- "ethereum_serde_utils",
  "fdlimit",
- "filesystem",
- "futures",
- "hex",
+ "graffiti_file",
  "hyper 1.4.1",
+ "initialized_validators",
  "itertools 0.10.5",
- "libsecp256k1",
  "lighthouse_metrics",
- "lighthouse_version",
- "lockfile",
- "logging",
- "malloc_utils",
  "monitoring_api",
- "parking_lot 0.12.3",
- "rand",
- "reqwest",
- "ring 0.16.20",
- "safe_arith",
  "sensitive_url",
  "serde",
- "serde_json",
  "slashing_protection",
  "slog",
- "slot_clock",
- "strum",
- "sysinfo",
- "system_health",
- "task_executor",
- "tempfile",
  "tokio",
- "tokio-stream",
- "tree_hash",
  "types",
- "url",
- "validator_dir",
+ "validator_http_api",
+ "validator_http_metrics",
  "validator_metrics",
- "warp",
- "warp_utils",
+ "validator_services",
+ "validator_store",
 ]
 
 [[package]]
@@ -9379,6 +9333,10 @@ dependencies = [
  "serde",
  "slog",
  "slot_clock",
+ "types",
+ "validator_metrics",
+ "validator_services",
+ "validator_store",
  "warp",
  "warp_utils",
 ]
@@ -9412,6 +9370,28 @@ version = "0.1.0"
 dependencies = [
  "lighthouse_metrics",
  "malloc_utils",
+]
+
+[[package]]
+name = "validator_services"
+version = "0.1.0"
+dependencies = [
+ "beacon_node_fallback",
+ "bls",
+ "doppelganger_service",
+ "environment",
+ "eth2",
+ "futures",
+ "graffiti_file",
+ "parking_lot 0.12.3",
+ "safe_arith",
+ "slog",
+ "slot_clock",
+ "tokio",
+ "tree_hash",
+ "types",
+ "validator_metrics",
+ "validator_store",
 ]
 
 [[package]]

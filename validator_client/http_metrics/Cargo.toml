@@ -4,10 +4,6 @@ version = "0.1.0"
 edition = { workspace = true }
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 
-[lib]
-name = "validator_http_metrics"
-path = "src/lib.rs"
-
 [dependencies]
 malloc_utils = { workspace = true }
 slot_clock = { workspace = true }
@@ -18,5 +14,9 @@ slog = { workspace = true }
 warp_utils = { workspace = true }
 warp = { workspace = true }
 lighthouse_version = { workspace = true }
+validator_services = { workspace = true }
+validator_store = { workspace = true }
+validator_metrics = { workspace = true }
+types = { workspace = true }
 
 [dev-dependencies]
