@@ -1,4 +1,3 @@
-use crate::ValidatorStore;
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
 use account_utils::{
     eth2_keystore::Keystore,
@@ -11,6 +10,7 @@ use std::path::{Path, PathBuf};
 use types::ChainSpec;
 use types::EthSpec;
 use validator_dir::{keystore_password_path, Builder as ValidatorDirBuilder};
+use validator_store::ValidatorStore;
 
 /// Create some validator EIP-2335 keystores and store them on disk. Then, enroll the validators in
 /// this validator client.

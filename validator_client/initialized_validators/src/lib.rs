@@ -1200,7 +1200,7 @@ impl InitializedValidators {
     /// A validator is considered "already known" and skipped if the public key is already known.
     /// I.e., if there are two different definitions with the same public key then the second will
     /// be ignored.
-    pub(crate) async fn update_validators(&mut self) -> Result<(), Error> {
+    pub async fn update_validators(&mut self) -> Result<(), Error> {
         //use key cache if available
         let mut key_stores = HashMap::new();
 

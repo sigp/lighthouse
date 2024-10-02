@@ -12,6 +12,7 @@ path = "src/lib.rs"
 beacon_node_fallback = { workspace = true }
 validator_metrics = { workspace = true }
 validator_store = { workspace = true }
+graffiti_file = { workspace = true }
 doppelganger_service = { workspace = true }
 environment = { workspace = true }
 eth2 = { workspace = true }
@@ -22,5 +23,6 @@ slog =  { workspace = true }
 slot_clock =  { workspace = true }
 tokio =  { workspace = true }
 types =  { workspace = true }
+bls =  { workspace = true }
 
 [dev-dependencies]

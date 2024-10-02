@@ -8,10 +8,12 @@ mod tests;
 
 pub mod test_utils;
 
-use crate::http_api::graffiti::{delete_graffiti, get_graffiti, set_graffiti};
+use graffiti::{delete_graffiti, get_graffiti, set_graffiti};
 
-use crate::http_api::create_signed_voluntary_exit::create_signed_voluntary_exit;
-use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
+use create_signed_voluntary_exit::create_signed_voluntary_exit;
+use graffiti_file::{determine_graffiti, GraffitiFile};
+use validator_store::ValidatorStore;
+
 use account_utils::{
     mnemonic_from_phrase,
     validator_definitions::{SigningDefinition, ValidatorDefinition, Web3SignerDefinition},

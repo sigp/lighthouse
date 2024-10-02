@@ -1,8 +1,4 @@
 //! Implementation of the standard keystore management API.
-use crate::{
-    initialized_validators::Error, signing_method::SigningMethod, InitializedValidators,
-    ValidatorStore,
-};
 use account_utils::{validator_definitions::PasswordStorage, ZeroizeString};
 use eth2::lighthouse_vc::{
     std_types::{
@@ -13,6 +9,8 @@ use eth2::lighthouse_vc::{
     types::{ExportKeystoresResponse, SingleExportKeystoresResponse},
 };
 use eth2_keystore::Keystore;
+use initialized_validators::{Error, InitializedValidators};
+use signing_method::SigningMethod;
 use slog::{info, warn, Logger};
 use slot_clock::SlotClock;
 use std::path::PathBuf;
@@ -21,6 +19,7 @@ use task_executor::TaskExecutor;
 use tokio::runtime::Handle;
 use types::{EthSpec, PublicKeyBytes};
 use validator_dir::{keystore_password_path, Builder as ValidatorDirBuilder};
+use validator_store::ValidatorStore;
 use warp::Rejection;
 use warp_utils::reject::{custom_bad_request, custom_server_error};
 

@@ -1,21 +1,19 @@
-use crate::doppelganger_service::DoppelgangerService;
-use crate::key_cache::{KeyCache, CACHE_FILENAME};
-use crate::{
-    http_api::{ApiSecret, Config as HttpConfig, Context},
-    initialized_validators::{InitializedValidators, OnDecryptFailure},
-    Config, ValidatorDefinitions, ValidatorStore,
-};
+use crate::{ApiSecret, Config as HttpConfig, Context};
+use account_utils::validator_definitions::ValidatorDefinitions;
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
     ZeroizeString,
 };
 use deposit_contract::decode_eth1_tx_data;
+use doppelganger_service::DoppelgangerService;
 use eth2::{
     lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
     types::ErrorMessage as ApiErrorMessage,
     Error as ApiError,
 };
 use eth2_keystore::KeystoreBuilder;
+use initialized_validators::key_cache::{KeyCache, CACHE_FILENAME};
+use initialized_validators::{Config, InitializedValidators, OnDecryptFailure};
 use logging::test_logger;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
@@ -29,6 +27,7 @@ use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::oneshot;
+use validator_store::ValidatorStore;
 
 pub const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);

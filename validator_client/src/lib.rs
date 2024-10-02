@@ -847,24 +847,3 @@ pub fn load_pem_certificate<P: AsRef<Path>>(pem_path: P) -> Result<Certificate, 
         .map_err(|e| format!("Unable to read certificate file: {}", e))?;
     Certificate::from_pem(&buf).map_err(|e| format!("Unable to parse certificate: {}", e))
 }
-
-// Given the various graffiti control methods, determine the graffiti that will be used for
-// the next block produced by the validator with the given public key.
-pub fn determine_graffiti(
-    validator_pubkey: &PublicKeyBytes,
-    log: &Logger,
-    graffiti_file: Option<GraffitiFile>,
-    validator_definition_graffiti: Option<Graffiti>,
-    graffiti_flag: Option<Graffiti>,
-) -> Option<Graffiti> {
-    graffiti_file
-        .and_then(|mut g| match g.load_graffiti(validator_pubkey) {
-            Ok(g) => g,
-            Err(e) => {
-                warn!(log, "Failed to read graffiti file"; "error" => ?e);
-                None
-            }
-        })
-        .or(validator_definition_graffiti)
-        .or(graffiti_flag)
-}

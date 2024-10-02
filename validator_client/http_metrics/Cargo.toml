@@ -9,7 +9,6 @@ name = "validator_http_metrics"
 path = "src/lib.rs"
 
 [dependencies]
-axum = { workspace = true }
 malloc_utils = { workspace = true }
 slot_clock = { workspace = true }
 lighthouse_metrics = { workspace = true }

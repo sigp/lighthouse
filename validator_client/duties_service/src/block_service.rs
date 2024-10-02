@@ -1,18 +1,11 @@
-use crate::beacon_node_fallback::{Error as FallbackError, Errors};
-use crate::{
-    beacon_node_fallback::{ApiTopic, BeaconNodeFallback, RequireSynced},
-    determine_graffiti,
-    graffiti_file::GraffitiFile,
-    OfflineOnFailure,
-};
-use crate::{
-    http_metrics::metrics,
-    validator_store::{Error as ValidatorStoreError, ValidatorStore},
+use beacon_node_fallback::{
+    ApiTopic, BeaconNodeFallback, Error as FallbackError, Errors, OfflineOnFailure, RequireSynced,
 };
 use bls::SignatureBytes;
 use environment::RuntimeContext;
 use eth2::types::{FullBlockContents, PublishBlockRequest};
 use eth2::{BeaconNodeHttpClient, StatusCode};
+use graffiti_file::{determine_graffiti, GraffitiFile};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::fmt::Debug;
@@ -25,6 +18,7 @@ use types::{
     BlindedBeaconBlock, BlockType, EthSpec, Graffiti, PublicKeyBytes, SignedBlindedBeaconBlock,
     Slot,
 };
+use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 #[derive(Debug)]
 pub enum BlockError {
@@ -272,8 +266,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     /// Attempt to produce a block for any block producers in the `ValidatorStore`.
     async fn do_update(&self, notification: BlockServiceNotification) -> Result<(), ()> {
         let log = self.context.log();
-        let _timer =
-            metrics::start_timer_vec(&metrics::BLOCK_SERVICE_TIMES, &[metrics::FULL_UPDATE]);
+        let _timer = validator_metrics::start_timer_vec(
+            &validator_metrics::BLOCK_SERVICE_TIMES,
+            &[validator_metrics::FULL_UPDATE],
+        );
 
         let slot = self.slot_clock.now().ok_or_else(move || {
             crit!(log, "Duties manager failed to read slot clock");
@@ -362,7 +358,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         unsigned_block: UnsignedBlock<E>,
     ) -> Result<(), BlockError> {
         let log = self.context.log();
-        let signing_timer = metrics::start_timer(&metrics::BLOCK_SIGNING_TIMES);
+        let signing_timer = validator_metrics::start_timer(&validator_metrics::BLOCK_SIGNING_TIMES);
 
         let res = match unsigned_block {
             UnsignedBlock::Full(block_contents) => {
@@ -447,8 +443,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         builder_boost_factor: Option<u64>,
     ) -> Result<(), BlockError> {
         let log = self.context.log();
-        let _timer =
-            metrics::start_timer_vec(&metrics::BLOCK_SERVICE_TIMES, &[metrics::BEACON_BLOCK]);
+        let _timer = validator_metrics::start_timer_vec(
+            &validator_metrics::BLOCK_SERVICE_TIMES,
+            &[validator_metrics::BEACON_BLOCK],
+        );
 
         let randao_reveal = match self
             .validator_store
@@ -507,9 +505,9 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
-                    let _get_timer = metrics::start_timer_vec(
-                        &metrics::BLOCK_SERVICE_TIMES,
-                        &[metrics::BEACON_BLOCK_HTTP_GET],
+                    let _get_timer = validator_metrics::start_timer_vec(
+                        &validator_metrics::BLOCK_SERVICE_TIMES,
+                        &[validator_metrics::BEACON_BLOCK_HTTP_GET],
                     );
                     Self::get_validator_block(
                         beacon_node,
@@ -553,9 +551,9 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let slot = signed_block.slot();
         match signed_block {
             SignedBlock::Full(signed_block) => {
-                let _post_timer = metrics::start_timer_vec(
-                    &metrics::BLOCK_SERVICE_TIMES,
-                    &[metrics::BEACON_BLOCK_HTTP_POST],
+                let _post_timer = validator_metrics::start_timer_vec(
+                    &validator_metrics::BLOCK_SERVICE_TIMES,
+                    &[validator_metrics::BEACON_BLOCK_HTTP_POST],
                 );
                 beacon_node
                     .post_beacon_blocks(signed_block)
@@ -563,9 +561,9 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     .or_else(|e| handle_block_post_error(e, slot, log))?
             }
             SignedBlock::Blinded(signed_block) => {
-                let _post_timer = metrics::start_timer_vec(
-                    &metrics::BLOCK_SERVICE_TIMES,
-                    &[metrics::BLINDED_BEACON_BLOCK_HTTP_POST],
+                let _post_timer = validator_metrics::start_timer_vec(
+                    &validator_metrics::BLOCK_SERVICE_TIMES,
+                    &[validator_metrics::BLINDED_BEACON_BLOCK_HTTP_POST],
                 );
                 beacon_node
                     .post_beacon_blinded_blocks(signed_block)

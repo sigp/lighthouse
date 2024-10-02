@@ -86,6 +86,8 @@ members = [
     "validator_client/beacon_node_fallback",
     "validator_client/doppelganger_service",
     "validator_client/duties_service",
+    "validator_client/graffiti_file",
+    "validator_client/http_api",
     "validator_client/http_metrics",
     "validator_client/initialized_validators",
     "validator_client/signing_method",
@@ -138,6 +140,7 @@ exit-future = "0.2"
 fnv = "1"
 fs2 = "0.4"
 futures = "0.3"
+graffiti_file = { path = "validator_client/graffiti_file" }
 hex = "0.4"
 hashlink = "0.9.0"
 hyper = "1"
@@ -248,11 +251,13 @@ slot_clock = { path = "common/slot_clock" }
 state_processing = { path = "consensus/state_processing" }
 store = { path = "beacon_node/store" }
 swap_or_not_shuffle = { path = "consensus/swap_or_not_shuffle" }
+system_health = { path = "common/system_health" }
 task_executor = { path = "common/task_executor" }
 types = { path = "consensus/types" }
 unused_port = { path = "common/unused_port" }
 validator_client = { path = "validator_client" }
 validator_dir = { path = "common/validator_dir" }
+validator_http_api = { path = "validator_client/http_api" }
 validator_http_metrics = { path = "validator_client/http_metrics" }
 validator_metrics = { path = "validator_client/validator_metrics" }
 validator_store= { path = "validator_client/validator_store" }

@@ -6,6 +6,7 @@
 //! The `DutiesService` is also responsible for sending events to the `BlockService` which trigger
 //! block production.
 
+mod block_service;
 pub mod sync;
 
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, OfflineOnFailure, RequireSynced};
@@ -661,11 +662,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         )
     }
 
-    update_per_validator_duty_validator_metrics::<T, E>(
-        duties_service,
-        current_epoch,
-        current_slot,
-    );
+    update_per_validator_duty_metrics::<T, E>(duties_service, current_epoch, current_slot);
 
     drop(current_epoch_timer);
     let next_epoch_timer = validator_metrics::start_timer_vec(
@@ -687,7 +684,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         )
     }
 
-    update_per_validator_duty_validator_metrics::<T, E>(duties_service, next_epoch, current_slot);
+    update_per_validator_duty_metrics::<T, E>(duties_service, next_epoch, current_slot);
 
     drop(next_epoch_timer);
     let subscriptions_timer = validator_metrics::start_timer_vec(

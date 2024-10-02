@@ -2272,10 +2272,12 @@ name = "duties_service"
 version = "0.1.0"
 dependencies = [
  "beacon_node_fallback",
+ "bls",
  "doppelganger_service",
  "environment",
  "eth2",
  "futures",
+ "graffiti_file",
  "parking_lot 0.12.3",
  "safe_arith",
  "slog",
@@ -3545,6 +3547,16 @@ dependencies = [
  "tracing",
  "void",
  "web-time",
+]
+
+[[package]]
+name = "graffiti_file"
+version = "0.1.0"
+dependencies = [
+ "bls",
+ "serde",
+ "slog",
+ "types",
 ]
 
 [[package]]
@@ -9319,10 +9331,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "validator_http_api"
+version = "0.1.0"
+dependencies = [
+ "account_utils",
+ "bls",
+ "deposit_contract",
+ "doppelganger_service",
+ "eth2",
+ "eth2_keystore",
+ "ethereum_serde_utils",
+ "filesystem",
+ "graffiti_file",
+ "initialized_validators",
+ "lighthouse_version",
+ "logging",
+ "parking_lot 0.12.3",
+ "rand",
+ "sensitive_url",
+ "serde",
+ "signing_method",
+ "slashing_protection",
+ "slog",
+ "slot_clock",
+ "sysinfo",
+ "system_health",
+ "task_executor",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "types",
+ "url",
+ "validator_dir",
+ "validator_store",
+ "warp",
+ "warp_utils",
+]
+
+[[package]]
 name = "validator_http_metrics"
 version = "0.1.0"
 dependencies = [
- "axum",
  "lighthouse_metrics",
  "lighthouse_version",
  "malloc_utils",

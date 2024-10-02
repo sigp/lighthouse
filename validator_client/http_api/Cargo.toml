@@ -9,6 +9,36 @@ name = "validator_http_api"
 path = "src/lib.rs"
 
 [dependencies]
+account_utils = { workspace = true }
+bls = { workspace = true }
+deposit_contract = { workspace = true }
+doppelganger_service = { workspace = true }
+graffiti_file = { workspace = true }
+eth2  = { workspace = true }
+eth2_keystore  = { workspace = true }
+ethereum_serde_utils = { workspace = true }
+initialized_validators = { workspace = true }
+lighthouse_version = { workspace = true }
+logging = { workspace = true }
+parking_lot = { workspace = true }
+filesystem = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+signing_method = { workspace = true }
+sensitive_url = { workspace = true }
+slashing_protection = { workspace = true }
+slog =  { workspace = true }
+slot_clock =  { workspace = true }
+sysinfo =  { workspace = true }
+system_health =  { workspace = true }
+task_executor =  { workspace = true }
+tempfile =  { workspace = true }
+tokio =  { workspace = true }
+tokio-stream =  { workspace = true }
+types =  { workspace = true }
+validator_dir =  { workspace = true }
+validator_store =  { workspace = true }
+url =  { workspace = true }
 warp_utils = { workspace = true }
 warp = { workspace = true }
 

@@ -1,8 +1,8 @@
-use crate::validator_store::ValidatorStore;
 use bls::PublicKey;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use types::{graffiti::GraffitiString, EthSpec, Graffiti};
+use validator_store::ValidatorStore;
 
 pub fn get_graffiti<T: 'static + SlotClock + Clone, E: EthSpec>(
     validator_pubkey: PublicKey,

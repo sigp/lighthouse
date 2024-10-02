@@ -1,5 +1,4 @@
 //! Implementation of the standard remotekey management API.
-use crate::{initialized_validators::Error, InitializedValidators, ValidatorStore};
 use account_utils::validator_definitions::{
     SigningDefinition, ValidatorDefinition, Web3SignerDefinition,
 };
@@ -8,6 +7,7 @@ use eth2::lighthouse_vc::std_types::{
     ImportRemotekeyStatus, ImportRemotekeysRequest, ImportRemotekeysResponse,
     ListRemotekeysResponse, SingleListRemotekeysResponse, Status,
 };
+use initialized_validators::{Error, InitializedValidators};
 use slog::{info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
@@ -15,6 +15,7 @@ use task_executor::TaskExecutor;
 use tokio::runtime::Handle;
 use types::{EthSpec, PublicKeyBytes};
 use url::Url;
+use validator_store::ValidatorStore;
 use warp::Rejection;
 use warp_utils::reject::custom_server_error;
 

@@ -1,10 +1,10 @@
-use crate::validator_store::ValidatorStore;
 use bls::{PublicKey, PublicKeyBytes};
 use eth2::types::GenericResponse;
 use slog::{info, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use types::{Epoch, EthSpec, SignedVoluntaryExit, VoluntaryExit};
+use validator_store::ValidatorStore;
 
 pub async fn create_signed_voluntary_exit<T: 'static + SlotClock + Clone, E: EthSpec>(
     pubkey: PublicKey,
