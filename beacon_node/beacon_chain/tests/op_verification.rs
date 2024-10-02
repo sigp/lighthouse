@@ -29,7 +29,7 @@ type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 type HotColdDB = store::HotColdDB<E, LevelDB<E>, LevelDB<E>>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
-    let spec = test_spec::<E>();
+    let spec = Arc::new(test_spec::<E>());
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
     let blobs_path = db_path.path().join("blobs_db");

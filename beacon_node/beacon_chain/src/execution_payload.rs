@@ -62,7 +62,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         state: &BeaconState<T::EthSpec>,
         notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<Self, BlockError<T::EthSpec>> {
+    ) -> Result<Self, BlockError> {
         let payload_verification_status = if is_execution_enabled(state, block.message().body()) {
             // Perform the initial stages of payload verification.
             //
@@ -110,9 +110,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         })
     }
 
-    pub async fn notify_new_payload(
-        self,
-    ) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
+    pub async fn notify_new_payload(self) -> Result<PayloadVerificationStatus, BlockError> {
         if let Some(precomputed_status) = self.payload_verification_status {
             Ok(precomputed_status)
         } else {
@@ -133,7 +131,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 async fn notify_new_payload<'a, T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block: BeaconBlockRef<'a, T::EthSpec>,
-) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
+) -> Result<PayloadVerificationStatus, BlockError> {
     let execution_layer = chain
         .execution_layer
         .as_ref()
@@ -237,7 +235,7 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block: BeaconBlockRef<'a, T::EthSpec>,
     allow_optimistic_import: AllowOptimisticImport,
-) -> Result<(), BlockError<T::EthSpec>> {
+) -> Result<(), BlockError> {
     let spec = &chain.spec;
     let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
     let execution_payload = block.execution_payload()?;
@@ -335,7 +333,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
     parent_block: &ProtoBlock,
     block: BeaconBlockRef<'_, T::EthSpec>,
     chain: &BeaconChain<T>,
-) -> Result<(), BlockError<T::EthSpec>> {
+) -> Result<(), BlockError> {
     // Only apply this validation if this is a Bellatrix beacon block.
     if let Ok(execution_payload) = block.body().execution_payload() {
         // This logic should match `is_execution_enabled`. We use only the execution block hash of
@@ -505,7 +503,7 @@ where
             return Ok(BlockProposalContentsType::Full(
                 BlockProposalContents::Payload {
                     payload: FullPayload::default_at_fork(fork)?,
-                    block_value: Uint256::zero(),
+                    block_value: Uint256::ZERO,
                 },
             ));
         }
@@ -523,7 +521,7 @@ where
             return Ok(BlockProposalContentsType::Full(
                 BlockProposalContents::Payload {
                     payload: FullPayload::default_at_fork(fork)?,
-                    block_value: Uint256::zero(),
+                    block_value: Uint256::ZERO,
                 },
             ));
         }

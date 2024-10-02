@@ -106,15 +106,6 @@ pub fn cli_app() -> Command {
                 .display_order(0),
         )
         .arg(
-            Arg::new(STDIN_INPUTS_FLAG)
-                .action(ArgAction::SetTrue)
-                .hide(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty.")
-                .display_order(0)
-                .help_heading(FLAG_HEADER),
-        )
-        .arg(
             Arg::new(DISABLE_DEPOSITS_FLAG)
                 .long(DISABLE_DEPOSITS_FLAG)
                 .help(
@@ -725,16 +716,16 @@ pub mod tests {
                         assert_eq!(deposit.pubkey, validator_pubkey.clone().into());
                         if let Some(address) = config.eth1_withdrawal_address {
                             assert_eq!(
-                                deposit.withdrawal_credentials.as_bytes()[0],
+                                deposit.withdrawal_credentials.as_slice()[0],
                                 spec.eth1_address_withdrawal_prefix_byte
                             );
                             assert_eq!(
-                                &deposit.withdrawal_credentials.as_bytes()[12..],
-                                address.as_bytes()
+                                &deposit.withdrawal_credentials.as_slice()[12..],
+                                address.as_slice()
                             );
                         } else {
                             assert_eq!(
-                                deposit.withdrawal_credentials.as_bytes()[0],
+                                deposit.withdrawal_credentials.as_slice()[0],
                                 spec.bls_withdrawal_prefix_byte
                             );
                         }

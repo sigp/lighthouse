@@ -20,9 +20,9 @@ use types::builder_bid::{
 };
 use types::{
     Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, ForkName, ForkVersionedResponse, Hash256, PublicKeyBytes,
-    Signature, SignedBlindedBeaconBlock, SignedRoot, SignedValidatorRegistrationData, Slot,
-    Uint256,
+    ExecutionPayloadHeaderRefMut, FixedBytesExtended, ForkName, ForkVersionedResponse, Hash256,
+    PublicKeyBytes, Signature, SignedBlindedBeaconBlock, SignedRoot,
+    SignedValidatorRegistrationData, Slot, Uint256,
 };
 use types::{ExecutionBlockHash, SecretKey};
 use warp::{Filter, Rejection};
@@ -209,7 +209,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
 pub struct MockBuilder<E: EthSpec> {
     el: ExecutionLayer<E>,
     beacon_client: BeaconNodeHttpClient,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
     val_registration_cache: Arc<RwLock<HashMap<PublicKeyBytes, SignedValidatorRegistrationData>>>,
     builder_sk: SecretKey,
     operations: Arc<RwLock<Vec<Operation>>>,
@@ -220,7 +220,7 @@ impl<E: EthSpec> MockBuilder<E> {
     pub fn new_for_testing(
         mock_el_url: SensitiveUrl,
         beacon_url: SensitiveUrl,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         executor: TaskExecutor,
     ) -> (Self, (SocketAddr, impl Future<Output = ()>)) {
         let file = NamedTempFile::new().unwrap();
@@ -252,7 +252,7 @@ impl<E: EthSpec> MockBuilder<E> {
     pub fn new(
         el: ExecutionLayer<E>,
         beacon_client: BeaconNodeHttpClient,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Self {
         let sk = SecretKey::random();
         Self {

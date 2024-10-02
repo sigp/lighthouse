@@ -7,6 +7,7 @@ use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
 };
 use safe_arith::{ArithError, SafeArith};
+use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::*;
 
@@ -121,6 +122,16 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
 
         // Remove intermediate Deneb fork from `state.fork`.
         state.fork_mut().previous_version = spec.electra_fork_version;
+
+        // TODO(electra): think about this more and determine the best way to
+        // do this. The spec tests will expect that the sync committees are
+        // calculated using the electra value for MAX_EFFECTIVE_BALANCE when
+        // calling `initialize_beacon_state_from_eth1()`. But the sync committees
+        // are actually calcuated back in `upgrade_to_altair()`. We need to
+        // re-calculate the sync committees here now that the state is `Electra`
+        let sync_committee = Arc::new(state.get_next_sync_committee(spec)?);
+        *state.current_sync_committee_mut()? = sync_committee.clone();
+        *state.next_sync_committee_mut()? = sync_committee;
 
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#testing

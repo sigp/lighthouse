@@ -100,10 +100,7 @@ impl<'a> AlignedRecordDecorator<'a> {
             self.ignore_comma = false;
             Ok(buf.len())
         } else if self.message_active {
-            self.wrapped.write(buf).map(|n| {
-                self.message_count += n;
-                n
-            })
+            self.wrapped.write(buf).inspect(|n| self.message_count += n)
         } else {
             self.wrapped.write(buf)
         }
@@ -289,10 +286,10 @@ pub fn test_logger() -> Logger {
         sloggers::terminal::TerminalLoggerBuilder::new()
             .level(sloggers::types::Severity::Debug)
             .build()
-            .expect("Should build test_logger")
+            .expect("Should build TerminalLoggerBuilder")
     } else {
         sloggers::null::NullLoggerBuilder
             .build()
-            .expect("Should build null_logger")
+            .expect("Should build NullLoggerBuilder")
     }
 }

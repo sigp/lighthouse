@@ -1,4 +1,5 @@
 use crate::block_verification_types::{AsBlock, RpcBlock};
+use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::BeaconBlockResponseWrapper;
@@ -17,7 +18,6 @@ use crate::{
 };
 use bls::get_withdrawal_credentials;
 use eth2::types::SignedBlockContentsTuple;
-use eth2_network_config::TRUSTED_SETUP_BYTES;
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     auth::JwtKey,
@@ -30,6 +30,7 @@ use execution_layer::{
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
+use kzg::trusted_setup::get_trusted_setup;
 use kzg::{Kzg, TrustedSetup};
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
@@ -74,13 +75,39 @@ pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 // a different value.
 pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
 
-pub static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
-    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
+    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
         .map_err(|e| format!("Unable to read trusted setup file: {}", e))
         .expect("should have trusted setup");
     let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
     Arc::new(kzg)
 });
+
+static KZG_PEERDAS: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
+    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
+        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+        .expect("should have trusted setup");
+    let kzg = Kzg::new_from_trusted_setup_das_enabled(trusted_setup).expect("should create kzg");
+    Arc::new(kzg)
+});
+
+static KZG_NO_PRECOMP: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
+    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
+        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+        .expect("should have trusted setup");
+    let kzg = Kzg::new_from_trusted_setup_no_precomp(trusted_setup).expect("should create kzg");
+    Arc::new(kzg)
+});
+
+pub fn get_kzg(spec: &ChainSpec) -> Arc<Kzg> {
+    if spec.eip7594_fork_epoch.is_some() {
+        KZG_PEERDAS.clone()
+    } else if spec.deneb_fork_epoch.is_some() {
+        KZG.clone()
+    } else {
+        KZG_NO_PRECOMP.clone()
+    }
+}
 
 pub type BaseHarnessType<E, THotStore, TColdStore> =
     Witness<TestingSlotClock, CachingEth1Backend<E>, E, THotStore, TColdStore>;
@@ -134,6 +161,12 @@ pub enum SyncCommitteeStrategy {
     NoValidators,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LightClientStrategy {
+    Enabled,
+    Disabled,
+}
+
 /// Indicates whether the `BeaconChainHarness` should use the `state.current_sync_committee` or
 /// `state.next_sync_committee` when creating sync messages or contributions.
 #[derive(Clone, Debug)]
@@ -173,7 +206,7 @@ pub fn test_spec<E: EthSpec>() -> ChainSpec {
 
 pub struct Builder<T: BeaconChainTypes> {
     eth_spec_instance: T::EthSpec,
-    spec: Option<ChainSpec>,
+    spec: Option<Arc<ChainSpec>>,
     validator_keypairs: Option<Vec<Keypair>>,
     withdrawal_keypairs: Vec<Option<Keypair>>,
     chain_config: Option<ChainConfig>,
@@ -362,12 +395,12 @@ where
         self.spec_or_default(None)
     }
 
-    pub fn spec(self, spec: ChainSpec) -> Self {
+    pub fn spec(self, spec: Arc<ChainSpec>) -> Self {
         self.spec_or_default(Some(spec))
     }
 
-    pub fn spec_or_default(mut self, spec: Option<ChainSpec>) -> Self {
-        self.spec = Some(spec.unwrap_or_else(test_spec::<E>));
+    pub fn spec_or_default(mut self, spec: Option<Arc<ChainSpec>>) -> Self {
+        self.spec = Some(spec.unwrap_or_else(|| Arc::new(test_spec::<E>())));
         self
     }
 
@@ -507,12 +540,13 @@ where
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
-        let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone());
+
+        let kzg = get_kzg(&spec);
 
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
 
         let chain_config = self.chain_config.unwrap_or_default();
-        let mut builder = BeaconChainBuilder::new(self.eth_spec_instance)
+        let mut builder = BeaconChainBuilder::new(self.eth_spec_instance, kzg.clone())
             .logger(log.clone())
             .custom_spec(spec.clone())
             .store(self.store.expect("cannot build without store"))
@@ -531,8 +565,7 @@ where
                 log.clone(),
                 5,
             )))
-            .validator_monitor_config(validator_monitor_config)
-            .kzg(kzg);
+            .validator_monitor_config(validator_monitor_config);
 
         builder = if let Some(mutator) = self.initial_mutator {
             mutator(builder)
@@ -587,7 +620,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
     });
 
-    let kzg_opt = spec.deneb_fork_epoch.map(|_| KZG.clone());
+    let kzg = get_kzg(spec);
 
     MockExecutionLayer::new(
         task_executor,
@@ -597,7 +630,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         prague_time,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec.clone(),
-        kzg_opt,
+        Some(kzg),
     )
 }
 
@@ -615,7 +648,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub withdrawal_keypairs: Vec<Option<Keypair>>,
 
     pub chain: Arc<BeaconChain<T>>,
-    pub spec: ChainSpec,
+    pub spec: Arc<ChainSpec>,
     pub shutdown_receiver: Arc<Mutex<Receiver<ShutdownReason>>>,
     pub runtime: TestRuntime,
 
@@ -845,7 +878,7 @@ where
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
         // If we produce two blocks for the same slot, they hash up to the same value and
-        // BeaconChain errors out with `BlockIsAlreadyKnown`.  Vary the graffiti so that we produce
+        // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
 
@@ -907,7 +940,7 @@ where
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
         // If we produce two blocks for the same slot, they hash up to the same value and
-        // BeaconChain errors out with `BlockIsAlreadyKnown`.  Vary the graffiti so that we produce
+        // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
 
@@ -1977,7 +2010,7 @@ where
         slot: Slot,
         block_root: Hash256,
         block_contents: SignedBlockContentsTuple<E>,
-    ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
+    ) -> Result<SignedBeaconBlockHash, BlockError> {
         self.set_current_slot(slot);
         let (block, blob_items) = block_contents;
 
@@ -2004,7 +2037,7 @@ where
     pub async fn process_block_result(
         &self,
         block_contents: SignedBlockContentsTuple<E>,
-    ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
+    ) -> Result<SignedBeaconBlockHash, BlockError> {
         let (block, blob_items) = block_contents;
 
         let sidecars = blob_items
@@ -2089,7 +2122,7 @@ where
             SignedBlockContentsTuple<E>,
             BeaconState<E>,
         ),
-        BlockError<E>,
+        BlockError,
     > {
         self.set_current_slot(slot);
         let (block_contents, new_state) = self.make_block(state, slot).await;
@@ -2135,7 +2168,7 @@ where
         state: BeaconState<E>,
         state_root: Hash256,
         validators: &[usize],
-    ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError<E>> {
+    ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError> {
         self.add_attested_block_at_slot_with_sync(
             slot,
             state,
@@ -2153,7 +2186,7 @@ where
         state_root: Hash256,
         validators: &[usize],
         sync_committee_strategy: SyncCommitteeStrategy,
-    ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError<E>> {
+    ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError> {
         let (block_hash, block, state) = self.add_block_at_slot(slot, state).await?;
         self.attest_block(&state, state_root, block_hash, &block.0, validators);
 
@@ -2215,6 +2248,96 @@ where
         .await
     }
 
+    fn update_light_client_server_cache(
+        &self,
+        state: &BeaconState<E>,
+        slot: Slot,
+        block_root: Hash256,
+    ) {
+        let fork_name = state.fork_name(&self.spec).unwrap();
+        if !fork_name.altair_enabled() {
+            return;
+        }
+
+        let log = self.logger();
+        let contributions =
+            self.make_sync_contributions(state, block_root, slot, RelativeSyncCommittee::Current);
+
+        for (_, contribution_and_proof) in contributions {
+            let Some(contribution_and_proof) = contribution_and_proof else {
+                continue;
+            };
+            let contribution = contribution_and_proof.message.contribution;
+            self.chain
+                .op_pool
+                .insert_sync_contribution(contribution.clone())
+                .unwrap();
+            self.chain
+                .op_pool
+                .insert_sync_contribution(contribution)
+                .unwrap();
+        }
+
+        let Some(sync_aggregate) = self.chain.op_pool.get_sync_aggregate(state).unwrap() else {
+            return;
+        };
+
+        let _ = self
+            .chain
+            .light_client_server_cache
+            .recompute_and_cache_updates(
+                self.chain.store.clone(),
+                slot,
+                &block_root,
+                &sync_aggregate,
+                log,
+                &self.spec,
+            );
+    }
+
+    pub async fn add_attested_blocks_at_slots_with_lc_data(
+        &self,
+        mut state: BeaconState<E>,
+        state_root: Hash256,
+        slots: &[Slot],
+        validators: &[usize],
+        mut latest_block_hash: Option<SignedBeaconBlockHash>,
+        sync_committee_strategy: SyncCommitteeStrategy,
+    ) -> AddBlocksResult<E> {
+        assert!(
+            slots.windows(2).all(|w| w[0] <= w[1]),
+            "Slots have to be sorted"
+        ); // slice.is_sorted() isn't stabilized at the moment of writing this
+        let mut block_hash_from_slot: HashMap<Slot, SignedBeaconBlockHash> = HashMap::new();
+        let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
+        for slot in slots {
+            let (block_hash, new_state) = self
+                .add_attested_block_at_slot_with_sync(
+                    *slot,
+                    state,
+                    state_root,
+                    validators,
+                    sync_committee_strategy,
+                )
+                .await
+                .unwrap();
+
+            state = new_state;
+
+            self.update_light_client_server_cache(&state, *slot, block_hash.into());
+
+            block_hash_from_slot.insert(*slot, block_hash);
+            state_hash_from_slot.insert(*slot, state.canonical_root().unwrap().into());
+            latest_block_hash = Some(block_hash);
+        }
+        (
+            block_hash_from_slot,
+            state_hash_from_slot,
+            latest_block_hash.unwrap(),
+            state,
+        )
+    }
+
     async fn add_attested_blocks_at_slots_given_lbh(
         &self,
         mut state: BeaconState<E>,
@@ -2241,7 +2364,9 @@ where
                 )
                 .await
                 .unwrap();
+
             state = new_state;
+
             block_hash_from_slot.insert(*slot, block_hash);
             state_hash_from_slot.insert(*slot, state.canonical_root().unwrap().into());
             latest_block_hash = Some(block_hash);
@@ -2450,6 +2575,23 @@ where
             block_strategy,
             attestation_strategy,
             SyncCommitteeStrategy::NoValidators,
+            LightClientStrategy::Disabled,
+        )
+        .await
+    }
+
+    pub async fn extend_chain_with_light_client_data(
+        &self,
+        num_blocks: usize,
+        block_strategy: BlockStrategy,
+        attestation_strategy: AttestationStrategy,
+    ) -> Hash256 {
+        self.extend_chain_with_sync(
+            num_blocks,
+            block_strategy,
+            attestation_strategy,
+            SyncCommitteeStrategy::NoValidators,
+            LightClientStrategy::Enabled,
         )
         .await
     }
@@ -2460,6 +2602,7 @@ where
         block_strategy: BlockStrategy,
         attestation_strategy: AttestationStrategy,
         sync_committee_strategy: SyncCommitteeStrategy,
+        light_client_strategy: LightClientStrategy,
     ) -> Hash256 {
         let (mut state, slots) = match block_strategy {
             BlockStrategy::OnCanonicalHead => {
@@ -2491,15 +2634,30 @@ where
         };
 
         let state_root = state.update_tree_hash_cache().unwrap();
-        let (_, _, last_produced_block_hash, _) = self
-            .add_attested_blocks_at_slots_with_sync(
-                state,
-                state_root,
-                &slots,
-                &validators,
-                sync_committee_strategy,
-            )
-            .await;
+        let (_, _, last_produced_block_hash, _) = match light_client_strategy {
+            LightClientStrategy::Enabled => {
+                self.add_attested_blocks_at_slots_with_lc_data(
+                    state,
+                    state_root,
+                    &slots,
+                    &validators,
+                    None,
+                    sync_committee_strategy,
+                )
+                .await
+            }
+            LightClientStrategy::Disabled => {
+                self.add_attested_blocks_at_slots_with_sync(
+                    state,
+                    state_root,
+                    &slots,
+                    &validators,
+                    sync_committee_strategy,
+                )
+                .await
+            }
+        };
+
         last_produced_block_hash.into()
     }
 
@@ -2618,6 +2776,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::random_for_test(rng));
 
     let mut block = SignedBeaconBlock::from_block(inner, types::Signature::random_for_test(rng));
+
     let mut blob_sidecars = vec![];
 
     let bundle = match block {
@@ -2689,4 +2848,22 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         });
     }
     (block, blob_sidecars)
+}
+
+#[allow(clippy::type_complexity)]
+pub fn generate_rand_block_and_data_columns<E: EthSpec>(
+    fork_name: ForkName,
+    num_blobs: NumBlobs,
+    rng: &mut impl Rng,
+    spec: &ChainSpec,
+) -> (
+    SignedBeaconBlock<E, FullPayload<E>>,
+    Vec<Arc<DataColumnSidecar<E>>>,
+) {
+    let kzg = get_kzg(spec);
+    let (block, blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng);
+    let blob: BlobsList<E> = blobs.into_iter().map(|b| b.blob).collect::<Vec<_>>().into();
+    let data_columns = blobs_to_data_column_sidecars(&blob, &block, &kzg, spec).unwrap();
+
+    (block, data_columns)
 }
