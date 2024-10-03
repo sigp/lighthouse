@@ -711,7 +711,7 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum RequestType<E: EthSpec> {
+pub enum RequestType<E> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
@@ -741,7 +741,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::BlobsByRange(req) => req.max_blobs_requested::<E>(),
             RequestType::BlobsByRoot(req) => req.blob_ids.len() as u64,
             RequestType::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
-            RequestType::DataColumnsByRange(req) => req.max_requested::<E>(),
+            RequestType::DataColumnsByRange(req) => req.max_requested(),
             RequestType::Ping(_) => 1,
             RequestType::MetaData(_) => 1,
             RequestType::LightClientBootstrap(_) => 1,

@@ -28,7 +28,7 @@ const CONTEXT_BYTES_LEN: usize = 4;
 
 /* Inbound Codec */
 
-pub struct SSZSnappyInboundCodec<E: EthSpec> {
+pub struct SSZSnappyInboundCodec<E> {
     protocol: ProtocolId,
     inner: Uvi<usize>,
     len: Option<usize>,
@@ -194,7 +194,7 @@ impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
 }
 
 /* Outbound Codec: Codec for initiating RPC requests */
-pub struct SSZSnappyOutboundCodec<E: EthSpec> {
+pub struct SSZSnappyOutboundCodec<E> {
     inner: Uvi<usize>,
     len: Option<usize>,
     protocol: ProtocolId,

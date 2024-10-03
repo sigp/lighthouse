@@ -113,7 +113,7 @@ impl RequestId {
 
 /// An Rpc Request.
 #[derive(Debug, Clone)]
-pub struct Request<E: EthSpec> {
+pub struct Request<E> {
     pub id: RequestId,
     pub substream_id: SubstreamId,
     pub r#type: RequestType<E>,

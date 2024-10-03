@@ -93,7 +93,7 @@ pub struct Ping {
     variant_attributes(derive(Clone, Debug, PartialEq, Serialize),)
 )]
 #[derive(Clone, Debug, PartialEq)]
-pub struct MetadataRequest<E: EthSpec> {
+pub struct MetadataRequest<E> {
     _phantom_data: PhantomData<E>,
 }
 
@@ -343,7 +343,7 @@ pub struct DataColumnsByRangeRequest {
 }
 
 impl DataColumnsByRangeRequest {
-    pub fn max_requested<E: EthSpec>(&self) -> u64 {
+    pub fn max_requested(&self) -> u64 {
         self.count.saturating_mul(self.columns.len() as u64)
     }
 
