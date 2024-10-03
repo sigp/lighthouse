@@ -248,8 +248,9 @@ impl slog::Value for RequestId {
     }
 }
 
+// This custom impl reduces log boilerplate not printing `DataColumnsByRootRequestId` on each id log
 impl std::fmt::Display for DataColumnsByRootRequestId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id)
+        write!(f, "{} {:?}", self.id, self.requester)
     }
 }
