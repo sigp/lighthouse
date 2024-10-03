@@ -921,26 +921,23 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         rpc_event: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> Option<RpcResponseResult<Arc<SignedBeaconBlock<T::EthSpec>>>> {
-        let r = self.blocks_by_root_requests.on_response(id, rpc_event);
-        let r = match r {
-            // Enforce that exactly one chunk = one block is returned. ReqResp behavior limits the
-            // response count to at most 1.
-            Some(Ok((mut blocks, seen_timestamp))) => match blocks.pop() {
-                Some(block) => Some(Ok((block, seen_timestamp))),
-                // Should never happen, `blocks_by_root_requests` enforces that we receive at least
-                // 1 chunk.
-                None => Some(Err(LookupVerifyError::NotEnoughResponsesReturned {
-                    actual: 0,
+        let response = self.blocks_by_root_requests.on_response(id, rpc_event);
+        let response = response.map(|res| {
+            res.and_then(|(mut blocks, seen_timestamp)| {
+                // Enforce that exactly one chunk = one block is returned. ReqResp behavior limits the
+                // response count to at most 1.
+                match blocks.pop() {
+                    Some(block) => Ok((block, seen_timestamp)),
+                    // Should never happen, `blocks_by_root_requests` enforces that we receive at least
+                    // 1 chunk.
+                    None => Err(LookupVerifyError::NotEnoughResponsesReturned { actual: 0 }.into()),
                 }
-                .into())),
-            },
-            Some(Err(e)) => Some(Err(e)),
-            None => None,
-        };
-        if let Some(Err(RpcResponseError::VerifyError(e))) = &r {
+            })
+        });
+        if let Some(Err(RpcResponseError::VerifyError(e))) = &response {
             self.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
         }
-        r
+        response
     }
 
     pub(crate) fn on_single_blob_response(
@@ -949,19 +946,19 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         rpc_event: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
     ) -> Option<RpcResponseResult<FixedBlobSidecarList<T::EthSpec>>> {
-        let r = self.blobs_by_root_requests.on_response(id, rpc_event);
-        let r = match r {
-            Some(Ok((blobs, seen_timestamp))) => match to_fixed_blob_sidecar_list(blobs) {
-                Ok(blobs) => Some(Ok((blobs, seen_timestamp))),
-                Err(e) => Some(Err(e.into())),
-            },
-            Some(Err(e)) => Some(Err(e)),
-            None => None,
-        };
-        if let Some(Err(RpcResponseError::VerifyError(e))) = &r {
+        let response = self.blobs_by_root_requests.on_response(id, rpc_event);
+        let response = response.map(|res| {
+            res.and_then(
+                |(blobs, seen_timestamp)| match to_fixed_blob_sidecar_list(blobs) {
+                    Ok(blobs) => Ok((blobs, seen_timestamp)),
+                    Err(e) => Err(e.into()),
+                },
+            )
+        });
+        if let Some(Err(RpcResponseError::VerifyError(e))) = &response {
             self.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
         }
-        r
+        response
     }
 
     #[allow(clippy::type_complexity)]
