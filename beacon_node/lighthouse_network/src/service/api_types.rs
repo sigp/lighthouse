@@ -42,8 +42,8 @@ pub enum SyncRequestId {
     RangeBlockAndBlobs { id: Id },
 }
 
-/// Request ID for data_columns_by_root requests. Block lookup do not issue this requests directly.
-/// Wrapping this particular req_id, ensures not mixing this requests with a custody req_id.
+/// Request ID for data_columns_by_root requests. Block lookups do not issue this request directly.
+/// Wrapping this particular req_id, ensures not mixing this request with a custody req_id.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct DataColumnsByRootRequestId {
     pub id: Id,
