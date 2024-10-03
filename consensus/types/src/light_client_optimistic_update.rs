@@ -198,15 +198,16 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<E> {
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
-        match fork_name {
-            ForkName::Base => Err(serde::de::Error::custom(format!(
-                "LightClientOptimisticUpdate failed to deserialize: unsupported fork '{}'",
-                fork_name
-            ))),
-            _ => Ok(
+        if fork_name.altair_enabled() {
+            Ok(
                 serde_json::from_value::<LightClientOptimisticUpdate<E>>(value)
                     .map_err(serde::de::Error::custom),
-            )?,
+            )?
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "LightClientOptimisticUpdate failed to deserialize: unsupported fork '{}'",
+                fork_name
+            )))
         }
     }
 }
