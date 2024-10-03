@@ -19,8 +19,8 @@ use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
     AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
-    Domain, Epoch, EthSpec, Fork, ForkName, Graffiti, Hash256, PublicKeyBytes, SelectionProof,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
+    Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, PublicKeyBytes, SelectionProof, Signature,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
     SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
     SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
     ValidatorRegistrationData, VoluntaryExit,
@@ -85,7 +85,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validators: InitializedValidators,
         slashing_protection: SlashingDatabase,
         genesis_validators_root: Hash256,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         doppelganger_service: Option<Arc<DoppelgangerService>>,
         slot_clock: T,
         config: &Config,
@@ -97,7 +97,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             slashing_protection,
             slashing_protection_last_prune: Arc::new(Mutex::new(Epoch::new(0))),
             genesis_validators_root,
-            spec: Arc::new(spec),
+            spec,
             log,
             doppelganger_service,
             slot_clock,
@@ -353,17 +353,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     fn signing_context(&self, domain: Domain, signing_epoch: Epoch) -> SigningContext {
         if domain == Domain::VoluntaryExit {
-            match self.spec.fork_name_at_epoch(signing_epoch) {
-                ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
-                    SigningContext {
-                        domain,
-                        epoch: signing_epoch,
-                        fork: self.fork(signing_epoch),
-                        genesis_validators_root: self.genesis_validators_root,
-                    }
-                }
+            if self.spec.fork_name_at_epoch(signing_epoch).deneb_enabled() {
                 // EIP-7044
-                ForkName::Deneb | ForkName::Electra => SigningContext {
+                SigningContext {
                     domain,
                     epoch: signing_epoch,
                     fork: Fork {
@@ -372,7 +364,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                         epoch: signing_epoch,
                     },
                     genesis_validators_root: self.genesis_validators_root,
-                },
+                }
+            } else {
+                SigningContext {
+                    domain,
+                    epoch: signing_epoch,
+                    fork: self.fork(signing_epoch),
+                    genesis_validators_root: self.genesis_validators_root,
+                }
             }
         } else {
             SigningContext {

@@ -35,7 +35,9 @@
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
 use super::block_lookups::BlockLookups;
-use super::network_context::{BlockOrBlob, RangeRequestId, RpcEvent, SyncNetworkContext};
+use super::network_context::{
+    BlockOrBlob, CustodyByRootResult, RangeRequestId, RpcEvent, SyncNetworkContext,
+};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use super::sampling::{Sampling, SamplingConfig, SamplingResult};
@@ -55,8 +57,8 @@ use beacon_chain::{
 use futures::StreamExt;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::service::api_types::{
-    DataColumnsByRootRequestId, DataColumnsByRootRequester, Id, SamplingId, SamplingRequester,
-    SingleLookupReqId, SyncRequestId,
+    CustodyRequester, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id, SamplingId,
+    SamplingRequester, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
@@ -368,6 +370,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
 
         self.update_sync_state();
+
+        // Try to make progress on custody requests that are waiting for peers
+        for (id, result) in self.network.continue_custody_by_root_requests() {
+            self.on_custody_by_root_result(id, result);
+        }
     }
 
     /// Handles RPC errors related to requests that were emitted from the sync manager.
@@ -442,6 +449,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // Regardless of the outcome, we update the sync status.
         self.update_sync_state();
+    }
+
+    /// Prune stale requests that are waiting for peers
+    fn prune_requests(&mut self) {
+        // continue_custody_by_root_requests attempts to make progress on all requests. If some
+        // exceed the stale duration limit they will fail and return a result. Re-using
+        // `continue_custody_by_root_requests` is just a convenience to have less code.
+        for (id, result) in self.network.continue_custody_by_root_requests() {
+            self.on_custody_by_root_result(id, result);
+        }
     }
 
     /// Updates the syncing state of a peer.
@@ -624,6 +641,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // unless there is a bug.
         let mut prune_lookups_interval = tokio::time::interval(Duration::from_secs(15));
 
+        let mut prune_requests = tokio::time::interval(Duration::from_secs(15));
+
         let mut register_metrics_interval = tokio::time::interval(Duration::from_secs(5));
 
         // process any inbound messages
@@ -637,6 +656,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 _ = prune_lookups_interval.tick() => {
                     self.block_lookups.prune_lookups();
+                }
+                _ = prune_requests.tick() => {
+                    self.prune_requests();
                 }
                 _ = register_metrics_interval.tick() => {
                     self.network.register_metrics();
@@ -1054,24 +1076,30 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
                 DataColumnsByRootRequester::Custody(custody_id) => {
-                    if let Some(custody_columns) = self
+                    if let Some(result) = self
                         .network
                         .on_custody_by_root_response(custody_id, req_id, peer_id, resp)
                     {
-                        // TODO(das): get proper timestamp
-                        let seen_timestamp = timestamp_now();
-                        self.block_lookups
-                            .on_download_response::<CustodyRequestState<T::EthSpec>>(
-                                custody_id.requester.0,
-                                custody_columns.map(|(columns, peer_group)| {
-                                    (columns, peer_group, seen_timestamp)
-                                }),
-                                &mut self.network,
-                            );
+                        self.on_custody_by_root_result(custody_id.requester, result);
                     }
                 }
             }
         }
+    }
+
+    fn on_custody_by_root_result(
+        &mut self,
+        requester: CustodyRequester,
+        response: CustodyByRootResult<T::EthSpec>,
+    ) {
+        // TODO(das): get proper timestamp
+        let seen_timestamp = timestamp_now();
+        self.block_lookups
+            .on_download_response::<CustodyRequestState<T::EthSpec>>(
+                requester.0,
+                response.map(|(columns, peer_group)| (columns, peer_group, seen_timestamp)),
+                &mut self.network,
+            );
     }
 
     fn on_sampling_result(&mut self, requester: SamplingRequester, result: SamplingResult) {

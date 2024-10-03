@@ -52,12 +52,6 @@ pub enum GossipDataColumnError {
         data_column_slot: Slot,
         parent_slot: Slot,
     },
-    /// `Kzg` struct hasn't been initialized. This is an internal error.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The peer isn't faulty, This is an internal error.
-    KzgNotInitialized,
     /// The kzg verification failed.
     ///
     /// ## Peer scoring
@@ -133,6 +127,25 @@ pub enum GossipDataColumnError {
         slot: Slot,
         index: ColumnIndex,
     },
+    /// Data column index must be between 0 and `NUMBER_OF_COLUMNS` (exclusive).
+    ///
+    /// ## Peer scoring
+    ///
+    /// The column sidecar is invalid and the peer is faulty
+    InvalidColumnIndex(u64),
+    /// Data column not expected for a block with empty kzg commitments.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The column sidecar is invalid and the peer is faulty
+    UnexpectedDataColumn,
+    /// The data column length must be equal to the number of commitments/proofs, otherwise the
+    /// sidecar is invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The column sidecar is invalid and the peer is faulty
+    InconsistentCommitmentsOrProofLength,
 }
 
 impl From<BeaconChainError> for GossipDataColumnError {
@@ -373,7 +386,7 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError> {
     let column_slot = data_column.slot();
-
+    verify_data_column_sidecar(&data_column, &chain.spec)?;
     verify_index_matches_subnet(&data_column, subnet, &chain.spec)?;
     verify_sidecar_not_from_future_slot(chain, column_slot)?;
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
@@ -382,12 +395,8 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
     let parent_block = verify_parent_block_and_finalized_descendant(data_column.clone(), chain)?;
     verify_slot_higher_than_parent(&parent_block, column_slot)?;
     verify_proposer_and_signature(&data_column, &parent_block, chain)?;
-
-    let kzg = chain
-        .kzg
-        .clone()
-        .ok_or(GossipDataColumnError::KzgNotInitialized)?;
-    let kzg_verified_data_column = verify_kzg_for_data_column(data_column.clone(), &kzg)
+    let kzg = &chain.kzg;
+    let kzg_verified_data_column = verify_kzg_for_data_column(data_column.clone(), kzg)
         .map_err(GossipDataColumnError::InvalidKzgProof)?;
 
     chain
@@ -404,6 +413,26 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
         block_root: data_column.block_root(),
         data_column: kzg_verified_data_column,
     })
+}
+
+/// Verify if the data column sidecar is valid.
+fn verify_data_column_sidecar<E: EthSpec>(
+    data_column: &DataColumnSidecar<E>,
+    spec: &ChainSpec,
+) -> Result<(), GossipDataColumnError> {
+    if data_column.index >= spec.number_of_columns as u64 {
+        return Err(GossipDataColumnError::InvalidColumnIndex(data_column.index));
+    }
+    if data_column.kzg_commitments.is_empty() {
+        return Err(GossipDataColumnError::UnexpectedDataColumn);
+    }
+    if data_column.column.len() != data_column.kzg_commitments.len()
+        || data_column.column.len() != data_column.kzg_proofs.len()
+    {
+        return Err(GossipDataColumnError::InconsistentCommitmentsOrProofLength);
+    }
+
+    Ok(())
 }
 
 // Verify that this is the first column sidecar received for the tuple:
@@ -622,4 +651,56 @@ fn verify_sidecar_not_from_future_slot<T: BeaconChainTypes>(
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use crate::data_column_verification::{
+        validate_data_column_sidecar_for_gossip, GossipDataColumnError,
+    };
+    use crate::test_utils::BeaconChainHarness;
+    use types::{DataColumnSidecar, EthSpec, ForkName, MainnetEthSpec};
+
+    type E = MainnetEthSpec;
+
+    #[tokio::test]
+    async fn empty_data_column_sidecars_fails_validation() {
+        let spec = ForkName::latest().make_genesis_spec(E::default_spec());
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec(spec.into())
+            .deterministic_keypairs(64)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build();
+        harness.advance_slot();
+
+        let slot = harness.get_current_slot();
+        let state = harness.get_current_state();
+        let ((block, _blobs_opt), _state) = harness
+            .make_block_with_modifier(state, slot, |block| {
+                *block.body_mut().blob_kzg_commitments_mut().unwrap() = vec![].into();
+            })
+            .await;
+
+        let index = 0;
+        let column_sidecar = DataColumnSidecar::<E> {
+            index,
+            column: vec![].into(),
+            kzg_commitments: vec![].into(),
+            kzg_proofs: vec![].into(),
+            signed_block_header: block.signed_block_header(),
+            kzg_commitments_inclusion_proof: block
+                .message()
+                .body()
+                .kzg_commitments_merkle_proof()
+                .unwrap(),
+        };
+
+        let result =
+            validate_data_column_sidecar_for_gossip(column_sidecar.into(), index, &harness.chain);
+        assert!(matches!(
+            result.err(),
+            Some(GossipDataColumnError::UnexpectedDataColumn)
+        ));
+    }
 }

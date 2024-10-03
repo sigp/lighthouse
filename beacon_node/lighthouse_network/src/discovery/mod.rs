@@ -15,6 +15,7 @@ pub use enr::{build_enr, load_enr_from_disk, use_or_load_enr, CombinedKey, Eth2E
 pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 pub use libp2p::identity::{Keypair, PublicKey};
 
+use alloy_rlp::bytes::Bytes;
 use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
@@ -512,9 +513,9 @@ impl<E: EthSpec> Discovery<E> {
 
                 // insert the bitfield into the ENR record
                 self.discv5
-                    .enr_insert(
+                    .enr_insert::<Bytes>(
                         ATTESTATION_BITFIELD_ENR_KEY,
-                        &current_bitfield.as_ssz_bytes(),
+                        &current_bitfield.as_ssz_bytes().into(),
                     )
                     .map_err(|e| format!("{:?}", e))?;
             }
@@ -546,9 +547,9 @@ impl<E: EthSpec> Discovery<E> {
 
                 // insert the bitfield into the ENR record
                 self.discv5
-                    .enr_insert(
+                    .enr_insert::<Bytes>(
                         SYNC_COMMITTEE_BITFIELD_ENR_KEY,
-                        &current_bitfield.as_ssz_bytes(),
+                        &current_bitfield.as_ssz_bytes().into(),
                     )
                     .map_err(|e| format!("{:?}", e))?;
             }
@@ -582,7 +583,7 @@ impl<E: EthSpec> Discovery<E> {
 
         let _ = self
             .discv5
-            .enr_insert(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes())
+            .enr_insert::<Bytes>(ETH2_ENR_KEY, &enr_fork_id.as_ssz_bytes().into())
             .map_err(|e| {
                 warn!(
                     self.log,
@@ -1072,10 +1073,7 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                             // NOTE: We assume libp2p itself can keep track of IP changes and we do
                             // not inform it about IP changes found via discovery.
                         }
-                        discv5::Event::EnrAdded { .. }
-                        | discv5::Event::TalkRequest(_)
-                        | discv5::Event::NodeInserted { .. }
-                        | discv5::Event::SessionEstablished { .. } => {} // Ignore all other discv5 server events
+                        _ => {} // Ignore all other discv5 server events
                     }
                 }
             }
@@ -1217,10 +1215,11 @@ mod tests {
     }
 
     async fn build_discovery() -> Discovery<E> {
-        let spec = ChainSpec::default();
+        let spec = Arc::new(ChainSpec::default());
         let keypair = secp256k1::Keypair::generate();
         let mut config = NetworkConfig::default();
         config.set_listening_addr(crate::ListenAddress::unused_v4_ports());
+        let config = Arc::new(config);
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
         let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default(), &spec).unwrap();
         let log = build_log(slog::Level::Debug, false);
@@ -1234,6 +1233,7 @@ mod tests {
             vec![],
             false,
             &log,
+            config.clone(),
             spec.clone(),
         );
         let keypair = keypair.into();
@@ -1292,7 +1292,10 @@ mod tests {
             bitfield.set(id, true).unwrap();
         }
 
-        builder.add_value(ATTESTATION_BITFIELD_ENR_KEY, &bitfield.as_ssz_bytes());
+        builder.add_value::<Bytes>(
+            ATTESTATION_BITFIELD_ENR_KEY,
+            &bitfield.as_ssz_bytes().into(),
+        );
         builder.build(&enr_key).unwrap()
     }
 
