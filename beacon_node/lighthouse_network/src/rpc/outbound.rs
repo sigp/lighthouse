@@ -7,6 +7,7 @@ use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, SinkExt};
 use libp2p::core::{OutboundUpgrade, UpgradeInfo};
+use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::{
     codec::Framed,
@@ -19,13 +20,14 @@ use types::{EthSpec, ForkContext};
 // `OutboundUpgrade`
 
 #[derive(Debug, Clone)]
-pub struct OutboundRequestContainer<E: EthSpec> {
-    pub req: RequestType<E>,
+pub struct OutboundRequestContainer<E> {
+    pub req: RequestType,
     pub fork_context: Arc<ForkContext>,
     pub max_rpc_size: usize,
+    pub phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> UpgradeInfo for OutboundRequestContainer<E> {
+impl<E> UpgradeInfo for OutboundRequestContainer<E> {
     type Info = ProtocolId;
     type InfoIter = Vec<Self::Info>;
 

@@ -793,7 +793,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // Should not send more than max request blocks
-        if req.max_blobs_requested::<T::EthSpec>() > self.chain.spec.max_request_blob_sidecars {
+        if req.max_blobs_requested() > self.chain.spec.max_request_blob_sidecars {
             return Err((
                 RpcErrorResponse::InvalidRequest,
                 "Request exceeded `MAX_REQUEST_BLOBS_SIDECARS`",

@@ -8,7 +8,6 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::U256, VariableList};
 use std::collections::BTreeMap;
 use std::fmt::Display;
-use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
@@ -93,27 +92,19 @@ pub struct Ping {
     variant_attributes(derive(Clone, Debug, PartialEq, Serialize),)
 )]
 #[derive(Clone, Debug, PartialEq)]
-pub struct MetadataRequest<E> {
-    _phantom_data: PhantomData<E>,
-}
+pub struct MetadataRequest;
 
-impl<E: EthSpec> MetadataRequest<E> {
+impl MetadataRequest {
     pub fn new_v1() -> Self {
-        Self::V1(MetadataRequestV1 {
-            _phantom_data: PhantomData,
-        })
+        Self::V1(MetadataRequestV1 {})
     }
 
     pub fn new_v2() -> Self {
-        Self::V2(MetadataRequestV2 {
-            _phantom_data: PhantomData,
-        })
+        Self::V2(MetadataRequestV2 {})
     }
 
     pub fn new_v3() -> Self {
-        Self::V3(MetadataRequestV3 {
-            _phantom_data: PhantomData,
-        })
+        Self::V3(MetadataRequestV3 {})
     }
 }
 
@@ -323,11 +314,14 @@ pub struct BlobsByRangeRequest {
 
     /// The number of slots from the start slot.
     pub count: u64,
+
+    /// maximum number of blobs in a single block.
+    pub max_blobs_per_block: usize,
 }
 
 impl BlobsByRangeRequest {
-    pub fn max_blobs_requested<E: EthSpec>(&self) -> u64 {
-        self.count.saturating_mul(E::max_blobs_per_block() as u64)
+    pub fn max_blobs_requested(&self) -> u64 {
+        self.count.saturating_mul(self.max_blobs_per_block as u64)
     }
 }
 
