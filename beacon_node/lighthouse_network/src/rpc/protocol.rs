@@ -151,12 +151,10 @@ const REQUEST_TIMEOUT: u64 = 15;
 
 /// Returns the maximum bytes that can be sent across the RPC.
 pub fn max_rpc_size(fork_context: &ForkContext, max_chunk_size: usize) -> usize {
-    match fork_context.current_fork() {
-        ForkName::Altair | ForkName::Base => max_chunk_size / 10,
-        ForkName::Bellatrix => max_chunk_size,
-        ForkName::Capella => max_chunk_size,
-        ForkName::Deneb => max_chunk_size,
-        ForkName::Electra => max_chunk_size,
+    if fork_context.current_fork().bellatrix_enabled() {
+        max_chunk_size
+    } else {
+        max_chunk_size / 10
     }
 }
 
