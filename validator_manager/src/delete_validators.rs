@@ -1,11 +1,10 @@
-use std::path::PathBuf;
-
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2::{
     lighthouse_vc::types::{DeleteKeystoreStatus, DeleteKeystoresRequest},
     SensitiveUrl,
 };
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use types::PublicKeyBytes;
 
 use crate::{common::vc_http_client, DumpConfig};
