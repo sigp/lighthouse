@@ -43,13 +43,15 @@ use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slog::{o, Drain, Logger};
 use slog_async::Async;
-use slog_term::{FullFormat, TermDecorator};
+use slog_term::{FullFormat, PlainSyncDecorator, TermDecorator};
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::fs::{File, OpenOptions};
+use std::io::BufWriter;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
@@ -68,6 +70,8 @@ use types::{typenum::U4294967296, *};
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 // Environment variable to read if `fork_from_env` feature is enabled.
 pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
+// Environment variable to read if `ci_logger` feature is enabled.
+pub const CI_LOGGER_DIR_ENV_VAR: &str = "CI_LOGGER_DIR";
 
 // Default target aggregators to set during testing, this ensures an aggregator at each slot.
 //
@@ -206,7 +210,7 @@ pub fn test_spec<E: EthSpec>() -> ChainSpec {
 
 pub struct Builder<T: BeaconChainTypes> {
     eth_spec_instance: T::EthSpec,
-    spec: Option<ChainSpec>,
+    spec: Option<Arc<ChainSpec>>,
     validator_keypairs: Option<Vec<Keypair>>,
     withdrawal_keypairs: Vec<Option<Keypair>>,
     chain_config: Option<ChainConfig>,
@@ -395,12 +399,12 @@ where
         self.spec_or_default(None)
     }
 
-    pub fn spec(self, spec: ChainSpec) -> Self {
+    pub fn spec(self, spec: Arc<ChainSpec>) -> Self {
         self.spec_or_default(Some(spec))
     }
 
-    pub fn spec_or_default(mut self, spec: Option<ChainSpec>) -> Self {
-        self.spec = Some(spec.unwrap_or_else(test_spec::<E>));
+    pub fn spec_or_default(mut self, spec: Option<Arc<ChainSpec>>) -> Self {
+        self.spec = Some(spec.unwrap_or_else(|| Arc::new(test_spec::<E>())));
         self
     }
 
@@ -648,7 +652,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub withdrawal_keypairs: Vec<Option<Keypair>>,
 
     pub chain: Arc<BeaconChain<T>>,
-    pub spec: ChainSpec,
+    pub spec: Arc<ChainSpec>,
     pub shutdown_receiver: Arc<Mutex<Receiver<ShutdownReason>>>,
     pub runtime: TestRuntime,
 
@@ -878,7 +882,7 @@ where
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
         // If we produce two blocks for the same slot, they hash up to the same value and
-        // BeaconChain errors out with `BlockIsAlreadyKnown`.  Vary the graffiti so that we produce
+        // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
 
@@ -940,7 +944,7 @@ where
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
         // If we produce two blocks for the same slot, they hash up to the same value and
-        // BeaconChain errors out with `BlockIsAlreadyKnown`.  Vary the graffiti so that we produce
+        // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
 
@@ -2750,15 +2754,55 @@ pub struct MakeAttestationOptions {
     pub fork: Fork,
 }
 
-pub fn build_log(level: slog::Level, enabled: bool) -> Logger {
-    let decorator = TermDecorator::new().build();
-    let drain = FullFormat::new(decorator).build().fuse();
-    let drain = Async::new(drain).build().fuse();
+pub enum LoggerType {
+    Test,
+    // The logs are output to files for each test.
+    CI,
+    // No logs will be printed.
+    Null,
+}
 
-    if enabled {
-        Logger::root(drain.filter_level(level).fuse(), o!())
-    } else {
-        Logger::root(drain.filter(|_| false).fuse(), o!())
+fn ci_decorator() -> PlainSyncDecorator<BufWriter<File>> {
+    let log_dir = std::env::var(CI_LOGGER_DIR_ENV_VAR).unwrap_or_else(|e| {
+        panic!("{CI_LOGGER_DIR_ENV_VAR} env var must be defined when using ci_logger: {e:?}");
+    });
+    let fork_name = std::env::var(FORK_NAME_ENV_VAR)
+        .map(|s| format!("{s}_"))
+        .unwrap_or_default();
+    // The current test name can be got via the thread name.
+    let test_name = std::thread::current()
+        .name()
+        .unwrap()
+        .to_string()
+        // Colons are not allowed in files that are uploaded to GitHub Artifacts.
+        .replace("::", "_");
+    let log_path = format!("/{log_dir}/{fork_name}{test_name}.log");
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+        .unwrap();
+    let file = BufWriter::new(file);
+    PlainSyncDecorator::new(file)
+}
+
+pub fn build_log(level: slog::Level, logger_type: LoggerType) -> Logger {
+    match logger_type {
+        LoggerType::Test => {
+            let drain = FullFormat::new(TermDecorator::new().build()).build().fuse();
+            let drain = Async::new(drain).build().fuse();
+            Logger::root(drain.filter_level(level).fuse(), o!())
+        }
+        LoggerType::CI => {
+            let drain = FullFormat::new(ci_decorator()).build().fuse();
+            let drain = Async::new(drain).build().fuse();
+            Logger::root(drain.filter_level(level).fuse(), o!())
+        }
+        LoggerType::Null => {
+            let drain = FullFormat::new(TermDecorator::new().build()).build().fuse();
+            let drain = Async::new(drain).build().fuse();
+            Logger::root(drain.filter(|_| false).fuse(), o!())
+        }
     }
 }
 

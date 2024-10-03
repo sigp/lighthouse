@@ -661,21 +661,18 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             },
         };
 
-        match execution_payload.fork_name() {
-            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {}
-            ForkName::Deneb | ForkName::Electra => {
-                // get random number between 0 and Max Blobs
-                let mut rng = self.rng.lock();
-                let num_blobs = rng.gen::<usize>() % (E::max_blobs_per_block() + 1);
-                let (bundle, transactions) = generate_blobs(num_blobs)?;
-                for tx in Vec::from(transactions) {
-                    execution_payload
-                        .transactions_mut()
-                        .push(tx)
-                        .map_err(|_| "transactions are full".to_string())?;
-                }
-                self.blobs_bundles.insert(id, bundle);
+        if execution_payload.fork_name().deneb_enabled() {
+            // get random number between 0 and Max Blobs
+            let mut rng = self.rng.lock();
+            let num_blobs = rng.gen::<usize>() % (E::max_blobs_per_block() + 1);
+            let (bundle, transactions) = generate_blobs(num_blobs)?;
+            for tx in Vec::from(transactions) {
+                execution_payload
+                    .transactions_mut()
+                    .push(tx)
+                    .map_err(|_| "transactions are full".to_string())?;
             }
+            self.blobs_bundles.insert(id, bundle);
         }
 
         *execution_payload.block_hash_mut() =
