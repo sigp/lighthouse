@@ -16,12 +16,12 @@ use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
 use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
-use lighthouse_network::rpc::SubstreamId;
+use lighthouse_network::rpc::{RequestId, SubstreamId};
 use lighthouse_network::{
     discv5::enr::{self, CombinedKey},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
-    Client, MessageId, NetworkGlobals, PeerId, Response,
+    Client, MessageId, NetworkConfig, NetworkGlobals, PeerId, Response,
 };
 use slot_clock::SlotClock;
 use std::iter::Iterator;
@@ -91,6 +91,7 @@ impl TestRig {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
+        let spec = Arc::new(spec);
 
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.clone())
@@ -204,12 +205,14 @@ impl TestRig {
         });
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = enr::Enr::builder().build(&enr_key).unwrap();
+        let network_config = Arc::new(NetworkConfig::default());
         let network_globals = Arc::new(NetworkGlobals::new(
             enr,
             meta_data,
             vec![],
             false,
             &log,
+            network_config,
             spec,
         ));
 
@@ -357,7 +360,9 @@ impl TestRig {
         self.network_beacon_processor
             .send_blobs_by_range_request(
                 PeerId::random(),
-                (ConnectionId::new_unchecked(42), SubstreamId::new(24)),
+                ConnectionId::new_unchecked(42),
+                SubstreamId::new(24),
+                RequestId::new_unchecked(0),
                 BlobsByRangeRequest {
                     start_slot: 0,
                     count,
@@ -1134,6 +1139,7 @@ async fn test_blobs_by_range() {
             peer_id: _,
             response: Response::BlobsByRange(blob),
             id: _,
+            request_id: _,
         } = next
         {
             if blob.is_some() {

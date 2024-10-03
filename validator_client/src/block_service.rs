@@ -1,9 +1,8 @@
 use crate::beacon_node_fallback::{Error as FallbackError, Errors};
 use crate::{
-    beacon_node_fallback::{ApiTopic, BeaconNodeFallback, RequireSynced},
+    beacon_node_fallback::{ApiTopic, BeaconNodeFallback},
     determine_graffiti,
     graffiti_file::GraffitiFile,
-    OfflineOnFailure,
 };
 use crate::{
     http_metrics::metrics,
@@ -141,26 +140,16 @@ pub struct ProposerFallback<T, E: EthSpec> {
 
 impl<T: SlotClock, E: EthSpec> ProposerFallback<T, E> {
     // Try `func` on `self.proposer_nodes` first. If that doesn't work, try `self.beacon_nodes`.
-    pub async fn request_proposers_first<'a, F, Err, R>(
-        &'a self,
-        require_synced: RequireSynced,
-        offline_on_failure: OfflineOnFailure,
-        func: F,
-    ) -> Result<(), Errors<Err>>
+    pub async fn request_proposers_first<F, Err, R>(&self, func: F) -> Result<(), Errors<Err>>
     where
-        F: Fn(&'a BeaconNodeHttpClient) -> R + Clone,
+        F: Fn(BeaconNodeHttpClient) -> R + Clone,
         R: Future<Output = Result<(), Err>>,
         Err: Debug,
     {
         // If there are proposer nodes, try calling `func` on them and return early if they are successful.
         if let Some(proposer_nodes) = &self.proposer_nodes {
             if proposer_nodes
-                .request(
-                    require_synced,
-                    offline_on_failure,
-                    ApiTopic::Blocks,
-                    func.clone(),
-                )
+                .request(ApiTopic::Blocks, func.clone())
                 .await
                 .is_ok()
             {
@@ -169,28 +158,18 @@ impl<T: SlotClock, E: EthSpec> ProposerFallback<T, E> {
         }
 
         // If the proposer nodes failed, try on the non-proposer nodes.
-        self.beacon_nodes
-            .request(require_synced, offline_on_failure, ApiTopic::Blocks, func)
-            .await
+        self.beacon_nodes.request(ApiTopic::Blocks, func).await
     }
 
     // Try `func` on `self.beacon_nodes` first. If that doesn't work, try `self.proposer_nodes`.
-    pub async fn request_proposers_last<'a, F, O, Err, R>(
-        &'a self,
-        require_synced: RequireSynced,
-        offline_on_failure: OfflineOnFailure,
-        func: F,
-    ) -> Result<O, Errors<Err>>
+    pub async fn request_proposers_last<F, O, Err, R>(&self, func: F) -> Result<O, Errors<Err>>
     where
-        F: Fn(&'a BeaconNodeHttpClient) -> R + Clone,
+        F: Fn(BeaconNodeHttpClient) -> R + Clone,
         R: Future<Output = Result<O, Err>>,
         Err: Debug,
     {
         // Try running `func` on the non-proposer beacon nodes.
-        let beacon_nodes_result = self
-            .beacon_nodes
-            .first_success(require_synced, offline_on_failure, func.clone())
-            .await;
+        let beacon_nodes_result = self.beacon_nodes.first_success(func.clone()).await;
 
         match (beacon_nodes_result, &self.proposer_nodes) {
             // The non-proposer node call succeed, return the result.
@@ -198,11 +177,7 @@ impl<T: SlotClock, E: EthSpec> ProposerFallback<T, E> {
             // The non-proposer node call failed, but we don't have any proposer nodes. Return an error.
             (Err(e), None) => Err(e),
             // The non-proposer node call failed, try the same call on the proposer nodes.
-            (Err(_), Some(proposer_nodes)) => {
-                proposer_nodes
-                    .first_success(require_synced, offline_on_failure, func)
-                    .await
-            }
+            (Err(_), Some(proposer_nodes)) => proposer_nodes.first_success(func).await,
         }
     }
 }
@@ -211,8 +186,8 @@ impl<T: SlotClock, E: EthSpec> ProposerFallback<T, E> {
 pub struct Inner<T, E: EthSpec> {
     validator_store: Arc<ValidatorStore<T, E>>,
     slot_clock: Arc<T>,
-    beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-    proposer_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
+    pub(crate) beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    pub(crate) proposer_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
@@ -418,14 +393,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         // protect them from DoS attacks and they're most likely to successfully
         // publish a block.
         proposer_fallback
-            .request_proposers_first(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                |beacon_node| async {
-                    self.publish_signed_block_contents(&signed_block, beacon_node)
-                        .await
-                },
-            )
+            .request_proposers_first(|beacon_node| async {
+                self.publish_signed_block_contents(&signed_block, beacon_node)
+                    .await
+            })
             .await?;
 
         info!(
@@ -503,32 +474,28 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         // Try the proposer nodes last, since it's likely that they don't have a
         // great view of attestations on the network.
         let unsigned_block = proposer_fallback
-            .request_proposers_last(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                |beacon_node| async move {
-                    let _get_timer = metrics::start_timer_vec(
-                        &metrics::BLOCK_SERVICE_TIMES,
-                        &[metrics::BEACON_BLOCK_HTTP_GET],
-                    );
-                    Self::get_validator_block(
-                        beacon_node,
-                        slot,
-                        randao_reveal_ref,
-                        graffiti,
-                        proposer_index,
-                        builder_boost_factor,
-                        log,
-                    )
-                    .await
-                    .map_err(|e| {
-                        BlockError::Recoverable(format!(
-                            "Error from beacon node when producing block: {:?}",
-                            e
-                        ))
-                    })
-                },
-            )
+            .request_proposers_last(|beacon_node| async move {
+                let _get_timer = metrics::start_timer_vec(
+                    &metrics::BLOCK_SERVICE_TIMES,
+                    &[metrics::BEACON_BLOCK_HTTP_GET],
+                );
+                Self::get_validator_block(
+                    &beacon_node,
+                    slot,
+                    randao_reveal_ref,
+                    graffiti,
+                    proposer_index,
+                    builder_boost_factor,
+                    log,
+                )
+                .await
+                .map_err(|e| {
+                    BlockError::Recoverable(format!(
+                        "Error from beacon node when producing block: {:?}",
+                        e
+                    ))
+                })
+            })
             .await?;
 
         self_ref
@@ -547,7 +514,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     async fn publish_signed_block_contents(
         &self,
         signed_block: &SignedBlock<E>,
-        beacon_node: &BeaconNodeHttpClient,
+        beacon_node: BeaconNodeHttpClient,
     ) -> Result<(), BlockError> {
         let log = self.context.log();
         let slot = signed_block.slot();

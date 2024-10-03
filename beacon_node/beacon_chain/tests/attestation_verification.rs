@@ -18,7 +18,7 @@ use ssz_types::BitVector;
 use state_processing::{
     per_block_processing::errors::AttestationValidationError, per_slot_processing,
 };
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use tree_hash::TreeHash;
 use types::{
     signed_aggregate_and_proof::SignedAggregateAndProofRefMut,
@@ -47,6 +47,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
     // A kind-of arbitrary number that ensures that _some_ validators are aggregators, but
     // not all.
     spec.target_aggregators_per_committee = 4;
+    let spec = Arc::new(spec);
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .spec(spec)
@@ -68,11 +69,12 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
 /// all genesis validators start with BLS withdrawal credentials.
 fn get_harness_capella_spec(
     validator_count: usize,
-) -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec) {
+) -> (BeaconChainHarness<EphemeralHarnessType<E>>, Arc<ChainSpec>) {
     let mut spec = E::default_spec();
     spec.altair_fork_epoch = Some(Epoch::new(0));
     spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     spec.capella_fork_epoch = Some(Epoch::new(CAPELLA_FORK_EPOCH as u64));
+    let spec = Arc::new(spec);
 
     let validator_keypairs = KEYPAIRS[0..validator_count].to_vec();
     let genesis_state = interop_genesis_state(
@@ -357,22 +359,24 @@ impl GossipTester {
     }
 
     pub fn earliest_valid_attestation_slot(&self) -> Slot {
-        let offset = match self.harness.spec.fork_name_at_epoch(self.epoch()) {
-            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
-                // Subtract an additional slot since the harness will be exactly on the start of the
-                // slot and the propagation tolerance will allow an extra slot.
-                E::slots_per_epoch() + 1
-            }
+        let offset = if self
+            .harness
+            .spec
+            .fork_name_at_epoch(self.epoch())
+            .deneb_enabled()
+        {
             // EIP-7045
-            ForkName::Deneb | ForkName::Electra => {
-                let epoch_slot_offset = (self.slot() % E::slots_per_epoch()).as_u64();
-                if epoch_slot_offset != 0 {
-                    E::slots_per_epoch() + epoch_slot_offset
-                } else {
-                    // Here the propagation tolerance will cause the cutoff to be an entire epoch earlier
-                    2 * E::slots_per_epoch()
-                }
+            let epoch_slot_offset = (self.slot() % E::slots_per_epoch()).as_u64();
+            if epoch_slot_offset != 0 {
+                E::slots_per_epoch() + epoch_slot_offset
+            } else {
+                // Here the propagation tolerance will cause the cutoff to be an entire epoch earlier
+                2 * E::slots_per_epoch()
             }
+        } else {
+            // Subtract an additional slot since the harness will be exactly on the start of the
+            // slot and the propagation tolerance will allow an extra slot.
+            E::slots_per_epoch() + 1
         };
 
         self.slot()

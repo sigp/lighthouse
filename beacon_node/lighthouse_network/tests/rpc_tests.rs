@@ -3,9 +3,9 @@
 mod common;
 
 use common::Protocol;
-use lighthouse_network::rpc::methods::*;
+use lighthouse_network::rpc::{methods::*, RequestType};
 use lighthouse_network::service::api_types::AppRequestId;
-use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Request, Response};
+use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Response};
 use slog::{debug, warn, Level};
 use ssz::Encode;
 use ssz_types::VariableList;
@@ -61,7 +61,7 @@ fn test_tcp_status_rpc() {
 
     let log = common::build_log(log_level, enable_logging);
 
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     rt.block_on(async {
         // get sender/receiver
@@ -69,13 +69,13 @@ fn test_tcp_status_rpc() {
             Arc::downgrade(&rt),
             &log,
             ForkName::Base,
-            &spec,
+            spec,
             Protocol::Tcp,
         )
         .await;
 
         // Dummy STATUS RPC message
-        let rpc_request = Request::Status(StatusMessage {
+        let rpc_request = RequestType::Status(StatusMessage {
             fork_digest: [0; 4],
             finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
@@ -128,10 +128,10 @@ fn test_tcp_status_rpc() {
                         id,
                         request,
                     } => {
-                        if request == rpc_request {
+                        if request.r#type == rpc_request {
                             // send the response
                             debug!(log, "Receiver Received");
-                            receiver.send_response(peer_id, id, rpc_response.clone());
+                            receiver.send_response(peer_id, id, request.id, rpc_response.clone());
                         }
                     }
                     _ => {} // Ignore other events
@@ -163,7 +163,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     rt.block_on(async {
         // get sender/receiver
@@ -171,15 +171,18 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
             Arc::downgrade(&rt),
             &log,
             ForkName::Bellatrix,
-            &spec,
+            spec.clone(),
             Protocol::Tcp,
         )
         .await;
 
         // BlocksByRange Request
-        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
-
-        let spec = E::default_spec();
+        let rpc_request =
+            RequestType::BlocksByRange(OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2 {
+                start_slot: 0,
+                count: messages_to_send,
+                step: 1,
+            }));
 
         // BlocksByRange Response
         let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
@@ -249,7 +252,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                         id,
                         request,
                     } => {
-                        if request == rpc_request {
+                        if request.r#type == rpc_request {
                             // send the response
                             warn!(log, "Receiver got request");
                             for i in 0..messages_to_send {
@@ -262,10 +265,20 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                                 } else {
                                     rpc_response_bellatrix_small.clone()
                                 };
-                                receiver.send_response(peer_id, id, rpc_response.clone());
+                                receiver.send_response(
+                                    peer_id,
+                                    id,
+                                    request.id,
+                                    rpc_response.clone(),
+                                );
                             }
                             // send the stream termination
-                            receiver.send_response(peer_id, id, Response::BlocksByRange(None));
+                            receiver.send_response(
+                                peer_id,
+                                id,
+                                request.id,
+                                Response::BlocksByRange(None),
+                            );
                         }
                     }
                     _ => {} // Ignore other events
@@ -300,18 +313,18 @@ fn test_blobs_by_range_chunked_rpc() {
 
     rt.block_on(async {
         // get sender/receiver
-        let spec = E::default_spec();
+        let spec = Arc::new(E::default_spec());
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
             &log,
             ForkName::Deneb,
-            &spec,
+            spec.clone(),
             Protocol::Tcp,
         )
         .await;
 
         // BlobsByRange Request
-        let rpc_request = Request::BlobsByRange(BlobsByRangeRequest {
+        let rpc_request = RequestType::BlobsByRange(BlobsByRangeRequest {
             start_slot: 0,
             count: slot_count,
         });
@@ -369,16 +382,26 @@ fn test_blobs_by_range_chunked_rpc() {
                         id,
                         request,
                     } => {
-                        if request == rpc_request {
+                        if request.r#type == rpc_request {
                             // send the response
                             warn!(log, "Receiver got request");
                             for _ in 0..messages_to_send {
                                 // Send first third of responses as base blocks,
                                 // second as altair and third as bellatrix.
-                                receiver.send_response(peer_id, id, rpc_response.clone());
+                                receiver.send_response(
+                                    peer_id,
+                                    id,
+                                    request.id,
+                                    rpc_response.clone(),
+                                );
                             }
                             // send the stream termination
-                            receiver.send_response(peer_id, id, Response::BlobsByRange(None));
+                            receiver.send_response(
+                                peer_id,
+                                id,
+                                request.id,
+                                Response::BlobsByRange(None),
+                            );
                         }
                     }
                     _ => {} // Ignore other events
@@ -410,7 +433,7 @@ fn test_tcp_blocks_by_range_over_limit() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     rt.block_on(async {
         // get sender/receiver
@@ -418,13 +441,18 @@ fn test_tcp_blocks_by_range_over_limit() {
             Arc::downgrade(&rt),
             &log,
             ForkName::Bellatrix,
-            &spec,
+            spec.clone(),
             Protocol::Tcp,
         )
         .await;
 
         // BlocksByRange Request
-        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
+        let rpc_request =
+            RequestType::BlocksByRange(OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1 {
+                start_slot: 0,
+                count: messages_to_send,
+                step: 1,
+            }));
 
         // BlocksByRange Response
         let full_block = bellatrix_block_large(&common::fork_context(ForkName::Bellatrix), &spec);
@@ -462,15 +490,25 @@ fn test_tcp_blocks_by_range_over_limit() {
                         id,
                         request,
                     } => {
-                        if request == rpc_request {
+                        if request.r#type == rpc_request {
                             // send the response
                             warn!(log, "Receiver got request");
                             for _ in 0..messages_to_send {
                                 let rpc_response = rpc_response_bellatrix_large.clone();
-                                receiver.send_response(peer_id, id, rpc_response.clone());
+                                receiver.send_response(
+                                    peer_id,
+                                    id,
+                                    request.id,
+                                    rpc_response.clone(),
+                                );
                             }
                             // send the stream termination
-                            receiver.send_response(peer_id, id, Response::BlocksByRange(None));
+                            receiver.send_response(
+                                peer_id,
+                                id,
+                                request.id,
+                                Response::BlocksByRange(None),
+                            );
                         }
                     }
                     _ => {} // Ignore other events
@@ -502,7 +540,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     rt.block_on(async {
         // get sender/receiver
@@ -510,16 +548,20 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
             Arc::downgrade(&rt),
             &log,
             ForkName::Base,
-            &spec,
+            spec.clone(),
             Protocol::Tcp,
         )
         .await;
 
         // BlocksByRange Request
-        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, messages_to_send));
+        let rpc_request =
+            RequestType::BlocksByRange(OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2 {
+                start_slot: 0,
+                count: messages_to_send,
+                step: 1,
+            }));
 
         // BlocksByRange Response
-        let spec = E::default_spec();
         let empty_block = BeaconBlock::empty(&spec);
         let empty_signed = SignedBeaconBlock::from_block(empty_block, Signature::empty());
         let rpc_response = Response::BlocksByRange(Some(Arc::new(empty_signed)));
@@ -586,10 +628,10 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                         },
                         _,
                     )) => {
-                        if request == rpc_request {
+                        if request.r#type == rpc_request {
                             // send the response
                             warn!(log, "Receiver got request");
-                            message_info = Some((peer_id, id));
+                            message_info = Some((peer_id, id, request.id));
                         }
                     }
                     futures::future::Either::Right((_, _)) => {} // The timeout hit, send messages if required
@@ -599,8 +641,8 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                 // if we need to send messages send them here. This will happen after a delay
                 if message_info.is_some() {
                     messages_sent += 1;
-                    let (peer_id, stream_id) = message_info.as_ref().unwrap();
-                    receiver.send_response(*peer_id, *stream_id, rpc_response.clone());
+                    let (peer_id, stream_id, request_id) = message_info.as_ref().unwrap();
+                    receiver.send_response(*peer_id, *stream_id, *request_id, rpc_response.clone());
                     debug!(log, "Sending message {}", messages_sent);
                     if messages_sent == messages_to_send + extra_messages_to_send {
                         // stop sending messages
@@ -631,7 +673,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
     let log = common::build_log(log_level, enable_logging);
     let rt = Arc::new(Runtime::new().unwrap());
 
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     rt.block_on(async {
         // get sender/receiver
@@ -639,16 +681,20 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
             Arc::downgrade(&rt),
             &log,
             ForkName::Base,
-            &spec,
+            spec.clone(),
             Protocol::Tcp,
         )
         .await;
 
         // BlocksByRange Request
-        let rpc_request = Request::BlocksByRange(BlocksByRangeRequest::new(0, 10));
+        let rpc_request =
+            RequestType::BlocksByRange(OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2 {
+                start_slot: 0,
+                count: 10,
+                step: 1,
+            }));
 
         // BlocksByRange Response
-        let spec = E::default_spec();
         let empty_block = BeaconBlock::empty(&spec);
         let empty_signed = SignedBeaconBlock::from_block(empty_block, Signature::empty());
         let rpc_response = Response::BlocksByRange(Some(Arc::new(empty_signed)));
@@ -700,15 +746,25 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                         id,
                         request,
                     } => {
-                        if request == rpc_request {
+                        if request.r#type == rpc_request {
                             // send the response
                             warn!(log, "Receiver got request");
 
                             for _ in 1..=messages_to_send {
-                                receiver.send_response(peer_id, id, rpc_response.clone());
+                                receiver.send_response(
+                                    peer_id,
+                                    id,
+                                    request.id,
+                                    rpc_response.clone(),
+                                );
                             }
                             // send the stream termination
-                            receiver.send_response(peer_id, id, Response::BlocksByRange(None));
+                            receiver.send_response(
+                                peer_id,
+                                id,
+                                request.id,
+                                Response::BlocksByRange(None),
+                            );
                         }
                     }
                     _ => {} // Ignore other events
@@ -739,7 +795,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
     let messages_to_send = 6;
 
     let log = common::build_log(log_level, enable_logging);
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
@@ -748,13 +804,13 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
             Arc::downgrade(&rt),
             &log,
             ForkName::Bellatrix,
-            &spec,
+            spec.clone(),
             Protocol::Tcp,
         )
         .await;
 
         // BlocksByRoot Request
-        let rpc_request = Request::BlocksByRoot(BlocksByRootRequest::new(
+        let rpc_request = RequestType::BlocksByRoot(BlocksByRootRequest::new(
             vec![
                 Hash256::zero(),
                 Hash256::zero(),
@@ -831,7 +887,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                         id,
                         request,
                     } => {
-                        if request == rpc_request {
+                        if request.r#type == rpc_request {
                             // send the response
                             debug!(log, "Receiver got request");
 
@@ -844,11 +900,16 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                                 } else {
                                     rpc_response_bellatrix_small.clone()
                                 };
-                                receiver.send_response(peer_id, id, rpc_response);
+                                receiver.send_response(peer_id, id, request.id, rpc_response);
                                 debug!(log, "Sending message");
                             }
                             // send the stream termination
-                            receiver.send_response(peer_id, id, Response::BlocksByRange(None));
+                            receiver.send_response(
+                                peer_id,
+                                id,
+                                request.id,
+                                Response::BlocksByRange(None),
+                            );
                             debug!(log, "Send stream term");
                         }
                     }
@@ -877,7 +938,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
     let extra_messages_to_send: u64 = 10;
 
     let log = common::build_log(log_level, enable_logging);
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
@@ -886,13 +947,13 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
             Arc::downgrade(&rt),
             &log,
             ForkName::Base,
-            &spec,
+            spec.clone(),
             Protocol::Tcp,
         )
         .await;
 
         // BlocksByRoot Request
-        let rpc_request = Request::BlocksByRoot(BlocksByRootRequest::new(
+        let rpc_request = RequestType::BlocksByRoot(BlocksByRootRequest::new(
             vec![
                 Hash256::zero(),
                 Hash256::zero(),
@@ -975,10 +1036,10 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                         },
                         _,
                     )) => {
-                        if request == rpc_request {
+                        if request.r#type == rpc_request {
                             // send the response
                             warn!(log, "Receiver got request");
-                            message_info = Some((peer_id, id));
+                            message_info = Some((peer_id, id, request.id));
                         }
                     }
                     futures::future::Either::Right((_, _)) => {} // The timeout hit, send messages if required
@@ -988,8 +1049,8 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                 // if we need to send messages send them here. This will happen after a delay
                 if message_info.is_some() {
                     messages_sent += 1;
-                    let (peer_id, stream_id) = message_info.as_ref().unwrap();
-                    receiver.send_response(*peer_id, *stream_id, rpc_response.clone());
+                    let (peer_id, stream_id, request_id) = message_info.as_ref().unwrap();
+                    receiver.send_response(*peer_id, *stream_id, *request_id, rpc_response.clone());
                     debug!(log, "Sending message {}", messages_sent);
                     if messages_sent == messages_to_send + extra_messages_to_send {
                         // stop sending messages
@@ -1016,12 +1077,12 @@ fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
-    let spec = E::default_spec();
+    let spec = Arc::new(E::default_spec());
 
     // get sender/receiver
     rt.block_on(async {
         let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, &spec, protocol)
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, spec, protocol)
                 .await;
 
         // build the sender future

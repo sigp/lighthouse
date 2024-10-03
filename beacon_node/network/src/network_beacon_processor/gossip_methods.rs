@@ -696,8 +696,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             column_sidecar,
                         ));
                     }
-                    GossipDataColumnError::KzgNotInitialized
-                    | GossipDataColumnError::PubkeyCacheTimeout
+                    GossipDataColumnError::PubkeyCacheTimeout
                     | GossipDataColumnError::BeaconChainError(_) => {
                         crit!(
                             self.log,
@@ -712,6 +711,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | GossipDataColumnError::InvalidSubnetId { .. }
                     | GossipDataColumnError::InvalidInclusionProof { .. }
                     | GossipDataColumnError::InvalidKzgProof { .. }
+                    | GossipDataColumnError::UnexpectedDataColumn
+                    | GossipDataColumnError::InvalidColumnIndex(_)
+                    | GossipDataColumnError::InconsistentCommitmentsOrProofLength
                     | GossipDataColumnError::NotFinalizedDescendant { .. } => {
                         debug!(
                             self.log,
@@ -839,9 +841,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             blob_sidecar,
                         ));
                     }
-                    GossipBlobError::KzgNotInitialized
-                    | GossipBlobError::PubkeyCacheTimeout
-                    | GossipBlobError::BeaconChainError(_) => {
+                    GossipBlobError::PubkeyCacheTimeout | GossipBlobError::BeaconChainError(_) => {
                         crit!(
                             self.log,
                             "Internal error when verifying blob sidecar";
@@ -939,7 +939,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
 
-        let result = self.chain.process_gossip_blob(verified_blob).await;
+        let result = self
+            .chain
+            .process_gossip_blob(verified_blob, || Ok(()))
+            .await;
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
@@ -966,7 +969,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "block_root" => %block_root,
                 );
             }
-            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!(
                     self.log,
                     "Ignoring gossip blob already imported";
@@ -1016,7 +1019,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match self
             .chain
-            .process_gossip_data_columns(vec![verified_data_column])
+            .process_gossip_data_columns(vec![verified_data_column], || Ok(()))
             .await
         {
             Ok((availability, data_columns_to_publish)) => {
@@ -1053,7 +1056,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 }
             }
-            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!(
                     self.log,
                     "Ignoring gossip column already imported";
@@ -1245,7 +1248,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
-            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            Err(
+                BlockError::DuplicateFullyImported(_)
+                | BlockError::DuplicateImportStatusUnknown(..),
+            ) => {
                 debug!(
                     self.log,
                     "Gossip block is already known";
