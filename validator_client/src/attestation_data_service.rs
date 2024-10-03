@@ -3,10 +3,7 @@ use std::sync::Arc;
 use slot_clock::SlotClock;
 use types::{AttestationData, CommitteeIndex, EthSpec, ForkName, Slot};
 
-use crate::{
-    beacon_node_fallback::{BeaconNodeFallback, OfflineOnFailure, RequireSynced},
-    http_metrics::metrics,
-};
+use crate::{beacon_node_fallback::BeaconNodeFallback, http_metrics::metrics};
 
 /// The AttestationDataService is responsible for downloading and caching attestation data at a given slot.
 /// It also helps prevent us from re-downloading identical attestation data.
@@ -59,21 +56,17 @@ impl<T: SlotClock, E: EthSpec> AttestationDataService<T, E> {
 
         let attestation_data = self
             .beacon_nodes
-            .first_success(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                |beacon_node| async move {
-                    let _timer = metrics::start_timer_vec(
-                        &metrics::ATTESTATION_SERVICE_TIMES,
-                        &[metrics::ATTESTATIONS_HTTP_GET],
-                    );
-                    beacon_node
-                        .get_validator_attestation_data(*slot, *committee_index)
-                        .await
-                        .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
-                        .map(|result| result.data)
-                },
-            )
+            .first_success(|beacon_node| async move {
+                let _timer = metrics::start_timer_vec(
+                    &metrics::ATTESTATION_SERVICE_TIMES,
+                    &[metrics::ATTESTATIONS_HTTP_GET],
+                );
+                beacon_node
+                    .get_validator_attestation_data(*slot, *committee_index)
+                    .await
+                    .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
+                    .map(|result| result.data)
+            })
             .await
             .map_err(|e| e.to_string())?;
 

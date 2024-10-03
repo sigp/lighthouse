@@ -1,5 +1,5 @@
 use crate::attestation_data_service::AttestationDataService;
-use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback, RequireSynced};
+use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use crate::{
     duties_service::{DutiesService, DutyAndProof},
     http_metrics::metrics,
