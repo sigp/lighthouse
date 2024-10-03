@@ -479,16 +479,18 @@ pub fn serve<E: EthSpec>(
                 let prev_randao = head_state
                     .get_randao_mix(head_state.current_epoch())
                     .map_err(|_| reject("couldn't get prev randao"))?;
-                let expected_withdrawals = match fork {
-                    ForkName::Base | ForkName::Altair | ForkName::Bellatrix => None,
-                    ForkName::Capella | ForkName::Deneb | ForkName::Electra => Some(
+
+                let expected_withdrawals = if fork.capella_enabled() {
+                    Some(
                         builder
                             .beacon_client
                             .get_expected_withdrawals(&StateId::Head)
                             .await
                             .unwrap()
                             .data,
-                    ),
+                    )
+                } else {
+                    None
                 };
 
                 let payload_attributes = match fork {
