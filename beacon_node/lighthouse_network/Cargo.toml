@@ -44,13 +44,14 @@ delay_map = { workspace = true }
 bytes = { workspace = true }
 either = { workspace = true }
 itertools = { workspace = true }
+alloy-rlp = { workspace = true }
 
 # Local dependencies
 void = "1.0.2"
-libp2p-mplex = "0.41"
+libp2p-mplex = "0.42"
 
 [dependencies.libp2p]
-version = "0.53"
+version = "0.54"
 default-features = false
 features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "plaintext", "secp256k1", "macros", "ecdsa", "metrics", "quic", "upnp"]
 

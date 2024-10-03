@@ -51,8 +51,7 @@ use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::GoodbyeReason;
 use lighthouse_network::service::api_types::Id;
-use lighthouse_network::PeerId;
-use lighthouse_network::SyncInfo;
+use lighthouse_network::{PeerId, SyncInfo};
 use lru_cache::LRUTimeCache;
 use slog::{crit, debug, trace, warn};
 use std::collections::HashMap;
@@ -400,7 +399,7 @@ mod tests {
     use beacon_processor::WorkEvent as BeaconWorkEvent;
     use lighthouse_network::service::api_types::SyncRequestId;
     use lighthouse_network::{
-        rpc::StatusMessage, service::api_types::AppRequestId, NetworkGlobals,
+        rpc::StatusMessage, service::api_types::AppRequestId, NetworkConfig, NetworkGlobals,
     };
     use slog::{o, Drain};
     use slot_clock::TestingSlotClock;
@@ -539,21 +538,20 @@ mod tests {
             } else {
                 panic!("Should have sent a batch request to the peer")
             };
-            let blob_req_id = match fork_name {
-                ForkName::Deneb | ForkName::Electra => {
-                    if let Ok(NetworkMessage::SendRequest {
-                        peer_id,
-                        request: _,
-                        request_id,
-                    }) = self.network_rx.try_recv()
-                    {
-                        assert_eq!(&peer_id, expected_peer);
-                        Some(request_id)
-                    } else {
-                        panic!("Should have sent a batch request to the peer")
-                    }
+            let blob_req_id = if fork_name.deneb_enabled() {
+                if let Ok(NetworkMessage::SendRequest {
+                    peer_id,
+                    request: _,
+                    request_id,
+                }) = self.network_rx.try_recv()
+                {
+                    assert_eq!(&peer_id, expected_peer);
+                    Some(request_id)
+                } else {
+                    panic!("Should have sent a batch request to the peer")
                 }
-                _ => None,
+            } else {
+                None
             };
             (block_req_id, blob_req_id)
         }
@@ -653,7 +651,10 @@ mod tests {
         fn expect_empty_processor(&mut self) {
             match self.beacon_processor_rx.try_recv() {
                 Ok(work) => {
-                    panic!("Expected empty processor. Instead got {}", work.work_type());
+                    panic!(
+                        "Expected empty processor. Instead got {}",
+                        work.work_type_str()
+                    );
                 }
                 Err(e) => match e {
                     mpsc::error::TryRecvError::Empty => {}
@@ -666,7 +667,7 @@ mod tests {
         fn expect_chain_segment(&mut self) {
             match self.beacon_processor_rx.try_recv() {
                 Ok(work) => {
-                    assert_eq!(work.work_type(), beacon_processor::CHAIN_SEGMENT);
+                    assert_eq!(work.work_type(), beacon_processor::WorkType::ChainSegment);
                 }
                 other => panic!("Expected chain segment process, found {:?}", other),
             }
@@ -691,9 +692,11 @@ mod tests {
         );
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         let (sync_tx, _sync_rx) = mpsc::unbounded_channel::<SyncMessage<E>>();
+        let network_config = Arc::new(NetworkConfig::default());
         let globals = Arc::new(NetworkGlobals::new_test_globals(
             Vec::new(),
             &log,
+            network_config,
             chain.spec.clone(),
         ));
         let (network_beacon_processor, beacon_processor_rx) =

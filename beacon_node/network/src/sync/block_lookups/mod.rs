@@ -30,7 +30,9 @@ use crate::sync::block_lookups::common::ResponseType;
 use crate::sync::block_lookups::parent_chain::find_oldest_fork_ancestor;
 use crate::sync::SyncMessage;
 use beacon_chain::block_verification_types::AsBlock;
-use beacon_chain::data_availability_checker::AvailabilityCheckErrorCategory;
+use beacon_chain::data_availability_checker::{
+    AvailabilityCheckError, AvailabilityCheckErrorCategory,
+};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 pub use common::RequestState;
 use fnv::FnvHashMap;
@@ -514,7 +516,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn on_processing_result(
         &mut self,
         process_type: BlockProcessType,
-        result: BlockProcessingResult<T::EthSpec>,
+        result: BlockProcessingResult,
         cx: &mut SyncNetworkContext<T>,
     ) {
         let lookup_result = match process_type {
@@ -534,7 +536,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn on_processing_result_inner<R: RequestState<T>>(
         &mut self,
         lookup_id: SingleLookupId,
-        result: BlockProcessingResult<T::EthSpec>,
+        result: BlockProcessingResult,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
         let Some(lookup) = self.single_block_lookups.get_mut(&lookup_id) else {
@@ -556,7 +558,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         let action = match result {
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
-            | BlockProcessingResult::Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            | BlockProcessingResult::Err(BlockError::DuplicateFullyImported(..)) => {
                 // Successfully imported
                 request_state.on_processing_success()?;
                 Action::Continue
@@ -580,6 +582,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     Action::Retry
                 }
             }
+            BlockProcessingResult::Err(BlockError::DuplicateImportStatusUnknown(..)) => {
+                // This is unreachable because RPC blocks do not undergo gossip verification, and
+                // this error can *only* come from gossip verification.
+                error!(
+                    self.log,
+                    "Single block lookup hit unreachable condition";
+                    "block_root" => ?block_root
+                );
+                Action::Drop
+            }
             BlockProcessingResult::Ignored => {
                 // Beacon processor signalled to ignore the block processing result.
                 // This implies that the cpu is overloaded. Drop the request.
@@ -597,16 +609,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         error!(self.log, "Beacon chain error processing lookup component"; "block_root" => %block_root, "error" => ?e);
                         Action::Drop
                     }
-                    BlockError::ParentUnknown(block) => {
+                    BlockError::ParentUnknown { parent_root, .. } => {
                         // Reverts the status of this request to `AwaitingProcessing` holding the
                         // downloaded data. A future call to `continue_requests` will re-submit it
                         // once there are no pending parent requests.
                         // Note: `BlockError::ParentUnknown` is only returned when processing
                         // blocks, not blobs.
                         request_state.revert_to_awaiting_processing()?;
-                        Action::ParentUnknown {
-                            parent_root: block.parent_root(),
-                        }
+                        Action::ParentUnknown { parent_root }
                     }
                     ref e @ BlockError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
                         // These errors indicate that the execution layer is offline
@@ -634,8 +644,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     other => {
                         debug!(self.log, "Invalid lookup component"; "block_root" => ?block_root, "component" => ?R::response_type(), "error" => ?other);
                         let peer_group = request_state.on_processing_failure()?;
-                        // TOOD(das): only downscore peer subgroup that provided the invalid proof
-                        for peer in peer_group.all() {
+                        let peers_to_penalize: Vec<_> = match other {
+                            // Note: currenlty only InvalidColumn errors have index granularity,
+                            // but future errors may follow the same pattern. Generalize this
+                            // pattern with https://github.com/sigp/lighthouse/pull/6321
+                            BlockError::AvailabilityCheck(
+                                AvailabilityCheckError::InvalidColumn(index, _),
+                            ) => peer_group.of_index(index as usize).collect(),
+                            _ => peer_group.all().collect(),
+                        };
+                        for peer in peers_to_penalize {
                             cx.report_peer(
                                 *peer,
                                 PeerAction::MidToleranceError,

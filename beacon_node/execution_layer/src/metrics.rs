@@ -54,13 +54,6 @@ pub static EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID: LazyLock<Result<IntCounterVe
     )
     },
 );
-pub static EXECUTION_LAYER_GET_PAYLOAD_BY_BLOCK_HASH: LazyLock<Result<Histogram>> =
-    LazyLock::new(|| {
-        try_create_histogram(
-            "execution_layer_get_payload_by_block_hash_time",
-            "Time to reconstruct a payload from the EE using eth_getBlockByHash",
-        )
-    });
 pub static EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
         try_create_histogram(
