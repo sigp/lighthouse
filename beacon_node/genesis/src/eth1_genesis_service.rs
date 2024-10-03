@@ -43,7 +43,7 @@ impl Eth1GenesisService {
     /// Creates a new service. Does not attempt to connect to the Eth1 node.
     ///
     /// Modifies the given `config` to make it more suitable to the task of listening to genesis.
-    pub fn new(config: Eth1Config, log: Logger, spec: ChainSpec) -> Result<Self, String> {
+    pub fn new(config: Eth1Config, log: Logger, spec: Arc<ChainSpec>) -> Result<Self, String> {
         let config = Eth1Config {
             // Truncating the block cache makes searching for genesis more
             // complicated.
@@ -100,9 +100,9 @@ impl Eth1GenesisService {
     pub async fn wait_for_genesis_state<E: EthSpec>(
         &self,
         update_interval: Duration,
-        spec: ChainSpec,
     ) -> Result<BeaconState<E>, String> {
         let eth1_service = &self.eth1_service;
+        let spec = eth1_service.chain_spec();
         let log = &eth1_service.log;
 
         let mut sync_blocks = false;
@@ -180,13 +180,13 @@ impl Eth1GenesisService {
 
             // Scan the new eth1 blocks, searching for genesis.
             if let Some(genesis_state) =
-                self.scan_new_blocks::<E>(&mut highest_processed_block, &spec)?
+                self.scan_new_blocks::<E>(&mut highest_processed_block, spec)?
             {
                 info!(
                     log,
                     "Genesis ceremony complete";
                     "genesis_validators" => genesis_state
-                        .get_active_validator_indices(E::genesis_epoch(), &spec)
+                        .get_active_validator_indices(E::genesis_epoch(), spec)
                         .map_err(|e| format!("Genesis validators error: {:?}", e))?
                         .len(),
                     "genesis_time" => genesis_state.genesis_time(),
@@ -203,7 +203,7 @@ impl Eth1GenesisService {
             let latest_timestamp = self.stats.latest_timestamp.load(Ordering::Relaxed);
 
             // Perform some logging.
-            if timestamp_can_trigger_genesis(latest_timestamp, &spec)? {
+            if timestamp_can_trigger_genesis(latest_timestamp, spec)? {
                 // Indicate that we are awaiting adequate active validators.
                 if (active_validator_count as u64) < spec.min_genesis_active_validator_count {
                     info!(

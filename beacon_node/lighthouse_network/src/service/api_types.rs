@@ -6,16 +6,9 @@ use types::{
     LightClientFinalityUpdate, LightClientOptimisticUpdate, SignedBeaconBlock,
 };
 
-use crate::rpc::methods::{
-    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
-};
 use crate::rpc::{
-    methods::{
-        BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest,
-        OldBlocksByRangeRequest, OldBlocksByRangeRequestV1, OldBlocksByRangeRequestV2,
-        RPCCodedResponse, RPCResponse, ResponseTermination, StatusMessage,
-    },
-    OutboundRequest, SubstreamId,
+    methods::{ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage},
+    SubstreamId,
 };
 
 /// Identifier of requests sent by a peer.
@@ -93,69 +86,6 @@ pub enum RequestId {
     Internal,
 }
 
-/// The type of RPC requests the Behaviour informs it has received and allows for sending.
-///
-// NOTE: This is an application-level wrapper over the lower network level requests that can be
-//       sent. The main difference is the absence of the Ping, Metadata and Goodbye protocols, which don't
-//       leave the Behaviour. For all protocols managed by RPC see `RPCRequest`.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Request {
-    /// A Status message.
-    Status(StatusMessage),
-    /// A blocks by range request.
-    BlocksByRange(BlocksByRangeRequest),
-    /// A blobs by range request.
-    BlobsByRange(BlobsByRangeRequest),
-    /// A request blocks root request.
-    BlocksByRoot(BlocksByRootRequest),
-    // light client bootstrap request
-    LightClientBootstrap(LightClientBootstrapRequest),
-    // light client optimistic update request
-    LightClientOptimisticUpdate,
-    // light client finality update request
-    LightClientFinalityUpdate,
-    /// A request blobs root request.
-    BlobsByRoot(BlobsByRootRequest),
-    /// A request data columns root request.
-    DataColumnsByRoot(DataColumnsByRootRequest),
-    /// A request data columns by range request.
-    DataColumnsByRange(DataColumnsByRangeRequest),
-}
-
-impl<E: EthSpec> std::convert::From<Request> for OutboundRequest<E> {
-    fn from(req: Request) -> OutboundRequest<E> {
-        match req {
-            Request::BlocksByRoot(r) => OutboundRequest::BlocksByRoot(r),
-            Request::BlocksByRange(r) => match r {
-                BlocksByRangeRequest::V1(req) => OutboundRequest::BlocksByRange(
-                    OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1 {
-                        start_slot: req.start_slot,
-                        count: req.count,
-                        step: 1,
-                    }),
-                ),
-                BlocksByRangeRequest::V2(req) => OutboundRequest::BlocksByRange(
-                    OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2 {
-                        start_slot: req.start_slot,
-                        count: req.count,
-                        step: 1,
-                    }),
-                ),
-            },
-            Request::LightClientBootstrap(_)
-            | Request::LightClientOptimisticUpdate
-            | Request::LightClientFinalityUpdate => {
-                unreachable!("Lighthouse never makes an outbound light client request")
-            }
-            Request::BlobsByRange(r) => OutboundRequest::BlobsByRange(r),
-            Request::BlobsByRoot(r) => OutboundRequest::BlobsByRoot(r),
-            Request::DataColumnsByRoot(r) => OutboundRequest::DataColumnsByRoot(r),
-            Request::DataColumnsByRange(r) => OutboundRequest::DataColumnsByRange(r),
-            Request::Status(s) => OutboundRequest::Status(s),
-        }
-    }
-}
-
 /// The type of RPC responses the Behaviour informs it has received, and allows for sending.
 ///
 // NOTE: This is an application-level wrapper over the lower network level responses that can be
@@ -186,44 +116,42 @@ pub enum Response<E: EthSpec> {
     LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
 }
 
-impl<E: EthSpec> std::convert::From<Response<E>> for RPCCodedResponse<E> {
-    fn from(resp: Response<E>) -> RPCCodedResponse<E> {
+impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
+    fn from(resp: Response<E>) -> RpcResponse<E> {
         match resp {
             Response::BlocksByRoot(r) => match r {
-                Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRoot(b)),
-                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRoot),
+                Some(b) => RpcResponse::Success(RpcSuccessResponse::BlocksByRoot(b)),
+                None => RpcResponse::StreamTermination(ResponseTermination::BlocksByRoot),
             },
             Response::BlocksByRange(r) => match r {
-                Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRange(b)),
-                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange),
+                Some(b) => RpcResponse::Success(RpcSuccessResponse::BlocksByRange(b)),
+                None => RpcResponse::StreamTermination(ResponseTermination::BlocksByRange),
             },
             Response::BlobsByRoot(r) => match r {
-                Some(b) => RPCCodedResponse::Success(RPCResponse::BlobsByRoot(b)),
-                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlobsByRoot),
+                Some(b) => RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(b)),
+                None => RpcResponse::StreamTermination(ResponseTermination::BlobsByRoot),
             },
             Response::BlobsByRange(r) => match r {
-                Some(b) => RPCCodedResponse::Success(RPCResponse::BlobsByRange(b)),
-                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlobsByRange),
+                Some(b) => RpcResponse::Success(RpcSuccessResponse::BlobsByRange(b)),
+                None => RpcResponse::StreamTermination(ResponseTermination::BlobsByRange),
             },
             Response::DataColumnsByRoot(r) => match r {
-                Some(d) => RPCCodedResponse::Success(RPCResponse::DataColumnsByRoot(d)),
-                None => RPCCodedResponse::StreamTermination(ResponseTermination::DataColumnsByRoot),
+                Some(d) => RpcResponse::Success(RpcSuccessResponse::DataColumnsByRoot(d)),
+                None => RpcResponse::StreamTermination(ResponseTermination::DataColumnsByRoot),
             },
             Response::DataColumnsByRange(r) => match r {
-                Some(d) => RPCCodedResponse::Success(RPCResponse::DataColumnsByRange(d)),
-                None => {
-                    RPCCodedResponse::StreamTermination(ResponseTermination::DataColumnsByRange)
-                }
+                Some(d) => RpcResponse::Success(RpcSuccessResponse::DataColumnsByRange(d)),
+                None => RpcResponse::StreamTermination(ResponseTermination::DataColumnsByRange),
             },
-            Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
+            Response::Status(s) => RpcResponse::Success(RpcSuccessResponse::Status(s)),
             Response::LightClientBootstrap(b) => {
-                RPCCodedResponse::Success(RPCResponse::LightClientBootstrap(b))
+                RpcResponse::Success(RpcSuccessResponse::LightClientBootstrap(b))
             }
             Response::LightClientOptimisticUpdate(o) => {
-                RPCCodedResponse::Success(RPCResponse::LightClientOptimisticUpdate(o))
+                RpcResponse::Success(RpcSuccessResponse::LightClientOptimisticUpdate(o))
             }
             Response::LightClientFinalityUpdate(f) => {
-                RPCCodedResponse::Success(RPCResponse::LightClientFinalityUpdate(f))
+                RpcResponse::Success(RpcSuccessResponse::LightClientFinalityUpdate(f))
             }
         }
     }

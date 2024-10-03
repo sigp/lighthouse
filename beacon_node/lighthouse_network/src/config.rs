@@ -440,28 +440,22 @@ pub fn gossipsub_config(
         fork_context: Arc<ForkContext>,
     ) -> Vec<u8> {
         let topic_bytes = message.topic.as_str().as_bytes();
-        match fork_context.current_fork() {
-            ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra => {
-                let topic_len_bytes = topic_bytes.len().to_le_bytes();
-                let mut vec = Vec::with_capacity(
-                    prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),
-                );
-                vec.extend_from_slice(&prefix);
-                vec.extend_from_slice(&topic_len_bytes);
-                vec.extend_from_slice(topic_bytes);
-                vec.extend_from_slice(&message.data);
-                vec
-            }
-            ForkName::Base => {
-                let mut vec = Vec::with_capacity(prefix.len() + message.data.len());
-                vec.extend_from_slice(&prefix);
-                vec.extend_from_slice(&message.data);
-                vec
-            }
+
+        if fork_context.current_fork().altair_enabled() {
+            let topic_len_bytes = topic_bytes.len().to_le_bytes();
+            let mut vec = Vec::with_capacity(
+                prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),
+            );
+            vec.extend_from_slice(&prefix);
+            vec.extend_from_slice(&topic_len_bytes);
+            vec.extend_from_slice(topic_bytes);
+            vec.extend_from_slice(&message.data);
+            vec
+        } else {
+            let mut vec = Vec::with_capacity(prefix.len() + message.data.len());
+            vec.extend_from_slice(&prefix);
+            vec.extend_from_slice(&message.data);
+            vec
         }
     }
     let message_domain_valid_snappy = gossipsub_config_params.message_domain_valid_snappy;

@@ -16,6 +16,7 @@ pub mod types;
 
 use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::{Error as ResponseError, *};
+use derivative::Derivative;
 use futures::Stream;
 use futures_util::StreamExt;
 use lighthouse_network::PeerId;
@@ -117,7 +118,7 @@ impl fmt::Display for Error {
 
 /// A struct to define a variety of different timeouts for different validator tasks to ensure
 /// proper fallback behaviour.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Timeouts {
     pub attestation: Duration,
     pub attester_duties: Duration,
@@ -154,12 +155,16 @@ impl Timeouts {
 
 /// A wrapper around `reqwest::Client` which provides convenience methods for interfacing with a
 /// Lighthouse Beacon Node HTTP server (`http_api`).
-#[derive(Clone)]
+#[derive(Clone, Debug, Derivative)]
+#[derivative(PartialEq)]
 pub struct BeaconNodeHttpClient {
+    #[derivative(PartialEq = "ignore")]
     client: reqwest::Client,
     server: SensitiveUrl,
     timeouts: Timeouts,
 }
+
+impl Eq for BeaconNodeHttpClient {}
 
 impl fmt::Display for BeaconNodeHttpClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

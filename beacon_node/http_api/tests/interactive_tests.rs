@@ -72,6 +72,7 @@ async fn state_by_root_pruned_from_fork_choice() {
                 })
         })),
         None,
+        Default::default(),
     )
     .await;
 
@@ -427,6 +428,7 @@ pub async fn proposer_boost_re_org_test(
                     DisallowedReOrgOffsets::new::<E>(disallowed_offsets).unwrap(),
                 )
         })),
+        Default::default(),
     )
     .await;
     let harness = &tester.harness;

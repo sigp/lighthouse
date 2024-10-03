@@ -3348,6 +3348,8 @@ where
                             };
                             if let Some(metrics) = self.metrics.as_mut() {
                                 metrics.register_idontwant(message_ids.len());
+                                let idontwant_size = message_ids.iter().map(|id| id.0.len()).sum();
+                                metrics.register_idontwant_bytes(idontwant_size);
                             }
                             for message_id in message_ids {
                                 peer.dont_send.insert(message_id, Instant::now());

@@ -9,7 +9,7 @@ use lighthouse_network::PeerId;
 use lru_cache::LRUTimeCache;
 use rand::Rng;
 use slog::{debug, warn};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use types::EthSpec;
 use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Hash256};
@@ -17,6 +17,7 @@ use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Hash256};
 use super::{LookupRequestResult, PeerGroup, RpcResponseResult, SyncNetworkContext};
 
 const FAILED_PEERS_CACHE_EXPIRY_SECONDS: u64 = 5;
+const MAX_STALE_NO_PEERS_DURATION: Duration = Duration::from_secs(30);
 
 type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
@@ -56,7 +57,7 @@ struct ActiveBatchColumnsRequest {
     indices: Vec<ColumnIndex>,
 }
 
-type CustodyRequestResult<E> = Result<Option<(DataColumnSidecarList<E>, PeerGroup)>, Error>;
+pub type CustodyRequestResult<E> = Result<Option<(DataColumnSidecarList<E>, PeerGroup)>, Error>;
 
 impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
     pub(crate) fn new(
@@ -221,13 +222,13 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         // - which peer returned what to have PeerGroup attributability
 
         for (column_index, request) in self.column_requests.iter_mut() {
-            if request.is_awaiting_download() {
+            if let Some(wait_duration) = request.is_awaiting_download() {
                 if request.download_failures > MAX_CUSTODY_COLUMN_DOWNLOAD_ATTEMPTS {
                     return Err(Error::TooManyFailures);
                 }
 
-                // TODO: When is a fork and only a subset of your peers know about a block, we should only
-                // query the peers on that fork. Should this case be handled? How to handle it?
+                // TODO(das): When is a fork and only a subset of your peers know about a block, we should
+                // only query the peers on that fork. Should this case be handled? How to handle it?
                 let custodial_peers = cx.get_custodial_peers(*column_index);
 
                 // TODO(das): cache this computation in a OneCell or similar to prevent having to
@@ -256,17 +257,20 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     .collect::<Vec<_>>();
                 priorized_peers.sort_unstable();
 
-                let Some((_, _, _, peer_id)) = priorized_peers.first() else {
-                    // Do not tolerate not having custody peers, hard error.
-                    // TODO(das): we might implement some grace period. The request will pause for X
-                    // seconds expecting the peer manager to find peers before failing the request.
+                if let Some((_, _, _, peer_id)) = priorized_peers.first() {
+                    columns_to_request_by_peer
+                        .entry(*peer_id)
+                        .or_default()
+                        .push(*column_index);
+                } else if wait_duration > MAX_STALE_NO_PEERS_DURATION {
+                    // Allow to request to sit stale in `NotStarted` state for at most
+                    // `MAX_STALE_NO_PEERS_DURATION`, else error and drop the request. Note that
+                    // lookup will naturally retry when other peers send us attestations for
+                    // descendants of this un-available lookup.
                     return Err(Error::NoPeers(*column_index));
-                };
-
-                columns_to_request_by_peer
-                    .entry(*peer_id)
-                    .or_default()
-                    .push(*column_index);
+                } else {
+                    // Do not issue requests if there is no custody peer on this column
+                }
             }
         }
 
@@ -315,7 +319,7 @@ struct ColumnRequest<E: EthSpec> {
 
 #[derive(Debug, Clone)]
 enum Status<E: EthSpec> {
-    NotStarted,
+    NotStarted(Instant),
     Downloading(DataColumnsByRootRequestId),
     Downloaded(PeerId, Arc<DataColumnSidecar<E>>),
 }
@@ -323,28 +327,28 @@ enum Status<E: EthSpec> {
 impl<E: EthSpec> ColumnRequest<E> {
     fn new() -> Self {
         Self {
-            status: Status::NotStarted,
+            status: Status::NotStarted(Instant::now()),
             download_failures: 0,
         }
     }
 
-    fn is_awaiting_download(&self) -> bool {
+    fn is_awaiting_download(&self) -> Option<Duration> {
         match self.status {
-            Status::NotStarted => true,
-            Status::Downloading { .. } | Status::Downloaded { .. } => false,
+            Status::NotStarted(start_time) => Some(start_time.elapsed()),
+            Status::Downloading { .. } | Status::Downloaded { .. } => None,
         }
     }
 
     fn is_downloaded(&self) -> bool {
         match self.status {
-            Status::NotStarted | Status::Downloading { .. } => false,
+            Status::NotStarted { .. } | Status::Downloading { .. } => false,
             Status::Downloaded { .. } => true,
         }
     }
 
     fn on_download_start(&mut self, req_id: DataColumnsByRootRequestId) -> Result<(), Error> {
         match &self.status {
-            Status::NotStarted => {
+            Status::NotStarted { .. } => {
                 self.status = Status::Downloading(req_id);
                 Ok(())
             }
@@ -363,7 +367,7 @@ impl<E: EthSpec> ColumnRequest<E> {
                         req_id,
                     });
                 }
-                self.status = Status::NotStarted;
+                self.status = Status::NotStarted(Instant::now());
                 Ok(())
             }
             other => Err(Error::BadState(format!(

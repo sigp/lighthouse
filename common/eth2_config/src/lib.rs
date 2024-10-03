@@ -7,6 +7,7 @@
 
 use std::env;
 use std::path::PathBuf;
+use std::sync::Arc;
 use types::{ChainSpec, EthSpecId};
 
 pub use paste::paste;
@@ -44,15 +45,12 @@ const CHIADO_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url 
 #[derive(Debug, Clone)]
 pub struct Eth2Config {
     pub eth_spec_id: EthSpecId,
-    pub spec: ChainSpec,
+    pub spec: Arc<ChainSpec>,
 }
 
 impl Default for Eth2Config {
     fn default() -> Self {
-        Self {
-            eth_spec_id: EthSpecId::Minimal,
-            spec: ChainSpec::minimal(),
-        }
+        Self::minimal()
     }
 }
 
@@ -60,21 +58,21 @@ impl Eth2Config {
     pub fn mainnet() -> Self {
         Self {
             eth_spec_id: EthSpecId::Mainnet,
-            spec: ChainSpec::mainnet(),
+            spec: Arc::new(ChainSpec::mainnet()),
         }
     }
 
     pub fn minimal() -> Self {
         Self {
             eth_spec_id: EthSpecId::Minimal,
-            spec: ChainSpec::minimal(),
+            spec: Arc::new(ChainSpec::minimal()),
         }
     }
 
     pub fn gnosis() -> Self {
         Self {
             eth_spec_id: EthSpecId::Gnosis,
-            spec: ChainSpec::gnosis(),
+            spec: Arc::new(ChainSpec::gnosis()),
         }
     }
 }
