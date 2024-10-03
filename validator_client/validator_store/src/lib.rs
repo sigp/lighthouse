@@ -1,7 +1,8 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
-use doppelganger_service::{DoppelgangerService, DoppelgangerStatus};
+use doppelganger_service::{DoppelGangerValidatorStore, DoppelgangerService, DoppelgangerStatus};
 use initialized_validators::InitializedValidators;
 use parking_lot::{Mutex, RwLock};
+use serde::{Deserialize, Serialize};
 use signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod};
 use slashing_protection::{
     interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
@@ -41,7 +42,7 @@ impl From<SigningError> for Error {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Fallback fallback address.
     pub fee_recipient: Option<Address>,
@@ -92,6 +93,12 @@ pub struct ValidatorStore<T, E: EthSpec> {
     builder_boost_factor: Option<u64>,
     task_executor: TaskExecutor,
     _phantom: PhantomData<E>,
+}
+
+impl<T: SlotClock + 'static, E: EthSpec> DoppelGangerValidatorStore for ValidatorStore<T, E> {
+    fn get_validator_index(&self, pubkey: &PublicKeyBytes) -> Option<u64> {
+        self.validator_index(pubkey)
+    }
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {

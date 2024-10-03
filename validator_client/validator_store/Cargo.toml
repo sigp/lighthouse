@@ -13,6 +13,7 @@ account_utils = { workspace = true }
 doppelganger_service = { workspace = true }
 initialized_validators = { workspace = true }
 parking_lot = { workspace = true }
+serde = { workspace = true }
 signing_method = { workspace = true }
 slashing_protection = { workspace = true }
 slog = { workspace = true }

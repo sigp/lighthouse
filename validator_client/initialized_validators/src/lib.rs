@@ -21,6 +21,7 @@ use lighthouse_metrics::set_gauge;
 use lockfile::{Lockfile, LockfileError};
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 use reqwest::{Certificate, Client, Error as ReqwestError, Identity};
+use serde::{Deserialize, Serialize};
 use signing_method::SigningMethod;
 use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
@@ -45,11 +46,22 @@ const DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 // Use TTY instead of stdin to capture passwords from users.
 const USE_STDIN: bool = false;
 
+pub const DEFAULT_WEB3SIGNER_KEEP_ALIVE: Option<Duration> = Some(Duration::from_secs(20));
+
 // The configuration for initialised validators.
-#[derive(Default, Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Config {
     pub web3_signer_keep_alive_timeout: Option<Duration>,
     pub web3_signer_max_idle_connections: Option<usize>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            web3_signer_keep_alive_timeout: DEFAULT_WEB3SIGNER_KEEP_ALIVE,
+            web3_signer_max_idle_connections: None,
+        }
+    }
 }
 
 pub enum OnDecryptFailure {

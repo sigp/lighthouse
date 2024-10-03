@@ -1,4 +1,3 @@
-use crate::http_metrics;
 use crate::{DutiesService, ProductionValidatorClient};
 use lighthouse_metrics::set_gauge;
 use slog::{error, info, Logger};
@@ -41,17 +40,17 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
 ) {
     let num_available = duties_service.beacon_nodes.num_available().await;
     set_gauge(
-        &http_metrics::metrics::AVAILABLE_BEACON_NODES_COUNT,
+        &validator_metrics::AVAILABLE_BEACON_NODES_COUNT,
         num_available as i64,
     );
     let num_synced = duties_service.beacon_nodes.num_synced().await;
     set_gauge(
-        &http_metrics::metrics::SYNCED_BEACON_NODES_COUNT,
+        &validator_metrics::SYNCED_BEACON_NODES_COUNT,
         num_synced as i64,
     );
     let num_total = duties_service.beacon_nodes.num_total();
     set_gauge(
-        &http_metrics::metrics::TOTAL_BEACON_NODES_COUNT,
+        &validator_metrics::TOTAL_BEACON_NODES_COUNT,
         num_total as i64,
     );
     if num_synced > 0 {
@@ -73,9 +72,9 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
     }
     let num_synced_fallback = duties_service.beacon_nodes.num_synced_fallback().await;
     if num_synced_fallback > 0 {
-        set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 1);
+        set_gauge(&validator_metrics::ETH2_FALLBACK_CONNECTED, 1);
     } else {
-        set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 0);
+        set_gauge(&validator_metrics::ETH2_FALLBACK_CONNECTED, 0);
     }
 
     if let Some(slot) = duties_service.slot_clock.now() {

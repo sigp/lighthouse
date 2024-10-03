@@ -12,16 +12,15 @@ use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 
 use beacon_node_fallback::{
-    start_fallback_updater_service, ApiTopic, BeaconNodeFallback, CandidateBeaconNode,
-    OfflineOnFailure, RequireSynced,
+    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, OfflineOnFailure,
+    RequireSynced,
 };
 
 use account_utils::validator_definitions::ValidatorDefinitions;
 use clap::ArgMatches;
 use doppelganger_service::DoppelgangerService;
 use environment::RuntimeContext;
-use eth2::{reqwest::ClientBuilder, types::Graffiti, BeaconNodeHttpClient, StatusCode, Timeouts};
-use graffiti_file::GraffitiFile;
+use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
 use initialized_validators::Error::UnableToOpenVotingKeystore;
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
@@ -40,7 +39,7 @@ use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
 };
-use types::{EthSpec, Hash256, PublicKeyBytes};
+use types::{EthSpec, Hash256};
 use validator_http_api::ApiSecret;
 use validator_services::{
     attestation_service::{AttestationService, AttestationServiceBuilder},
@@ -139,21 +138,22 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         // Optionally start the metrics server.
         let validator_metrics_ctx = if config.http_metrics.enabled {
-            let shared = validator_metrics::Shared {
+            let shared = validator_http_metrics::Shared {
                 validator_store: None,
                 genesis_time: None,
                 duties_service: None,
             };
 
-            let ctx: Arc<validator_metrics::Context<E>> = Arc::new(validator_metrics::Context {
-                config: config.http_metrics.clone(),
-                shared: RwLock::new(shared),
-                log: log.clone(),
-            });
+            let ctx: Arc<validator_http_metrics::Context<E>> =
+                Arc::new(validator_http_metrics::Context {
+                    config: config.http_metrics.clone(),
+                    shared: RwLock::new(shared),
+                    log: log.clone(),
+                });
 
             let exit = context.executor.exit();
 
-            let (_listen_addr, server) = validator_metrics::serve(ctx.clone(), exit)
+            let (_listen_addr, server) = validator_http_metrics::serve(ctx.clone(), exit)
                 .map_err(|e| format!("Unable to start metrics API server: {:?}", e))?;
 
             context
@@ -201,7 +201,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let validators = InitializedValidators::from_definitions(
             validator_defs,
             config.validator_dir.clone(),
-            config.clone(),
+            config.initialized_validators.clone(),
             log.clone(),
         )
         .await
@@ -364,20 +364,20 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         // Set the count for beacon node fallbacks excluding the primary beacon node.
         set_gauge(
-            &validator_metrics::metrics::ETH2_FALLBACK_CONFIGURED,
+            &validator_metrics::ETH2_FALLBACK_CONFIGURED,
             num_nodes.saturating_sub(1) as i64,
         );
         // Set the total beacon node count.
         set_gauge(
-            &validator_metrics::metrics::TOTAL_BEACON_NODES_COUNT,
+            &validator_metrics::TOTAL_BEACON_NODES_COUNT,
             num_nodes as i64,
         );
 
         // Initialize the number of connected, synced beacon nodes to 0.
-        set_gauge(&validator_metrics::metrics::ETH2_FALLBACK_CONNECTED, 0);
-        set_gauge(&validator_metrics::metrics::SYNCED_BEACON_NODES_COUNT, 0);
+        set_gauge(&validator_metrics::ETH2_FALLBACK_CONNECTED, 0);
+        set_gauge(&validator_metrics::SYNCED_BEACON_NODES_COUNT, 0);
         // Initialize the number of connected, avaliable beacon nodes to 0.
-        set_gauge(&validator_metrics::metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
+        set_gauge(&validator_metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
 
         let mut beacon_nodes: BeaconNodeFallback<_, E> = BeaconNodeFallback::new(
             candidates,
@@ -437,7 +437,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             context.eth2_config.spec.clone(),
             doppelganger_service.clone(),
             slot_clock.clone(),
-            &config,
+            &config.validator_store,
             context.executor.clone(),
             log.clone(),
         ));

@@ -1,4 +1,4 @@
-use crate::{http_metrics::metrics, BeaconNodeFallback};
+use beacon_node_fallback::BeaconNodeFallback;
 use environment::RuntimeContext;
 use slog::debug;
 use slot_clock::SlotClock;
@@ -44,14 +44,14 @@ pub fn start_latency_service<T: SlotClock + 'static, E: EthSpec>(
                         "node" => &measurement.beacon_node_id,
                         "latency" => latency.as_millis(),
                     );
-                    metrics::observe_timer_vec(
-                        &metrics::VC_BEACON_NODE_LATENCY,
+                    validator_metrics::observe_timer_vec(
+                        &validator_metrics::VC_BEACON_NODE_LATENCY,
                         &[&measurement.beacon_node_id],
                         latency,
                     );
                     if i == 0 {
-                        metrics::observe_duration(
-                            &metrics::VC_BEACON_NODE_LATENCY_PRIMARY_ENDPOINT,
+                        validator_metrics::observe_duration(
+                            &validator_metrics::VC_BEACON_NODE_LATENCY_PRIMARY_ENDPOINT,
                             latency,
                         );
                     }

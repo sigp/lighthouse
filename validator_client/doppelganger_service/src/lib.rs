@@ -117,7 +117,7 @@ pub const DEFAULT_REMAINING_DETECTION_EPOCHS: u64 = 1;
 /// initialises the doppelganger protection. For this reason, we abstract the validator store
 /// functions this service needs through the following trait
 pub trait DoppelGangerValidatorStore {
-    fn validator_index(&self, pubkey: &PublicKeyBytes) -> Option<u64>;
+    fn get_validator_index(&self, pubkey: &PublicKeyBytes) -> Option<u64>;
 }
 
 /// Store the per-validator status of doppelganger checking.
@@ -301,7 +301,7 @@ impl DoppelgangerService {
         V: DoppelGangerValidatorStore + Send + Sync + 'static,
     {
         // Define the `get_index` function as one that uses the validator store.
-        let get_index = move |pubkey| validator_store.validator_index(&pubkey);
+        let get_index = move |pubkey| validator_store.get_validator_index(&pubkey);
 
         // Define the `get_liveness` function as one that queries the beacon node API.
         let log = service.log.clone();
