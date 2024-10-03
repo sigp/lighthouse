@@ -2,10 +2,12 @@ use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, Kzg
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
 };
-use crate::data_availability_checker::overflow_lru_cache::DataAvailabilityCheckerInner;
-use crate::{BeaconChain, BeaconChainTypes, BeaconStore};
+use crate::data_availability_checker::overflow_lru_cache::{
+    DataAvailabilityCheckerInner, PendingComponents,
+};
+use crate::{metrics, BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
-use slog::{debug, error};
+use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use std::fmt;
 use std::fmt::Debug;
@@ -27,10 +29,11 @@ use crate::data_column_verification::{
     verify_kzg_for_data_column, verify_kzg_for_data_column_list, CustodyDataColumn,
     GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
 };
+use crate::metrics::{
+    KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
+};
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::non_zero_usize::new_non_zero_usize;
-
-pub use self::overflow_lru_cache::DataColumnsToPublish;
 
 /// The LRU Cache stores `PendingComponents` which can store up to
 /// `MAX_BLOBS_PER_BLOCK = 6` blobs each. A `BlobSidecar` is 0.131256 MB. So
@@ -71,7 +74,10 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     slot_clock: T::SlotClock,
     kzg: Arc<Kzg>,
     spec: Arc<ChainSpec>,
+    log: Logger,
 }
+
+pub type AvailabilityAndReconstructedColumns<E> = (Availability<E>, DataColumnSidecarList<E>);
 
 /// This type is returned after adding a block / blob to the `DataAvailabilityChecker`.
 ///
@@ -101,6 +107,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         store: BeaconStore<T>,
         import_all_data_columns: bool,
         spec: Arc<ChainSpec>,
+        log: Logger,
     ) -> Result<Self, AvailabilityCheckError> {
         let custody_subnet_count = if import_all_data_columns {
             spec.data_column_sidecar_subnet_count as usize
@@ -124,6 +131,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             slot_clock,
             kzg,
             spec,
+            log,
         })
     }
 
@@ -216,8 +224,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: Hash256,
         epoch: Epoch,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
-    ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
-    {
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         // TODO(das): report which column is invalid for proper peer scoring
         // TODO(das): batch KZG verification here, but fallback into checking each column
         // individually to report which column(s) are invalid.
@@ -233,7 +240,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .collect::<Result<Vec<_>, AvailabilityCheckError>>()?;
 
         self.availability_cache.put_kzg_verified_data_columns(
-            &self.kzg,
             block_root,
             epoch,
             verified_custody_columns,
@@ -267,8 +273,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         slot: Slot,
         block_root: Hash256,
         gossip_data_columns: Vec<GossipVerifiedDataColumn<T>>,
-    ) -> Result<(Availability<T::EthSpec>, DataColumnsToPublish<T::EthSpec>), AvailabilityCheckError>
-    {
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
 
         let custody_columns = gossip_data_columns
@@ -276,12 +281,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .map(|c| KzgVerifiedCustodyDataColumn::from_asserted_custody(c.into_inner()))
             .collect::<Vec<_>>();
 
-        self.availability_cache.put_kzg_verified_data_columns(
-            &self.kzg,
-            block_root,
-            epoch,
-            custody_columns,
-        )
+        self.availability_cache
+            .put_kzg_verified_data_columns(block_root, epoch, custody_columns)
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
@@ -510,6 +511,115 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             state_cache_size: self.availability_cache.state_cache_size(),
             block_cache_size: self.availability_cache.block_cache_size(),
         }
+    }
+
+    pub fn reconstruct_data_columns(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<AvailabilityAndReconstructedColumns<T::EthSpec>>, AvailabilityCheckError>
+    {
+        // Clone the pending components, so we don't hold the read lock during reconstruction
+        let Some(pending_components) = self
+            .availability_cache
+            .peek_pending_components(block_root, |pending_components_opt| {
+                pending_components_opt.cloned()
+            })
+        else {
+            // Block may have been imported as it does not exist in availability cache.
+            return Ok(None);
+        };
+
+        if !self.should_reconstruct(&pending_components) {
+            return Ok(None);
+        }
+
+        self.availability_cache
+            .set_reconstruction_started(block_root);
+
+        metrics::inc_counter(&KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS);
+        let timer = metrics::start_timer(&metrics::DATA_AVAILABILITY_RECONSTRUCTION_TIME);
+
+        let all_data_columns = KzgVerifiedCustodyDataColumn::reconstruct_columns(
+            &self.kzg,
+            &pending_components.verified_data_columns,
+            &self.spec,
+        )
+        .map_err(|e| {
+            error!(
+                self.log,
+                "Error reconstructing data columns";
+                "block_root" => ?block_root,
+                "error" => ?e
+            );
+            metrics::inc_counter(&KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES);
+            AvailabilityCheckError::ReconstructColumnsError(e)
+        })?;
+
+        // Check indices from cache again to make sure we don't publish components we've already received.
+        let Some(existing_column_indices) = self.cached_data_column_indexes(block_root) else {
+            // If block is already imported (no longer in cache), abort publishing data columns
+            // TODO(das) This assumes only supernodes do reconstructions (i.e. custody
+            // requirement = all columns). This behaviour is likely to change in the future when we
+            // get to 2D PeerDAS.
+            return Ok(None);
+        };
+
+        let data_columns_to_publish = all_data_columns
+            .into_iter()
+            .filter(|d| !existing_column_indices.contains(&d.index()))
+            .collect::<Vec<_>>();
+
+        // Return if there's no data columns to publish.
+        let Some(slot) = data_columns_to_publish
+            .first()
+            .map(|d| d.as_data_column().slot())
+        else {
+            return Ok(None);
+        };
+
+        metrics::stop_timer(timer);
+        metrics::inc_counter_by(
+            &metrics::DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS,
+            data_columns_to_publish.len() as u64,
+        );
+
+        debug!(self.log, "Reconstructed columns";
+            "count" => data_columns_to_publish.len(),
+            "block_root" => ?block_root,
+            "slot" => slot,
+        );
+
+        self.availability_cache
+            .put_kzg_verified_data_columns(
+                *block_root,
+                slot.epoch(T::EthSpec::slots_per_epoch()),
+                data_columns_to_publish.clone(),
+            )
+            .map(|availability| {
+                (
+                    availability,
+                    data_columns_to_publish
+                        .into_iter()
+                        .map(|d| d.clone_arc())
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .map(Some)
+    }
+
+    /// Potentially trigger reconstruction if:
+    /// - Our custody requirement is all columns, and we haven't got all columns
+    /// - We have >= 50% of columns, but not all columns
+    /// - Reconstruction hasn't been started for the block
+    fn should_reconstruct(&self, pending_components: &PendingComponents<T::EthSpec>) -> bool {
+        let received_column_count = pending_components.verified_data_columns.len();
+        // If we're sampling all columns, it means we must be custodying all columns.
+        let custody_column_count = self.availability_cache.sampling_column_count();
+        let total_column_count = self.spec.number_of_columns;
+        custody_column_count == total_column_count
+            && received_column_count < total_column_count
+            && received_column_count >= total_column_count / 2
+            && !pending_components.reconstruction_started
     }
 }
 
