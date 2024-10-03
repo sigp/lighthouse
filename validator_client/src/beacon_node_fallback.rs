@@ -467,7 +467,9 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// low quality responses. To route around this it's best to poll all connected beacon nodes.
     /// A previous implementation of this function polled only the unavailable BNs.
     pub async fn update_all_candidates(&self) {
-        let candidates = self.candidates.read().await;
+        // Clone the vec, so we release the read lock immediately.
+        // `candidate.health` is behind an Arc<RwLock>, so this would still allow us to mutate the values.
+        let candidates = self.candidates.read().await.clone();
         let mut futures = Vec::with_capacity(candidates.len());
         let mut nodes = Vec::with_capacity(candidates.len());
 
