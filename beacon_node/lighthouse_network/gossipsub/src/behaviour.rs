@@ -1826,10 +1826,11 @@ where
             }
             self.mcache.observe_duplicate(&msg_id, propagation_source);
 
-            // Broadcast IDONTWANT messages.
-            self.send_idontwant(&raw_message, &msg_id, propagation_source);
             return;
         }
+
+        // Broadcast IDONTWANT messages.
+        self.send_idontwant(&raw_message, &msg_id, propagation_source);
 
         tracing::debug!(
             message=%msg_id,
