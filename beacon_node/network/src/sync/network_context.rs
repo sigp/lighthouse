@@ -224,7 +224,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             network_send,
             execution_engine_state: EngineState::Online, // always assume `Online` at the start
             request_id: 1,
-            // true = enfore max_requests as returned for blocks_by_root. We always request a single
+            // true = enforce max_requests as returned for blocks_by_root. We always request a single
             // block and the peer must have it.
             blocks_by_root_requests: ActiveRequests::new(true, "blocks_by_root"),
             // true = enfore max_requests are returned for blobs_by_root. We only issue requests for
