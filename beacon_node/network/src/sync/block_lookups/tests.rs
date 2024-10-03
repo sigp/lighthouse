@@ -15,20 +15,21 @@ use beacon_chain::data_availability_checker::Availability;
 use beacon_chain::eth1_chain::CachingEth1Backend;
 use beacon_chain::test_utils::{
     build_log, generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
-    BeaconChainHarness, EphemeralHarnessType, NumBlobs,
+    BeaconChainHarness, EphemeralHarnessType, LoggerType, NumBlobs,
 };
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{
     AvailabilityPendingExecutedBlock, PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 use beacon_processor::WorkEvent;
-use lighthouse_network::rpc::{RPCError, RPCResponseErrorCode};
+use lighthouse_network::rpc::{RPCError, RequestType, RpcErrorResponse};
 use lighthouse_network::service::api_types::{
     AppRequestId, DataColumnsByRootRequester, Id, SamplingRequester, SingleLookupReqId,
     SyncRequestId,
 };
 use lighthouse_network::types::SyncState;
-use lighthouse_network::{NetworkConfig, NetworkGlobals, Request};
+use lighthouse_network::NetworkConfig;
+use lighthouse_network::NetworkGlobals;
 use slog::info;
 use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
 use store::MemoryStore;
@@ -102,8 +103,14 @@ struct TestRigConfig {
 
 impl TestRig {
     fn test_setup_with_config(config: Option<TestRigConfig>) -> Self {
-        let enable_log = cfg!(feature = "test_logger");
-        let log = build_log(slog::Level::Trace, enable_log);
+        let logger_type = if cfg!(feature = "test_logger") {
+            LoggerType::Test
+        } else if cfg!(feature = "ci_logger") {
+            LoggerType::CI
+        } else {
+            LoggerType::Null
+        };
+        let log = build_log(slog::Level::Trace, logger_type);
 
         // Use `fork_from_env` logic to set correct fork epochs
         let mut spec = test_spec::<E>();
@@ -618,7 +625,7 @@ impl TestRig {
             id,
             peer_id,
             RPCError::ErrorResponse(
-                RPCResponseErrorCode::ResourceUnavailable,
+                RpcErrorResponse::ResourceUnavailable,
                 "older than deneb".into(),
             ),
         );
@@ -894,7 +901,7 @@ impl TestRig {
         self.pop_received_network_event(|ev| match ev {
             NetworkMessage::SendRequest {
                 peer_id: _,
-                request: Request::BlocksByRoot(request),
+                request: RequestType::BlocksByRoot(request),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
             _ => None,
@@ -914,7 +921,7 @@ impl TestRig {
         self.pop_received_network_event(|ev| match ev {
             NetworkMessage::SendRequest {
                 peer_id: _,
-                request: Request::BlobsByRoot(request),
+                request: RequestType::BlobsByRoot(request),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             } if request
                 .blob_ids
@@ -939,7 +946,7 @@ impl TestRig {
         self.pop_received_network_event(|ev| match ev {
             NetworkMessage::SendRequest {
                 peer_id: _,
-                request: Request::BlocksByRoot(request),
+                request: RequestType::BlocksByRoot(request),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
             _ => None,
@@ -961,7 +968,7 @@ impl TestRig {
         self.pop_received_network_event(|ev| match ev {
             NetworkMessage::SendRequest {
                 peer_id: _,
-                request: Request::BlobsByRoot(request),
+                request: RequestType::BlobsByRoot(request),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             } if request
                 .blob_ids
@@ -989,7 +996,7 @@ impl TestRig {
                 .pop_received_network_event(|ev| match ev {
                     NetworkMessage::SendRequest {
                         peer_id: _,
-                        request: Request::DataColumnsByRoot(request),
+                        request: RequestType::DataColumnsByRoot(request),
                         request_id: AppRequestId::Sync(id @ SyncRequestId::DataColumnsByRoot { .. }),
                     } if request
                         .data_column_ids
