@@ -227,7 +227,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // true = enforce max_requests as returned for blocks_by_root. We always request a single
             // block and the peer must have it.
             blocks_by_root_requests: ActiveRequests::new(true, "blocks_by_root"),
-            // true = enfore max_requests are returned for blobs_by_root. We only issue requests for
+            // true = enforce max_requests are returned for blobs_by_root. We only issue requests for
             // blocks after we know the block has data, and only request peers after they claim to
             // have imported the block+blobs.
             blobs_by_root_requests: ActiveRequests::new(true, "blobs_by_root"),
