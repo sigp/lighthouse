@@ -18,7 +18,7 @@ use lighthouse_network::rpc::methods::{
 use lighthouse_network::rpc::{RequestId, SubstreamId};
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
-    Client, MessageId, NetworkGlobals, PeerId, PubsubMessage
+    Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
 };
 use slog::{debug, error, trace, Logger};
 use slot_clock::ManualSlotClock;
