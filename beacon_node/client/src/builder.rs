@@ -15,7 +15,7 @@ use beacon_chain::{
     eth1_chain::{CachingEth1Backend, Eth1Chain},
     slot_clock::{SlotClock, SystemTimeSlotClock},
     state_advance_timer::spawn_state_advance_timer,
-    store::{HotColdDB, ItemStore, LevelDB, StoreConfig},
+    store::{HotColdDB, ItemStore, StoreConfig},
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig, ServerSentEventHandler,
 };
 use beacon_chain::{Kzg, LightClientProducerEvent};
@@ -43,6 +43,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
+use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
 use tokio::sync::oneshot;
 use types::{
@@ -1032,7 +1033,7 @@ where
 }
 
 impl<TSlotClock, TEth1Backend, E>
-    ClientBuilder<Witness<TSlotClock, TEth1Backend, E, LevelDB<E>, LevelDB<E>>>
+    ClientBuilder<Witness<TSlotClock, TEth1Backend, E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>
 where
     TSlotClock: SlotClock + 'static,
     TEth1Backend: Eth1ChainBackend<E> + 'static,

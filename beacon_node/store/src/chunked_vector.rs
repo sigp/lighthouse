@@ -691,8 +691,12 @@ where
         key: &[u8],
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        let db_key = get_key_for_col(column.into(), key);
-        ops.push(KeyValueStoreOp::PutKeyValue(db_key, self.encode()?));
+        let column_name: &str = column.into();
+        ops.push(KeyValueStoreOp::PutKeyValue(
+            column_name.to_owned(),
+            key.to_vec(),
+            self.encode()?,
+        ));
         Ok(())
     }
 

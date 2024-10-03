@@ -56,7 +56,8 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
-use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
+use store::database::interface::BeaconNodeBackend;
+use store::{config::StoreConfig, HotColdDB, ItemStore, MemoryStore};
 use task_executor::TaskExecutor;
 use task_executor::{test_utils::TestRuntime, ShutdownReason};
 use tree_hash::TreeHash;
@@ -116,7 +117,7 @@ pub fn get_kzg(spec: &ChainSpec) -> Arc<Kzg> {
 pub type BaseHarnessType<E, THotStore, TColdStore> =
     Witness<TestingSlotClock, CachingEth1Backend<E>, E, THotStore, TColdStore>;
 
-pub type DiskHarnessType<E> = BaseHarnessType<E, LevelDB<E>, LevelDB<E>>;
+pub type DiskHarnessType<E> = BaseHarnessType<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>;
 pub type EphemeralHarnessType<E> = BaseHarnessType<E, MemoryStore<E>, MemoryStore<E>>;
 
 pub type BoxedMutator<E, Hot, Cold> = Box<
@@ -299,7 +300,10 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
 
 impl<E: EthSpec> Builder<DiskHarnessType<E>> {
     /// Disk store, start from genesis.
-    pub fn fresh_disk_store(mut self, store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>) -> Self {
+    pub fn fresh_disk_store(
+        mut self,
+        store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+    ) -> Self {
         let validator_keypairs = self
             .validator_keypairs
             .clone()
@@ -324,7 +328,10 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
     }
 
     /// Disk store, resume.
-    pub fn resumed_disk_store(mut self, store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>) -> Self {
+    pub fn resumed_disk_store(
+        mut self,
+        store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+    ) -> Self {
         let mutator = move |builder: BeaconChainBuilder<_>| {
             builder
                 .resume_from_db()

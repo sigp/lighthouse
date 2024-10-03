@@ -7,7 +7,7 @@ autotests = false
 rust-version = "1.80.0"
 
 [features]
-default = ["slasher-lmdb"]
+default = ["slasher-lmdb", "beacon-node-leveldb"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = ["beacon_node/write_ssz_files"]
 # Compiles the BLS crypto code so that the binary is portable across machines.
@@ -24,6 +24,11 @@ slasher-mdbx = ["slasher/mdbx"]
 slasher-lmdb = ["slasher/lmdb"]
 # Support slasher redb backend.
 slasher-redb = ["slasher/redb"]
+# Supports beacon node leveldb backend.
+beacon-node-leveldb = ["store/leveldb"]
+# Supports beacon node redb backend.
+beacon-node-redb = ["store/redb"]
+
 # Deprecated. This is now enabled by default on non windows targets.
 jemalloc = []
 
@@ -61,6 +66,7 @@ database_manager = { path = "../database_manager" }
 slasher = { workspace = true }
 validator_manager = { path = "../validator_manager" }
 logging = { workspace = true }
+store = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

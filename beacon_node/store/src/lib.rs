@@ -17,7 +17,6 @@ mod forwards_iter;
 mod garbage_collection;
 pub mod hot_cold_store;
 mod impls;
-mod leveldb_store;
 mod memory_store;
 pub mod metadata;
 pub mod metrics;
@@ -25,13 +24,12 @@ mod partial_beacon_state;
 pub mod reconstruct;
 pub mod state_cache;
 
+pub mod database;
 pub mod iter;
-
 pub use self::chunk_writer::ChunkWriter;
 pub use self::config::StoreConfig;
 pub use self::consensus_context::OnDiskConsensusContext;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
-pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
 pub use self::partial_beacon_state::PartialBeaconState;
 pub use crate::metadata::BlobInfo;
@@ -41,16 +39,17 @@ pub use metadata::AnchorInfo;
 pub use metrics::scrape_for_metrics;
 use parking_lot::MutexGuard;
 use std::sync::Arc;
-use strum::{EnumString, IntoStaticStr};
+use strum::{EnumIter, EnumString, IntoStaticStr};
 pub use types::*;
 
 const DATA_COLUMN_DB_KEY_SIZE: usize = 32 + 8;
 
-pub type ColumnIter<'a, K> = Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>;
-pub type ColumnKeyIter<'a, K> = Box<dyn Iterator<Item = Result<K, Error>> + 'a>;
+pub type ColumnIter<'a, K> =
+    Result<Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>, Error>;
+pub type ColumnKeyIter<'a, K> = Result<Box<dyn Iterator<Item = Result<K, Error>> + 'a>, Error>;
 
-pub type RawEntryIter<'a> = Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>;
-pub type RawKeyIter<'a> = Box<dyn Iterator<Item = Result<Vec<u8>, Error>> + 'a>;
+pub type RawEntryIter<'a> =
+    Result<Box<dyn Iterator<Item = Result<(Vec<u8>, Vec<u8>), Error>> + 'a>, Error>;
 
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
@@ -101,20 +100,25 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
 
     /// Iterate through all keys and values in a particular column.
     fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
-        self.iter_column_from(column, &vec![0; column.key_size()])
+        self.iter_column_from(column, &vec![0; column.key_size()], |_, _| true)
     }
 
-    /// Iterate through all keys and values in a column from a given starting point.
-    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K>;
+    /// Iterate through all keys and values in a column from a given starting point that fulfill the given predicate.
+    fn iter_column_from<K: Key>(
+        &self,
+        column: DBColumn,
+        from: &[u8],
+        predicate: impl Fn(&[u8], &[u8]) -> bool + 'static,
+    ) -> ColumnIter<K>;
 
     fn iter_raw_entries(&self, _column: DBColumn, _prefix: &[u8]) -> RawEntryIter {
-        Box::new(std::iter::empty())
+        Ok(Box::new(std::iter::empty()))
     }
 
-    fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter;
+    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
 
     /// Iterate through all keys in a particular column.
-    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
+    fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K>;
 }
 
 pub trait Key: Sized + 'static {
@@ -175,8 +179,12 @@ pub fn parse_data_column_key(data: Vec<u8>) -> Result<(Hash256, ColumnIndex), Er
 #[must_use]
 #[derive(Clone)]
 pub enum KeyValueStoreOp {
-    PutKeyValue(Vec<u8>, Vec<u8>),
-    DeleteKey(Vec<u8>),
+    // Indicate that a PUT operation should be made
+    // to the db store for a (Column, Key, Value)
+    PutKeyValue(String, Vec<u8>, Vec<u8>),
+    // Indicate that a DELETE operation should be made
+    // to the db store for a (Column, Key)
+    DeleteKey(String, Vec<u8>),
 }
 
 pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'static {
@@ -246,7 +254,7 @@ pub enum StoreOp<'a, E: EthSpec> {
 }
 
 /// A unique column identifier.
-#[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr, EnumString)]
+#[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr, EnumString, EnumIter)]
 pub enum DBColumn {
     /// For data related to the database itself.
     #[strum(serialize = "bma")]
@@ -375,13 +383,19 @@ pub trait StoreItem: Sized {
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error>;
 
     fn as_kv_store_op(&self, key: Hash256) -> KeyValueStoreOp {
-        let db_key = get_key_for_col(Self::db_column().into(), key.as_slice());
-        KeyValueStoreOp::PutKeyValue(db_key, self.as_store_bytes())
+        let column_name: &str = Self::db_column().into();
+        KeyValueStoreOp::PutKeyValue(
+            column_name.to_owned(),
+            key.as_slice().to_vec(),
+            self.as_store_bytes(),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::database::interface::BeaconNodeBackend;
+
     use super::*;
     use ssz::{Decode, Encode};
     use ssz_derive::{Decode, Encode};
@@ -431,7 +445,7 @@ mod tests {
     fn simplediskdb() {
         let dir = tempdir().unwrap();
         let path = dir.path();
-        let store = LevelDB::open(path).unwrap();
+        let store = BeaconNodeBackend::open(&StoreConfig::default(), path).unwrap();
 
         test_impl(store);
     }

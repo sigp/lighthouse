@@ -26,12 +26,12 @@ use std::convert::TryInto;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use store::chunked_vector::Chunk;
+use store::database::interface::BeaconNodeBackend;
 use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN};
 use store::{
     chunked_vector::{chunk_key, Field},
-    get_key_for_col,
     iter::{BlockRootsIterator, StateRootsIterator},
-    BlobInfo, DBColumn, HotColdDB, KeyValueStore, KeyValueStoreOp, LevelDB, StoreConfig,
+    BlobInfo, DBColumn, HotColdDB, KeyValueStoreOp, StoreConfig,
 };
 use tempfile::{tempdir, TempDir};
 use tokio::time::sleep;
@@ -49,7 +49,7 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 type E = MinimalEthSpec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
-fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
+fn get_store(db_path: &TempDir) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
     get_store_generic(db_path, StoreConfig::default(), test_spec::<E>())
 }
 
@@ -57,7 +57,7 @@ fn get_store_generic(
     db_path: &TempDir,
     config: StoreConfig,
     spec: ChainSpec,
-) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
+) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
     let blobs_path = db_path.path().join("blobs_db");
@@ -76,7 +76,7 @@ fn get_store_generic(
 }
 
 fn get_harness(
-    store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
+    store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
     validator_count: usize,
 ) -> TestHarness {
     // Most tests expect to retain historic states, so we use this as the default.
@@ -88,7 +88,7 @@ fn get_harness(
 }
 
 fn get_harness_generic(
-    store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
+    store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
     validator_count: usize,
     chain_config: ChainConfig,
 ) -> TestHarness {
@@ -430,10 +430,12 @@ async fn heal_freezer_block_roots_at_split() {
     let chunk_index = <store::chunked_vector::BlockRoots as Field<E>>::chunk_index(
         last_restore_point_slot.as_usize(),
     );
-    let key_chunk = get_key_for_col(DBColumn::BeaconBlockRoots.as_str(), &chunk_key(chunk_index));
     store
         .cold_db
-        .do_atomically(vec![KeyValueStoreOp::DeleteKey(key_chunk)])
+        .do_atomically(vec![KeyValueStoreOp::DeleteKey(
+            DBColumn::BeaconBlockRoots.as_str().to_owned(),
+            chunk_key(chunk_index).to_vec(),
+        )])
         .unwrap();
 
     let block_root_err = store
@@ -509,10 +511,12 @@ async fn heal_freezer_block_roots_with_skip_slots() {
     let chunk_index = <store::chunked_vector::BlockRoots as Field<E>>::chunk_index(
         last_restore_point_slot.as_usize(),
     );
-    let key_chunk = get_key_for_col(DBColumn::BeaconBlockRoots.as_str(), &chunk_key(chunk_index));
     store
         .cold_db
-        .do_atomically(vec![KeyValueStoreOp::DeleteKey(key_chunk)])
+        .do_atomically(vec![KeyValueStoreOp::DeleteKey(
+            DBColumn::BeaconBlockRoots.as_str().to_owned(),
+            chunk_key(chunk_index).to_vec(),
+        )])
         .unwrap();
 
     let block_root_err = store
@@ -654,7 +658,6 @@ async fn full_participation_no_skips() {
             AttestationStrategy::AllValidators,
         )
         .await;
-
     check_finalization(&harness, num_blocks_produced);
     check_split_slot(&harness, store);
     check_chain_dump(&harness, num_blocks_produced + 1);
@@ -2549,7 +2552,7 @@ async fn garbage_collect_temp_states_from_failed_block() {
             .unwrap_err();
 
         assert_eq!(
-            store.iter_temporary_state_roots().count(),
+            store.iter_temporary_state_roots().unwrap().count(),
             block_slot.as_usize() - 1
         );
         store
@@ -2568,7 +2571,7 @@ async fn garbage_collect_temp_states_from_failed_block() {
 
     // On startup, the store should garbage collect all the temporary states.
     let store = get_store(&db_path);
-    assert_eq!(store.iter_temporary_state_roots().count(), 0);
+    assert_eq!(store.iter_temporary_state_roots().unwrap().count(), 0);
 }
 
 #[tokio::test]
@@ -3853,7 +3856,10 @@ fn check_finalization(harness: &TestHarness, expected_slot: u64) {
 }
 
 /// Check that the HotColdDB's split_slot is equal to the start slot of the last finalized epoch.
-fn check_split_slot(harness: &TestHarness, store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>) {
+fn check_split_slot(
+    harness: &TestHarness,
+    store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
+) {
     let split_slot = store.get_split_slot();
     assert_eq!(
         harness

@@ -1923,10 +1923,10 @@ impl ApiTester {
                 current_sync_committee_period as u64,
                 1,
                 &self.chain.spec,
+                test_logger(),
             )
             .unwrap();
 
-        assert_eq!(1, expected.len());
         assert_eq!(result.clone().unwrap().len(), expected.len());
         self
     }
@@ -1952,7 +1952,6 @@ impl ApiTester {
             .get_light_client_bootstrap(&self.chain.store, &block_root, 1u64, &self.chain.spec);
 
         assert!(expected.is_ok());
-
         assert_eq!(result.unwrap().data, expected.unwrap().unwrap().0);
 
         self

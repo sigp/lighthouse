@@ -120,7 +120,7 @@ pub fn load_optimistic_transition_blocks<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<Vec<OptimisticTransitionBlock>, StoreError> {
     process_results(
-        chain.store.hot_db.iter_column::<Hash256>(OTBColumn),
+        chain.store.hot_db.iter_column::<Hash256>(OTBColumn)?,
         |iter| {
             iter.map(|(_, bytes)| OptimisticTransitionBlock::from_store_bytes(&bytes))
                 .collect()
