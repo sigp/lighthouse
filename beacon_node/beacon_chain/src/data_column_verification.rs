@@ -116,12 +116,6 @@ pub enum GossipDataColumnError {
     ///
     /// The column sidecar is invalid and the peer is faulty
     InvalidInclusionProof,
-    /// Data column not expected for a block with empty kzg commitments.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The column sidecar is invalid and the peer is faulty
-    UnexpectedDataColumn,
     /// A column has already been seen for the given `(sidecar.block_root, sidecar.index)` tuple
     /// over gossip or no gossip sources.
     ///
@@ -133,6 +127,25 @@ pub enum GossipDataColumnError {
         slot: Slot,
         index: ColumnIndex,
     },
+    /// Data column index must be between 0 and `NUMBER_OF_COLUMNS` (exclusive).
+    ///
+    /// ## Peer scoring
+    ///
+    /// The column sidecar is invalid and the peer is faulty
+    InvalidColumnIndex(u64),
+    /// Data column not expected for a block with empty kzg commitments.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The column sidecar is invalid and the peer is faulty
+    UnexpectedDataColumn,
+    /// The data column length must be equal to the number of commitments/proofs, otherwise the
+    /// sidecar is invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The column sidecar is invalid and the peer is faulty
+    InconsistentCommitmentsOrProofLength,
 }
 
 impl From<BeaconChainError> for GossipDataColumnError {
@@ -373,10 +386,7 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError> {
     let column_slot = data_column.slot();
-    if data_column.kzg_commitments.is_empty() {
-        return Err(GossipDataColumnError::UnexpectedDataColumn);
-    }
-
+    verify_data_column_sidecar(&data_column, &chain.spec)?;
     verify_index_matches_subnet(&data_column, subnet, &chain.spec)?;
     verify_sidecar_not_from_future_slot(chain, column_slot)?;
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
@@ -403,6 +413,26 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes>(
         block_root: data_column.block_root(),
         data_column: kzg_verified_data_column,
     })
+}
+
+/// Verify if the data column sidecar is valid.
+fn verify_data_column_sidecar<E: EthSpec>(
+    data_column: &DataColumnSidecar<E>,
+    spec: &ChainSpec,
+) -> Result<(), GossipDataColumnError> {
+    if data_column.index >= spec.number_of_columns as u64 {
+        return Err(GossipDataColumnError::InvalidColumnIndex(data_column.index));
+    }
+    if data_column.kzg_commitments.is_empty() {
+        return Err(GossipDataColumnError::UnexpectedDataColumn);
+    }
+    if data_column.column.len() != data_column.kzg_commitments.len()
+        || data_column.column.len() != data_column.kzg_proofs.len()
+    {
+        return Err(GossipDataColumnError::InconsistentCommitmentsOrProofLength);
+    }
+
+    Ok(())
 }
 
 // Verify that this is the first column sidecar received for the tuple:
