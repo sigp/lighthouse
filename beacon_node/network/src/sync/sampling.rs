@@ -271,7 +271,10 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
             .column_indexes_by_sampling_request
             .get(&sampling_request_id)
         else {
-            error!(self.log, "Column indexes for the sampling request ID not found"; "sampling_request_id" => ?sampling_request_id);
+            error!(self.log,
+                "Column indexes for the sampling request ID not found";
+                "sampling_request_id" => ?sampling_request_id
+            );
             return Ok(None);
         };
 
@@ -281,16 +284,22 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                     .iter()
                     .map(|r| r.index)
                     .collect::<Vec<_>>();
-                debug!(self.log, "Sample download success"; "block_root" => %self.block_root, "column_indexes" => ?resp_column_indexes, "count" => resp_data_columns.len());
+                debug!(self.log,
+                    "Sample download success";
+                    "block_root" => %self.block_root,
+                    "column_indexes" => ?resp_column_indexes,
+                    "count" => resp_data_columns.len()
+                );
                 metrics::inc_counter_vec(&metrics::SAMPLE_DOWNLOAD_RESULT, &[metrics::SUCCESS]);
 
                 // Filter the data received in the response using the requested column indexes.
                 let mut data_columns = vec![];
                 for column_index in column_indexes {
                     let Some(request) = self.column_requests.get_mut(column_index) else {
-                        warn!(
-                            self.log,
-                            "Active column sample request not found"; "block_root" => %self.block_root, "column_index" => column_index
+                        warn!(self.log,
+                            "Active column sample request not found";
+                            "block_root" => %self.block_root,
+                            "column_index" => column_index
                         );
                         continue;
                     };
@@ -301,7 +310,11 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                     else {
                         // Peer does not have the requested data.
                         // TODO(das) what to do?
-                        debug!(self.log, "Sampling peer claims to not have the data"; "block_root" => %self.block_root, "column_index" => column_index);
+                        debug!(self.log,
+                            "Sampling peer claims to not have the data";
+                            "block_root" => %self.block_root,
+                            "column_index" => column_index
+                        );
                         request.on_sampling_error()?;
                         continue;
                     };
@@ -314,15 +327,16 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                         .iter()
                         .map(|d| d.index)
                         .collect::<Vec<_>>();
-                    debug!(
-                        self.log,
-                        "Received data that was not requested"; "block_root" => %self.block_root, "column_indexes" => ?resp_column_indexes
+                    debug!(self.log,
+                        "Received data that was not requested";
+                        "block_root" => %self.block_root,
+                        "column_indexes" => ?resp_column_indexes
                     );
                 }
 
                 // Handle the downloaded data columns.
                 if data_columns.is_empty() {
-                    debug!(self.log,"Received empty response"; "block_root" => %self.block_root);
+                    debug!(self.log, "Received empty response"; "block_root" => %self.block_root);
                     self.column_indexes_by_sampling_request
                         .remove(&sampling_request_id);
                 } else {
@@ -333,10 +347,18 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                     // Peer has data column, send to verify
                     let Some(beacon_processor) = cx.beacon_processor_if_enabled() else {
                         // If processor is not available, error the entire sampling
-                        debug!(self.log, "Dropping sampling"; "block" => %self.block_root, "reason" => "beacon processor unavailable");
+                        debug!(self.log,
+                            "Dropping sampling";
+                            "block" => %self.block_root,
+                            "reason" => "beacon processor unavailable"
+                        );
                         return Err(SamplingError::ProcessorUnavailable);
                     };
-                    debug!(self.log, "Sending data_column for verification"; "block" => ?self.block_root, "column_indexes" => ?column_indexes);
+                    debug!(self.log,
+                        "Sending data_column for verification";
+                        "block" => ?self.block_root,
+                        "column_indexes" => ?column_indexes
+                    );
                     if let Err(e) = beacon_processor.send_rpc_validate_data_columns(
                         self.block_root,
                         data_columns,
@@ -347,22 +369,31 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                         },
                     ) {
                         // TODO(das): Beacon processor is overloaded, what should we do?
-                        error!(self.log, "Dropping sampling"; "block" => %self.block_root, "reason" => e.to_string());
+                        error!(self.log,
+                            "Dropping sampling";
+                            "block" => %self.block_root,
+                            "reason" => e.to_string()
+                        );
                         return Err(SamplingError::SendFailed("beacon processor send failure"));
                     }
                 }
             }
             Err(err) => {
-                debug!(self.log, "Sample download error"; "block_root" => %self.block_root, "column_indexes" => ?column_indexes, "error" => ?err);
+                debug!(self.log, "Sample download error";
+                    "block_root" => %self.block_root,
+                    "column_indexes" => ?column_indexes,
+                    "error" => ?err
+                );
                 metrics::inc_counter_vec(&metrics::SAMPLE_DOWNLOAD_RESULT, &[metrics::FAILURE]);
 
                 // Error downloading, maybe penalize peer and retry again.
                 // TODO(das) with different peer or different peer?
                 for column_index in column_indexes {
                     let Some(request) = self.column_requests.get_mut(column_index) else {
-                        warn!(
-                            self.log,
-                            "Active column sample request not found"; "block_root" => %self.block_root, "column_index" => column_index
+                        warn!(self.log,
+                            "Active column sample request not found";
+                            "block_root" => %self.block_root,
+                            "column_index" => column_index
                         );
                         continue;
                     };

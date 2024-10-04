@@ -89,6 +89,7 @@ impl<E: EthSpec> PeerInfo<E> {
     }
 
     /// Returns if the peer is subscribed to a given `Subnet` from the metadata attnets/syncnets field.
+    /// Also returns true if the peer is assigned to custody a given data column `Subnet` computed from the metadata `custody_column_count` field or ENR `csc` field.
     pub fn on_subnet_metadata(&self, subnet: &Subnet) -> bool {
         if let Some(meta_data) = &self.meta_data {
             match subnet {
@@ -100,15 +101,7 @@ impl<E: EthSpec> PeerInfo<E> {
                         .syncnets()
                         .map_or(false, |s| s.get(**id as usize).unwrap_or(false))
                 }
-                Subnet::DataColumn(_) => {
-                    // TODO(das): Pending spec PR https://github.com/ethereum/consensus-specs/pull/3821
-                    // We should use MetaDataV3 for peer selection rather than
-                    // looking at subscribed peers (current behavior). Until MetaDataV3 is
-                    // implemented, this is the perhaps the only viable option on the current devnet
-                    // as the peer count is low and it's important to identify supernodes to get a
-                    // good distribution of peers across subnets.
-                    return true;
-                }
+                Subnet::DataColumn(column) => return self.custody_subnets.contains(column),
             }
         }
         false
@@ -365,7 +358,7 @@ impl<E: EthSpec> PeerInfo<E> {
     /// Sets an explicit value for the meta data.
     // VISIBILITY: The peer manager is able to adjust the meta_data
     pub(in crate::peer_manager) fn set_meta_data(&mut self, meta_data: MetaData<E>) {
-        self.meta_data = Some(meta_data)
+        self.meta_data = Some(meta_data);
     }
 
     /// Sets the connection status of the peer.
@@ -373,7 +366,10 @@ impl<E: EthSpec> PeerInfo<E> {
         self.connection_status = connection_status
     }
 
-    pub(super) fn set_custody_subnets(&mut self, custody_subnets: HashSet<DataColumnSubnetId>) {
+    pub(in crate::peer_manager) fn set_custody_subnets(
+        &mut self,
+        custody_subnets: HashSet<DataColumnSubnetId>,
+    ) {
         self.custody_subnets = custody_subnets
     }
 

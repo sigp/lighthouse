@@ -1,18 +1,26 @@
 use super::*;
 use crate::case_result::compare_result;
 use beacon_chain::kzg_utils::validate_blob;
-use eth2_network_config::TRUSTED_SETUP_BYTES;
+use kzg::trusted_setup::get_trusted_setup;
 use kzg::{Cell, Error as KzgError, Kzg, KzgCommitment, KzgProof, TrustedSetup};
 use serde::Deserialize;
 use std::marker::PhantomData;
+use std::sync::Arc;
+use std::sync::LazyLock;
 use types::Blob;
 
-pub fn get_kzg() -> Result<Kzg, Error> {
-    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
-        .map_err(|e| Error::InternalError(format!("Failed to initialize kzg: {:?}", e)))?;
-    // TODO(das): need to enable these tests when rayon issues in rust_eth_kzg are fixed
-    Kzg::new_from_trusted_setup(trusted_setup)
+static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
+    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
+        .map_err(|e| Error::InternalError(format!("Failed to initialize trusted setup: {:?}", e)))
+        .expect("failed to initialize trusted setup");
+    let kzg = Kzg::new_from_trusted_setup_das_enabled(trusted_setup)
         .map_err(|e| Error::InternalError(format!("Failed to initialize kzg: {:?}", e)))
+        .expect("failed to initialize kzg");
+    Arc::new(kzg)
+});
+
+pub fn get_kzg() -> Arc<Kzg> {
+    Arc::clone(&KZG)
 }
 
 pub fn parse_cells_and_proofs(
@@ -120,7 +128,7 @@ impl<E: EthSpec> Case for KZGVerifyBlobKZGProof<E> {
             Ok((blob, commitment, proof))
         };
 
-        let kzg = get_kzg()?;
+        let kzg = get_kzg();
         let result = parse_input(&self.input).and_then(|(blob, commitment, proof)| {
             match validate_blob::<E>(&kzg, &blob, commitment, proof) {
                 Ok(_) => Ok(true),

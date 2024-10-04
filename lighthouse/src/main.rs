@@ -626,20 +626,6 @@ fn run<E: EthSpec>(
         }));
     }
 
-    let mut tracing_log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
-
-    if tracing_log_path.is_none() {
-        tracing_log_path = Some(
-            parse_path_or_default(matches, "datadir")?
-                .join(DEFAULT_BEACON_NODE_DIR)
-                .join("logs"),
-        )
-    }
-
-    let path = tracing_log_path.clone().unwrap();
-
-    logging::create_tracing_layer(path);
-
     // Allow Prometheus to export the time at which the process was started.
     metrics::expose_process_start_time(&log);
 
@@ -723,6 +709,21 @@ fn run<E: EthSpec>(
                 info!(log, "Beacon node immediate shutdown triggered.");
                 return Ok(());
             }
+
+            let mut tracing_log_path: Option<PathBuf> =
+                clap_utils::parse_optional(matches, "logfile")?;
+
+            if tracing_log_path.is_none() {
+                tracing_log_path = Some(
+                    parse_path_or_default(matches, "datadir")?
+                        .join(DEFAULT_BEACON_NODE_DIR)
+                        .join("logs"),
+                )
+            }
+
+            let path = tracing_log_path.clone().unwrap();
+
+            logging::create_tracing_layer(path);
 
             executor.clone().spawn(
                 async move {

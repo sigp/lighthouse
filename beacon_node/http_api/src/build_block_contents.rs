@@ -11,11 +11,9 @@ pub fn build_block_contents<E: EthSpec>(
         BeaconBlockResponseWrapper::Blinded(block) => {
             Ok(ProduceBlockV3Response::Blinded(block.block))
         }
-        BeaconBlockResponseWrapper::Full(block) => match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => Ok(
-                ProduceBlockV3Response::Full(FullBlockContents::Block(block.block)),
-            ),
-            ForkName::Deneb | ForkName::Electra => {
+
+        BeaconBlockResponseWrapper::Full(block) => {
+            if fork_name.deneb_enabled() {
                 let BeaconBlockResponse {
                     block,
                     state: _,
@@ -37,7 +35,11 @@ pub fn build_block_contents<E: EthSpec>(
                         blobs,
                     }),
                 ))
+            } else {
+                Ok(ProduceBlockV3Response::Full(FullBlockContents::Block(
+                    block.block,
+                )))
             }
-        },
+        }
     }
 }
