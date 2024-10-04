@@ -108,13 +108,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             spec.custody_requirement as usize
         };
 
-        let custody_column_count =
-            custody_subnet_count.saturating_mul(spec.data_columns_per_subnet());
+        let subnet_sampling_size =
+            std::cmp::max(custody_subnet_count, spec.samples_per_slot as usize);
+        let sampling_column_count =
+            subnet_sampling_size.saturating_mul(spec.data_columns_per_subnet());
 
         let inner = DataAvailabilityCheckerInner::new(
             OVERFLOW_LRU_CAPACITY,
             store,
-            custody_column_count,
+            sampling_column_count,
             spec.clone(),
         )?;
         Ok(Self {
@@ -125,10 +127,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         })
     }
 
-    pub fn get_custody_columns_count(&self) -> usize {
-        self.availability_cache
-            .custody_subnet_count()
-            .saturating_mul(self.spec.data_columns_per_subnet())
+    pub fn get_sampling_column_count(&self) -> usize {
+        self.availability_cache.sampling_column_count()
     }
 
     /// Checks if the block root is currenlty in the availability cache awaiting import because
@@ -141,9 +141,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .get_execution_valid_block(block_root)
     }
 
-    /// Return the set of imported blob indexes for `block_root`. Returns None if there is no block
+    /// Return the set of cached blob indexes for `block_root`. Returns None if there is no block
     /// component for `block_root`.
-    pub fn imported_blob_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
+    pub fn cached_blob_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
         self.availability_cache
             .peek_pending_components(block_root, |components| {
                 components.map(|components| {
@@ -156,9 +156,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             })
     }
 
-    /// Return the set of imported custody column indexes for `block_root`. Returns None if there is
+    /// Return the set of cached custody column indexes for `block_root`. Returns None if there is
     /// no block component for `block_root`.
-    pub fn imported_custody_column_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
+    pub fn cached_data_column_indexes(&self, block_root: &Hash256) -> Option<Vec<u64>> {
         self.availability_cache
             .peek_pending_components(block_root, |components| {
                 components.map(|components| components.get_cached_data_columns_indices())
