@@ -173,8 +173,19 @@ jobs:
         channel: stable
         cache-target: release
         bins: cargo-nextest
+    - name: Create CI logger dir
+      run: mkdir ${{ runner.temp }}/network_test_logs
     - name: Run network tests for all known forks
       run: make test-network
+      env:
+        TEST_FEATURES: portable,ci_logger
+        CI_LOGGER_DIR: ${{ runner.temp }}/network_test_logs
+    - name: Upload logs
+      uses: actions/upload-artifact@v4
+      with:
+        name: network_test_logs
+        path: ${{ runner.temp }}/network_test_logs
+
   slasher-tests:
     name: slasher-tests
     needs: [check-labels]

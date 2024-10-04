@@ -1,8 +1,7 @@
-use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback, RequireSynced};
+use crate::beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use crate::{
     duties_service::DutiesService,
     validator_store::{Error as ValidatorStoreError, ValidatorStore},
-    OfflineOnFailure,
 };
 use environment::RuntimeContext;
 use eth2::types::BlockId;
@@ -180,8 +179,6 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         let response = self
             .beacon_nodes
             .first_success(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
                 |beacon_node| async move {
                     match beacon_node.get_beacon_blocks_root(BlockId::Head).await {
                         Ok(Some(block)) if block.execution_optimistic == Some(false) => {
@@ -299,16 +296,11 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             .collect::<Vec<_>>();
 
         self.beacon_nodes
-            .request(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                ApiTopic::SyncCommittee,
-                |beacon_node| async move {
-                    beacon_node
-                        .post_beacon_pool_sync_committee_signatures(committee_signatures)
-                        .await
-                },
-            )
+            .request(ApiTopic::SyncCommittee, |beacon_node| async move {
+                beacon_node
+                    .post_beacon_pool_sync_committee_signatures(committee_signatures)
+                    .await
+            })
             .await
             .map_err(|e| {
                 error!(
@@ -371,21 +363,17 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         let contribution = &self
             .beacon_nodes
-            .first_success(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                |beacon_node| async move {
-                    let sync_contribution_data = SyncContributionData {
-                        slot,
-                        beacon_block_root,
-                        subcommittee_index: subnet_id.into(),
-                    };
+            .first_success(|beacon_node| async move {
+                let sync_contribution_data = SyncContributionData {
+                    slot,
+                    beacon_block_root,
+                    subcommittee_index: subnet_id.into(),
+                };
 
-                    beacon_node
-                        .get_validator_sync_committee_contribution::<E>(&sync_contribution_data)
-                        .await
-                },
-            )
+                beacon_node
+                    .get_validator_sync_committee_contribution::<E>(&sync_contribution_data)
+                    .await
+            })
             .await
             .map_err(|e| {
                 crit!(
@@ -453,15 +441,11 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         // Publish to the beacon node.
         self.beacon_nodes
-            .first_success(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                |beacon_node| async move {
-                    beacon_node
-                        .post_validator_contribution_and_proofs(signed_contributions)
-                        .await
-                },
-            )
+            .first_success(|beacon_node| async move {
+                beacon_node
+                    .post_validator_contribution_and_proofs(signed_contributions)
+                    .await
+            })
             .await
             .map_err(|e| {
                 error!(
@@ -595,16 +579,11 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         if let Err(e) = self
             .beacon_nodes
-            .request(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                ApiTopic::Subscriptions,
-                |beacon_node| async move {
-                    beacon_node
-                        .post_validator_sync_committee_subscriptions(subscriptions_slice)
-                        .await
-                },
-            )
+            .request(ApiTopic::Subscriptions, |beacon_node| async move {
+                beacon_node
+                    .post_validator_sync_committee_subscriptions(subscriptions_slice)
+                    .await
+            })
             .await
         {
             error!(

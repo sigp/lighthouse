@@ -1,6 +1,6 @@
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::sync::manager::{BlockProcessType, SyncManager};
-use crate::sync::sampling::SamplingConfig;
+use crate::sync::peer_sampling::SamplingConfig;
 use crate::sync::{SamplingId, SyncMessage};
 use crate::NetworkMessage;
 use std::sync::Arc;
@@ -15,7 +15,7 @@ use beacon_chain::data_availability_checker::Availability;
 use beacon_chain::eth1_chain::CachingEth1Backend;
 use beacon_chain::test_utils::{
     build_log, generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
-    BeaconChainHarness, EphemeralHarnessType, NumBlobs,
+    BeaconChainHarness, EphemeralHarnessType, LoggerType, NumBlobs,
 };
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{
@@ -103,8 +103,14 @@ struct TestRigConfig {
 
 impl TestRig {
     fn test_setup_with_config(config: Option<TestRigConfig>) -> Self {
-        let enable_log = cfg!(feature = "test_logger");
-        let log = build_log(slog::Level::Trace, enable_log);
+        let logger_type = if cfg!(feature = "test_logger") {
+            LoggerType::Test
+        } else if cfg!(feature = "ci_logger") {
+            LoggerType::CI
+        } else {
+            LoggerType::Null
+        };
+        let log = build_log(slog::Level::Trace, logger_type);
 
         // Use `fork_from_env` logic to set correct fork epochs
         let mut spec = test_spec::<E>();
@@ -2031,9 +2037,10 @@ fn custody_lookup_happy_path() {
     // Should not request blobs
     let id = r.expect_block_lookup_request(block.canonical_root());
     r.complete_valid_block_request(id, block.into(), true);
-    let custody_column_count = spec.custody_requirement * spec.data_columns_per_subnet() as u64;
+    // for each slot we download `samples_per_slot` columns
+    let sample_column_count = spec.samples_per_slot * spec.data_columns_per_subnet() as u64;
     let custody_ids =
-        r.expect_only_data_columns_by_root_requests(block_root, custody_column_count as usize);
+        r.expect_only_data_columns_by_root_requests(block_root, sample_column_count as usize);
     r.complete_valid_custody_request(custody_ids, data_columns, false);
     r.expect_no_active_lookups();
 }

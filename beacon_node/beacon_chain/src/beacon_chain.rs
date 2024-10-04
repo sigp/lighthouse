@@ -2618,11 +2618,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Check if the current slot is greater than or equal to the Capella fork epoch.
     pub fn current_slot_is_post_capella(&self) -> Result<bool, Error> {
         let current_fork = self.spec.fork_name_at_slot::<T::EthSpec>(self.slot()?);
-        if let ForkName::Base | ForkName::Altair | ForkName::Bellatrix = current_fork {
-            Ok(false)
-        } else {
-            Ok(true)
-        }
+        Ok(current_fork.capella_enabled())
     }
 
     /// Import a BLS to execution change to the op pool.
@@ -3860,6 +3856,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         if let Some(data_columns) = data_columns {
+            // TODO(das): `available_block includes all sampled columns, but we only need to store
+            // custody columns. To be clarified in spec.
             if !data_columns.is_empty() {
                 debug!(
                     self.log, "Writing data_columns to store";
@@ -5950,26 +5948,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_attributes
         } else {
             let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
-            let withdrawals = match prepare_slot_fork {
-                ForkName::Base | ForkName::Altair | ForkName::Bellatrix => None,
-                ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
-                    let chain = self.clone();
-                    self.spawn_blocking_handle(
-                        move || {
-                            chain.get_expected_withdrawals(&forkchoice_update_params, prepare_slot)
-                        },
-                        "prepare_beacon_proposer_withdrawals",
-                    )
-                    .await?
-                    .map(Some)?
-                }
+
+            let withdrawals = if prepare_slot_fork.capella_enabled() {
+                let chain = self.clone();
+                self.spawn_blocking_handle(
+                    move || chain.get_expected_withdrawals(&forkchoice_update_params, prepare_slot),
+                    "prepare_beacon_proposer_withdrawals",
+                )
+                .await?
+                .map(Some)?
+            } else {
+                None
             };
 
-            let parent_beacon_block_root = match prepare_slot_fork {
-                ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => None,
-                ForkName::Deneb | ForkName::Electra => {
-                    Some(pre_payload_attributes.parent_beacon_block_root)
-                }
+            let parent_beacon_block_root = if prepare_slot_fork.deneb_enabled() {
+                Some(pre_payload_attributes.parent_beacon_block_root)
+            } else {
+                None
             };
 
             let payload_attributes = PayloadAttributes::new(
@@ -6115,27 +6110,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // `execution_engine_forkchoice_lock` apart from the one here.
         let forkchoice_lock = execution_layer.execution_engine_forkchoice_lock().await;
 
-        let (head_block_root, head_hash, justified_hash, finalized_hash) = if let Some(head_hash) =
-            params.head_hash
-        {
-            (
-                params.head_root,
-                head_hash,
-                params
-                    .justified_hash
-                    .unwrap_or_else(ExecutionBlockHash::zero),
-                params
-                    .finalized_hash
-                    .unwrap_or_else(ExecutionBlockHash::zero),
-            )
-        } else {
-            // The head block does not have an execution block hash. We must check to see if we
-            // happen to be the proposer of the transition block, in which case we still need to
-            // send forkchoice_updated.
-            match self.spec.fork_name_at_slot::<T::EthSpec>(next_slot) {
-                // We are pre-bellatrix; no need to update the EL.
-                ForkName::Base | ForkName::Altair => return Ok(()),
-                _ => {
+        let (head_block_root, head_hash, justified_hash, finalized_hash) =
+            if let Some(head_hash) = params.head_hash {
+                (
+                    params.head_root,
+                    head_hash,
+                    params
+                        .justified_hash
+                        .unwrap_or_else(ExecutionBlockHash::zero),
+                    params
+                        .finalized_hash
+                        .unwrap_or_else(ExecutionBlockHash::zero),
+                )
+            } else {
+                // The head block does not have an execution block hash. We must check to see if we
+                // happen to be the proposer of the transition block, in which case we still need to
+                // send forkchoice_updated.
+                if self
+                    .spec
+                    .fork_name_at_slot::<T::EthSpec>(next_slot)
+                    .bellatrix_enabled()
+                {
                     // We are post-bellatrix
                     if let Some(payload_attributes) = execution_layer
                         .payload_attributes(next_slot, params.head_root)
@@ -6169,9 +6164,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         // We are not a proposer, no need to update the EL.
                         return Ok(());
                     }
+                } else {
+                    return Ok(());
                 }
-            }
-        };
+            };
 
         let forkchoice_updated_response = execution_layer
             .notify_forkchoice_updated(
@@ -7014,7 +7010,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .finalized_checkpoint()
             .epoch
             .sync_committee_period(&self.spec)?;
-
         self.light_client_server_cache.get_light_client_bootstrap(
             &self.store,
             block_root,
