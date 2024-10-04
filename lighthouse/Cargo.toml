@@ -34,6 +34,7 @@ malloc_utils = { workspace = true, features = ["jemalloc"] }
 malloc_utils = { workspace = true }
 
 [dependencies]
+lighthouse_network = { workspace = true }
 beacon_node = { workspace = true }
 slog = { workspace = true }
 types = { workspace = true }
