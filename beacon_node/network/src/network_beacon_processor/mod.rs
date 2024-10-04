@@ -824,9 +824,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.chain.recompute_head_at_current_slot().await;
                 }
                 AvailabilityProcessingStatus::MissingComponents(_, _) => {
-                    error!(
+                    debug!(
                         self.log,
-                        "MissingComponents is not expected after engine blobs processed successfully";
+                        "Still missing blobs after engine blobs processed successfully";
                         "block_hash" => %block_root,
                     );
                 }
