@@ -89,7 +89,7 @@ pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<()
     }
 }
 
-pub async fn run<'a>(config: DeleteConfig) -> Result<(), String> {
+async fn run<'a>(config: DeleteConfig) -> Result<(), String> {
     let DeleteConfig {
         vc_url,
         vc_token_path,

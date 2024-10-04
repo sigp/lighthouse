@@ -61,7 +61,7 @@ pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<()
     }
 }
 
-pub async fn run<'a>(config: ListConfig) -> Result<String, String> {
+async fn run<'a>(config: ListConfig) -> Result<String, String> {
     let ListConfig {
         vc_url,
         vc_token_path,
