@@ -310,6 +310,13 @@ impl TestRig {
         );
     }
 
+    fn expect_active_sampling(&mut self, block_root: &Hash256) {
+        assert!(self
+            .sync_manager
+            .active_sampling_requests()
+            .contains(block_root));
+    }
+
     fn expect_clean_finished_sampling(&mut self) {
         self.expect_empty_network();
         self.expect_sampling_result_work();
@@ -1090,6 +1097,11 @@ impl TestRig {
         .unwrap_or_else(|e| panic!("Expected sampling result work: {e}"))
     }
 
+    fn expect_no_work_event(&mut self) {
+        self.drain_processor_rx();
+        assert!(self.network_rx_queue.is_empty());
+    }
+
     fn expect_no_penalty_for(&mut self, peer_id: PeerId) {
         self.drain_network_rx();
         let downscore_events = self
@@ -1289,6 +1301,16 @@ impl TestRig {
             block_root,
             imported: false,
         });
+    }
+
+    fn assert_sampling_request_status(
+        &self,
+        block_root: Hash256,
+        ongoing: &Vec<ColumnIndex>,
+        no_peers: &Vec<ColumnIndex>,
+    ) {
+        self.sync_manager
+            .assert_sampling_request_status(block_root, ongoing, no_peers)
     }
 }
 
@@ -2021,6 +2043,76 @@ fn sampling_avoid_retrying_same_peer() {
     r.sampling_requests_failed(sampling_ids, peer_id_2, RPCError::Disconnected);
     // Expect no more retries
     r.expect_empty_network();
+}
+
+#[test]
+fn sampling_batch_requests() {
+    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+        return;
+    };
+    let _supernode = r.new_connected_supernode_peer();
+    let (block, data_columns) = r.rand_block_and_data_columns();
+    let block_root = block.canonical_root();
+    r.trigger_sample_block(block_root, block.slot());
+
+    // Retrieve the sample request, which should be batched.
+    let (sync_request_id, column_indexes) = r
+        .expect_only_data_columns_by_root_requests(block_root, 1)
+        .pop()
+        .unwrap();
+    assert_eq!(column_indexes.len(), SAMPLING_REQUIRED_SUCCESSES);
+    r.assert_sampling_request_status(block_root, &column_indexes, &vec![]);
+
+    // Resolve the request.
+    r.complete_valid_sampling_column_requests(
+        vec![(sync_request_id, column_indexes.clone())],
+        data_columns,
+    );
+    r.expect_clean_finished_sampling();
+}
+
+#[test]
+fn sampling_batch_requests_not_enough_responses_returned() {
+    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+        return;
+    };
+    let _supernode = r.new_connected_supernode_peer();
+    let (block, data_columns) = r.rand_block_and_data_columns();
+    let block_root = block.canonical_root();
+    r.trigger_sample_block(block_root, block.slot());
+
+    // Retrieve the sample request, which should be batched.
+    let (sync_request_id, column_indexes) = r
+        .expect_only_data_columns_by_root_requests(block_root, 1)
+        .pop()
+        .unwrap();
+    assert_eq!(column_indexes.len(), SAMPLING_REQUIRED_SUCCESSES);
+
+    // The request status should be set to Sampling.
+    r.assert_sampling_request_status(block_root, &column_indexes, &vec![]);
+
+    // Split the indexes to simulate the case where the supernode doesn't have the requested column.
+    let (_column_indexes_supernode_does_not_have, column_indexes_to_complete) =
+        column_indexes.split_at(1);
+
+    // Complete the requests but only partially, so a NotEnoughResponsesReturned error occurs.
+    let data_columns_to_complete = data_columns
+        .iter()
+        .filter(|d| column_indexes_to_complete.contains(&d.index))
+        .cloned()
+        .collect::<Vec<_>>();
+    r.complete_data_columns_by_root_request(
+        (sync_request_id, column_indexes.clone()),
+        &data_columns_to_complete,
+    );
+
+    // The request status should be set to NoPeers since the supernode, the only peer, returned not enough responses.
+    r.assert_sampling_request_status(block_root, &vec![], &column_indexes);
+
+    // The sampling request stalls.
+    r.expect_empty_network();
+    r.expect_no_work_event();
+    r.expect_active_sampling(&block_root);
 }
 
 #[test]

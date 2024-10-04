@@ -5640,6 +5640,7 @@ dependencies = [
  "async-channel",
  "beacon_chain",
  "beacon_processor",
+ "bls",
  "delay_map",
  "derivative",
  "error-chain",
