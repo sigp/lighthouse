@@ -390,22 +390,22 @@ impl<T: BeaconChainTypes> Router<T> {
                     ),
                 ),
             PubsubMessage::SingleAttestation(subnet_single_attestation) => {
-                // TODO(single-attestation) unwrap
-                let attestation = Attestation::Electra(
+                // TODO(single-attestation) should we log the failure case?
+                if let Ok(attestation_electra) =
                     AttestationElectra::from_single_attestation(subnet_single_attestation.1)
-                        .unwrap(),
-                );
-
-                self.handle_beacon_processor_send_result(
-                    self.network_beacon_processor.send_unaggregated_attestation(
-                        message_id,
-                        peer_id,
-                        attestation,
-                        subnet_single_attestation.0,
-                        should_process,
-                        timestamp_now(),
-                    ),
-                )
+                {
+                    let attestation = Attestation::Electra(attestation_electra);
+                    self.handle_beacon_processor_send_result(
+                        self.network_beacon_processor.send_unaggregated_attestation(
+                            message_id,
+                            peer_id,
+                            attestation,
+                            subnet_single_attestation.0,
+                            should_process,
+                            timestamp_now(),
+                        ),
+                    )
+                }
             }
             PubsubMessage::BeaconBlock(block) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor.send_gossip_beacon_block(

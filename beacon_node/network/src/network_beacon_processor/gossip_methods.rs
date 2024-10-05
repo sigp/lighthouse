@@ -37,9 +37,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    beacon_block::BlockImportSource, Attestation, AttestationRef, AttesterSlashing, BlobSidecar,
-    DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
+    attestation::SingleAttestation, beacon_block::BlockImportSource, Attestation, AttestationRef,
+    AttesterSlashing, BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
+    IndexedAttestation, LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage,
     SyncSubnetId,
@@ -208,6 +208,43 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             message_id,
             validation_result,
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn process_gossip_single_attestation(
+        self: Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        attestation: Box<SingleAttestation>,
+        subnet_id: SubnetId,
+        should_import: bool,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        seen_timestamp: Duration,
+    ) {
+        let _ = self.chain.with_committee_cache(
+            attestation.data.target.root,
+            attestation.data.slot.epoch(T::EthSpec::slots_per_epoch()),
+            |committee_cache, _| {
+                let committees = committee_cache
+                    .get_beacon_committees_at_slot(attestation.data.slot)
+                    .unwrap_or_else(|_| vec![]);
+
+                let Ok(attestation) = attestation.to_attestation(&committees) else {
+                    todo!()
+                };
+                self.clone().process_gossip_attestation(
+                    message_id.clone(),
+                    peer_id,
+                    Box::new(attestation),
+                    subnet_id,
+                    should_import,
+                    reprocess_tx.clone(),
+                    seen_timestamp,
+                );
+
+                Ok(())
+            },
+        );
     }
 
     /* Processing functions */

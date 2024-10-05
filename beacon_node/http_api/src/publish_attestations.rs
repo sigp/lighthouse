@@ -82,6 +82,35 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
         .verify_unaggregated_attestation_for_gossip(attestation, None)
         .map_err(Error::Validation)?;
 
+    match attestation.attestation() {
+        types::AttestationRef::Base(_) => {
+            // Publish.
+            network_tx
+                .send(NetworkMessage::Publish {
+                    messages: vec![PubsubMessage::Attestation(Box::new((
+                        attestation.subnet_id(),
+                        attestation.attestation().clone_as_attestation(),
+                    )))],
+                })
+                .map_err(|_| Error::Publication)?;
+        }
+        types::AttestationRef::Electra(attn) => {
+            let single_attestation = attn
+                .to_single_attestation()
+                .map_err(|_| Error::Publication)?;
+
+            // Publish.
+            network_tx
+                .send(NetworkMessage::Publish {
+                    messages: vec![PubsubMessage::SingleAttestation(Box::new((
+                        attestation.subnet_id(),
+                        single_attestation,
+                    )))],
+                })
+                .map_err(|_| Error::Publication)?;
+        }
+    };
+
     // Publish.
     network_tx
         .send(NetworkMessage::Publish {
