@@ -15,6 +15,7 @@ eth2 = { workspace = true }
 gossipsub = { workspace = true }
 eth2_network_config = { workspace = true }
 kzg = { workspace = true }
+bls = { workspace = true }
 
 [dependencies]
 alloy-primitives = { workspace = true }
