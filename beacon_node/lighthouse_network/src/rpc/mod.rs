@@ -13,7 +13,6 @@ use libp2p::swarm::{
 };
 use libp2p::swarm::{ConnectionClosed, FromSwarm, SubstreamProtocol, THandlerInEvent};
 use libp2p::PeerId;
-use parking_lot::Mutex;
 use rate_limiter::RPCRateLimiter as RateLimiter;
 use slog::{crit, debug, error, o, trace};
 use std::collections::HashMap;
@@ -158,7 +157,7 @@ pub struct NetworkParams {
 /// logic.
 pub struct RPC<Id: ReqId, E: EthSpec> {
     /// Rate limiter for our responses. This is shared with RPCHandlers.
-    response_limiter: Option<Arc<Mutex<RateLimiter>>>,
+    response_limiter: Option<RateLimiter>,
     /// Responses queued for sending. These responses are stored when the response limiter rejects them.
     delayed_responses: DelayedResponses<E>,
     /// Rate limiter for our own requests.
@@ -194,10 +193,8 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
 
         let response_limiter = inbound_rate_limiter_config.clone().map(|config| {
             debug!(log, "Using response rate limiting params"; "config" => ?config);
-            Arc::new(Mutex::new(
-                RateLimiter::new_with_config(config.0)
-                    .expect("Inbound limiter configuration parameters are valid"),
-            ))
+            RateLimiter::new_with_config(config.0)
+                .expect("Inbound limiter configuration parameters are valid")
         });
 
         let outbound_request_limiter = outbound_rate_limiter_config.map(|config| {
@@ -287,13 +284,13 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     /// Checks if the response limiter allows the response. If the response should be delayed, the
     /// duration to wait is returned.
     fn try_response_limiter(
-        limiter: &mut Arc<Mutex<RateLimiter>>,
+        limiter: &mut RateLimiter,
         peer_id: &PeerId,
         protocol: Protocol,
         response: RpcResponse<E>,
         log: &slog::Logger,
     ) -> Result<(), Duration> {
-        match limiter.lock().allows(peer_id, &(response, protocol)) {
+        match limiter.allows(peer_id, &(response, protocol)) {
             Ok(()) => Ok(()),
             Err(e) => match e {
                 RateLimitedErr::TooLarge => {
@@ -520,14 +517,22 @@ where
                 substream_id,
                 r#type,
             })) => {
+                let request = Request {
+                    id,
+                    substream_id,
+                    r#type,
+                };
+                self.active_inbound_requests
+                    .insert(id, (conn_id, request.clone()));
+
                 if !self.active_inbound_requests_limiter.allows(
                     peer_id,
-                    r#type.versioned_protocol().protocol(),
+                    request.r#type.protocol(),
                     &conn_id,
                     &substream_id,
                 ) {
                     // There is already an active request with the same protocol. Send an error code to the peer.
-                    debug!(self.log, "There is an active request with the same protocol"; "peer_id" => peer_id.to_string(), "request" => %r#type, "protocol" => %r#type.versioned_protocol().protocol());
+                    debug!(self.log, "There is an active request with the same protocol"; "peer_id" => peer_id.to_string(), "request" => %request.r#type, "protocol" => %request.r#type.versioned_protocol().protocol());
                     self.send_response(
                         peer_id,
                         (conn_id, substream_id),
@@ -541,9 +546,9 @@ where
                     return;
                 }
 
-                if self.is_request_size_too_large(&r#type) {
+                if self.is_request_size_too_large(&request.r#type) {
                     // The request requires responses greater than the number defined in the spec.
-                    debug!(self.log, "Request too large to process"; "request" => %r#type, "protocol" => %r#type.versioned_protocol().protocol());
+                    debug!(self.log, "Request too large to process"; "request" => %request.r#type, "protocol" => %request.r#type.versioned_protocol().protocol());
                     // Send an error code to the peer.
                     // The handler upon receiving the error code will send it back to the behaviour
                     self.send_response(
@@ -556,14 +561,6 @@ where
                         ),
                     );
                 } else {
-                    let request = Request {
-                        id,
-                        substream_id,
-                        r#type,
-                    };
-                    self.active_inbound_requests
-                        .insert(id, (conn_id, request.clone()));
-
                     // If we received a Ping, we queue a Pong response.
                     if let RequestType::Ping(_) = request.r#type {
                         trace!(self.log, "Received Ping, queueing Pong";"connection_id" => %conn_id, "peer_id" => %peer_id);
@@ -612,7 +609,7 @@ where
     fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if let Some(response_limiter) = self.response_limiter.as_mut() {
             // let the rate limiter prune.
-            let _ = response_limiter.lock().poll_unpin(cx);
+            let _ = response_limiter.poll_unpin(cx);
 
             let mut response_to_requeue = None;
             let mut should_remove = false;
