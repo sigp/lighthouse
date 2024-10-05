@@ -8,7 +8,6 @@ use super::RequestId;
 use super::{RPCReceived, RPCSend, ReqId, Request};
 use crate::rpc::outbound::OutboundFramed;
 use crate::rpc::protocol::InboundFramed;
-use crate::rpc::rate_limiter::{RPCRateLimiter, RateLimitedErr};
 use fnv::FnvHashMap;
 use futures::prelude::*;
 use futures::SinkExt;
@@ -17,8 +16,6 @@ use libp2p::swarm::handler::{
     FullyNegotiatedInbound, FullyNegotiatedOutbound, StreamUpgradeError, SubstreamProtocol,
 };
 use libp2p::swarm::Stream;
-use libp2p::PeerId;
-use parking_lot::Mutex;
 use slog::{crit, debug, trace};
 use smallvec::SmallVec;
 use std::{
@@ -143,16 +140,6 @@ where
 
     /// Timeout that will be used for inbound and outbound responses.
     resp_timeout: Duration,
-
-    /// Rate limiter for our responses and the PeerId that this handler interacts with.
-    /// The PeerId is necessary since the rate limiter manages rate limiting per peer.
-    response_limiter: Option<(PeerId, Arc<Mutex<RPCRateLimiter>>)>,
-
-    /// Responses queued for sending. These responses are stored when the response limiter rejects them.
-    delayed_responses: FnvHashMap<Protocol, VecDeque<QueuedResponse<E>>>,
-
-    /// The delay required to allow for sending a response per protocol.
-    next_response: DelayQueue<Protocol>,
 }
 
 enum HandlerState {
@@ -227,12 +214,6 @@ pub enum OutboundSubstreamState<E: EthSpec> {
     Poisoned,
 }
 
-struct QueuedResponse<E: EthSpec> {
-    response: RpcResponse<E>,
-    protocol: Protocol,
-    inbound_id: SubstreamId,
-}
-
 impl<Id, E> RPCHandler<Id, E>
 where
     E: EthSpec,
@@ -242,7 +223,6 @@ where
         fork_context: Arc<ForkContext>,
         log: &slog::Logger,
         resp_timeout: Duration,
-        response_limiter: Option<(PeerId, Arc<Mutex<RPCRateLimiter>>)>,
     ) -> Self {
         RPCHandler {
             listen_protocol,
@@ -262,9 +242,6 @@ where
             waker: None,
             log: log.clone(),
             resp_timeout,
-            response_limiter,
-            delayed_responses: FnvHashMap::default(),
-            next_response: DelayQueue::default(),
         }
     }
 
@@ -312,36 +289,6 @@ where
         }
     }
 
-    /// Checks if the response limiter allows the response. If the response should be delayed, the
-    /// duration to wait is returned.
-    fn try_response_limiter(
-        limiter: &mut Arc<Mutex<RPCRateLimiter>>,
-        peer_id: &PeerId,
-        protocol: Protocol,
-        response: RpcResponse<E>,
-        log: &slog::Logger,
-    ) -> Result<(), Duration> {
-        match limiter.lock().allows(peer_id, &(response, protocol)) {
-            Ok(()) => Ok(()),
-            Err(e) => match e {
-                RateLimitedErr::TooLarge => {
-                    // This should never happen with default parameters. Let's just send the response.
-                    // Log a crit since this is a config issue.
-                    crit!(
-                       log,
-                        "Response rate limiting error for a batch that will never fit. Sending response anyway. Check configuration parameters.";
-                        "protocol" => %protocol
-                    );
-                    Ok(())
-                }
-                RateLimitedErr::TooSoon(wait_time) => {
-                    debug!(log, "Response rate limiting"; "protocol" => %protocol, "wait_time_ms" => wait_time.as_millis(), "peer_id" => %peer_id);
-                    Err(wait_time)
-                }
-            },
-        }
-    }
-
     /// Sends a response to a peer's request.
     // NOTE: If the substream has closed due to inactivity, or the substream is in the
     // wrong state a response will fail silently.
@@ -356,79 +303,18 @@ where
             return;
         };
 
-        if let Some((peer_id, limiter)) = self.response_limiter.as_mut() {
-            // First check that there are not already other responses waiting to be sent.
-            if let Some(queued_responses) = self.delayed_responses.get_mut(&inbound_info.protocol) {
-                queued_responses.push_back(QueuedResponse {
-                    response,
-                    protocol: inbound_info.protocol,
-                    inbound_id,
-                });
-                return;
-            }
-
-            match Self::try_response_limiter(
-                limiter,
-                peer_id,
-                inbound_info.protocol,
-                response.clone(),
-                &self.log,
-            ) {
-                Ok(()) => {
-                    Self::send_response_inner(
-                        inbound_id,
-                        inbound_info,
-                        response,
-                        &mut self.events_out,
-                        &self.state,
-                        &self.log,
-                    );
-                }
-                Err(wait_time) => {
-                    self.next_response.insert(inbound_info.protocol, wait_time);
-                    self.delayed_responses
-                        .entry(inbound_info.protocol)
-                        .or_default()
-                        .push_back(QueuedResponse {
-                            response,
-                            protocol: inbound_info.protocol,
-                            inbound_id,
-                        });
-                }
-            }
-        } else {
-            Self::send_response_inner(
-                inbound_id,
-                inbound_info,
-                response,
-                &mut self.events_out,
-                &self.state,
-                &self.log,
-            );
-        }
-    }
-
-    /// Sends a response to a peer's request.
-    fn send_response_inner(
-        inbound_id: SubstreamId,
-        inbound_info: &mut InboundInfo<E>,
-        response: RpcResponse<E>,
-        events_out: &mut SmallVec<[HandlerEvent<Id, E>; 4]>,
-        handler_state: &HandlerState,
-        log: &slog::Logger,
-    ) {
         // If the response we are sending is an error, report back for handling
         if let RpcResponse::Error(ref code, ref reason) = response {
-            events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+            self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
                 error: RPCError::ErrorResponse(*code, reason.to_string()),
                 proto: inbound_info.protocol,
                 id: inbound_id,
             }));
         }
 
-        if matches!(handler_state, HandlerState::Deactivated) {
+        if matches!(self.state, HandlerState::Deactivated) {
             // we no longer send responses after the handler is deactivated
-            debug!(log, "Response not sent. Deactivated handler";
+            debug!(self.log, "Response not sent. Deactivated handler";
                         "response" => %response, "id" => inbound_id);
             return;
         }
@@ -503,52 +389,6 @@ where
                 }
                 Poll::Pending => {}
             };
-        }
-
-        if let Some((peer_id, limiter)) = self.response_limiter.as_mut() {
-            // Process delayed responses that are ready to be sent.
-            if let Poll::Ready(Some(expired)) = self.next_response.poll_expired(cx) {
-                let protocol = expired.into_inner();
-                if let Entry::Occupied(mut entry) = self.delayed_responses.entry(protocol) {
-                    let queued_responses = entry.get_mut();
-                    while let Some(res) = queued_responses.pop_front() {
-                        let Some(inbound_info) = self.inbound_substreams.get_mut(&res.inbound_id)
-                        else {
-                            debug!(self.log, "The inbound stream has expired. The delayed response was not sent."; "protocol" => %protocol, "peer_id" => %peer_id, "inbound_id" => res.inbound_id);
-                            continue;
-                        };
-                        match Self::try_response_limiter(
-                            limiter,
-                            peer_id,
-                            res.protocol,
-                            res.response.clone(),
-                            &self.log,
-                        ) {
-                            Ok(()) => {
-                                debug!(self.log, "The waiting time for response rate-limiting has over. Sending the response."; "protocol" => %protocol, "peer_id" => %peer_id, "inbound_id" => res.inbound_id);
-                                Self::send_response_inner(
-                                    res.inbound_id,
-                                    inbound_info,
-                                    res.response,
-                                    &mut self.events_out,
-                                    &self.state,
-                                    &self.log,
-                                );
-                            }
-                            Err(wait_time) => {
-                                self.next_response.insert(protocol, wait_time);
-                                queued_responses.push_front(res);
-                                // If one fails just wait for the next window that allows sending responses.
-                                break;
-                            }
-                        }
-                    }
-
-                    if queued_responses.is_empty() {
-                        entry.remove();
-                    }
-                }
-            }
         }
 
         // purge expired inbound substreams and send an error

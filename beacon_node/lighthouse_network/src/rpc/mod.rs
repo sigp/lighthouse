@@ -15,7 +15,8 @@ use libp2p::swarm::{ConnectionClosed, FromSwarm, SubstreamProtocol, THandlerInEv
 use libp2p::PeerId;
 use parking_lot::Mutex;
 use rate_limiter::RPCRateLimiter as RateLimiter;
-use slog::{debug, o, trace};
+use slog::{crit, debug, error, o, trace};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -29,8 +30,12 @@ pub(crate) use methods::{
 };
 pub use protocol::RequestType;
 
+use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
+use self::protocol::RPCProtocol;
+use self::self_limiter::SelfRateLimiter;
 use crate::rpc::active_requests_limiter::ActiveRequestsLimiter;
-use crate::rpc::rate_limiter::RateLimiterItem;
+use crate::rpc::delayed_responses::DelayedResponses;
+use crate::rpc::rate_limiter::{RateLimitedErr, RateLimiterItem};
 pub use handler::SubstreamId;
 pub use methods::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, LightClientBootstrapRequest,
@@ -38,13 +43,10 @@ pub use methods::{
 };
 pub use protocol::{max_rpc_size, Protocol, RPCError};
 
-use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
-use self::protocol::RPCProtocol;
-use self::self_limiter::SelfRateLimiter;
-
 mod active_requests_limiter;
 pub(crate) mod codec;
 pub mod config;
+mod delayed_responses;
 mod handler;
 pub mod methods;
 mod outbound;
@@ -157,11 +159,15 @@ pub struct NetworkParams {
 pub struct RPC<Id: ReqId, E: EthSpec> {
     /// Rate limiter for our responses. This is shared with RPCHandlers.
     response_limiter: Option<Arc<Mutex<RateLimiter>>>,
+    /// Responses queued for sending. These responses are stored when the response limiter rejects them.
+    delayed_responses: DelayedResponses<E>,
     /// Rate limiter for our own requests.
     outbound_request_limiter: Option<SelfRateLimiter<Id, E>>,
     /// Limiter for inbound requests, which restricts more than two requests from running
     /// simultaneously on the same protocol per peer.
     active_inbound_requests_limiter: ActiveRequestsLimiter,
+    /// Active inbound requests that are awaiting a response.
+    active_inbound_requests: HashMap<RequestId, (ConnectionId, Request<E>)>,
     /// Queue of events to be processed.
     events: Vec<BehaviourAction<Id, E>>,
     fork_context: Arc<ForkContext>,
@@ -200,8 +206,10 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
 
         RPC {
             response_limiter,
+            delayed_responses: DelayedResponses::new(),
             outbound_request_limiter,
             active_inbound_requests_limiter: ActiveRequestsLimiter::new(),
+            active_inbound_requests: HashMap::new(),
             events: Vec::new(),
             fork_context,
             enable_light_client_server,
@@ -217,17 +225,93 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     pub fn send_response(
         &mut self,
         peer_id: PeerId,
-        id: (ConnectionId, SubstreamId),
-        _request_id: RequestId,
+        _id: (ConnectionId, SubstreamId),
+        request_id: RequestId,
         event: RpcResponse<E>,
     ) {
-        self.active_inbound_requests_limiter
-            .remove_request(peer_id, &id.0, &id.1);
+        let Some((connection_id, request)) = self.active_inbound_requests.remove(&request_id)
+        else {
+            error!(self.log, "Request not found in active_inbound_requests. Response not sent"; "peer_id" => %peer_id, "request_id" => ?request_id, "response" => %event);
+            return;
+        };
+
+        if let Some(response_limiter) = self.response_limiter.as_mut() {
+            // First check that there are not already other responses waiting to be sent.
+            let protocol = request.r#type.protocol();
+            if self.delayed_responses.exists(peer_id, protocol) {
+                self.delayed_responses.add(
+                    peer_id,
+                    protocol,
+                    connection_id,
+                    request.substream_id,
+                    event,
+                );
+                return;
+            }
+
+            match Self::try_response_limiter(
+                response_limiter,
+                &peer_id,
+                protocol,
+                event.clone(),
+                &self.log,
+            ) {
+                Ok(()) => {}
+                Err(wait_time) => {
+                    self.delayed_responses.push_back(
+                        peer_id,
+                        protocol,
+                        connection_id,
+                        request.substream_id,
+                        event,
+                        wait_time,
+                    );
+                    return;
+                }
+            }
+        }
+
+        self.active_inbound_requests_limiter.remove_request(
+            peer_id,
+            &connection_id,
+            &request.substream_id,
+        );
+
         self.events.push(ToSwarm::NotifyHandler {
             peer_id,
-            handler: NotifyHandler::One(id.0),
-            event: RPCSend::Response(id.1, event),
+            handler: NotifyHandler::One(connection_id),
+            event: RPCSend::Response(request.substream_id, event),
         });
+    }
+
+    /// Checks if the response limiter allows the response. If the response should be delayed, the
+    /// duration to wait is returned.
+    fn try_response_limiter(
+        limiter: &mut Arc<Mutex<RateLimiter>>,
+        peer_id: &PeerId,
+        protocol: Protocol,
+        response: RpcResponse<E>,
+        log: &slog::Logger,
+    ) -> Result<(), Duration> {
+        match limiter.lock().allows(peer_id, &(response, protocol)) {
+            Ok(()) => Ok(()),
+            Err(e) => match e {
+                RateLimitedErr::TooLarge => {
+                    // This should never happen with default parameters. Let's just send the response.
+                    // Log a crit since this is a config issue.
+                    crit!(
+                       log,
+                        "Response rate limiting error for a batch that will never fit. Sending response anyway. Check configuration parameters.";
+                        "protocol" => %protocol
+                    );
+                    Ok(())
+                }
+                RateLimitedErr::TooSoon(wait_time) => {
+                    debug!(log, "Response rate limiting"; "protocol" => %protocol, "wait_time_ms" => wait_time.as_millis(), "peer_id" => %peer_id);
+                    Err(wait_time)
+                }
+            },
+        }
     }
 
     /// Submits an RPC request.
@@ -329,9 +413,6 @@ where
             self.fork_context.clone(),
             &log,
             self.network_params.resp_timeout,
-            self.response_limiter
-                .as_ref()
-                .map(|response_limiter| (peer_id, response_limiter.clone())),
         );
 
         Ok(handler)
@@ -365,9 +446,6 @@ where
             self.fork_context.clone(),
             &log,
             self.network_params.resp_timeout,
-            self.response_limiter
-                .as_ref()
-                .map(|response_limiter| (peer_id, response_limiter.clone())),
         );
 
         Ok(handler)
@@ -478,8 +556,16 @@ where
                         ),
                     );
                 } else {
+                    let request = Request {
+                        id,
+                        substream_id,
+                        r#type,
+                    };
+                    self.active_inbound_requests
+                        .insert(id, (conn_id, request.clone()));
+
                     // If we received a Ping, we queue a Pong response.
-                    if let RequestType::Ping(_) = r#type {
+                    if let RequestType::Ping(_) = request.r#type {
                         trace!(self.log, "Received Ping, queueing Pong";"connection_id" => %conn_id, "peer_id" => %peer_id);
                         self.send_response(
                             peer_id,
@@ -494,11 +580,7 @@ where
                     self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                         peer_id,
                         conn_id,
-                        message: Ok(RPCReceived::Request(Request {
-                            id,
-                            substream_id,
-                            r#type,
-                        })),
+                        message: Ok(RPCReceived::Request(request)),
                     }));
                 }
             }
@@ -528,9 +610,57 @@ where
     }
 
     fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        // let the rate limiter prune.
-        if let Some(response_limiter) = self.response_limiter.as_ref() {
+        if let Some(response_limiter) = self.response_limiter.as_mut() {
+            // let the rate limiter prune.
             let _ = response_limiter.lock().poll_unpin(cx);
+
+            let mut response_to_requeue = None;
+            let mut should_remove = false;
+            let mut key_to_remove = None;
+            if let Some(q) = self.delayed_responses.poll_next_response(cx) {
+                if let Some(response) = q.get(0) {
+                    key_to_remove = Some((response.peer_id, response.protocol));
+                }
+                // Take delayed responses from the queue and send them, as long as the limiter allows it.
+                while let Some(response) = q.pop_front() {
+                    match Self::try_response_limiter(
+                        response_limiter,
+                        &response.peer_id,
+                        response.protocol,
+                        response.response.clone(),
+                        &self.log,
+                    ) {
+                        Ok(()) => {
+                            self.active_inbound_requests_limiter.remove_request(
+                                response.peer_id,
+                                &response.connection_id,
+                                &response.substream_id,
+                            );
+
+                            self.events.push(ToSwarm::NotifyHandler {
+                                peer_id: response.peer_id,
+                                handler: NotifyHandler::One(response.connection_id),
+                                event: RPCSend::Response(response.substream_id, response.response),
+                            });
+                        }
+                        Err(wait_time) => {
+                            response_to_requeue = Some((response, wait_time));
+                            break;
+                        }
+                    }
+                }
+                should_remove = q.is_empty();
+            }
+            if should_remove {
+                // Remove the queue since now it's empty.
+                if let Some((peer_id, protocol)) = key_to_remove {
+                    self.delayed_responses.remove(peer_id, protocol);
+                }
+            }
+            if let Some((response, wait_time)) = response_to_requeue {
+                // The response was taken from the queue, but the limiter didn't allow it.
+                self.delayed_responses.push_front(response, wait_time);
+            }
         }
 
         if let Some(self_limiter) = self.outbound_request_limiter.as_mut() {
