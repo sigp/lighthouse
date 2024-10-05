@@ -145,7 +145,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         debug!(
             ?block_root,
             proposer = block.message().proposer_index(),
-            slot = %block.slot(),
+            slot = ?block.slot(),
             commitments_formatted,
             ?process_type,
             "Processing RPC block"
@@ -165,7 +165,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // RPC block imported, regardless of process type
         if let &Ok(AvailabilityProcessingStatus::Imported(hash)) = &result {
-            info!(%slot, %hash,"New RPC block received");
+            info!(?slot, %hash,"New RPC block received");
 
             // Trigger processing for work referencing this block.
             let reprocess_msg = ReprocessQueueMessage::BlockImported {
@@ -471,9 +471,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                     (_, Err(e)) => {
                         debug!(
-                            batch_epoch = %epoch,
-                            first_block_slot = %start_slot,
-                            last_block_slot = %end_slot,
+                            batch_epoch = ?epoch,
+                            first_block_slot = ?start_slot,
+                            last_block_slot = ?end_slot,
                             processed_blobs = n_blobs,
                             error = %e.message,
                             service = "sync",
@@ -719,15 +719,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     warn!(
                         msg = "block for future slot rejected, check your time",
                         ?present_slot,
-                        %block_slot,
+                        ?block_slot,
                         FUTURE_SLOT_TOLERANCE,
                         "Block is ahead of our slot clock"
                     );
                 } else {
                     // The block is in the future, but not too far.
                     debug!(
-                        %present_slot,
-                        %block_slot,
+                        ?present_slot,
+                        ?block_slot,
                         FUTURE_SLOT_TOLERANCE,
                         "Block is slightly ahead of our slot clock. Ignoring."
                     );

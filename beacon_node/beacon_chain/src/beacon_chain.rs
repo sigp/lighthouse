@@ -5197,7 +5197,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| {
                     warn!(
                         err = ?e,
-                        block_slot = $state.slot(),
+                        block_slot = %state.slot(),
                         attestation = ?att,
                         "Attempted to include an invalid attestation"
                     );

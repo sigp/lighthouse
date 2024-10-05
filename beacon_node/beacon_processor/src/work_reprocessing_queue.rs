@@ -915,7 +915,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         duration.as_millis().to_string()
                     });
 
-                debug!(?millis_from_slot_start, "Sending scheduled backfill work");
+                debug!(%millis_from_slot_start, "Sending scheduled backfill work");
 
                 match self
                     .ready_work_tx

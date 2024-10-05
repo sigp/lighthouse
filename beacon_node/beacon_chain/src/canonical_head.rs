@@ -1081,18 +1081,18 @@ fn perform_debug_logging<T: BeaconChainTypes>(
     if new_view.justified_checkpoint != old_view.justified_checkpoint {
         debug!(
             new_root = ?new_view.justified_checkpoint.root,
-            new_epoch = ?new_view.justified_checkpoint.epoch,
+            new_epoch = %new_view.justified_checkpoint.epoch,
             old_root = ?old_view.justified_checkpoint.root,
-            old_epoch = ?old_view.justified_checkpoint.epoch,
+            old_epoch = %old_view.justified_checkpoint.epoch,
             "Fork choice justified"
         )
     }
     if new_view.finalized_checkpoint != old_view.finalized_checkpoint {
         debug!(
             new_root = ?new_view.finalized_checkpoint.root,
-            new_epoch = ?new_view.finalized_checkpoint.epoch,
+            new_epoch = %new_view.finalized_checkpoint.epoch,
             old_root = ?old_view.finalized_checkpoint.root,
-            old_epoch = ?old_view.finalized_checkpoint.epoch,
+            old_epoch = %old_view.finalized_checkpoint.epoch,
             "Fork choice finalized"
         )
     }
@@ -1190,8 +1190,8 @@ fn detect_reorg<E: EthSpec>(
             previous_head = ?old_block_root,
             previous_slot = %old_state.slot(),
             new_head = ?new_block_root,
-            new_slot = ?new_state.slot(),
-            ?reorg_distance,
+            new_slot = %new_state.slot(),
+            %reorg_distance,
             "Beacon chain re-org"
         );
 
@@ -1410,7 +1410,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
             debug!(
                 block_root = ?head_block_root,
                 proposer_index =head_block_proposer_index,
-                slot = ?head_block_slot,
+                slot = %head_block_slot,
                 total_delay_ms = block_delay_total.as_millis(),
                 observed_delay_ms = format_delay(&block_delays.observed),
                 blob_delay_ms = format_delay(&block_delays.all_blobs_observed),
@@ -1426,7 +1426,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
             debug!(
                 block_root = ?head_block_root,
                 proposer_index=head_block_proposer_index,
-                slot = ?head_block_slot,
+                slot = %head_block_slot,
                 total_delay_ms = block_delay_total.as_millis(),
                 observed_delay_ms = format_delay(&block_delays.observed),
                 blob_delay_ms = format_delay(&block_delays.all_blobs_observed),

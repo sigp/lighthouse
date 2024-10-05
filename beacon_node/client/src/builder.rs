@@ -476,8 +476,8 @@ where
                 let genesis_state = genesis_state(&runtime_context, &config).await?;
 
                 info!(
-                    block_slot = ?block.slot(),
-                    state_slot = ?state.slot(),
+                    block_slot = %block.slot(),
+                    state_slot = %state.slot(),
                     block_root = ?block_root,
                     "Loaded checkpoint block and state"
                 );

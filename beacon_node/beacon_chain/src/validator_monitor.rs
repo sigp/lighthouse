@@ -662,7 +662,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                                         });
                                         error!(
                                             index = i,
-                                            ?slot,
+                                            %slot,
                                             ?prev_block_root,
                                             "Validator missed a block"
                                         );
@@ -865,7 +865,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                             matched_source = previous_epoch_matched_source,
                             matched_target = previous_epoch_matched_target,
                             matched_head = previous_epoch_matched_head,
-                            epoch = ?prev_epoch,
+                            epoch = %prev_epoch,
                             validator = id,
                             "Previous epoch attestation success"
                         )
@@ -880,7 +880,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                     attestation_miss.push(id);
                     if self.individual_tracking() {
                         debug!(
-                            epoch = ?prev_epoch,
+                            epoch = %prev_epoch,
                             validator = id,
                             "Previous epoch attestation missing"
                         )
@@ -905,7 +905,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                     head_miss.push(id);
                     if self.individual_tracking() {
                         debug!(
-                            epoch = ?prev_epoch,
+                            epoch = %prev_epoch,
                             validator = id,
                             "Attestation failed to match head"
                         );
@@ -930,7 +930,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                     target_miss.push(id);
                     if self.individual_tracking() {
                         debug!(
-                            epoch = ?prev_epoch,
+                            epoch = %prev_epoch,
                             validator = id,
                             "Attestation failed to match target"
                         );
@@ -953,7 +953,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                             debug!(
                                 optimal = spec.min_attestation_inclusion_delay,
                                 delay = inclusion_delay,
-                                epoch = ?prev_epoch,
+                                epoch = %prev_epoch,
                                 validator = id,
                                 "Potential sub-optimal inclusion delay"
                             );
@@ -995,7 +995,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                             info!(
                                 included = summary.sync_signature_block_inclusions,
                                 expected = E::slots_per_epoch(),
-                                epoch = ?current_epoch,
+                                epoch = %current_epoch,
                                 validator = id,
                                 "Current epoch sync signatures"
                             );
@@ -1007,7 +1007,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                             0,
                         );
                         debug!(
-                            epoch = ?current_epoch,
+                            epoch = %current_epoch,
                             validator = id,
                             "Validator isn't part of the current sync committee"
                         );
@@ -1020,14 +1020,14 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         // for all validators managed by the validator monitor.
         if !attestation_success.is_empty() {
             info!(
-                epoch = ?prev_epoch,
+                epoch = %prev_epoch,
                 validators = ?attestation_success,
                 "Previous epoch attestation(s) success"
             );
         }
         if !attestation_miss.is_empty() {
             info!(
-                epoch = ?prev_epoch,
+                epoch = %prev_epoch,
                 validators = ?attestation_miss,
                 "Previous epoch attestation(s) missing"
             );
@@ -1035,7 +1035,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
         if !head_miss.is_empty() {
             info!(
-                epoch = ?prev_epoch,
+                epoch = %prev_epoch,
                 validators = ?head_miss,
                 "Previous epoch attestation(s) failed to match head"
             );
@@ -1043,7 +1043,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
         if !target_miss.is_empty() {
             info!(
-                epoch = ?prev_epoch,
+                epoch = %prev_epoch,
                 validators = ?target_miss,
                 "Previous epoch attestation(s) failed to match target"
             );
@@ -1051,7 +1051,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
         if !suboptimal_inclusion.is_empty() {
             info!(
-                epoch = ?prev_epoch,
+                epoch = %prev_epoch,
                 validators = ?suboptimal_inclusion,
                 "Previous epoch attestation(s) had sub-optimal inclusion delay"
             );

@@ -24,6 +24,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
     time::{Duration, Instant},
+    fmt,
 };
 use tokio::time::{sleep, Sleep};
 use tokio_util::time::{delay_queue, DelayQueue};
@@ -46,6 +47,12 @@ pub struct SubstreamId(usize);
 impl SubstreamId {
     pub fn new(id: usize) -> Self {
         Self(id)
+    }
+}
+
+impl fmt::Display for SubstreamId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

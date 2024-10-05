@@ -257,8 +257,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         let mut prev_migration = notif.prev_migration.lock();
         if epoch < prev_migration.epoch + prev_migration.epochs_per_migration {
             debug!(
-                last_finalized_epoch = ?prev_migration.epoch,
-                new_finalized_epoch = ?epoch,
+                last_finalized_epoch = %prev_migration.epoch,
+                new_finalized_epoch = %epoch,
                 epochs_per_migration = prev_migration.epochs_per_migration,
                 "Database consolidation deferred"
             );
@@ -311,8 +311,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 new_finalized_checkpoint,
             }) => {
                 warn!(
-                    old_finalized_epoch = ?old_finalized_checkpoint.epoch,
-                    new_finalized_epoch = ?new_finalized_checkpoint.epoch,
+                    old_finalized_epoch = %old_finalized_checkpoint.epoch,
+                    new_finalized_epoch = %new_finalized_checkpoint.epoch,
                     message = "this is expected occasionally due to a (harmless) race condition",
                     "Ignoring out of order finalization request"
                 );
@@ -333,7 +333,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             Ok(()) => {}
             Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
                 debug!(
-                    slot = ?slot.as_u64(),
+                    slot = slot.as_u64(),
                     "Database migration postponed, unaligned finalized block"
                 );
             }
@@ -545,8 +545,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                             // checkpoint, i.e. there aren't any forks starting at a block that is a
                             // strict ancestor of old_finalized_checkpoint.
                             warn!(
-                                head_block_root = ?head_hash,
-                                ?head_slot,
+                                head_block_root = %head_hash,
+                                %head_slot,
                                 "Found a chain that should already have been pruned"
                             );
                             potentially_abandoned_head.take();
@@ -601,8 +601,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
             if let Some(abandoned_head) = potentially_abandoned_head {
                 debug!(
-                    head_block_root = ?abandoned_head,
-                    ?head_slot,
+                    head_block_root = %abandoned_head,
+                    %head_slot,
                     "Pruning head"
                 );
                 abandoned_heads.insert(abandoned_head);
@@ -711,8 +711,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 && seconds_since_last_compaction > MIN_COMPACTION_PERIOD_SECONDS)
         {
             info!(
-                ?old_finalized_epoch,
-                ?new_finalized_epoch,
+                %old_finalized_epoch,
+                %new_finalized_epoch,
                 "Starting database compaction"
             );
             db.compact()?;

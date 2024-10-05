@@ -2204,7 +2204,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 );
 
                                 info!(
-                                    ?validator_index,
+                                    %validator_index,
                                     ?address,
                                     published =
                                         matches!(received_pre_capella, ReceivedPreCapella::No),
@@ -2213,11 +2213,11 @@ pub fn serve<T: BeaconChainTypes>(
                                 );
                             }
                             Ok(ObservationOutcome::AlreadyKnown) => {
-                                debug!(?validator_index, "BLS to execution change already known");
+                                debug!(%validator_index, "BLS to execution change already known");
                             }
                             Err(e) => {
                                 warn!(
-                                    ?validator_index,
+                                    %validator_index,
                                     reason = ?e,
                                     source = "HTTP",
                                     "Invalid BLS to execution change"

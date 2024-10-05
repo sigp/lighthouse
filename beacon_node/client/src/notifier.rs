@@ -178,12 +178,12 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             debug!(
                 peers = peer_count_pretty(connected_peer_count),
-                finalized_root = ?finalized_checkpoint.root,
-                finalized_epoch = ?finalized_checkpoint.epoch,
-                head_block = ?head_root,
-                ?head_slot,
-                ?current_slot,
-                sync_state =?current_sync_state,
+                finalized_root = %finalized_checkpoint.root,
+                finalized_epoch = %finalized_checkpoint.epoch,
+                head_block = %head_root,
+                %head_slot,
+                %current_slot,
+                sync_state =%current_sync_state,
                 "Slot timer"
             );
 
@@ -299,21 +299,21 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
                     exec_hash = block_hash,
-                    finalized_root = ?finalized_checkpoint.root,
-                    finalized_epoch = ?finalized_checkpoint.epoch,
-                    epoch = ?current_epoch,
+                    finalized_root = %finalized_checkpoint.root,
+                    finalized_epoch = %finalized_checkpoint.epoch,
+                    epoch = %current_epoch,
                     block = block_info,
-                    slot = ?current_slot,
+                    slot = %current_slot,
                     "Synced"
                 );
             } else {
                 metrics::set_gauge(&metrics::IS_SYNCED, 0);
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
-                    finalized_root = ?finalized_checkpoint.root,
-                    finalized_epoch = ?finalized_checkpoint.epoch,
-                    ?head_slot,
-                    ?current_slot,
+                    finalized_root = %finalized_checkpoint.root,
+                    finalized_epoch = %finalized_checkpoint.epoch,
+                    %head_slot,
+                    %current_slot,
                     "Searching for peers"
                 );
             }

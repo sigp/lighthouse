@@ -1429,7 +1429,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         debug!(
             payload_attributes = ?proposer.payload_attributes,
             ?head_block_root,
-            slot = ?current_slot,
+            slot = %current_slot,
             validator_index = proposer.validator_index,
             "Beacon proposer found"
         );

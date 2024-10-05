@@ -102,8 +102,8 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
                 current_epoch_proposers = proposing_validators,
                 active_validators = attesting_validators,
                 total_validators = total_validators,
-                ?epoch,
-                ?slot,
+                %epoch,
+                %slot,
                 "All validators active"
             );
         } else if attesting_validators > 0 {
@@ -111,8 +111,8 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
                 current_epoch_proposers = proposing_validators,
                 active_validators = attesting_validators,
                 total_validators = total_validators,
-                ?epoch,
-                ?slot,
+                %epoch,
+                %slot,
                 "Some validators active"
             );
         } else {

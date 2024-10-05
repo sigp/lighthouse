@@ -85,6 +85,17 @@ pub enum RpcRequestSendError {
     SlotClockError,
 }
 
+impl std::fmt::Display for RpcRequestSendError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            RpcRequestSendError::NetworkSendError => write!(f, "Network send error"),
+            RpcRequestSendError::NoCustodyPeers => write!(f, "No custody peers"),
+            RpcRequestSendError::CustodyRequestError(e) => write!(f, "Custody request error: {:?}", e),
+            RpcRequestSendError::SlotClockError => write!(f, "Slot clock error"),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum SendErrorProcessor {
     SendError,
