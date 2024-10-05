@@ -34,13 +34,14 @@ pub enum LookupVerifyError {
 pub struct ActiveRequests<K: Eq + Hash, T: ActiveRequestItems> {
     requests: FnvHashMap<K, ActiveRequest<T>>,
     name: &'static str,
-    expect_max_responses: bool,
 }
 
 /// Stateful container for a single active ReqResp request
 struct ActiveRequest<T: ActiveRequestItems> {
     state: State<T>,
     peer_id: PeerId,
+    // Error if the request terminates before receiving max expected responses
+    expect_max_responses: bool,
 }
 
 enum State<T> {
@@ -50,20 +51,20 @@ enum State<T> {
 }
 
 impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
-    pub fn new(expect_max_responses: bool, name: &'static str) -> Self {
+    pub fn new(name: &'static str) -> Self {
         Self {
             requests: <_>::default(),
             name,
-            expect_max_responses,
         }
     }
 
-    pub fn insert(&mut self, id: K, peer_id: PeerId, items: T) {
+    pub fn insert(&mut self, id: K, peer_id: PeerId, expect_max_responses: bool, items: T) {
         self.requests.insert(
             id,
             ActiveRequest {
                 state: State::Active(items),
                 peer_id,
+                expect_max_responses,
             },
         );
     }
@@ -126,10 +127,11 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
             RpcEvent::StreamTermination => {
                 // After stream termination we must forget about this request, there will be no more
                 // messages coming from the network
-                match entry.remove().state {
+                let request = entry.remove();
+                match request.state {
                     // Received a stream termination in a valid sequence, consume items
                     State::Active(mut items) => {
-                        if self.expect_max_responses {
+                        if request.expect_max_responses {
                             Some(Err(LookupVerifyError::NotEnoughResponsesReturned {
                                 actual: items.consume().len(),
                             }

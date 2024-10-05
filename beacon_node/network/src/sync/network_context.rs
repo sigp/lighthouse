@@ -239,17 +239,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             network_send,
             execution_engine_state: EngineState::Online, // always assume `Online` at the start
             request_id: 1,
-            // true = enforce max_requests as returned for blocks_by_root. We always request a single
-            // block and the peer must have it.
-            blocks_by_root_requests: ActiveRequests::new(true, "blocks_by_root"),
-            // true = enforce max_requests are returned for blobs_by_root. We only issue requests for
-            // blocks after we know the block has data, and only request peers after they claim to
-            // have imported the block+blobs.
-            blobs_by_root_requests: ActiveRequests::new(true, "blobs_by_root"),
-            // true = enforce max_requests are returned data_columns_by_root. We only issue requests
-            // for blocks after we know the block has data, and only request peers after they claim to
-            // have imported the block+columns and claim to be custodians
-            data_columns_by_root_requests: ActiveRequests::new(true, "data_columns_by_root"),
+            blocks_by_root_requests: ActiveRequests::new("blocks_by_root"),
+            blobs_by_root_requests: ActiveRequests::new("blobs_by_root"),
+            data_columns_by_root_requests: ActiveRequests::new("data_columns_by_root"),
             custody_by_root_requests: <_>::default(),
             range_block_components_requests: FnvHashMap::default(),
             network_beacon_processor,
@@ -603,8 +595,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             })
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
 
-        self.blocks_by_root_requests
-            .insert(id, peer_id, BlocksByRootRequestItems::new(request));
+        self.blocks_by_root_requests.insert(
+            id,
+            peer_id,
+            // true = enforce max_requests as returned for blocks_by_root. We always request a single
+            // block and the peer must have it.
+            true,
+            BlocksByRootRequestItems::new(request),
+        );
 
         Ok(LookupRequestResult::RequestSent(req_id))
     }
@@ -701,8 +699,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             })
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
 
-        self.blobs_by_root_requests
-            .insert(id, peer_id, BlobsByRootRequestItems::new(request));
+        self.blobs_by_root_requests.insert(
+            id,
+            peer_id,
+            // true = enforce max_requests are returned for blobs_by_root. We only issue requests for
+            // blocks after we know the block has data, and only request peers after they claim to
+            // have imported the block+blobs.
+            true,
+            BlobsByRootRequestItems::new(request),
+        );
 
         Ok(LookupRequestResult::RequestSent(req_id))
     }
@@ -713,6 +718,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         requester: DataColumnsByRootRequester,
         peer_id: PeerId,
         request: DataColumnsByRootSingleBlockRequest,
+        expect_max_responses: bool,
     ) -> Result<LookupRequestResult<DataColumnsByRootRequestId>, &'static str> {
         let req_id = DataColumnsByRootRequestId {
             id: self.next_id(),
@@ -738,6 +744,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.data_columns_by_root_requests.insert(
             req_id,
             peer_id,
+            expect_max_responses,
             DataColumnsByRootRequestItems::new(request),
         );
 

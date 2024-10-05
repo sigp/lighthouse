@@ -74,7 +74,11 @@ impl<T: BeaconChainTypes> Sampling<T> {
             }
         };
 
-        debug!(self.log, "Created new sample request"; "id" => ?id);
+        debug!(self.log,
+            "Created new sample request";
+            "id" => ?id,
+            "column_selection" => ?request.column_selection()
+        );
 
         // TOOD(das): If a node has very little peers, continue_sampling() will attempt to find enough
         // to sample here, immediately failing the sampling request. There should be some grace
@@ -218,6 +222,14 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
             log,
             _phantom: PhantomData,
         }
+    }
+
+    pub(crate) fn column_selection(&self) -> Vec<ColumnIndex> {
+        self.column_shuffle
+            .iter()
+            .take(REQUIRED_SUCCESSES[0])
+            .copied()
+            .collect()
     }
 
     /// Insert a downloaded column into an active sampling request. Then make progress on the
@@ -508,6 +520,10 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                     block_root: self.block_root,
                     indices: column_indexes.clone(),
                 },
+                // false = We issue request to custodians who may or may not have received the
+                // samples yet. We don't any signal (like an attestation or status messages that the
+                // custodian has received data).
+                false,
             )
             .map_err(SamplingError::SendFailed)?;
             self.column_indexes_by_sampling_request
