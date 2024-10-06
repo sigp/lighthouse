@@ -5,6 +5,7 @@ use lighthouse_network::PeerId;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::ops::Sub;
+use std::fmt;
 use std::time::{Duration, Instant};
 use strum::Display;
 use types::{Epoch, EthSpec, Slot};
@@ -114,6 +115,17 @@ pub struct BatchInfo<E: EthSpec, B: BatchConfig = RangeSyncBatchConfig> {
     marker: std::marker::PhantomData<B>,
 }
 
+impl<E: EthSpec, B: BatchConfig> fmt::Display for BatchInfo<E, B> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "BatchInfo {{ start_slot: {}, end_slot: {}, state: {}, batch_type: {} }}",
+            self.start_slot, self.end_slot, self.state, self.batch_type
+        )
+    }
+}
+
+#[derive(Display)]
 /// Current state of a batch
 pub enum BatchState<E: EthSpec> {
     /// The batch has failed either downloading or processing, but can be requested again.

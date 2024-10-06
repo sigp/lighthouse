@@ -408,9 +408,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     (imported_blocks, Ok(_)) => {
                         debug!(
                             batch_epoch = %epoch,
-                            first_block_slot = %start_slot,
+                            first_block_slot = start_slot,
                             chain = chain_id,
-                            last_block_slot = %end_slot,
+                            last_block_slot = end_slot,
                             processed_blocks = sent_blocks,
                             service= "sync",
                             "Batch processed");
@@ -422,9 +422,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     (imported_blocks, Err(e)) => {
                         debug!(
                             batch_epoch = %epoch,
-                            first_block_slot = %start_slot,
+                            first_block_slot = start_slot,
                             chain = chain_id,
-                            last_block_slot = %end_slot,
+                            last_block_slot = end_slot,
                             imported_blocks,
                             error = %e.message,
                             service = "sync", 
@@ -457,8 +457,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     (imported_blocks, Ok(_)) => {
                         debug!(
                             batch_epoch = %epoch,
-                            first_block_slot = %start_slot,
-                            last_block_slot = %end_slot,
+                            first_block_slot = start_slot,
+                            last_block_slot = end_slot,
                             processed_blocks = sent_blocks,
                             processed_blobs = n_blobs,
                             processed_data_columns = n_data_columns,

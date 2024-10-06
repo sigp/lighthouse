@@ -261,7 +261,7 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
                     error!(
                         error = ?e,
                         request_index = index,
-                        %committee_index,
+                        committee_index,
                         attestation_slot = %slot,
                         "Failure verifying attestation for gossip"
                     );
