@@ -6,7 +6,9 @@ use crate::sync::SyncMessage;
 use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
 use beacon_chain::{block_verification_types::RpcBlock, EngineState, NotifyExecutionLayer};
 use lighthouse_network::rpc::{RequestType, StatusMessage};
-use lighthouse_network::service::api_types::{AppRequestId, Id, SyncRequestId};
+use lighthouse_network::service::api_types::{
+    AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, SyncRequestId,
+};
 use lighthouse_network::{PeerId, SyncInfo};
 use std::time::Duration;
 use types::{
@@ -98,13 +100,16 @@ impl TestRig {
         self.sync_manager.update_execution_engine_state(state);
     }
 
-    fn find_blocks_by_range_request(&mut self, target_peer_id: &PeerId) -> (Id, Option<Id>) {
+    fn find_blocks_by_range_request(
+        &mut self,
+        target_peer_id: &PeerId,
+    ) -> (BlocksByRangeRequestId, Option<BlobsByRangeRequestId>) {
         let block_req_id = self
             .pop_received_network_event(|ev| match ev {
                 NetworkMessage::SendRequest {
                     peer_id,
                     request: RequestType::BlocksByRange(_),
-                    request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
+                    request_id: AppRequestId::Sync(SyncRequestId::BlocksByRange(id)),
                 } if peer_id == target_peer_id => Some(*id),
                 _ => None,
             })
@@ -116,7 +121,7 @@ impl TestRig {
                     NetworkMessage::SendRequest {
                         peer_id,
                         request: RequestType::BlobsByRange(_),
-                        request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
+                        request_id: AppRequestId::Sync(SyncRequestId::BlobsByRange(id)),
                     } if peer_id == target_peer_id => Some(*id),
                     _ => None,
                 })
@@ -134,10 +139,10 @@ impl TestRig {
 
         // Complete the request with a single stream termination
         self.log(&format!(
-            "Completing BlocksByRange request {blocks_req_id} with empty stream"
+            "Completing BlocksByRange request {blocks_req_id:?} with empty stream"
         ));
         self.send_sync_message(SyncMessage::RpcBlock {
-            request_id: SyncRequestId::RangeBlockAndBlobs { id: blocks_req_id },
+            request_id: SyncRequestId::BlocksByRange(blocks_req_id),
             peer_id: target_peer_id,
             beacon_block: None,
             seen_timestamp: D,
@@ -146,10 +151,10 @@ impl TestRig {
         if let Some(blobs_req_id) = blobs_req_id {
             // Complete the request with a single stream termination
             self.log(&format!(
-                "Completing BlobsByRange request {blobs_req_id} with empty stream"
+                "Completing BlobsByRange request {blobs_req_id:?} with empty stream"
             ));
             self.send_sync_message(SyncMessage::RpcBlob {
-                request_id: SyncRequestId::RangeBlockAndBlobs { id: blobs_req_id },
+                request_id: SyncRequestId::BlobsByRange(blobs_req_id),
                 peer_id: target_peer_id,
                 blob_sidecar: None,
                 seen_timestamp: D,
