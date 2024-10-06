@@ -15,6 +15,7 @@ pub enum Error {
     SszTypes(ssz_types::Error),
     MissingBlobs,
     MissingCustodyColumns,
+    MissingCustodyColumn(ColumnIndex),
     BlobIndexInvalid(u64),
     DataColumnIndexInvalid(u64),
     StoreError(store::Error),
@@ -52,6 +53,7 @@ impl Error {
             | Error::ReconstructColumnsError { .. }
             | Error::BlobIndexInvalid(_)
             | Error::DataColumnIndexInvalid(_)
+            | Error::MissingCustodyColumn(_)
             | Error::KzgCommitmentMismatch { .. } => ErrorCategory::Malicious,
         }
     }
