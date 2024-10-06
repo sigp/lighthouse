@@ -408,6 +408,27 @@ impl OldBlocksByRangeRequest {
     }
 }
 
+impl From<BlocksByRangeRequest> for OldBlocksByRangeRequest {
+    fn from(req: BlocksByRangeRequest) -> Self {
+        match req {
+            BlocksByRangeRequest::V1(ref req) => {
+                OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1 {
+                    start_slot: req.start_slot,
+                    count: req.count,
+                    step: 1,
+                })
+            }
+            BlocksByRangeRequest::V2(ref req) => {
+                OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2 {
+                    start_slot: req.start_slot,
+                    count: req.count,
+                    step: 1,
+                })
+            }
+        }
+    }
+}
+
 /// Request a number of beacon block bodies from a peer.
 #[superstruct(variants(V1, V2), variant_attributes(derive(Clone, Debug, PartialEq)))]
 #[derive(Clone, Debug, PartialEq)]

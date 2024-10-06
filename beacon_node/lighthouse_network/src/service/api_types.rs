@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use libp2p::swarm::ConnectionId;
 use types::{
-    BlobSidecar, DataColumnSidecar, EthSpec, Hash256, LightClientBootstrap,
+    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, Hash256, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, SignedBeaconBlock,
 };
 
@@ -33,6 +33,12 @@ pub enum SyncRequestId {
     DataColumnsByRoot(DataColumnsByRootRequestId),
     /// Range request that is composed by both a block range request and a blob range request.
     RangeBlockAndBlobs { id: Id },
+    /// Blocks by range request
+    BlocksByRange(BlocksByRangeRequestId),
+    /// Blobs by range request
+    BlobsByRange(BlobsByRangeRequestId),
+    /// Data columns by range request
+    DataColumnsByRange(DataColumnsByRangeRequestId),
 }
 
 /// Request ID for data_columns_by_root requests. Block lookups do not issue this request directly.
@@ -44,9 +50,39 @@ pub struct DataColumnsByRootRequestId {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct BlocksByRangeRequestId {
+    pub id: Id,
+    pub requester: RangeRequestId,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct BlobsByRangeRequestId {
+    pub id: Id,
+    pub requester: RangeRequestId,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct DataColumnsByRangeRequestId {
+    pub id: Id,
+    pub requester: RangeRequestId,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum RangeRequestId {
+    RangeSync { chain_id: u64, batch_id: Epoch },
+    BackfillSync { batch_id: Epoch },
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum DataColumnsByRootRequester {
     Sampling(SamplingId),
     Custody(CustodyId),
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum RangeRequester {
+    RangeSync { chain_id: u64, batch_id: Epoch },
+    BackfillSync { batch_id: Epoch },
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]

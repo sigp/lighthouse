@@ -57,8 +57,9 @@ use beacon_chain::{
 use futures::StreamExt;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::service::api_types::{
-    CustodyRequester, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id, SamplingId,
-    SamplingRequester, SingleLookupReqId, SyncRequestId,
+    BlobsByRangeRequestId, BlocksByRangeRequestId, CustodyRequester, DataColumnsByRangeRequestId,
+    DataColumnsByRootRequestId, DataColumnsByRootRequester, Id, SamplingId, SamplingRequester,
+    SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
@@ -403,6 +404,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             SyncRequestId::DataColumnsByRoot(req_id) => {
                 self.on_data_columns_by_root_response(req_id, peer_id, RpcEvent::RPCError(error))
+            }
+            SyncRequestId::BlocksByRange(req_id) => {
+                self.on_blocks_by_range_response(req_id, peer_id, RpcEvent::RPCError(error))
+            }
+            SyncRequestId::BlobsByRange(req_id) => {
+                self.on_blobs_by_range_response(req_id, peer_id, RpcEvent::RPCError(error))
+            }
+            SyncRequestId::DataColumnsByRange(req_id) => {
+                self.on_data_columns_by_range_response(req_id, peer_id, RpcEvent::RPCError(error))
             }
             SyncRequestId::RangeBlockAndBlobs { id } => {
                 if let Some(sender_id) = self.network.range_request_failed(id) {
@@ -1092,6 +1102,42 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
             }
+        }
+    }
+
+    fn on_blocks_by_range_response(
+        &mut self,
+        id: BlocksByRangeRequestId,
+        peer_id: PeerId,
+        block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    ) {
+        if let Some(_resp) = self.network.on_blocks_by_range_response(id, peer_id, block) {
+            // TOOD(das): Wire to updated block-blob coupling
+        }
+    }
+
+    fn on_blobs_by_range_response(
+        &mut self,
+        id: BlobsByRangeRequestId,
+        peer_id: PeerId,
+        blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
+    ) {
+        if let Some(_resp) = self.network.on_blobs_by_range_response(id, peer_id, blob) {
+            // TOOD(das): Wire to updated block-blob coupling
+        }
+    }
+
+    fn on_data_columns_by_range_response(
+        &mut self,
+        id: DataColumnsByRangeRequestId,
+        peer_id: PeerId,
+        data_column: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
+    ) {
+        if let Some(_resp) =
+            self.network
+                .on_data_columns_by_range_response(id, peer_id, data_column)
+        {
+            // TOOD(das): Wire to updated block-blob coupling
         }
     }
 
