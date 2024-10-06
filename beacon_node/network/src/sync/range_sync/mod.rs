@@ -12,6 +12,8 @@ pub use batch::{
     BatchConfig, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
     ByRangeRequestType,
 };
+pub use block_storage::BlockStorage;
 pub use chain::{BatchId, ChainId, EPOCHS_PER_BATCH};
+pub use chain_collection::SyncChainStatus;
 pub use range::RangeSync;
 pub use sync_type::RangeSyncType;

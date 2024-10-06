@@ -37,6 +37,9 @@ pub enum RangeSyncState {
     Idle,
 }
 
+pub type SyncChainStatus =
+    Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, &'static str>;
+
 /// A collection of finalized and head chains currently being processed.
 pub struct ChainCollection<T: BeaconChainTypes, C> {
     /// The beacon chain for processing.
@@ -213,9 +216,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
         }
     }
 
-    pub fn state(
-        &self,
-    ) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, &'static str> {
+    pub fn state(&self) -> SyncChainStatus {
         match self.state {
             RangeSyncState::Finalized(ref syncing_id) => {
                 let chain = self
