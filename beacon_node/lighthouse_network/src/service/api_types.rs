@@ -31,8 +31,6 @@ pub enum SyncRequestId {
     SingleBlob { id: SingleLookupReqId },
     /// Request searching for a set of data columns given a hash and list of column indices.
     DataColumnsByRoot(DataColumnsByRootRequestId),
-    /// Range request that is composed by both a block range request and a blob range request.
-    RangeBlockAndBlobs { id: Id },
     /// Blocks by range request
     BlocksByRange(BlocksByRangeRequestId),
     /// Blobs by range request
@@ -52,17 +50,25 @@ pub struct DataColumnsByRootRequestId {
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct BlocksByRangeRequestId {
     pub id: Id,
-    pub requester: RangeRequestId,
+    pub requester: ComponentsByRangeRequestId,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct BlobsByRangeRequestId {
     pub id: Id,
-    pub requester: RangeRequestId,
+    pub requester: ComponentsByRangeRequestId,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct DataColumnsByRangeRequestId {
+    pub id: Id,
+    pub requester: ComponentsByRangeRequestId,
+}
+
+/// Block components by range request for range sync. Includes an ID for downstream consumers to
+/// handle retries and tie all their sub requests together.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct ComponentsByRangeRequestId {
     pub id: Id,
     pub requester: RangeRequestId,
 }
