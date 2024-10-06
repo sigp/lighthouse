@@ -98,7 +98,7 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
             let single_attestation = attn
                 .to_single_attestation()
                 .map_err(|_| Error::Publication)?;
-            
+
             // Publish.
             network_tx
                 .send(NetworkMessage::Publish {

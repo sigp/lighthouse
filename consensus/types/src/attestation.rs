@@ -366,19 +366,19 @@ impl<E: EthSpec> AttestationElectra<E> {
         let attester_indices = self.get_aggregation_bits();
 
         if committee_indices.len() != 1 {
-            return Err(Error::InvalidCommitteeLength)
+            return Err(Error::InvalidCommitteeLength);
         }
 
         if attester_indices.len() != 1 {
-            return Err(Error::InvalidAggregationBit)
+            return Err(Error::InvalidAggregationBit);
         }
 
         let Some(committee_index) = committee_indices.first() else {
-            return Err(Error::InvalidCommitteeLength)
+            return Err(Error::InvalidCommitteeLength);
         };
 
         let Some(attester_index) = attester_indices.first() else {
-            return Err(Error::InvalidAggregationBit)
+            return Err(Error::InvalidAggregationBit);
         };
 
         Ok(SingleAttestation {
