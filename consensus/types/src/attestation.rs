@@ -289,6 +289,14 @@ impl<E: EthSpec> AttestationElectra<E> {
         self.get_committee_indices().first().cloned()
     }
 
+    pub fn get_aggregation_bits(&self) -> Vec<u64> {
+        self.aggregation_bits
+            .iter()
+            .enumerate()
+            .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
+            .collect()
+    }
+
     pub fn get_committee_indices(&self) -> Vec<u64> {
         self.committee_bits
             .iter()
@@ -351,6 +359,34 @@ impl<E: EthSpec> AttestationElectra<E> {
 
             Ok(())
         }
+    }
+
+    pub fn to_single_attestation(&self) -> Result<SingleAttestation, Error> {
+        let committee_indices = self.get_committee_indices();
+        let attester_indices = self.get_aggregation_bits();
+
+        if committee_indices.len() != 1 {
+            return Err(Error::InvalidCommitteeLength)
+        }
+
+        if attester_indices.len() != 1 {
+            return Err(Error::InvalidAggregationBit)
+        }
+
+        let Some(committee_index) = committee_indices.first() else {
+            return Err(Error::InvalidCommitteeLength)
+        };
+
+        let Some(attester_index) = attester_indices.first() else {
+            return Err(Error::InvalidAggregationBit)
+        };
+
+        Ok(SingleAttestation {
+            committee_index: *committee_index as usize,
+            attester_index: *attester_index as usize,
+            data: self.data.clone(),
+            signature: self.signature.clone(),
+        })
     }
 
     pub fn from_single_attestation(single_attestation: SingleAttestation) -> Result<Self, Error> {
