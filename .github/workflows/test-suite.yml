@@ -54,6 +54,20 @@ jobs:
          done
          echo "skip_ci=$SKIP_CI" >> $GITHUB_OUTPUT
 
+  lockbud:
+    name: lockbud
+    runs-on: ubuntu-latest
+    container:
+      image: eserilev/lockbud:latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Install dependencies
+        run: apt update && apt install -y cmake
+      - name: Generate code coverage
+        run: |
+          cargo lockbud -k deadlock
+
   target-branch-check:
     name: target-branch-check
     runs-on: ubuntu-latest
