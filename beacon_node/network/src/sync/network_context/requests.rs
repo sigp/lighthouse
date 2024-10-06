@@ -4,10 +4,13 @@ use beacon_chain::validator_monitor::timestamp_now;
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use strum::IntoStaticStr;
-use types::Hash256;
+use types::{Hash256, Slot};
 
+pub use blobs_by_range::BlobsByRangeRequestItems;
 pub use blobs_by_root::{BlobsByRootRequestItems, BlobsByRootSingleBlockRequest};
+pub use blocks_by_range::BlocksByRangeRequestItems;
 pub use blocks_by_root::{BlocksByRootRequestItems, BlocksByRootSingleRequest};
+pub use data_columns_by_range::DataColumnsByRangeRequestItems;
 pub use data_columns_by_root::{
     DataColumnsByRootRequestItems, DataColumnsByRootSingleBlockRequest,
 };
@@ -16,8 +19,11 @@ use crate::metrics;
 
 use super::{RpcEvent, RpcResponseResult};
 
+mod blobs_by_range;
 mod blobs_by_root;
+mod blocks_by_range;
 mod blocks_by_root;
+mod data_columns_by_range;
 mod data_columns_by_root;
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
@@ -26,6 +32,7 @@ pub enum LookupVerifyError {
     TooManyResponses,
     UnrequestedBlockRoot(Hash256),
     UnrequestedIndex(u64),
+    UnrequestedSlot(Slot),
     InvalidInclusionProof,
     DuplicateData,
 }
