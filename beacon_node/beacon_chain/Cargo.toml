@@ -5,6 +5,10 @@ authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com
 edition = { workspace = true }
 autotests = false # using a single test binary compiles faster
 
+[[bench]]
+name = "benches"
+harness = false
+
 [features]
 default = ["participation_metrics"]
 write_ssz_files = []  # Writes debugging .ssz files to /tmp during block processing.
@@ -15,10 +19,11 @@ test_backfill = []
 
 [dev-dependencies]
 maplit = { workspace = true }
-environment = { workspace = true }
 serde_json = { workspace = true }
+criterion = { workspace = true }
 
 [dependencies]
+alloy-primitives = { workspace = true }
 bitvec = { workspace = true }
 bls = { workspace = true }
 derivative = { workspace = true }
@@ -37,7 +42,6 @@ hex = { workspace = true }
 int_to_bytes = { workspace = true }
 itertools = { workspace = true }
 kzg = { workspace = true }
-lazy_static = { workspace = true }
 lighthouse_metrics = { workspace = true }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }

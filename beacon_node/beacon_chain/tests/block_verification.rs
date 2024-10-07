@@ -11,7 +11,6 @@ use beacon_chain::{
     BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult, IntoExecutionPendingBlock,
     NotifyExecutionLayer,
 };
-use lazy_static::lazy_static;
 use logging::test_logger;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
@@ -20,7 +19,7 @@ use state_processing::{
     per_slot_processing, BlockProcessingError, ConsensusContext, VerifyBlockRoot,
 };
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tempfile::tempdir;
 use types::{test_utils::generate_deterministic_keypair, *};
 
@@ -31,10 +30,9 @@ const VALIDATOR_COUNT: usize = 24;
 const CHAIN_SEGMENT_LENGTH: usize = 64 * 5;
 const BLOCK_INDICES: &[usize] = &[0, 1, 32, 64, 68 + 1, 129, CHAIN_SEGMENT_LENGTH - 1];
 
-lazy_static! {
-    /// A cached set of keys.
-    static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
-}
+/// A cached set of keys.
+static KEYPAIRS: LazyLock<Vec<Keypair>> =
+    LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
 async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<BlobSidecarList<E>>>) {
     let harness = get_harness(VALIDATOR_COUNT);
@@ -978,7 +976,7 @@ async fn block_gossip_verification() {
 
                 harness
                     .chain
-                    .process_gossip_blob(gossip_verified)
+                    .process_gossip_blob(gossip_verified, || Ok(()))
                     .await
                     .expect("should import valid gossip verified blob");
             }
@@ -1100,8 +1098,8 @@ async fn block_gossip_verification() {
     assert!(
         matches!(
             unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
-            BlockError::ParentUnknown(block)
-            if block.parent_root() == parent_root
+            BlockError::ParentUnknown {parent_root: p}
+            if p == parent_root
         ),
         "should not import a block for an unknown parent"
     );
@@ -1175,7 +1173,7 @@ async fn block_gossip_verification() {
     assert!(
         matches!(
             unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
-            BlockError::BlockIsAlreadyKnown(_),
+            BlockError::DuplicateImportStatusUnknown(_),
         ),
         "should register any valid signature against the proposer, even if the block failed later verification"
     );
@@ -1203,7 +1201,7 @@ async fn block_gossip_verification() {
                 .verify_block_for_gossip(block.clone())
                 .await
                 .expect_err("should error when processing known block"),
-            BlockError::BlockIsAlreadyKnown(_)
+            BlockError::DuplicateImportStatusUnknown(_)
         ),
         "the second proposal by this validator should be rejected"
     );
@@ -1249,7 +1247,7 @@ async fn verify_block_for_gossip_slashing_detection() {
                 .unwrap();
             harness
                 .chain
-                .process_gossip_blob(verified_blob)
+                .process_gossip_blob(verified_blob, || Ok(()))
                 .await
                 .unwrap();
         }
@@ -1356,7 +1354,7 @@ async fn add_base_block_to_altair_chain() {
     spec.altair_fork_epoch = Some(Epoch::new(1));
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec)
+        .spec(spec.into())
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -1474,7 +1472,7 @@ async fn add_base_block_to_altair_chain() {
             )
             .await,
         ChainSegmentResult::Failed {
-            imported_blocks: 0,
+            imported_blocks: _,
             error: BlockError::InconsistentFork(InconsistentFork {
                 fork_at_slot: ForkName::Altair,
                 object_fork: ForkName::Base,
@@ -1491,7 +1489,7 @@ async fn add_altair_block_to_base_chain() {
     spec.altair_fork_epoch = None;
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec)
+        .spec(spec.into())
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -1610,7 +1608,7 @@ async fn add_altair_block_to_base_chain() {
             )
             .await,
         ChainSegmentResult::Failed {
-            imported_blocks: 0,
+            imported_blocks: _,
             error: BlockError::InconsistentFork(InconsistentFork {
                 fork_at_slot: ForkName::Base,
                 object_fork: ForkName::Altair,
@@ -1624,7 +1622,7 @@ async fn import_duplicate_block_unrealized_justification() {
     let spec = MainnetEthSpec::default_spec();
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec)
+        .spec(spec.into())
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()

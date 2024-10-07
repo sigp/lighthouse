@@ -5,14 +5,14 @@ authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = { workspace = true }
 
 [dependencies]
-ethereum-types = { workspace = true }
+alloy-primitives = { workspace = true }
 ethereum_hashing = { workspace = true }
-lazy_static = { workspace = true }
 safe_arith = { workspace = true }
+fixed_bytes = { workspace = true }
 
 [dev-dependencies]
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
 
 [features]
-arbitrary = ["ethereum-types/arbitrary"]
+arbitrary = ["alloy-primitives/arbitrary"]

@@ -3,13 +3,13 @@
 use super::*;
 use crate::auth::Auth;
 use crate::json_structures::*;
-use lazy_static::lazy_static;
 use lighthouse_version::{COMMIT_PREFIX, VERSION};
 use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::collections::HashSet;
+use std::sync::LazyLock;
 use tokio::sync::Mutex;
 
 use std::time::{Duration, Instant};
@@ -50,6 +50,8 @@ pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1: &str = "engine_getPayloadBodiesByHashV1";
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1: &str = "engine_getPayloadBodiesByRangeV1";
+pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2: &str = "engine_getPayloadBodiesByHashV2";
+pub const ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2: &str = "engine_getPayloadBodiesByRangeV2";
 pub const ENGINE_GET_PAYLOAD_BODIES_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub const ENGINE_EXCHANGE_CAPABILITIES: &str = "engine_exchangeCapabilities";
@@ -78,21 +80,22 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
+    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2,
+    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2,
     ENGINE_GET_CLIENT_VERSION_V1,
 ];
 
-lazy_static! {
-    /// We opt to initialize the JsonClientVersionV1 rather than the ClientVersionV1
-    /// for two reasons:
-    /// 1. This saves the overhead of converting into Json for every engine call
-    /// 2. The Json version lacks error checking so we can avoid calling `unwrap()`
-    pub static ref LIGHTHOUSE_JSON_CLIENT_VERSION: JsonClientVersionV1 = JsonClientVersionV1 {
+/// We opt to initialize the JsonClientVersionV1 rather than the ClientVersionV1
+/// for two reasons:
+/// 1. This saves the overhead of converting into Json for every engine call
+/// 2. The Json version lacks error checking so we can avoid calling `unwrap()`
+pub static LIGHTHOUSE_JSON_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
+    LazyLock::new(|| JsonClientVersionV1 {
         code: ClientCode::Lighthouse.to_string(),
         name: "Lighthouse".to_string(),
         version: VERSION.replace("Lighthouse/", ""),
         commit: COMMIT_PREFIX.to_string(),
-    };
-}
+    });
 
 /// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
 pub mod deposit_log {
@@ -731,54 +734,6 @@ impl HttpJsonRpc {
         .await
     }
 
-    pub async fn get_block_by_hash_with_txns<E: EthSpec>(
-        &self,
-        block_hash: ExecutionBlockHash,
-        fork: ForkName,
-    ) -> Result<Option<ExecutionBlockWithTransactions<E>>, Error> {
-        let params = json!([block_hash, true]);
-        Ok(Some(match fork {
-            ForkName::Bellatrix => ExecutionBlockWithTransactions::Bellatrix(
-                self.rpc_request(
-                    ETH_GET_BLOCK_BY_HASH,
-                    params,
-                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
-                )
-                .await?,
-            ),
-            ForkName::Capella => ExecutionBlockWithTransactions::Capella(
-                self.rpc_request(
-                    ETH_GET_BLOCK_BY_HASH,
-                    params,
-                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
-                )
-                .await?,
-            ),
-            ForkName::Deneb => ExecutionBlockWithTransactions::Deneb(
-                self.rpc_request(
-                    ETH_GET_BLOCK_BY_HASH,
-                    params,
-                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
-                )
-                .await?,
-            ),
-            ForkName::Electra => ExecutionBlockWithTransactions::Electra(
-                self.rpc_request(
-                    ETH_GET_BLOCK_BY_HASH,
-                    params,
-                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
-                )
-                .await?,
-            ),
-            ForkName::Base | ForkName::Altair => {
-                return Err(Error::UnsupportedForkVariant(format!(
-                    "called get_block_by_hash_with_txns with fork {:?}",
-                    fork
-                )))
-            }
-        }))
-    }
-
     pub async fn new_payload_v1<E: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<E>,
@@ -874,7 +829,7 @@ impl HttpJsonRpc {
             // Set the V1 payload values from the EE to be zero. This simulates
             // the pre-block-value functionality of always choosing the builder
             // block.
-            block_value: Uint256::zero(),
+            block_value: Uint256::ZERO,
         }))
     }
 
@@ -1036,7 +991,7 @@ impl HttpJsonRpc {
     pub async fn get_payload_bodies_by_hash_v1<E: EthSpec>(
         &self,
         block_hashes: Vec<ExecutionBlockHash>,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
         let params = json!([block_hashes]);
 
         let response: Vec<Option<JsonExecutionPayloadBodyV1<E>>> = self
@@ -1049,7 +1004,27 @@ impl HttpJsonRpc {
 
         Ok(response
             .into_iter()
-            .map(|opt_json| opt_json.map(From::from))
+            .map(|opt_json| opt_json.map(|v1| JsonExecutionPayloadBody::V1(v1).into()))
+            .collect())
+    }
+
+    pub async fn get_payload_bodies_by_hash_v2<E: EthSpec>(
+        &self,
+        block_hashes: Vec<ExecutionBlockHash>,
+    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
+        let params = json!([block_hashes]);
+
+        let response: Vec<Option<JsonExecutionPayloadBodyV2<E>>> = self
+            .rpc_request(
+                ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2,
+                params,
+                ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response
+            .into_iter()
+            .map(|opt_json| opt_json.map(|v2| JsonExecutionPayloadBody::V2(v2).into()))
             .collect())
     }
 
@@ -1057,7 +1032,7 @@ impl HttpJsonRpc {
         &self,
         start: u64,
         count: u64,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
         #[derive(Serialize)]
         #[serde(transparent)]
         struct Quantity(#[serde(with = "serde_utils::u64_hex_be")] u64);
@@ -1073,7 +1048,31 @@ impl HttpJsonRpc {
 
         Ok(response
             .into_iter()
-            .map(|opt_json| opt_json.map(From::from))
+            .map(|opt_json| opt_json.map(|v1| JsonExecutionPayloadBody::V1(v1).into()))
+            .collect())
+    }
+
+    pub async fn get_payload_bodies_by_range_v2<E: EthSpec>(
+        &self,
+        start: u64,
+        count: u64,
+    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
+        #[derive(Serialize)]
+        #[serde(transparent)]
+        struct Quantity(#[serde(with = "serde_utils::u64_hex_be")] u64);
+
+        let params = json!([Quantity(start), Quantity(count)]);
+        let response: Vec<Option<JsonExecutionPayloadBodyV2<E>>> = self
+            .rpc_request(
+                ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2,
+                params,
+                ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response
+            .into_iter()
+            .map(|opt_json| opt_json.map(|v2| JsonExecutionPayloadBody::V2(v2).into()))
             .collect())
     }
 
@@ -1100,6 +1099,10 @@ impl HttpJsonRpc {
                 .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1),
             get_payload_bodies_by_range_v1: capabilities
                 .contains(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1),
+            get_payload_bodies_by_hash_v2: capabilities
+                .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2),
+            get_payload_bodies_by_range_v2: capabilities
+                .contains(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2),
             get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
             get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
             get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
@@ -1275,6 +1278,39 @@ impl HttpJsonRpc {
         }
     }
 
+    pub async fn get_payload_bodies_by_hash<E: EthSpec>(
+        &self,
+        block_hashes: Vec<ExecutionBlockHash>,
+    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
+        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        if engine_capabilities.get_payload_bodies_by_hash_v2 {
+            self.get_payload_bodies_by_hash_v2(block_hashes).await
+        } else if engine_capabilities.get_payload_bodies_by_hash_v1 {
+            self.get_payload_bodies_by_hash_v1(block_hashes).await
+        } else {
+            Err(Error::RequiredMethodUnsupported(
+                "engine_getPayloadBodiesByHash",
+            ))
+        }
+    }
+
+    pub async fn get_payload_bodies_by_range<E: EthSpec>(
+        &self,
+        start: u64,
+        count: u64,
+    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
+        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        if engine_capabilities.get_payload_bodies_by_range_v2 {
+            self.get_payload_bodies_by_range_v2(start, count).await
+        } else if engine_capabilities.get_payload_bodies_by_range_v1 {
+            self.get_payload_bodies_by_range_v1(start, count).await
+        } else {
+            Err(Error::RequiredMethodUnsupported(
+                "engine_getPayloadBodiesByRange",
+            ))
+        }
+    }
+
     // automatically selects the latest version of
     // forkchoice_updated that the execution engine supports
     pub async fn forkchoice_updated(
@@ -1330,7 +1366,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{MainnetEthSpec, Unsigned};
+    use types::{FixedBytesExtended, MainnetEthSpec, Unsigned};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,

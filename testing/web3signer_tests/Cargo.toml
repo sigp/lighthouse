@@ -26,5 +26,5 @@ serde_yaml = { workspace = true }
 eth2_network_config = { workspace = true }
 serde_json = { workspace = true }
 zip = { workspace = true }
-lazy_static = { workspace = true }
 parking_lot = { workspace = true }
+logging = { workspace = true }

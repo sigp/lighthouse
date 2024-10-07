@@ -5,7 +5,6 @@ pub use beacon_chain;
 use beacon_chain::store::LevelDB;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
-    TimeoutRwLock,
 };
 use clap::ArgMatches;
 pub use cli::cli_app;
@@ -73,11 +72,6 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             )
         }
 
-        if !client_config.chain.enable_lock_timeouts {
-            info!(log, "Disabling lock timeouts globally");
-            TimeoutRwLock::disable_timeouts()
-        }
-
         if let Err(misaligned_forks) = validator_fork_epochs(&spec) {
             warn!(
                 log,
@@ -125,7 +119,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             let slasher = Arc::new(
                 Slasher::open(
                     slasher_config,
-                    Arc::new(spec),
+                    spec,
                     log.new(slog::o!("service" => "slasher")),
                 )
                 .map_err(|e| format!("Slasher open error: {:?}", e))?,
@@ -180,7 +174,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
         builder
             .build_beacon_chain()?
-            .network(&client_config.network)
+            .network(Arc::new(client_config.network))
             .await?
             .notifier()?
             .http_metrics_config(client_config.http_metrics.clone())

@@ -44,6 +44,8 @@ use std::sync::Arc;
 use strum::{EnumString, IntoStaticStr};
 pub use types::*;
 
+const DATA_COLUMN_DB_KEY_SIZE: usize = 32 + 8;
+
 pub type ColumnIter<'a, K> = Box<dyn Iterator<Item = Result<(K, Vec<u8>), Error>> + 'a>;
 pub type ColumnKeyIter<'a, K> = Box<dyn Iterator<Item = Result<K, Error>> + 'a>;
 
@@ -109,9 +111,7 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
         Box::new(std::iter::empty())
     }
 
-    fn iter_raw_keys(&self, _column: DBColumn, _prefix: &[u8]) -> RawKeyIter {
-        Box::new(std::iter::empty())
-    }
+    fn iter_raw_keys(&self, column: DBColumn, prefix: &[u8]) -> RawKeyIter;
 
     /// Iterate through all keys in a particular column.
     fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
@@ -150,6 +150,28 @@ pub fn get_col_from_key(key: &[u8]) -> Option<String> {
     String::from_utf8(key[0..3].to_vec()).ok()
 }
 
+pub fn get_data_column_key(block_root: &Hash256, column_index: &ColumnIndex) -> Vec<u8> {
+    let mut result = block_root.as_slice().to_vec();
+    result.extend_from_slice(&column_index.to_le_bytes());
+    result
+}
+
+pub fn parse_data_column_key(data: Vec<u8>) -> Result<(Hash256, ColumnIndex), Error> {
+    if data.len() != DBColumn::BeaconDataColumn.key_size() {
+        return Err(Error::InvalidKey);
+    }
+    // split_at panics if 32 < 40 which will never happen after the length check above
+    let (block_root_bytes, column_index_bytes) = data.split_at(32);
+    let block_root = Hash256::from_slice(block_root_bytes);
+    // column_index_bytes is asserted to be 8 bytes after the length check above
+    let column_index = ColumnIndex::from_le_bytes(
+        column_index_bytes
+            .try_into()
+            .map_err(|_| Error::InvalidKey)?,
+    );
+    Ok((block_root, column_index))
+}
+
 #[must_use]
 #[derive(Clone)]
 pub enum KeyValueStoreOp {
@@ -161,7 +183,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
     /// Store an item in `Self`.
     fn put<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
         let column = I::db_column().into();
-        let key = key.as_bytes();
+        let key = key.as_slice();
 
         self.put_bytes(column, key, &item.as_store_bytes())
             .map_err(Into::into)
@@ -169,7 +191,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 
     fn put_sync<I: StoreItem>(&self, key: &Hash256, item: &I) -> Result<(), Error> {
         let column = I::db_column().into();
-        let key = key.as_bytes();
+        let key = key.as_slice();
 
         self.put_bytes_sync(column, key, &item.as_store_bytes())
             .map_err(Into::into)
@@ -178,7 +200,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
     /// Retrieve an item from `Self`.
     fn get<I: StoreItem>(&self, key: &Hash256) -> Result<Option<I>, Error> {
         let column = I::db_column().into();
-        let key = key.as_bytes();
+        let key = key.as_slice();
 
         match self.get_bytes(column, key)? {
             Some(bytes) => Ok(Some(I::from_store_bytes(&bytes[..])?)),
@@ -189,7 +211,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
     /// Returns `true` if the given key represents an item in `Self`.
     fn exists<I: StoreItem>(&self, key: &Hash256) -> Result<bool, Error> {
         let column = I::db_column().into();
-        let key = key.as_bytes();
+        let key = key.as_slice();
 
         self.key_exists(column, key)
     }
@@ -197,7 +219,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
     /// Remove an item from `Self`.
     fn delete<I: StoreItem>(&self, key: &Hash256) -> Result<(), Error> {
         let column = I::db_column().into();
-        let key = key.as_bytes();
+        let key = key.as_slice();
 
         self.key_delete(column, key)
     }
@@ -210,13 +232,16 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutBlock(Hash256, Arc<SignedBeaconBlock<E>>),
     PutState(Hash256, &'a BeaconState<E>),
     PutBlobs(Hash256, BlobSidecarList<E>),
+    PutDataColumns(Hash256, DataColumnSidecarList<E>),
     PutStateSummary(Hash256, HotStateSummary),
     PutStateTemporaryFlag(Hash256),
     DeleteStateTemporaryFlag(Hash256),
     DeleteBlock(Hash256),
     DeleteBlobs(Hash256),
+    DeleteDataColumns(Hash256, Vec<ColumnIndex>),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
+    DeleteSyncCommitteeBranch(Hash256),
     KeyValueOp(KeyValueStoreOp),
 }
 
@@ -230,6 +255,8 @@ pub enum DBColumn {
     BeaconBlock,
     #[strum(serialize = "blb")]
     BeaconBlob,
+    #[strum(serialize = "bdc")]
+    BeaconDataColumn,
     /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
     #[strum(serialize = "ste")]
     BeaconState,
@@ -274,6 +301,15 @@ pub enum DBColumn {
     BeaconHistoricalSummaries,
     #[strum(serialize = "olc")]
     OverflowLRUCache,
+    /// For persisting eagerly computed light client data
+    #[strum(serialize = "lcu")]
+    LightClientUpdate,
+    /// For helping persist eagerly computed light client bootstrap data
+    #[strum(serialize = "scb")]
+    SyncCommitteeBranch,
+    /// For helping persist eagerly computed light client bootstrap data
+    #[strum(serialize = "scm")]
+    SyncCommittee,
 }
 
 /// A block from the database, which might have an execution payload or not.
@@ -316,7 +352,11 @@ impl DBColumn {
             | Self::BeaconStateRoots
             | Self::BeaconHistoricalRoots
             | Self::BeaconHistoricalSummaries
-            | Self::BeaconRandaoMixes => 8,
+            | Self::BeaconRandaoMixes
+            | Self::SyncCommittee
+            | Self::SyncCommitteeBranch
+            | Self::LightClientUpdate => 8,
+            Self::BeaconDataColumn => DATA_COLUMN_DB_KEY_SIZE,
         }
     }
 }
@@ -335,7 +375,7 @@ pub trait StoreItem: Sized {
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error>;
 
     fn as_kv_store_op(&self, key: Hash256) -> KeyValueStoreOp {
-        let db_key = get_key_for_col(Self::db_column().into(), key.as_bytes());
+        let db_key = get_key_for_col(Self::db_column().into(), key.as_slice());
         KeyValueStoreOp::PutKeyValue(db_key, self.as_store_bytes())
     }
 }

@@ -27,6 +27,8 @@ pub enum Error {
     AnchorInfoConcurrentMutation,
     /// The store's `blob_info` was mutated concurrently, the latest modification wasn't applied.
     BlobInfoConcurrentMutation,
+    /// The store's `data_column_info` was mutated concurrently, the latest modification wasn't applied.
+    DataColumnInfoConcurrentMutation,
     /// The block or state is unavailable due to weak subjectivity sync.
     HistoryUnavailable,
     /// State reconstruction cannot commence because not all historic blocks are known.
@@ -57,6 +59,7 @@ pub enum Error {
         state_root: Hash256,
         slot: Slot,
     },
+    ArithError(safe_arith::ArithError),
 }
 
 pub trait HandleUnavailable<T> {
@@ -124,6 +127,12 @@ impl From<InconsistentFork> for Error {
 impl From<EpochCacheError> for Error {
     fn from(e: EpochCacheError) -> Error {
         Error::CacheBuildError(e)
+    }
+}
+
+impl From<safe_arith::ArithError> for Error {
+    fn from(e: safe_arith::ArithError) -> Error {
+        Error::ArithError(e)
     }
 }
 

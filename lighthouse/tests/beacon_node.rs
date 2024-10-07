@@ -160,18 +160,10 @@ fn max_skip_slots_flag() {
 }
 
 #[test]
-fn enable_lock_timeouts_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.enable_lock_timeouts));
-}
-
-#[test]
 fn disable_lock_timeouts_flag() {
     CommandLineTest::new()
         .flag("disable-lock-timeouts", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(!config.chain.enable_lock_timeouts));
+        .run_with_zero_port();
 }
 
 #[test]
@@ -831,6 +823,26 @@ fn network_target_peers_flag() {
         .with_config(|config| {
             assert_eq!(config.network.target_peers, "55".parse::<usize>().unwrap());
         });
+}
+#[test]
+fn network_subscribe_all_data_column_subnets_flag() {
+    CommandLineTest::new()
+        .flag("subscribe-all-data-column-subnets", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.network.subscribe_all_data_column_subnets));
+}
+#[test]
+fn network_enable_sampling_flag() {
+    CommandLineTest::new()
+        .flag("enable-sampling", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.enable_sampling));
+}
+#[test]
+fn network_enable_sampling_flag_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.enable_sampling));
 }
 #[test]
 fn network_subscribe_all_subnets_flag() {
@@ -2030,6 +2042,13 @@ fn epochs_per_migration_override() {
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.chain.epochs_per_migration, 128));
 }
+#[test]
+fn malicious_withhold_count_flag() {
+    CommandLineTest::new()
+        .flag("malicious-withhold-count", Some("128"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.malicious_withhold_count, 128));
+}
 
 // Tests for Slasher flags.
 // Using `--slasher-max-db-size` to work around https://github.com/sigp/lighthouse/issues/2342
@@ -2253,7 +2272,7 @@ fn slasher_broadcast_flag_false() {
         });
 }
 
-#[cfg(all(feature = "lmdb"))]
+#[cfg(all(feature = "slasher-lmdb"))]
 #[test]
 fn slasher_backend_override_to_default() {
     // Hard to test this flag because all but one backend is disabled by default and the backend

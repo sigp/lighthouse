@@ -177,6 +177,22 @@ Options:
           Default is unlimited.
 
 Flags:
+      --beacon-nodes-sync-tolerances <SYNC_TOLERANCES>
+          A comma-separated list of 3 values which sets the size of each sync
+          distance range when determining the health of each connected beacon
+          node. The first value determines the `Synced` range. If a connected
+          beacon node is synced to within this number of slots it is considered
+          'Synced'. The second value determines the `Small` sync distance range.
+          This range starts immediately after the `Synced` range. The third
+          value determines the `Medium` sync distance range. This range starts
+          immediately after the `Small` range. Any sync distance value beyond
+          that is considered `Large`. For example, a value of `8,8,48` would
+          have ranges like the following: `Synced`: 0..=8 `Small`: 9..=16
+          `Medium`: 17..=64 `Large`: 65.. These values are used to determine
+          what ordering beacon node fallbacks are used in. Generally, `Synced`
+          nodes are preferred over `Small` and so on. Nodes in the `Synced`
+          range will tie-break based on their ordering in `--beacon-nodes`. This
+          ensures the primary beacon node is prioritised. [default: 8,8,48]
       --builder-proposals
           If this flag is set, Lighthouse will query the Beacon Node for only
           block headers during proposals and will sign over headers. Useful for
@@ -265,10 +281,9 @@ Flags:
           If this flag is set, Lighthouse will always prefer blocks constructed
           by builders, regardless of payload value.
       --produce-block-v3
-          Enable block production via the block v3 endpoint for this validator
-          client. This should only be enabled when paired with a beacon node
-          that has this endpoint implemented. This flag will be enabled by
-          default in future.
+          This flag is deprecated and is no longer in use.
+      --stdin-inputs
+          If present, read all user inputs from stdin instead of tty.
       --unencrypted-http-transport
           This is a safety flag to ensure that the user is aware that the http
           transport is unencrypted and using a custom HTTP address is unsafe.

@@ -11,9 +11,9 @@ use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
 use crate::head_tracker::HeadTracker;
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
+use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
-use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
@@ -39,8 +39,8 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256,
-    Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, Epoch, EthSpec,
+    FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -93,7 +93,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     light_client_server_tx: Option<Sender<LightClientProducerEvent<T::EthSpec>>>,
     head_tracker: Option<HeadTracker>,
     validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
     chain_config: ChainConfig,
     log: Option<Logger>,
     beacon_graffiti: GraffitiOrigin,
@@ -101,9 +101,10 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     // Pending I/O batch that is constructed during building and should be executed atomically
     // alongside `PersistedBeaconChain` storage when `BeaconChainBuilder::build` is called.
     pending_io_batch: Vec<KeyValueStoreOp>,
-    kzg: Option<Arc<Kzg>>,
+    kzg: Arc<Kzg>,
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
+    import_all_data_columns: bool,
 }
 
 impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
@@ -119,7 +120,7 @@ where
     ///
     /// The `_eth_spec_instance` parameter is only supplied to make concrete the `E` trait.
     /// This should generally be either the `MinimalEthSpec` or `MainnetEthSpec` types.
-    pub fn new(_eth_spec_instance: E) -> Self {
+    pub fn new(_eth_spec_instance: E, kzg: Arc<Kzg>) -> Self {
         Self {
             store: None,
             store_migrator_config: None,
@@ -136,15 +137,16 @@ where
             light_client_server_tx: None,
             head_tracker: None,
             validator_pubkey_cache: None,
-            spec: E::default_spec(),
+            spec: Arc::new(E::default_spec()),
             chain_config: ChainConfig::default(),
             log: None,
             beacon_graffiti: GraffitiOrigin::default(),
             slasher: None,
             pending_io_batch: vec![],
-            kzg: None,
+            kzg,
             task_executor: None,
             validator_monitor_config: None,
+            import_all_data_columns: false,
         }
     }
 
@@ -152,7 +154,7 @@ where
     ///
     /// This method should generally be called immediately after `Self::new` to ensure components
     /// are started with a consistent spec.
-    pub fn custom_spec(mut self, spec: ChainSpec) -> Self {
+    pub fn custom_spec(mut self, spec: Arc<ChainSpec>) -> Self {
         self.spec = spec;
         self
     }
@@ -407,6 +409,11 @@ where
                 .init_blob_info(genesis.beacon_block.slot())
                 .map_err(|e| format!("Failed to initialize genesis blob info: {:?}", e))?,
         );
+        self.pending_io_batch.push(
+            store
+                .init_data_column_info(genesis.beacon_block.slot())
+                .map_err(|e| format!("Failed to initialize genesis data column info: {:?}", e))?,
+        );
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis)
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
@@ -571,6 +578,11 @@ where
                 .init_blob_info(weak_subj_block.slot())
                 .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
         );
+        self.pending_io_batch.push(
+            store
+                .init_data_column_info(weak_subj_block.slot())
+                .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
+        );
 
         // Store pruning checkpoint to prevent attempting to prune before the anchor state.
         self.pending_io_batch
@@ -612,6 +624,12 @@ where
     /// Sets the `BeaconChain` execution layer.
     pub fn execution_layer(mut self, execution_layer: Option<ExecutionLayer<E>>) -> Self {
         self.execution_layer = execution_layer;
+        self
+    }
+
+    /// Sets whether to require and import all data columns when importing block.
+    pub fn import_all_data_columns(mut self, import_all_data_columns: bool) -> Self {
+        self.import_all_data_columns = import_all_data_columns;
         self
     }
 
@@ -673,11 +691,6 @@ where
     /// `validators` is a comma-separated string of 0x-formatted BLS pubkeys.
     pub fn validator_monitor_config(mut self, config: ValidatorMonitorConfig) -> Self {
         self.validator_monitor_config = Some(config);
-        self
-    }
-
-    pub fn kzg(mut self, kzg: Option<Arc<Kzg>>) -> Self {
-        self.kzg = kzg;
         self
     }
 
@@ -918,7 +931,8 @@ where
             observed_sync_aggregators: <_>::default(),
             // TODO: allow for persisting and loading the pool from disk.
             observed_block_producers: <_>::default(),
-            observed_blob_sidecars: <_>::default(),
+            observed_column_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
+            observed_blob_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
             observed_slashable: <_>::default(),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
@@ -935,16 +949,16 @@ where
             fork_choice_signal_rx,
             event_handler: self.event_handler,
             head_tracker,
-            shuffling_cache: TimeoutRwLock::new(ShufflingCache::new(
+            shuffling_cache: RwLock::new(ShufflingCache::new(
                 shuffling_cache_size,
                 head_shuffling_ids,
                 log.clone(),
             )),
-            eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
+            eth1_finalization_cache: RwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache,
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
-            validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
+            validator_pubkey_cache: RwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
             reqresp_pre_import_cache: <_>::default(),
@@ -964,8 +978,14 @@ where
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
             data_availability_checker: Arc::new(
-                DataAvailabilityChecker::new(slot_clock, self.kzg.clone(), store, &log, self.spec)
-                    .map_err(|e| format!("Error initializing DataAvailabiltyChecker: {:?}", e))?,
+                DataAvailabilityChecker::new(
+                    slot_clock,
+                    self.kzg.clone(),
+                    store,
+                    self.import_all_data_columns,
+                    self.spec,
+                )
+                .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
         };
@@ -1132,7 +1152,7 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::EphemeralHarnessType;
+    use crate::test_utils::{get_kzg, EphemeralHarnessType};
     use ethereum_hashing::hash;
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
@@ -1163,8 +1183,12 @@ mod test {
             MinimalEthSpec,
             MemoryStore<MinimalEthSpec>,
             MemoryStore<MinimalEthSpec>,
-        > = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
-            .unwrap();
+        > = HotColdDB::open_ephemeral(
+            StoreConfig::default(),
+            ChainSpec::minimal().into(),
+            log.clone(),
+        )
+        .unwrap();
         let spec = MinimalEthSpec::default_spec();
 
         let genesis_state = interop_genesis_state(
@@ -1179,7 +1203,9 @@ mod test {
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let runtime = TestRuntime::default();
 
-        let chain = Builder::new(MinimalEthSpec)
+        let kzg = get_kzg(&spec);
+
+        let chain = Builder::new(MinimalEthSpec, kzg)
             .logger(log.clone())
             .store(Arc::new(store))
             .task_executor(runtime.task_executor.clone())
@@ -1267,7 +1293,7 @@ mod test {
         }
 
         for v in state.validators() {
-            let creds = v.withdrawal_credentials.as_bytes();
+            let creds = v.withdrawal_credentials.as_slice();
             assert_eq!(
                 creds[0], spec.bls_withdrawal_prefix_byte,
                 "first byte of withdrawal creds should be bls prefix"

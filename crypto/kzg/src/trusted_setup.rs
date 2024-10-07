@@ -1,8 +1,15 @@
+use crate::PeerDASTrustedSetup;
 use c_kzg::{BYTES_PER_G1_POINT, BYTES_PER_G2_POINT};
 use serde::{
     de::{self, Deserializer, Visitor},
     Deserialize, Serialize,
 };
+
+pub const TRUSTED_SETUP_BYTES: &[u8] = include_bytes!("../trusted_setup.json");
+
+pub fn get_trusted_setup() -> Vec<u8> {
+    TRUSTED_SETUP_BYTES.into()
+}
 
 /// Wrapper over a BLS G1 point's byte representation.
 #[derive(Debug, Clone, PartialEq)]
@@ -40,6 +47,28 @@ impl TrustedSetup {
 
     pub fn g1_len(&self) -> usize {
         self.g1_points.len()
+    }
+}
+
+impl From<&TrustedSetup> for PeerDASTrustedSetup {
+    fn from(trusted_setup: &TrustedSetup) -> Self {
+        Self {
+            g1_monomial: trusted_setup
+                .g1_monomial_points
+                .iter()
+                .map(|g1_point| format!("0x{}", hex::encode(g1_point.0)))
+                .collect::<Vec<_>>(),
+            g1_lagrange: trusted_setup
+                .g1_points
+                .iter()
+                .map(|g1_point| format!("0x{}", hex::encode(g1_point.0)))
+                .collect::<Vec<_>>(),
+            g2_monomial: trusted_setup
+                .g2_points
+                .iter()
+                .map(|g2_point| format!("0x{}", hex::encode(g2_point.0)))
+                .collect::<Vec<_>>(),
+        }
     }
 }
 

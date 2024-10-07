@@ -1,11 +1,10 @@
 //! Implementation of Lighthouse's peer management system.
 
 use crate::discovery::enr_ext::EnrExt;
-use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
+use crate::discovery::peer_id_to_node_id;
+use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RpcErrorResponse};
 use crate::service::TARGET_SUBNET_PEERS;
-use crate::{error, metrics, Gossipsub};
-use crate::{NetworkGlobals, PeerId};
-use crate::{Subnet, SubnetDiscovery};
+use crate::{error, metrics, Gossipsub, NetworkGlobals, PeerId, Subnet, SubnetDiscovery};
 use delay_map::HashSetDelay;
 use discv5::Enr;
 use libp2p::identify::Info as IdentifyInfo;
@@ -18,12 +17,11 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use types::{EthSpec, SyncSubnetId};
+use types::{DataColumnSubnetId, EthSpec, SyncSubnetId};
 
 pub use libp2p::core::Multiaddr;
 pub use libp2p::identity::Keypair;
 
-#[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 pub mod peerdb;
 
 use crate::peer_manager::peerdb::client::ClientKind;
@@ -33,7 +31,7 @@ pub use peerdb::peer_info::{
 };
 use peerdb::score::{PeerAction, ReportSource};
 pub use peerdb::sync_status::{SyncInfo, SyncStatus};
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::net::IpAddr;
 use strum::IntoEnumIterator;
 
@@ -320,9 +318,9 @@ impl<E: EthSpec> PeerManager<E> {
     /// returned here.
     ///
     /// This function decides whether or not to dial these peers.
-    #[allow(clippy::mutable_key_type)]
     pub fn peers_discovered(&mut self, results: HashMap<Enr, Option<Instant>>) {
         let mut to_dial_peers = 0;
+        let results_count = results.len();
         let connected_or_dialing = self.network_globals.connected_or_dialing_peers();
         for (enr, min_ttl) in results {
             // There are two conditions in deciding whether to dial this peer.
@@ -354,8 +352,19 @@ impl<E: EthSpec> PeerManager<E> {
             }
         }
 
-        // Queue another discovery if we need to
-        self.maintain_peer_count(to_dial_peers);
+        // The heartbeat will attempt new discovery queries every N seconds if the node needs more
+        // peers. As an optimization, this function can recursively trigger new discovery queries
+        // immediatelly if we don't fulfill our peers needs after completing a query. This
+        // recursiveness results in an infinite loop in networks where there not enough peers to
+        // reach out target. To prevent the infinite loop, if a query returns no useful peers, we
+        // will cancel the recursiveness and wait for the heartbeat to trigger another query latter.
+        if results_count > 0 && to_dial_peers == 0 {
+            debug!(self.log, "Skipping recursive discovery query after finding no useful results"; "results" => results_count);
+            metrics::inc_counter(&metrics::DISCOVERY_NO_USEFUL_ENRS);
+        } else {
+            // Queue another discovery if we need to
+            self.maintain_peer_count(to_dial_peers);
+        }
     }
 
     /// A STATUS message has been received from a peer. This resets the status timer.
@@ -517,10 +526,13 @@ impl<E: EthSpec> PeerManager<E> {
                 PeerAction::HighToleranceError
             }
             RPCError::ErrorResponse(code, _) => match code {
-                RPCResponseErrorCode::Unknown => PeerAction::HighToleranceError,
-                RPCResponseErrorCode::ResourceUnavailable => {
+                RpcErrorResponse::Unknown => PeerAction::HighToleranceError,
+                RpcErrorResponse::ResourceUnavailable => {
                     // Don't ban on this because we want to retry with a block by root request.
-                    if matches!(protocol, Protocol::BlobsByRoot) {
+                    if matches!(
+                        protocol,
+                        Protocol::BlobsByRoot | Protocol::DataColumnsByRoot
+                    ) {
                         return;
                     }
 
@@ -546,9 +558,9 @@ impl<E: EthSpec> PeerManager<E> {
                         ConnectionDirection::Incoming => return,
                     }
                 }
-                RPCResponseErrorCode::ServerError => PeerAction::MidToleranceError,
-                RPCResponseErrorCode::InvalidRequest => PeerAction::LowToleranceError,
-                RPCResponseErrorCode::RateLimited => match protocol {
+                RpcErrorResponse::ServerError => PeerAction::MidToleranceError,
+                RpcErrorResponse::InvalidRequest => PeerAction::LowToleranceError,
+                RpcErrorResponse::RateLimited => match protocol {
                     Protocol::Ping => PeerAction::MidToleranceError,
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
@@ -559,11 +571,13 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::LightClientOptimisticUpdate => return,
                     Protocol::LightClientFinalityUpdate => return,
                     Protocol::BlobsByRoot => PeerAction::MidToleranceError,
+                    Protocol::DataColumnsByRoot => PeerAction::MidToleranceError,
+                    Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
                     Protocol::Goodbye => PeerAction::LowToleranceError,
                     Protocol::MetaData => PeerAction::LowToleranceError,
                     Protocol::Status => PeerAction::LowToleranceError,
                 },
-                RPCResponseErrorCode::BlobsNotFoundForBlock => PeerAction::LowToleranceError,
+                RpcErrorResponse::BlobsNotFoundForBlock => PeerAction::LowToleranceError,
             },
             RPCError::SSZDecodeError(_) => PeerAction::Fatal,
             RPCError::UnsupportedProtocol => {
@@ -577,6 +591,8 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::BlocksByRoot => return,
                     Protocol::BlobsByRange => return,
                     Protocol::BlobsByRoot => return,
+                    Protocol::DataColumnsByRoot => return,
+                    Protocol::DataColumnsByRange => return,
                     Protocol::Goodbye => return,
                     Protocol::LightClientBootstrap => return,
                     Protocol::LightClientOptimisticUpdate => return,
@@ -597,6 +613,8 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
                     Protocol::BlobsByRange => PeerAction::MidToleranceError,
                     Protocol::BlobsByRoot => PeerAction::MidToleranceError,
+                    Protocol::DataColumnsByRoot => PeerAction::MidToleranceError,
+                    Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
                     Protocol::LightClientBootstrap => return,
                     Protocol::LightClientOptimisticUpdate => return,
                     Protocol::LightClientFinalityUpdate => return,
@@ -681,6 +699,8 @@ impl<E: EthSpec> PeerManager<E> {
 
     /// Received a metadata response from a peer.
     pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<E>) {
+        let mut invalid_meta_data = false;
+
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             if let Some(known_meta_data) = &peer_info.meta_data() {
                 if *known_meta_data.seq_number() < *meta_data.seq_number() {
@@ -697,10 +717,38 @@ impl<E: EthSpec> PeerManager<E> {
                 debug!(self.log, "Obtained peer's metadata";
                     "peer_id" => %peer_id, "new_seq_no" => meta_data.seq_number());
             }
+
+            let custody_subnet_count_opt = meta_data.custody_subnet_count().copied().ok();
             peer_info.set_meta_data(meta_data);
+
+            if self.network_globals.spec.is_peer_das_scheduled() {
+                // Gracefully ignore metadata/v2 peers. Potentially downscore after PeerDAS to
+                // prioritize PeerDAS peers.
+                if let Some(custody_subnet_count) = custody_subnet_count_opt {
+                    match self.compute_peer_custody_subnets(peer_id, custody_subnet_count) {
+                        Ok(custody_subnets) => {
+                            peer_info.set_custody_subnets(custody_subnets);
+                        }
+                        Err(err) => {
+                            debug!(self.log, "Unable to compute peer custody subnets from metadata";
+                                "info" => "Sending goodbye to peer",
+                                "peer_id" => %peer_id,
+                                "custody_subnet_count" => custody_subnet_count,
+                                "error" => ?err,
+                            );
+                            invalid_meta_data = true;
+                        }
+                    };
+                }
+            }
         } else {
             error!(self.log, "Received METADATA from an unknown peer";
                 "peer_id" => %peer_id);
+        }
+
+        // Disconnect peers with invalid metadata and find other peers instead.
+        if invalid_meta_data {
+            self.goodbye_peer(peer_id, GoodbyeReason::Fault, ReportSource::PeerManager)
         }
     }
 
@@ -918,9 +966,9 @@ impl<E: EthSpec> PeerManager<E> {
     ///     number should be set low as an absolute lower bound to maintain peers on the sync
     ///     committees.
     /// - Do not prune trusted peers. NOTE: This means if a user has more trusted peers than the
-    /// excess peer limit, all of the following logic is subverted as we will not prune any peers.
-    /// Also, the more trusted peers a user has, the less room Lighthouse has to efficiently manage
-    /// its peers across the subnets.
+    ///     excess peer limit, all of the following logic is subverted as we will not prune any peers.
+    ///     Also, the more trusted peers a user has, the less room Lighthouse has to efficiently manage
+    ///     its peers across the subnets.
     ///
     /// Prune peers in the following order:
     /// 1. Remove worst scoring peers
@@ -1027,6 +1075,10 @@ impl<E: EthSpec> PeerManager<E> {
                                 .or_default()
                                 .insert(id);
                         }
+                        // TODO(das) to be implemented. We're not pruning data column peers yet
+                        // because data column topics are subscribed as core topics until we
+                        // implement recomputing data column subnets.
+                        Subnet::DataColumn(_) => {}
                     }
                 }
             }
@@ -1265,6 +1317,7 @@ impl<E: EthSpec> PeerManager<E> {
         let mut peers_connected = 0;
         let mut clients_per_peer = HashMap::new();
         let mut peers_connected_mutli: HashMap<(&str, &str), i32> = HashMap::new();
+        let mut peers_per_custody_subnet_count: HashMap<u64, i64> = HashMap::new();
 
         for (_, peer_info) in self.network_globals.peers.read().connected_peers() {
             peers_connected += 1;
@@ -1295,10 +1348,25 @@ impl<E: EthSpec> PeerManager<E> {
             *peers_connected_mutli
                 .entry((direction, transport))
                 .or_default() += 1;
+
+            if let Some(MetaData::V3(meta_data)) = peer_info.meta_data() {
+                *peers_per_custody_subnet_count
+                    .entry(meta_data.custody_subnet_count)
+                    .or_default() += 1;
+            }
         }
 
         // PEERS_CONNECTED
         metrics::set_gauge(&metrics::PEERS_CONNECTED, peers_connected);
+
+        // CUSTODY_SUBNET_COUNT
+        for (custody_subnet_count, peer_count) in peers_per_custody_subnet_count.into_iter() {
+            metrics::set_gauge_vec(
+                &metrics::PEERS_PER_CUSTODY_SUBNET_COUNT,
+                &[&custody_subnet_count.to_string()],
+                peer_count,
+            )
+        }
 
         // PEERS_PER_CLIENT
         for client_kind in ClientKind::iter() {
@@ -1323,6 +1391,45 @@ impl<E: EthSpec> PeerManager<E> {
             }
         }
     }
+
+    fn compute_peer_custody_subnets(
+        &self,
+        peer_id: &PeerId,
+        custody_subnet_count: u64,
+    ) -> Result<HashSet<DataColumnSubnetId>, String> {
+        // If we don't have a node id, we cannot compute the custody duties anyway
+        let node_id = peer_id_to_node_id(peer_id)?;
+        let spec = &self.network_globals.spec;
+
+        if !(spec.custody_requirement..=spec.data_column_sidecar_subnet_count)
+            .contains(&custody_subnet_count)
+        {
+            return Err("Invalid custody subnet count in metadata: out of range".to_string());
+        }
+
+        let custody_subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
+            node_id.raw(),
+            custody_subnet_count,
+            spec,
+        )
+        .map(|subnets| subnets.collect())
+        .unwrap_or_else(|e| {
+            // This is an unreachable scenario unless there's a bug, as we've validated the csc
+            // just above.
+            error!(
+                self.log,
+                "Computing peer custody subnets failed unexpectedly";
+                "info" => "Falling back to default custody requirement subnets",
+                "peer_id" => %peer_id,
+                "custody_subnet_count" => custody_subnet_count,
+                "error" => ?e
+            );
+            DataColumnSubnetId::compute_custody_requirement_subnets::<E>(node_id.raw(), spec)
+                .collect()
+        });
+
+        Ok(custody_subnets)
+    }
 }
 
 enum ConnectingType {
@@ -1343,6 +1450,7 @@ enum ConnectingType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::NetworkConfig;
     use slog::{o, Drain};
     use types::MainnetEthSpec as E;
 
@@ -1359,14 +1467,7 @@ mod tests {
     }
 
     async fn build_peer_manager(target_peer_count: usize) -> PeerManager<E> {
-        let config = config::Config {
-            target_peer_count,
-            discovery_enabled: false,
-            ..Default::default()
-        };
-        let log = build_log(slog::Level::Debug, false);
-        let globals = NetworkGlobals::new_test_globals(vec![], &log);
-        PeerManager::new(config, Arc::new(globals), &log).unwrap()
+        build_peer_manager_with_trusted_peers(vec![], target_peer_count).await
     }
 
     async fn build_peer_manager_with_trusted_peers(
@@ -1378,8 +1479,13 @@ mod tests {
             discovery_enabled: false,
             ..Default::default()
         };
+        let network_config = Arc::new(NetworkConfig {
+            target_peers: target_peer_count,
+            ..Default::default()
+        });
         let log = build_log(slog::Level::Debug, false);
-        let globals = NetworkGlobals::new_test_globals(trusted_peers, &log);
+        let spec = Arc::new(E::default_spec());
+        let globals = NetworkGlobals::new_test_globals(trusted_peers, &log, network_config, spec);
         PeerManager::new(config, Arc::new(globals), &log).unwrap()
     }
 

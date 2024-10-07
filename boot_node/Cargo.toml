@@ -1,6 +1,6 @@
 [package]
 name = "boot_node"
-version = "5.2.1"
+version = "5.3.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
@@ -21,3 +21,4 @@ slog-scope = "4.3.0"
 hex = { workspace = true }
 serde = { workspace = true }
 eth2_network_config = { workspace = true }
+bytes = { workspace = true }
