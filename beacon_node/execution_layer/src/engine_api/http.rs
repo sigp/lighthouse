@@ -793,6 +793,7 @@ impl HttpJsonRpc {
             JsonExecutionPayload::V4(new_payload_request_electra.execution_payload.clone().into()),
             new_payload_request_electra.versioned_hashes,
             new_payload_request_electra.parent_beacon_block_root,
+            new_payload_request_electra.execution_requests_hash,
         ]);
 
         let response: JsonPayloadStatusV1 = self

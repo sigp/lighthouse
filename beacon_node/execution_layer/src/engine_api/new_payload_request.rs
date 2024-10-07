@@ -12,6 +12,8 @@ use types::{
     ExecutionPayloadElectra,
 };
 
+use super::json_structures::compute_execution_requests_hash;
+
 #[superstruct(
     variants(Bellatrix, Capella, Deneb, Electra),
     variant_attributes(derive(Clone, Debug, PartialEq),),
@@ -43,6 +45,8 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
     pub versioned_hashes: Vec<VersionedHash>,
     #[superstruct(only(Deneb, Electra))]
     pub parent_beacon_block_root: Hash256,
+    #[superstruct(only(Electra))]
+    pub execution_requests_hash: Hash256,
 }
 
 impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
@@ -183,6 +187,9 @@ impl<'a, E: EthSpec> TryFrom<BeaconBlockRef<'a, E>> for NewPayloadRequest<'a, E>
                     .map(kzg_commitment_to_versioned_hash)
                     .collect(),
                 parent_beacon_block_root: block_ref.parent_root,
+                execution_requests_hash: compute_execution_requests_hash(
+                    &block_ref.body.execution_requests,
+                ),
             })),
         }
     }

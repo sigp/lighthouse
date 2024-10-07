@@ -1,13 +1,14 @@
 use super::*;
 use alloy_rlp::RlpEncodable;
-use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use ssz::Decode;
+use sha2::{Digest, Sha256};
+use ssz::{Decode, Encode};
 use strum::EnumString;
 use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobsList;
-use types::{DepositRequest, FixedVector, Unsigned, WithdrawalRequest};
+use types::execution_requests::{ConsolidationRequests, DepositRequests, WithdrawalRequests};
+use types::{FixedVector, Unsigned};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -201,6 +202,18 @@ impl RequestPrefix {
     }
 }
 
+/// Computes the hash of the `ExecutionRequests` based on the specification
+/// in EIP-7685.
+pub fn compute_execution_requests_hash<E: EthSpec>(request: &ExecutionRequests<E>) -> Hash256 {
+    let depsoits_hash = Sha256::digest(&request.deposits.as_ssz_bytes());
+    let withdrawals_hash = Sha256::digest(&request.withdrawals.as_ssz_bytes());
+    let consolidation_hash = Sha256::digest(&request.consolidations.as_ssz_bytes());
+
+    Hash256::from_slice(&Sha256::digest(
+        &[depsoits_hash, withdrawals_hash, consolidation_hash].concat(),
+    ))
+}
+
 impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> {
     fn from(payload: ExecutionPayloadElectra<E>) -> Self {
         JsonExecutionPayloadV4 {
@@ -357,52 +370,48 @@ impl<E: EthSpec> From<JsonExecutionPayload<E>> for ExecutionPayload<E> {
     }
 }
 
+/// Format of `ExecutionRequests` received over json rpc is
+///
+/// Array of `prefix-type ++ ssz-encoded requests list` encoded as hex bytes.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
-/// TODO(pawan): https://github.com/ethereum/execution-apis/pull/587/ has a typed representation, but that's probably going to
-/// be changed in https://github.com/ethereum/execution-apis/pull/577/
-pub struct JsonExecutionRequests(pub Vec<Bytes>);
+pub struct JsonExecutionRequests(pub Vec<String>);
 
 impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequests<E> {
     type Error = String;
 
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
-        let mut deposits = Vec::with_capacity(E::max_deposit_requests_per_payload());
-        let mut withdrawals = Vec::with_capacity(E::max_withdrawal_requests_per_payload());
-        let mut consolidations = Vec::with_capacity(E::max_consolidation_requests_per_payload());
+        let mut requests = ExecutionRequests::default();
 
-        // TODO(pawan): enforce ordering constraints here
         for request in value.0.into_iter() {
-            if let Some((first, rest)) = request.split_first() {
+            // hex string
+            let decoded_bytes = hex::decode(request).map_err(|e| format!("Invalid hex {:?}", e))?;
+            if let Some((first, rest)) = decoded_bytes.split_first() {
                 match RequestPrefix::from_prefix(*first) {
                     Some(RequestPrefix::Deposit) => {
-                        deposits.push(DepositRequest::from_ssz_bytes(rest).map_err(|e| {
-                            format!("Failed to decode DepositRequest from EL: {:?}", e)
-                        })?)
+                        requests.deposits =
+                            DepositRequests::<E>::from_ssz_bytes(rest).map_err(|e| {
+                                format!("Failed to decode DepositRequest from EL: {:?}", e)
+                            })?;
                     }
                     Some(RequestPrefix::Withdrawal) => {
-                        withdrawals.push(WithdrawalRequest::from_ssz_bytes(rest).map_err(|e| {
-                            format!("Failed to decode WithdrawalRequest from EL: {:?}", e)
-                        })?)
+                        requests.withdrawals = WithdrawalRequests::<E>::from_ssz_bytes(rest)
+                            .map_err(|e| {
+                                format!("Failed to decode WithdrawalRequest from EL: {:?}", e)
+                            })?;
                     }
                     Some(RequestPrefix::Consolidation) => {
-                        consolidations.push(ConsolidationRequest::from_ssz_bytes(rest).map_err(
-                            |e| format!("Failed to decode ConsolidationRequest from EL: {:?}", e),
-                        )?)
+                        requests.consolidations = ConsolidationRequests::<E>::from_ssz_bytes(rest)
+                            .map_err(|e| {
+                                format!("Failed to decode ConsolidationRequest from EL: {:?}", e)
+                            })?;
                     }
-                    None => return Err("Empty requests json".to_string()),
+                    None => return Err("Empty requests string".to_string()),
                 }
             }
         }
 
-        Ok(ExecutionRequests {
-            deposits: VariableList::new(deposits)
-                .map_err(|_| "DepositRequests from EL exceeded length limits".to_string())?,
-            withdrawals: VariableList::new(withdrawals)
-                .map_err(|_| "WithdrawalRequests from EL exceeded length limits".to_string())?,
-            consolidations: VariableList::new(consolidations)
-                .map_err(|_| "ConsolidationRequests from EL exceeded length limits".to_string())?,
-        })
+        Ok(requests)
     }
 }
 
