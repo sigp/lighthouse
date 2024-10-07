@@ -113,11 +113,8 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
                 _ => {}
             }
             let slasher = Arc::new(
-                Slasher::open(
-                    slasher_config,
-                    spec,
-                )
-                .map_err(|e| format!("Slasher open error: {:?}", e))?,
+                Slasher::open(slasher_config, spec)
+                    .map_err(|e| format!("Slasher open error: {:?}", e))?,
             );
             builder.slasher(slasher)
         } else {

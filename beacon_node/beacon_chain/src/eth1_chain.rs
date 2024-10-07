@@ -403,7 +403,11 @@ impl<E: EthSpec> Eth1ChainBackend<E> for DummyEth1ChainBackend<E> {
     }
 
     /// Create dummy eth1 backend.
-    fn from_bytes(_bytes: &[u8], _config: Eth1Config, _spec: Arc<ChainSpec>) -> Result<Self, String> {
+    fn from_bytes(
+        _bytes: &[u8],
+        _config: Eth1Config,
+        _spec: Arc<ChainSpec>,
+    ) -> Result<Self, String> {
         Ok(Self(PhantomData))
     }
 }

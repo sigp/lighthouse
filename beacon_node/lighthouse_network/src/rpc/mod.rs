@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tracing::{debug,trace};
+use tracing::{debug, trace};
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::{HandlerErr, HandlerEvent};
@@ -262,7 +262,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         let ping = Ping {
             data: self.seq_number,
         };
-        trace!(self.log, "Sending Ping"; "peer_id" => %peer_id);
+        trace!(%peer_id, "Sending Ping");
         self.send_request(peer_id, id, RequestType::Ping(ping));
     }
 }
@@ -460,7 +460,7 @@ where
 
                 // If we received a Ping, we queue a Pong response.
                 if let RequestType::Ping(_) = r#type {
-                    trace!(self.log, "Received Ping, queueing Pong";"connection_id" => %conn_id, "peer_id" => %peer_id);
+                    trace!(connection_id = %conn_id, %peer_id, "Received Ping, queueing Pong");
                     self.send_response(
                         peer_id,
                         (conn_id, substream_id),

@@ -4,7 +4,7 @@ use lighthouse_metrics::set_gauge;
 use slog::Logger;
 use slot_clock::SlotClock;
 use tokio::time::{sleep, Duration};
-use tracing::{debug,error, info};
+use tracing::{debug, error, info};
 use types::EthSpec;
 
 /// Spawns a notifier service which periodically logs information about the node.
@@ -86,23 +86,21 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
     for info in candidate_info {
         if let Ok(health) = info.health {
             debug!(
-                log,
-                "Beacon node info";
-                "status" => "Connected",
-                "index" => info.index,
-                "endpoint" => info.endpoint,
-                "head_slot" => %health.head,
-                "is_optimistic" => ?health.optimistic_status,
-                "execution_engine_status" => ?health.execution_status,
-                "health_tier" => %health.health_tier,
+                status = "Connected",
+                index = info.index,
+                endpoint = info.endpoint,
+                head_slot = %health.head,
+                is_optimistic = ?health.optimistic_status,
+                execution_engine_status = ?health.execution_status,
+                health_tier = %health.health_tier,
+                "Beacon node info"
             );
         } else {
             debug!(
-                log,
-                "Beacon node info";
-                "status" => "Disconnected",
-                "index" => info.index,
-                "endpoint" => info.endpoint,
+                status = "Disconnected",
+                index = info.index,
+                endpoint = info.endpoint,
+                "Beacon node info"
             );
         }
     }

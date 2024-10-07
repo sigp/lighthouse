@@ -3,8 +3,8 @@ use crate::discovery::{peer_id_to_node_id, CombinedKey};
 use crate::{
     metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Eth2Enr, Gossipsub, PeerId,
 };
-use logging::crit;
 use itertools::Itertools;
+use logging::crit;
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use score::{PeerAction, ReportSource, Score, ScoreState};
 use std::net::IpAddr;

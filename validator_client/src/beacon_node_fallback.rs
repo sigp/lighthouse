@@ -485,10 +485,9 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             if let Err(e) = result {
                 if *e != CandidateError::PreGenesis {
                     warn!(
-                        self.log,
-                        "A connected beacon node errored during routine health check";
-                        "error" => ?e,
-                        "endpoint" => node,
+                        error = ?e,
+                        endpoint = %node,
+                        "A connected beacon node errored during routine health check"
                     );
                 }
             }
@@ -620,10 +619,9 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             Ok(val) => Ok(val),
             Err(e) => {
                 debug!(
-                    log,
-                    "Request to beacon node failed";
-                    "node" => %candidate,
-                    "error" => ?e,
+                    node = %candidate,
+                    error = ?e,
+                    "Request to beacon node failed"
                 );
                 inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.as_ref()]);
                 Err((candidate.to_string(), Error::RequestFailed(e)))

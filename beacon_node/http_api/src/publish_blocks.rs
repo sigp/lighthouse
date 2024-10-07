@@ -105,7 +105,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                                   blob_sidecars: Vec<Arc<BlobSidecar<T::EthSpec>>>,
                                   mut data_column_sidecars: DataColumnSidecarList<T::EthSpec>,
                                   sender,
-                                      seen_timestamp|
+                                  seen_timestamp|
           -> Result<(), BlockError> {
         let publish_timestamp = timestamp_now();
         let publish_delay = publish_timestamp
@@ -118,12 +118,17 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             publish_delay,
         );
 
-        info!(
-            slot = %block.slot(),
-            blobs_published = blob_sidecars.len(),
-            publish_delay_ms = publish_delay.as_millis(),
-            "Signed block published to network via HTTP API"
-        );
+        let mut pubsub_messages = if should_publish_block {
+            info!(
+                slot = %block.slot(),
+                blobs_published = blob_sidecars.len(),
+                publish_delay_ms = publish_delay.as_millis(),
+                "Signed block published to network via HTTP API"
+            );
+            vec![PubsubMessage::BeaconBlock(block.clone())]
+        } else {
+            vec![]
+        };
 
         match block.as_ref() {
             SignedBeaconBlock::Base(_)
@@ -187,11 +192,10 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                         BlobSidecar::new(i, unverified_blob, &block, proof).map(Arc::new);
                     blob_sidecar.map_err(|e| {
                         error!(
-                            log,
-                            "Invalid blob - not publishing block";
-                            "error" => ?e,
-                            "blob_index" => i,
-                            "slot" => slot,
+                            error = ?e,
+                            blob_index = i,
+                            %slot,
+                            "Invalid blob - not publishing block"
                         );
                         warp_utils::reject::custom_bad_request(format!("{e:?}"))
                     })
@@ -206,10 +210,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             let data_column_sidecars = build_blob_data_column_sidecars(&chain, &block, blobs)
                 .map_err(|e| {
                     error!(
-                        log,
-                        "Invalid data column - not publishing block";
-                        "error" => ?e,
-                        "slot" => slot
+                        error = ?e,
+                        %slot,
+                        "Invalid data column - not publishing block"
                     );
                     warp_utils::reject::custom_bad_request(format!("{e:?}"))
                 })?;
@@ -233,21 +236,19 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                     // or some of the other blobs if the block & blobs are only partially published
                     // by the other publisher.
                     debug!(
-                        log,
-                        "Blob for publication already known";
-                        "blob_index" => blob_sidecar.index,
-                        "slot" => slot,
-                        "proposer" => proposer,
+                        blob_index = blob_sidecar.index,
+                        %slot,
+                        proposer,
+                        "Blob for publication already known"
                     );
                     Ok(None)
                 }
                 Err(e) => {
                     error!(
-                        log,
-                        "Blob for publication is gossip-invalid";
-                        "blob_index" => blob_sidecar.index,
-                        "slot" => slot,
-                        "error" => ?e,
+                        blob_index = blob_sidecar.index,
+                        %slot,
+                        error = ?e,
+                        "Blob for publication is gossip-invalid"
                     );
                     Err(warp_utils::reject::custom_bad_request(e.to_string()))
                 }
@@ -271,21 +272,19 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                     // or some of the other data columns if the block & data columns are only
                     // partially published by the other publisher.
                     debug!(
-                        log,
-                        "Data column for publication already known";
-                        "column_index" => column_index,
-                        "slot" => slot,
-                        "proposer" => proposer,
+                        column_index,
+                        %slot,
+                        proposer,
+                        "Data column for publication already known"
                     );
                     Ok(None)
                 }
                 Err(e) => {
                     error!(
-                        log,
-                        "Data column for publication is gossip-invalid";
-                        "column_index" => column_index,
-                        "slot" => slot,
-                        "error" => ?e,
+                        column_index,
+                        %slot,
+                        error = ?e,
+                        "Data column for publication is gossip-invalid"
                     );
                     Err(warp_utils::reject::custom_bad_request(format!("{e:?}")))
                 }
@@ -336,18 +335,16 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 publishable_blobs.clone(),
                 publishable_data_columns.clone(),
                 sender_clone.clone(),
-                log.clone(),
                 seen_timestamp,
             )?,
             BroadcastValidation::ConsensusAndEquivocation => {
-                check_slashable(&chain, block_root, &block_to_publish, &log)?;
+                check_slashable(&chain, block_root, &block_to_publish)?;
                 publish_block_p2p(
                     block_to_publish.clone(),
                     should_publish_block,
                     publishable_blobs.clone(),
                     publishable_data_columns.clone(),
                     sender_clone.clone(),
-                    log.clone(),
                     seen_timestamp,
                 )?;
             }
@@ -364,11 +361,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             return if let BroadcastValidation::Gossip = validation_level {
                 Err(warp_utils::reject::broadcast_without_import(msg))
             } else {
-                error!(
-                    log,
-                    "Invalid blob provided to HTTP API";
-                    "reason" => &msg
-                );
+                error!(reason = &msg, "Invalid blob provided to HTTP API");
                 Err(warp_utils::reject::custom_bad_request(msg))
             };
         }
@@ -396,7 +389,10 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             return if let BroadcastValidation::Gossip = validation_level {
                 Err(warp_utils::reject::broadcast_without_import(msg))
             } else {
-                error!(reason = &msg, "Invalid data column during block publication");
+                error!(
+                    reason = &msg,
+                    "Invalid data column during block publication"
+                );
                 Err(warp_utils::reject::custom_bad_request(msg))
             };
         }
@@ -419,7 +415,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 is_locally_built_block,
                 seen_timestamp,
                 &chain,
-                &log,
             )
             .await
         }
@@ -432,7 +427,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                     is_locally_built_block,
                     seen_timestamp,
                     &chain,
-                    &log,
                 )
                 .await
             } else {
@@ -452,10 +446,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         }
         Err(BlockError::DuplicateImportStatusUnknown(root)) => {
             debug!(
-                log,
-                "Block previously seen";
-                "block_root" => ?root,
-                "slot" => block.slot(),
+                block_root = ?root,
+                slot = %block.slot(),
+                "Block previously seen"
             );
             let import_result = Box::pin(chain.process_block(
                 block_root,
@@ -472,16 +465,14 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 is_locally_built_block,
                 seen_timestamp,
                 &chain,
-                &log,
             )
             .await
         }
         Err(e) => {
             warn!(
-                log,
-                "Not publishing block - not gossip verified";
-                "slot" => slot,
-                "error" => %e
+                %slot,
+                error = %e,
+                "Not publishing block - not gossip verified"
             );
             Err(warp_utils::reject::custom_bad_request(e.to_string()))
         }
@@ -495,7 +486,6 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
     is_locally_built_block: bool,
     seen_timestamp: Duration,
     chain: &Arc<BeaconChain<T>>,
-    log: &Logger,
 ) -> Result<Response, Rejection> {
     match result {
         // The `DuplicateFullyImported` case here captures the case where the block finishes
@@ -507,12 +497,11 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
         | Err(BlockError::DuplicateFullyImported(root)) => {
             let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
             info!(
-                log,
-                "Valid block from HTTP API";
-                "block_delay" => ?delay,
-                "root" => %root,
-                "proposer_index" => block.message().proposer_index(),
-                "slot" => block.slot(),
+                block_delay = ?delay,
+                root = %root,
+                proposer_index = block.message().proposer_index(),
+                slot = %block.slot(),
+                "Valid block from HTTP API"
             );
 
             // Notify the validator monitor.
@@ -531,7 +520,7 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
             // blocks built with builders we consider the broadcast time to be
             // when the blinded block is published to the builder.
             if is_locally_built_block {
-                late_block_logging(chain, seen_timestamp, block.message(), root, "local", log)
+                late_block_logging(chain, seen_timestamp, block.message(), root, "local")
             }
             Ok(warp::reply().into_response())
         }
@@ -557,9 +546,8 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
                 Err(warp_utils::reject::broadcast_without_import(format!("{e}")))
             } else {
                 error!(
-                    log,
-                    "Invalid block provided to HTTP API";
-                    "reason" => ?e,
+                    reason = ?e,
+                    "Invalid block provided to HTTP API"
                 );
                 Err(warp_utils::reject::custom_bad_request(format!(
                     "Invalid block: {e}"
@@ -580,8 +568,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
 ) -> Result<Response, Rejection> {
     let block_root = blinded_block.canonical_root();
-    let full_block =
-        reconstruct_block(chain.clone(), block_root, blinded_block).await?;
+    let full_block = reconstruct_block(chain.clone(), block_root, blinded_block).await?;
     publish_block::<T, _>(
         Some(block_root),
         full_block,
