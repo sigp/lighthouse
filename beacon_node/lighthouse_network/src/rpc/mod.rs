@@ -615,7 +615,7 @@ where
             let mut should_remove = false;
             let mut key_to_remove = None;
             if let Some(q) = self.delayed_responses.poll_next_response(cx) {
-                if let Some(response) = q.get(0) {
+                if let Some(response) = q.front() {
                     key_to_remove = Some((response.peer_id, response.protocol));
                 }
                 // Take delayed responses from the queue and send them, as long as the limiter allows it.
