@@ -585,7 +585,7 @@ impl<E: EthSpec> OperationPool<E> {
                     && state
                         .get_validator(address_change.as_inner().message.validator_index as usize)
                         .map_or(false, |validator| {
-                            !validator.has_eth1_withdrawal_credential(spec)
+                            !validator.has_execution_withdrawal_credential(spec)
                         })
             },
             |address_change| address_change.as_inner().clone(),
