@@ -9,7 +9,7 @@ participants:
     count: 4
 network_params:
   deneb_fork_epoch: 0
-  seconds_per_slot: 3
+  seconds_per_slot: 12
   num_validator_keys_per_node: 20
 global_log_level: debug
 snooper_enabled: false
@@ -20,11 +20,11 @@ assertoor_params:
   run_block_proposal_check: false
   tests:
     - https://raw.githubusercontent.com/ethpandaops/assertoor-test/master/assertoor-tests/block-proposal-check.yaml
-    # - https://raw.githubusercontent.com/ethpandaops/assertoor-test/master/assertoor-tests/mev-block-proposal-check.yaml
+    - https://raw.githubusercontent.com/ethpandaops/assertoor-test/master/assertoor-tests/mev-block-proposal-check.yaml
     - https://raw.githubusercontent.com/ethpandaops/assertoor-test/master/assertoor-tests/stability-check.yaml
     - https://raw.githubusercontent.com/ethpandaops/assertoor-test/master/assertoor-tests/synchronized-check.yaml
-    # - https://raw.githubusercontent.com/ethpandaops/assertoor-test/master/assertoor-tests/validator-exit-test.yaml
-    # - https://raw.githubusercontent.com/ethpandaops/assertoor-test/master/assertoor-tests/validator-lifecycle-test-v2.yaml
-    # - https://raw.githubusercontent.com/ethpandaops/assertoor-test/master/assertoor-tests/validator-proposer-slashing-test.yaml
+    - https://raw.githubusercontent.com/ethpandaops/assertoor-test/master/assertoor-tests/validator-exit-test.yaml
+    - https://raw.githubusercontent.com/ethpandaops/assertoor-test/master/assertoor-tests/validator-lifecycle-test-v2.yaml
+    - https://raw.githubusercontent.com/ethpandaops/assertoor-test/master/assertoor-tests/validator-proposer-slashing-test.yaml
     - https://raw.githubusercontent.com/ethpandaops/assertoor-test/master/assertoor-tests/validator-withdrawal-test-v2.yaml
     
