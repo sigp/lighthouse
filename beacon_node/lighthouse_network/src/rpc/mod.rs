@@ -232,6 +232,14 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             return;
         };
 
+        // Add the request back to active requests if the response is not a stream termination.
+        if request.r#type.protocol().terminator().is_some()
+            && !matches!(event, RpcResponse::StreamTermination(_))
+        {
+            self.active_inbound_requests
+                .insert(request_id, (connection_id, request.clone()));
+        }
+
         if let Some(response_limiter) = self.response_limiter.as_mut() {
             // First check that there are not already other responses waiting to be sent.
             let protocol = request.r#type.protocol();
