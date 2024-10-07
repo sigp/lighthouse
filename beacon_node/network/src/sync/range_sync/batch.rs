@@ -3,9 +3,9 @@ use lighthouse_network::rpc::methods::BlocksByRangeRequest;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::PeerId;
 use std::collections::HashSet;
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::ops::Sub;
-use std::fmt;
 use std::time::{Duration, Instant};
 use strum::Display;
 use types::{Epoch, EthSpec, Slot};
@@ -119,8 +119,8 @@ impl<E: EthSpec, B: BatchConfig> fmt::Display for BatchInfo<E, B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "BatchInfo {{ start_slot: {}, end_slot: {}, state: {}, batch_type: {} }}",
-            self.start_slot, self.end_slot, self.state, self.batch_type
+            "Start Slot: {}, End Slot: {}, State: {}",
+            self.start_slot, self.end_slot, self.state
         )
     }
 }

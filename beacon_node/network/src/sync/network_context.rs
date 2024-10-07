@@ -90,7 +90,9 @@ impl std::fmt::Display for RpcRequestSendError {
         match self {
             RpcRequestSendError::NetworkSendError => write!(f, "Network send error"),
             RpcRequestSendError::NoCustodyPeers => write!(f, "No custody peers"),
-            RpcRequestSendError::CustodyRequestError(e) => write!(f, "Custody request error: {:?}", e),
+            RpcRequestSendError::CustodyRequestError(e) => {
+                write!(f, "Custody request error: {:?}", e)
+            }
             RpcRequestSendError::SlotClockError => write!(f, "Slot clock error"),
         }
     }

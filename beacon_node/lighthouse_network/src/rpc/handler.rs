@@ -20,11 +20,11 @@ use logging::crit;
 use smallvec::SmallVec;
 use std::{
     collections::{hash_map::Entry, VecDeque},
+    fmt,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
     time::{Duration, Instant},
-    fmt,
 };
 use tokio::time::{sleep, Sleep};
 use tokio_util::time::{delay_queue, DelayQueue};
