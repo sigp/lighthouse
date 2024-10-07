@@ -29,7 +29,9 @@ use crate::metrics;
 use crate::sync::block_lookups::common::ResponseType;
 use crate::sync::block_lookups::parent_chain::find_oldest_fork_ancestor;
 use beacon_chain::block_verification_types::AsBlock;
-use beacon_chain::data_availability_checker::AvailabilityCheckErrorCategory;
+use beacon_chain::data_availability_checker::{
+    AvailabilityCheckError, AvailabilityCheckErrorCategory,
+};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 pub use common::RequestState;
 use fnv::FnvHashMap;
@@ -515,7 +517,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         let action = match result {
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
-            | BlockProcessingResult::Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            | BlockProcessingResult::Err(BlockError::DuplicateFullyImported(..)) => {
                 // Successfully imported
                 request_state.on_processing_success()?;
                 Action::Continue
@@ -538,6 +540,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     // Continue request, potentially request blobs
                     Action::Retry
                 }
+            }
+            BlockProcessingResult::Err(BlockError::DuplicateImportStatusUnknown(..)) => {
+                // This is unreachable because RPC blocks do not undergo gossip verification, and
+                // this error can *only* come from gossip verification.
+                error!(
+                    self.log,
+                    "Single block lookup hit unreachable condition";
+                    "block_root" => ?block_root
+                );
+                Action::Drop
             }
             BlockProcessingResult::Ignored => {
                 // Beacon processor signalled to ignore the block processing result.
@@ -591,8 +603,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     other => {
                         debug!(self.log, "Invalid lookup component"; "block_root" => ?block_root, "component" => ?R::response_type(), "error" => ?other);
                         let peer_group = request_state.on_processing_failure()?;
-                        // TOOD(das): only downscore peer subgroup that provided the invalid proof
-                        for peer in peer_group.all() {
+                        let peers_to_penalize: Vec<_> = match other {
+                            // Note: currenlty only InvalidColumn errors have index granularity,
+                            // but future errors may follow the same pattern. Generalize this
+                            // pattern with https://github.com/sigp/lighthouse/pull/6321
+                            BlockError::AvailabilityCheck(
+                                AvailabilityCheckError::InvalidColumn(index, _),
+                            ) => peer_group.of_index(index as usize).collect(),
+                            _ => peer_group.all().collect(),
+                        };
+                        for peer in peers_to_penalize {
                             cx.report_peer(
                                 *peer,
                                 PeerAction::MidToleranceError,

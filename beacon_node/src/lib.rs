@@ -115,8 +115,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             let slasher = Arc::new(
                 Slasher::open(
                     slasher_config,
-                    Arc::new(spec),
-                    //log.new(slog::o!("service" => "slasher")),
+                    spec,
                 )
                 .map_err(|e| format!("Slasher open error: {:?}", e))?,
             );
@@ -167,7 +166,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
 
         builder
             .build_beacon_chain()?
-            .network(&client_config.network)
+            .network(Arc::new(client_config.network))
             .await?
             .notifier()?
             .http_metrics_config(client_config.http_metrics.clone())

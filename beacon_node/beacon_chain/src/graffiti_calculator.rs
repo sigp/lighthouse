@@ -228,6 +228,7 @@ mod tests {
     use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES};
     use execution_layer::EngineCapabilities;
     use slog::info;
+    use std::sync::Arc;
     use std::sync::LazyLock;
     use std::time::Duration;
     use types::{ChainSpec, Graffiti, Keypair, MinimalEthSpec, GRAFFITI_BYTES_LEN};
@@ -239,7 +240,7 @@ mod tests {
 
     fn get_harness(
         validator_count: usize,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         chain_config: Option<ChainConfig>,
     ) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
         let harness = BeaconChainHarness::builder(MinimalEthSpec)
@@ -258,7 +259,7 @@ mod tests {
 
     #[tokio::test]
     async fn check_graffiti_without_el_version_support() {
-        let spec = test_spec::<MinimalEthSpec>();
+        let spec = Arc::new(test_spec::<MinimalEthSpec>());
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
         // modify execution engine so it doesn't support engine_getClientVersionV1 method
         let mock_execution_layer = harness.mock_execution_layer.as_ref().unwrap();
@@ -299,7 +300,7 @@ mod tests {
 
     #[tokio::test]
     async fn check_graffiti_with_el_version_support() {
-        let spec = test_spec::<MinimalEthSpec>();
+        let spec = Arc::new(test_spec::<MinimalEthSpec>());
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
 
         let found_graffiti_bytes = harness.chain.graffiti_calculator.get_graffiti(None).await.0;
@@ -341,7 +342,7 @@ mod tests {
 
     #[tokio::test]
     async fn check_graffiti_with_validator_specified_value() {
-        let spec = test_spec::<MinimalEthSpec>();
+        let spec = Arc::new(test_spec::<MinimalEthSpec>());
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
 
         let graffiti_str = "nice graffiti bro";

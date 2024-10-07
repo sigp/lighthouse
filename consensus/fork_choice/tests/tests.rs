@@ -55,7 +55,7 @@ impl ForkChoiceTest {
         // Run fork choice tests against the latest fork.
         let spec = ForkName::latest().make_genesis_spec(ChainSpec::default());
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
-            .spec(spec)
+            .spec(spec.into())
             .chain_config(chain_config)
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()

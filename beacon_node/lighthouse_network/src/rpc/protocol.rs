@@ -151,12 +151,10 @@ const REQUEST_TIMEOUT: u64 = 15;
 
 /// Returns the maximum bytes that can be sent across the RPC.
 pub fn max_rpc_size(fork_context: &ForkContext, max_chunk_size: usize) -> usize {
-    match fork_context.current_fork() {
-        ForkName::Altair | ForkName::Base => max_chunk_size / 10,
-        ForkName::Bellatrix => max_chunk_size,
-        ForkName::Capella => max_chunk_size,
-        ForkName::Deneb => max_chunk_size,
-        ForkName::Electra => max_chunk_size,
+    if fork_context.current_fork().bellatrix_enabled() {
+        max_chunk_size
+    } else {
+        max_chunk_size / 10
     }
 }
 
@@ -645,7 +643,7 @@ pub fn rpc_data_column_limits<E: EthSpec>() -> RpcLimits {
 // The inbound protocol reads the request, decodes it and returns the stream to the protocol
 // handler to respond to once ready.
 
-pub type InboundOutput<TSocket, E> = (InboundRequest<E>, InboundFramed<TSocket, E>);
+pub type InboundOutput<TSocket, E> = (RequestType<E>, InboundFramed<TSocket, E>);
 pub type InboundFramed<TSocket, E> =
     Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, SSZSnappyInboundCodec<E>>;
 
@@ -679,19 +677,19 @@ where
             // MetaData requests should be empty, return the stream
             match versioned_protocol {
                 SupportedProtocol::MetaDataV1 => {
-                    Ok((InboundRequest::MetaData(MetadataRequest::new_v1()), socket))
+                    Ok((RequestType::MetaData(MetadataRequest::new_v1()), socket))
                 }
                 SupportedProtocol::MetaDataV2 => {
-                    Ok((InboundRequest::MetaData(MetadataRequest::new_v2()), socket))
+                    Ok((RequestType::MetaData(MetadataRequest::new_v2()), socket))
                 }
                 SupportedProtocol::MetaDataV3 => {
-                    Ok((InboundRequest::MetaData(MetadataRequest::new_v3()), socket))
+                    Ok((RequestType::MetaData(MetadataRequest::new_v3()), socket))
                 }
                 SupportedProtocol::LightClientOptimisticUpdateV1 => {
-                    Ok((InboundRequest::LightClientOptimisticUpdate, socket))
+                    Ok((RequestType::LightClientOptimisticUpdate, socket))
                 }
                 SupportedProtocol::LightClientFinalityUpdateV1 => {
-                    Ok((InboundRequest::LightClientFinalityUpdate, socket))
+                    Ok((RequestType::LightClientFinalityUpdate, socket))
                 }
                 _ => {
                     match tokio::time::timeout(
@@ -713,7 +711,7 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum InboundRequest<E: EthSpec> {
+pub enum RequestType<E: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
@@ -730,56 +728,56 @@ pub enum InboundRequest<E: EthSpec> {
 }
 
 /// Implements the encoding per supported protocol for `RPCRequest`.
-impl<E: EthSpec> InboundRequest<E> {
+impl<E: EthSpec> RequestType<E> {
     /* These functions are used in the handler for stream management */
 
     /// Maximum number of responses expected for this request.
     pub fn max_responses(&self) -> u64 {
         match self {
-            InboundRequest::Status(_) => 1,
-            InboundRequest::Goodbye(_) => 0,
-            InboundRequest::BlocksByRange(req) => *req.count(),
-            InboundRequest::BlocksByRoot(req) => req.block_roots().len() as u64,
-            InboundRequest::BlobsByRange(req) => req.max_blobs_requested::<E>(),
-            InboundRequest::BlobsByRoot(req) => req.blob_ids.len() as u64,
-            InboundRequest::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
-            InboundRequest::DataColumnsByRange(req) => req.max_requested::<E>(),
-            InboundRequest::Ping(_) => 1,
-            InboundRequest::MetaData(_) => 1,
-            InboundRequest::LightClientBootstrap(_) => 1,
-            InboundRequest::LightClientOptimisticUpdate => 1,
-            InboundRequest::LightClientFinalityUpdate => 1,
+            RequestType::Status(_) => 1,
+            RequestType::Goodbye(_) => 0,
+            RequestType::BlocksByRange(req) => *req.count(),
+            RequestType::BlocksByRoot(req) => req.block_roots().len() as u64,
+            RequestType::BlobsByRange(req) => req.max_blobs_requested::<E>(),
+            RequestType::BlobsByRoot(req) => req.blob_ids.len() as u64,
+            RequestType::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
+            RequestType::DataColumnsByRange(req) => req.max_requested::<E>(),
+            RequestType::Ping(_) => 1,
+            RequestType::MetaData(_) => 1,
+            RequestType::LightClientBootstrap(_) => 1,
+            RequestType::LightClientOptimisticUpdate => 1,
+            RequestType::LightClientFinalityUpdate => 1,
         }
     }
 
     /// Gives the corresponding `SupportedProtocol` to this request.
     pub fn versioned_protocol(&self) -> SupportedProtocol {
         match self {
-            InboundRequest::Status(_) => SupportedProtocol::StatusV1,
-            InboundRequest::Goodbye(_) => SupportedProtocol::GoodbyeV1,
-            InboundRequest::BlocksByRange(req) => match req {
+            RequestType::Status(_) => SupportedProtocol::StatusV1,
+            RequestType::Goodbye(_) => SupportedProtocol::GoodbyeV1,
+            RequestType::BlocksByRange(req) => match req {
                 OldBlocksByRangeRequest::V1(_) => SupportedProtocol::BlocksByRangeV1,
                 OldBlocksByRangeRequest::V2(_) => SupportedProtocol::BlocksByRangeV2,
             },
-            InboundRequest::BlocksByRoot(req) => match req {
+            RequestType::BlocksByRoot(req) => match req {
                 BlocksByRootRequest::V1(_) => SupportedProtocol::BlocksByRootV1,
                 BlocksByRootRequest::V2(_) => SupportedProtocol::BlocksByRootV2,
             },
-            InboundRequest::BlobsByRange(_) => SupportedProtocol::BlobsByRangeV1,
-            InboundRequest::BlobsByRoot(_) => SupportedProtocol::BlobsByRootV1,
-            InboundRequest::DataColumnsByRoot(_) => SupportedProtocol::DataColumnsByRootV1,
-            InboundRequest::DataColumnsByRange(_) => SupportedProtocol::DataColumnsByRangeV1,
-            InboundRequest::Ping(_) => SupportedProtocol::PingV1,
-            InboundRequest::MetaData(req) => match req {
+            RequestType::BlobsByRange(_) => SupportedProtocol::BlobsByRangeV1,
+            RequestType::BlobsByRoot(_) => SupportedProtocol::BlobsByRootV1,
+            RequestType::DataColumnsByRoot(_) => SupportedProtocol::DataColumnsByRootV1,
+            RequestType::DataColumnsByRange(_) => SupportedProtocol::DataColumnsByRangeV1,
+            RequestType::Ping(_) => SupportedProtocol::PingV1,
+            RequestType::MetaData(req) => match req {
                 MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
                 MetadataRequest::V2(_) => SupportedProtocol::MetaDataV2,
                 MetadataRequest::V3(_) => SupportedProtocol::MetaDataV3,
             },
-            InboundRequest::LightClientBootstrap(_) => SupportedProtocol::LightClientBootstrapV1,
-            InboundRequest::LightClientOptimisticUpdate => {
+            RequestType::LightClientBootstrap(_) => SupportedProtocol::LightClientBootstrapV1,
+            RequestType::LightClientOptimisticUpdate => {
                 SupportedProtocol::LightClientOptimisticUpdateV1
             }
-            InboundRequest::LightClientFinalityUpdate => {
+            RequestType::LightClientFinalityUpdate => {
                 SupportedProtocol::LightClientFinalityUpdateV1
             }
         }
@@ -791,19 +789,96 @@ impl<E: EthSpec> InboundRequest<E> {
         match self {
             // this only gets called after `multiple_responses()` returns true. Therefore, only
             // variants that have `multiple_responses()` can have values.
-            InboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
-            InboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
-            InboundRequest::BlobsByRange(_) => ResponseTermination::BlobsByRange,
-            InboundRequest::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
-            InboundRequest::DataColumnsByRoot(_) => ResponseTermination::DataColumnsByRoot,
-            InboundRequest::DataColumnsByRange(_) => ResponseTermination::DataColumnsByRange,
-            InboundRequest::Status(_) => unreachable!(),
-            InboundRequest::Goodbye(_) => unreachable!(),
-            InboundRequest::Ping(_) => unreachable!(),
-            InboundRequest::MetaData(_) => unreachable!(),
-            InboundRequest::LightClientBootstrap(_) => unreachable!(),
-            InboundRequest::LightClientFinalityUpdate => unreachable!(),
-            InboundRequest::LightClientOptimisticUpdate => unreachable!(),
+            RequestType::BlocksByRange(_) => ResponseTermination::BlocksByRange,
+            RequestType::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
+            RequestType::BlobsByRange(_) => ResponseTermination::BlobsByRange,
+            RequestType::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
+            RequestType::DataColumnsByRoot(_) => ResponseTermination::DataColumnsByRoot,
+            RequestType::DataColumnsByRange(_) => ResponseTermination::DataColumnsByRange,
+            RequestType::Status(_) => unreachable!(),
+            RequestType::Goodbye(_) => unreachable!(),
+            RequestType::Ping(_) => unreachable!(),
+            RequestType::MetaData(_) => unreachable!(),
+            RequestType::LightClientBootstrap(_) => unreachable!(),
+            RequestType::LightClientFinalityUpdate => unreachable!(),
+            RequestType::LightClientOptimisticUpdate => unreachable!(),
+        }
+    }
+
+    pub fn supported_protocols(&self) -> Vec<ProtocolId> {
+        match self {
+            // add more protocols when versions/encodings are supported
+            RequestType::Status(_) => vec![ProtocolId::new(
+                SupportedProtocol::StatusV1,
+                Encoding::SSZSnappy,
+            )],
+            RequestType::Goodbye(_) => vec![ProtocolId::new(
+                SupportedProtocol::GoodbyeV1,
+                Encoding::SSZSnappy,
+            )],
+            RequestType::BlocksByRange(_) => vec![
+                ProtocolId::new(SupportedProtocol::BlocksByRangeV2, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlocksByRangeV1, Encoding::SSZSnappy),
+            ],
+            RequestType::BlocksByRoot(_) => vec![
+                ProtocolId::new(SupportedProtocol::BlocksByRootV2, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::BlocksByRootV1, Encoding::SSZSnappy),
+            ],
+            RequestType::BlobsByRange(_) => vec![ProtocolId::new(
+                SupportedProtocol::BlobsByRangeV1,
+                Encoding::SSZSnappy,
+            )],
+            RequestType::BlobsByRoot(_) => vec![ProtocolId::new(
+                SupportedProtocol::BlobsByRootV1,
+                Encoding::SSZSnappy,
+            )],
+            RequestType::DataColumnsByRoot(_) => vec![ProtocolId::new(
+                SupportedProtocol::DataColumnsByRootV1,
+                Encoding::SSZSnappy,
+            )],
+            RequestType::DataColumnsByRange(_) => vec![ProtocolId::new(
+                SupportedProtocol::DataColumnsByRangeV1,
+                Encoding::SSZSnappy,
+            )],
+            RequestType::Ping(_) => vec![ProtocolId::new(
+                SupportedProtocol::PingV1,
+                Encoding::SSZSnappy,
+            )],
+            RequestType::MetaData(_) => vec![
+                ProtocolId::new(SupportedProtocol::MetaDataV3, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::MetaDataV2, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::MetaDataV1, Encoding::SSZSnappy),
+            ],
+            RequestType::LightClientBootstrap(_) => vec![ProtocolId::new(
+                SupportedProtocol::LightClientBootstrapV1,
+                Encoding::SSZSnappy,
+            )],
+            RequestType::LightClientOptimisticUpdate => vec![ProtocolId::new(
+                SupportedProtocol::LightClientOptimisticUpdateV1,
+                Encoding::SSZSnappy,
+            )],
+            RequestType::LightClientFinalityUpdate => vec![ProtocolId::new(
+                SupportedProtocol::LightClientFinalityUpdateV1,
+                Encoding::SSZSnappy,
+            )],
+        }
+    }
+
+    pub fn expect_exactly_one_response(&self) -> bool {
+        match self {
+            RequestType::Status(_) => true,
+            RequestType::Goodbye(_) => false,
+            RequestType::BlocksByRange(_) => false,
+            RequestType::BlocksByRoot(_) => false,
+            RequestType::BlobsByRange(_) => false,
+            RequestType::BlobsByRoot(_) => false,
+            RequestType::DataColumnsByRoot(_) => false,
+            RequestType::DataColumnsByRange(_) => false,
+            RequestType::Ping(_) => true,
+            RequestType::MetaData(_) => true,
+            RequestType::LightClientBootstrap(_) => true,
+            RequestType::LightClientOptimisticUpdate => true,
+            RequestType::LightClientFinalityUpdate => true,
         }
     }
 }
@@ -819,7 +894,7 @@ pub enum RPCError {
     /// IO Error.
     IoError(String),
     /// The peer returned a valid response but the response indicated an error.
-    ErrorResponse(RPCResponseErrorCode, String),
+    ErrorResponse(RpcErrorResponse, String),
     /// Timed out waiting for a response.
     StreamTimeout,
     /// Peer does not support the protocol.
@@ -898,28 +973,28 @@ impl std::error::Error for RPCError {
     }
 }
 
-impl<E: EthSpec> std::fmt::Display for InboundRequest<E> {
+impl<E: EthSpec> std::fmt::Display for RequestType<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            InboundRequest::Status(status) => write!(f, "Status Message: {}", status),
-            InboundRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
-            InboundRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
-            InboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
-            InboundRequest::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
-            InboundRequest::BlobsByRoot(req) => write!(f, "Blobs by root: {:?}", req),
-            InboundRequest::DataColumnsByRoot(req) => write!(f, "Data columns by root: {:?}", req),
-            InboundRequest::DataColumnsByRange(req) => {
+            RequestType::Status(status) => write!(f, "Status Message: {}", status),
+            RequestType::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
+            RequestType::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
+            RequestType::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
+            RequestType::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
+            RequestType::BlobsByRoot(req) => write!(f, "Blobs by root: {:?}", req),
+            RequestType::DataColumnsByRoot(req) => write!(f, "Data columns by root: {:?}", req),
+            RequestType::DataColumnsByRange(req) => {
                 write!(f, "Data columns by range: {:?}", req)
             }
-            InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
-            InboundRequest::MetaData(_) => write!(f, "MetaData request"),
-            InboundRequest::LightClientBootstrap(bootstrap) => {
+            RequestType::Ping(ping) => write!(f, "Ping: {}", ping.data),
+            RequestType::MetaData(_) => write!(f, "MetaData request"),
+            RequestType::LightClientBootstrap(bootstrap) => {
                 write!(f, "Light client boostrap: {}", bootstrap.root)
             }
-            InboundRequest::LightClientOptimisticUpdate => {
+            RequestType::LightClientOptimisticUpdate => {
                 write!(f, "Light client optimistic update request")
             }
-            InboundRequest::LightClientFinalityUpdate => {
+            RequestType::LightClientFinalityUpdate => {
                 write!(f, "Light client finality update request")
             }
         }

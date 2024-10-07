@@ -9,6 +9,7 @@ use state_processing::per_block_processing::get_new_eth1_data;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::{DBColumn, Error as StoreError, StoreItem};
 use task_executor::TaskExecutor;
@@ -283,7 +284,7 @@ where
     pub fn from_ssz_container(
         ssz_container: &SszEth1,
         config: Eth1Config,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Result<Self, String> {
         let backend = Eth1ChainBackend::from_bytes(&ssz_container.backend_bytes, config, spec)?;
         Ok(Self {
@@ -349,7 +350,7 @@ pub trait Eth1ChainBackend<E: EthSpec>: Sized + Send + Sync {
     fn as_bytes(&self) -> Vec<u8>;
 
     /// Create a `Eth1ChainBackend` instance given encoded bytes.
-    fn from_bytes(bytes: &[u8], config: Eth1Config, spec: ChainSpec) -> Result<Self, String>;
+    fn from_bytes(bytes: &[u8], config: Eth1Config, spec: Arc<ChainSpec>) -> Result<Self, String>;
 }
 
 /// Provides a simple, testing-only backend that generates deterministic, meaningless eth1 data.
@@ -402,7 +403,7 @@ impl<E: EthSpec> Eth1ChainBackend<E> for DummyEth1ChainBackend<E> {
     }
 
     /// Create dummy eth1 backend.
-    fn from_bytes(_bytes: &[u8], _config: Eth1Config, _spec: ChainSpec) -> Result<Self, String> {
+    fn from_bytes(_bytes: &[u8], _config: Eth1Config, _spec: Arc<ChainSpec>) -> Result<Self, String> {
         Ok(Self(PhantomData))
     }
 }
@@ -428,7 +429,7 @@ impl<E: EthSpec> CachingEth1Backend<E> {
     /// Instantiates `self` with empty caches.
     ///
     /// Does not connect to the eth1 node or start any tasks to keep the cache updated.
-    pub fn new(config: Eth1Config, spec: ChainSpec) -> Result<Self, String> {
+    pub fn new(config: Eth1Config, spec: Arc<ChainSpec>) -> Result<Self, String> {
         Ok(Self {
             core: HttpService::new(config, spec)
                 .map_err(|e| format!("Failed to create eth1 http service: {:?}", e))?,
@@ -573,7 +574,7 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
     }
 
     /// Recover the cached backend from encoded bytes.
-    fn from_bytes(bytes: &[u8], config: Eth1Config, spec: ChainSpec) -> Result<Self, String> {
+    fn from_bytes(bytes: &[u8], config: Eth1Config, spec: Arc<ChainSpec>) -> Result<Self, String> {
         let inner = HttpService::from_bytes(bytes, config, spec)?;
         Ok(Self {
             core: inner,
@@ -727,7 +728,8 @@ mod test {
 
             let log = test_logger();
             Eth1Chain::new(
-                CachingEth1Backend::new(eth1_config, MainnetEthSpec::default_spec()).unwrap(),
+                CachingEth1Backend::new(eth1_config, Arc::new(MainnetEthSpec::default_spec()))
+                    .unwrap(),
             )
         }
 

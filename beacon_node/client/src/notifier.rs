@@ -428,7 +428,7 @@ async fn capella_readiness_logging<T: BeaconChainTypes>(
         .snapshot
         .beacon_state
         .fork_name_unchecked()
-        >= ForkName::Capella;
+        .capella_enabled();
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 
@@ -483,7 +483,7 @@ async fn deneb_readiness_logging<T: BeaconChainTypes>(
         .snapshot
         .beacon_state
         .fork_name_unchecked()
-        >= ForkName::Deneb;
+        .deneb_enabled();
 
     let has_execution_layer = beacon_chain.execution_layer.is_some();
 

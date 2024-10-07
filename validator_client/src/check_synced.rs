@@ -1,5 +1,5 @@
 use crate::beacon_node_fallback::CandidateError;
-use eth2::BeaconNodeHttpClient;
+use eth2::{types::Slot, BeaconNodeHttpClient}
 use slog::Logger;
 use slot_clock::SlotClock;
 use tracing::{debug, error, warn};
@@ -19,56 +19,23 @@ const SYNC_TOLERANCE: u64 = 4;
 ///  try to use it if it's close enough to the head.
 pub async fn check_synced<T: SlotClock>(
     beacon_node: &BeaconNodeHttpClient,
-    slot_clock: &T,
-    log_opt: Option<&Logger>,
-) -> Result<(), CandidateError> {
+    log: &Logger,
+) -> Result<(Slot, bool, bool), CandidateError> {
     let resp = match beacon_node.get_node_syncing().await {
         Ok(resp) => resp,
         Err(e) => {
-            if let Some(log) = log_opt {
-                warn!(
-                    error = %e,
-                    "Unable connect to beacon node"
-                )
-            }
+            warn!(
+                error = %e,
+                "Unable connect to beacon node"
+            );
 
             return Err(CandidateError::Offline);
         }
     };
 
-    let bn_is_synced = !resp.data.is_syncing || (resp.data.sync_distance.as_u64() < SYNC_TOLERANCE);
-    let is_synced = bn_is_synced && !resp.data.el_offline;
-
-    if let Some(log) = log_opt {
-        if !is_synced {
-            debug!(status = ?resp, "Beacon node sync status");
-
-            warn!(
-                sync_distance = resp.data.sync_distance.as_u64(),
-                head_slot = resp.data.head_slot.as_u64(),
-                endpoint = %beacon_node,
-                el_offline = resp.data.el_offline,
-                "Beacon node is not synced"
-            );
-        }
-
-        if let Some(local_slot) = slot_clock.now() {
-            let remote_slot = resp.data.head_slot + resp.data.sync_distance;
-            if remote_slot + 1 < local_slot || local_slot + 1 < remote_slot {
-                error!(
-                    msg = "check the system time on this host and the beacon node",
-                    beacon_node_slot = %remote_slot,
-                    local_slot = %local_slot,
-                    endpoint = %beacon_node,
-                    "Time discrepancy with beacon node"
-                );
-            }
-        }
-    }
-
-    if is_synced {
-        Ok(())
-    } else {
-        Err(CandidateError::NotSynced)
-    }
+    Ok((
+        resp.data.head_slot,
+        resp.data.is_optimistic,
+        resp.data.el_offline,
+    ))
 }
