@@ -659,7 +659,14 @@ pub fn cli_app() -> Command {
             .action(ArgAction::Set)
             .display_order(0)
         )
-
+        .arg(
+            Arg::new("idontwant-message-size-threshold")
+                .long("idontwant-message-size-threshold")
+                .help("Specifies the minimum message size for which IDONTWANT messages are sent. \
+                This an optimization strategy to not send IDONTWANT messages for smaller messages.")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
         /*
          * Monitoring metrics
          */

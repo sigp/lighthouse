@@ -141,6 +141,10 @@ pub struct Config {
 
     /// Configuration for the inbound rate limiter (requests received by this node).
     pub inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
+
+    /// Configuration for the minimum message size for which IDONTWANT messages are send in the mesh.
+    /// Lower the value reduces the optimization effect of the IDONTWANT messages.
+    pub idontwant_message_size_threshold: usize,
 }
 
 impl Config {
@@ -352,6 +356,7 @@ impl Default for Config {
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,
+            idontwant_message_size_threshold: 1000,
         }
     }
 }
@@ -433,6 +438,7 @@ pub fn gossipsub_config(
     gossipsub_config_params: GossipsubConfigParams,
     seconds_per_slot: u64,
     slots_per_epoch: u64,
+    idontwant_message_size_threshold: usize,
 ) -> gossipsub::Config {
     fn prefix(
         prefix: [u8; 4],
@@ -504,6 +510,7 @@ pub fn gossipsub_config(
         .duplicate_cache_time(duplicate_cache_time)
         .message_id_fn(gossip_message_id)
         .allow_self_origin(true)
+        .idontwant_message_size_threshold(idontwant_message_size_threshold)
         .build()
         .expect("valid gossipsub configuration")
 }

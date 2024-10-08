@@ -1825,12 +1825,13 @@ where
                 peer_score.duplicated_message(propagation_source, &msg_id, &message.topic);
             }
             self.mcache.observe_duplicate(&msg_id, propagation_source);
-
             return;
         }
 
-        // Broadcast IDONTWANT messages.
-        self.send_idontwant(&raw_message, &msg_id, propagation_source);
+        // Broadcast IDONTWANT messages
+        if raw_message.raw_protobuf_len() > self.config.idontwant_message_size_threshold() {
+            self.send_idontwant(&raw_message, &msg_id, propagation_source);
+        }
 
         tracing::debug!(
             message=%msg_id,
@@ -2700,10 +2701,6 @@ where
         let Some(mesh_peers) = self.mesh.get(&message.topic) else {
             return;
         };
-
-        if message.raw_protobuf_len() < self.config.idontwant_message_size_threshold(){
-            return;
-        }
 
         let iwant_peers = self.gossip_promises.peers_for_message(msg_id);
 
