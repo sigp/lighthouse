@@ -1,4 +1,4 @@
-use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, OfflineOnFailure, RequireSynced};
+use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use bls::PublicKeyBytes;
 use doppelganger_service::DoppelgangerStatus;
 use environment::RuntimeContext;
@@ -342,16 +342,11 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         let preparation_entries = preparation_data.as_slice();
         match self
             .beacon_nodes
-            .request(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                ApiTopic::Subscriptions,
-                |beacon_node| async move {
-                    beacon_node
-                        .post_validator_prepare_beacon_proposer(preparation_entries)
-                        .await
-                },
-            )
+            .request(ApiTopic::Subscriptions, |beacon_node| async move {
+                beacon_node
+                    .post_validator_prepare_beacon_proposer(preparation_entries)
+                    .await
+            })
             .await
         {
             Ok(()) => debug!(
@@ -477,13 +472,9 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             for batch in signed.chunks(self.validator_registration_batch_size) {
                 match self
                     .beacon_nodes
-                    .broadcast(
-                        RequireSynced::No,
-                        OfflineOnFailure::No,
-                        |beacon_node| async move {
-                            beacon_node.post_validator_register_validator(batch).await
-                        },
-                    )
+                    .broadcast(|beacon_node| async move {
+                        beacon_node.post_validator_register_validator(batch).await
+                    })
                     .await
                 {
                     Ok(()) => info!(

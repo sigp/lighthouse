@@ -8,10 +8,14 @@ edition = { workspace = true }
 sloggers = { workspace = true }
 genesis = { workspace = true }
 matches = "0.1.8"
+serde_json = { workspace = true }
 slog-term = { workspace = true }
 slog-async = { workspace = true }
 eth2 = { workspace = true }
 gossipsub = { workspace = true }
+eth2_network_config = { workspace = true }
+kzg = { workspace = true }
+bls = { workspace = true }
 
 [dependencies]
 alloy-primitives = { workspace = true }
@@ -54,3 +58,4 @@ disable-backfill = []
 fork_from_env = ["beacon_chain/fork_from_env"]
 portable = ["beacon_chain/portable"]
 test_logger = []
+ci_logger = []

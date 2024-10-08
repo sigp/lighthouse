@@ -51,8 +51,7 @@ use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::GoodbyeReason;
 use lighthouse_network::service::api_types::Id;
-use lighthouse_network::PeerId;
-use lighthouse_network::SyncInfo;
+use lighthouse_network::{PeerId, SyncInfo};
 use lru_cache::LRUTimeCache;
 use slog::{crit, debug, trace, warn};
 use std::collections::HashMap;
@@ -399,7 +398,7 @@ mod tests {
     use beacon_processor::WorkEvent as BeaconWorkEvent;
     use lighthouse_network::service::api_types::SyncRequestId;
     use lighthouse_network::{
-        rpc::StatusMessage, service::api_types::AppRequestId, NetworkGlobals,
+        rpc::StatusMessage, service::api_types::AppRequestId, NetworkConfig, NetworkGlobals,
     };
     use slog::{o, Drain};
     use slot_clock::TestingSlotClock;
@@ -538,21 +537,20 @@ mod tests {
             } else {
                 panic!("Should have sent a batch request to the peer")
             };
-            let blob_req_id = match fork_name {
-                ForkName::Deneb | ForkName::Electra => {
-                    if let Ok(NetworkMessage::SendRequest {
-                        peer_id,
-                        request: _,
-                        request_id,
-                    }) = self.network_rx.try_recv()
-                    {
-                        assert_eq!(&peer_id, expected_peer);
-                        Some(request_id)
-                    } else {
-                        panic!("Should have sent a batch request to the peer")
-                    }
+            let blob_req_id = if fork_name.deneb_enabled() {
+                if let Ok(NetworkMessage::SendRequest {
+                    peer_id,
+                    request: _,
+                    request_id,
+                }) = self.network_rx.try_recv()
+                {
+                    assert_eq!(&peer_id, expected_peer);
+                    Some(request_id)
+                } else {
+                    panic!("Should have sent a batch request to the peer")
                 }
-                _ => None,
+            } else {
+                None
             };
             (block_req_id, blob_req_id)
         }
@@ -692,9 +690,11 @@ mod tests {
             log.new(o!("component" => "range")),
         );
         let (network_tx, network_rx) = mpsc::unbounded_channel();
+        let network_config = Arc::new(NetworkConfig::default());
         let globals = Arc::new(NetworkGlobals::new_test_globals(
             Vec::new(),
             &log,
+            network_config,
             chain.spec.clone(),
         ));
         let (network_beacon_processor, beacon_processor_rx) =

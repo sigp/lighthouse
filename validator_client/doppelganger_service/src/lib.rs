@@ -29,7 +29,7 @@
 //!
 //! Doppelganger protection is a best-effort, last-line-of-defence mitigation. Do not rely upon it.
 
-use beacon_node_fallback::{BeaconNodeFallback, OfflineOnFailure, RequireSynced};
+use beacon_node_fallback::BeaconNodeFallback;
 use environment::RuntimeContext;
 use eth2::types::LivenessResponseData;
 use parking_lot::RwLock;
@@ -180,12 +180,11 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
     } else {
         // Request the previous epoch liveness state from the beacon node.
         beacon_nodes
-            .first_success(
-                RequireSynced::Yes,
-                OfflineOnFailure::Yes,
-                |beacon_node| async {
+            .first_success(|beacon_node| {
+                let validator_indices_ref = &validator_indices;
+                async move {
                     beacon_node
-                        .post_validator_liveness_epoch(previous_epoch, &validator_indices)
+                        .post_validator_liveness_epoch(previous_epoch, validator_indices_ref)
                         .await
                         .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
                         .map(|result| {
@@ -199,8 +198,8 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
                                 })
                                 .collect()
                         })
-                },
-            )
+                }
+            })
             .await
             .unwrap_or_else(|e| {
                 crit!(
@@ -217,12 +216,11 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
 
     // Request the current epoch liveness state from the beacon node.
     let current_epoch_responses = beacon_nodes
-        .first_success(
-            RequireSynced::Yes,
-            OfflineOnFailure::Yes,
-            |beacon_node| async {
+        .first_success(|beacon_node| {
+            let validator_indices_ref = &validator_indices;
+            async move {
                 beacon_node
-                    .post_validator_liveness_epoch(current_epoch, &validator_indices)
+                    .post_validator_liveness_epoch(current_epoch, validator_indices_ref)
                     .await
                     .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
                     .map(|result| {
@@ -236,8 +234,8 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
                             })
                             .collect()
                     })
-            },
-        )
+            }
+        })
         .await
         .unwrap_or_else(|e| {
             crit!(

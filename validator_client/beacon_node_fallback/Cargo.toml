@@ -12,6 +12,7 @@ path = "src/lib.rs"
 environment = { workspace = true }
 eth2 = { workspace = true }
 futures = { workspace = true }
+itertools = { workspace = true }
 serde = { workspace = true }
 slog = { workspace = true }
 slot_clock = { workspace = true }
@@ -19,5 +20,6 @@ strum = { workspace = true }
 tokio = { workspace = true }
 types = { workspace = true }
 validator_metrics = { workspace = true }
+
 
 [dev-dependencies]

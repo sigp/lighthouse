@@ -40,7 +40,7 @@ pub struct PendingComponents<E: EthSpec> {
 
 pub enum BlockImportRequirement {
     AllBlobs,
-    CustodyColumns(usize),
+    ColumnSampling(usize),
 }
 
 impl<E: EthSpec> PendingComponents<E> {
@@ -210,7 +210,7 @@ impl<E: EthSpec> PendingComponents<E> {
                 .map_or(false, |num_expected_blobs| {
                     num_expected_blobs == self.num_received_blobs()
                 }),
-            BlockImportRequirement::CustodyColumns(num_expected_columns) => {
+            BlockImportRequirement::ColumnSampling(num_expected_columns) => {
                 let num_received_data_columns = self.num_received_data_columns();
                 // No data columns when there are 0 blobs
                 self.num_expected_blobs()
@@ -281,7 +281,7 @@ impl<E: EthSpec> PendingComponents<E> {
                 };
                 (Some(VariableList::new(verified_blobs)?), None)
             }
-            BlockImportRequirement::CustodyColumns(_) => {
+            BlockImportRequirement::ColumnSampling(_) => {
                 let verified_data_columns = verified_data_columns
                     .into_iter()
                     .map(|d| d.into_inner())
@@ -353,8 +353,8 @@ pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     /// This cache holds a limited number of states in memory and reconstructs them
     /// from disk when necessary. This is necessary until we merge tree-states
     state_cache: StateLRUCache<T>,
-    /// The number of data columns the node is custodying.
-    custody_column_count: usize,
+    /// The number of data columns the node is sampling via subnet sampling.
+    sampling_column_count: usize,
     spec: Arc<ChainSpec>,
 }
 
@@ -362,19 +362,19 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn new(
         capacity: NonZeroUsize,
         beacon_store: BeaconStore<T>,
-        custody_column_count: usize,
+        sampling_column_count: usize,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
             critical: RwLock::new(LruCache::new(capacity)),
             state_cache: StateLRUCache::new(beacon_store, spec.clone()),
-            custody_column_count,
+            sampling_column_count,
             spec,
         })
     }
 
-    pub fn custody_subnet_count(&self) -> usize {
-        self.custody_column_count
+    pub fn sampling_column_count(&self) -> usize {
+        self.sampling_column_count
     }
 
     /// Returns true if the block root is known, without altering the LRU ordering
@@ -440,8 +440,8 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     ) -> Result<BlockImportRequirement, AvailabilityCheckError> {
         let peer_das_enabled = self.spec.is_peer_das_enabled_for_epoch(epoch);
         if peer_das_enabled {
-            Ok(BlockImportRequirement::CustodyColumns(
-                self.custody_column_count,
+            Ok(BlockImportRequirement::ColumnSampling(
+                self.sampling_column_count,
             ))
         } else {
             Ok(BlockImportRequirement::AllBlobs)
@@ -456,7 +456,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         block_import_requirement: &BlockImportRequirement,
         pending_components: &PendingComponents<T::EthSpec>,
     ) -> bool {
-        let BlockImportRequirement::CustodyColumns(num_expected_columns) = block_import_requirement
+        let BlockImportRequirement::ColumnSampling(num_expected_columns) = block_import_requirement
         else {
             return false;
         };
@@ -555,7 +555,8 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
                     kzg,
                     pending_components.verified_data_columns.as_slice(),
                     &self.spec,
-                )?;
+                )
+                .map_err(AvailabilityCheckError::ReconstructColumnsError)?;
 
                 let data_columns_to_publish = all_data_columns
                     .iter()
@@ -703,7 +704,7 @@ mod test {
 
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         log: Logger,
     ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
         let hot_path = db_path.path().join("hot_db");
@@ -740,6 +741,7 @@ mod test {
         spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
         spec.capella_fork_epoch = Some(capella_fork_epoch);
         spec.deneb_fork_epoch = Some(deneb_fork_epoch);
+        let spec = Arc::new(spec);
 
         let chain_store = get_store_with_spec::<E>(db_path, spec.clone(), log.clone());
         let validators_keypairs =
@@ -883,7 +885,7 @@ mod test {
         let log = test_logger();
         let chain_db_path = tempdir().expect("should get temp dir");
         let harness = get_deneb_chain(log.clone(), &chain_db_path).await;
-        let spec = Arc::new(harness.spec.clone());
+        let spec = harness.spec.clone();
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
         let cache = Arc::new(

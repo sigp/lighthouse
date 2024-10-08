@@ -18,7 +18,6 @@ use crate::{
 };
 use bls::get_withdrawal_credentials;
 use eth2::types::SignedBlockContentsTuple;
-use eth2_network_config::TRUSTED_SETUP_BYTES;
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     auth::JwtKey,
@@ -31,6 +30,7 @@ use execution_layer::{
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
+use kzg::trusted_setup::get_trusted_setup;
 use kzg::{Kzg, TrustedSetup};
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
@@ -43,13 +43,15 @@ use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slog::{o, Drain, Logger};
 use slog_async::Async;
-use slog_term::{FullFormat, TermDecorator};
+use slog_term::{FullFormat, PlainSyncDecorator, TermDecorator};
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::fs::{File, OpenOptions};
+use std::io::BufWriter;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
@@ -68,6 +70,8 @@ use types::{typenum::U4294967296, *};
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 // Environment variable to read if `fork_from_env` feature is enabled.
 pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
+// Environment variable to read if `ci_logger` feature is enabled.
+pub const CI_LOGGER_DIR_ENV_VAR: &str = "CI_LOGGER_DIR";
 
 // Default target aggregators to set during testing, this ensures an aggregator at each slot.
 //
@@ -75,21 +79,39 @@ pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 // a different value.
 pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
 
-pub static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
-    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
+    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
         .map_err(|e| format!("Unable to read trusted setup file: {}", e))
         .expect("should have trusted setup");
     let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
     Arc::new(kzg)
 });
 
-pub static KZG_PEERDAS: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
-    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+static KZG_PEERDAS: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
+    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
         .map_err(|e| format!("Unable to read trusted setup file: {}", e))
         .expect("should have trusted setup");
     let kzg = Kzg::new_from_trusted_setup_das_enabled(trusted_setup).expect("should create kzg");
     Arc::new(kzg)
 });
+
+static KZG_NO_PRECOMP: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
+    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
+        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+        .expect("should have trusted setup");
+    let kzg = Kzg::new_from_trusted_setup_no_precomp(trusted_setup).expect("should create kzg");
+    Arc::new(kzg)
+});
+
+pub fn get_kzg(spec: &ChainSpec) -> Arc<Kzg> {
+    if spec.eip7594_fork_epoch.is_some() {
+        KZG_PEERDAS.clone()
+    } else if spec.deneb_fork_epoch.is_some() {
+        KZG.clone()
+    } else {
+        KZG_NO_PRECOMP.clone()
+    }
+}
 
 pub type BaseHarnessType<E, THotStore, TColdStore> =
     Witness<TestingSlotClock, CachingEth1Backend<E>, E, THotStore, TColdStore>;
@@ -188,7 +210,7 @@ pub fn test_spec<E: EthSpec>() -> ChainSpec {
 
 pub struct Builder<T: BeaconChainTypes> {
     eth_spec_instance: T::EthSpec,
-    spec: Option<ChainSpec>,
+    spec: Option<Arc<ChainSpec>>,
     validator_keypairs: Option<Vec<Keypair>>,
     withdrawal_keypairs: Vec<Option<Keypair>>,
     chain_config: Option<ChainConfig>,
@@ -377,12 +399,12 @@ where
         self.spec_or_default(None)
     }
 
-    pub fn spec(self, spec: ChainSpec) -> Self {
+    pub fn spec(self, spec: Arc<ChainSpec>) -> Self {
         self.spec_or_default(Some(spec))
     }
 
-    pub fn spec_or_default(mut self, spec: Option<ChainSpec>) -> Self {
-        self.spec = Some(spec.unwrap_or_else(test_spec::<E>));
+    pub fn spec_or_default(mut self, spec: Option<Arc<ChainSpec>>) -> Self {
+        self.spec = Some(spec.unwrap_or_else(|| Arc::new(test_spec::<E>())));
         self
     }
 
@@ -522,12 +544,13 @@ where
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
-        let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone());
+
+        let kzg = get_kzg(&spec);
 
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
 
         let chain_config = self.chain_config.unwrap_or_default();
-        let mut builder = BeaconChainBuilder::new(self.eth_spec_instance)
+        let mut builder = BeaconChainBuilder::new(self.eth_spec_instance, kzg.clone())
             .logger(log.clone())
             .custom_spec(spec.clone())
             .store(self.store.expect("cannot build without store"))
@@ -546,8 +569,7 @@ where
                 log.clone(),
                 5,
             )))
-            .validator_monitor_config(validator_monitor_config)
-            .kzg(kzg);
+            .validator_monitor_config(validator_monitor_config);
 
         builder = if let Some(mutator) = self.initial_mutator {
             mutator(builder)
@@ -602,7 +624,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
     });
 
-    let kzg_opt = spec.deneb_fork_epoch.map(|_| KZG.clone());
+    let kzg = get_kzg(spec);
 
     MockExecutionLayer::new(
         task_executor,
@@ -612,7 +634,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         prague_time,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec.clone(),
-        kzg_opt,
+        Some(kzg),
     )
 }
 
@@ -630,7 +652,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub withdrawal_keypairs: Vec<Option<Keypair>>,
 
     pub chain: Arc<BeaconChain<T>>,
-    pub spec: ChainSpec,
+    pub spec: Arc<ChainSpec>,
     pub shutdown_receiver: Arc<Mutex<Receiver<ShutdownReason>>>,
     pub runtime: TestRuntime,
 
@@ -860,7 +882,7 @@ where
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
         // If we produce two blocks for the same slot, they hash up to the same value and
-        // BeaconChain errors out with `BlockIsAlreadyKnown`.  Vary the graffiti so that we produce
+        // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
 
@@ -922,7 +944,7 @@ where
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
         // If we produce two blocks for the same slot, they hash up to the same value and
-        // BeaconChain errors out with `BlockIsAlreadyKnown`.  Vary the graffiti so that we produce
+        // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
 
@@ -2732,15 +2754,55 @@ pub struct MakeAttestationOptions {
     pub fork: Fork,
 }
 
-pub fn build_log(level: slog::Level, enabled: bool) -> Logger {
-    let decorator = TermDecorator::new().build();
-    let drain = FullFormat::new(decorator).build().fuse();
-    let drain = Async::new(drain).build().fuse();
+pub enum LoggerType {
+    Test,
+    // The logs are output to files for each test.
+    CI,
+    // No logs will be printed.
+    Null,
+}
 
-    if enabled {
-        Logger::root(drain.filter_level(level).fuse(), o!())
-    } else {
-        Logger::root(drain.filter(|_| false).fuse(), o!())
+fn ci_decorator() -> PlainSyncDecorator<BufWriter<File>> {
+    let log_dir = std::env::var(CI_LOGGER_DIR_ENV_VAR).unwrap_or_else(|e| {
+        panic!("{CI_LOGGER_DIR_ENV_VAR} env var must be defined when using ci_logger: {e:?}");
+    });
+    let fork_name = std::env::var(FORK_NAME_ENV_VAR)
+        .map(|s| format!("{s}_"))
+        .unwrap_or_default();
+    // The current test name can be got via the thread name.
+    let test_name = std::thread::current()
+        .name()
+        .unwrap()
+        .to_string()
+        // Colons are not allowed in files that are uploaded to GitHub Artifacts.
+        .replace("::", "_");
+    let log_path = format!("/{log_dir}/{fork_name}{test_name}.log");
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+        .unwrap();
+    let file = BufWriter::new(file);
+    PlainSyncDecorator::new(file)
+}
+
+pub fn build_log(level: slog::Level, logger_type: LoggerType) -> Logger {
+    match logger_type {
+        LoggerType::Test => {
+            let drain = FullFormat::new(TermDecorator::new().build()).build().fuse();
+            let drain = Async::new(drain).build().fuse();
+            Logger::root(drain.filter_level(level).fuse(), o!())
+        }
+        LoggerType::CI => {
+            let drain = FullFormat::new(ci_decorator()).build().fuse();
+            let drain = Async::new(drain).build().fuse();
+            Logger::root(drain.filter_level(level).fuse(), o!())
+        }
+        LoggerType::Null => {
+            let drain = FullFormat::new(TermDecorator::new().build()).build().fuse();
+            let drain = Async::new(drain).build().fuse();
+            Logger::root(drain.filter(|_| false).fuse(), o!())
+        }
     }
 }
 
@@ -2842,9 +2904,10 @@ pub fn generate_rand_block_and_data_columns<E: EthSpec>(
     SignedBeaconBlock<E, FullPayload<E>>,
     Vec<Arc<DataColumnSidecar<E>>>,
 ) {
+    let kzg = get_kzg(spec);
     let (block, blobs) = generate_rand_block_and_blobs(fork_name, num_blobs, rng);
     let blob: BlobsList<E> = blobs.into_iter().map(|b| b.blob).collect::<Vec<_>>().into();
-    let data_columns = blobs_to_data_column_sidecars(&blob, &block, &KZG_PEERDAS, spec).unwrap();
+    let data_columns = blobs_to_data_column_sidecars(&blob, &block, &kzg, spec).unwrap();
 
     (block, data_columns)
 }

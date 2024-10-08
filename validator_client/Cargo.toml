@@ -10,7 +10,6 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 tokio = { workspace = true }
-itertools = { workspace = true }
 
 [dependencies]
 account_utils = { workspace = true }

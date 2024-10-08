@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 account_utils = { workspace = true }
 bls = { workspace = true }
+beacon_node_fallback = { workspace = true }
 deposit_contract = { workspace = true }
 doppelganger_service = { workspace = true }
 graffiti_file = { workspace = true }
@@ -38,6 +39,7 @@ tokio-stream =  { workspace = true }
 types =  { workspace = true }
 validator_dir =  { workspace = true }
 validator_store =  { workspace = true }
+validator_services =  { workspace = true }
 url =  { workspace = true }
 warp_utils = { workspace = true }
 warp = { workspace = true }

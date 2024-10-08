@@ -19,6 +19,7 @@ use account_utils::{
     validator_definitions::{SigningDefinition, ValidatorDefinition, Web3SignerDefinition},
 };
 pub use api_secret::ApiSecret;
+use beacon_node_fallback::CandidateInfo;
 use create_validator::{
     create_validators_mnemonic, create_validators_web3signer, get_voting_password_storage,
 };
@@ -47,6 +48,7 @@ use task_executor::TaskExecutor;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
+use validator_services::block_service::BlockService;
 use warp::{sse::Event, Filter};
 use warp_utils::task::blocking_json_task;
 
@@ -74,12 +76,13 @@ impl From<String> for Error {
 pub struct Context<T: SlotClock, E: EthSpec> {
     pub task_executor: TaskExecutor,
     pub api_secret: ApiSecret,
+    pub block_service: Option<BlockService<T, E>>,
     pub validator_store: Option<Arc<ValidatorStore<T, E>>>,
     pub validator_dir: Option<PathBuf>,
     pub secrets_dir: Option<PathBuf>,
     pub graffiti_file: Option<GraffitiFile>,
     pub graffiti_flag: Option<Graffiti>,
-    pub spec: ChainSpec,
+    pub spec: Arc<ChainSpec>,
     pub config: Config,
     pub log: Logger,
     pub sse_logging_components: Option<SSELoggingComponents>,
@@ -171,6 +174,17 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         }
     };
 
+    let inner_block_service = ctx.block_service.clone();
+    let block_service_filter = warp::any()
+        .map(move || inner_block_service.clone())
+        .and_then(|block_service: Option<_>| async move {
+            block_service.ok_or_else(|| {
+                warp_utils::reject::custom_not_found(
+                    "block service is not initialized.".to_string(),
+                )
+            })
+        });
+
     let inner_validator_store = ctx.validator_store.clone();
     let validator_store_filter = warp::any()
         .map(move || inner_validator_store.clone())
@@ -219,7 +233,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let inner_slot_clock = ctx.slot_clock.clone();
     let slot_clock_filter = warp::any().map(move || inner_slot_clock.clone());
 
-    let inner_spec = Arc::new(ctx.spec.clone());
+    let inner_spec = ctx.spec.clone();
     let spec_filter = warp::any().map(move || inner_spec.clone());
 
     let api_token_path_inner = api_token_path.clone();
@@ -399,6 +413,40 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 })
             },
         );
+
+    // GET lighthouse/ui/fallback_health
+    let get_lighthouse_ui_fallback_health = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("fallback_health"))
+        .and(warp::path::end())
+        .and(block_service_filter.clone())
+        .then(|block_filter: BlockService<T, E>| async move {
+            let mut result: HashMap<String, Vec<CandidateInfo>> = HashMap::new();
+
+            let mut beacon_nodes = Vec::new();
+            for node in &*block_filter.beacon_nodes.candidates.read().await {
+                beacon_nodes.push(CandidateInfo {
+                    index: node.index,
+                    endpoint: node.beacon_node.to_string(),
+                    health: *node.health.read().await,
+                });
+            }
+            result.insert("beacon_nodes".to_string(), beacon_nodes);
+
+            if let Some(proposer_nodes_list) = &block_filter.proposer_nodes {
+                let mut proposer_nodes = Vec::new();
+                for node in &*proposer_nodes_list.candidates.read().await {
+                    proposer_nodes.push(CandidateInfo {
+                        index: node.index,
+                        endpoint: node.beacon_node.to_string(),
+                        health: *node.health.read().await,
+                    });
+                }
+                result.insert("proposer_nodes".to_string(), proposer_nodes);
+            }
+
+            blocking_json_task(move || Ok(api_types::GenericResponse::from(result))).await
+        });
 
     // POST lighthouse/validators/
     let post_validators = warp::path("lighthouse")
@@ -1255,6 +1303,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_lighthouse_validators_pubkey)
                         .or(get_lighthouse_ui_health)
                         .or(get_lighthouse_ui_graffiti)
+                        .or(get_lighthouse_ui_fallback_health)
                         .or(get_fee_recipient)
                         .or(get_gas_limit)
                         .or(get_graffiti)

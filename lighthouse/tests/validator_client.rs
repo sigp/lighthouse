@@ -1,4 +1,6 @@
-use validator_client::{config::DEFAULT_WEB3SIGNER_KEEP_ALIVE, ApiTopic, Config};
+use validator_client::{
+    config::DEFAULT_WEB3SIGNER_KEEP_ALIVE, ApiTopic, BeaconNodeSyncDistanceTiers, Config,
+};
 
 use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
@@ -12,7 +14,7 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
-use types::Address;
+use types::{Address, Slot};
 
 /// Returns the `lighthouse validator_client` command.
 fn base_cmd() -> Command {
@@ -511,7 +513,6 @@ fn monitoring_endpoint() {
             assert_eq!(api_conf.update_period_secs, Some(30));
         });
 }
-
 #[test]
 fn disable_run_on_all_flag() {
     CommandLineTest::new()
@@ -569,6 +570,33 @@ fn broadcast_flag() {
         .run()
         .with_config(|config| {
             assert_eq!(config.broadcast_topics, vec![ApiTopic::Attestations]);
+        });
+}
+
+/// Tests for validator fallback flags.
+#[test]
+fn beacon_nodes_sync_tolerances_flag_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(
+            config.beacon_node_fallback.sync_tolerances,
+            BeaconNodeSyncDistanceTiers::default()
+        )
+    });
+}
+#[test]
+fn beacon_nodes_sync_tolerances_flag() {
+    CommandLineTest::new()
+        .flag("beacon-nodes-sync-tolerances", Some("4,4,4"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.beacon_node_fallback.sync_tolerances,
+                BeaconNodeSyncDistanceTiers {
+                    synced: Slot::new(4),
+                    small: Slot::new(8),
+                    medium: Slot::new(12),
+                }
+            );
         });
 }
 
