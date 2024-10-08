@@ -1303,14 +1303,30 @@ impl TestRig {
         });
     }
 
-    fn assert_sampling_request_status(
-        &self,
-        block_root: Hash256,
-        ongoing: &Vec<ColumnIndex>,
-        no_peers: &Vec<ColumnIndex>,
-    ) {
-        self.sync_manager
-            .assert_sampling_request_status(block_root, ongoing, no_peers)
+    fn assert_sampling_request_ongoing(&self, block_root: Hash256, indices: &Vec<ColumnIndex>) {
+        for index in indices {
+            let status = self
+                .sync_manager
+                .get_sampling_request_status(block_root, index)
+                .unwrap_or_else(|| panic!("No request state for {index}"));
+            assert_eq!(
+                status, "Sampling",
+                "expected {block_root} {index} request to be ongoing"
+            );
+        }
+    }
+
+    fn assert_sampling_request_nopeers(&self, block_root: Hash256, indices: &Vec<ColumnIndex>) {
+        for index in indices {
+            let status = self
+                .sync_manager
+                .get_sampling_request_status(block_root, index)
+                .unwrap_or_else(|| panic!("No request state for {index}"));
+            assert_eq!(
+                status, "NoPeers",
+                "expected {block_root} {index} request to be nopeers"
+            );
+        }
     }
 }
 
@@ -2061,7 +2077,7 @@ fn sampling_batch_requests() {
         .pop()
         .unwrap();
     assert_eq!(column_indexes.len(), SAMPLING_REQUIRED_SUCCESSES);
-    r.assert_sampling_request_status(block_root, &column_indexes, &vec![]);
+    r.assert_sampling_request_ongoing(block_root, &column_indexes);
 
     // Resolve the request.
     r.complete_valid_sampling_column_requests(
@@ -2089,7 +2105,7 @@ fn sampling_batch_requests_not_enough_responses_returned() {
     assert_eq!(column_indexes.len(), SAMPLING_REQUIRED_SUCCESSES);
 
     // The request status should be set to Sampling.
-    r.assert_sampling_request_status(block_root, &column_indexes, &vec![]);
+    r.assert_sampling_request_ongoing(block_root, &column_indexes);
 
     // Split the indexes to simulate the case where the supernode doesn't have the requested column.
     let (_column_indexes_supernode_does_not_have, column_indexes_to_complete) =
@@ -2107,7 +2123,7 @@ fn sampling_batch_requests_not_enough_responses_returned() {
     );
 
     // The request status should be set to NoPeers since the supernode, the only peer, returned not enough responses.
-    r.assert_sampling_request_status(block_root, &vec![], &column_indexes);
+    r.assert_sampling_request_nopeers(block_root, &column_indexes);
 
     // The sampling request stalls.
     r.expect_empty_network();
