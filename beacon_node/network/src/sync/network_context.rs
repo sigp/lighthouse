@@ -17,13 +17,16 @@ use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
 use custody::CustodyRequestResult;
 use fnv::FnvHashMap;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, DataColumnsByRangeRequest};
-use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError};
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, DataColumnsByRangeRequest, OldBlocksByRangeRequest,
+    OldBlocksByRangeRequestV1, OldBlocksByRangeRequestV2,
+};
+use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError, RequestType};
 use lighthouse_network::service::api_types::{
     AppRequestId, CustodyId, CustodyRequester, DataColumnsByRootRequestId,
     DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
-use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
+use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use requests::ActiveDataColumnsByRootRequest;
@@ -336,7 +339,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 "head_slot" => %status_message.head_slot,
             );
 
-            let request = Request::Status(status_message.clone());
+            let request = RequestType::Status(status_message.clone());
             let request_id = AppRequestId::Router;
             let _ = self.send_network_msg(NetworkMessage::SendRequest {
                 peer_id,
@@ -365,10 +368,26 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "epoch" => epoch,
             "peer" => %peer_id,
         );
+        let rpc_request = match request {
+            BlocksByRangeRequest::V1(ref req) => {
+                RequestType::BlocksByRange(OldBlocksByRangeRequest::V1(OldBlocksByRangeRequestV1 {
+                    start_slot: req.start_slot,
+                    count: req.count,
+                    step: 1,
+                }))
+            }
+            BlocksByRangeRequest::V2(ref req) => {
+                RequestType::BlocksByRange(OldBlocksByRangeRequest::V2(OldBlocksByRangeRequestV2 {
+                    start_slot: req.start_slot,
+                    count: req.count,
+                    step: 1,
+                }))
+            }
+        };
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: Request::BlocksByRange(request.clone()),
+                request: rpc_request,
                 request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
             })
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
@@ -387,7 +406,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             self.network_send
                 .send(NetworkMessage::SendRequest {
                     peer_id,
-                    request: Request::BlobsByRange(BlobsByRangeRequest {
+                    request: RequestType::BlobsByRange(BlobsByRangeRequest {
                         start_slot: *request.start_slot(),
                         count: *request.count(),
                     }),
@@ -399,13 +418,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             false
         };
 
-        let (expects_custody_columns, num_of_custody_column_req) =
+        let (expects_columns, num_of_column_req) =
             if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
-                let custody_indexes = self.network_globals().custody_columns.clone();
+                let column_indexes = self.network_globals().sampling_columns.clone();
                 let mut num_of_custody_column_req = 0;
 
                 for (peer_id, columns_by_range_request) in
-                    self.make_columns_by_range_requests(request, &custody_indexes)?
+                    self.make_columns_by_range_requests(request, &column_indexes)?
                 {
                     requested_peers.push(peer_id);
 
@@ -421,7 +440,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
                     self.send_network_msg(NetworkMessage::SendRequest {
                         peer_id,
-                        request: Request::DataColumnsByRange(columns_by_range_request),
+                        request: RequestType::DataColumnsByRange(columns_by_range_request),
                         request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
                     })
                     .map_err(|_| RpcRequestSendError::NetworkSendError)?;
@@ -429,15 +448,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     num_of_custody_column_req += 1;
                 }
 
-                (Some(custody_indexes), Some(num_of_custody_column_req))
+                (Some(column_indexes), Some(num_of_custody_column_req))
             } else {
                 (None, None)
             };
 
         let info = RangeBlockComponentsRequest::new(
             expected_blobs,
-            expects_custody_columns,
-            num_of_custody_column_req,
+            expects_columns,
+            num_of_column_req,
             requested_peers,
         );
         self.range_block_components_requests
@@ -585,7 +604,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: Request::BlocksByRoot(request.into_request(&self.chain.spec)),
+                request: RequestType::BlocksByRoot(request.into_request(&self.chain.spec)),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             })
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
@@ -649,7 +668,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let imported_blob_indexes = self
             .chain
             .data_availability_checker
-            .imported_blob_indexes(&block_root)
+            .cached_blob_indexes(&block_root)
             .unwrap_or_default();
         // Include only the blob indexes not yet imported (received through gossip)
         let indices = (0..expected_blobs as u64)
@@ -683,7 +702,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: Request::BlobsByRoot(request.clone().into_request(&self.chain.spec)),
+                request: RequestType::BlobsByRoot(request.clone().into_request(&self.chain.spec)),
                 request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             })
             .map_err(|_| RpcRequestSendError::NetworkSendError)?;
@@ -715,7 +734,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
-            request: Request::DataColumnsByRoot(request.clone().into_request(&self.chain.spec)),
+            request: RequestType::DataColumnsByRoot(request.clone().into_request(&self.chain.spec)),
             request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(req_id, requester)),
         })?;
 
@@ -767,13 +786,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let custody_indexes_imported = self
             .chain
             .data_availability_checker
-            .imported_custody_column_indexes(&block_root)
+            .cached_data_column_indexes(&block_root)
             .unwrap_or_default();
 
         // Include only the blob indexes not yet imported (received through gossip)
         let custody_indexes_to_fetch = self
             .network_globals()
-            .custody_columns
+            .sampling_columns
             .clone()
             .into_iter()
             .filter(|index| !custody_indexes_imported.contains(index))

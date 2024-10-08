@@ -38,9 +38,9 @@ use super::block_lookups::BlockLookups;
 use super::network_context::{
     BlockOrBlob, CustodyByRootResult, RangeRequestId, RpcEvent, SyncNetworkContext,
 };
+use super::peer_sampling::{Sampling, SamplingConfig, SamplingResult};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
-use super::sampling::{Sampling, SamplingConfig, SamplingResult};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
@@ -70,6 +70,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{BlobSidecar, DataColumnSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
+
+#[cfg(test)]
+use types::ColumnIndex;
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
@@ -332,6 +335,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     #[cfg(test)]
     pub(crate) fn active_sampling_requests(&self) -> Vec<Hash256> {
         self.sampling.active_sampling_requests()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn assert_sampling_request_status(
+        &self,
+        block_root: Hash256,
+        ongoing: &Vec<ColumnIndex>,
+        no_peers: &Vec<ColumnIndex>,
+    ) {
+        self.sampling
+            .assert_sampling_request_status(block_root, ongoing, no_peers);
     }
 
     fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {

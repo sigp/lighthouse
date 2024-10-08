@@ -10,7 +10,6 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 tokio = { workspace = true }
-itertools = { workspace = true }
 
 [dependencies]
 tree_hash = { workspace = true }
@@ -60,4 +59,5 @@ sysinfo = { workspace = true }
 system_health = { path = "../common/system_health" }
 logging = { workspace = true }
 strum = { workspace = true }
+itertools = { workspace = true }
 fdlimit = "0.3.0"
