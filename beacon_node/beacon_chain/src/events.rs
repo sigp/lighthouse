@@ -90,6 +90,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .attestation_tx
                 .send(kind)
                 .map(|count| log_count("attestation", count)),
+            EventKind::SingleAttestation(_) => self
+                .attestation_tx
+                .send(kind)
+                .map(|count| log_count("single_attestation", count)),
             EventKind::Block(_) => self
                 .block_tx
                 .send(kind)

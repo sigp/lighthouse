@@ -60,12 +60,15 @@ use std::borrow::Cow;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, AttestationRef, BeaconCommittee, BeaconStateError::NoCommitteeFound, ChainSpec,
-    CommitteeIndex, Epoch, EthSpec, Hash256, IndexedAttestation, SelectionProof,
-    SignedAggregateAndProof, Slot, SubnetId,
+    Attestation, AttestationData, AttestationRef, BeaconCommittee,
+    BeaconStateError::NoCommitteeFound, ChainSpec, CommitteeIndex, Epoch, EthSpec, Hash256,
+    IndexedAttestation, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
 };
 
-pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations};
+pub use batch::{
+    batch_verify_aggregated_attestations, batch_verify_single_attestations,
+    batch_verify_unaggregated_attestations,
+};
 
 /// Returned when an attestation was not successfully verified. It might not have been verified for
 /// two reasons:
@@ -272,7 +275,7 @@ impl From<BeaconChainError> for Error {
 
 /// Used to avoid double-checking signatures.
 #[derive(Copy, Clone)]
-enum CheckAttestationSignature {
+pub enum CheckAttestationSignature {
     Yes,
     No,
 }
@@ -377,6 +380,8 @@ impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregatedAtt
 pub enum AttestationSlashInfo<'a, T: BeaconChainTypes, TErr> {
     /// The attestation is invalid, but its signature wasn't checked.
     SignatureNotChecked(AttestationRef<'a, T::EthSpec>, TErr),
+    /// The attestation is invalid, but its signature wasn't checked.
+    SignatureNotCheckedSingleAttestation(&'a SingleAttestation, TErr),
     /// As for `SignatureNotChecked`, but we know the `IndexedAttestation`.
     SignatureNotCheckedIndexed(IndexedAttestation<T::EthSpec>, TErr),
     /// The attestation's signature is invalid, so it will never be slashable.
@@ -391,7 +396,7 @@ pub enum AttestationSlashInfo<'a, T: BeaconChainTypes, TErr> {
 /// checks on attestations that failed verification for other reasons.
 ///
 /// No substantial extra work will be done if there is no slasher configured.
-fn process_slash_info<T: BeaconChainTypes>(
+pub fn process_slash_info<T: BeaconChainTypes>(
     slash_info: AttestationSlashInfo<T, Error>,
     chain: &BeaconChain<T>,
 ) -> Error {
@@ -419,7 +424,8 @@ fn process_slash_info<T: BeaconChainTypes>(
                 }
             }
             SignatureNotCheckedIndexed(indexed, err) => (indexed, true, err),
-            SignatureInvalid(e) => return e,
+            // TODO(single-attestation) SignatureNotCheckedSingleAttestation variant
+            SignatureNotCheckedSingleAttestation(_, e) | SignatureInvalid(e) => return e,
             SignatureValid(indexed, err) => (indexed, false, err),
         };
 
@@ -443,7 +449,8 @@ fn process_slash_info<T: BeaconChainTypes>(
             SignatureNotChecked(_, e)
             | SignatureNotCheckedIndexed(_, e)
             | SignatureInvalid(e)
-            | SignatureValid(_, e) => e,
+            | SignatureValid(_, e)
+            | SignatureNotCheckedSingleAttestation(_, e) => e,
         }
     }
 }
@@ -475,7 +482,11 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(&chain.slot_clock, attestation, &chain.spec)?;
+        verify_propagation_slot_range::<T::SlotClock, T::EthSpec>(
+            &chain.slot_clock,
+            attestation.data(),
+            &chain.spec,
+        )?;
 
         // Check the attestation's epoch matches its target.
         if attestation.data().slot.epoch(T::EthSpec::slots_per_epoch())
@@ -807,7 +818,11 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(&chain.slot_clock, attestation, &chain.spec)?;
+        verify_propagation_slot_range::<T::SlotClock, T::EthSpec>(
+            &chain.slot_clock,
+            attestation.data(),
+            &chain.spec,
+        )?;
 
         // Check to ensure that the attestation is "unaggregated". I.e., it has exactly one
         // aggregation bit set.
@@ -1122,10 +1137,10 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 /// Accounts for `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
 pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
     slot_clock: &S,
-    attestation: AttestationRef<E>,
+    attestation_data: &AttestationData,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let attestation_slot = attestation.data().slot;
+    let attestation_slot = attestation_data.slot;
     let latest_permissible_slot = slot_clock
         .now_with_future_tolerance(spec.maximum_gossip_clock_disparity())
         .ok_or(BeaconChainError::UnableToReadSlot)?;

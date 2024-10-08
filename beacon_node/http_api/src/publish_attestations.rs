@@ -132,7 +132,7 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
         );
 
     let fc_result = chain.apply_attestation_to_fork_choice(&attestation);
-    let naive_aggregation_result = chain.add_to_naive_aggregation_pool(&attestation);
+    let naive_aggregation_result = chain.add_to_naive_aggregation_pool(attestation.attestation());
 
     if let Err(e) = &fc_result {
         warn!(

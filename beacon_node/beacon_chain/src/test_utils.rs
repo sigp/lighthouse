@@ -2088,7 +2088,9 @@ where
             .unwrap()
         {
             let verified = result.unwrap();
-            self.chain.add_to_naive_aggregation_pool(&verified).unwrap();
+            self.chain
+                .add_to_naive_aggregation_pool(verified.attestation())
+                .unwrap();
         }
 
         for result in self
