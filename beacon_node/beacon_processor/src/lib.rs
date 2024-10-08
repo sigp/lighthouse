@@ -160,12 +160,12 @@ impl BeaconProcessorQueueLengths {
             aggregate_queue: 4096,
             unknown_block_aggregate_queue: 1024,
             // Capacity for a full slot's worth of attestations if subscribed to all subnets
-            attestation_queue: std::cmp::min(
+            attestation_queue: std::cmp::max(
                 active_validator_count / slots_per_epoch,
                 MIN_QUEUE_LEN,
             ),
             // Capacity for a full slot's worth of attestations if subscribed to all subnets
-            unknown_block_attestation_queue: std::cmp::min(
+            unknown_block_attestation_queue: std::cmp::max(
                 active_validator_count / slots_per_epoch,
                 MIN_QUEUE_LEN,
             ),
