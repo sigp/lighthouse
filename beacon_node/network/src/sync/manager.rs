@@ -412,6 +412,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
+    /// Trigger range sync for a set of peers that claim to have imported a head unknown to us.
     fn add_peers_force_range_sync(
         &mut self,
         peers: &[PeerId],
