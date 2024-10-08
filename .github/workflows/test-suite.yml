@@ -58,7 +58,7 @@ jobs:
     name: lockbud
     runs-on: ubuntu-latest
     container:
-      image: eserilev/lockbud:latest
+      image: sigmaprime/lockbud:latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
