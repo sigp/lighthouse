@@ -2237,6 +2237,8 @@ dependencies = [
  "beacon_node_fallback",
  "environment",
  "eth2",
+ "futures",
+ "logging",
  "parking_lot 0.12.3",
  "slog",
  "slot_clock",
@@ -3539,8 +3541,10 @@ name = "graffiti_file"
 version = "0.1.0"
 dependencies = [
  "bls",
+ "hex",
  "serde",
  "slog",
+ "tempfile",
  "types",
 ]
 

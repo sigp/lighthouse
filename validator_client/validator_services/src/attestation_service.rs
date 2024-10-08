@@ -13,6 +13,7 @@ use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Sl
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 /// Builds an `AttestationService`.
+#[derive(Default)]
 pub struct AttestationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     duties_service: Option<Arc<DutiesService<T, E>>>,
     validator_store: Option<Arc<ValidatorStore<T, E>>>,

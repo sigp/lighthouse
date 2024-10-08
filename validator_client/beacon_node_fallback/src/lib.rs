@@ -739,7 +739,7 @@ impl ApiTopic {
 mod tests {
     use super::*;
     use crate::beacon_node_health::BeaconNodeHealthTier;
-    use crate::SensitiveUrl;
+    use eth2::SensitiveUrl;
     use eth2::Timeouts;
     use std::str::FromStr;
     use strum::VariantNames;

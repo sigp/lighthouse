@@ -43,6 +43,7 @@ impl From<Errors<BlockError>> for BlockError {
 }
 
 /// Builds a `BlockService`.
+#[derive(Default)]
 pub struct BlockServiceBuilder<T, E: EthSpec> {
     validator_store: Option<Arc<ValidatorStore<T, E>>>,
     slot_clock: Option<Arc<T>>,

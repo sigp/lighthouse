@@ -319,7 +319,7 @@ mod tests {
         BeaconNodeHealth, BeaconNodeHealthTier, BeaconNodeSyncDistanceTiers, IsOptimistic,
         SyncDistanceTier,
     };
-    use crate::beacon_node_fallback::Config;
+    use crate::Config;
     use std::str::FromStr;
     use types::Slot;
 
