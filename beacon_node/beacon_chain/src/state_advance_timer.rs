@@ -17,7 +17,6 @@ use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOC
 use crate::{
     chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
-use slog::Logger;
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::sync::{
@@ -108,10 +107,9 @@ impl Lock {
 pub fn spawn_state_advance_timer<T: BeaconChainTypes>(
     executor: TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
-    log: Logger,
 ) {
     executor.spawn(
-        state_advance_timer(executor.clone(), beacon_chain, log),
+        state_advance_timer(executor.clone(), beacon_chain),
         "state_advance_timer",
     );
 }
@@ -120,7 +118,6 @@ pub fn spawn_state_advance_timer<T: BeaconChainTypes>(
 async fn state_advance_timer<T: BeaconChainTypes>(
     executor: TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
-    log: Logger,
 ) {
     let is_running = Lock::new();
     let slot_clock = &beacon_chain.slot_clock;
@@ -173,13 +170,12 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 
         // Only spawn the state advance task if the lock was previously free.
         if !is_running.lock() {
-            let log = log.clone();
             let beacon_chain = beacon_chain.clone();
             let is_running = is_running.clone();
 
             executor.spawn_blocking(
                 move || {
-                    match advance_head(&beacon_chain, &log) {
+                    match advance_head(&beacon_chain) {
                         Ok(()) => (),
                         Err(Error::BeaconChain(e)) => error!(
                             error = ?e,
@@ -215,7 +211,6 @@ async fn state_advance_timer<T: BeaconChainTypes>(
         // Wait for the fork choice instant (which may already be past).
         sleep_until(fork_choice_instant).await;
 
-        let log = log.clone();
         let beacon_chain = beacon_chain.clone();
         let next_slot = current_slot + 1;
         executor.spawn(
@@ -270,10 +265,7 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 /// slot then placed in the `state_cache` to be used for block verification.
 ///
 /// See the module-level documentation for rationale.
-fn advance_head<T: BeaconChainTypes>(
-    beacon_chain: &Arc<BeaconChain<T>>,
-    log: &Logger,
-) -> Result<(), Error> {
+fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Result<(), Error> {
     let current_slot = beacon_chain.slot()?;
 
     // These brackets ensure that the `head_slot` value is dropped before we run fork choice and

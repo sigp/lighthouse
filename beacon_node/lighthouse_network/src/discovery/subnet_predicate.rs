@@ -9,14 +9,11 @@ use types::{ChainSpec, DataColumnSubnetId};
 /// Returns the predicate for a given subnet.
 pub fn subnet_predicate<E>(
     subnets: Vec<Subnet>,
-    log: &slog::Logger,
     spec: Arc<ChainSpec>,
 ) -> impl Fn(&Enr) -> bool + Send
 where
     E: EthSpec,
 {
-    let log_clone = log.clone();
-
     move |enr: &Enr| {
         let attestation_bitfield: EnrAttestationBitfield<E> = match enr.attestation_bitfield::<E>()
         {

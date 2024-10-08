@@ -2,7 +2,6 @@ use crate::beacon_chain::{BeaconChainTypes, OP_POOL_DB_KEY};
 use operation_pool::{
     PersistedOperationPool, PersistedOperationPoolV15, PersistedOperationPoolV20,
 };
-use slog::Logger;
 use std::sync::Arc;
 use store::{Error, HotColdDB, KeyValueStoreOp, StoreItem};
 use tracing::{debug, info};
@@ -10,7 +9,6 @@ use types::Attestation;
 
 pub fn upgrade_to_v20<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
-    log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
     info!("Upgrading from v19 to v20");
 
@@ -53,7 +51,6 @@ pub fn upgrade_to_v20<T: BeaconChainTypes>(
 
 pub fn downgrade_from_v20<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
-    log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
     info!("Downgrading from v20 to v19");
 

@@ -12,7 +12,6 @@ use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
 use serde::{ser::SerializeStruct, Deserialize, Serialize, Serializer};
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::cmp::Ordering;
 use std::fmt;
@@ -221,15 +220,14 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         distance_tiers: &BeaconNodeSyncDistanceTiers,
         slot_clock: Option<&T>,
         spec: &ChainSpec,
-        log: &Logger,
     ) -> Result<(), CandidateError> {
-        if let Err(e) = self.is_compatible(spec, log).await {
+        if let Err(e) = self.is_compatible(spec).await {
             *self.health.write().await = Err(e);
             return Err(e);
         }
 
         if let Some(slot_clock) = slot_clock {
-            match check_node_health(&self.beacon_node, log).await {
+            match check_node_health(&self.beacon_node).await {
                 Ok((head, is_optimistic, el_offline)) => {
                     let Some(slot_clock_head) = slot_clock.now() else {
                         let e = match slot_clock.is_prior_to_genesis() {
@@ -287,7 +285,7 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
     }
 
     /// Checks if the node has the correct specification.
-    async fn is_compatible(&self, spec: &ChainSpec, log: &Logger) -> Result<(), CandidateError> {
+    async fn is_compatible(&self, spec: &ChainSpec) -> Result<(), CandidateError> {
         let config = self
             .beacon_node
             .get_config_spec::<ConfigSpec>()
@@ -371,7 +369,6 @@ pub struct BeaconNodeFallback<T, E> {
     slot_clock: Option<T>,
     broadcast_topics: Vec<ApiTopic>,
     spec: Arc<ChainSpec>,
-    log: Logger,
 }
 
 impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
@@ -380,7 +377,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         config: Config,
         broadcast_topics: Vec<ApiTopic>,
         spec: Arc<ChainSpec>,
-        log: Logger,
     ) -> Self {
         let distance_tiers = config.sync_tolerances;
         Self {
@@ -389,7 +385,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             slot_clock: None,
             broadcast_topics,
             spec,
-            log,
         }
     }
 
@@ -472,7 +467,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                 &self.distance_tiers,
                 self.slot_clock.as_ref(),
                 &self.spec,
-                &self.log,
             ));
             nodes.push(candidate.beacon_node.to_string());
         }
@@ -559,11 +553,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
         // Run `func` using a `candidate`, returning the value or capturing errors.
         for candidate in candidates.iter() {
-            futures.push(Self::run_on_candidate(
-                candidate.beacon_node.clone(),
-                &func,
-                &self.log,
-            ));
+            futures.push(Self::run_on_candidate(candidate.beacon_node.clone(), &func));
         }
         drop(candidates);
 
@@ -581,11 +571,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
         // Run `func` using a `candidate`, returning the value or capturing errors.
         for candidate in candidates.iter() {
-            futures.push(Self::run_on_candidate(
-                candidate.beacon_node.clone(),
-                &func,
-                &self.log,
-            ));
+            futures.push(Self::run_on_candidate(candidate.beacon_node.clone(), &func));
         }
         drop(candidates);
 
@@ -604,7 +590,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     async fn run_on_candidate<F, R, Err, O>(
         candidate: BeaconNodeHttpClient,
         func: F,
-        log: &Logger,
     ) -> Result<O, (String, Error<Err>)>
     where
         F: Fn(BeaconNodeHttpClient) -> R,
@@ -648,11 +633,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
         // Run `func` using a `candidate`, returning the value or capturing errors.
         for candidate in candidates.iter() {
-            futures.push(Self::run_on_candidate(
-                candidate.beacon_node.clone(),
-                &func,
-                &self.log,
-            ));
+            futures.push(Self::run_on_candidate(candidate.beacon_node.clone(), &func));
         }
         drop(candidates);
 

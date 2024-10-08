@@ -33,7 +33,6 @@ use logging::crit;
 use logging::SSELoggingComponents;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::future::Future;
@@ -83,8 +82,8 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub graffiti_flag: Option<Graffiti>,
     pub spec: Arc<ChainSpec>,
     pub config: Config,
-    pub log: Logger,
-    pub sse_logging_components: Option<SSELoggingComponents>,
+    // pub log: Logger,
+    // pub sse_logging_components: Option<SSELoggingComponents>,
     pub slot_clock: T,
     pub _phantom: PhantomData<E>,
 }
@@ -135,7 +134,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let config = &ctx.config;
     let allow_keystore_export = config.allow_keystore_export;
     let store_passwords_in_secrets_dir = config.store_passwords_in_secrets_dir;
-    let log = ctx.log.clone();
 
     // Configure CORS.
     let cors_builder = {
@@ -226,7 +224,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let graffiti_flag_filter = warp::any().map(move || inner_graffiti_flag);
 
     let inner_ctx = ctx.clone();
-    let log_filter = warp::any().map(move || inner_ctx.log.clone());
+    //let log_filter = warp::any().map(move || inner_ctx.log.clone());
 
     let inner_slot_clock = ctx.slot_clock.clone();
     let slot_clock_filter = warp::any().map(move || inner_slot_clock.clone());
@@ -238,8 +236,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let api_token_path_filter = warp::any().map(move || api_token_path_inner.clone());
 
     // Filter for SEE Logging events
-    let inner_components = ctx.sse_logging_components.clone();
-    let sse_component_filter = warp::any().map(move || inner_components.clone());
+    // let inner_components = ctx.sse_logging_components.clone();
+    // let sse_component_filter = warp::any().map(move || inner_components.clone());
 
     // Create a `warp` filter that provides access to local system information.
     let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
@@ -385,12 +383,11 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(graffiti_file_filter.clone())
         .and(graffiti_flag_filter)
-        .and(log_filter.clone())
+        // .and(log_filter.clone())
         .then(
             |validator_store: Arc<ValidatorStore<T, E>>,
              graffiti_file: Option<GraffitiFile>,
-             graffiti_flag: Option<Graffiti>,
-             log| {
+             graffiti_flag: Option<Graffiti>| {
                 blocking_json_task(move || {
                     let mut result = HashMap::new();
                     for (key, graffiti_definition) in validator_store
@@ -819,8 +816,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
-        .and(log_filter.clone())
-        .then(move |request, validator_store, task_executor, log| {
+        // .and(log_filter.clone())
+        .then(move |request, validator_store, task_executor| {
             blocking_json_task(move || {
                 if allow_keystore_export {
                     keystores::export(request, validator_store, task_executor)
@@ -1064,14 +1061,13 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(slot_clock_filter)
-        .and(log_filter.clone())
+        // .and(log_filter.clone())
         .and(task_executor_filter.clone())
         .then(
             |pubkey: PublicKey,
              query: api_types::VoluntaryExitQuery,
              validator_store: Arc<ValidatorStore<T, E>>,
              slot_clock: T,
-             log,
              task_executor: TaskExecutor| {
                 blocking_json_task(move || {
                     if let Some(handle) = task_executor.handle() {
@@ -1180,9 +1176,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(secrets_dir_filter)
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
-        .and(log_filter.clone())
+        // .and(log_filter.clone())
         .then(
-            move |request, validator_dir, secrets_dir, validator_store, task_executor, log| {
+            move |request, validator_dir, secrets_dir, validator_store, task_executor| {
                 let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
                 blocking_json_task(move || {
                     keystores::import(
@@ -1201,8 +1197,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
-        .and(log_filter.clone())
-        .then(|request, validator_store, task_executor, log| {
+        // .and(log_filter.clone())
+        .then(|request, validator_store, task_executor| {
             blocking_json_task(move || keystores::delete(request, validator_store, task_executor))
         });
 
@@ -1218,8 +1214,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
-        .and(log_filter.clone())
-        .then(|request, validator_store, task_executor, log| {
+        // .and(log_filter.clone())
+        .then(|request, validator_store, task_executor| {
             blocking_json_task(move || remotekeys::import(request, validator_store, task_executor))
         });
 
@@ -1228,53 +1224,53 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_store_filter)
         .and(task_executor_filter)
-        .and(log_filter.clone())
-        .then(|request, validator_store, task_executor, log| {
+        // .and(log_filter.clone())
+        .then(|request, validator_store, task_executor| {
             blocking_json_task(move || remotekeys::delete(request, validator_store, task_executor))
         });
 
     // Subscribe to get VC logs via Server side events
     // /lighthouse/logs
-    let get_log_events = warp::path("lighthouse")
-        .and(warp::path("logs"))
-        .and(warp::path::end())
-        .and(sse_component_filter)
-        .and_then(|sse_component: Option<SSELoggingComponents>| {
-            warp_utils::task::blocking_task(move || {
-                if let Some(logging_components) = sse_component {
-                    // Build a JSON stream
-                    let s =
-                        BroadcastStream::new(logging_components.sender.subscribe()).map(|msg| {
-                            match msg {
-                                Ok(data) => {
-                                    // Serialize to json
-                                    match data.to_json_string() {
-                                        // Send the json as a Server Sent Event
-                                        Ok(json) => Event::default().json_data(json).map_err(|e| {
-                                            warp_utils::reject::server_sent_event_error(format!(
-                                                "{:?}",
-                                                e
-                                            ))
-                                        }),
-                                        Err(e) => Err(warp_utils::reject::server_sent_event_error(
-                                            format!("Unable to serialize to JSON {}", e),
-                                        )),
-                                    }
-                                }
-                                Err(e) => Err(warp_utils::reject::server_sent_event_error(
-                                    format!("Unable to receive event {}", e),
-                                )),
-                            }
-                        });
+    // let get_log_events = warp::path("lighthouse")
+    //     .and(warp::path("logs"))
+    //     .and(warp::path::end())
+    //     // .and(sse_component_filter)
+    //     .and_then(|| {
+    //         warp_utils::task::blocking_task(move || {
+    //             if let Some(logging_components) = sse_component {
+    //                 // Build a JSON stream
+    //                 let s =
+    //                     BroadcastStream::new(logging_components.sender.subscribe()).map(|msg| {
+    //                         match msg {
+    //                             Ok(data) => {
+    //                                 // Serialize to json
+    //                                 match data.to_json_string() {
+    //                                     // Send the json as a Server Sent Event
+    //                                     Ok(json) => Event::default().json_data(json).map_err(|e| {
+    //                                         warp_utils::reject::server_sent_event_error(format!(
+    //                                             "{:?}",
+    //                                             e
+    //                                         ))
+    //                                     }),
+    //                                     Err(e) => Err(warp_utils::reject::server_sent_event_error(
+    //                                         format!("Unable to serialize to JSON {}", e),
+    //                                     )),
+    //                                 }
+    //                             }
+    //                             Err(e) => Err(warp_utils::reject::server_sent_event_error(
+    //                                 format!("Unable to receive event {}", e),
+    //                             )),
+    //                         }
+    //                     });
 
-                    Ok::<_, warp::Rejection>(warp::sse::reply(warp::sse::keep_alive().stream(s)))
-                } else {
-                    Err(warp_utils::reject::custom_server_error(
-                        "SSE Logging is not enabled".to_string(),
-                    ))
-                }
-            })
-        });
+    //                 Ok::<_, warp::Rejection>(warp::sse::reply(warp::sse::keep_alive().stream(s)))
+    //             } else {
+    //                 Err(warp_utils::reject::custom_server_error(
+    //                     "SSE Logging is not enabled".to_string(),
+    //                 ))
+    //             }
+    //         })
+    //     });
 
     let routes = warp::any()
         .and(authorization_header_filter)
@@ -1326,7 +1322,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 )),
         )
         // The auth route and logs  are the only routes that are allowed to be accessed without the API token.
-        .or(warp::get().and(get_auth.or(get_log_events.boxed())))
+        .or(warp::get().and(get_auth))
         // Maps errors into HTTP responses.
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.

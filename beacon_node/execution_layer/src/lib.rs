@@ -26,7 +26,6 @@ use payload_status::process_payload_status;
 pub use payload_status::PayloadStatus;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::fmt;
@@ -360,7 +359,6 @@ struct Inner<E: EthSpec> {
     proposers: RwLock<HashMap<ProposerKey, Proposer>>,
     executor: TaskExecutor,
     payload_cache: PayloadCache<E>,
-    log: Logger,
     /// Track whether the last `newPayload` call errored.
     ///
     /// This is used *only* in the informational sync status endpoint, so that a VC using this
@@ -402,7 +400,7 @@ pub struct ExecutionLayer<E: EthSpec> {
 
 impl<E: EthSpec> ExecutionLayer<E> {
     /// Instantiate `Self` with an Execution engine specified in `Config`, using JSON-RPC via HTTP.
-    pub fn from_config(config: Config, executor: TaskExecutor, log: Logger) -> Result<Self, Error> {
+    pub fn from_config(config: Config, executor: TaskExecutor) -> Result<Self, Error> {
         let Config {
             execution_endpoint: url,
             builder_url,
@@ -455,7 +453,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             debug!(endpoint = %execution_url, jwt_path = ?secret_file.as_path(),"Loaded execution endpoint");
             let api = HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier)
                 .map_err(Error::ApiError)?;
-            Engine::new(api, executor.clone(), &log)
+            Engine::new(api, executor.clone())
         };
 
         let inner = Inner {
@@ -468,7 +466,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
             execution_blocks: Mutex::new(LruCache::new(EXECUTION_BLOCKS_LRU_CACHE_SIZE)),
             executor,
             payload_cache: PayloadCache::default(),
-            log,
             last_new_payload_errored: RwLock::new(false),
         };
 
@@ -579,10 +576,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
     fn proposers(&self) -> &RwLock<HashMap<ProposerKey, Proposer>> {
         &self.inner.proposers
-    }
-
-    fn log(&self) -> &Logger {
-        &self.inner.log
     }
 
     pub async fn execution_engine_forkchoice_lock(&self) -> MutexGuard<'_, ()> {
@@ -1263,7 +1256,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         .notify_forkchoice_updated(
                             fork_choice_state,
                             Some(payload_attributes.clone()),
-                            self.log(),
                         )
                         .await?;
 
@@ -1370,7 +1362,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
         *self.inner.last_new_payload_errored.write().await = result.is_err();
 
-        process_payload_status(block_hash, result, self.log())
+        process_payload_status(block_hash, result)
             .map_err(Box::new)
             .map_err(Error::EngineError)
     }
@@ -1492,7 +1484,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .engine()
             .request(|engine| async move {
                 engine
-                    .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
+                    .notify_forkchoice_updated(forkchoice_state, payload_attributes)
                     .await
             })
             .await;
@@ -1507,7 +1499,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
         process_payload_status(
             head_block_hash,
             result.map(|response| response.payload_status),
-            self.log(),
         )
         .map_err(Box::new)
         .map_err(Error::EngineError)

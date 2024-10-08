@@ -68,11 +68,10 @@ pub struct MonitoringHttpClient {
     freezer_db_path: Option<PathBuf>,
     update_period: Duration,
     monitoring_endpoint: SensitiveUrl,
-    log: slog::Logger,
 }
 
 impl MonitoringHttpClient {
-    pub fn new(config: &Config, log: slog::Logger) -> Result<Self, String> {
+    pub fn new(config: &Config) -> Result<Self, String> {
         Ok(Self {
             client: reqwest::Client::new(),
             db_path: config.db_path.clone(),
@@ -82,7 +81,6 @@ impl MonitoringHttpClient {
             ),
             monitoring_endpoint: SensitiveUrl::parse(&config.monitoring_endpoint)
                 .map_err(|e| format!("Invalid monitoring endpoint: {:?}", e))?,
-            log,
         })
     }
 

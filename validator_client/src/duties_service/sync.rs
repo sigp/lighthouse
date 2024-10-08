@@ -419,7 +419,6 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
     sync_committee_period: u64,
 ) -> Result<(), Error> {
     let spec = &duties_service.spec;
-    let log = duties_service.context.log();
 
     // no local validators don't need to poll for sync committee
     if local_indices.is_empty() {
@@ -508,8 +507,6 @@ pub async fn fill_in_aggregation_proofs<T: SlotClock + 'static, E: EthSpec>(
     current_slot: Slot,
     pre_compute_slot: Slot,
 ) {
-    let log = duties_service.context.log();
-
     debug!(
         period = sync_committee_period,
         %current_slot,

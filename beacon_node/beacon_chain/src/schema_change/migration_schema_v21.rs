@@ -1,6 +1,5 @@
 use crate::beacon_chain::BeaconChainTypes;
 use crate::validator_pubkey_cache::DatabasePubkey;
-use slog::Logger;
 use ssz::{Decode, Encode};
 use std::sync::Arc;
 use store::{
@@ -13,7 +12,6 @@ const LOG_EVERY: usize = 200_000;
 
 pub fn upgrade_to_v21<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
-    log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
     info!("Upgrading from v20 to v21");
 
@@ -44,7 +42,6 @@ pub fn upgrade_to_v21<T: BeaconChainTypes>(
 
 pub fn downgrade_from_v21<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
-    log: Logger,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
     info!("Downgrading from v21 to v20");
 

@@ -35,7 +35,6 @@ use environment::RuntimeContext;
 use eth2::types::LivenessResponseData;
 use logging::crit;
 use parking_lot::RwLock;
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -265,14 +264,12 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
 
 pub struct DoppelgangerService {
     doppelganger_states: RwLock<HashMap<PublicKeyBytes, DoppelgangerState>>,
-    log: Logger,
 }
 
 impl DoppelgangerService {
-    pub fn new(log: Logger) -> Self {
+    pub fn new() -> Self {
         Self {
             doppelganger_states: <_>::default(),
-            log,
         }
     }
 
@@ -708,7 +705,7 @@ mod test {
         fn build(self) -> TestScenario {
             let mut rng = XorShiftRng::from_seed([42; 16]);
             let slot_clock = TestingSlotClock::new(Slot::new(0), GENESIS_TIME, SLOT_DURATION);
-            let log = test_logger();
+            // let log = test_logger();
 
             TestScenario {
                 validators: (0..self.validator_count)

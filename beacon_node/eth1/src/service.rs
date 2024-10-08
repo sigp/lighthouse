@@ -13,7 +13,6 @@ use futures::future::TryFutureExt;
 use parking_lot::{RwLock, RwLockReadGuard};
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::Logger;
 use std::fmt::Debug;
 use std::ops::{Range, RangeInclusive};
 use std::path::PathBuf;
@@ -414,7 +413,6 @@ impl Service {
     /// Creates a new service, initializing the deposit tree from a snapshot.
     pub fn from_deposit_snapshot(
         config: Config,
-        log: Logger,
         spec: Arc<ChainSpec>,
         deposit_snapshot: &DepositTreeSnapshot,
     ) -> Result<Self, Error> {

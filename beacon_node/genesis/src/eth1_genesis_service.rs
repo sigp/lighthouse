@@ -2,7 +2,6 @@ pub use crate::common::genesis_deposits;
 pub use eth1::Config as Eth1Config;
 
 use eth1::{DepositLog, Eth1Block, Service as Eth1Service};
-use slog::Logger;
 use state_processing::{
     eth2_genesis_time, initialize_beacon_state_from_eth1, is_valid_genesis_state,
     per_block_processing::process_operations::apply_deposit, process_activations,
@@ -44,7 +43,7 @@ impl Eth1GenesisService {
     /// Creates a new service. Does not attempt to connect to the Eth1 node.
     ///
     /// Modifies the given `config` to make it more suitable to the task of listening to genesis.
-    pub fn new(config: Eth1Config, log: Logger, spec: Arc<ChainSpec>) -> Result<Self, String> {
+    pub fn new(config: Eth1Config, spec: Arc<ChainSpec>) -> Result<Self, String> {
         let config = Eth1Config {
             // Truncating the block cache makes searching for genesis more
             // complicated.

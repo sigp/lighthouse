@@ -85,7 +85,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
             network_config.discv5_config.enr_update = false;
         }
 
-        let private_key = load_private_key(&network_config, &logger);
+        let private_key = load_private_key(&network_config);
         let local_key = CombinedKey::from_libp2p(private_key)?;
 
         let local_enr = if let Some(dir) = matches.get_one::<String>("network-dir") {
@@ -157,7 +157,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
                     .map_err(|e| format!("Failed to build ENR: {:?}", e))?
             };
 
-            use_or_load_enr(&local_key, &mut local_enr, &network_config, &logger)?;
+            use_or_load_enr(&local_key, &mut local_enr, &network_config)?;
             local_enr
         };
 

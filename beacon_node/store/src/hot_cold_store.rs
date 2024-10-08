@@ -29,7 +29,6 @@ use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
-use slog::Logger;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -84,8 +83,6 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     historic_state_cache: Mutex<LruCache<Slot, BeaconState<E>>>,
     /// Chain spec.
     pub(crate) spec: Arc<ChainSpec>,
-    /// Logger.
-    pub log: Logger,
     /// Mere vessel for E.
     _phantom: PhantomData<E>,
 }
@@ -196,7 +193,6 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
     pub fn open_ephemeral(
         config: StoreConfig,
         spec: Arc<ChainSpec>,
-        log: Logger,
     ) -> Result<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>, Error> {
         Self::verify_config(&config)?;
 
@@ -213,7 +209,6 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             historic_state_cache: Mutex::new(LruCache::new(config.historic_state_cache_size)),
             config,
             spec,
-            log,
             _phantom: PhantomData,
         };
 
@@ -233,7 +228,6 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         migrate_schema: impl FnOnce(Arc<Self>, SchemaVersion, SchemaVersion) -> Result<(), Error>,
         config: StoreConfig,
         spec: Arc<ChainSpec>,
-        log: Logger,
     ) -> Result<Arc<Self>, Error> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
 
@@ -250,7 +244,6 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             historic_state_cache: Mutex::new(LruCache::new(config.historic_state_cache_size)),
             config,
             spec,
-            log,
             _phantom: PhantomData,
         };
 
@@ -1848,10 +1841,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self.spec
     }
 
-    /// Get a reference to the `Logger` used by the database.
-    pub fn logger(&self) -> &Logger {
-        &self.log
-    }
+    // /// Get a reference to the `Logger` used by the database.
+    // pub fn logger(&self) -> &Logger {
+    //     &self.log
+    // }
 
     /// Fetch a copy of the current split slot from memory.
     pub fn get_split_slot(&self) -> Slot {

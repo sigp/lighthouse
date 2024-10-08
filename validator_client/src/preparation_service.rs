@@ -261,7 +261,6 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     }
 
     fn collect_preparation_data(&self, spec: &ChainSpec) -> Vec<ProposerPreparationData> {
-        let log = self.context.log();
         self.collect_proposal_data(|pubkey, proposal_data| {
             if let Some(fee_recipient) = proposal_data.fee_recipient {
                 Some(ProposerPreparationData {
@@ -322,8 +321,6 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         &self,
         preparation_data: Vec<ProposerPreparationData>,
     ) -> Result<(), String> {
-        let log = self.context.log();
-
         // Post the proposer preparations to the BN.
         let preparation_data_len = preparation_data.len();
         let preparation_entries = preparation_data.as_slice();
@@ -384,8 +381,6 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         &self,
         registration_keys: Vec<ValidatorRegistrationKey>,
     ) -> Result<(), String> {
-        let log = self.context.log();
-
         let registration_data_len = registration_keys.len();
         let mut signed = Vec::with_capacity(registration_data_len);
 

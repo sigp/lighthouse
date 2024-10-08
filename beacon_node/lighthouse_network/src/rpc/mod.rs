@@ -161,8 +161,6 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
     events: Vec<BehaviourAction<Id, E>>,
     fork_context: Arc<ForkContext>,
     enable_light_client_server: bool,
-    /// Slog logger for RPC behaviour.
-    log: slog::Logger,
     /// Networking constant values
     network_params: NetworkParams,
     /// A sequential counter indicating when data gets modified.
@@ -175,11 +173,10 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         enable_light_client_server: bool,
         inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
         outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
-        log: slog::Logger,
         network_params: NetworkParams,
         seq_number: u64,
     ) -> Self {
-        let log = log.new(o!("service" => "libp2p_rpc"));
+        // let log = log.new(o!("service" => "libp2p_rpc"));
 
         let inbound_limiter = inbound_rate_limiter_config.map(|config| {
             debug!(?config, "Using inbound rate limiting params");
@@ -188,7 +185,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         });
 
         let self_limiter = outbound_rate_limiter_config.map(|config| {
-            SelfRateLimiter::new(config, log.clone()).expect("Configuration parameters are valid")
+            SelfRateLimiter::new(config).expect("Configuration parameters are valid")
         });
 
         RPC {
@@ -197,7 +194,6 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             events: Vec::new(),
             fork_context,
             enable_light_client_server,
-            log,
             network_params,
             seq_number,
         }
@@ -323,9 +319,9 @@ where
             (),
         );
 
-        let log = self
-            .log
-            .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
+        // let log = self
+        //     .log
+        //     .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
 
         let handler = RPCHandler::new(
             protocol,

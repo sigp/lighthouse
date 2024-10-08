@@ -204,7 +204,6 @@ pub struct NetworkService<T: BeaconChainTypes> {
     enable_light_client_server: bool,
     /// The logger for the network service.
     fork_context: Arc<ForkContext>,
-    log: slog::Logger,
 }
 
 impl<T: BeaconChainTypes> NetworkService<T> {
@@ -220,29 +219,22 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         Arc<NetworkGlobals<T::EthSpec>>,
         NetworkSenders<T::EthSpec>,
     )> {
-        let network_log = executor.log().clone();
         // build the channels for external comms
         let (network_senders, network_receivers) = NetworkSenders::new();
 
         #[cfg(feature = "disable-backfill")]
-        warn!(
-            network_log,
-            "Backfill is disabled. DO NOT RUN IN PRODUCTION"
-        );
+        warn!("Backfill is disabled. DO NOT RUN IN PRODUCTION");
 
         if let (true, false, Some(v4)) = (
             config.upnp_enabled,
             config.disable_discovery,
             config.listen_addrs().v4(),
         ) {
-            let nw = network_log.clone();
             let v4 = v4.clone();
             executor.spawn(
                 async move {
                     info!("UPnP Attempting to initialise routes");
-                    if let Err(e) =
-                        nat::construct_upnp_mappings(v4.addr, v4.disc_port, nw.clone()).await
-                    {
+                    if let Err(e) = nat::construct_upnp_mappings(v4.addr, v4.disc_port).await {
                         info!(error = %e, "Could not UPnP map Discovery port");
                     }
                 },
@@ -284,8 +276,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         };
 
         // launch libp2p service
-        let (mut libp2p, network_globals) =
-            Network::new(executor.clone(), service_context, &network_log).await?;
+        let (mut libp2p, network_globals) = Network::new(executor.clone(), service_context).await?;
 
         // Repopulate the DHT with stored ENR's if discovery is not disabled.
         if !config.disable_discovery {
@@ -316,7 +307,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             invalid_block_storage,
             beacon_processor_send,
             beacon_processor_reprocess_tx,
-            network_log.clone(),
         )?;
 
         // attestation subnet service
@@ -324,11 +314,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             beacon_chain.clone(),
             network_globals.local_enr().node_id(),
             &config,
-            &network_log,
         );
         // sync committee subnet service
-        let sync_committee_service =
-            SyncCommitteeService::new(beacon_chain.clone(), &config, &network_log);
+        let sync_committee_service = SyncCommitteeService::new(beacon_chain.clone(), &config);
 
         // create a timer for updating network metrics
         let metrics_update = tokio::time::interval(Duration::from_secs(METRIC_UPDATE_INTERVAL));
@@ -342,7 +330,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         } = network_receivers;
 
         // create the network service and spawn the task
-        let network_log = network_log.new(o!("service" => "network"));
         let network_service = NetworkService {
             beacon_chain,
             libp2p,
@@ -363,7 +350,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             metrics_update,
             gossipsub_parameter_update,
             fork_context,
-            log: network_log,
             enable_light_client_server: config.enable_light_client_server,
         };
 

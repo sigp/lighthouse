@@ -98,7 +98,6 @@ pub fn use_or_load_enr(
     enr_key: &CombinedKey,
     local_enr: &mut Enr,
     config: &NetworkConfig,
-    log: &slog::Logger,
 ) -> Result<(), String> {
     let enr_f = config.network_dir.join(ENR_FILENAME);
     if let Ok(mut enr_file) = File::open(enr_f.clone()) {
@@ -135,7 +134,7 @@ pub fn use_or_load_enr(
         }
     }
 
-    save_enr_to_disk(&config.network_dir, local_enr, log);
+    save_enr_to_disk(&config.network_dir, local_enr);
 
     Ok(())
 }
@@ -149,7 +148,6 @@ pub fn build_or_load_enr<E: EthSpec>(
     local_key: Keypair,
     config: &NetworkConfig,
     enr_fork_id: &EnrForkId,
-    log: &slog::Logger,
     spec: &ChainSpec,
 ) -> Result<Enr, String> {
     // Build the local ENR.
@@ -158,7 +156,7 @@ pub fn build_or_load_enr<E: EthSpec>(
     let enr_key = CombinedKey::from_libp2p(local_key)?;
     let mut local_enr = build_enr::<E>(&enr_key, config, enr_fork_id, spec)?;
 
-    use_or_load_enr(&enr_key, &mut local_enr, config, log)?;
+    use_or_load_enr(&enr_key, &mut local_enr, config)?;
     Ok(local_enr)
 }
 
@@ -308,7 +306,7 @@ pub fn load_enr_from_disk(dir: &Path) -> Result<Enr, String> {
 }
 
 /// Saves an ENR to disk
-pub fn save_enr_to_disk(dir: &Path, enr: &Enr, log: &slog::Logger) {
+pub fn save_enr_to_disk(dir: &Path, enr: &Enr) {
     let _ = std::fs::create_dir_all(dir);
     match File::create(dir.join(Path::new(ENR_FILENAME)))
         .and_then(|mut f| f.write_all(enr.to_base64().as_bytes()))

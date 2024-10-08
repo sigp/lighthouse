@@ -12,7 +12,6 @@ use directory::{
 use eth2::types::Graffiti;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::Logger;
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;

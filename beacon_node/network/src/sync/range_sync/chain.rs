@@ -14,8 +14,8 @@ use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
 use rand::seq::SliceRandom;
 use rand::Rng;
-use slog::o;
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use strum::IntoStaticStr;
 use tracing::{debug, warn};
@@ -71,6 +71,7 @@ pub enum SyncingChainType {
 /// A chain of blocks that need to be downloaded. Peers who claim to contain the target head
 /// root are grouped into the peer pool and queried for batches when downloading the
 /// chain.
+#[derive(Debug)]
 pub struct SyncingChain<T: BeaconChainTypes> {
     /// A random id used to identify this chain.
     id: ChainId,
@@ -115,9 +116,16 @@ pub struct SyncingChain<T: BeaconChainTypes> {
 
     /// The current processing batch, if any.
     current_processing_batch: Option<BatchId>,
+}
 
-    /// The chain's log.
-    log: slog::Logger,
+impl<T: BeaconChainTypes> fmt::Display for SyncingChain<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.chain_type {
+            SyncingChainType::Head => write!(f, "Head"),
+            SyncingChainType::Finalized => write!(f, "Finalized"),
+            SyncingChainType::Backfill => write!(f, "Backfill"),
+        }
+    }
 }
 
 #[derive(PartialEq, Debug)]
@@ -142,7 +150,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         target_head_root: Hash256,
         peer_id: PeerId,
         chain_type: SyncingChainType,
-        log: &slog::Logger,
     ) -> Self {
         let mut peers = FnvHashMap::default();
         peers.insert(peer_id, Default::default());
@@ -163,7 +170,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             attempted_optimistic_starts: HashSet::default(),
             state: ChainSyncingState::Stopped,
             current_processing_batch: None,
-            log: log.new(o!("chain" => id)),
         }
     }
 

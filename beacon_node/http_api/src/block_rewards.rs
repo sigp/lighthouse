@@ -1,7 +1,6 @@
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::lighthouse::{BlockReward, BlockRewardsQuery};
 use lru::LruCache;
-use slog::Logger;
 use state_processing::BlockReplayer;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -16,7 +15,6 @@ const STATE_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(2);
 pub fn get_block_rewards<T: BeaconChainTypes>(
     query: BlockRewardsQuery,
     chain: Arc<BeaconChain<T>>,
-    log: Logger,
 ) -> Result<Vec<BlockReward>, warp::Rejection> {
     let start_slot = query.start_slot;
     let end_slot = query.end_slot;
@@ -94,7 +92,6 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
 pub fn compute_block_rewards<T: BeaconChainTypes>(
     blocks: Vec<BlindedBeaconBlock<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
-    log: Logger,
 ) -> Result<Vec<BlockReward>, warp::Rejection> {
     let mut block_rewards = Vec::with_capacity(blocks.len());
     let mut state_cache = LruCache::new(STATE_CACHE_SIZE);

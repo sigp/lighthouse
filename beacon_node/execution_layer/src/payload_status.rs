@@ -1,6 +1,5 @@
 use crate::engine_api::{Error as ApiError, PayloadStatusV1, PayloadStatusV1Status};
 use crate::engines::EngineError;
-use slog::Logger;
 use tracing::warn;
 use types::ExecutionBlockHash;
 
@@ -27,7 +26,6 @@ pub enum PayloadStatus {
 pub fn process_payload_status(
     head_block_hash: ExecutionBlockHash,
     status: Result<PayloadStatusV1, EngineError>,
-    log: &Logger,
 ) -> Result<PayloadStatus, EngineError> {
     match status {
         Err(error) => {

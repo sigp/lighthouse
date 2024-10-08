@@ -54,7 +54,6 @@ fn parse_client_config<E: EthSpec>(
 pub fn display_db_version<E: EthSpec>(
     client_config: ClientConfig,
     runtime_context: &RuntimeContext<E>,
-    log: Logger,
 ) -> Result<(), Error> {
     let spec = runtime_context.eth2_config.spec.clone();
     let hot_path = client_config.get_db_path();
@@ -72,7 +71,6 @@ pub fn display_db_version<E: EthSpec>(
         },
         client_config.store,
         spec,
-        log.clone(),
     )?;
 
     info!(version = version.as_u64(), "Database");
@@ -297,7 +295,6 @@ pub fn migrate_db<E: EthSpec>(
     migrate_config: MigrateConfig,
     client_config: ClientConfig,
     runtime_context: &RuntimeContext<E>,
-    log: Logger,
 ) -> Result<(), Error> {
     let spec = runtime_context.eth2_config.spec.clone();
     let hot_path = client_config.get_db_path();
@@ -316,7 +313,6 @@ pub fn migrate_db<E: EthSpec>(
         },
         client_config.store.clone(),
         spec.clone(),
-        log.clone(),
     )?;
 
     info!(?from, ?to, "Migrating database schema");
@@ -326,7 +322,6 @@ pub fn migrate_db<E: EthSpec>(
         client_config.eth1.deposit_contract_deploy_block,
         from,
         to,
-        log,
         &spec,
     )
 }
@@ -334,7 +329,6 @@ pub fn migrate_db<E: EthSpec>(
 pub fn prune_payloads<E: EthSpec>(
     client_config: ClientConfig,
     runtime_context: &RuntimeContext<E>,
-    log: Logger,
 ) -> Result<(), Error> {
     let spec = &runtime_context.eth2_config.spec;
     let hot_path = client_config.get_db_path();
@@ -348,7 +342,6 @@ pub fn prune_payloads<E: EthSpec>(
         |_, _, _| Ok(()),
         client_config.store,
         spec.clone(),
-        log,
     )?;
 
     // If we're trigging a prune manually then ignore the check on the split's parent that bails
@@ -360,7 +353,6 @@ pub fn prune_payloads<E: EthSpec>(
 pub fn prune_blobs<E: EthSpec>(
     client_config: ClientConfig,
     runtime_context: &RuntimeContext<E>,
-    log: Logger,
 ) -> Result<(), Error> {
     let spec = &runtime_context.eth2_config.spec;
     let hot_path = client_config.get_db_path();
@@ -374,7 +366,6 @@ pub fn prune_blobs<E: EthSpec>(
         |_, _, _| Ok(()),
         client_config.store,
         spec.clone(),
-        log,
     )?;
 
     // If we're triggering a prune manually then ignore the check on `epochs_per_blob_prune` that
@@ -397,7 +388,6 @@ pub fn prune_states<E: EthSpec>(
     prune_config: PruneStatesConfig,
     mut genesis_state: BeaconState<E>,
     runtime_context: &RuntimeContext<E>,
-    log: Logger,
 ) -> Result<(), String> {
     let spec = &runtime_context.eth2_config.spec;
     let hot_path = client_config.get_db_path();
@@ -411,7 +401,6 @@ pub fn prune_states<E: EthSpec>(
         |_, _, _| Ok(()),
         client_config.store,
         spec.clone(),
-        log.clone(),
     )
     .map_err(|e| format!("Unable to open database: {e:?}"))?;
 
@@ -468,26 +457,25 @@ pub fn run<E: EthSpec>(
 ) -> Result<(), String> {
     let client_config = parse_client_config(cli_args, db_manager_config, &env)?;
     let context = env.core_context();
-    let log = context.log().clone();
     let format_err = |e| format!("Fatal error: {:?}", e);
 
     match &db_manager_config.subcommand {
         cli::DatabaseManagerSubcommand::Migrate(migrate_config) => {
             let migrate_config = parse_migrate_config(migrate_config)?;
-            migrate_db(migrate_config, client_config, &context, log).map_err(format_err)
+            migrate_db(migrate_config, client_config, &context).map_err(format_err)
         }
         cli::DatabaseManagerSubcommand::Inspect(inspect_config) => {
             let inspect_config = parse_inspect_config(inspect_config)?;
             inspect_db::<E>(inspect_config, client_config)
         }
         cli::DatabaseManagerSubcommand::Version(_) => {
-            display_db_version(client_config, &context, log).map_err(format_err)
+            display_db_version(client_config, &context).map_err(format_err)
         }
         cli::DatabaseManagerSubcommand::PrunePayloads(_) => {
-            prune_payloads(client_config, &context, log).map_err(format_err)
+            prune_payloads(client_config, &context).map_err(format_err)
         }
         cli::DatabaseManagerSubcommand::PruneBlobs(_) => {
-            prune_blobs(client_config, &context, log).map_err(format_err)
+            prune_blobs(client_config, &context).map_err(format_err)
         }
         cli::DatabaseManagerSubcommand::PruneStates(prune_states_config) => {
             let executor = env.core_context().executor;
@@ -510,7 +498,7 @@ pub fn run<E: EthSpec>(
 
             let prune_config = parse_prune_states_config(prune_states_config)?;
 
-            prune_states(client_config, prune_config, genesis_state, &context, log)
+            prune_states(client_config, prune_config, genesis_state, &context)
         }
         cli::DatabaseManagerSubcommand::Compact(compact_config) => {
             let compact_config = parse_compact_config(compact_config)?;

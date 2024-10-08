@@ -284,26 +284,3 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
         eprintln!("Failed to initialize dependency logging {e}");
     }
 }
-
-/// Return a logger suitable for test usage.
-///
-/// By default no logs will be printed, but they can be enabled via
-/// the `test_logger` feature.  This feature can be enabled for any
-/// dependent crate by passing `--features logging/test_logger`, e.g.
-/// ```bash
-/// cargo test -p beacon_chain --features logging/test_logger
-/// ```
-pub fn test_logger() -> Logger {
-    use sloggers::Build;
-
-    if cfg!(feature = "test_logger") {
-        sloggers::terminal::TerminalLoggerBuilder::new()
-            .level(sloggers::types::Severity::Debug)
-            .build()
-            .expect("Should build TerminalLoggerBuilder")
-    } else {
-        sloggers::null::NullLoggerBuilder
-            .build()
-            .expect("Should build NullLoggerBuilder")
-    }
-}

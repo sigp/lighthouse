@@ -77,7 +77,6 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
     attestation: &Attestation<T::EthSpec>,
     seen_timestamp: Duration,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-    log: &Logger,
 ) -> Result<(), Error> {
     let attestation = chain
         .verify_unaggregated_attestation_for_gossip(attestation, None)
@@ -134,7 +133,6 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
     attestations: Vec<Attestation<T::EthSpec>>,
     network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
     reprocess_send: Option<Sender<ReprocessQueueMessage>>,
-    log: Logger,
 ) -> Result<(), warp::Rejection> {
     // Collect metadata about attestations which we'll use to report failures. We need to
     // move the `attestations` vec into the blocking task, so this small overhead is unavoidable.
@@ -145,7 +143,6 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
 
     // Gossip validate and publish attestations that can be immediately processed.
     let seen_timestamp = timestamp_now();
-    let inner_log = log.clone();
     let mut prelim_results = task_spawner
         .blocking_task(Priority::P0, move || {
             Ok(attestations
@@ -156,7 +153,6 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
                         &attestation,
                         seen_timestamp,
                         &network_tx,
-                        &inner_log,
                     ) {
                         Ok(()) => PublishAttestationResult::Success,
                         Err(Error::Validation(AttestationError::UnknownHeadBlock {
@@ -169,14 +165,12 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
                             let (tx, rx) = oneshot::channel();
                             let reprocess_chain = chain.clone();
                             let reprocess_network_tx = network_tx.clone();
-                            let reprocess_log = inner_log.clone();
                             let reprocess_fn = move || {
                                 let result = verify_and_publish_attestation(
                                     &reprocess_chain,
                                     &attestation,
                                     seen_timestamp,
                                     &reprocess_network_tx,
-                                    &reprocess_log,
                                 );
                                 // Ignore failure on the oneshot that reports the result. This
                                 // shouldn't happen unless some catastrophe befalls the waiting

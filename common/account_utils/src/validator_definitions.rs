@@ -10,7 +10,6 @@ use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use slog::Logger;
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io;
@@ -270,7 +269,6 @@ impl ValidatorDefinitions {
         &mut self,
         validators_dir: P,
         secrets_dir: P,
-        log: &Logger,
     ) -> Result<usize, Error> {
         let mut keystore_paths = vec![];
         recursively_find_voting_keystores(validators_dir, &mut keystore_paths)

@@ -1528,13 +1528,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         if let Err(e) = &result {
-            self.maybe_store_invalid_block(
-                &invalid_block_storage,
-                block_root,
-                &block,
-                e,
-                &self.log,
-            );
+            self.maybe_store_invalid_block(&invalid_block_storage, block_root, &block, e);
         }
 
         self.send_sync_message(SyncMessage::GossipBlockProcessResult {
@@ -3020,7 +3014,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         block: &SignedBeaconBlock<T::EthSpec>,
         error: &BlockError,
-        log: &Logger,
     ) {
         if let InvalidBlockStorage::Enabled(base_dir) = invalid_block_storage {
             let block_path = base_dir.join(format!("{}_{:?}.ssz", block.slot(), block_root));

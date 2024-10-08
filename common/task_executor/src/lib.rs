@@ -80,8 +80,6 @@ pub struct TaskExecutor {
     ///
     /// The task must provide a reason for shutting down.
     signal_tx: Sender<ShutdownReason>,
-
-    log: slog::Logger,
 }
 
 impl TaskExecutor {
@@ -95,14 +93,13 @@ impl TaskExecutor {
     pub fn new<T: Into<HandleProvider>>(
         handle: T,
         exit: async_channel::Receiver<()>,
-        log: slog::Logger,
         signal_tx: Sender<ShutdownReason>,
     ) -> Self {
         Self {
             handle_provider: handle.into(),
             exit,
             signal_tx,
-            log,
+            // log,
         }
     }
 
@@ -112,7 +109,7 @@ impl TaskExecutor {
             handle_provider: self.handle_provider.clone(),
             exit: self.exit.clone(),
             signal_tx: self.signal_tx.clone(),
-            log: self.log.new(o!("service" => service_name)),
+            // log: self.log.new(o!("service" => service_name)),
         }
     }
 
@@ -222,7 +219,7 @@ impl TaskExecutor {
         name: &'static str,
     ) -> Option<tokio::task::JoinHandle<Option<R>>> {
         let exit = self.exit();
-        let log = self.log.clone();
+        // let log = self.log.clone();
 
         if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
             // Task is shutdown before it completes if `exit` receives
@@ -268,7 +265,7 @@ impl TaskExecutor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let log = self.log.clone();
+        // let log = self.log.clone();
 
         let timer = metrics::start_timer_vec(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]);
         metrics::inc_gauge_vec(&metrics::BLOCKING_TASKS_COUNT, &[name]);
@@ -319,7 +316,7 @@ impl TaskExecutor {
     ) -> Option<F::Output> {
         let timer = metrics::start_timer_vec(&metrics::BLOCK_ON_TASKS_HISTOGRAM, &[name]);
         metrics::inc_gauge_vec(&metrics::BLOCK_ON_TASKS_COUNT, &[name]);
-        let log = self.log.clone();
+        // let log = self.log.clone();
         let handle = self.handle()?;
         let exit = self.exit();
 
@@ -365,10 +362,5 @@ impl TaskExecutor {
     /// Get a channel to request shutting down.
     pub fn shutdown_sender(&self) -> Sender<ShutdownReason> {
         self.signal_tx.clone()
-    }
-
-    /// Returns a reference to the logger.
-    pub fn log(&self) -> &slog::Logger {
-        &self.log
     }
 }

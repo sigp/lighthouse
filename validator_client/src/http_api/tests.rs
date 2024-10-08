@@ -2,7 +2,6 @@
 #![cfg(not(debug_assertions))]
 
 mod keystores;
-
 use crate::doppelganger_service::DoppelgangerService;
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
@@ -58,7 +57,7 @@ impl ApiTester {
     }
 
     pub async fn new_with_config(mut config: Config) -> Self {
-        let log = test_logger();
+        // let log = test_logger();
 
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
@@ -69,7 +68,7 @@ impl ApiTester {
             validator_defs,
             validator_dir.path().into(),
             Config::default(),
-            log.clone(),
+            // log.clone(),
         )
         .await
         .unwrap();
@@ -131,7 +130,6 @@ impl ApiTester {
                 store_passwords_in_secrets_dir: false,
             },
             sse_logging_components: None,
-            log,
             slot_clock: slot_clock.clone(),
             _phantom: PhantomData,
         });

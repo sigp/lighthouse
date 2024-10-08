@@ -65,7 +65,6 @@ use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
 use lru_cache::LRUTimeCache;
-use slog::{o, Logger};
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
@@ -237,9 +236,6 @@ pub struct SyncManager<T: BeaconChainTypes> {
     notified_unknown_roots: LRUTimeCache<(PeerId, Hash256)>,
 
     sampling: Sampling<T>,
-
-    /// The logger for the import manager.
-    log: Logger,
 }
 
 /// Spawns a new `SyncManager` thread which has a weak reference to underlying beacon
@@ -251,7 +247,6 @@ pub fn spawn<T: BeaconChainTypes>(
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
-    log: slog::Logger,
 ) {
     assert!(
         beacon_chain.spec.max_request_blocks >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
@@ -265,7 +260,6 @@ pub fn spawn<T: BeaconChainTypes>(
         beacon_processor,
         sync_recv,
         SamplingConfig::Default,
-        log.clone(),
     );
 
     // spawn the sync manager thread
@@ -280,7 +274,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
         sampling_config: SamplingConfig,
-        log: slog::Logger,
     ) -> Self {
         let network_globals = beacon_processor.network_globals.clone();
         Self {
@@ -290,23 +283,22 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 network_send,
                 beacon_processor.clone(),
                 beacon_chain.clone(),
-                log.clone(),
+                // log.clone(),
             ),
             range_sync: RangeSync::new(
                 beacon_chain.clone(),
-                log.new(o!("service" => "range_sync")),
+                // log.new(o!("service" => "range_sync")),
             ),
             backfill_sync: BackFillSync::new(
                 beacon_chain.clone(),
                 network_globals,
-                log.new(o!("service" => "backfill_sync")),
+                // log.new(o!("service" => "backfill_sync")),
             ),
-            block_lookups: BlockLookups::new(log.new(o!("service"=> "lookup_sync"))),
+            block_lookups: BlockLookups::new(),
             notified_unknown_roots: LRUTimeCache::new(Duration::from_secs(
                 NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
             )),
-            sampling: Sampling::new(sampling_config, log.new(o!("service" => "sampling"))),
-            log: log.clone(),
+            sampling: Sampling::new(sampling_config),
         }
     }
 

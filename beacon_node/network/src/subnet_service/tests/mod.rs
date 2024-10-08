@@ -43,8 +43,7 @@ impl TestBeaconChain {
         let keypairs = generate_deterministic_keypairs(1);
 
         let log = get_logger(None);
-        let store =
-            HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone()).unwrap();
+        let store = HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone()).unwrap();
 
         let kzg = get_kzg(&spec);
 

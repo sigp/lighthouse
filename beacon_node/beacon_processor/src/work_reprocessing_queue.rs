@@ -18,7 +18,6 @@ use futures::{Stream, StreamExt};
 use itertools::Itertools;
 use logging::crit;
 use logging::TimeLatch;
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -376,7 +375,6 @@ pub fn spawn_reprocess_scheduler<S: SlotClock + 'static>(
     work_reprocessing_rx: Receiver<ReprocessQueueMessage>,
     executor: &TaskExecutor,
     slot_clock: Arc<S>,
-    log: Logger,
     maximum_gossip_clock_disparity: Duration,
 ) -> Result<(), String> {
     // Sanity check
@@ -388,7 +386,7 @@ pub fn spawn_reprocess_scheduler<S: SlotClock + 'static>(
     executor.spawn(
         async move {
             while let Some(msg) = queue.next().await {
-                queue.handle_message(msg, &log);
+                queue.handle_message(msg);
             }
 
             debug!(msg = "shutting down", "Re-process queue stopped");
@@ -434,7 +432,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
         }
     }
 
-    fn handle_message(&mut self, msg: InboundEvent, log: &Logger) {
+    fn handle_message(&mut self, msg: InboundEvent) {
         use ReprocessQueueMessage::*;
         match msg {
             // Some block has been indicated as "early" and should be processed when the

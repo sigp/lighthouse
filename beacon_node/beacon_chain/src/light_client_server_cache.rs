@@ -3,7 +3,6 @@ use crate::{metrics, BeaconChainTypes, BeaconStore};
 use eth2::types::light_client_update::CurrentSyncCommitteeProofLen;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
-use slog::Logger;
 use ssz::Decode;
 use ssz_types::FixedVector;
 use std::num::NonZeroUsize;
@@ -92,7 +91,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         block_slot: Slot,
         block_parent_root: &Hash256,
         sync_aggregate: &SyncAggregate<T::EthSpec>,
-        log: &Logger,
         chain_spec: &ChainSpec,
     ) -> Result<(), BeaconChainError> {
         let _timer =

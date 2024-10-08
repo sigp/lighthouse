@@ -8,7 +8,6 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 
 use futures::prelude::*;
-use slog::o;
 use tracing::{debug, error, trace, warn};
 
 use super::SubnetServiceMessage;
@@ -57,21 +56,12 @@ pub struct SyncCommitteeService<T: BeaconChainTypes> {
 
     /// Whether this node is a block proposer-only node.
     proposer_only: bool,
-
-    /// The logger for the attestation service.
-    log: slog::Logger,
 }
 
 impl<T: BeaconChainTypes> SyncCommitteeService<T> {
     /* Public functions */
 
-    pub fn new(
-        beacon_chain: Arc<BeaconChain<T>>,
-        config: &NetworkConfig,
-        log: &slog::Logger,
-    ) -> Self {
-        let log = log.new(o!("service" => "sync_committee_service"));
-
+    pub fn new(beacon_chain: Arc<BeaconChain<T>>, config: &NetworkConfig) -> Self {
         let spec = &beacon_chain.spec;
         let epoch_duration_secs =
             beacon_chain.slot_clock.slot_duration().as_secs() * T::EthSpec::slots_per_epoch();
@@ -87,7 +77,6 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
             subscribe_all_subnets: config.subscribe_all_subnets,
             discovery_disabled: config.disable_discovery,
             proposer_only: config.proposer_only,
-            log,
         }
     }
 

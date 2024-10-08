@@ -56,7 +56,7 @@ use logging::crit;
 use lru_cache::LRUTimeCache;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// For how long we store failed finalized chains to prevent retries.
@@ -76,8 +76,6 @@ pub struct RangeSync<T: BeaconChainTypes, C = BeaconChain<T>> {
     chains: ChainCollection<T, C>,
     /// Chains that have failed and are stored to prevent being retried.
     failed_chains: LRUTimeCache<Hash256>,
-    /// The syncing logger.
-    log: slog::Logger,
 }
 
 impl<T: BeaconChainTypes, C> RangeSync<T, C>
@@ -85,15 +83,14 @@ where
     C: BlockStorage + ToStatusMessage,
     T: BeaconChainTypes,
 {
-    pub fn new(beacon_chain: Arc<C>, log: slog::Logger) -> Self {
+    pub fn new(beacon_chain: Arc<C>) -> Self {
         RangeSync {
             beacon_chain: beacon_chain.clone(),
-            chains: ChainCollection::new(beacon_chain, log.clone()),
+            chains: ChainCollection::new(beacon_chain),
             failed_chains: LRUTimeCache::new(std::time::Duration::from_secs(
                 FAILED_CHAINS_EXPIRY_SECONDS,
             )),
             awaiting_head_peers: HashMap::new(),
-            log,
         }
     }
 
@@ -333,14 +330,14 @@ where
         op: &'static str,
     ) {
         if remove_reason.is_critical() {
-            slog::crit!(self.log, "Chain removed"; "sync_type" => ?sync_type, &chain, "reason" => ?remove_reason, "op" => op);
+            crit!(?sync_type, %chain, reason = ?remove_reason,op, "Chain removed");
         } else {
-            slog::debug!(self.log, "Chain removed"; "sync_type" => ?sync_type, &chain, "reason" => ?remove_reason, "op" => op);
+            debug!(?sync_type, %chain, reason = ?remove_reason,op, "Chain removed");
         }
 
         if let RemoveChain::ChainFailed { blacklist, .. } = remove_reason {
             if RangeSyncType::Finalized == sync_type && blacklist {
-                slog::warn!(self.log, "Chain failed! Syncing to its head won't be retried for at least the next {} seconds", FAILED_CHAINS_EXPIRY_SECONDS; &chain);
+                warn!(%chain,"Chain failed! Syncing to its head won't be retried for at least the next {} seconds", FAILED_CHAINS_EXPIRY_SECONDS);
                 self.failed_chains.insert(chain.target_head_root);
             }
         }

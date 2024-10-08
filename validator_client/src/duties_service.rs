@@ -22,7 +22,6 @@ use eth2::types::{
 use futures::{stream, StreamExt};
 use parking_lot::RwLock;
 use safe_arith::{ArithError, SafeArith};
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::cmp::min;
 use std::collections::{hash_map, BTreeMap, HashMap, HashSet};
@@ -382,7 +381,6 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
      * Spawn the task which keeps track of local block proposal duties.
      */
     let duties_service = core_duties_service.clone();
-    let log = core_duties_service.context.log().clone();
     core_duties_service.context.executor.spawn(
         async move {
             loop {
@@ -411,7 +409,6 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
      * Spawn the task which keeps track of local attestation duties.
      */
     let duties_service = core_duties_service.clone();
-    let log = core_duties_service.context.log().clone();
     core_duties_service.context.executor.spawn(
         async move {
             loop {
@@ -437,7 +434,6 @@ pub fn start_update_service<T: SlotClock + 'static, E: EthSpec>(
 
     // Spawn the task which keeps track of local sync committee duties.
     let duties_service = core_duties_service.clone();
-    let log = core_duties_service.context.log().clone();
     core_duties_service.context.executor.spawn(
         async move {
             loop {
@@ -473,8 +469,6 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
 ) {
     let _timer =
         metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::UPDATE_INDICES]);
-
-    let log = duties_service.context.log();
 
     // Collect *all* pubkeys for resolving indices, even those undergoing doppelganger protection.
     //
@@ -600,7 +594,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         &[metrics::UPDATE_ATTESTERS_CURRENT_EPOCH],
     );
 
-    let log = duties_service.context.log();
+    // let log = duties_service.context.log();
 
     let current_slot = duties_service
         .slot_clock
@@ -789,8 +783,6 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
     local_indices: &[u64],
     local_pubkeys: &HashSet<PublicKeyBytes>,
 ) -> Result<(), Error> {
-    let log = duties_service.context.log();
-
     // No need to bother the BN if we don't have any validators.
     if local_indices.is_empty() {
         debug!(
@@ -1032,8 +1024,6 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
     duties: Vec<AttesterData>,
     dependent_root: Hash256,
 ) {
-    let log = duties_service.context.log();
-
     // Sort duties by slot in a BTreeMap.
     let mut duties_by_slot: BTreeMap<Slot, Vec<_>> = BTreeMap::new();
 
@@ -1204,8 +1194,6 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
     let _timer =
         metrics::start_timer_vec(&metrics::DUTIES_SERVICE_TIMES, &[metrics::UPDATE_PROPOSERS]);
 
-    let log = duties_service.context.log();
-
     let current_slot = duties_service
         .slot_clock
         .now()
@@ -1221,7 +1209,6 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
         &initial_block_proposers,
         block_service_tx,
         &duties_service.validator_store,
-        log,
     )
     .await;
 
@@ -1308,7 +1295,6 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
                 &additional_block_producers,
                 block_service_tx,
                 &duties_service.validator_store,
-                log,
             )
             .await;
             debug!(%current_slot, "Detected new block proposer");
@@ -1331,7 +1317,6 @@ async fn notify_block_production_service<T: SlotClock + 'static, E: EthSpec>(
     block_proposers: &HashSet<PublicKeyBytes>,
     block_service_tx: &mut Sender<BlockServiceNotification>,
     validator_store: &ValidatorStore<T, E>,
-    log: &Logger,
 ) {
     let non_doppelganger_proposers = block_proposers
         .iter()

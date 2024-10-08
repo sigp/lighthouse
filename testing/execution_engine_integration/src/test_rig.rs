@@ -104,7 +104,6 @@ async fn import_and_unlock(http_url: SensitiveUrl, priv_keys: &[&str], password:
 
 impl<Engine: GenericExecutionEngine> TestRig<Engine> {
     pub fn new(generic_engine: Engine) -> Self {
-        let log = logging::test_logger();
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -113,7 +112,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         );
         let (runtime_shutdown, exit) = async_channel::bounded(1);
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
+        let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, shutdown_tx);
         let mut spec = TEST_FORK.make_genesis_spec(MainnetEthSpec::default_spec());
         spec.terminal_total_difficulty = Uint256::ZERO;
 
@@ -149,8 +148,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 default_datadir: execution_engine.datadir(),
                 ..Default::default()
             };
-            let execution_layer =
-                ExecutionLayer::from_config(config, executor, log.clone()).unwrap();
+            let execution_layer = ExecutionLayer::from_config(config, executor).unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,

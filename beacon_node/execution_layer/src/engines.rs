@@ -6,7 +6,6 @@ use crate::engine_api::{
 };
 use crate::{ClientVersionV1, HttpJsonRpc};
 use lru::LruCache;
-use slog::Logger;
 use std::future::Future;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -129,19 +128,17 @@ pub struct Engine {
     state: RwLock<State>,
     latest_forkchoice_state: RwLock<Option<ForkchoiceState>>,
     executor: TaskExecutor,
-    log: Logger,
 }
 
 impl Engine {
     /// Creates a new, offline engine.
-    pub fn new(api: HttpJsonRpc, executor: TaskExecutor, log: &Logger) -> Self {
+    pub fn new(api: HttpJsonRpc, executor: TaskExecutor) -> Self {
         Self {
             api,
             payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
             state: Default::default(),
             latest_forkchoice_state: Default::default(),
             executor,
-            log: log.clone(),
         }
     }
 
@@ -168,7 +165,6 @@ impl Engine {
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
-        log: &Logger,
     ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
         let response = self
             .api

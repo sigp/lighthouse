@@ -1,7 +1,6 @@
 use crate::http_metrics;
 use crate::{DutiesService, ProductionValidatorClient};
 use lighthouse_metrics::set_gauge;
-use slog::Logger;
 use slot_clock::SlotClock;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info};
@@ -16,12 +15,10 @@ pub fn spawn_notifier<E: EthSpec>(client: &ProductionValidatorClient<E>) -> Resu
     let slot_duration = Duration::from_secs(context.eth2_config.spec.seconds_per_slot);
 
     let interval_fut = async move {
-        let log = context.log();
-
         loop {
             if let Some(duration_to_next_slot) = duties_service.slot_clock.duration_to_next_slot() {
                 sleep(duration_to_next_slot + slot_duration / 2).await;
-                notify(&duties_service, log).await;
+                notify(&duties_service).await;
             } else {
                 error!("Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
@@ -36,10 +33,7 @@ pub fn spawn_notifier<E: EthSpec>(client: &ProductionValidatorClient<E>) -> Resu
 }
 
 /// Performs a single notification routine.
-async fn notify<T: SlotClock + 'static, E: EthSpec>(
-    duties_service: &DutiesService<T, E>,
-    log: &Logger,
-) {
+async fn notify<T: SlotClock + 'static, E: EthSpec>(duties_service: &DutiesService<T, E>) {
     let (candidate_info, num_available, num_synced) =
         duties_service.beacon_nodes.get_notifier_info().await;
     let num_total = candidate_info.len();

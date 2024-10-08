@@ -224,7 +224,6 @@ pub struct Builder<T: BeaconChainTypes> {
     testing_slot_clock: Option<TestingSlotClock>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     runtime: TestRuntime,
-    log: Logger,
 }
 
 impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
@@ -236,12 +235,8 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             .expect("cannot build without validator keypairs");
 
         let store = Arc::new(
-            HotColdDB::open_ephemeral(
-                self.store_config.clone().unwrap_or_default(),
-                spec.clone(),
-                self.log.clone(),
-            )
-            .unwrap(),
+            HotColdDB::open_ephemeral(self.store_config.clone().unwrap_or_default(), spec.clone())
+                .unwrap(),
         );
         let mutator = move |builder: BeaconChainBuilder<_>| {
             let header = generate_genesis_header::<E>(builder.get_spec(), false);
@@ -266,12 +261,8 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
         let spec = self.spec.as_ref().expect("cannot build without spec");
 
         let store = Arc::new(
-            HotColdDB::open_ephemeral(
-                self.store_config.clone().unwrap_or_default(),
-                spec.clone(),
-                self.log.clone(),
-            )
-            .unwrap(),
+            HotColdDB::open_ephemeral(self.store_config.clone().unwrap_or_default(), spec.clone())
+                .unwrap(),
         );
         let mutator = move |builder: BeaconChainBuilder<_>| {
             builder
@@ -343,7 +334,6 @@ where
 {
     pub fn new(eth_spec_instance: E) -> Self {
         let runtime = TestRuntime::default();
-        let log = runtime.log.clone();
 
         Self {
             eth_spec_instance,
@@ -360,7 +350,6 @@ where
             testing_slot_clock: None,
             validator_monitor_config: None,
             runtime,
-            log,
         }
     }
 
@@ -408,11 +397,11 @@ where
         self
     }
 
-    pub fn logger(mut self, log: Logger) -> Self {
-        self.log = log.clone();
-        self.runtime.set_logger(log);
-        self
-    }
+    // pub fn logger(mut self, log: Logger) -> Self {
+    //     self.log = log.clone();
+    //     self.runtime.set_logger(log);
+    //     self
+    // }
 
     /// This mutator will be run before the `store_mutator`.
     pub fn initial_mutator(mut self, mutator: BoxedMutator<E, Hot, Cold>) -> Self {
@@ -465,12 +454,8 @@ where
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };
-        let execution_layer = ExecutionLayer::from_config(
-            config,
-            self.runtime.task_executor.clone(),
-            self.log.clone(),
-        )
-        .unwrap();
+        let execution_layer =
+            ExecutionLayer::from_config(config, self.runtime.task_executor.clone()).unwrap();
 
         self.execution_layer = Some(execution_layer);
         self
@@ -538,7 +523,6 @@ where
     pub fn build(self) -> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>> {
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
 
-        let log = self.log;
         let spec = self.spec.expect("cannot build without spec");
         let seconds_per_slot = spec.seconds_per_slot;
         let validator_keypairs = self
@@ -551,7 +535,6 @@ where
 
         let chain_config = self.chain_config.unwrap_or_default();
         let mut builder = BeaconChainBuilder::new(self.eth_spec_instance, kzg.clone())
-            .logger(log.clone())
             .custom_spec(spec.clone())
             .store(self.store.expect("cannot build without store"))
             .store_migrator_config(
@@ -565,10 +548,7 @@ where
             .expect("should build dummy backend")
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
-            .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-                log.clone(),
-                5,
-            )))
+            .event_handler(Some(ServerSentEventHandler::new_with_capacity(5)))
             .validator_monitor_config(validator_monitor_config);
 
         builder = if let Some(mutator) = self.initial_mutator {
@@ -679,10 +659,6 @@ where
 {
     pub fn builder(eth_spec_instance: E) -> Builder<BaseHarnessType<E, Hot, Cold>> {
         Builder::new(eth_spec_instance)
-    }
-
-    pub fn logger(&self) -> &slog::Logger {
-        &self.chain.log
     }
 
     pub fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<E>> {
@@ -2263,7 +2239,6 @@ where
             return;
         }
 
-        let log = self.logger();
         let contributions =
             self.make_sync_contributions(state, block_root, slot, RelativeSyncCommittee::Current);
 
@@ -2294,7 +2269,6 @@ where
                 slot,
                 &block_root,
                 &sync_aggregate,
-                log,
                 &self.spec,
             );
     }

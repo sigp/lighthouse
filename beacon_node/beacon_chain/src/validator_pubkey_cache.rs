@@ -231,10 +231,7 @@ mod test {
     }
 
     fn get_store() -> BeaconStore<T> {
-        Arc::new(
-            HotColdDB::open_ephemeral(<_>::default(), Arc::new(E::default_spec()), test_logger())
-                .unwrap(),
-        )
+        Arc::new(HotColdDB::open_ephemeral(<_>::default(), Arc::new(E::default_spec())).unwrap())
     }
 
     #[allow(clippy::needless_range_loop)]

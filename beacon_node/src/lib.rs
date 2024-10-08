@@ -56,7 +56,6 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let spec = context.eth2_config().spec.clone();
         let client_genesis = client_config.genesis.clone();
         let store_config = client_config.store.clone();
-        let log = context.log().clone();
         let _datadir = client_config.create_data_dir()?;
         let db_path = client_config.create_db_path()?;
         let freezer_db_path = client_config.create_freezer_db_path()?;
@@ -85,13 +84,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .chain_spec(spec.clone())
             .beacon_processor(client_config.beacon_processor.clone())
             .http_api_config(client_config.http_api.clone())
-            .disk_store(
-                &db_path,
-                &freezer_db_path,
-                &blobs_db_path,
-                store_config,
-                log.clone(),
-            )?;
+            .disk_store(&db_path, &freezer_db_path, &blobs_db_path, store_config)?;
 
         let builder = if let Some(mut slasher_config) = client_config.slasher.clone() {
             match slasher_config.override_backend() {

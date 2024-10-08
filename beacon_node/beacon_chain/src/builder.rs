@@ -261,8 +261,6 @@ where
     ///
     /// May initialize several components; including the op_pool and finalized checkpoints.
     pub fn resume_from_db(mut self) -> Result<Self, String> {
-        let log = self.log.as_ref().ok_or("resume_from_db requires a log")?;
-
         info!(method = "resume", "Starting beacon chain");
 
         let store = self
@@ -941,9 +939,8 @@ where
             shuffling_cache: RwLock::new(ShufflingCache::new(
                 shuffling_cache_size,
                 head_shuffling_ids,
-                log.clone(),
             )),
-            eth1_finalization_cache: RwLock::new(Eth1FinalizationCache::new(log.clone())),
+            eth1_finalization_cache: RwLock::new(Eth1FinalizationCache::new()),
             beacon_proposer_cache,
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
@@ -956,7 +953,6 @@ where
             shutdown_sender: self
                 .shutdown_sender
                 .ok_or("Cannot build without a shutdown sender.")?,
-            log: log.clone(),
             graffiti_calculator: GraffitiCalculator::new(
                 self.beacon_graffiti,
                 self.execution_layer,
@@ -1025,7 +1021,6 @@ where
         // Prune finalized execution payloads in the background.
         if beacon_chain.store.get_config().prune_payloads {
             let store = beacon_chain.store.clone();
-            let log = log.clone();
             beacon_chain.task_executor.spawn_blocking(
                 move || {
                     if let Err(e) = store.try_prune_execution_payloads(false) {
@@ -1062,11 +1057,6 @@ where
 
     /// Sets the `BeaconChain` eth1 back-end to produce predictably junk data when producing blocks.
     pub fn dummy_eth1_backend(mut self) -> Result<Self, String> {
-        let log = self
-            .log
-            .as_ref()
-            .ok_or("dummy_eth1_backend requires a log")?;
-
         let backend = CachingEth1Backend::new(Eth1Config::default(), self.spec.clone())?;
 
         self.eth1_chain = Some(Eth1Chain::new_dummy(backend));
@@ -1164,17 +1154,11 @@ mod test {
         let validator_count = 1;
         let genesis_time = 13_371_337;
 
-        let log = get_logger();
         let store: HotColdDB<
             MinimalEthSpec,
             MemoryStore<MinimalEthSpec>,
             MemoryStore<MinimalEthSpec>,
-        > = HotColdDB::open_ephemeral(
-            StoreConfig::default(),
-            ChainSpec::minimal().into(),
-            log.clone(),
-        )
-        .unwrap();
+        > = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal().into()).unwrap();
         let spec = MinimalEthSpec::default_spec();
 
         let genesis_state = interop_genesis_state(
@@ -1192,7 +1176,6 @@ mod test {
         let kzg = get_kzg(&spec);
 
         let chain = Builder::new(MinimalEthSpec, kzg)
-            .logger(log.clone())
             .store(Arc::new(store))
             .task_executor(runtime.task_executor.clone())
             .genesis_state(genesis_state)

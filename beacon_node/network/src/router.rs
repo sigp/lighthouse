@@ -44,8 +44,6 @@ pub struct Router<T: BeaconChainTypes> {
     network: HandlerNetworkContext<T::EthSpec>,
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
-    /// The `Router` logger.
-    log: slog::Logger,
     /// Provides de-bounce functionality for logging.
     logger_debounce: TimeLatch,
 }
@@ -92,14 +90,12 @@ impl<T: BeaconChainTypes> Router<T> {
         invalid_block_storage: InvalidBlockStorage,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
-        log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
-        let message_handler_log = log.new(o!("service"=> "router"));
-        trace!(?message_handler_log, "Service starting");
+        // let message_handler_log = log.new(o!("service"=> "router"));
+        trace!("Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
 
-        let sync_logger = log.new(o!("service"=> "sync"));
         // generate the message channel
         let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
 
@@ -113,7 +109,6 @@ impl<T: BeaconChainTypes> Router<T> {
             network_globals: network_globals.clone(),
             invalid_block_storage,
             executor: executor.clone(),
-            log: log.clone(),
         };
         let network_beacon_processor = Arc::new(network_beacon_processor);
 
@@ -124,7 +119,6 @@ impl<T: BeaconChainTypes> Router<T> {
             network_send.clone(),
             network_beacon_processor.clone(),
             sync_recv,
-            sync_logger,
         );
 
         // generate the Message handler
@@ -132,9 +126,8 @@ impl<T: BeaconChainTypes> Router<T> {
             network_globals,
             chain: beacon_chain,
             sync_send,
-            network: HandlerNetworkContext::new(network_send, log.clone()),
+            network: HandlerNetworkContext::new(network_send),
             network_beacon_processor,
-            log: message_handler_log,
             logger_debounce: TimeLatch::default(),
         };
 
@@ -790,13 +783,11 @@ impl<T: BeaconChainTypes> Router<T> {
 pub struct HandlerNetworkContext<E: EthSpec> {
     /// The network channel to relay messages to the Network service.
     network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
-    /// Logger for the `NetworkContext`.
-    log: slog::Logger,
 }
 
 impl<E: EthSpec> HandlerNetworkContext<E> {
-    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage<E>>, log: slog::Logger) -> Self {
-        Self { network_send, log }
+    pub fn new(network_send: mpsc::UnboundedSender<NetworkMessage<E>>) -> Self {
+        Self { network_send }
     }
 
     /// Sends a message to the network task.

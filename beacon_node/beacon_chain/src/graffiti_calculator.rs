@@ -155,7 +155,6 @@ pub fn start_engine_version_cache_refresh_service<T: BeaconChainTypes>(
     }
 
     let execution_layer = el_ref.clone();
-    let log = chain.log.clone();
     let slot_clock = chain.slot_clock.clone();
     let epoch_duration = chain.graffiti_calculator.epoch_duration;
     executor.spawn(
@@ -247,7 +246,7 @@ mod tests {
             .spec(spec)
             .chain_config(chain_config.unwrap_or_default())
             .keypairs(KEYPAIRS[0..validator_count].to_vec())
-            .logger(logging::test_logger())
+            // .logger(logging::test_logger())
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .build();

@@ -13,7 +13,6 @@ pub fn spawn_timer<T: BeaconChainTypes>(
     executor: task_executor::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
 ) -> Result<(), &'static str> {
-    let log = executor.log().clone();
     let timer_future = async move {
         loop {
             let Some(duration_to_next_slot) = beacon_chain.slot_clock.duration_to_next_slot()

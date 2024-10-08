@@ -20,7 +20,6 @@ type ApiDuties = api_types::DutiesResponse<Vec<api_types::ProposerData>>;
 pub fn proposer_duties<T: BeaconChainTypes>(
     request_epoch: Epoch,
     chain: &BeaconChain<T>,
-    log: &Logger,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
     let current_epoch = chain
         .slot_clock

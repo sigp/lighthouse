@@ -48,7 +48,6 @@ use logging::crit;
 use logging::TimeLatch;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::cmp;
 use std::collections::{HashSet, VecDeque};
@@ -294,7 +293,7 @@ impl<T> FifoQueue<T> {
     /// Add a new item to the queue.
     ///
     /// Drops `item` if the queue is full.
-    pub fn push(&mut self, item: T, item_desc: &str, log: &Logger) {
+    pub fn push(&mut self, item: T, item_desc: &str) {
         if self.queue.len() == self.max_length {
             error!(
                 msg = "the system has insufficient resources for load",
@@ -799,7 +798,6 @@ pub struct BeaconProcessor<E: EthSpec> {
     pub executor: TaskExecutor,
     pub current_workers: usize,
     pub config: BeaconProcessorConfig,
-    pub log: Logger,
 }
 
 impl<E: EthSpec> BeaconProcessor<E> {
@@ -905,7 +903,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
             work_reprocessing_rx,
             &self.executor,
             Arc::new(slot_clock),
-            self.log.clone(),
             maximum_gossip_clock_disparity,
         )?;
 
@@ -1285,74 +1282,60 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipAggregateBatch { .. } => {
                                 crit!(r#type = "GossipAggregateBatch", "Unsupported inbound event")
                             }
-                            Work::GossipBlock { .. } => {
-                                gossip_block_queue.push(work, work_id, &self.log)
-                            }
-                            Work::GossipBlobSidecar { .. } => {
-                                gossip_blob_queue.push(work, work_id, &self.log)
-                            }
+                            Work::GossipBlock { .. } => gossip_block_queue.push(work, work_id),
+                            Work::GossipBlobSidecar { .. } => gossip_blob_queue.push(work, work_id),
                             Work::GossipDataColumnSidecar { .. } => {
-                                gossip_data_column_queue.push(work, work_id, &self.log)
+                                gossip_data_column_queue.push(work, work_id)
                             }
                             Work::DelayedImportBlock { .. } => {
-                                delayed_block_queue.push(work, work_id, &self.log)
+                                delayed_block_queue.push(work, work_id)
                             }
                             Work::GossipVoluntaryExit { .. } => {
-                                gossip_voluntary_exit_queue.push(work, work_id, &self.log)
+                                gossip_voluntary_exit_queue.push(work, work_id)
                             }
                             Work::GossipProposerSlashing { .. } => {
-                                gossip_proposer_slashing_queue.push(work, work_id, &self.log)
+                                gossip_proposer_slashing_queue.push(work, work_id)
                             }
                             Work::GossipAttesterSlashing { .. } => {
-                                gossip_attester_slashing_queue.push(work, work_id, &self.log)
+                                gossip_attester_slashing_queue.push(work, work_id)
                             }
                             Work::GossipSyncSignature { .. } => sync_message_queue.push(work),
                             Work::GossipSyncContribution { .. } => {
                                 sync_contribution_queue.push(work)
                             }
                             Work::GossipLightClientFinalityUpdate { .. } => {
-                                finality_update_queue.push(work, work_id, &self.log)
+                                finality_update_queue.push(work, work_id)
                             }
                             Work::GossipLightClientOptimisticUpdate { .. } => {
-                                optimistic_update_queue.push(work, work_id, &self.log)
+                                optimistic_update_queue.push(work, work_id)
                             }
                             Work::RpcBlock { .. } | Work::IgnoredRpcBlock { .. } => {
-                                rpc_block_queue.push(work, work_id, &self.log)
+                                rpc_block_queue.push(work, work_id)
                             }
-                            Work::RpcBlobs { .. } => rpc_blob_queue.push(work, work_id, &self.log),
+                            Work::RpcBlobs { .. } => rpc_blob_queue.push(work, work_id),
                             Work::RpcCustodyColumn { .. } => {
-                                rpc_custody_column_queue.push(work, work_id, &self.log)
+                                rpc_custody_column_queue.push(work, work_id)
                             }
                             Work::RpcVerifyDataColumn(_) => {
-                                rpc_verify_data_column_queue.push(work, work_id, &self.log)
+                                rpc_verify_data_column_queue.push(work, work_id)
                             }
-                            Work::SamplingResult(_) => {
-                                sampling_result_queue.push(work, work_id, &self.log)
-                            }
-                            Work::ChainSegment { .. } => {
-                                chain_segment_queue.push(work, work_id, &self.log)
-                            }
+                            Work::SamplingResult(_) => sampling_result_queue.push(work, work_id),
+                            Work::ChainSegment { .. } => chain_segment_queue.push(work, work_id),
                             Work::ChainSegmentBackfill { .. } => {
-                                backfill_chain_segment.push(work, work_id, &self.log)
+                                backfill_chain_segment.push(work, work_id)
                             }
-                            Work::Status { .. } => status_queue.push(work, work_id, &self.log),
-                            Work::BlocksByRangeRequest { .. } => {
-                                bbrange_queue.push(work, work_id, &self.log)
-                            }
-                            Work::BlocksByRootsRequest { .. } => {
-                                bbroots_queue.push(work, work_id, &self.log)
-                            }
-                            Work::BlobsByRangeRequest { .. } => {
-                                blbrange_queue.push(work, work_id, &self.log)
-                            }
+                            Work::Status { .. } => status_queue.push(work, work_id),
+                            Work::BlocksByRangeRequest { .. } => bbrange_queue.push(work, work_id),
+                            Work::BlocksByRootsRequest { .. } => bbroots_queue.push(work, work_id),
+                            Work::BlobsByRangeRequest { .. } => blbrange_queue.push(work, work_id),
                             Work::LightClientBootstrapRequest { .. } => {
-                                lc_bootstrap_queue.push(work, work_id, &self.log)
+                                lc_bootstrap_queue.push(work, work_id)
                             }
                             Work::LightClientOptimisticUpdateRequest { .. } => {
-                                lc_optimistic_update_queue.push(work, work_id, &self.log)
+                                lc_optimistic_update_queue.push(work, work_id)
                             }
                             Work::LightClientFinalityUpdateRequest { .. } => {
-                                lc_finality_update_queue.push(work, work_id, &self.log)
+                                lc_finality_update_queue.push(work, work_id)
                             }
                             Work::UnknownBlockAttestation { .. } => {
                                 unknown_block_attestation_queue.push(work)
@@ -1361,29 +1344,23 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 unknown_block_aggregate_queue.push(work)
                             }
                             Work::GossipBlsToExecutionChange { .. } => {
-                                gossip_bls_to_execution_change_queue.push(work, work_id, &self.log)
+                                gossip_bls_to_execution_change_queue.push(work, work_id)
                             }
-                            Work::BlobsByRootsRequest { .. } => {
-                                blbroots_queue.push(work, work_id, &self.log)
-                            }
+                            Work::BlobsByRootsRequest { .. } => blbroots_queue.push(work, work_id),
                             Work::DataColumnsByRootsRequest { .. } => {
-                                dcbroots_queue.push(work, work_id, &self.log)
+                                dcbroots_queue.push(work, work_id)
                             }
                             Work::DataColumnsByRangeRequest { .. } => {
-                                dcbrange_queue.push(work, work_id, &self.log)
+                                dcbrange_queue.push(work, work_id)
                             }
                             Work::UnknownLightClientOptimisticUpdate { .. } => {
-                                unknown_light_client_update_queue.push(work, work_id, &self.log)
+                                unknown_light_client_update_queue.push(work, work_id)
                             }
                             Work::UnknownBlockSamplingRequest { .. } => {
-                                unknown_block_sampling_request_queue.push(work, work_id, &self.log)
+                                unknown_block_sampling_request_queue.push(work, work_id)
                             }
-                            Work::ApiRequestP0 { .. } => {
-                                api_request_p0_queue.push(work, work_id, &self.log)
-                            }
-                            Work::ApiRequestP1 { .. } => {
-                                api_request_p1_queue.push(work, work_id, &self.log)
-                            }
+                            Work::ApiRequestP0 { .. } => api_request_p0_queue.push(work, work_id),
+                            Work::ApiRequestP1 { .. } => api_request_p1_queue.push(work, work_id),
                         };
                         Some(work_type)
                     }
@@ -1498,7 +1475,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let send_idle_on_drop = SendOnDrop {
             tx: idle_tx,
             _worker_timer: worker_timer,
-            log: self.log.clone(),
         };
 
         let worker_id = self.current_workers;
@@ -1654,7 +1630,6 @@ pub struct SendOnDrop {
     tx: mpsc::Sender<()>,
     // The field is unused, but it's here to ensure the timer is dropped once the task has finished.
     _worker_timer: Option<metrics::HistogramTimer>,
-    log: Logger,
 }
 
 impl Drop for SendOnDrop {

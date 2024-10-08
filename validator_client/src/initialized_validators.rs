@@ -20,7 +20,6 @@ use lighthouse_metrics::set_gauge;
 use lockfile::{Lockfile, LockfileError};
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 use reqwest::{Certificate, Client, Error as ReqwestError, Identity};
-use slog::Logger;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Read};
@@ -485,8 +484,7 @@ pub struct InitializedValidators {
     validators: HashMap<PublicKeyBytes, InitializedValidator>,
     /// The clients used for communications with a remote signer.
     web3_signer_client_map: Option<HashMap<Web3SignerDefinition, Client>>,
-    /// For logging via `slog`.
-    log: Logger,
+
     config: Config,
 }
 
@@ -496,7 +494,6 @@ impl InitializedValidators {
         definitions: ValidatorDefinitions,
         validators_dir: PathBuf,
         config: Config,
-        log: Logger,
     ) -> Result<Self, Error> {
         let mut this = Self {
             validators_dir,
@@ -504,7 +501,6 @@ impl InitializedValidators {
             validators: HashMap::default(),
             web3_signer_client_map: None,
             config,
-            log,
         };
         this.update_validators().await?;
         Ok(this)
@@ -1353,7 +1349,6 @@ impl InitializedValidators {
         }
 
         let validators_dir = self.validators_dir.clone();
-        let log = self.log.clone();
         if has_local_definitions && key_cache.is_modified() {
             tokio::task::spawn_blocking(move || {
                 match key_cache.save(validators_dir) {

@@ -46,19 +46,16 @@ pub struct PeerDB<E: EthSpec> {
     banned_peers_count: BannedPeersCount,
     /// Specifies if peer scoring is disabled.
     disable_peer_scoring: bool,
-    /// PeerDB's logger
-    log: slog::Logger,
 }
 
 impl<E: EthSpec> PeerDB<E> {
-    pub fn new(trusted_peers: Vec<PeerId>, disable_peer_scoring: bool, log: &slog::Logger) -> Self {
+    pub fn new(trusted_peers: Vec<PeerId>, disable_peer_scoring: bool) -> Self {
         // Initialize the peers hashmap with trusted peers
         let peers = trusted_peers
             .into_iter()
             .map(|peer_id| (peer_id, PeerInfo::trusted_peer_info()))
             .collect();
         Self {
-            log: log.clone(),
             disconnected_peers: 0,
             banned_peers_count: BannedPeersCount::default(),
             disable_peer_scoring,
@@ -387,7 +384,7 @@ impl<E: EthSpec> PeerDB<E> {
             // Update scores
             info.score_update();
 
-            match Self::handle_score_transition(previous_state, peer_id, info, &self.log) {
+            match Self::handle_score_transition(previous_state, peer_id, info) {
                 // A peer should not be able to be banned from a score update.
                 ScoreTransitionResult::Banned => {
                     error!(%peer_id, "Peer has been banned in an update");
@@ -468,7 +465,7 @@ impl<E: EthSpec> PeerDB<E> {
 
             actions.push((
                 *peer_id,
-                Self::handle_score_transition(previous_state, peer_id, info, &self.log),
+                Self::handle_score_transition(previous_state, peer_id, info),
             ));
         }
 
@@ -539,8 +536,7 @@ impl<E: EthSpec> PeerDB<E> {
                     &metrics::PEER_ACTION_EVENTS_PER_CLIENT,
                     &[info.client().kind.as_ref(), action.as_ref(), source.into()],
                 );
-                let result =
-                    Self::handle_score_transition(previous_state, peer_id, info, &self.log);
+                let result = Self::handle_score_transition(previous_state, peer_id, info);
                 if previous_state == info.score_state() {
                     debug!(
                         %msg,
@@ -624,7 +620,6 @@ impl<E: EthSpec> PeerDB<E> {
     /// min_ttl than what's given.
     // VISIBILITY: The behaviour is able to adjust subscriptions.
     pub(crate) fn extend_peers_on_subnet(&mut self, subnet: &Subnet, min_ttl: Instant) {
-        let log = &self.log;
         self.peers
             .iter_mut()
             .filter(move |(_, info)| {
@@ -747,7 +742,6 @@ impl<E: EthSpec> PeerDB<E> {
         peer_id: &PeerId,
         new_state: NewConnectionState,
     ) -> Option<BanOperation> {
-        let log_ref = &self.log;
         let info = self.peers.entry(*peer_id).or_insert_with(|| {
             // If we are not creating a new connection (or dropping a current inbound connection) log a warning indicating we are updating a
             // connection state for an unknown peer.
@@ -1120,7 +1114,6 @@ impl<E: EthSpec> PeerDB<E> {
         previous_state: ScoreState,
         peer_id: &PeerId,
         info: &PeerInfo<E>,
-        log: &slog::Logger,
     ) -> ScoreTransitionResult {
         match (info.score_state(), previous_state) {
             (ScoreState::Banned, ScoreState::Healthy | ScoreState::ForcedDisconnect) => {

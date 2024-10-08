@@ -193,8 +193,6 @@ pub struct Discovery<E: EthSpec> {
     /// Specifies whether various port numbers should be updated after the discovery service has been started
     update_ports: UpdatePorts,
 
-    /// Logger for the discovery behaviour.
-    log: slog::Logger,
     spec: Arc<ChainSpec>,
 }
 
@@ -204,11 +202,8 @@ impl<E: EthSpec> Discovery<E> {
         local_key: Keypair,
         config: &NetworkConfig,
         network_globals: Arc<NetworkGlobals<E>>,
-        log: &slog::Logger,
         spec: &ChainSpec,
     ) -> error::Result<Self> {
-        let log = log.clone();
-
         let enr_dir = match config.network_dir.to_str() {
             Some(path) => String::from(path),
             None => String::from(""),
@@ -330,7 +325,6 @@ impl<E: EthSpec> Discovery<E> {
             event_stream,
             started: !config.disable_discovery,
             update_ports,
-            log,
             enr_dir,
             spec: Arc::new(spec.clone()),
         })
@@ -428,7 +422,7 @@ impl<E: EthSpec> Discovery<E> {
         // replace the global version
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
         // persist modified enr to disk
-        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr());
         Ok(true)
     }
 
@@ -464,7 +458,7 @@ impl<E: EthSpec> Discovery<E> {
         // replace the global version
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
         // persist modified enr to disk
-        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr());
         Ok(true)
     }
 
@@ -476,7 +470,7 @@ impl<E: EthSpec> Discovery<E> {
         const IS_TCP: bool = false;
         if self.discv5.update_local_enr_socket(socket_addr, IS_TCP) {
             // persist modified enr to disk
-            enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
+            enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr());
         }
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
         Ok(())
@@ -562,7 +556,7 @@ impl<E: EthSpec> Discovery<E> {
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
 
         // persist modified enr to disk
-        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr());
         Ok(())
     }
 
@@ -597,7 +591,7 @@ impl<E: EthSpec> Discovery<E> {
         *self.network_globals.local_enr.write() = self.discv5.local_enr();
 
         // persist modified enr to disk
-        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr(), &self.log);
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr());
     }
 
     // Bans a peer and it's associated seen IP addresses.
@@ -760,8 +754,7 @@ impl<E: EthSpec> Discovery<E> {
         // Only start a discovery query if we have a subnet to look for.
         if !filtered_subnet_queries.is_empty() {
             // build the subnet predicate as a combination of the eth2_fork_predicate and the subnet predicate
-            let subnet_predicate =
-                subnet_predicate::<E>(filtered_subnets, &self.log, self.spec.clone());
+            let subnet_predicate = subnet_predicate::<E>(filtered_subnets, self.spec.clone());
 
             debug!(
                 subnets = ?filtered_subnet_queries,
@@ -894,11 +887,8 @@ impl<E: EthSpec> Discovery<E> {
                             self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
 
                             // Check the specific subnet against the enr
-                            let subnet_predicate = subnet_predicate::<E>(
-                                vec![query.subnet],
-                                &self.log,
-                                self.spec.clone(),
-                            );
+                            let subnet_predicate =
+                                subnet_predicate::<E>(vec![query.subnet], self.spec.clone());
 
                             r.clone()
                                 .into_iter()
@@ -1072,7 +1062,7 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                                 self.discv5.update_local_enr_socket(socket_addr, true);
                             }
                             let enr = self.discv5.local_enr();
-                            enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr, &self.log);
+                            enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr);
                             // update  network globals
                             *self.network_globals.local_enr.write() = enr;
                             // A new UDP socket has been detected.

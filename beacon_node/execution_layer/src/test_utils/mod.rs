@@ -9,11 +9,10 @@ use bytes::Bytes;
 use execution_block_generator::PoWBlock;
 use handle_rpc::handle_rpc;
 use kzg::Kzg;
-use logging::test_logger;
+// use logging::test_logger;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use slog::Logger;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;
@@ -152,7 +151,7 @@ impl<E: EthSpec> MockServer<E> {
         let ctx: Arc<Context<E>> = Arc::new(Context {
             config: server_config,
             jwt_key,
-            log: test_logger(),
+            // log: test_logger(),
             last_echo_request: last_echo_request.clone(),
             execution_block_generator: RwLock::new(execution_block_generator),
             previous_request: <_>::default(),
@@ -520,7 +519,7 @@ impl warp::reject::Reject for AuthError {}
 pub struct Context<E: EthSpec> {
     pub config: Config,
     pub jwt_key: JwtKey,
-    pub log: Logger,
+    // pub log: Logger,
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
     pub execution_block_generator: RwLock<ExecutionBlockGenerator<E>>,
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
@@ -658,7 +657,6 @@ pub fn serve<E: EthSpec>(
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
-    let log = ctx.log.clone();
 
     let inner_ctx = ctx.clone();
     let ctx_filter = warp::any().map(move || inner_ctx.clone());

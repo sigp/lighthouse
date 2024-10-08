@@ -690,7 +690,6 @@ mod test {
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
     use fork_choice::PayloadVerificationStatus;
-    use logging::test_logger;
     use slog::Logger;
     use state_processing::ConsensusContext;
     use std::collections::VecDeque;

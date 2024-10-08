@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use oneshot_broadcast::{oneshot, Receiver, Sender};
-use slog::Logger;
 use tracing::debug;
 use types::{
     beacon_state::CommitteeCache, AttestationShufflingId, BeaconState, Epoch, EthSpec, Hash256,
@@ -61,16 +60,14 @@ pub struct ShufflingCache {
     cache: HashMap<AttestationShufflingId, CacheItem>,
     cache_size: usize,
     head_shuffling_ids: BlockShufflingIds,
-    logger: Logger,
 }
 
 impl ShufflingCache {
-    pub fn new(cache_size: usize, head_shuffling_ids: BlockShufflingIds, logger: Logger) -> Self {
+    pub fn new(cache_size: usize, head_shuffling_ids: BlockShufflingIds) -> Self {
         Self {
             cache: HashMap::new(),
             cache_size,
             head_shuffling_ids,
-            logger,
         }
     }
 
@@ -314,8 +311,8 @@ mod test {
             previous: Some(shuffling_id(current_epoch - 1)),
             block_root: Hash256::from_low_u64_le(0),
         };
-        let logger = test_logger();
-        ShufflingCache::new(TEST_CACHE_SIZE, head_shuffling_ids, logger)
+        // let logger = test_logger();
+        ShufflingCache::new(TEST_CACHE_SIZE, head_shuffling_ids)
     }
 
     /// Returns two different committee caches for testing.

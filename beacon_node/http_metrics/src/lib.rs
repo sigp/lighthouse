@@ -8,7 +8,6 @@ use lighthouse_network::prometheus_client::registry::Registry;
 use lighthouse_version::version_with_platform;
 use logging::crit;
 use serde::{Deserialize, Serialize};
-use slog::Logger;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -43,7 +42,6 @@ pub struct Context<T: BeaconChainTypes> {
     pub db_path: Option<PathBuf>,
     pub freezer_db_path: Option<PathBuf>,
     pub gossipsub_registry: Option<std::sync::Mutex<Registry>>,
-    pub log: Logger,
 }
 
 /// Configuration for the HTTP server.
@@ -88,7 +86,6 @@ pub fn serve<T: BeaconChainTypes>(
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
-    let log = ctx.log.clone();
 
     // Configure CORS.
     let cors_builder = {

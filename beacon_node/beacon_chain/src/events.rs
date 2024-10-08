@@ -1,5 +1,4 @@
 pub use eth2::types::{EventKind, SseBlock, SseFinalizedCheckpoint, SseHead};
-use slog::Logger;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::{error::SendError, Receiver, Sender};
 use tracing::trace;
@@ -25,18 +24,14 @@ pub struct ServerSentEventHandler<E: EthSpec> {
     attester_slashing_tx: Sender<EventKind<E>>,
     bls_to_execution_change_tx: Sender<EventKind<E>>,
     block_gossip_tx: Sender<EventKind<E>>,
-    log: Logger,
 }
 
 impl<E: EthSpec> ServerSentEventHandler<E> {
-    pub fn new(log: Logger, capacity_multiplier: usize) -> Self {
-        Self::new_with_capacity(
-            log,
-            capacity_multiplier.saturating_mul(DEFAULT_CHANNEL_CAPACITY),
-        )
+    pub fn new(capacity_multiplier: usize) -> Self {
+        Self::new_with_capacity(capacity_multiplier.saturating_mul(DEFAULT_CHANNEL_CAPACITY))
     }
 
-    pub fn new_with_capacity(log: Logger, capacity: usize) -> Self {
+    pub fn new_with_capacity(capacity: usize) -> Self {
         let (attestation_tx, _) = broadcast::channel(capacity);
         let (block_tx, _) = broadcast::channel(capacity);
         let (blob_sidecar_tx, _) = broadcast::channel(capacity);
@@ -73,7 +68,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
             attester_slashing_tx,
             bls_to_execution_change_tx,
             block_gossip_tx,
-            log,
         }
     }
 

@@ -94,7 +94,6 @@ use parking_lot::{Mutex, RwLock};
 use proto_array::{DoNotReOrg, ProposerHeadError};
 use safe_arith::SafeArith;
 use slasher::Slasher;
-use slog::Logger;
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
@@ -485,8 +484,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
     /// continue they can request that everything shuts down.
     pub shutdown_sender: Sender<ShutdownReason>,
-    /// Logging to CLI, etc.
-    pub(crate) log: Logger,
     /// Arbitrary bytes included in the blocks.
     pub(crate) graffiti_calculator: GraffitiCalculator<T>,
     /// Optional slasher.
@@ -1388,7 +1385,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slot,
             &parent_root,
             &sync_aggregate,
-            &self.log,
             &self.spec,
         )
     }
@@ -6864,10 +6860,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             && self
                 .spec
                 .is_peer_das_enabled_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()))
-    }
-
-    pub fn logger(&self) -> &Logger {
-        &self.log
     }
 
     /// Gets the `LightClientBootstrap` object for a requested block root.

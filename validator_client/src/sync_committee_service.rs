@@ -236,8 +236,6 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         beacon_block_root: Hash256,
         validator_duties: Vec<SyncDuty>,
     ) -> Result<(), ()> {
-        let log = self.context.log();
-
         // Create futures to produce sync committee signatures.
         let signature_futures = validator_duties.iter().map(|duty| async move {
             match self
@@ -342,8 +340,6 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         aggregate_instant: Instant,
     ) -> Result<(), ()> {
         sleep_until(aggregate_instant).await;
-
-        let log = self.context.log();
 
         let contribution = &self
             .beacon_nodes

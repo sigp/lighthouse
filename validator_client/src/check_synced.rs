@@ -1,11 +1,9 @@
 use crate::beacon_node_fallback::CandidateError;
 use eth2::{types::Slot, BeaconNodeHttpClient};
-use slog::Logger;
 use tracing::warn;
 
 pub async fn check_node_health(
     beacon_node: &BeaconNodeHttpClient,
-    log: &Logger,
 ) -> Result<(Slot, bool, bool), CandidateError> {
     let resp = match beacon_node.get_node_syncing().await {
         Ok(resp) => resp,

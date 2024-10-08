@@ -216,9 +216,6 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
 
     pub chain: Arc<BeaconChain<T>>,
-
-    /// Logger for the `SyncNetworkContext`.
-    pub log: slog::Logger,
 }
 
 /// Small enumeration to make dealing with block and blob requests easier.
@@ -245,7 +242,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         chain: Arc<BeaconChain<T>>,
-        log: slog::Logger,
     ) -> Self {
         SyncNetworkContext {
             network_send,
@@ -258,7 +254,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             range_block_components_requests: FnvHashMap::default(),
             network_beacon_processor,
             chain,
-            log,
         }
     }
 

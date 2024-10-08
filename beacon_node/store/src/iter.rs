@@ -402,8 +402,7 @@ mod test {
     fn block_root_iter() {
         let log = NullLoggerBuilder.build().unwrap();
         let store =
-            HotColdDB::open_ephemeral(Config::default(), Arc::new(ChainSpec::minimal()), log)
-                .unwrap();
+            HotColdDB::open_ephemeral(Config::default(), Arc::new(ChainSpec::minimal())).unwrap();
         let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<MainnetEthSpec> = get_state();
@@ -451,8 +450,7 @@ mod test {
     fn state_root_iter() {
         let log = NullLoggerBuilder.build().unwrap();
         let store =
-            HotColdDB::open_ephemeral(Config::default(), Arc::new(ChainSpec::minimal()), log)
-                .unwrap();
+            HotColdDB::open_ephemeral(Config::default(), Arc::new(ChainSpec::minimal())).unwrap();
         let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<MainnetEthSpec> = get_state();

@@ -1,5 +1,4 @@
 use crate::TaskExecutor;
-pub use logging::test_logger;
 use slog::Logger;
 use std::sync::Arc;
 use tokio::runtime;
@@ -16,7 +15,6 @@ pub struct TestRuntime {
     runtime: Option<Arc<tokio::runtime::Runtime>>,
     _runtime_shutdown: async_channel::Sender<()>,
     pub task_executor: TaskExecutor,
-    pub log: Logger,
 }
 
 impl Default for TestRuntime {
@@ -26,7 +24,6 @@ impl Default for TestRuntime {
     fn default() -> Self {
         let (runtime_shutdown, exit) = async_channel::bounded(1);
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let log = test_logger();
 
         let (runtime, handle) = if let Ok(handle) = runtime::Handle::try_current() {
             (None, handle)
@@ -41,13 +38,12 @@ impl Default for TestRuntime {
             (Some(runtime), handle)
         };
 
-        let task_executor = TaskExecutor::new(handle, exit, log.clone(), shutdown_tx);
+        let task_executor = TaskExecutor::new(handle, exit, shutdown_tx);
 
         Self {
             runtime,
             _runtime_shutdown: runtime_shutdown,
             task_executor,
-            log,
         }
     }
 }
@@ -60,9 +56,9 @@ impl Drop for TestRuntime {
     }
 }
 
-impl TestRuntime {
-    pub fn set_logger(&mut self, log: Logger) {
-        self.log = log.clone();
-        self.task_executor.log = log;
-    }
-}
+// impl TestRuntime {
+//     pub fn set_logger(&mut self, log: Logger) {
+//         self.log = log.clone();
+//         self.task_executor.log = log;
+//     }
+// }

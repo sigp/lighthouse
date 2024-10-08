@@ -99,29 +99,23 @@ pub struct AttestationService<T: BeaconChainTypes> {
 
     /// Whether this node is a block proposer-only node.
     proposer_only: bool,
-
-    /// The logger for the attestation service.
-    log: slog::Logger,
 }
 
 impl<T: BeaconChainTypes> AttestationService<T> {
     /* Public functions */
 
     /// Establish the service based on the passed configuration.
-    pub fn new(
-        beacon_chain: Arc<BeaconChain<T>>,
-        node_id: NodeId,
-        config: &NetworkConfig,
-        log: &slog::Logger,
-    ) -> Self {
-        let log = log.new(o!("service" => "attestation_service"));
-
+    pub fn new(beacon_chain: Arc<BeaconChain<T>>, node_id: NodeId, config: &NetworkConfig) -> Self {
         let slot_duration = beacon_chain.slot_clock.slot_duration();
 
         if config.subscribe_all_subnets {
-            slog::info!(log, "Subscribing to all subnets");
+            info!("Subscribing to all subnets");
         } else {
-            slog::info!(log, "Deterministic long lived subnets enabled"; "subnets_per_node" => beacon_chain.spec.subnets_per_node, "subscription_duration_in_epochs" => beacon_chain.spec.epochs_per_subnet_subscription);
+            info!(
+                subnets_per_node = beacon_chain.spec.subnets_per_node,
+                subscription_duration_in_epochs = beacon_chain.spec.epochs_per_subnet_subscription,
+                "Deterministic long lived subnets enabled"
+            );
         }
 
         let track_validators = !config.import_all_attestations;
@@ -144,7 +138,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 Box::pin(tokio::time::sleep(Duration::from_secs(1)))
             },
             proposer_only: config.proposer_only,
-            log,
         };
 
         // If we are not subscribed to all subnets, handle the deterministic set of subnets

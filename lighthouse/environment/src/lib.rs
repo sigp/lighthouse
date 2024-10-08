@@ -12,7 +12,7 @@ use eth2_network_config::Eth2NetworkConfig;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
 
-use logging::{test_logger, SSELoggingComponents};
+// use logging::{SELoggingComponents};
 use serde::{Deserialize, Serialize};
 use slog::{o, Drain, Duplicate, Level, Logger};
 use sloggers::{file::FileLoggerBuilder, types::Format, types::Severity, Build};
@@ -89,7 +89,7 @@ pub struct RuntimeContext<E: EthSpec> {
     pub eth_spec_instance: E,
     pub eth2_config: Eth2Config,
     pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,
-    pub sse_logging_components: Option<SSELoggingComponents>,
+    // pub sse_logging_components: Option<SSELoggingComponents>,
 }
 
 impl<E: EthSpec> RuntimeContext<E> {
@@ -102,7 +102,7 @@ impl<E: EthSpec> RuntimeContext<E> {
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: self.sse_logging_components.clone(),
+            // sse_logging_components: self.sse_logging_components.clone(),
         }
     }
 
@@ -110,18 +110,13 @@ impl<E: EthSpec> RuntimeContext<E> {
     pub fn eth2_config(&self) -> &Eth2Config {
         &self.eth2_config
     }
-
-    /// Returns a reference to the logger for this service.
-    pub fn log(&self) -> &slog::Logger {
-        self.executor.log()
-    }
 }
 
 /// Builds an `Environment`.
 pub struct EnvironmentBuilder<E: EthSpec> {
     runtime: Option<Arc<Runtime>>,
-    log: Option<Logger>,
-    sse_logging_components: Option<SSELoggingComponents>,
+    // log: Option<Logger>,
+    // sse_logging_components: Option<SSELoggingComponents>,
     eth_spec_instance: E,
     eth2_config: Eth2Config,
     eth2_network_config: Option<Eth2NetworkConfig>,
@@ -132,8 +127,8 @@ impl EnvironmentBuilder<MinimalEthSpec> {
     pub fn minimal() -> Self {
         Self {
             runtime: None,
-            log: None,
-            sse_logging_components: None,
+            // log: None,
+            // sse_logging_components: None,
             eth_spec_instance: MinimalEthSpec,
             eth2_config: Eth2Config::minimal(),
             eth2_network_config: None,
@@ -146,8 +141,8 @@ impl EnvironmentBuilder<MainnetEthSpec> {
     pub fn mainnet() -> Self {
         Self {
             runtime: None,
-            log: None,
-            sse_logging_components: None,
+            // log: None,
+            // sse_logging_components: None,
             eth_spec_instance: MainnetEthSpec,
             eth2_config: Eth2Config::mainnet(),
             eth2_network_config: None,
@@ -160,8 +155,8 @@ impl EnvironmentBuilder<GnosisEthSpec> {
     pub fn gnosis() -> Self {
         Self {
             runtime: None,
-            log: None,
-            sse_logging_components: None,
+            // log: None,
+            // sse_logging_components: None,
             eth_spec_instance: GnosisEthSpec,
             eth2_config: Eth2Config::gnosis(),
             eth2_network_config: None,
@@ -184,10 +179,10 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     }
 
     /// Sets a logger suitable for test usage.
-    pub fn test_logger(mut self) -> Result<Self, String> {
-        self.log = Some(test_logger());
-        Ok(self)
-    }
+    // pub fn test_logger(mut self) -> Result<Self, String> {
+    //     // self.log = Some(test_logger());
+    //     Ok(self)
+    // }
 
     fn log_nothing(_: &mut dyn Write) -> IOResult<()> {
         Ok(())
@@ -248,14 +243,14 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         let stdout_logger = Logger::root(stdout_drain.fuse(), o!());
 
         // Disable file logging if values set to 0.
-        if config.max_log_size == 0 || config.max_log_number == 0 {
-            self.log = Some(stdout_logger);
-            return Ok(self);
-        }
+        // if config.max_log_size == 0 || config.max_log_number == 0 {
+        //     self.log = Some(stdout_logger);
+        //     return Ok(self);
+        // }
 
         // Disable file logging if no path is specified.
         let Some(path) = config.path else {
-            self.log = Some(stdout_logger);
+            // self.log = Some(stdout_logger);
             return Ok(self);
         };
 
@@ -276,7 +271,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                         warn!(
                             error = ?e,
                             "Background file logging is disabled");
-                        self.log = Some(log);
+                        // self.log = Some(log);
                         return Ok(self);
                     }
                 }
@@ -307,19 +302,17 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             .build()
             .map_err(|e| format!("Unable to build file logger: {}", e))?;
 
-        let mut log = Logger::root(Duplicate::new(stdout_logger, file_logger).fuse(), o!());
-
         info!(?path, "Logging to file");
 
         // If the http API is enabled, we may need to send logs to be consumed by subscribers.
-        if config.sse_logging {
-            let sse_logger = SSELoggingComponents::new(SSE_LOG_CHANNEL_SIZE);
-            self.sse_logging_components = Some(sse_logger.clone());
+        // if config.sse_logging {
+        //     let sse_logger = SSELoggingComponents::new(SSE_LOG_CHANNEL_SIZE);
+        //     self.sse_logging_components = Some(sse_logger.clone());
 
-            log = Logger::root(Duplicate::new(log, sse_logger).fuse(), o!());
-        }
+        //     log = Logger::root(Duplicate::new(log, sse_logger).fuse(), o!());
+        // }
 
-        self.log = Some(log);
+        // self.log = Some(log);
 
         Ok(self)
     }
@@ -348,8 +341,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             signal_rx: Some(signal_rx),
             signal: Some(signal),
             exit,
-            log: self.log.ok_or("Cannot build environment without log")?,
-            sse_logging_components: self.sse_logging_components,
+            // log: self.log.ok_or("Cannot build environment without log")?,
+            // sse_logging_components: self.sse_logging_components,
             eth_spec_instance: self.eth_spec_instance,
             eth2_config: self.eth2_config,
             eth2_network_config: self.eth2_network_config.map(Arc::new),
@@ -367,8 +360,8 @@ pub struct Environment<E: EthSpec> {
     signal_tx: Sender<ShutdownReason>,
     signal: Option<async_channel::Sender<()>>,
     exit: async_channel::Receiver<()>,
-    log: Logger,
-    sse_logging_components: Option<SSELoggingComponents>,
+    // log: Logger,
+    // sse_logging_components: Option<SSELoggingComponents>,
     eth_spec_instance: E,
     pub eth2_config: Eth2Config,
     pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,
@@ -389,13 +382,13 @@ impl<E: EthSpec> Environment<E> {
             executor: TaskExecutor::new(
                 Arc::downgrade(self.runtime()),
                 self.exit.clone(),
-                self.log.clone(),
+                // self.log.clone(),
                 self.signal_tx.clone(),
             ),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: self.sse_logging_components.clone(),
+            // sse_logging_components: self.sse_logging_components.clone(),
         }
     }
 
@@ -405,13 +398,13 @@ impl<E: EthSpec> Environment<E> {
             executor: TaskExecutor::new(
                 Arc::downgrade(self.runtime()),
                 self.exit.clone(),
-                self.log.new(o!("service" => service_name)),
+                // self.log.new(o!("service" => service_name)),
                 self.signal_tx.clone(),
             ),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: self.sse_logging_components.clone(),
+            // sse_logging_components: self.sse_logging_components.clone(),
         }
     }
 

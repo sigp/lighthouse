@@ -128,7 +128,7 @@ impl TesterBuilder {
                 reconstruct_historic_states: true,
                 ..ChainConfig::default()
             })
-            .logger(test_logger())
+            // .logger(test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .build();

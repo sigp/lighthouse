@@ -36,7 +36,6 @@ use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
-use slog::Logger;
 use ssz::Decode;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -172,11 +171,9 @@ where
         let runtime_context =
             runtime_context.ok_or("beacon_chain_start_method requires a runtime context")?;
         let context = runtime_context.service_context("beacon".into());
-        let log = context.log();
         let spec = chain_spec.ok_or("beacon_chain_start_method requires a chain spec")?;
         let event_handler = if self.http_api_config.enabled {
             Some(ServerSentEventHandler::new(
-                context.log().clone(),
                 self.http_api_config.sse_capacity_multiplier,
             ))
         } else {
@@ -185,12 +182,8 @@ where
 
         let execution_layer = if let Some(config) = config.execution_layer.clone() {
             let context = runtime_context.service_context("exec".into());
-            let execution_layer = ExecutionLayer::from_config(
-                config,
-                context.executor.clone(),
-                context.log().clone(),
-            )
-            .map_err(|e| format!("unable to start execution layer endpoints: {:?}", e))?;
+            let execution_layer = ExecutionLayer::from_config(config, context.executor.clone())
+                .map_err(|e| format!("unable to start execution layer endpoints: {:?}", e))?;
             Some(execution_layer)
         } else {
             None
@@ -207,7 +200,6 @@ where
         };
 
         let builder = BeaconChainBuilder::new(eth_spec_instance, Arc::new(kzg))
-            .logger(context.log().clone())
             .store(store)
             .task_executor(context.executor.clone())
             .custom_spec(spec.clone())
@@ -495,7 +487,6 @@ where
                 let service =
                     deposit_snapshot.and_then(|snapshot| match Eth1Service::from_deposit_snapshot(
                         config.eth1,
-                        context.log().clone(),
                         spec.clone(),
                         &snapshot,
                     ) {
@@ -526,11 +517,8 @@ where
                     "Waiting for eth2 genesis from eth1"
                 );
 
-                let genesis_service = Eth1GenesisService::new(
-                    config.eth1,
-                    context.log().clone(),
-                    context.eth2_config().spec.clone(),
-                )?;
+                let genesis_service =
+                    Eth1GenesisService::new(config.eth1, context.eth2_config().spec.clone())?;
 
                 // If the HTTP API server is enabled, start an instance of it where it only
                 // contains a reference to the eth1 service (all non-eth1 endpoints will fail
@@ -553,8 +541,7 @@ where
                         beacon_processor_send: None,
                         beacon_processor_reprocess_send: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
-                        log: context.log().clone(),
-                        sse_logging_components: runtime_context.sse_logging_components.clone(),
+                        // sse_logging_components: runtime_context.sse_logging_components.clone(),
                     });
 
                     // Discard the error from the oneshot.
@@ -714,7 +701,7 @@ where
             .as_ref()
             .ok_or("monitoring_client requires a runtime_context")?
             .service_context("monitoring_client".into());
-        let monitoring_client = MonitoringHttpClient::new(config, context.log().clone())?;
+        let monitoring_client = MonitoringHttpClient::new(config)?;
         monitoring_client.auto_update(
             context.executor,
             vec![ProcessType::BeaconNode, ProcessType::System],
@@ -774,7 +761,6 @@ where
             .beacon_processor_config
             .take()
             .ok_or("build requires a beacon_processor_config")?;
-        let log = runtime_context.log().clone();
 
         let http_api_listen_addr = if self.http_api_config.enabled {
             let ctx = Arc::new(http_api::Context {
@@ -787,8 +773,8 @@ where
                 beacon_processor_reprocess_send: Some(
                     beacon_processor_channels.work_reprocessing_tx.clone(),
                 ),
-                sse_logging_components: runtime_context.sse_logging_components.clone(),
-                log: log.clone(),
+                // sse_logging_components: runtime_context.sse_logging_components.clone(),
+                // log: log.clone(),
             });
 
             let exit = runtime_context.executor.exit();
@@ -819,7 +805,6 @@ where
                 db_path: self.db_path.clone(),
                 freezer_db_path: self.freezer_db_path.clone(),
                 gossipsub_registry: self.libp2p_registry.take().map(std::sync::Mutex::new),
-                log: log.clone(),
             });
 
             let exit = runtime_context.executor.exit();
@@ -849,7 +834,6 @@ where
                     executor: beacon_processor_context.executor.clone(),
                     current_workers: 0,
                     config: beacon_processor_config,
-                    log: beacon_processor_context.log().clone(),
                 }
                 .spawn_manager(
                     beacon_processor_channels.beacon_processor_rx,
@@ -870,12 +854,7 @@ where
             }
 
             let state_advance_context = runtime_context.service_context("state_advance".into());
-            let state_advance_log = state_advance_context.log().clone();
-            spawn_state_advance_timer(
-                state_advance_context.executor,
-                beacon_chain.clone(),
-                state_advance_log,
-            );
+            spawn_state_advance_timer(state_advance_context.executor, beacon_chain.clone());
 
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
                 // Only send a head update *after* genesis.
@@ -928,7 +907,6 @@ where
                 let inner_chain = beacon_chain.clone();
                 let light_client_update_context =
                     runtime_context.service_context("lc_update".to_string());
-                let log = light_client_update_context.log().clone();
                 light_client_update_context.executor.spawn(
                     async move {
                         compute_light_client_updates(
@@ -1018,7 +996,6 @@ where
         cold_path: &Path,
         blobs_path: &Path,
         config: StoreConfig,
-        log: Logger,
     ) -> Result<Self, String> {
         let context = self
             .runtime_context
@@ -1046,7 +1023,6 @@ where
                 deposit_contract_deploy_block,
                 from,
                 to,
-                log,
                 &inner_spec,
             )
         };
@@ -1058,7 +1034,6 @@ where
             schema_upgrade,
             config,
             spec,
-            context.log().clone(),
         )
         .map_err(|e| format!("Unable to open database: {:?}", e))?;
         self.store = Some(store);

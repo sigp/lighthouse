@@ -48,7 +48,6 @@ use notifier::spawn_notifier;
 use parking_lot::RwLock;
 use preparation_service::{PreparationService, PreparationServiceBuilder};
 use reqwest::Certificate;
-use slog::Logger;
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
 use std::fs::File;
@@ -122,8 +121,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
     /// Instantiates the validator client, _without_ starting the timers to trigger block
     /// and attestation production.
     pub async fn new(context: RuntimeContext<E>, config: Config) -> Result<Self, String> {
-        let log = context.log().clone();
-
         // Attempt to raise soft fd limit. The behavior is OS specific:
         // `linux` - raise soft fd limit to hard
         // `macos` - raise soft fd limit to `min(kernel limit, hard fd limit)`
@@ -179,8 +176,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         // Start the explorer client which periodically sends validator process
         // and system metrics to the configured endpoint.
         if let Some(monitoring_config) = &config.monitoring_api {
-            let monitoring_client =
-                MonitoringHttpClient::new(monitoring_config, context.log().clone())?;
+            let monitoring_client = MonitoringHttpClient::new(monitoring_config)?;
             monitoring_client.auto_update(
                 context.executor.clone(),
                 vec![ProcessType::Validator, ProcessType::System],
@@ -192,7 +188,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         if !config.disable_auto_discover {
             let new_validators = validator_defs
-                .discover_local_keystores(&config.validator_dir, &config.secrets_dir, &log)
+                .discover_local_keystores(&config.validator_dir, &config.secrets_dir)
                 .map_err(|e| format!("Unable to discover local validator keystores: {:?}", e))?;
             validator_defs.save(&config.validator_dir).map_err(|e| {
                 format!(
@@ -207,7 +203,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             validator_defs,
             config.validator_dir.clone(),
             config.clone(),
-            log.clone(),
         )
         .await
         .map_err(|e| {
@@ -392,7 +387,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             config.beacon_node_fallback,
             config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
-            log.clone(),
         );
 
         let mut proposer_nodes: BeaconNodeFallback<_, E> = BeaconNodeFallback::new(
@@ -400,7 +394,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             config.beacon_node_fallback,
             config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
-            log.clone(),
         );
 
         // Perform some potentially long-running initialization tasks.
@@ -430,12 +423,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         start_fallback_updater_service(context.clone(), proposer_nodes.clone())?;
 
         let doppelganger_service = if config.enable_doppelganger_protection {
-            Some(Arc::new(DoppelgangerService::new(
-                context
-                    .service_context(DOPPELGANGER_SERVICE_NAME.into())
-                    .log()
-                    .clone(),
-            )))
+            Some(Arc::new(DoppelgangerService::new()))
         } else {
             None
         };
@@ -550,7 +538,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         // whole epoch!
         let channel_capacity = E::slots_per_epoch() as usize;
         let (block_service_tx, block_service_rx) = mpsc::channel(channel_capacity);
-        let log = self.context.log();
 
         let api_secret = ApiSecret::create_or_open(&self.config.validator_dir)?;
 
@@ -566,9 +553,9 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 graffiti_flag: self.config.graffiti,
                 spec: self.context.eth2_config.spec.clone(),
                 config: self.config.http_api.clone(),
-                sse_logging_components: self.context.sse_logging_components.clone(),
+                // sse_logging_components: self.context.sse_logging_components.clone(),
                 slot_clock: self.slot_clock.clone(),
-                log: log.clone(),
+                // log: log.clone(),
                 _phantom: PhantomData,
             });
 
@@ -749,7 +736,7 @@ async fn wait_for_genesis<E: EthSpec>(
         // Start polling the node for pre-genesis information, cancelling the polling as soon as the
         // timer runs out.
         tokio::select! {
-            result = poll_whilst_waiting_for_genesis(beacon_nodes, genesis_time, context.log()) => result?,
+            result = poll_whilst_waiting_for_genesis(beacon_nodes, genesis_time) => result?,
             () = sleep(genesis_time - now) => ()
         };
 
@@ -772,7 +759,6 @@ async fn wait_for_genesis<E: EthSpec>(
 async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
     beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
     genesis_time: Duration,
-    log: &Logger,
 ) -> Result<(), String> {
     loop {
         match beacon_nodes

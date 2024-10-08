@@ -17,8 +17,6 @@ pub fn start_latency_service<T: SlotClock + 'static, E: EthSpec>(
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
 ) {
-    let log = context.log().clone();
-
     let future = async move {
         loop {
             let sleep_time = slot_clock

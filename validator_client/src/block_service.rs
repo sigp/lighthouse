@@ -13,7 +13,6 @@ use environment::RuntimeContext;
 use eth2::types::{FullBlockContents, PublishBlockRequest};
 use eth2::{BeaconNodeHttpClient, StatusCode};
 use logging::crit;
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::fmt::Debug;
 use std::future::Future;
@@ -246,7 +245,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
     /// Attempt to produce a block for any block producers in the `ValidatorStore`.
     async fn do_update(&self, notification: BlockServiceNotification) -> Result<(), ()> {
-        let log = self.context.log();
         let _timer =
             metrics::start_timer_vec(&metrics::BLOCK_SERVICE_TIMES, &[metrics::FULL_UPDATE]);
 
@@ -293,7 +291,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         for validator_pubkey in proposers {
             let builder_boost_factor = self.get_builder_boost_factor(&validator_pubkey);
             let service = self.clone();
-            let log = log.clone();
             self.inner.context.executor.spawn(
                 async move {
                     let result = service
@@ -327,7 +324,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         validator_pubkey: &PublicKeyBytes,
         unsigned_block: UnsignedBlock<E>,
     ) -> Result<(), BlockError> {
-        let log = self.context.log();
         let signing_timer = metrics::start_timer(&metrics::BLOCK_SIGNING_TIMES);
 
         let res = match unsigned_block {
@@ -404,7 +400,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         validator_pubkey: PublicKeyBytes,
         builder_boost_factor: Option<u64>,
     ) -> Result<(), BlockError> {
-        let log = self.context.log();
         let _timer =
             metrics::start_timer_vec(&metrics::BLOCK_SERVICE_TIMES, &[metrics::BEACON_BLOCK]);
 
@@ -467,7 +462,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     graffiti,
                     proposer_index,
                     builder_boost_factor,
-                    log,
                 )
                 .await
                 .map_err(|e| {
@@ -497,7 +491,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         signed_block: &SignedBlock<E>,
         beacon_node: BeaconNodeHttpClient,
     ) -> Result<(), BlockError> {
-        let log = self.context.log();
         let slot = signed_block.slot();
         match signed_block {
             SignedBlock::Full(signed_block) => {
@@ -508,7 +501,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 beacon_node
                     .post_beacon_blocks(signed_block)
                     .await
-                    .or_else(|e| handle_block_post_error(e, slot, log))?
+                    .or_else(|e| handle_block_post_error(e, slot))?
             }
             SignedBlock::Blinded(signed_block) => {
                 let _post_timer = metrics::start_timer_vec(
@@ -518,7 +511,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 beacon_node
                     .post_beacon_blinded_blocks(signed_block)
                     .await
-                    .or_else(|e| handle_block_post_error(e, slot, log))?
+                    .or_else(|e| handle_block_post_error(e, slot))?
             }
         }
         Ok::<_, BlockError>(())
@@ -531,7 +524,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         graffiti: Option<Graffiti>,
         proposer_index: Option<u64>,
         builder_boost_factor: Option<u64>,
-        log: &Logger,
     ) -> Result<UnsignedBlock<E>, BlockError> {
         let (block_response, _) = beacon_node
             .get_validator_blocks_v3::<E>(
@@ -641,7 +633,7 @@ impl<E: EthSpec> SignedBlock<E> {
     }
 }
 
-fn handle_block_post_error(err: eth2::Error, slot: Slot, log: &Logger) -> Result<(), BlockError> {
+fn handle_block_post_error(err: eth2::Error, slot: Slot) -> Result<(), BlockError> {
     // Handle non-200 success codes.
     if let Some(status) = err.status() {
         if status == StatusCode::ACCEPTED {

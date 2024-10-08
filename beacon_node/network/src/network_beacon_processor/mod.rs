@@ -61,7 +61,6 @@ pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
     pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     pub invalid_block_storage: InvalidBlockStorage,
     pub executor: TaskExecutor,
-    pub log: Logger,
 }
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
@@ -860,7 +859,6 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         network_globals: Arc<NetworkGlobals<E>>,
         chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
         executor: TaskExecutor,
-        log: Logger,
     ) -> (Self, mpsc::Receiver<BeaconWorkEvent<E>>) {
         let BeaconProcessorChannels {
             beacon_processor_tx,
@@ -882,7 +880,6 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
             network_globals,
             invalid_block_storage: InvalidBlockStorage::Disabled,
             executor,
-            log,
         };
 
         (network_beacon_processor, beacon_processor_rx)

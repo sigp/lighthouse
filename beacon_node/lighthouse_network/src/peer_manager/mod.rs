@@ -107,8 +107,6 @@ pub struct PeerManager<E: EthSpec> {
     metrics_enabled: bool,
     /// Keeps track of whether the QUIC protocol is enabled or not.
     quic_enabled: bool,
-    /// The logger associated with the `PeerManager`.
-    log: slog::Logger,
 }
 
 /// The events that the `PeerManager` outputs (requests).
@@ -143,7 +141,6 @@ impl<E: EthSpec> PeerManager<E> {
     pub fn new(
         cfg: config::Config,
         network_globals: Arc<NetworkGlobals<E>>,
-        log: &slog::Logger,
     ) -> error::Result<Self> {
         let config::Config {
             discovery_enabled,
@@ -172,7 +169,6 @@ impl<E: EthSpec> PeerManager<E> {
             discovery_enabled,
             metrics_enabled,
             quic_enabled,
-            log: log.clone(),
         })
     }
 
