@@ -1,8 +1,7 @@
 use super::*;
 use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use ssz::{Decode, Encode};
+use ssz::Decode;
 use strum::EnumString;
 use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
@@ -200,18 +199,6 @@ impl RequestPrefix {
             _ => None,
         }
     }
-}
-
-/// Computes the hash of the `ExecutionRequests` based on the specification
-/// in EIP-7685.
-pub fn compute_execution_requests_hash<E: EthSpec>(request: &ExecutionRequests<E>) -> Hash256 {
-    let depsoits_hash = Sha256::digest(&request.deposits.as_ssz_bytes());
-    let withdrawals_hash = Sha256::digest(&request.withdrawals.as_ssz_bytes());
-    let consolidation_hash = Sha256::digest(&request.consolidations.as_ssz_bytes());
-
-    Hash256::from_slice(&Sha256::digest(
-        &[depsoits_hash, withdrawals_hash, consolidation_hash].concat(),
-    ))
 }
 
 impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> {
