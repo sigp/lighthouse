@@ -22,14 +22,13 @@ use std::backtrace::Backtrace;
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
+use std::sync::{Arc, Mutex};
 use task_executor::ShutdownReason;
 use tracing::{info, level_filters::LevelFilter};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt};
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
-use std::sync::{Arc,Mutex};
-
 
 pub static SHORT_VERSION: LazyLock<String> = LazyLock::new(|| VERSION.replace("Lighthouse/", ""));
 pub static LONG_VERSION: LazyLock<String> = LazyLock::new(|| {
@@ -511,7 +510,6 @@ fn run<E: EthSpec>(
     matches: &ArgMatches,
     eth2_network_config: Eth2NetworkConfig,
 ) -> Result<(), String> {
-
     if std::mem::size_of::<usize>() != 8 {
         return Err(format!(
             "{}-bit architecture is not supported (64-bit only).",
@@ -607,9 +605,9 @@ fn run<E: EthSpec>(
         is_restricted: logfile_restricted,
         sse_logging,
     };
-    
-    let (non_blocking_file,_guard) = environment::EnvironmentBuilder::<E>::init_tracing(logger_config.clone());
-    
+
+    let (builder, non_blocking_file, _guard) =
+        environment_builder.init_tracing(logger_config.clone());
 
     let filter_layer = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new("info"))
@@ -621,19 +619,18 @@ fn run<E: EthSpec>(
         .with_line_number(true)
         .with_thread_names(true);
     let stdout_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stdout);
-    
-    
+
     if let Err(e) = tracing_subscriber::registry()
-        .with(stdout_layer)           
-        .with(file_layer)             
-        .with(filter_layer)           
+        .with(stdout_layer)
+        .with(file_layer)
+        .with(filter_layer)
         .try_init()
     {
         eprintln!("Failed to initialize dependency logging: {e}");
     }
-    
 
-    let builder = environment_builder.initialize_logger(logger_config.clone())?;
+    // let builder = environment_builder.initialize_logger(logger_config.clone())?;
+    //let (builder, non_blocking_file, _guard) = environment_builder.init_tracing(logger_config.clone());
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
@@ -811,4 +808,3 @@ fn run<E: EthSpec>(
         ShutdownReason::Failure(msg) => Err(msg.to_string()),
     }
 }
-

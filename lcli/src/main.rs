@@ -646,7 +646,7 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
     let env = env_builder
         .multi_threaded_tokio_runtime()
         .map_err(|e| format!("should start tokio runtime: {:?}", e))?
-        .initialize_logger(LoggerConfig {
+        .init_tracing(LoggerConfig {
             path: None,
             debug_level: String::from("trace"),
             logfile_debug_level: String::from("trace"),

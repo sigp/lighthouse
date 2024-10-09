@@ -82,7 +82,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         .collect::<Vec<_>>();
 
     let mut env = EnvironmentBuilder::minimal()
-        .initialize_logger(LoggerConfig {
+        .init_tracing(LoggerConfig {
             path: None,
             debug_level: log_level.clone(),
             logfile_debug_level: log_level.clone(),

@@ -698,7 +698,6 @@ where
         mut self,
     ) -> Result<BeaconChain<Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>>, String>
     {
-        let log = self.log.ok_or("Cannot build without a logger")?;
         let slot_clock = self
             .slot_clock
             .ok_or("Cannot build without a slot_clock.")?;
@@ -719,7 +718,7 @@ where
         let mut validator_monitor = ValidatorMonitor::new(
             validator_monitor_config,
             beacon_proposer_cache.clone(),
-            log.new(o!("service" => "val_mon")),
+            //log.new(o!("service" => "val_mon")),
         );
 
         let current_slot = if slot_clock

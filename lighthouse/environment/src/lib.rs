@@ -23,8 +23,9 @@ use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use tracing::{error, info, warn};
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_appender::non_blocking::NonBlocking;
 use tracing_appender::non_blocking::WorkerGuard;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 
 #[cfg(target_family = "unix")]
@@ -196,17 +197,17 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     /// does not have to wait for the logs to be flushed.
     /// The logger can be duplicated and more detailed logs can be output to `logfile`.
     /// Note that background file logging will spawn a new thread.
-    pub fn init_tracing(config:LoggerConfig)-> (tracing_appender::non_blocking::NonBlocking,tracing_appender::non_blocking::WorkerGuard) {
+    pub fn init_tracing(mut self, config: LoggerConfig) -> (Self, NonBlocking, WorkerGuard) {
         let path = config.path.unwrap();
         let log_dir = path.parent().unwrap();
         let file = path.file_name().unwrap();
 
         let file_appender = RollingFileAppender::new(Rotation::NEVER, log_dir, file);
         let (non_blocking_file, guard) = tracing_appender::non_blocking(file_appender);
-        
-        (non_blocking_file,guard)
-    
+
+        (self, non_blocking_file, guard)
     }
+    /*
     pub fn initialize_logger(mut self, config: LoggerConfig) -> Result<Self, String> {
         // Setting up the initial logger format and build it.
         let stdout_drain = if let Some(ref format) = config.log_format {
@@ -327,7 +328,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         // self.log = Some(log);
 
         Ok(self)
-    }
+    }*/
 
     /// Adds a network configuration to the environment.
     pub fn eth2_network_config(
