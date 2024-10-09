@@ -19,8 +19,8 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig, ServerSentEventHandler,
 };
 use beacon_chain::{Kzg, LightClientProducerEvent};
+use beacon_processor::BeaconProcessorConfig;
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
-use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
 use environment::RuntimeContext;
 use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2::{
@@ -573,7 +573,6 @@ where
                         network_senders: None,
                         network_globals: None,
                         beacon_processor_send: None,
-                        beacon_processor_reprocess_send: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
                         log: context.log().clone(),
                         sse_logging_components: runtime_context.sse_logging_components.clone(),
@@ -668,7 +667,6 @@ where
             context.executor,
             libp2p_registry.as_mut(),
             beacon_processor_channels.beacon_processor_tx.clone(),
-            beacon_processor_channels.work_reprocessing_tx.clone(),
         )
         .await
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
@@ -808,9 +806,6 @@ where
                 network_globals: self.network_globals.clone(),
                 eth1_service: self.eth1_service.clone(),
                 beacon_processor_send: Some(beacon_processor_channels.beacon_processor_tx.clone()),
-                beacon_processor_reprocess_send: Some(
-                    beacon_processor_channels.work_reprocessing_tx.clone(),
-                ),
                 sse_logging_components: runtime_context.sse_logging_components.clone(),
                 log: log.clone(),
             });
@@ -869,6 +864,11 @@ where
         if let Some(beacon_chain) = self.beacon_chain.as_ref() {
             if let Some(network_globals) = &self.network_globals {
                 let beacon_processor_context = runtime_context.service_context("bproc".into());
+                let beacon_state = &beacon_chain
+                    .canonical_head
+                    .cached_head()
+                    .snapshot
+                    .beacon_state;
                 BeaconProcessor {
                     network_globals: network_globals.clone(),
                     executor: beacon_processor_context.executor.clone(),
@@ -877,20 +877,11 @@ where
                     log: beacon_processor_context.log().clone(),
                 }
                 .spawn_manager(
+                    beacon_state,
                     beacon_processor_channels.beacon_processor_rx,
-                    beacon_processor_channels.work_reprocessing_tx.clone(),
-                    beacon_processor_channels.work_reprocessing_rx,
                     None,
                     beacon_chain.slot_clock.clone(),
-                    beacon_chain.spec.maximum_gossip_clock_disparity(),
-                    BeaconProcessorQueueLengths::from_state(
-                        &beacon_chain
-                            .canonical_head
-                            .cached_head()
-                            .snapshot
-                            .beacon_state,
-                        &beacon_chain.spec,
-                    )?,
+                    &beacon_chain.spec,
                 )?;
             }
 
@@ -960,7 +951,7 @@ where
                         compute_light_client_updates(
                             &inner_chain,
                             light_client_server_rv,
-                            beacon_processor_channels.work_reprocessing_tx,
+                            beacon_processor_channels.beacon_processor_tx,
                             &log,
                         )
                         .await

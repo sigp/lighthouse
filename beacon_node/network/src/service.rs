@@ -9,7 +9,7 @@ use crate::{
     NetworkConfig,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend};
+use beacon_processor::BeaconProcessorSend;
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
@@ -212,7 +212,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
-        beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
     ) -> error::Result<(
         NetworkService<T>,
         Arc<NetworkGlobals<T::EthSpec>>,
@@ -313,7 +312,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             executor.clone(),
             invalid_block_storage,
             beacon_processor_send,
-            beacon_processor_reprocess_tx,
             network_log.clone(),
         )?;
 
@@ -375,7 +373,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
-        beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
     ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>)> {
         let (network_service, network_globals, network_senders) = Self::build(
             beacon_chain,
@@ -383,7 +380,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             executor.clone(),
             libp2p_registry,
             beacon_processor_send,
-            beacon_processor_reprocess_tx,
         )
         .await?;
 

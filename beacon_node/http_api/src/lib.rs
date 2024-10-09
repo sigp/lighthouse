@@ -39,7 +39,7 @@ use beacon_chain::{
     validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
     BeaconChainTypes, WhenSlotSkipped,
 };
-use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend};
+use beacon_processor::BeaconProcessorSend;
 pub use block_id::BlockId;
 use builder_states::get_next_withdrawals;
 use bytes::Bytes;
@@ -132,7 +132,6 @@ pub struct Context<T: BeaconChainTypes> {
     pub network_senders: Option<NetworkSenders<T::EthSpec>>,
     pub network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     pub beacon_processor_send: Option<BeaconProcessorSend<T::EthSpec>>,
-    pub beacon_processor_reprocess_send: Option<Sender<ReprocessQueueMessage>>,
     pub eth1_service: Option<eth1::Service>,
     pub sse_logging_components: Option<SSELoggingComponents>,
     pub log: Logger,
@@ -536,12 +535,6 @@ pub fn serve<T: BeaconChainTypes>(
         .filter(|_| config.enable_beacon_processor);
     let task_spawner_filter =
         warp::any().map(move || TaskSpawner::new(beacon_processor_send.clone()));
-    let beacon_processor_reprocess_send = ctx
-        .beacon_processor_reprocess_send
-        .clone()
-        .filter(|_| config.enable_beacon_processor);
-    let reprocess_send_filter = warp::any().map(move || beacon_processor_reprocess_send.clone());
-
     let duplicate_block_status_code = ctx.config.duplicate_block_status_code;
 
     /*
@@ -1840,7 +1833,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
-        .and(reprocess_send_filter)
         .and(log_filter.clone())
         .then(
             // V1 and V2 are identical except V2 has a consensus version header in the request.
@@ -1851,14 +1843,13 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              attestations: Vec<Attestation<T::EthSpec>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
              log: Logger| async move {
                 let result = crate::publish_attestations::publish_attestations(
                     task_spawner,
                     chain,
                     attestations,
                     network_tx,
-                    reprocess_tx,
+                    true, // TODO(beacon-processor) always allow reprorcess?
                     log,
                 )
                 .await

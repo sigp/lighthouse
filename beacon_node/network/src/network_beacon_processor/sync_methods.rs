@@ -14,15 +14,13 @@ use beacon_chain::{
     BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError, NotifyExecutionLayer,
 };
 use beacon_processor::{
-    work_reprocessing_queue::{QueuedRpcBlock, ReprocessQueueMessage},
-    AsyncFn, BlockingFn, DuplicateCache,
+    AsyncFn, BlockingFn, DuplicateCache, QueuedRpcBlock, ReprocessQueueMessage, Work, WorkEvent,
 };
 use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
 use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
-use tokio::sync::mpsc;
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlockImportSource, DataColumnSidecar, DataColumnSidecarList, Epoch, Hash256};
@@ -57,14 +55,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         process_type: BlockProcessType,
     ) -> AsyncFn {
         let process_fn = async move {
-            let reprocess_tx = self.reprocess_tx.clone();
             let duplicate_cache = self.duplicate_cache.clone();
             self.process_rpc_block(
                 block_root,
                 block,
                 seen_timestamp,
                 process_type,
-                reprocess_tx,
                 duplicate_cache,
             )
             .await;
@@ -106,7 +102,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block: RpcBlock<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
-        reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         duplicate_cache: DuplicateCache,
     ) {
         // Check if the block is already being imported through another source
@@ -132,7 +127,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 ignore_fn,
             });
 
-            if reprocess_tx.try_send(reprocess_msg).is_err() {
+            if self
+                .beacon_processor_send
+                .try_send(WorkEvent {
+                    drop_during_sync: false,
+                    work: Work::Reprocess(reprocess_msg),
+                })
+                .is_err()
+            {
                 error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %block_root)
             };
             return;
@@ -174,7 +176,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 block_root: hash,
                 parent_root,
             };
-            if reprocess_tx.try_send(reprocess_msg).is_err() {
+            if self
+                .beacon_processor_send
+                .try_send(WorkEvent {
+                    drop_during_sync: false,
+                    work: Work::Reprocess(reprocess_msg),
+                })
+                .is_err()
+            {
                 error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %hash)
             };
             self.chain.block_times_cache.write().set_time_observed(

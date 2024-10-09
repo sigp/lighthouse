@@ -11,9 +11,7 @@ use crate::service::NetworkMessage;
 use crate::status::status_message;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use beacon_processor::{
-    work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend, DuplicateCache,
-};
+use beacon_processor::{BeaconProcessorSend, DuplicateCache};
 use futures::prelude::*;
 use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::*;
@@ -90,7 +88,6 @@ impl<T: BeaconChainTypes> Router<T> {
         executor: task_executor::TaskExecutor,
         invalid_block_storage: InvalidBlockStorage,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
-        beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         log: slog::Logger,
     ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
         let message_handler_log = log.new(o!("service"=> "router"));
@@ -108,7 +105,6 @@ impl<T: BeaconChainTypes> Router<T> {
             chain: beacon_chain.clone(),
             network_tx: network_send.clone(),
             sync_tx: sync_send.clone(),
-            reprocess_tx: beacon_processor_reprocess_tx,
             network_globals: network_globals.clone(),
             invalid_block_storage,
             executor: executor.clone(),
