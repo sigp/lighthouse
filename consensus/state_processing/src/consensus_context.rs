@@ -151,7 +151,7 @@ impl<E: EthSpec> ConsensusContext<E> {
         &'a mut self,
         state: &BeaconState<E>,
         attestation: AttestationRef<'a, E>,
-    ) -> Result<IndexedAttestationRef<E>, BlockOperationError<AttestationInvalid>> {
+    ) -> Result<IndexedAttestationRef<'a, E>, BlockOperationError<AttestationInvalid>> {
         let key = attestation.tree_hash_root();
         match attestation {
             AttestationRef::Base(attn) => match self.indexed_attestations.entry(key) {

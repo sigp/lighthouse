@@ -214,7 +214,8 @@ lint:
 		-A clippy::vec-init-then-push \
 		-A clippy::question-mark \
 		-A clippy::uninlined-format-args \
-		-A clippy::enum_variant_names
+		-A clippy::enum_variant_names \
+		-A clippy::too_long_first_doc_paragraph
 
 # Lints the code using Clippy and automatically fix some simple compiler warnings.
 lint-fix:
