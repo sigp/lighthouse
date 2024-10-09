@@ -59,9 +59,7 @@ where
             .take(num_blocks.map_or(usize::MAX, |n| n + 1));
 
         // The state to be advanced.
-        let mut state = self
-            .load_cold_state_by_slot(lower_limit_slot)?
-            .ok_or(HotColdDBError::MissingLowerLimitState(lower_limit_slot))?;
+        let mut state = self.load_cold_state_by_slot(lower_limit_slot)?;
 
         state.build_caches(&self.spec)?;
 

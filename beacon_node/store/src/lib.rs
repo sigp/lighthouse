@@ -15,6 +15,7 @@ pub mod errors;
 mod forwards_iter;
 mod garbage_collection;
 pub mod hdiff;
+pub mod historic_state_cache;
 pub mod hot_cold_store;
 mod impls;
 mod leveldb_store;

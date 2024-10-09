@@ -78,8 +78,8 @@ pub enum StorageStrategy {
 /// Hierarchical diff output and working buffer.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct HDiffBuffer {
-    state: Vec<u8>,
-    balances: Vec<u64>,
+    pub state: Vec<u8>,
+    pub balances: Vec<u64>,
 }
 
 /// Hierarchical state diff.
@@ -124,12 +124,12 @@ impl HDiffBuffer {
         HDiffBuffer { state, balances }
     }
 
-    pub fn into_state<E: EthSpec>(self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
+    pub fn as_state<E: EthSpec>(&self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_INTO_STATE_TIME);
         let mut state =
             BeaconState::from_ssz_bytes(&self.state, spec).map_err(Error::InvalidSszState)?;
-        *state.balances_mut() =
-            List::new(self.balances).map_err(|_| Error::InvalidBalancesLength)?;
+        *state.balances_mut() = List::try_from_iter(self.balances.iter().copied())
+            .map_err(|_| Error::InvalidBalancesLength)?;
         Ok(state)
     }
 
