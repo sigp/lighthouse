@@ -16,7 +16,7 @@ use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
 use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
-use lighthouse_network::rpc::SubstreamId;
+use lighthouse_network::rpc::{RequestId, SubstreamId};
 use lighthouse_network::{
     discv5::enr::{self, CombinedKey},
     rpc::methods::{MetaData, MetaDataV2},
@@ -360,7 +360,9 @@ impl TestRig {
         self.network_beacon_processor
             .send_blobs_by_range_request(
                 PeerId::random(),
-                (ConnectionId::new_unchecked(42), SubstreamId::new(24)),
+                ConnectionId::new_unchecked(42),
+                SubstreamId::new(24),
+                RequestId::new_unchecked(0),
                 BlobsByRangeRequest {
                     start_slot: 0,
                     count,
@@ -1137,6 +1139,7 @@ async fn test_blobs_by_range() {
             peer_id: _,
             response: Response::BlobsByRange(blob),
             id: _,
+            request_id: _,
         } = next
         {
             if blob.is_some() {
