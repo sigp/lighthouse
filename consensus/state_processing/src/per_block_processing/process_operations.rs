@@ -40,15 +40,13 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
 
     if state.fork_name_unchecked().electra_enabled() {
         state.update_pubkey_cache()?;
-        if let Some(deposit_requests) = block_body.execution_payload()?.deposit_requests()? {
-            process_deposit_requests(state, &deposit_requests, spec)?;
-        }
-        if let Some(withdrawal_requests) = block_body.execution_payload()?.withdrawal_requests()? {
-            process_withdrawal_requests(state, &withdrawal_requests, spec)?;
-        }
-        if let Some(consolidations) = block_body.execution_payload()?.consolidation_requests()? {
-            process_consolidation_requests(state, &consolidations, spec)?;
-        }
+        process_deposit_requests(state, &block_body.execution_requests()?.deposits, spec)?;
+        process_withdrawal_requests(state, &block_body.execution_requests()?.withdrawals, spec)?;
+        process_consolidation_requests(
+            state,
+            &block_body.execution_requests()?.consolidations,
+            spec,
+        )?;
     }
 
     Ok(())
