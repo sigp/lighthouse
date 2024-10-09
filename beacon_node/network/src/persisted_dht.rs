@@ -69,14 +69,12 @@ impl StoreItem for PersistedDht {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use store::config::StoreConfig;
     use store::MemoryStore;
     use types::{ChainSpec, MinimalEthSpec};
     #[test]
     fn test_persisted_dht() {
-        let log = NullLoggerBuilder.build().unwrap();
         let store: HotColdDB<
             MinimalEthSpec,
             MemoryStore<MinimalEthSpec>,

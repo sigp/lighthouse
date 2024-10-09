@@ -14,9 +14,6 @@ use futures::{future, StreamExt};
 
 // use logging::{SELoggingComponents};
 use serde::{Deserialize, Serialize};
-use slog::{o, Drain, Duplicate, Level, Logger};
-use sloggers::{file::FileLoggerBuilder, types::Format, types::Severity, Build};
-use std::fs::create_dir_all;
 use std::io::{Result as IOResult, Write};
 use std::path::PathBuf;
 use std::sync::Arc;

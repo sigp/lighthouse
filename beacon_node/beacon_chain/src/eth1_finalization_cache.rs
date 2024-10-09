@@ -188,8 +188,6 @@ impl Eth1FinalizationCache {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use sloggers::null::NullLoggerBuilder;
-    use sloggers::Build;
     use std::collections::HashMap;
 
     const SLOTS_PER_EPOCH: u64 = 32;
@@ -197,8 +195,7 @@ pub mod tests {
     const EPOCHS_PER_ETH1_VOTING_PERIOD: u64 = 64;
 
     fn eth1cache() -> Eth1FinalizationCache {
-        let log_builder = NullLoggerBuilder;
-        Eth1FinalizationCache::new(log_builder.build().expect("should build log"))
+        Eth1FinalizationCache::new()
     }
 
     fn random_eth1_data(deposit_count: u64) -> Eth1Data {

@@ -705,7 +705,6 @@ mod test {
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,
         spec: Arc<ChainSpec>,
-        log: Logger,
     ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
         let hot_path = db_path.path().join("hot_db");
         let cold_path = db_path.path().join("cold_db");
@@ -725,7 +724,6 @@ mod test {
 
     // get a beacon chain harness advanced to just before deneb fork
     async fn get_deneb_chain<E: EthSpec>(
-        log: Logger,
         db_path: &TempDir,
     ) -> BeaconChainHarness<DiskHarnessType<E>> {
         let altair_fork_epoch = Epoch::new(1);
@@ -747,7 +745,6 @@ mod test {
             types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.clone())
-            .logger(log.clone())
             .keypairs(validators_keypairs)
             .fresh_disk_store(chain_store)
             .mock_execution_layer()
@@ -881,9 +878,8 @@ mod test {
         E: EthSpec,
         T: BeaconChainTypes<HotStore = LevelDB<E>, ColdStore = LevelDB<E>, EthSpec = E>,
     {
-        let log = test_logger();
         let chain_db_path = tempdir().expect("should get temp dir");
-        let harness = get_deneb_chain(log.clone(), &chain_db_path).await;
+        let harness = get_deneb_chain(&chain_db_path).await;
         let spec = harness.spec.clone();
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);

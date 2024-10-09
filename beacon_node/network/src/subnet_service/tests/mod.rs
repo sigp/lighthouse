@@ -8,8 +8,6 @@ use beacon_chain::{
 use futures::prelude::*;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::NetworkConfig;
-use slog::{o, Drain, Logger};
-use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
@@ -42,7 +40,6 @@ impl TestBeaconChain {
 
         let keypairs = generate_deterministic_keypairs(1);
 
-        let log = get_logger(None);
         let store = HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone()).unwrap();
 
         let kzg = get_kzg(&spec);
@@ -53,7 +50,6 @@ impl TestBeaconChain {
 
         let chain = Arc::new(
             BeaconChainBuilder::new(MainnetEthSpec, kzg.clone())
-                .logger(log.clone())
                 .custom_spec(spec.clone())
                 .store(Arc::new(store))
                 .task_executor(test_runtime.task_executor.clone())
@@ -93,30 +89,9 @@ pub fn recent_genesis_time() -> u64 {
         .as_secs()
 }
 
-fn get_logger(log_level: Option<slog::Level>) -> Logger {
-    if let Some(level) = log_level {
-        let drain = {
-            let decorator = slog_term::TermDecorator::new().build();
-            let decorator =
-                logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
-            let drain = slog_term::FullFormat::new(decorator).build().fuse();
-            let drain = slog_async::Async::new(drain).chan_size(2048).build();
-            drain.filter_level(level)
-        };
-
-        Logger::root(drain.fuse(), o!())
-    } else {
-        let builder = NullLoggerBuilder;
-        builder.build().expect("should build logger")
-    }
-}
-
 static CHAIN: LazyLock<TestBeaconChain> = LazyLock::new(TestBeaconChain::new_with_system_clock);
 
-fn get_attestation_service(
-    log_level: Option<slog::Level>,
-) -> AttestationService<TestBeaconChainType> {
-    let log = get_logger(log_level);
+fn get_attestation_service() -> AttestationService<TestBeaconChainType> {
     let config = NetworkConfig::default();
 
     let beacon_chain = CHAIN.chain.clone();
@@ -125,17 +100,15 @@ fn get_attestation_service(
         beacon_chain,
         lighthouse_network::discv5::enr::NodeId::random(),
         &config,
-        &log,
     )
 }
 
 fn get_sync_committee_service() -> SyncCommitteeService<TestBeaconChainType> {
-    let log = get_logger(None);
     let config = NetworkConfig::default();
 
     let beacon_chain = CHAIN.chain.clone();
 
-    SyncCommitteeService::new(beacon_chain, &config, &log)
+    SyncCommitteeService::new(beacon_chain, &config)
 }
 
 // gets a number of events from the subscription service, or returns none if it times out after a number
@@ -220,7 +193,7 @@ mod attestation_service {
         let subnets_per_node = MainnetEthSpec::default_spec().subnets_per_node as usize;
 
         // create the attestation service and subscriptions
-        let mut attestation_service = get_attestation_service(None);
+        let mut attestation_service = get_attestation_service();
         let current_slot = attestation_service
             .beacon_chain
             .slot_clock
@@ -298,7 +271,7 @@ mod attestation_service {
         let com2 = 0;
 
         // create the attestation service and subscriptions
-        let mut attestation_service = get_attestation_service(None);
+        let mut attestation_service = get_attestation_service();
         let current_slot = attestation_service
             .beacon_chain
             .slot_clock
@@ -406,7 +379,7 @@ mod attestation_service {
         let subnets_per_node = MainnetEthSpec::default_spec().subnets_per_node as usize;
 
         // create the attestation service and subscriptions
-        let mut attestation_service = get_attestation_service(None);
+        let mut attestation_service = get_attestation_service();
         let current_slot = attestation_service
             .beacon_chain
             .slot_clock
@@ -476,7 +449,7 @@ mod attestation_service {
         let committee_count = 1;
 
         // create the attestation service and subscriptions
-        let mut attestation_service = get_attestation_service(None);
+        let mut attestation_service = get_attestation_service();
         let current_slot = attestation_service
             .beacon_chain
             .slot_clock
@@ -540,7 +513,7 @@ mod attestation_service {
         let com2 = 0;
 
         // create the attestation service and subscriptions
-        let mut attestation_service = get_attestation_service(None);
+        let mut attestation_service = get_attestation_service();
         let current_slot = attestation_service
             .beacon_chain
             .slot_clock
@@ -643,7 +616,7 @@ mod attestation_service {
 
     #[tokio::test]
     async fn test_update_deterministic_long_lived_subnets() {
-        let mut attestation_service = get_attestation_service(None);
+        let mut attestation_service = get_attestation_service();
         let subnets_per_node = MainnetEthSpec::default_spec().subnets_per_node as usize;
 
         let current_slot = attestation_service

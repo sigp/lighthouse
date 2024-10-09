@@ -96,7 +96,6 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: Arc<ChainSpec>,
     chain_config: ChainConfig,
-    log: Option<Logger>,
     beacon_graffiti: GraffitiOrigin,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
     // Pending I/O batch that is constructed during building and should be executed atomically
@@ -140,7 +139,6 @@ where
             validator_pubkey_cache: None,
             spec: Arc::new(E::default_spec()),
             chain_config: ChainConfig::default(),
-            log: None,
             beacon_graffiti: GraffitiOrigin::default(),
             slasher: None,
             pending_io_batch: vec![],
@@ -215,14 +213,6 @@ where
     /// Sets the slasher.
     pub fn slasher(mut self, slasher: Arc<Slasher<E>>) -> Self {
         self.slasher = Some(slasher);
-        self
-    }
-
-    /// Sets the logger.
-    ///
-    /// Should generally be called early in the build chain.
-    pub fn logger(mut self, log: Logger) -> Self {
-        self.log = Some(log);
         self
     }
 
@@ -440,10 +430,6 @@ where
             .store
             .clone()
             .ok_or("weak_subjectivity_state requires a store")?;
-        let log = self
-            .log
-            .as_ref()
-            .ok_or("weak_subjectivity_state requires a log")?;
 
         // Ensure the state is advanced to an epoch boundary.
         let slots_per_epoch = E::slots_per_epoch();
@@ -715,11 +701,8 @@ where
         let head_tracker = Arc::new(self.head_tracker.unwrap_or_default());
         let beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>> = <_>::default();
 
-        let mut validator_monitor = ValidatorMonitor::new(
-            validator_monitor_config,
-            beacon_proposer_cache.clone(),
-            //log.new(o!("service" => "val_mon")),
-        );
+        let mut validator_monitor =
+            ValidatorMonitor::new(validator_monitor_config, beacon_proposer_cache.clone());
 
         let current_slot = if slot_clock
             .is_prior_to_genesis()
