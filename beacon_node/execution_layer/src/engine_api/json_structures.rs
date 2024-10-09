@@ -183,24 +183,6 @@ impl<E: EthSpec> From<ExecutionPayloadDeneb<E>> for JsonExecutionPayloadV3<E> {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
-enum RequestPrefix {
-    Deposit,
-    Withdrawal,
-    Consolidation,
-}
-
-impl RequestPrefix {
-    pub fn from_prefix(prefix: u8) -> Option<Self> {
-        match prefix {
-            0 => Some(Self::Deposit),
-            1 => Some(Self::Withdrawal),
-            2 => Some(Self::Consolidation),
-            _ => None,
-        }
-    }
-}
-
 impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> {
     fn from(payload: ExecutionPayloadElectra<E>) -> Self {
         JsonExecutionPayloadV4 {
@@ -357,9 +339,34 @@ impl<E: EthSpec> From<JsonExecutionPayload<E>> for ExecutionPayload<E> {
     }
 }
 
-/// Format of `ExecutionRequests` received over json rpc is
+/// This is used to index into the `execution_requests` array.
+#[derive(Debug, Copy, Clone)]
+enum RequestPrefix {
+    Deposit,
+    Withdrawal,
+    Consolidation,
+}
+
+impl RequestPrefix {
+    pub fn from_prefix(prefix: u8) -> Option<Self> {
+        match prefix {
+            0 => Some(Self::Deposit),
+            1 => Some(Self::Withdrawal),
+            2 => Some(Self::Consolidation),
+            _ => None,
+        }
+    }
+}
+
+/// Format of `ExecutionRequests` received over the engine api.
 ///
-/// Array of `prefix-type ++ ssz-encoded requests list` encoded as hex bytes.
+/// Array of ssz-encoded requests list` encoded as hex bytes.
+/// The prefix of the request type is used to index into the array.
+///
+/// For e.g. [0xab, 0xcd, 0xef]
+/// Here, 0xab are the deposits bytes (prefix and index == 0)
+/// 0xcd are the withdrawals bytes (prefix and index == 1)
+/// 0xef are the consolidations bytes (prefix and index == 2)
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct JsonExecutionRequests(pub Vec<String>);
@@ -370,34 +377,29 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequests<E> {
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
         let mut requests = ExecutionRequests::default();
 
-        for request in value.0.into_iter() {
+        for (i, request) in value.0.into_iter().enumerate() {
             // hex string
             let decoded_bytes = hex::decode(request).map_err(|e| format!("Invalid hex {:?}", e))?;
-            if let Some((first, rest)) = decoded_bytes.split_first() {
-                match RequestPrefix::from_prefix(*first) {
-                    Some(RequestPrefix::Deposit) => {
-                        requests.deposits =
-                            DepositRequests::<E>::from_ssz_bytes(rest).map_err(|e| {
-                                format!("Failed to decode DepositRequest from EL: {:?}", e)
-                            })?;
-                    }
-                    Some(RequestPrefix::Withdrawal) => {
-                        requests.withdrawals = WithdrawalRequests::<E>::from_ssz_bytes(rest)
-                            .map_err(|e| {
-                                format!("Failed to decode WithdrawalRequest from EL: {:?}", e)
-                            })?;
-                    }
-                    Some(RequestPrefix::Consolidation) => {
-                        requests.consolidations = ConsolidationRequests::<E>::from_ssz_bytes(rest)
-                            .map_err(|e| {
-                                format!("Failed to decode ConsolidationRequest from EL: {:?}", e)
-                            })?;
-                    }
-                    None => return Err("Empty requests string".to_string()),
+            match RequestPrefix::from_prefix(i as u8) {
+                Some(RequestPrefix::Deposit) => {
+                    requests.deposits = DepositRequests::<E>::from_ssz_bytes(&decoded_bytes)
+                        .map_err(|e| format!("Failed to decode DepositRequest from EL: {:?}", e))?;
                 }
+                Some(RequestPrefix::Withdrawal) => {
+                    requests.withdrawals = WithdrawalRequests::<E>::from_ssz_bytes(&decoded_bytes)
+                        .map_err(|e| {
+                            format!("Failed to decode WithdrawalRequest from EL: {:?}", e)
+                        })?;
+                }
+                Some(RequestPrefix::Consolidation) => {
+                    requests.consolidations =
+                        ConsolidationRequests::<E>::from_ssz_bytes(&decoded_bytes).map_err(
+                            |e| format!("Failed to decode ConsolidationRequest from EL: {:?}", e),
+                        )?;
+                }
+                None => return Err("Empty requests string".to_string()),
             }
         }
-
         Ok(requests)
     }
 }
