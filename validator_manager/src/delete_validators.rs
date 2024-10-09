@@ -103,7 +103,7 @@ async fn run<'a>(config: DeleteConfig) -> Result<(), String> {
             .iter()
             .any(|validator| &validator.validating_pubkey == validator_to_delete)
         {
-            return Err(format!("Validator {} doesn't exists", validator_to_delete));
+            return Err(format!("Validator {} doesn't exist", validator_to_delete));
         }
     }
 
