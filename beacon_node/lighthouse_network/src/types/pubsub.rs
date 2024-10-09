@@ -8,7 +8,7 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::attestation::SingleAttestation;
 use types::{
-    Attestation, AttestationBase, AttestationElectra, AttesterSlashing, AttesterSlashingBase,
+    Attestation, AttestationBase, AttesterSlashing, AttesterSlashingBase,
     AttesterSlashingElectra, BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec,
     ForkContext, ForkName, LightClientFinalityUpdate, LightClientOptimisticUpdate,
     ProposerSlashing, SignedAggregateAndProof, SignedAggregateAndProofBase,
@@ -198,15 +198,11 @@ impl<E: EthSpec> PubsubMessage<E> {
                             match fork_context.from_context_bytes(gossip_topic.fork_digest) {
                                 Some(&fork_name) => {
                                     if fork_name.electra_enabled() {
-                                        let single_attestation =
-                                            SingleAttestation::from_ssz_bytes(data)
-                                                .map_err(|e| format!("{:?}", e))?;
-                                        Attestation::Electra(
-                                            AttestationElectra::from_single_attestation(
-                                                single_attestation,
-                                            )
-                                            .map_err(|e| format!("{:?}", e))?,
-                                        )
+                                        // TODO(single-attestation) raise an error here
+                                        return Err(format!(
+                                            "Unknown gossipsub fork digest: {:?}",
+                                            gossip_topic.fork_digest
+                                        ))
                                     } else {
                                         Attestation::Base(
                                             AttestationBase::from_ssz_bytes(data)

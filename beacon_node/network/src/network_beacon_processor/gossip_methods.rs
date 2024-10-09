@@ -196,7 +196,6 @@ impl<E: EthSpec> FailedAtt<E> {
     pub fn attestation_data(&self) -> AttestationData {
         match self {
             FailedAtt::Unaggregate { attestation, .. } => attestation.data().clone(),
-            // TODO(single-attestation) fix this
             FailedAtt::Single { attestation, .. } => attestation.data.clone(),
             FailedAtt::Aggregate { attestation, .. } => {
                 attestation.message().aggregate().data().clone()

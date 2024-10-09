@@ -2261,6 +2261,62 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(Into::into)
     }
 
+    /// Accepts a `SingleAttestation` and attempts to apply it to the "naive
+    /// aggregation pool".
+    ///
+    /// The naive aggregation pool is used by local validators to produce
+    /// `SignedAggregateAndProof`.
+    ///
+    /// If the attestation is too old (low slot) to be included in the pool it is simply dropped
+    /// and no error is returned.
+    pub fn add_single_attestation_to_naive_aggregation_pool(
+        &self,
+        attestation: SingleAttestation,
+    ) -> Result<(), AttestationError> {
+        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
+
+        let state = self.state_at_slot(attestation.data.slot, StateSkipConfig::WithoutStateRoots)?;
+        
+        // TODO(single-attestation) unwrap
+        let _committees = state.get_beacon_committees_at_slot(attestation.data.slot).unwrap();
+
+
+        let attestation = Attestation::Electra(AttestationElectra::from_single_attestation(attestation).unwrap());
+
+        match self.naive_aggregation_pool.write().insert(attestation.to_ref()) {
+            Ok(outcome) => trace!(
+                self.log,
+                "Stored unaggregated attestation";
+                "outcome" => ?outcome,
+                "index" => attestation.committee_index(),
+                "slot" => attestation.data().slot.as_u64(),
+            ),
+            Err(NaiveAggregationError::SlotTooLow {
+                slot,
+                lowest_permissible_slot,
+            }) => {
+                trace!(
+                    self.log,
+                    "Refused to store unaggregated attestation";
+                    "lowest_permissible_slot" => lowest_permissible_slot.as_u64(),
+                    "slot" => slot.as_u64(),
+                );
+            }
+            Err(e) => {
+                error!(
+                        self.log,
+                        "Failed to store unaggregated attestation";
+                        "error" => ?e,
+                        "index" => attestation.committee_index(),
+                        "slot" => attestation.data().slot.as_u64(),
+                );
+                return Err(Error::from(e).into());
+            }
+        };
+
+        Ok(())
+    }
+
     /// Accepts an `VerifiedUnaggregatedAttestation` and attempts to apply it to the "naive
     /// aggregation pool".
     ///

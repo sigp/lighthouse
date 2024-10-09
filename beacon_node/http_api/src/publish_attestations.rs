@@ -94,20 +94,8 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
                 })
                 .map_err(|_| Error::Publication)?;
         }
-        types::AttestationRef::Electra(attn) => {
-            let single_attestation = attn
-                .to_single_attestation()
-                .map_err(|_| Error::Publication)?;
-
-            // Publish.
-            network_tx
-                .send(NetworkMessage::Publish {
-                    messages: vec![PubsubMessage::SingleAttestation(Box::new((
-                        attestation.subnet_id(),
-                        single_attestation,
-                    )))],
-                })
-                .map_err(|_| Error::Publication)?;
+        types::AttestationRef::Electra(_) => {
+            return Err(Error::Publication)            
         }
     };
 

@@ -467,7 +467,7 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: &SingleAttestation,
 ) -> Result<(IndexedAttestation<T::EthSpec>, CommitteesPerSlot), Error> {
-    // TODO(single-attestation) UNWRAP plus clean up
+    // TODO(single-attestation) ERROR types
     let result = chain
         .with_committee_cache(
             attestation.data.target.root,
@@ -475,14 +475,13 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
             |committee_cache, _| {
                 let committees = committee_cache
                     .get_beacon_committees_at_slot(attestation.data.slot)
-                    .unwrap();
+                    .map_err(|_| Error::InvalidSignature).map_err(|_| BeaconChainError::AttestationCommitteeIndexNotSet)?;
                 let indexed_attestation =
-                    get_indexed_attestation(&committees, attestation).unwrap();
+                    get_indexed_attestation(&committees, attestation).map_err(|_s| BeaconChainError::AttestationCommitteeIndexNotSet)?;
 
                 Ok((indexed_attestation, committees.len() as u64))
             },
-        )
-        .unwrap();
+        )?;
 
     Ok(result)
 }
