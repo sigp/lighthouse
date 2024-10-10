@@ -450,7 +450,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         let block_root = lookup.block_root();
-        let request_state = R::request_state_mut(lookup).get_state_mut();
+        let request_state = R::request_state_mut(lookup)
+            .map_err(|e| LookupRequestError::BadState(e.to_owned()))?
+            .get_state_mut();
 
         match response {
             Ok((response, peer_group, seen_timestamp)) => {
@@ -545,7 +547,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         let block_root = lookup.block_root();
-        let request_state = R::request_state_mut(lookup).get_state_mut();
+        let request_state = R::request_state_mut(lookup)
+            .map_err(|e| LookupRequestError::BadState(e.to_owned()))?
+            .get_state_mut();
 
         debug!(
             self.log,
