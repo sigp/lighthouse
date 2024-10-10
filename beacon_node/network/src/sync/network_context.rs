@@ -7,6 +7,7 @@ pub use self::requests::{BlocksByRootSingleRequest, DataColumnsByRootSingleBlock
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
 use super::manager::BlockProcessType;
 use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
+use super::SyncMessage;
 use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::NetworkMessage;
@@ -249,6 +250,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
+    pub fn send_sync_message(&mut self, sync_message: SyncMessage<T::EthSpec>) {
+        self.network_beacon_processor
+            .send_sync_message(sync_message);
+    }
+
     /// Returns the ids of all the requests made to the given peer_id.
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) -> Vec<SyncRequestId> {
         let failed_range_ids =
@@ -418,13 +424,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             false
         };
 
-        let (expects_custody_columns, num_of_custody_column_req) =
+        let (expects_columns, num_of_column_req) =
             if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
-                let custody_indexes = self.network_globals().custody_columns.clone();
+                let column_indexes = self.network_globals().sampling_columns.clone();
                 let mut num_of_custody_column_req = 0;
 
                 for (peer_id, columns_by_range_request) in
-                    self.make_columns_by_range_requests(request, &custody_indexes)?
+                    self.make_columns_by_range_requests(request, &column_indexes)?
                 {
                     requested_peers.push(peer_id);
 
@@ -448,15 +454,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     num_of_custody_column_req += 1;
                 }
 
-                (Some(custody_indexes), Some(num_of_custody_column_req))
+                (Some(column_indexes), Some(num_of_custody_column_req))
             } else {
                 (None, None)
             };
 
         let info = RangeBlockComponentsRequest::new(
             expected_blobs,
-            expects_custody_columns,
-            num_of_custody_column_req,
+            expects_columns,
+            num_of_column_req,
             requested_peers,
         );
         self.range_block_components_requests
@@ -668,7 +674,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let imported_blob_indexes = self
             .chain
             .data_availability_checker
-            .imported_blob_indexes(&block_root)
+            .cached_blob_indexes(&block_root)
             .unwrap_or_default();
         // Include only the blob indexes not yet imported (received through gossip)
         let indices = (0..expected_blobs as u64)
@@ -786,13 +792,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let custody_indexes_imported = self
             .chain
             .data_availability_checker
-            .imported_custody_column_indexes(&block_root)
+            .cached_data_column_indexes(&block_root)
             .unwrap_or_default();
 
         // Include only the blob indexes not yet imported (received through gossip)
         let custody_indexes_to_fetch = self
             .network_globals()
-            .custody_columns
+            .sampling_columns
             .clone()
             .into_iter()
             .filter(|index| !custody_indexes_imported.contains(index))

@@ -16,7 +16,7 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
-use types::{Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, Slot};
+use types::{Epoch, EthSpec, FixedBytesExtended, Hash256, Slot};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
@@ -564,14 +564,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.chain
                 .epoch()
                 .map_or(self.chain.spec.max_request_blocks, |epoch| {
-                    match self.chain.spec.fork_name_at_epoch(epoch) {
-                        ForkName::Deneb | ForkName::Electra => {
-                            self.chain.spec.max_request_blocks_deneb
-                        }
-                        ForkName::Base
-                        | ForkName::Altair
-                        | ForkName::Bellatrix
-                        | ForkName::Capella => self.chain.spec.max_request_blocks,
+                    if self.chain.spec.fork_name_at_epoch(epoch).deneb_enabled() {
+                        self.chain.spec.max_request_blocks_deneb
+                    } else {
+                        self.chain.spec.max_request_blocks
                     }
                 });
         if *req.count() > max_request_size {
