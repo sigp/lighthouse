@@ -1144,9 +1144,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::DeleteState(state_root, slot) => {
+                    // Delete the hot state summary.
                     let state_summary_key =
                         get_key_for_col(DBColumn::BeaconStateSummary.into(), state_root.as_slice());
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(state_summary_key));
+
+                    // Delete the state temporary flag (if any). Temporary flags are commonly
+                    // created by the state advance routine.
+                    let state_temp_key = get_key_for_col(
+                        DBColumn::BeaconStateTemporary.into(),
+                        state_root.as_slice(),
+                    );
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(state_temp_key));
 
                     if slot.map_or(true, |slot| slot % E::slots_per_epoch() == 0) {
                         let state_key =

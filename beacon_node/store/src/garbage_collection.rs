@@ -21,15 +21,11 @@ where
                 .try_fold(vec![], |mut ops, state_root| {
                     let state_root = state_root?;
                     ops.push(StoreOp::DeleteState(state_root, None));
-                    ops.push(StoreOp::DeleteStateTemporaryFlag(state_root));
                     Result::<_, Error>::Ok(ops)
                 })?;
 
         if !delete_ops.is_empty() {
-            debug!(
-                "Garbage collecting {} temporary states",
-                delete_ops.len() / 2
-            );
+            debug!("Garbage collecting {} temporary states", delete_ops.len());
             self.do_atomically_with_block_and_blobs_cache(delete_ops)?;
         }
 

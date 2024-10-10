@@ -382,6 +382,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::network_beacon_processor::NetworkBeaconProcessor;
+    use crate::sync::SyncMessage;
     use crate::NetworkMessage;
 
     use super::*;
@@ -686,6 +687,7 @@ mod tests {
             log.new(o!("component" => "range")),
         );
         let (network_tx, network_rx) = mpsc::unbounded_channel();
+        let (sync_tx, _sync_rx) = mpsc::unbounded_channel::<SyncMessage<E>>();
         let network_config = Arc::new(NetworkConfig::default());
         let globals = Arc::new(NetworkGlobals::new_test_globals(
             Vec::new(),
@@ -696,6 +698,7 @@ mod tests {
         let (network_beacon_processor, beacon_processor_rx) =
             NetworkBeaconProcessor::null_for_testing(
                 globals.clone(),
+                sync_tx,
                 chain.clone(),
                 harness.runtime.task_executor.clone(),
                 log.clone(),

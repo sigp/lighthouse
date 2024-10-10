@@ -2507,7 +2507,7 @@ async fn pruning_test(
 }
 
 #[tokio::test]
-async fn garbage_collect_temp_states_from_failed_block() {
+async fn garbage_collect_temp_states_from_failed_block_on_startup() {
     let db_path = tempdir().unwrap();
 
     // Wrap these functions to ensure the variables are dropped before we try to open another
@@ -2561,6 +2561,61 @@ async fn garbage_collect_temp_states_from_failed_block() {
 
     // On startup, the store should garbage collect all the temporary states.
     let store = get_store(&db_path);
+    assert_eq!(store.iter_temporary_state_roots().count(), 0);
+}
+
+#[tokio::test]
+async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
+    let db_path = tempdir().unwrap();
+
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    let slots_per_epoch = E::slots_per_epoch();
+
+    let genesis_state = harness.get_current_state();
+    let block_slot = Slot::new(2 * slots_per_epoch);
+    let ((signed_block, _), state) = harness.make_block(genesis_state, block_slot).await;
+
+    let (mut block, _) = (*signed_block).clone().deconstruct();
+
+    // Mutate the block to make it invalid, and re-sign it.
+    *block.state_root_mut() = Hash256::repeat_byte(0xff);
+    let proposer_index = block.proposer_index() as usize;
+    let block = Arc::new(block.sign(
+        &harness.validator_keypairs[proposer_index].sk,
+        &state.fork(),
+        state.genesis_validators_root(),
+        &harness.spec,
+    ));
+
+    // The block should be rejected, but should store a bunch of temporary states.
+    harness.set_current_slot(block_slot);
+    harness
+        .process_block_result((block, None))
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        store.iter_temporary_state_roots().count(),
+        block_slot.as_usize() - 1
+    );
+
+    // Finalize the chain without the block, which should result in pruning of all temporary states.
+    let blocks_required_to_finalize = 3 * slots_per_epoch;
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            blocks_required_to_finalize as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Check that the finalization migration ran.
+    assert_ne!(store.get_split_slot(), 0);
+
+    // Check that temporary states have been pruned.
     assert_eq!(store.iter_temporary_state_roots().count(), 0);
 }
 
