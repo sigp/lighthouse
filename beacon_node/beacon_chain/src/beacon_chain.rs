@@ -3968,6 +3968,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         if let Some(data_columns) = data_columns {
+            // TODO(das): `available_block includes all sampled columns, but we only need to store
+            // custody columns. To be clarified in spec.
             if !data_columns.is_empty() {
                 debug!(
                     self.log, "Writing data_columns to store";
