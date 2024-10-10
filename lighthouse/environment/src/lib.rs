@@ -199,7 +199,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         let log_dir = path.parent().unwrap();
         let file = path.file_name().unwrap();
 
-        let file_appender = RollingFileAppender::new(Rotation::NEVER, log_dir, file);
+        let file_appender = RollingFileAppender::new(Rotation::DAILY, log_dir, file);
         let (non_blocking_file, guard) = tracing_appender::non_blocking(file_appender);
 
         (self, non_blocking_file, guard)
