@@ -133,7 +133,9 @@ Flags:
           When provided don't generate the deposits JSON file that is commonly
           used for submitting validator deposits via a web UI. Using this flag
           will save several seconds per validator if the user has an alternate
-          strategy for submitting deposits.
+          strategy for submitting deposits. If used, the
+          --force-bls-withdrawal-credentials is also required to ensure users
+          are aware that an --eth1-withdrawal-address is not set.
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning

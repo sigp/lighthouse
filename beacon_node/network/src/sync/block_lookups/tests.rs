@@ -1,6 +1,7 @@
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::sync::manager::{BlockProcessType, SyncManager};
 use crate::sync::peer_sampling::SamplingConfig;
+use crate::sync::range_sync::RangeSyncType;
 use crate::sync::{SamplingId, SyncMessage};
 use crate::NetworkMessage;
 use std::sync::Arc;
@@ -78,6 +79,8 @@ struct TestRig {
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     /// Stores all `NetworkMessage`s received from `network_recv`. (e.g. outgoing RPC requests)
     network_rx_queue: Vec<NetworkMessage<E>>,
+    /// Receiver for `SyncMessage` from the network
+    sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
     /// To send `SyncMessage`. For sending RPC responses or block processing results to sync.
     sync_manager: SyncManager<T>,
     /// To manipulate sync state and peer connection status
@@ -137,6 +140,7 @@ impl TestRig {
         let chain = harness.chain.clone();
 
         let (network_tx, network_rx) = mpsc::unbounded_channel();
+        let (sync_tx, sync_rx) = mpsc::unbounded_channel::<SyncMessage<E>>();
         // TODO(das): make the generation of the ENR use the deterministic rng to have consistent
         // column assignments
         let network_config = Arc::new(NetworkConfig::default());
@@ -148,12 +152,11 @@ impl TestRig {
         ));
         let (beacon_processor, beacon_processor_rx) = NetworkBeaconProcessor::null_for_testing(
             globals,
+            sync_tx,
             chain.clone(),
             harness.runtime.task_executor.clone(),
             log.clone(),
         );
-
-        let (_sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<E>>();
 
         let fork_name = chain.spec.fork_name_at_slot::<E>(chain.slot().unwrap());
 
@@ -168,13 +171,15 @@ impl TestRig {
             beacon_processor_rx_queue: vec![],
             network_rx,
             network_rx_queue: vec![],
+            sync_rx,
             rng,
             network_globals: beacon_processor.network_globals.clone(),
             sync_manager: SyncManager::new(
                 chain,
                 network_tx,
                 beacon_processor.into(),
-                sync_recv,
+                // Pass empty recv not tied to any tx
+                mpsc::unbounded_channel().1,
                 SamplingConfig::Custom {
                     required_successes: vec![SAMPLING_REQUIRED_SUCCESSES],
                 },
@@ -237,6 +242,13 @@ impl TestRig {
         self.send_sync_message(SyncMessage::SampleBlock(block_root, block_slot))
     }
 
+    /// Drain all sync messages in the sync_rx attached to the beacon processor
+    fn drain_sync_rx(&mut self) {
+        while let Ok(sync_message) = self.sync_rx.try_recv() {
+            self.send_sync_message(sync_message);
+        }
+    }
+
     fn rand_block(&mut self) -> SignedBeaconBlock<E> {
         self.rand_block_and_blobs(NumBlobs::None).0
     }
@@ -291,6 +303,10 @@ impl TestRig {
 
     fn active_parent_lookups_count(&self) -> usize {
         self.sync_manager.active_parent_lookups().len()
+    }
+
+    fn active_range_sync_chain(&self) -> (RangeSyncType, Slot, Slot) {
+        self.sync_manager.get_range_sync_chains().unwrap().unwrap()
     }
 
     fn assert_single_lookups_count(&self, count: usize) {
@@ -1710,7 +1726,18 @@ fn test_parent_lookup_too_deep_grow_ancestor() {
         )
     }
 
-    rig.expect_penalty(peer_id, "chain_too_long");
+    // Should create a new syncing chain
+    rig.drain_sync_rx();
+    assert_eq!(
+        rig.active_range_sync_chain(),
+        (
+            RangeSyncType::Head,
+            Slot::new(0),
+            Slot::new(PARENT_DEPTH_TOLERANCE as u64 - 1)
+        )
+    );
+    // Should not penalize peer, but network is not clear because of the blocks_by_range requests
+    rig.expect_no_penalty_for(peer_id);
     rig.assert_failed_chain(chain_hash);
 }
 
@@ -1737,7 +1764,18 @@ fn test_parent_lookup_too_deep_grow_tip() {
         );
     }
 
-    rig.expect_penalty(peer_id, "chain_too_long");
+    // Should create a new syncing chain
+    rig.drain_sync_rx();
+    assert_eq!(
+        rig.active_range_sync_chain(),
+        (
+            RangeSyncType::Head,
+            Slot::new(0),
+            Slot::new(PARENT_DEPTH_TOLERANCE as u64 - 2)
+        )
+    );
+    // Should not penalize peer, but network is not clear because of the blocks_by_range requests
+    rig.expect_no_penalty_for(peer_id);
     rig.assert_failed_chain(tip.canonical_root());
 }
 
