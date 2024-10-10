@@ -2121,27 +2121,6 @@ impl<E: EthSpec> BeaconState<E> {
             .map_err(Into::into)
     }
 
-    /// Get active balance for the given `validator_index`.
-    pub fn get_active_balance(
-        &self,
-        validator_index: usize,
-        spec: &ChainSpec,
-        current_fork: ForkName,
-    ) -> Result<u64, Error> {
-        let max_effective_balance = self
-            .validators()
-            .get(validator_index)
-            .map(|validator| validator.get_max_effective_balance(spec, current_fork))
-            .ok_or(Error::UnknownValidator(validator_index))?;
-        Ok(std::cmp::min(
-            *self
-                .balances()
-                .get(validator_index)
-                .ok_or(Error::UnknownValidator(validator_index))?,
-            max_effective_balance,
-        ))
-    }
-
     pub fn get_pending_balance_to_withdraw(&self, validator_index: usize) -> Result<u64, Error> {
         let mut pending_balance = 0;
         for withdrawal in self

@@ -262,16 +262,6 @@ impl Validator {
             spec.max_effective_balance
         }
     }
-
-    pub fn get_active_balance(
-        &self,
-        validator_balance: u64,
-        spec: &ChainSpec,
-        current_fork: ForkName,
-    ) -> u64 {
-        let max_effective_balance = self.get_max_effective_balance(spec, current_fork);
-        std::cmp::min(validator_balance, max_effective_balance)
-    }
 }
 
 impl Default for Validator {

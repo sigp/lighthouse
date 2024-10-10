@@ -941,21 +941,23 @@ fn process_pending_consolidations<E: EthSpec>(
             break;
         }
 
-        // Calculate the active balance while we have the source validator loaded. This is a safe
-        // reordering.
-        let source_balance = *state
-            .balances()
-            .get(source_index)
-            .ok_or(BeaconStateError::UnknownValidator(source_index))?;
-        let active_balance =
-            source_validator.get_active_balance(source_balance, spec, state_ctxt.fork_name);
+        // Calculate the consolidated balance
+        let max_effective_balance =
+            source_validator.get_max_effective_balance(spec, state_ctxt.fork_name);
+        let source_effective_balance = std::cmp::min(
+            *state
+                .balances()
+                .get(source_index)
+                .ok_or(BeaconStateError::UnknownValidator(source_index))?,
+            max_effective_balance,
+        );
 
         // Churn any target excess active balance of target and raise its max.
         state.switch_to_compounding_validator(target_index, spec)?;
 
         // Move active balance to target. Excess balance is withdrawable.
-        decrease_balance(state, source_index, active_balance)?;
-        increase_balance(state, target_index, active_balance)?;
+        decrease_balance(state, source_index, source_effective_balance)?;
+        increase_balance(state, target_index, source_effective_balance)?;
 
         affected_validators.insert(source_index);
         affected_validators.insert(target_index);
