@@ -1,4 +1,6 @@
 use self::request::ActiveColumnSampleRequest;
+#[cfg(test)]
+pub(crate) use self::request::Status;
 use super::network_context::{
     DataColumnsByRootSingleBlockRequest, RpcResponseError, SyncNetworkContext,
 };
@@ -47,7 +49,7 @@ impl<T: BeaconChainTypes> Sampling<T> {
         &self,
         block_root: Hash256,
         index: &ColumnIndex,
-    ) -> Option<&'static str> {
+    ) -> Option<self::request::Status> {
         let requester = SamplingRequester::ImportedBlock(block_root);
         self.requests
             .get(&requester)
@@ -233,8 +235,8 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
     }
 
     #[cfg(test)]
-    pub fn get_request_status(&self, index: &ColumnIndex) -> Option<&'static str> {
-        self.column_requests.get(index).map(|req| req.status_str())
+    pub fn get_request_status(&self, index: &ColumnIndex) -> Option<self::request::Status> {
+        self.column_requests.get(index).map(|req| req.status())
     }
 
     /// Insert a downloaded column into an active sampling request. Then make progress on the
@@ -575,8 +577,9 @@ mod request {
         peers_dont_have: HashSet<PeerId>,
     }
 
+    // Exposed only for testing assertions in lookup tests
     #[derive(Debug, Clone, IntoStaticStr)]
-    enum Status {
+    pub(crate) enum Status {
         NoPeers,
         NotStarted,
         Sampling(PeerId),
@@ -621,8 +624,8 @@ mod request {
         }
 
         #[cfg(test)]
-        pub(crate) fn status_str(&self) -> &'static str {
-            self.status.clone().into()
+        pub(crate) fn status(&self) -> Status {
+            self.status.clone()
         }
 
         pub(crate) fn choose_peer<T: BeaconChainTypes>(

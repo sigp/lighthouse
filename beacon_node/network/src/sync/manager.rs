@@ -342,7 +342,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &self,
         block_root: Hash256,
         index: &ColumnIndex,
-    ) -> Option<&'static str> {
+    ) -> Option<super::peer_sampling::Status> {
         self.sampling.get_request_status(block_root, index)
     }
 

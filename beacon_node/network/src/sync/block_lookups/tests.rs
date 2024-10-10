@@ -1309,10 +1309,9 @@ impl TestRig {
                 .sync_manager
                 .get_sampling_request_status(block_root, index)
                 .unwrap_or_else(|| panic!("No request state for {index}"));
-            assert_eq!(
-                status, "Sampling",
-                "expected {block_root} {index} request to be ongoing"
-            );
+            if !matches!(status, crate::sync::peer_sampling::Status::Sampling { .. }) {
+                panic!("expected {block_root} {index} request to be on going: {status:?}");
+            }
         }
     }
 
@@ -1322,10 +1321,9 @@ impl TestRig {
                 .sync_manager
                 .get_sampling_request_status(block_root, index)
                 .unwrap_or_else(|| panic!("No request state for {index}"));
-            assert_eq!(
-                status, "NoPeers",
-                "expected {block_root} {index} request to be nopeers"
-            );
+            if !matches!(status, crate::sync::peer_sampling::Status::NoPeers { .. }) {
+                panic!("expected {block_root} {index} request to be no peers: {status:?}");
+            }
         }
     }
 }
