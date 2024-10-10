@@ -19,6 +19,7 @@ pub const DEFAULT_IPV4_ADDRESS: Ipv4Addr = Ipv4Addr::UNSPECIFIED;
 pub const DEFAULT_TCP_PORT: u16 = 9000u16;
 pub const DEFAULT_DISC_PORT: u16 = 9000u16;
 pub const DEFAULT_QUIC_PORT: u16 = 9001u16;
+pub const DEFAULT_IDONTWANT_MESSAGE_SIZE_THRESHOLD: usize = 1000usize;
 
 /// The maximum size of gossip messages.
 pub fn gossip_max_size(is_merge_enabled: bool, gossip_max_size: usize) -> usize {
@@ -356,7 +357,7 @@ impl Default for Config {
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,
-            idontwant_message_size_threshold: 1000,
+            idontwant_message_size_threshold: DEFAULT_IDONTWANT_MESSAGE_SIZE_THRESHOLD,
         }
     }
 }
