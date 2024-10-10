@@ -606,6 +606,30 @@ fn run<E: EthSpec>(
         sse_logging,
     };
 
+    let mut tracing_log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
+
+    if tracing_log_path.is_none() {
+        tracing_log_path = Some(
+            parse_path_or_default(matches, "datadir")?
+                .join(DEFAULT_BEACON_NODE_DIR)
+                .join("logs"),
+        )
+    }
+
+    let path = tracing_log_path.clone().unwrap();
+
+    let (libp2p_non_blocking_writer, _libp2p_guard, discv5_non_blocking_writer, _discv5_guard) =
+        logging::create_tracing_layer(path);
+    let libp2p_layer = tracing_subscriber::fmt::layer()
+        .with_writer(libp2p_non_blocking_writer)
+        .with_file(true)
+        .with_line_number(true);
+
+    let discv5_layer = tracing_subscriber::fmt::layer()
+        .with_writer(discv5_non_blocking_writer)
+        .with_file(true)
+        .with_line_number(true);
+
     let (builder, non_blocking_file, _guard) =
         environment_builder.init_tracing(logger_config.clone());
 
@@ -624,6 +648,8 @@ fn run<E: EthSpec>(
         .with(stdout_layer)
         .with(file_layer)
         .with(filter_layer)
+        .with(libp2p_layer)
+        .with(discv5_layer)
         .try_init()
     {
         eprintln!("Failed to initialize dependency logging: {e}");
@@ -727,21 +753,6 @@ fn run<E: EthSpec>(
                 info!("Beacon node immediate shutdown triggered.");
                 return Ok(());
             }
-
-            let mut tracing_log_path: Option<PathBuf> =
-                clap_utils::parse_optional(matches, "logfile")?;
-
-            if tracing_log_path.is_none() {
-                tracing_log_path = Some(
-                    parse_path_or_default(matches, "datadir")?
-                        .join(DEFAULT_BEACON_NODE_DIR)
-                        .join("logs"),
-                )
-            }
-
-            let path = tracing_log_path.clone().unwrap();
-
-            logging::create_tracing_layer(path);
 
             executor.clone().spawn(
                 async move {
