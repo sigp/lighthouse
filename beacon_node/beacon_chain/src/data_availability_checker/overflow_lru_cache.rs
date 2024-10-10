@@ -306,15 +306,6 @@ impl<E: EthSpec> PendingComponents<E> {
         )))
     }
 
-    /// Mark reconstruction as started for this `PendingComponent`.
-    ///
-    /// NOTE: currently this value never reverts to false once it's set here. This means
-    /// reconstruction will only be attempted once. This is intentional because currently
-    /// reconstruction could only fail due to code errors or kzg errors, which shouldn't be retried.
-    pub fn reconstruction_started(&mut self) {
-        self.reconstruction_started = true;
-    }
-
     /// Returns the epoch of the block if it is cached, otherwise returns the epoch of the first blob.
     pub fn epoch(&self) -> Option<Epoch> {
         self.executed_block
@@ -522,9 +513,50 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
     }
 
-    pub fn set_reconstruction_started(&self, block_root: &Hash256) {
+    /// Check whether data column reconstruction should be attempted.
+    ///
+    /// If reconstruction is required, returns `Some(PendingComponents)` which contains the
+    /// components to be used as inputs to reconstruction, otherwise return `None`.
+    pub fn check_and_set_reconstruction_started(
+        &self,
+        block_root: &Hash256,
+    ) -> Option<PendingComponents<T::EthSpec>> {
+        let mut write_lock = self.critical.write();
+        let Some(pending_components) = write_lock.get_mut(block_root) else {
+            // Block may have been imported as it does not exist in availability cache.
+            return None;
+        };
+
+        // Potentially trigger reconstruction if:
+        // - Our custody requirement is all columns, and we haven't got all columns
+        // - We have >= 50% of columns, but not all columns
+        // - Reconstruction hasn't been started for the block
+        let should_reconstruct = {
+            let received_column_count = pending_components.verified_data_columns.len();
+            // If we're sampling all columns, it means we must be custodying all columns.
+            let custody_column_count = self.sampling_column_count();
+            let total_column_count = self.spec.number_of_columns;
+            custody_column_count == total_column_count
+                && received_column_count < total_column_count
+                && received_column_count >= total_column_count / 2
+                && !pending_components.reconstruction_started
+        };
+
+        if should_reconstruct {
+            pending_components.reconstruction_started = true;
+            Some(pending_components.clone())
+        } else {
+            None
+        }
+    }
+
+    /// This could mean some invalid data columns made it through to the `DataAvailabilityChecker`.
+    /// In this case, we remove all data columns in `PendingComponents`, reset reconstruction
+    /// status so that we can attempt to retrieve columns from peers again.
+    pub fn handle_reconstruction_failure(&self, block_root: &Hash256) {
         if let Some(pending_components_mut) = self.critical.write().get_mut(block_root) {
-            pending_components_mut.reconstruction_started();
+            pending_components_mut.verified_data_columns = vec![];
+            pending_components_mut.reconstruction_started = false;
         }
     }
 

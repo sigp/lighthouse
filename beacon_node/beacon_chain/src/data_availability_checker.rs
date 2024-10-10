@@ -2,9 +2,7 @@ use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, Kzg
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
 };
-use crate::data_availability_checker::overflow_lru_cache::{
-    DataAvailabilityCheckerInner, PendingComponents,
-};
+use crate::data_availability_checker::overflow_lru_cache::DataAvailabilityCheckerInner;
 use crate::{metrics, BeaconChain, BeaconChainTypes, BeaconStore};
 use kzg::Kzg;
 use slog::{debug, error, Logger};
@@ -518,23 +516,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: &Hash256,
     ) -> Result<Option<AvailabilityAndReconstructedColumns<T::EthSpec>>, AvailabilityCheckError>
     {
-        // Clone the pending components, so we don't hold the read lock during reconstruction
         let Some(pending_components) = self
             .availability_cache
-            .peek_pending_components(block_root, |pending_components_opt| {
-                pending_components_opt.cloned()
-            })
+            .check_and_set_reconstruction_started(block_root)
         else {
-            // Block may have been imported as it does not exist in availability cache.
+            // Reconstruction not required or already in progress
             return Ok(None);
         };
-
-        if !self.should_reconstruct(&pending_components) {
-            return Ok(None);
-        }
-
-        self.availability_cache
-            .set_reconstruction_started(block_root);
 
         metrics::inc_counter(&KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS);
         let timer = metrics::start_timer(&metrics::DATA_AVAILABILITY_RECONSTRUCTION_TIME);
@@ -551,6 +539,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 "block_root" => ?block_root,
                 "error" => ?e
             );
+            self.availability_cache
+                .handle_reconstruction_failure(block_root);
             metrics::inc_counter(&KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES);
             AvailabilityCheckError::ReconstructColumnsError(e)
         })?;
@@ -605,21 +595,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 )
             })
             .map(Some)
-    }
-
-    /// Potentially trigger reconstruction if:
-    /// - Our custody requirement is all columns, and we haven't got all columns
-    /// - We have >= 50% of columns, but not all columns
-    /// - Reconstruction hasn't been started for the block
-    fn should_reconstruct(&self, pending_components: &PendingComponents<T::EthSpec>) -> bool {
-        let received_column_count = pending_components.verified_data_columns.len();
-        // If we're sampling all columns, it means we must be custodying all columns.
-        let custody_column_count = self.availability_cache.sampling_column_count();
-        let total_column_count = self.spec.number_of_columns;
-        custody_column_count == total_column_count
-            && received_column_count < total_column_count
-            && received_column_count >= total_column_count / 2
-            && !pending_components.reconstruction_started
     }
 }
 
