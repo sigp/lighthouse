@@ -195,11 +195,27 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     /// The logger can be duplicated and more detailed logs can be output to `logfile`.
     /// Note that background file logging will spawn a new thread.
     pub fn init_tracing(mut self, config: LoggerConfig) -> (Self, NonBlocking, WorkerGuard) {
-        let path = config.path.unwrap();
-        let log_dir = path.parent().unwrap();
-        let file = path.file_name().unwrap();
+        let mut log_path = config.path.unwrap();
 
-        let file_appender = RollingFileAppender::new(Rotation::DAILY, log_dir, file);
+        let mut path = PathBuf::new();
+        for p in log_path.iter() {
+            path = path.join(p);
+            if let Ok(metadata) = path.metadata() {
+                if !metadata.is_dir() {
+                    path.pop();
+                    break;
+                }
+            }
+        }
+        let Ok(file_appender) = RollingFileAppender::builder()
+            .rotation(Rotation::DAILY)
+            .max_log_files(2)
+            .filename_prefix("beacon")
+            .filename_suffix("log")
+            .build(path.clone())
+        else {
+            panic!("Failed to initialize rolling file appender");
+        };
         let (non_blocking_file, guard) = tracing_appender::non_blocking(file_appender);
 
         (self, non_blocking_file, guard)
