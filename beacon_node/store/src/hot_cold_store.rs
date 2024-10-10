@@ -1796,10 +1796,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     return Ok(base_state);
                 }
 
+                let t = std::time::Instant::now();
+
                 let blocks = self.load_cold_blocks(base_state.slot() + 1, slot)?;
+                // FIXME(sproul): add metric
+                debug!(
+                    self.log,
+                    "Loaded cold blocks";
+                    "target_slot" => slot,
+                    "num_blocks" => blocks.len(),
+                    "load_time_ms" => t.elapsed().as_millis()
+                );
 
                 // Include state root for base state as it is required by block processing to not
                 // have to hash the state.
+                let t = std::time::Instant::now();
                 let state_root_iter =
                     self.forwards_state_roots_iterator_until(base_state.slot(), slot, || {
                         Err(Error::StateShouldNotBeRequired(slot))
@@ -1807,6 +1818,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
                 let state =
                     self.replay_blocks(base_state, blocks, slot, Some(state_root_iter), None)?;
+
+                debug!(
+                    self.log,
+                    "Replayed blocks";
+                    "target_slot" => slot,
+                    "load_time_ms" => t.elapsed().as_millis()
+                );
+
                 self.historic_state_cache
                     .lock()
                     .put_state(slot, state.clone());

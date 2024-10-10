@@ -2707,6 +2707,7 @@ pub fn serve<T: BeaconChainTypes>(
                         // We can ignore the optimistic status for the "fork" since it's a
                         // specification constant that doesn't change across competing heads of the
                         // beacon chain.
+                        let t = std::time::Instant::now();
                         let (state, _execution_optimistic, _finalized) = state_id.state(&chain)?;
                         let fork_name = state
                             .fork_name(&chain.spec)
@@ -2714,6 +2715,13 @@ pub fn serve<T: BeaconChainTypes>(
                         let timer = metrics::start_timer(&metrics::HTTP_API_STATE_SSZ_ENCODE_TIMES);
                         let response_bytes = state.as_ssz_bytes();
                         drop(timer);
+                        debug!(
+                            self.log,
+                            "HTTP state load";
+                            "load_time_ms" => t.elapsed().as_millis(),
+                            "target_slot" => state.slot()
+                        );
+
                         Response::builder()
                             .status(200)
                             .body(response_bytes.into())
