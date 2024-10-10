@@ -1992,6 +1992,8 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
         .canonical_head
         .fork_choice_read_lock()
         .scrape_for_metrics();
+
+    beacon_chain.store.register_metrics();
 }
 
 /// Scrape the given `state` assuming it's the head state, updating the `DEFAULT_REGISTRY`.
