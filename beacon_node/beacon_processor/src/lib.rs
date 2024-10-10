@@ -1697,3 +1697,21 @@ impl Drop for SendOnDrop {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::{BeaconState, ChainSpec, Eth1Data, ForkName, MainnetEthSpec};
+
+    #[test]
+    fn min_queue_len() {
+        // State with no validators.
+        let spec = ForkName::latest().make_genesis_spec(ChainSpec::mainnet());
+        let genesis_time = 0;
+        let state = BeaconState::<MainnetEthSpec>::new(genesis_time, Eth1Data::default(), &spec);
+        assert_eq!(state.validators().len(), 0);
+        let queue_lengths = BeaconProcessorQueueLengths::from_state(&state, &spec).unwrap();
+        assert_eq!(queue_lengths.attestation_queue, MIN_QUEUE_LEN);
+        assert_eq!(queue_lengths.unknown_block_attestation_queue, MIN_QUEUE_LEN);
+    }
+}
