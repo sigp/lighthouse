@@ -2,7 +2,7 @@ use safe_arith::SafeArith;
 use std::mem;
 use types::{
     BeaconState, BeaconStateElectra, BeaconStateError as Error, ChainSpec, Epoch, EpochCache,
-    EthSpec, Fork,
+    EthSpec, Fork, PendingBalanceDeposit,
 };
 
 /// Transform a `Deneb` state into an `Electra` state.
@@ -57,7 +57,26 @@ pub fn upgrade_to_electra<E: EthSpec>(
 
     // Process validators to queue entire balance and reset them
     for (index, _) in pre_activation {
-        post.queue_entire_balance_and_reset_validator(index, spec)?;
+        let balance = post
+            .balances_mut()
+            .get_mut(index)
+            .ok_or(Error::UnknownValidator(index))?;
+        let balance_copy = *balance;
+        *balance = 0_u64;
+
+        let validator = post
+            .validators_mut()
+            .get_mut(index)
+            .ok_or(Error::UnknownValidator(index))?;
+        validator.effective_balance = 0;
+        validator.activation_eligibility_epoch = spec.far_future_epoch;
+
+        post.pending_balance_deposits_mut()?
+            .push(PendingBalanceDeposit {
+                index: index as u64,
+                amount: balance_copy,
+            })
+            .map_err(Error::MilhouseError)?;
     }
 
     // Ensure early adopters of compounding credentials go through the activation churn

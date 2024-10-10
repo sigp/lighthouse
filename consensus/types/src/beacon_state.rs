@@ -2156,33 +2156,6 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(())
     }
 
-    pub fn queue_entire_balance_and_reset_validator(
-        &mut self,
-        validator_index: usize,
-        spec: &ChainSpec,
-    ) -> Result<(), Error> {
-        let balance = self
-            .balances_mut()
-            .get_mut(validator_index)
-            .ok_or(Error::UnknownValidator(validator_index))?;
-        let balance_copy = *balance;
-        *balance = 0_u64;
-
-        let validator = self
-            .validators_mut()
-            .get_mut(validator_index)
-            .ok_or(Error::UnknownValidator(validator_index))?;
-        validator.effective_balance = 0;
-        validator.activation_eligibility_epoch = spec.far_future_epoch;
-
-        self.pending_balance_deposits_mut()?
-            .push(PendingBalanceDeposit {
-                index: validator_index as u64,
-                amount: balance_copy,
-            })
-            .map_err(Into::into)
-    }
-
     /// Change the withdrawal prefix of the given `validator_index` to the compounding withdrawal validator prefix.
     pub fn switch_to_compounding_validator(
         &mut self,
