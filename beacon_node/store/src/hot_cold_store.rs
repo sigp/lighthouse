@@ -445,17 +445,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     pub fn register_metrics(&self) {
-        /* FIXME(sproul): think about how best to update metrics
-        let historic_state_cache = self.historic_state_cache.lock();
-        let historic_state_cache_byte_size = historic_state_cache
-            .iter()
-            .map(|(_, diff)| diff.size())
-            .sum::<usize>();
-        let historic_state_cache_len = historic_state_cache.len();
-        drop(historic_state_cache);
-        */
-        let historic_state_cache_byte_size = 0;
-        let historic_state_cache_len = 0;
+        let hsc_metrics = self.historic_state_cache.lock().metrics();
 
         metrics::set_gauge(
             &metrics::STORE_BEACON_BLOCK_CACHE_SIZE,
@@ -469,13 +459,29 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &metrics::STORE_BEACON_STATE_CACHE_SIZE,
             self.state_cache.lock().len() as i64,
         );
-        metrics::set_gauge(
-            &metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_SIZE,
-            historic_state_cache_len as i64,
+        metrics::set_int_gauge(
+            &metrics::STORE_BEACON_HISTORIC_STATE_CACHE_SIZE,
+            &["total"],
+            hsc_metrics.num_total as i64,
+        );
+        metrics::set_int_gauge(
+            &metrics::STORE_BEACON_HISTORIC_STATE_CACHE_SIZE,
+            &["both"],
+            hsc_metrics.num_both as i64,
+        );
+        metrics::set_int_gauge(
+            &metrics::STORE_BEACON_HISTORIC_STATE_CACHE_SIZE,
+            &["hdiff"],
+            hsc_metrics.num_hdiff as i64,
+        );
+        metrics::set_int_gauge(
+            &metrics::STORE_BEACON_HISTORIC_STATE_CACHE_SIZE,
+            &["state"],
+            hsc_metrics.num_state as i64,
         );
         metrics::set_gauge(
             &metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_BYTE_SIZE,
-            historic_state_cache_byte_size as i64,
+            hsc_metrics.hdiff_byte_size as i64,
         );
 
         let anchor_info = self.get_anchor_info();

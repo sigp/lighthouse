@@ -206,24 +206,19 @@ pub static STORE_BEACON_STATE_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock:
         "Current count of items in beacon store state cache",
     )
 });
-pub static STORE_BEACON_HISTORIC_STATE_CACHE_SIZE: LazyLock<Result<IntGauge>> =
+pub static STORE_BEACON_HISTORIC_STATE_CACHE_SIZE: LazyLock<Result<IntGaugeVec>> =
     LazyLock::new(|| {
-        try_create_int_gauge(
+        try_create_int_gauge_vec(
             "store_beacon_historic_state_cache_size",
-            "Current count of items in beacon store historic state cache",
+            "Current count of items in the historic state cache",
+            &["type"],
         )
     });
-pub static STORE_BEACON_HDIFF_BUFFER_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "store_beacon_hdiff_buffer_cache_size",
-        "Current count of items in beacon store hdiff buffer cache",
-    )
-});
 pub static STORE_BEACON_HDIFF_BUFFER_CACHE_BYTE_SIZE: LazyLock<Result<IntGauge>> =
     LazyLock::new(|| {
         try_create_int_gauge(
-            "store_beacon_hdiff_buffer_cache_byte_size",
-            "Current byte size sum of all elements in beacon store hdiff buffer cache",
+            "store_beacon_historic_state_cache_hdiff_byte_size",
+            "Current byte size sum of all hdiff buffers in beacon store hdiff buffer cache",
         )
     });
 pub static STORE_BEACON_STATE_FREEZER_COMPRESS_TIME: LazyLock<Result<Histogram>> =

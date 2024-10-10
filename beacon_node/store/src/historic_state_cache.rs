@@ -21,6 +21,15 @@ pub struct HistoricStateCache<E: EthSpec> {
     cache: LruCache<Slot, HistoricState<E>>,
 }
 
+#[derive(Debug, Default)]
+pub struct Metrics {
+    pub num_total: usize,
+    pub num_both: usize,
+    pub num_hdiff: usize,
+    pub num_state: usize,
+    pub hdiff_byte_size: usize,
+}
+
 impl<E: EthSpec> HistoricState<E> {
     fn as_hdiff_buffer(&mut self) -> HDiffBuffer {
         match self {
@@ -91,5 +100,26 @@ impl<E: EthSpec> HistoricStateCache<E> {
 
     pub fn put_both(&mut self, slot: Slot, state: BeaconState<E>, buffer: HDiffBuffer) {
         self.cache.put(slot, HistoricState::Both(state, buffer));
+    }
+
+    pub fn metrics(&self) -> Metrics {
+        let mut metrics = Metrics::default();
+        for (_, entry) in &self.cache {
+            metrics.num_total += 1;
+            match entry {
+                HistoricState::Both(_, buffer) => {
+                    metrics.num_both += 1;
+                    metrics.hdiff_byte_size += buffer.size();
+                }
+                HistoricState::HDiff(buffer) => {
+                    metrics.num_hdiff += 1;
+                    metrics.hdiff_byte_size += buffer.size();
+                }
+                HistoricState::State(..) => {
+                    metrics.num_state += 1;
+                }
+            }
+        }
+        metrics
     }
 }
