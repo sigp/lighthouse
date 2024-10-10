@@ -1,7 +1,6 @@
 use crate::{block_hash::calculate_execution_block_hash, metrics, Error};
 
 use crate::versioned_hashes::verify_versioned_hashes;
-use alloy_primitives::Bytes;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use superstruct::superstruct;
 use types::{
@@ -10,7 +9,7 @@ use types::{
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra,
+    ExecutionPayloadElectra, ExecutionRequests,
 };
 
 #[superstruct(
@@ -45,7 +44,7 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
     #[superstruct(only(Deneb, Electra))]
     pub parent_beacon_block_root: Hash256,
     #[superstruct(only(Electra))]
-    pub execution_requests_list: Vec<Bytes>,
+    pub execution_requests_list: &'block ExecutionRequests<E>,
 }
 
 impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
@@ -186,10 +185,7 @@ impl<'a, E: EthSpec> TryFrom<BeaconBlockRef<'a, E>> for NewPayloadRequest<'a, E>
                     .map(kzg_commitment_to_versioned_hash)
                     .collect(),
                 parent_beacon_block_root: block_ref.parent_root,
-                execution_requests_list: block_ref
-                    .body
-                    .execution_requests
-                    .get_execution_requests_list(),
+                execution_requests_list: &block_ref.body.execution_requests,
             })),
         }
     }
