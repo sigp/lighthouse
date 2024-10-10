@@ -563,10 +563,6 @@ pub async fn handle_rpc<E: EthSpec>(
 
                 match maybe_payload {
                     Some(payload) => {
-                        assert!(
-                            !payload.fork_name().electra_enabled(),
-                            "payload bodies V1 is not supported for Electra blocks"
-                        );
                         let payload_body: ExecutionPayloadBodyV1<E> = ExecutionPayloadBodyV1 {
                             transactions: payload.transactions().clone(),
                             withdrawals: payload.withdrawals().ok().cloned(),
