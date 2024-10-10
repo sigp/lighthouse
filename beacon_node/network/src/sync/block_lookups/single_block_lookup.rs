@@ -221,8 +221,6 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 // Wait to download the block before downloading blobs. Then we can be sure that the
                 // block has data, so there's no need to do "blind" requests for all possible blobs and
                 // latter handle the case where if the peer sent no blobs, penalize.
-                // - if `downloaded_block_expected_blobs` is Some = block is downloading or processing.
-                // - if `num_expected_blobs` returns Some = block is processed.
                 //
                 // Lookup sync event safety: Reaching this code means that a block is not in any pre-import
                 // cache nor in the request state of this lookup. Therefore, the block must either: (1) not
