@@ -1771,9 +1771,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .lock()
             .get_state(slot, &self.spec)?
         {
-            // FIXME(sproul): metric here
+            metrics::inc_counter(&metrics::STORE_BEACON_HISTORIC_STATE_CACHE_HIT);
             return Ok(state);
         }
+
+        metrics::inc_counter(&metrics::STORE_BEACON_HISTORIC_STATE_CACHE_MISS);
 
         // Load using the diff hierarchy. For states that require replay we recurse into this
         // function so that we can try to get their pre-state *as a state* rather than an hdiff
@@ -1841,9 +1843,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             );
             metrics::inc_counter(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT);
             return Ok((slot, buffer.clone()));
-        } else {
-            metrics::inc_counter(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS);
         }
+        metrics::inc_counter(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS);
 
         // Load buffer for the previous state.
         // This amount of recursion (<10 levels) should be OK.
