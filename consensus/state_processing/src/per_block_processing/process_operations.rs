@@ -7,7 +7,6 @@ use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
 use crate::VerifySignatures;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 use types::typenum::U33;
-use types::validator::is_compounding_withdrawal_credential;
 
 pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
@@ -452,18 +451,6 @@ pub fn apply_deposit<E: EthSpec>(
         // [Modified in Electra:EIP7251]
         if let Ok(pending_balance_deposits) = state.pending_balance_deposits_mut() {
             pending_balance_deposits.push(PendingBalanceDeposit { index, amount })?;
-
-            let validator = state
-                .validators()
-                .get(index as usize)
-                .ok_or(BeaconStateError::UnknownValidator(index as usize))?;
-
-            if is_compounding_withdrawal_credential(deposit_data.withdrawal_credentials, spec)
-                && validator.has_eth1_withdrawal_credential(spec)
-                && is_valid_deposit_signature(&deposit_data, spec).is_ok()
-            {
-                state.switch_to_compounding_validator(index as usize, spec)?;
-            }
         } else {
             // Update the existing validator balance.
             increase_balance(state, index as usize, amount)?;
@@ -658,11 +645,72 @@ pub fn process_consolidation_requests<E: EthSpec>(
     Ok(())
 }
 
+fn is_valid_switch_to_compounding_request<E: EthSpec>(
+    state: &BeaconState<E>,
+    consolidation_request: &ConsolidationRequest,
+    spec: &ChainSpec,
+) -> Result<bool, Error> {
+    // Switch to compounding requires source and target be equal
+    if consolidation_request.source_pubkey != consolidation_request.target_pubkey {
+        return Ok(false);
+    }
+
+    // Verify pubkey exists
+    let Some(source_index) = state
+        .pubkey_cache()
+        .get(&consolidation_request.source_pubkey)
+    else {
+        // source validator doesn't exist
+        return Ok(false);
+    };
+
+    let source_validator = state.get_validator(source_index)?;
+    // Verify the source withdrawal credentials
+    if let Some(withdrawal_address) = source_validator.get_execution_withdrawal_address(spec) {
+        if withdrawal_address != consolidation_request.source_address {
+            return Ok(false);
+        }
+    } else {
+        // Source doen't have execution withdrawal credentials
+        return Ok(false);
+    }
+
+    // Verify the source is active
+    let current_epoch = state.current_epoch();
+    if !source_validator.is_active_at(current_epoch) {
+        return Ok(false);
+    }
+    // Verify exits for source has not been initiated
+    if source_validator.exit_epoch != spec.far_future_epoch {
+        return Ok(false);
+    }
+
+    Ok(true)
+}
+
 pub fn process_consolidation_request<E: EthSpec>(
     state: &mut BeaconState<E>,
     consolidation_request: &ConsolidationRequest,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    if is_valid_switch_to_compounding_request(state, consolidation_request, spec)? {
+        let Some(source_index) = state
+            .pubkey_cache()
+            .get(&consolidation_request.source_pubkey)
+        else {
+            // source validator doesn't exist. This is unreachable as `is_valid_switch_to_compounding_request`
+            // will return false in that case.
+            return Ok(());
+        };
+        state.switch_to_compounding_validator(source_index, spec)?;
+        return Ok(());
+    }
+
+    // Verify that source != target, so a consolidation cannot be used as an exit.
+    if consolidation_request.source_pubkey == consolidation_request.target_pubkey {
+        return Ok(());
+    }
+
     // If the pending consolidations queue is full, consolidation requests are ignored
     if state.pending_consolidations()?.len() == E::PendingConsolidationsLimit::to_usize() {
         return Ok(());
@@ -686,10 +734,6 @@ pub fn process_consolidation_request<E: EthSpec>(
         // target validator doesn't exist
         return Ok(());
     };
-    // Verify that source != target, so a consolidation cannot be used as an exit.
-    if source_index == target_index {
-        return Ok(());
-    }
 
     let source_validator = state.get_validator(source_index)?;
     // Verify the source withdrawal credentials
@@ -736,5 +780,10 @@ pub fn process_consolidation_request<E: EthSpec>(
             target_index: target_index as u64,
         })?;
 
+    let target_validator = state.get_validator(target_index)?;
+    // Churn any target excess active balance of target and raise its max
+    if target_validator.has_eth1_withdrawal_credential(spec) {
+        state.switch_to_compounding_validator(target_index, spec)?;
+    }
     Ok(())
 }

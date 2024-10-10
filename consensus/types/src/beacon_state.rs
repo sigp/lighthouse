@@ -2166,12 +2166,10 @@ impl<E: EthSpec> BeaconState<E> {
             .validators_mut()
             .get_mut(validator_index)
             .ok_or(Error::UnknownValidator(validator_index))?;
-        if validator.has_eth1_withdrawal_credential(spec) {
-            AsMut::<[u8; 32]>::as_mut(&mut validator.withdrawal_credentials)[0] =
-                spec.compounding_withdrawal_prefix_byte;
+        AsMut::<[u8; 32]>::as_mut(&mut validator.withdrawal_credentials)[0] =
+            spec.compounding_withdrawal_prefix_byte;
 
-            self.queue_excess_active_balance(validator_index, spec)?;
-        }
+        self.queue_excess_active_balance(validator_index, spec)?;
         Ok(())
     }
 

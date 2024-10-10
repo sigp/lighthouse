@@ -952,9 +952,6 @@ fn process_pending_consolidations<E: EthSpec>(
             max_effective_balance,
         );
 
-        // Churn any target excess active balance of target and raise its max.
-        state.switch_to_compounding_validator(target_index, spec)?;
-
         // Move active balance to target. Excess balance is withdrawable.
         decrease_balance(state, source_index, source_effective_balance)?;
         increase_balance(state, target_index, source_effective_balance)?;
