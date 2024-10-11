@@ -430,6 +430,12 @@ where
                 }
             }
 
+            self.active_inbound_requests_limiter.remove_peer(&peer_id);
+
+            if let Some(limiter) = self.response_limiter.as_mut() {
+                limiter.peer_disconnected(peer_id);
+            }
+
             // Replace the pending Requests to the disconnected peer
             // with reports of failed requests.
             self.events.iter_mut().for_each(|event| match &event {
@@ -545,7 +551,6 @@ where
             }
             HandlerEvent::Close(_) => {
                 // Handle the close event here.
-                self.active_inbound_requests_limiter.remove_peer(&peer_id);
                 self.events.push(ToSwarm::CloseConnection {
                     peer_id,
                     connection: CloseConnection::All,

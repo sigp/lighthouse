@@ -122,6 +122,12 @@ impl<E: EthSpec> ResponseLimiter<E> {
         }
     }
 
+    /// Informs the limiter that a peer has disconnected. This removes any pending responses.
+    pub fn peer_disconnected(&mut self, peer_id: PeerId) {
+        self.delayed_responses
+            .retain(|(map_peer_id, _protocol), _queue| map_peer_id != &peer_id);
+    }
+
     /// When a peer and protocol are allowed to send a next response, this function checks the
     /// queued responses and attempts marking as ready as many as the limiter allows.
     pub fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Vec<QueuedResponse<E>>> {
