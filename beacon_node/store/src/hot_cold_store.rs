@@ -1784,14 +1784,45 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             StorageStrategy::Snapshot | StorageStrategy::DiffFrom(_) => {
                 let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_LOAD_TIME);
                 let (_, buffer) = self.load_hdiff_buffer_for_slot(slot)?;
-                let state = buffer.as_state(&self.spec)?;
+                let mut state = buffer.as_state(&self.spec)?;
+
+                // Build all caches for states to be cached because:
+                // - The caches are required for any states built by replay from this state, and
+                // - For most requests aside from raw SSZ, the caller will require caches to compute
+                //   info like rewards, committees, etc.
+                let t = std::time::Instant::now();
+                state.build_all_caches(&self.spec)?;
+                debug!(
+                    self.log,
+                    "Built caches for state";
+                    "target_slot" => slot,
+                    "build_time_ms" => t.elapsed().as_millis()
+                );
+
                 self.historic_state_cache
                     .lock()
                     .put_both(slot, state.clone(), buffer);
                 Ok(state)
             }
             StorageStrategy::ReplayFrom(from) => {
-                let base_state = self.load_cold_state_by_slot(from)?;
+                // Search for a state from any prior slot in the historic state cache.
+                let base_state = {
+                    let mut historic_state_cache = self.historic_state_cache.lock();
+                    let cached_state = itertools::process_results(
+                        (from.as_u64()..=slot.as_u64()).rev().map(|prior_slot| {
+                            historic_state_cache.get_state(Slot::new(prior_slot), &self.spec)
+                        }),
+                        |mut iter| iter.find_map(|cached_state| cached_state),
+                    )?;
+                    drop(historic_state_cache);
+                    if let Some(state) = cached_state {
+                        // Found a prior cached state in the historic state cache.
+                        state
+                    } else {
+                        // No prior state found, need to load by diffing.
+                        self.load_cold_state_by_slot(from)?
+                    }
+                };
                 if base_state.slot() == slot {
                     return Ok(base_state);
                 }
@@ -1823,7 +1854,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     self.log,
                     "Replayed blocks";
                     "target_slot" => slot,
-                    "load_time_ms" => t.elapsed().as_millis()
+                    "replay_time_ms" => t.elapsed().as_millis()
                 );
 
                 self.historic_state_cache
@@ -1871,15 +1902,25 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         match self.hierarchy.storage_strategy(slot)? {
             // Base case.
             StorageStrategy::Snapshot => {
-                let state = self
+                let mut state = self
                     .load_cold_state_as_snapshot(slot)?
                     .ok_or(Error::MissingSnapshot(slot))?;
                 let buffer = HDiffBuffer::from_state(state.clone());
-                let load_time_ms = t.elapsed().as_millis();
+
+                let t = std::time::Instant::now();
+                state.build_all_caches(&self.spec)?;
+                debug!(
+                    self.log,
+                    "Built caches for state";
+                    "target_slot" => slot,
+                    "build_time_ms" => t.elapsed().as_millis()
+                );
 
                 self.historic_state_cache
                     .lock()
                     .put_both(slot, state, buffer.clone());
+
+                let load_time_ms = t.elapsed().as_millis();
                 debug!(
                     self.log,
                     "Added state and diff buffer to cache";
