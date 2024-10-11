@@ -217,6 +217,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         else {
             panic!("Failed to initialize rolling file appender");
         };
+
         let (file_non_blocking_writer, file_guard) = tracing_appender::non_blocking(file_appender);
 
         let file_logging_layer = LoggingLayer {

@@ -18,11 +18,6 @@ where
         let meta = event.metadata();
         let log_level = meta.level();
         let timestamp = Local::now().format("%b %d %H:%M:%S%.3f").to_string();
-        // let target = meta.target();
-        // let module_path = meta.module_path().unwrap_or("");
-        // let file = meta.file().unwrap_or("");
-        // let line = meta.line().map(|l| l.to_string()).unwrap_or("".to_string());
-        // let thread_name = std::thread::current().name().unwrap_or("").to_string();
 
         let mut writer = self.non_blocking_writer.clone();
 
@@ -45,16 +40,24 @@ where
         let bold_end = "\x1b[0m";
 
         let bold_message = format!("{}{}{}", bold_start, visitor.message, bold_end);
-
-        let mut message = bold_message;
-
-        if !visitor.fields.is_empty() {
-            message = format!("{} {}", message, visitor.fields.join(" "));
+        let mut formatted_fields = String::new();
+        for (i, (field_name, field_value)) in visitor.fields.iter().enumerate() {
+            if i > 0 {
+                formatted_fields.push(' ');
+            }
+            let formatted_field =
+                format!("{}{}{}={}", bold_start, field_name, bold_end, field_value);
+            formatted_fields.push_str(&formatted_field);
         }
 
-        let final_message = format!("{} {} {}\t \n", timestamp, level_str, message);
+        let mut full_message = bold_message;
+        if !formatted_fields.is_empty() {
+            full_message = format!("{}\t\t{}", full_message, formatted_fields);
+        }
 
-        if let Err(e) = writer.write_all(final_message.as_bytes()) {
+        let message = format!("{} {} {}\n", timestamp, level_str, full_message);
+
+        if let Err(e) = writer.write_all(message.as_bytes()) {
             eprintln!("Failed to write log: {}", e);
         }
     }
@@ -62,7 +65,7 @@ where
 
 struct LogMessageExtractor {
     message: String,
-    fields: Vec<String>,
+    fields: Vec<(String, String)>,
 }
 
 impl tracing_core::field::Visit for LogMessageExtractor {
@@ -70,7 +73,8 @@ impl tracing_core::field::Visit for LogMessageExtractor {
         if field.name() == "message" {
             self.message = value.to_string();
         } else {
-            self.fields.push(format!("{}={}", field.name(), value));
+            self.fields
+                .push((field.name().to_string(), value.to_string()));
         }
     }
 
@@ -78,19 +82,23 @@ impl tracing_core::field::Visit for LogMessageExtractor {
         if field.name() == "message" {
             self.message = format!("{:?}", value);
         } else {
-            self.fields.push(format!("{}={:?}", field.name(), value));
+            self.fields
+                .push((field.name().to_string(), format!("{:?}", value)));
         }
     }
 
     fn record_i64(&mut self, field: &Field, value: i64) {
-        self.fields.push(format!("{}={}", field.name(), value));
+        self.fields
+            .push((field.name().to_string(), value.to_string()));
     }
 
     fn record_u64(&mut self, field: &Field, value: u64) {
-        self.fields.push(format!("{}={}", field.name(), value));
+        self.fields
+            .push((field.name().to_string(), value.to_string()));
     }
 
     fn record_bool(&mut self, field: &Field, value: bool) {
-        self.fields.push(format!("{}={}", field.name(), value));
+        self.fields
+            .push((field.name().to_string(), value.to_string()));
     }
 }
