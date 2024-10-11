@@ -12,7 +12,7 @@ use eth2_network_config::Eth2NetworkConfig;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
 
-use logging::SSELoggingComponents;
+use logging::{test_logger, SSELoggingComponents};
 use serde::{Deserialize, Serialize};
 use slog::{error, info, o, warn, Drain, Duplicate, Level, Logger};
 use sloggers::{file::FileLoggerBuilder, types::Format, types::Severity, Build};
@@ -33,8 +33,6 @@ use {
 
 #[cfg(not(target_family = "unix"))]
 use {futures::channel::oneshot, std::cell::RefCell};
-
-pub use task_executor::test_utils::null_logger;
 
 const LOG_CHANNEL_SIZE: usize = 16384;
 const SSE_LOG_CHANNEL_SIZE: usize = 2048;
@@ -184,9 +182,9 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
-    /// Specifies that all logs should be sent to `null` (i.e., ignored).
-    pub fn null_logger(mut self) -> Result<Self, String> {
-        self.log = Some(null_logger()?);
+    /// Sets a logger suitable for test usage.
+    pub fn test_logger(mut self) -> Result<Self, String> {
+        self.log = Some(test_logger());
         Ok(self)
     }
 
@@ -335,7 +333,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         eth2_network_config: Eth2NetworkConfig,
     ) -> Result<Self, String> {
         // Create a new chain spec from the default configuration.
-        self.eth2_config.spec = eth2_network_config.chain_spec::<E>()?;
+        self.eth2_config.spec = Arc::new(eth2_network_config.chain_spec::<E>()?);
         self.eth2_network_config = Some(eth2_network_config);
 
         Ok(self)

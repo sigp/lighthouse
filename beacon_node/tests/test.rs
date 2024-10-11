@@ -25,7 +25,7 @@ fn build_node<E: EthSpec>(env: &mut Environment<E>) -> LocalBeaconNode<E> {
 #[test]
 fn http_server_genesis_state() {
     let mut env = env_builder()
-        .null_logger()
+        .test_logger()
         //.async_logger("debug", None)
         .expect("should build env logger")
         .multi_threaded_tokio_runtime()

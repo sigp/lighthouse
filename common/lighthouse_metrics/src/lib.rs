@@ -1,5 +1,5 @@
 #![allow(clippy::needless_doctest_main)]
-//! A wrapper around the `prometheus` crate that provides a global, `lazy_static` metrics registry
+//! A wrapper around the `prometheus` crate that provides a global metrics registry
 //! and functions to add and use the following components (more info at
 //! [Prometheus docs](https://prometheus.io/docs/concepts/metric_types/)):
 //!
@@ -20,23 +20,20 @@
 //! ## Example
 //!
 //! ```rust
-//! use lazy_static::lazy_static;
 //! use lighthouse_metrics::*;
+//! use std::sync::LazyLock;
 //!
 //! // These metrics are "magically" linked to the global registry defined in `lighthouse_metrics`.
-//! lazy_static! {
-//!     pub static ref RUN_COUNT: Result<IntCounter> = try_create_int_counter(
-//!         "runs_total",
-//!         "Total number of runs"
-//!     );
-//!     pub static ref CURRENT_VALUE: Result<IntGauge> = try_create_int_gauge(
-//!         "current_value",
-//!         "The current value"
-//!     );
-//!     pub static ref RUN_TIME: Result<Histogram> =
-//!         try_create_histogram("run_seconds", "Time taken (measured to high precision)");
-//! }
-//!
+//! pub static RUN_COUNT: LazyLock<Result<IntCounter>> = LazyLock::new(|| try_create_int_counter(
+//!     "runs_total",
+//!     "Total number of runs"
+//! ));
+//! pub static CURRENT_VALUE: LazyLock<Result<IntGauge>> = LazyLock::new(|| try_create_int_gauge(
+//!     "current_value",
+//!     "The current value"
+//! ));
+//! pub static RUN_TIME: LazyLock<Result<Histogram>> =
+//!     LazyLock::new(|| try_create_histogram("run_seconds", "Time taken (measured to high precision)"));
 //!
 //! fn main() {
 //!     for i in 0..100 {
@@ -286,6 +283,12 @@ pub fn stop_timer(timer: Option<HistogramTimer>) {
     }
 }
 
+pub fn observe_vec(vec: &Result<HistogramVec>, name: &[&str], value: f64) {
+    if let Some(h) = get_histogram(vec, name) {
+        h.observe(value)
+    }
+}
+
 pub fn inc_counter(counter: &Result<IntCounter>) {
     if let Ok(counter) = counter {
         counter.inc();
@@ -402,4 +405,32 @@ pub fn decimal_buckets(min_power: i32, max_power: i32) -> Result<Vec<f64>> {
         }
     }
     Ok(buckets)
+}
+
+/// Would be nice to use the `Try` trait bound and have a single implementation, but try_trait_v2
+/// is not a stable feature yet.
+pub trait TryExt {
+    fn discard_timer_on_break(self, timer: &mut Option<HistogramTimer>) -> Self;
+}
+
+impl<T, E> TryExt for std::result::Result<T, E> {
+    fn discard_timer_on_break(self, timer_opt: &mut Option<HistogramTimer>) -> Self {
+        if self.is_err() {
+            if let Some(timer) = timer_opt.take() {
+                timer.stop_and_discard();
+            }
+        }
+        self
+    }
+}
+
+impl<T> TryExt for Option<T> {
+    fn discard_timer_on_break(self, timer_opt: &mut Option<HistogramTimer>) -> Self {
+        if self.is_none() {
+            if let Some(timer) = timer_opt.take() {
+                timer.stop_and_discard();
+            }
+        }
+        self
+    }
 }

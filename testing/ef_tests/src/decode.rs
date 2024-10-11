@@ -5,7 +5,7 @@ use std::fs::{self};
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
-use types::BeaconState;
+use types::{BeaconState, LightClientUpdate};
 
 /// See `log_file_access` for details.
 const ACCESSED_FILE_LOG_FILENAME: &str = ".accessed_file_log.txt";
@@ -94,4 +94,14 @@ pub fn ssz_decode_state<E: EthSpec>(
 ) -> Result<BeaconState<E>, Error> {
     log_file_access(path);
     ssz_decode_file_with(path, |bytes| BeaconState::from_ssz_bytes(bytes, spec))
+}
+
+pub fn ssz_decode_light_client_update<E: EthSpec>(
+    path: &Path,
+    fork_name: &ForkName,
+) -> Result<LightClientUpdate<E>, Error> {
+    log_file_access(path);
+    ssz_decode_file_with(path, |bytes| {
+        LightClientUpdate::from_ssz_bytes(bytes, fork_name)
+    })
 }

@@ -2,16 +2,16 @@ use super::*;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
+    test_utils::get_kzg,
     BeaconChain,
 };
 use futures::prelude::*;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
-use lazy_static::lazy_static;
 use lighthouse_network::NetworkConfig;
 use slog::{o, Drain, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
 use store::config::StoreConfig;
 use store::{HotColdDB, MemoryStore};
@@ -38,7 +38,7 @@ pub struct TestBeaconChain {
 
 impl TestBeaconChain {
     pub fn new_with_system_clock() -> Self {
-        let spec = MainnetEthSpec::default_spec();
+        let spec = Arc::new(MainnetEthSpec::default_spec());
 
         let keypairs = generate_deterministic_keypairs(1);
 
@@ -46,12 +46,14 @@ impl TestBeaconChain {
         let store =
             HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone()).unwrap();
 
+        let kzg = get_kzg(&spec);
+
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
 
         let test_runtime = TestRuntime::default();
 
         let chain = Arc::new(
-            BeaconChainBuilder::new(MainnetEthSpec)
+            BeaconChainBuilder::new(MainnetEthSpec, kzg.clone())
                 .logger(log.clone())
                 .custom_spec(spec.clone())
                 .store(Arc::new(store))
@@ -110,9 +112,7 @@ fn get_logger(log_level: Option<slog::Level>) -> Logger {
     }
 }
 
-lazy_static! {
-    static ref CHAIN: TestBeaconChain = TestBeaconChain::new_with_system_clock();
-}
+static CHAIN: LazyLock<TestBeaconChain> = LazyLock::new(TestBeaconChain::new_with_system_clock);
 
 fn get_attestation_service(
     log_level: Option<slog::Level>,

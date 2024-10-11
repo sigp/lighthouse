@@ -20,6 +20,7 @@ types = { workspace = true }
 eth2_config = { workspace = true }
 slot_clock = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 error-chain = { workspace = true }
 slog = { workspace = true }
 tokio = { workspace = true }
@@ -27,11 +28,11 @@ futures = { workspace = true }
 dirs = { workspace = true }
 eth1 = { workspace = true }
 eth2 = { workspace = true }
+kzg = { workspace = true }
 sensitive_url = { workspace = true }
 genesis = { workspace = true }
 task_executor = { workspace = true }
 environment = { workspace = true }
-lazy_static = { workspace = true }
 lighthouse_metrics = { workspace = true }
 time = "0.3.5"
 directory = { workspace = true }

@@ -42,7 +42,7 @@ pub struct Config {
     pub network_dir: PathBuf,
 
     /// IP addresses to listen on.
-    listen_addresses: ListenAddress,
+    pub(crate) listen_addresses: ListenAddress,
 
     /// The address to broadcast to peers about which address we are listening on. None indicates
     /// that no discovery address has been set in the CLI args.
@@ -99,6 +99,9 @@ pub struct Config {
 
     /// Attempt to construct external port mappings with UPnP.
     pub upnp_enabled: bool,
+
+    /// Subscribe to all data column subnets for the duration of the runtime.
+    pub subscribe_all_data_column_subnets: bool,
 
     /// Subscribe to all subnets for the duration of the runtime.
     pub subscribe_all_subnets: bool,
@@ -338,6 +341,7 @@ impl Default for Config {
             upnp_enabled: true,
             network_load: 4,
             private: false,
+            subscribe_all_data_column_subnets: false,
             subscribe_all_subnets: false,
             import_all_attestations: false,
             shutdown_after_sync: false,
@@ -436,28 +440,22 @@ pub fn gossipsub_config(
         fork_context: Arc<ForkContext>,
     ) -> Vec<u8> {
         let topic_bytes = message.topic.as_str().as_bytes();
-        match fork_context.current_fork() {
-            ForkName::Altair
-            | ForkName::Bellatrix
-            | ForkName::Capella
-            | ForkName::Deneb
-            | ForkName::Electra => {
-                let topic_len_bytes = topic_bytes.len().to_le_bytes();
-                let mut vec = Vec::with_capacity(
-                    prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),
-                );
-                vec.extend_from_slice(&prefix);
-                vec.extend_from_slice(&topic_len_bytes);
-                vec.extend_from_slice(topic_bytes);
-                vec.extend_from_slice(&message.data);
-                vec
-            }
-            ForkName::Base => {
-                let mut vec = Vec::with_capacity(prefix.len() + message.data.len());
-                vec.extend_from_slice(&prefix);
-                vec.extend_from_slice(&message.data);
-                vec
-            }
+
+        if fork_context.current_fork().altair_enabled() {
+            let topic_len_bytes = topic_bytes.len().to_le_bytes();
+            let mut vec = Vec::with_capacity(
+                prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),
+            );
+            vec.extend_from_slice(&prefix);
+            vec.extend_from_slice(&topic_len_bytes);
+            vec.extend_from_slice(topic_bytes);
+            vec.extend_from_slice(&message.data);
+            vec
+        } else {
+            let mut vec = Vec::with_capacity(prefix.len() + message.data.len());
+            vec.extend_from_slice(&prefix);
+            vec.extend_from_slice(&message.data);
+            vec
         }
     }
     let message_domain_valid_snappy = gossipsub_config_params.message_domain_valid_snappy;

@@ -21,7 +21,6 @@ eth1 = { workspace = true }
 state_processing = { workspace = true }
 lighthouse_version = { workspace = true }
 lighthouse_metrics = { workspace = true }
-lazy_static = { workspace = true }
 warp_utils = { workspace = true }
 slot_clock = { workspace = true }
 ethereum_ssz = { workspace = true }
@@ -43,12 +42,13 @@ sensitive_url = { workspace = true }
 store = { workspace = true }
 bytes = { workspace = true }
 beacon_processor = { workspace = true }
+rand = { workspace = true }
 
 [dev-dependencies]
-environment = { workspace = true }
 serde_json = { workspace = true }
 proto_array = { workspace = true }
 genesis = { workspace = true }
+logging = { workspace = true }
 
 [[test]]
 name = "bn_http_api_tests"

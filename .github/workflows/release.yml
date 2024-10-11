@@ -78,13 +78,13 @@ jobs:
               if:   matrix.arch == 'aarch64-unknown-linux-gnu'
               run:  |
                 cargo install cross
-                env CROSS_PROFILE=${{ matrix.profile }} make build-aarch64-portable
+                env CROSS_PROFILE=${{ matrix.profile }} make build-aarch64
 
             - name: Build Lighthouse for x86_64-unknown-linux-gnu
               if:   matrix.arch == 'x86_64-unknown-linux-gnu'
               run:  |
                 cargo install cross
-                env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64-portable
+                env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64
 
             - name: Move cross-compiled binary
               if:  contains(matrix.arch, 'unknown-linux-gnu')
@@ -113,7 +113,7 @@ jobs:
                   echo "$GPG_PASSPHRASE" | gpg --passphrase-fd 0 --pinentry-mode loopback --batch -ab lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
                   for ext in "tar.gz" "tar.gz.asc";\
                   do for f in *.$ext;\
-                    do cp $f "../${f%.$ext}-portable.$ext";\
+                    do cp $f "../${f%.$ext}.$ext";\
                     done;\
                   done
                   mv *tar.gz* ..
@@ -144,27 +144,11 @@ jobs:
                   path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
                   compression-level: 0
 
-            - name: Upload artifact (copy)
-              if: startsWith(matrix.arch, 'x86_64-windows') != true
-              uses: actions/upload-artifact@v4
-              with:
-                  name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}-portable.tar.gz
-                  path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}-portable.tar.gz
-                  compression-level: 0
-
             - name: Upload signature
               uses: actions/upload-artifact@v4
               with:
                   name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
                   path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
-                  compression-level: 0
-
-            - name: Upload signature (copy)
-              if: startsWith(matrix.arch, 'x86_64-windows') != true
-              uses: actions/upload-artifact@v4
-              with:
-                  name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}-portable.tar.gz.asc
-                  path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}-portable.tar.gz.asc
                   compression-level: 0
 
     draft-release:
@@ -253,13 +237,9 @@ jobs:
                   | System | Architecture | Binary | PGP Signature |
                   |:---:|:---:|:---:|:---|
                   | <img src="https://simpleicons.org/icons/apple.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz.asc) |
-                  | <img src="https://simpleicons.org/icons/apple.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-apple-darwin-portable.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin-portable.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin-portable.tar.gz.asc) |
                   | <img src="https://simpleicons.org/icons/linux.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz.asc) |
-                  | <img src="https://simpleicons.org/icons/linux.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu-portable.tar.gz.asc) |
                   | <img src="https://simpleicons.org/icons/raspberrypi.svg" style="width: 32px;"/> | aarch64 | [lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz.asc) |
-                  | <img src="https://simpleicons.org/icons/raspberrypi.svg" style="width: 32px;"/> | aarch64 | [lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu-portable.tar.gz.asc) |
                   | <img src="https://upload.wikimedia.org/wikipedia/commons/c/c4/Windows_logo_-_2021_%28Black%29.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-windows.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-windows.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-windows.tar.gz.asc) |
-                  | <img src="https://upload.wikimedia.org/wikipedia/commons/c/c4/Windows_logo_-_2021_%28Black%29.svg" style="width: 32px;"/> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-windows-portable.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-windows-portable.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-windows-portable.tar.gz.asc) |
                   | | | | |
                   | **System** | **Option** | - | **Resource** |
                   | <img src="https://simpleicons.org/icons/docker.svg" style="width: 32px;"/> | Docker | [${{ env.VERSION }}](https://hub.docker.com/r/${{ env.IMAGE_NAME }}/tags?page=1&ordering=last_updated&name=${{ env.VERSION }}) | [${{ env.IMAGE_NAME }}](https://hub.docker.com/r/${{ env.IMAGE_NAME }}) |

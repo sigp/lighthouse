@@ -585,7 +585,7 @@ impl<E: EthSpec> OperationPool<E> {
                     && state
                         .get_validator(address_change.as_inner().message.validator_index as usize)
                         .map_or(false, |validator| {
-                            !validator.has_eth1_withdrawal_credential(spec)
+                            !validator.has_execution_withdrawal_credential(spec)
                         })
             },
             |address_change| address_change.as_inner().clone(),
@@ -797,27 +797,26 @@ mod release_tests {
     use beacon_chain::test_utils::{
         test_spec, BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee,
     };
-    use lazy_static::lazy_static;
     use maplit::hashset;
     use state_processing::epoch_cache::initialize_epoch_cache;
     use state_processing::{common::get_attesting_indices_from_state, VerifyOperation};
     use std::collections::BTreeSet;
+    use std::sync::{Arc, LazyLock};
     use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
     use types::*;
 
     pub const MAX_VALIDATOR_COUNT: usize = 4 * 32 * 128;
 
-    lazy_static! {
-        /// A cached set of keys.
-        static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(MAX_VALIDATOR_COUNT);
-    }
+    /// A cached set of keys.
+    static KEYPAIRS: LazyLock<Vec<Keypair>> =
+        LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(MAX_VALIDATOR_COUNT));
 
     fn get_harness<E: EthSpec>(
         validator_count: usize,
         spec: Option<ChainSpec>,
     ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
         let harness = BeaconChainHarness::builder(E::default())
-            .spec_or_default(spec)
+            .spec_or_default(spec.map(Arc::new))
             .keypairs(KEYPAIRS[0..validator_count].to_vec())
             .fresh_ephemeral_store()
             .mock_execution_layer()

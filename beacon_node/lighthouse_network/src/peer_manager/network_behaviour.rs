@@ -4,6 +4,7 @@ use std::net::IpAddr;
 use std::task::{Context, Poll};
 
 use futures::StreamExt;
+use libp2p::core::transport::PortUse;
 use libp2p::core::ConnectedPoint;
 use libp2p::identity::PeerId;
 use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm};
@@ -215,6 +216,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
         peer_id: PeerId,
         addr: &libp2p::Multiaddr,
         _role_override: libp2p::core::Endpoint,
+        _port_use: PortUse,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         trace!(self.log, "Outbound connection"; "peer_id" => %peer_id, "multiaddr" => %addr);
         if let Some(cause) = self.ban_status(&peer_id) {
@@ -245,16 +247,12 @@ impl<E: EthSpec> PeerManager<E> {
         &mut self,
         peer_id: PeerId,
         endpoint: &ConnectedPoint,
-        other_established: usize,
+        _other_established: usize,
     ) {
         debug!(self.log, "Connection established"; "peer_id" => %peer_id,
             "multiaddr" => %endpoint.get_remote_address(),
             "connection" => ?endpoint.to_endpoint()
         );
-
-        if other_established == 0 {
-            self.events.push(PeerManagerEvent::MetaData(peer_id));
-        }
 
         // Update the prometheus metrics
         if self.metrics_enabled {

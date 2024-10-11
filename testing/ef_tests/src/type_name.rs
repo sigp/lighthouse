@@ -1,5 +1,4 @@
 //! Mapping from types to canonical string identifiers used in testing.
-use types::blob_sidecar::BlobIdentifier;
 use types::historical_summary::HistoricalSummary;
 use types::*;
 
@@ -58,16 +57,18 @@ type_name_generic!(BeaconBlockBodyElectra, "BeaconBlockBody");
 type_name!(BeaconBlockHeader);
 type_name_generic!(BeaconState);
 type_name!(BlobIdentifier);
+type_name!(DataColumnIdentifier);
 type_name_generic!(BlobSidecar);
+type_name_generic!(DataColumnSidecar);
 type_name!(Checkpoint);
-type_name!(Consolidation);
+type_name!(ConsolidationRequest);
 type_name_generic!(ContributionAndProof);
 type_name!(Deposit);
 type_name!(DepositData);
 type_name!(DepositMessage);
 type_name!(DepositRequest);
 type_name!(Eth1Data);
-type_name!(ExecutionLayerWithdrawalRequest);
+type_name!(WithdrawalRequest);
 type_name_generic!(ExecutionPayload);
 type_name_generic!(ExecutionPayloadBellatrix, "ExecutionPayload");
 type_name_generic!(ExecutionPayloadCapella, "ExecutionPayload");
@@ -139,7 +140,6 @@ type_name_generic!(SignedAggregateAndProofBase, "SignedAggregateAndProof");
 type_name_generic!(SignedAggregateAndProofElectra, "SignedAggregateAndProof");
 type_name_generic!(SignedBeaconBlock);
 type_name!(SignedBeaconBlockHeader);
-type_name!(SignedConsolidation);
 type_name_generic!(SignedContributionAndProof);
 type_name!(SignedVoluntaryExit);
 type_name!(SigningData);

@@ -16,6 +16,7 @@ pub mod types;
 
 use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::{Error as ResponseError, *};
+use derivative::Derivative;
 use futures::Stream;
 use futures_util::StreamExt;
 use lighthouse_network::PeerId;
@@ -117,10 +118,11 @@ impl fmt::Display for Error {
 
 /// A struct to define a variety of different timeouts for different validator tasks to ensure
 /// proper fallback behaviour.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Timeouts {
     pub attestation: Duration,
     pub attester_duties: Duration,
+    pub attestation_subscriptions: Duration,
     pub liveness: Duration,
     pub proposal: Duration,
     pub proposer_duties: Duration,
@@ -137,6 +139,7 @@ impl Timeouts {
         Timeouts {
             attestation: timeout,
             attester_duties: timeout,
+            attestation_subscriptions: timeout,
             liveness: timeout,
             proposal: timeout,
             proposer_duties: timeout,
@@ -152,12 +155,16 @@ impl Timeouts {
 
 /// A wrapper around `reqwest::Client` which provides convenience methods for interfacing with a
 /// Lighthouse Beacon Node HTTP server (`http_api`).
-#[derive(Clone)]
+#[derive(Clone, Debug, Derivative)]
+#[derivative(PartialEq)]
 pub struct BeaconNodeHttpClient {
+    #[derivative(PartialEq = "ignore")]
     client: reqwest::Client,
     server: SensitiveUrl,
     timeouts: Timeouts,
 }
+
+impl Eq for BeaconNodeHttpClient {}
 
 impl fmt::Display for BeaconNodeHttpClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -763,6 +770,31 @@ impl BeaconNodeHttpClient {
         self.get_opt(path).await
     }
 
+    /// `GET beacon/light_client/updates`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_light_client_updates<E: EthSpec>(
+        &self,
+        start_period: u64,
+        count: u64,
+    ) -> Result<Option<Vec<ForkVersionedResponse<LightClientUpdate<E>>>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("light_client")
+            .push("updates");
+
+        path.query_pairs_mut()
+            .append_pair("start_period", &start_period.to_string());
+
+        path.query_pairs_mut()
+            .append_pair("count", &count.to_string());
+
+        self.get_opt(path).await
+    }
+
     /// `GET beacon/light_client/bootstrap`
     ///
     /// Returns `Ok(None)` on a 404 error.
@@ -1114,7 +1146,8 @@ impl BeaconNodeHttpClient {
         &self,
         block_id: BlockId,
         indices: Option<&[u64]>,
-    ) -> Result<Option<GenericResponse<BlobSidecarList<E>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedForkVersionedResponse<BlobSidecarList<E>>>, Error>
+    {
         let mut path = self.get_blobs_path(block_id)?;
         if let Some(indices) = indices {
             let indices_string = indices
@@ -2515,7 +2548,12 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("beacon_committee_subscriptions");
 
-        self.post(path, &subscriptions).await?;
+        self.post_with_timeout(
+            path,
+            &subscriptions,
+            self.timeouts.attestation_subscriptions,
+        )
+        .await?;
 
         Ok(())
     }

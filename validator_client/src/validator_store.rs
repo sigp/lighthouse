@@ -19,8 +19,8 @@ use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
     AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
-    Domain, Epoch, EthSpec, Fork, ForkName, Graffiti, Hash256, PublicKeyBytes, SelectionProof,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
+    Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, PublicKeyBytes, SelectionProof, Signature,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
     SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncAggregatorSelectionData,
     SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
     ValidatorRegistrationData, VoluntaryExit,
@@ -71,7 +71,6 @@ pub struct ValidatorStore<T, E: EthSpec> {
     gas_limit: Option<u64>,
     builder_proposals: bool,
     enable_web3signer_slashing_protection: bool,
-    produce_block_v3: bool,
     prefer_builder_proposals: bool,
     builder_boost_factor: Option<u64>,
     task_executor: TaskExecutor,
@@ -86,7 +85,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validators: InitializedValidators,
         slashing_protection: SlashingDatabase,
         genesis_validators_root: Hash256,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         doppelganger_service: Option<Arc<DoppelgangerService>>,
         slot_clock: T,
         config: &Config,
@@ -98,7 +97,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             slashing_protection,
             slashing_protection_last_prune: Arc::new(Mutex::new(Epoch::new(0))),
             genesis_validators_root,
-            spec: Arc::new(spec),
+            spec,
             log,
             doppelganger_service,
             slot_clock,
@@ -106,7 +105,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             gas_limit: config.gas_limit,
             builder_proposals: config.builder_proposals,
             enable_web3signer_slashing_protection: config.enable_web3signer_slashing_protection,
-            produce_block_v3: config.produce_block_v3,
             prefer_builder_proposals: config.prefer_builder_proposals,
             builder_boost_factor: config.builder_boost_factor,
             task_executor,
@@ -321,10 +319,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.spec.fork_at_epoch(epoch)
     }
 
-    pub fn produce_block_v3(&self) -> bool {
-        self.produce_block_v3
-    }
-
     /// Returns a `SigningMethod` for `validator_pubkey` *only if* that validator is considered safe
     /// by doppelganger protection.
     fn doppelganger_checked_signing_method(
@@ -359,17 +353,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     fn signing_context(&self, domain: Domain, signing_epoch: Epoch) -> SigningContext {
         if domain == Domain::VoluntaryExit {
-            match self.spec.fork_name_at_epoch(signing_epoch) {
-                ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
-                    SigningContext {
-                        domain,
-                        epoch: signing_epoch,
-                        fork: self.fork(signing_epoch),
-                        genesis_validators_root: self.genesis_validators_root,
-                    }
-                }
+            if self.spec.fork_name_at_epoch(signing_epoch).deneb_enabled() {
                 // EIP-7044
-                ForkName::Deneb | ForkName::Electra => SigningContext {
+                SigningContext {
                     domain,
                     epoch: signing_epoch,
                     fork: Fork {
@@ -378,7 +364,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                         epoch: signing_epoch,
                     },
                     genesis_validators_root: self.genesis_validators_root,
-                },
+                }
+            } else {
+                SigningContext {
+                    domain,
+                    epoch: signing_epoch,
+                    fork: self.fork(signing_epoch),
+                    genesis_validators_root: self.genesis_validators_root,
+                }
             }
         } else {
             SigningContext {

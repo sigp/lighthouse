@@ -35,7 +35,11 @@ use hashlink::LinkedHashMap;
 use prometheus_client::registry::Registry;
 use rand::{seq::SliceRandom, thread_rng};
 
-use libp2p::core::{multiaddr::Protocol::Ip4, multiaddr::Protocol::Ip6, Endpoint, Multiaddr};
+use libp2p::core::{
+    multiaddr::Protocol::{Ip4, Ip6},
+    transport::PortUse,
+    Endpoint, Multiaddr,
+};
 use libp2p::identity::Keypair;
 use libp2p::identity::PeerId;
 use libp2p::swarm::{
@@ -2712,7 +2716,7 @@ where
             };
 
             // Only gossipsub 1.2 peers support IDONTWANT.
-            if peer.kind != PeerKind::Gossipsubv1_2_beta {
+            if peer.kind != PeerKind::Gossipsubv1_2 {
                 continue;
             }
 
@@ -3161,6 +3165,7 @@ where
         peer_id: PeerId,
         _: &Multiaddr,
         _: Endpoint,
+        _: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
         // By default we assume a peer is only a floodsub peer.
         //
@@ -3343,6 +3348,8 @@ where
                             };
                             if let Some(metrics) = self.metrics.as_mut() {
                                 metrics.register_idontwant(message_ids.len());
+                                let idontwant_size = message_ids.iter().map(|id| id.0.len()).sum();
+                                metrics.register_idontwant_bytes(idontwant_size);
                             }
                             for message_id in message_ids {
                                 peer.dont_send.insert(message_id, Instant::now());

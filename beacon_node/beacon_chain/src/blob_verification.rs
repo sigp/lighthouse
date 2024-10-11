@@ -22,7 +22,7 @@ use types::{
 
 /// An error occurred while validating a gossip blob.
 #[derive(Debug)]
-pub enum GossipBlobError<E: EthSpec> {
+pub enum GossipBlobError {
     /// The blob sidecar is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).
     ///
@@ -95,7 +95,7 @@ pub enum GossipBlobError<E: EthSpec> {
     /// ## Peer scoring
     ///
     /// We cannot process the blob without validating its parent, the peer isn't necessarily faulty.
-    BlobParentUnknown(Arc<BlobSidecar<E>>),
+    BlobParentUnknown { parent_root: Hash256 },
 
     /// Invalid kzg commitment inclusion proof
     /// ## Peer scoring
@@ -114,13 +114,6 @@ pub enum GossipBlobError<E: EthSpec> {
         slot: Slot,
         index: u64,
     },
-
-    /// `Kzg` struct hasn't been initialized. This is an internal error.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The peer isn't faulty, This is an internal error.
-    KzgNotInitialized,
 
     /// The kzg verification failed.
     ///
@@ -145,28 +138,19 @@ pub enum GossipBlobError<E: EthSpec> {
     NotFinalizedDescendant { block_parent_root: Hash256 },
 }
 
-impl<E: EthSpec> std::fmt::Display for GossipBlobError<E> {
+impl std::fmt::Display for GossipBlobError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            GossipBlobError::BlobParentUnknown(blob_sidecar) => {
-                write!(
-                    f,
-                    "BlobParentUnknown(parent_root:{})",
-                    blob_sidecar.block_parent_root()
-                )
-            }
-            other => write!(f, "{:?}", other),
-        }
+        write!(f, "{:?}", self)
     }
 }
 
-impl<E: EthSpec> From<BeaconChainError> for GossipBlobError<E> {
+impl From<BeaconChainError> for GossipBlobError {
     fn from(e: BeaconChainError) -> Self {
         GossipBlobError::BeaconChainError(e)
     }
 }
 
-impl<E: EthSpec> From<BeaconStateError> for GossipBlobError<E> {
+impl From<BeaconStateError> for GossipBlobError {
     fn from(e: BeaconStateError) -> Self {
         GossipBlobError::BeaconChainError(BeaconChainError::BeaconStateError(e))
     }
@@ -190,12 +174,12 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
         blob: Arc<BlobSidecar<T::EthSpec>>,
         subnet_id: u64,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, GossipBlobError<T::EthSpec>> {
+    ) -> Result<Self, GossipBlobError> {
         let header = blob.signed_block_header.clone();
         // We only process slashing info if the gossip verification failed
         // since we do not process the blob any further in that case.
         validate_blob_sidecar_for_gossip(blob, subnet_id, chain).map_err(|e| {
-            process_block_slash_info::<_, GossipBlobError<T::EthSpec>>(
+            process_block_slash_info::<_, GossipBlobError>(
                 chain,
                 BlockSlashInfo::from_early_error_blob(header, e),
             )
@@ -339,16 +323,16 @@ impl<E: EthSpec> KzgVerifiedBlobList<E> {
         kzg: &Kzg,
         seen_timestamp: Duration,
     ) -> Result<Self, KzgError> {
-        let blobs = blob_list.into_iter().collect::<Vec<_>>();
-        verify_kzg_for_blob_list(blobs.iter(), kzg)?;
+        let blobs = blob_list
+            .into_iter()
+            .map(|blob| KzgVerifiedBlob {
+                blob,
+                seen_timestamp,
+            })
+            .collect::<Vec<_>>();
+        verify_kzg_for_blob_list(blobs.iter().map(|b| &b.blob), kzg)?;
         Ok(Self {
-            verified_blobs: blobs
-                .into_iter()
-                .map(|blob| KzgVerifiedBlob {
-                    blob,
-                    seen_timestamp,
-                })
-                .collect(),
+            verified_blobs: blobs,
         })
     }
 }
@@ -384,7 +368,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
     subnet: u64,
     chain: &BeaconChain<T>,
-) -> Result<GossipVerifiedBlob<T>, GossipBlobError<T::EthSpec>> {
+) -> Result<GossipVerifiedBlob<T>, GossipBlobError> {
     let blob_slot = blob_sidecar.slot();
     let blob_index = blob_sidecar.index;
     let block_parent_root = blob_sidecar.block_parent_root();
@@ -409,8 +393,8 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     // Verify that the blob_sidecar was received on the correct subnet.
     if blob_index != subnet {
         return Err(GossipBlobError::InvalidSubnet {
-            expected: blob_index,
-            received: subnet,
+            expected: subnet,
+            received: blob_index,
         });
     }
 
@@ -466,7 +450,9 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     // We have already verified that the blob is past finalization, so we can
     // just check fork choice for the block's parent.
     let Some(parent_block) = fork_choice.get_block(&block_parent_root) else {
-        return Err(GossipBlobError::BlobParentUnknown(blob_sidecar));
+        return Err(GossipBlobError::BlobParentUnknown {
+            parent_root: block_parent_root,
+        });
     };
 
     // Do not process a blob that does not descend from the finalized root.
@@ -516,7 +502,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
                 ))
             })?;
 
-        let state = cheap_state_advance_to_obtain_committees::<_, GossipBlobError<T::EthSpec>>(
+        let state = cheap_state_advance_to_obtain_committees::<_, GossipBlobError>(
             &mut parent_state,
             Some(parent_state_root),
             blob_slot,
@@ -566,12 +552,11 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     }
 
     // Kzg verification for gossip blob sidecar
-    let kzg = chain
-        .kzg
-        .as_ref()
-        .ok_or(GossipBlobError::KzgNotInitialized)?;
+    let kzg = chain.kzg.as_ref();
+
     let kzg_verified_blob = KzgVerifiedBlob::new(blob_sidecar.clone(), kzg, seen_timestamp)
         .map_err(GossipBlobError::KzgError)?;
+    let blob_sidecar = &kzg_verified_blob.blob;
 
     chain
         .observed_slashable
@@ -597,7 +582,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
     if chain
         .observed_blob_sidecars
         .write()
-        .observe_sidecar(&blob_sidecar)
+        .observe_sidecar(blob_sidecar)
         .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?
     {
         return Err(GossipBlobError::RepeatBlob {
