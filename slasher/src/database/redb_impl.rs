@@ -164,9 +164,7 @@ impl<'env> Cursor<'env> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(&self.db.table_name);
         let table = self.txn.open_table(table_definition)?;
-        let first = table
-            .first()?
-            .map(|(key, _)|  key.value().to_vec());
+        let first = table.first()?.map(|(key, _)| key.value().to_vec());
 
         if let Some(owned_key) = first {
             self.current_key = Some(Cow::from(owned_key));
@@ -180,9 +178,7 @@ impl<'env> Cursor<'env> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(&self.db.table_name);
         let table = self.txn.open_table(table_definition)?;
-        let last = table
-            .last()?
-            .map(|(key, _)| key.value().to_vec());
+        let last = table.last()?.map(|(key, _)| key.value().to_vec());
 
         if let Some(owned_key) = last {
             self.current_key = Some(Cow::from(owned_key));
