@@ -390,6 +390,9 @@ pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     spec: Arc<ChainSpec>,
 }
 
+// This enum is only used internally within the crate in the reconstruction function to improve
+// readability, so it's OK to not box the variant value, and it shouldn't impact memory much with
+// the current usage, as it's deconstructed immediately.
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum ReconstructColumnsDecision<E: EthSpec> {
     Yes(PendingComponents<E>),

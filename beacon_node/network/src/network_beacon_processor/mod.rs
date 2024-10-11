@@ -911,6 +911,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 error!(
                     self.log,
                     "Error during data column reconstruction";
+                    "block_root" => %block_root,
                     "error" => ?e
                 );
                 None
