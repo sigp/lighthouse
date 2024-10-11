@@ -24,16 +24,21 @@ where
         let mut visitor = LogMessageExtractor {
             message: String::new(),
             fields: Vec::new(),
+            is_crit: false,
         };
 
         event.record(&mut visitor);
 
-        let level_str = match *log_level {
-            tracing::Level::ERROR => "\x1b[31mERROR\x1b[0m",
-            tracing::Level::WARN => "\x1b[33mWARN\x1b[0m",
-            tracing::Level::INFO => "\x1b[32mINFO\x1b[0m",
-            tracing::Level::DEBUG => "\x1b[34mDEBUG\x1b[0m",
-            tracing::Level::TRACE => "\x1b[35mTRACE\x1b[0m",
+        let level_str = if visitor.is_crit {
+            "\x1b[35mCRIT\x1b[0m"
+        } else {
+            match *log_level {
+                tracing::Level::ERROR => "\x1b[31mERROR\x1b[0m",
+                tracing::Level::WARN => "\x1b[33mWARN\x1b[0m",
+                tracing::Level::INFO => "\x1b[32mINFO\x1b[0m",
+                tracing::Level::DEBUG => "\x1b[34mDEBUG\x1b[0m",
+                tracing::Level::TRACE => "\x1b[35mTRACE\x1b[0m",
+            }
         };
 
         let bold_start = "\x1b[1m";
@@ -66,12 +71,15 @@ where
 struct LogMessageExtractor {
     message: String,
     fields: Vec<(String, String)>,
+    is_crit: bool,
 }
 
 impl tracing_core::field::Visit for LogMessageExtractor {
     fn record_str(&mut self, field: &Field, value: &str) {
         if field.name() == "message" {
             self.message = value.to_string();
+        } else if field.name() == "error_type" && value == "crit" {
+            self.is_crit = true;
         } else {
             self.fields
                 .push((field.name().to_string(), value.to_string()));
@@ -81,6 +89,8 @@ impl tracing_core::field::Visit for LogMessageExtractor {
     fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
         if field.name() == "message" {
             self.message = format!("{:?}", value);
+        } else if field.name() == "error_type" && format!("{:?}", value) == "\"crit\"" {
+            self.is_crit = true;
         } else {
             self.fields
                 .push((field.name().to_string(), format!("{:?}", value)));
