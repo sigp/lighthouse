@@ -22,6 +22,7 @@ pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
 use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, DataAvailabilityChecker,
+    DataColumnReconstructionResult,
 };
 use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use crate::early_attester_cache::EarlyAttesterCache;
@@ -3166,7 +3167,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let data_availability_checker = self.data_availability_checker.clone();
-        let Some((availability, data_columns_to_publish)) = self
+
+        let result = self
             .task_executor
             .spawn_blocking_handle(
                 move || data_availability_checker.reconstruct_data_columns(&block_root),
@@ -3174,22 +3176,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .ok_or(BeaconChainError::RuntimeShutdown)?
             .await
-            .map_err(BeaconChainError::TokioJoin)??
-        else {
-            return Ok(None);
-        };
+            .map_err(BeaconChainError::TokioJoin)??;
 
-        let Some(slot) = data_columns_to_publish.first().map(|d| d.slot()) else {
-            return Ok(None);
-        };
+        match result {
+            DataColumnReconstructionResult::Success((availability, data_columns_to_publish)) => {
+                let Some(slot) = data_columns_to_publish.first().map(|d| d.slot()) else {
+                    // This should be unreachable because empty result would return `RecoveredColumnsNotImported` instead of success.
+                    return Ok(None);
+                };
 
-        let r = self
-            .process_availability(slot, availability, || Ok(()))
-            .await;
-        self.remove_notified(&block_root, r)
-            .map(|availability_processing_status| {
-                Some((availability_processing_status, data_columns_to_publish))
-            })
+                let r = self
+                    .process_availability(slot, availability, || Ok(()))
+                    .await;
+                self.remove_notified(&block_root, r)
+                    .map(|availability_processing_status| {
+                        Some((availability_processing_status, data_columns_to_publish))
+                    })
+            }
+            DataColumnReconstructionResult::NotRequired(reason)
+            | DataColumnReconstructionResult::RecoveredColumnsNotImported(reason) => {
+                // We use metric here because logging this would be *very* noisy.
+                metrics::inc_counter_vec(
+                    &metrics::KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL,
+                    &[reason],
+                );
+                Ok(None)
+            }
+        }
     }
 
     /// Remove any block components from the *processing cache* if we no longer require them. If the

@@ -899,6 +899,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Some(availability_processing_status)
             }
             Ok(None) => {
+                // reason is tracked via the `KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL` metric
                 trace!(
                     self.log,
                     "Reconstruction not required for block";

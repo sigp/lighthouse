@@ -1903,6 +1903,15 @@ pub static KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES: LazyLock<Result<IntCounter>>
         )
     });
 
+pub static KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "kzg_data_column_reconstruction_incomplete_total",
+            "Count of times data column reconstruction attempts did not result in an import",
+            &["reason"],
+        )
+    });
+
 /*
  * light_client server metrics
  */
