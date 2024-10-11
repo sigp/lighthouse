@@ -567,7 +567,6 @@ mod request {
     use rand::seq::SliceRandom;
     use rand::thread_rng;
     use std::collections::HashSet;
-    use strum::IntoStaticStr;
     use types::data_column_sidecar::ColumnIndex;
 
     pub(crate) struct ActiveColumnSampleRequest {
@@ -578,7 +577,7 @@ mod request {
     }
 
     // Exposed only for testing assertions in lookup tests
-    #[derive(Debug, Clone, IntoStaticStr)]
+    #[derive(Debug, Clone)]
     pub(crate) enum Status {
         NoPeers,
         NotStarted,
