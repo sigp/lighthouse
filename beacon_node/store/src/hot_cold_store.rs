@@ -1765,14 +1765,28 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// Will reconstruct the state if it lies between restore points.
     pub fn load_cold_state_by_slot(&self, slot: Slot) -> Result<BeaconState<E>, Error> {
-        // Check the cache.
-        if let Some(state) = self
-            .historic_state_cache
-            .lock()
-            .get_state(slot, &self.spec)?
-        {
-            metrics::inc_counter(&metrics::STORE_BEACON_HISTORIC_STATE_CACHE_HIT);
-            return Ok(state);
+        let storage_strategy = self.hierarchy.storage_strategy(slot)?;
+
+        // Search for a state from this slot or a recent prior slot in the historic state cache.
+        let mut historic_state_cache = self.historic_state_cache.lock();
+
+        let cached_state = itertools::process_results(
+            storage_strategy
+                .replay_from_range(slot)
+                .rev()
+                .map(|prior_slot| historic_state_cache.get_state(prior_slot, &self.spec)),
+            |mut iter| iter.find_map(|cached_state| cached_state),
+        )?;
+        drop(historic_state_cache);
+
+        if let Some(cached_state) = cached_state {
+            if cached_state.slot() == slot {
+                metrics::inc_counter(&metrics::STORE_BEACON_HISTORIC_STATE_CACHE_HIT);
+                return Ok(cached_state);
+            }
+            metrics::inc_counter(&metrics::STORE_BEACON_HISTORIC_STATE_CACHE_MISS);
+
+            return self.load_cold_state_by_slot_using_replay(cached_state, slot);
         }
 
         metrics::inc_counter(&metrics::STORE_BEACON_HISTORIC_STATE_CACHE_MISS);
@@ -1786,8 +1800,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 let (_, buffer) = self.load_hdiff_buffer_for_slot(slot)?;
                 let mut state = buffer.as_state(&self.spec)?;
 
-                // Build all caches for states to be cached because:
-                // - The caches are required for any states built by replay from this state, and
+                // Build all state caches prior to storing in the historic state cache because:
+                // - The caches are required to replay blocks on this state, and
                 // - For most requests aside from raw SSZ, the caller will require caches to compute
                 //   info like rewards, committees, etc.
                 let t = std::time::Instant::now();
@@ -1805,64 +1819,60 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 Ok(state)
             }
             StorageStrategy::ReplayFrom(from) => {
-                // Search for a state from any prior slot in the historic state cache.
-                let base_state = {
-                    let mut historic_state_cache = self.historic_state_cache.lock();
-                    let cached_state = itertools::process_results(
-                        (from.as_u64()..=slot.as_u64()).rev().map(|prior_slot| {
-                            historic_state_cache.get_state(Slot::new(prior_slot), &self.spec)
-                        }),
-                        |mut iter| iter.find_map(|cached_state| cached_state),
-                    )?;
-                    drop(historic_state_cache);
-                    if let Some(state) = cached_state {
-                        // Found a prior cached state in the historic state cache.
-                        state
-                    } else {
-                        // No prior state found, need to load by diffing.
-                        self.load_cold_state_by_slot(from)?
-                    }
+                let base_state = if let Some(state) = cached_state {
+                    // Found a prior state in the historic state cache.
+                    state
+                } else {
+                    // No prior state found, need to load by diffing.
+                    self.load_cold_state_by_slot(from)?
                 };
-                if base_state.slot() == slot {
-                    return Ok(base_state);
-                }
-
-                let t = std::time::Instant::now();
-
-                let blocks = self.load_cold_blocks(base_state.slot() + 1, slot)?;
-                // FIXME(sproul): add metric
-                debug!(
-                    self.log,
-                    "Loaded cold blocks";
-                    "target_slot" => slot,
-                    "num_blocks" => blocks.len(),
-                    "load_time_ms" => t.elapsed().as_millis()
-                );
-
-                // Include state root for base state as it is required by block processing to not
-                // have to hash the state.
-                let t = std::time::Instant::now();
-                let state_root_iter =
-                    self.forwards_state_roots_iterator_until(base_state.slot(), slot, || {
-                        Err(Error::StateShouldNotBeRequired(slot))
-                    })?;
-
-                let state =
-                    self.replay_blocks(base_state, blocks, slot, Some(state_root_iter), None)?;
-
-                debug!(
-                    self.log,
-                    "Replayed blocks";
-                    "target_slot" => slot,
-                    "replay_time_ms" => t.elapsed().as_millis()
-                );
-
-                self.historic_state_cache
-                    .lock()
-                    .put_state(slot, state.clone());
-                Ok(state)
+                self.load_cold_state_by_slot_using_replay(base_state, slot)
             }
         }
+    }
+
+    fn load_cold_state_by_slot_using_replay(
+        &self,
+        base_state: BeaconState<E>,
+        slot: Slot,
+    ) -> Result<BeaconState<E>, Error> {
+        if base_state.slot() == slot {
+            return Ok(base_state);
+        }
+
+        let t = std::time::Instant::now();
+
+        let blocks = self.load_cold_blocks(base_state.slot() + 1, slot)?;
+        // FIXME(sproul): add metric
+        debug!(
+            self.log,
+            "Loaded cold blocks";
+            "target_slot" => slot,
+            "num_blocks" => blocks.len(),
+            "load_time_ms" => t.elapsed().as_millis()
+        );
+
+        // Include state root for base state as it is required by block processing to not
+        // have to hash the state.
+        let t = std::time::Instant::now();
+        let state_root_iter =
+            self.forwards_state_roots_iterator_until(base_state.slot(), slot, || {
+                Err(Error::StateShouldNotBeRequired(slot))
+            })?;
+
+        let state = self.replay_blocks(base_state, blocks, slot, Some(state_root_iter), None)?;
+
+        debug!(
+            self.log,
+            "Replayed blocks";
+            "target_slot" => slot,
+            "replay_time_ms" => t.elapsed().as_millis()
+        );
+
+        self.historic_state_cache
+            .lock()
+            .put_state(slot, state.clone());
+        Ok(state)
     }
 
     fn load_hdiff_for_slot(&self, slot: Slot) -> Result<HDiff, Error> {
