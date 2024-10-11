@@ -13,6 +13,7 @@ use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
 
 // use logging::{SELoggingComponents};
+use logging::tracing_logging_layer::LoggingLayer;
 use serde::{Deserialize, Serialize};
 use std::io::{Result as IOResult, Write};
 use std::path::PathBuf;
@@ -194,7 +195,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     /// does not have to wait for the logs to be flushed.
     /// The logger can be duplicated and more detailed logs can be output to `logfile`.
     /// Note that background file logging will spawn a new thread.
-    pub fn init_tracing(mut self, config: LoggerConfig) -> (Self, NonBlocking, WorkerGuard) {
+    pub fn init_tracing(mut self, config: LoggerConfig) -> (Self, LoggingLayer, LoggingLayer) {
         let mut log_path = config.path.unwrap();
 
         let mut path = PathBuf::new();
@@ -216,9 +217,22 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         else {
             panic!("Failed to initialize rolling file appender");
         };
-        let (non_blocking_file, guard) = tracing_appender::non_blocking(file_appender);
+        let (file_non_blocking_writer, file_guard) = tracing_appender::non_blocking(file_appender);
 
-        (self, non_blocking_file, guard)
+        let file_logging_layer = LoggingLayer {
+            non_blocking_writer: file_non_blocking_writer,
+            guard: file_guard,
+        };
+
+        let (stdout_non_blocking_writer, stdout_guard) =
+            tracing_appender::non_blocking(std::io::stdout());
+
+        let stdout_logging_layer = LoggingLayer {
+            non_blocking_writer: stdout_non_blocking_writer,
+            guard: stdout_guard,
+        };
+
+        (self, file_logging_layer, stdout_logging_layer)
     }
     /*
     pub fn initialize_logger(mut self, config: LoggerConfig) -> Result<Self, String> {

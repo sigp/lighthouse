@@ -17,6 +17,7 @@ use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use logging::crit;
+use logging::tracing_logging_layer::LoggingLayer;
 use malloc_utils::configure_memory_allocator;
 use std::backtrace::Backtrace;
 use std::path::PathBuf;
@@ -630,33 +631,23 @@ fn run<E: EthSpec>(
         .with_file(true)
         .with_line_number(true);
 
-    let (builder, non_blocking_file, _guard) =
+    let (builder, file_logging_layer, stdout_logging_layer) =
         environment_builder.init_tracing(logger_config.clone());
 
     let filter_layer = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new("info"))
         .unwrap();
 
-    let file_layer = tracing_subscriber::fmt::layer()
-        .with_writer(non_blocking_file)
-        .with_file(true)
-        .with_line_number(true)
-        .with_thread_names(true);
-    let stdout_layer = tracing_subscriber::fmt::layer().with_writer(std::io::stdout);
-
     if let Err(e) = tracing_subscriber::registry()
-        .with(stdout_layer)
-        .with(file_layer)
         .with(filter_layer)
         .with(libp2p_layer)
         .with(discv5_layer)
+        .with(file_logging_layer)
+        .with(stdout_logging_layer)
         .try_init()
     {
         eprintln!("Failed to initialize dependency logging: {e}");
     }
-
-    // let builder = environment_builder.initialize_logger(logger_config.clone())?;
-    //let (builder, non_blocking_file, _guard) = environment_builder.init_tracing(logger_config.clone());
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
