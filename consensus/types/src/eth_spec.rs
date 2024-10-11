@@ -92,6 +92,7 @@ pub trait EthSpec:
     type SyncCommitteeSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /// The number of `sync_committee` subnets.
     type SyncCommitteeSubnetCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxLightClientUpdates: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * New in Bellatrix
      */
@@ -374,6 +375,10 @@ pub trait EthSpec:
     fn kzg_commitments_inclusion_proof_depth() -> usize {
         Self::KzgCommitmentsInclusionProofDepth::to_usize()
     }
+
+    fn max_light_client_updates_by_range_requests() -> usize {
+        Self::MaxLightClientUpdates::to_usize()
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.
@@ -438,6 +443,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxAttesterSlashingsElectra = U1;
     type MaxAttestationsElectra = U8;
     type MaxWithdrawalRequestsPerPayload = U16;
+    type MaxLightClientUpdates = U128;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -477,6 +483,7 @@ impl EthSpec for MinimalEthSpec {
     type FieldElementsPerExtBlob = U8192;
     type BytesPerCell = U2048;
     type KzgCommitmentsInclusionProofDepth = U4;
+    type MaxLightClientUpdates = U128;
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -569,6 +576,7 @@ impl EthSpec for GnosisEthSpec {
     type FieldElementsPerExtBlob = U8192;
     type BytesPerCell = U2048;
     type KzgCommitmentsInclusionProofDepth = U4;
+    type MaxLightClientUpdates = U128;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()

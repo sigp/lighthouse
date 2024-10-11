@@ -493,7 +493,7 @@ pub struct LightClientUpdatesByRangeRequest {
 
 impl LightClientUpdatesByRangeRequest {
     pub fn max_requested<E: EthSpec>(&self) -> u64 {
-        MAX_REQUEST_LIGHT_CLIENT_UPDATES
+        E::max_light_client_updates_by_range_requests() as u64
     }
 
     pub fn ssz_min_len() -> usize {
