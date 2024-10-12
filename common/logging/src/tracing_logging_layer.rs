@@ -41,10 +41,24 @@ where
             }
         };
 
+        let fixed_message_width = 44;
         let bold_start = "\x1b[1m";
         let bold_end = "\x1b[0m";
 
         let bold_message = format!("{}{}{}", bold_start, visitor.message, bold_end);
+
+        let message_len = visitor.message.len();
+
+        let padded_message = if message_len < fixed_message_width {
+            format!(
+                "{:<width$}",
+                bold_message,
+                width = fixed_message_width + (bold_message.len() - message_len)
+            )
+        } else {
+            bold_message.clone()
+        };
+
         let mut formatted_fields = String::new();
         for (i, (field_name, field_value)) in visitor.fields.iter().enumerate() {
             if i > 0 {
@@ -55,9 +69,9 @@ where
             formatted_fields.push_str(&formatted_field);
         }
 
-        let mut full_message = bold_message;
+        let mut full_message = padded_message.clone();
         if !formatted_fields.is_empty() {
-            full_message = format!("{}\t\t{}", full_message, formatted_fields);
+            full_message = format!("{}  {}", padded_message, formatted_fields);
         }
 
         let message = format!("{} {} {}\n", timestamp, level_str, full_message);

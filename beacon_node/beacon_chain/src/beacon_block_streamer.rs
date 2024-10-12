@@ -18,6 +18,7 @@ use types::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadElectra,
     ExecutionPayloadHeader,
 };
+
 #[derive(PartialEq)]
 pub enum CheckCaches {
     Yes,
