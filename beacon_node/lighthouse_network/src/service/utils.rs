@@ -24,8 +24,6 @@ use types::{
 };
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
-/// The maximum simultaneous libp2p connections per peer.
-pub const MAX_CONNECTIONS_PER_PEER: u32 = 1;
 /// The filename to store our local metadata.
 pub const METADATA_FILENAME: &str = "metadata";
 

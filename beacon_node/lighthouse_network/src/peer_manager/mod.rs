@@ -334,15 +334,15 @@ impl<E: EthSpec> PeerManager<E> {
             {
                 // This should be updated with the peer dialing. In fact created once the peer is
                 // dialed
+                let peer_id = enr.peer_id();
                 if let Some(min_ttl) = min_ttl {
                     self.network_globals
                         .peers
                         .write()
-                        .update_min_ttl(&enr.peer_id(), min_ttl);
+                        .update_min_ttl(&peer_id, min_ttl);
                 }
-                let peer_id = enr.peer_id();
                 if self.dial_peer(enr) {
-                    debug!(%peer_id, "Dialing discovered peer");
+                    debug!(%peer_id, "Added discovered ENR peer to dial queue");
                     to_dial_peers += 1;
                 }
             }
@@ -444,18 +444,6 @@ impl<E: EthSpec> PeerManager<E> {
 
     pub fn is_connected(&self, peer_id: &PeerId) -> bool {
         self.network_globals.peers.read().is_connected(peer_id)
-    }
-
-    /// Reports whether the peer limit is reached in which case we stop allowing new incoming
-    /// connections.
-    pub fn peer_limit_reached(&self, count_dialing: bool) -> bool {
-        if count_dialing {
-            // This is an incoming connection so limit by the standard max peers
-            self.network_globals.connected_or_dialing_peers() >= self.max_peers()
-        } else {
-            // We dialed this peer, allow up to max_outbound_dialing_peers
-            self.network_globals.connected_peers() >= self.max_outbound_dialing_peers()
-        }
     }
 
     /// Updates `PeerInfo` with `identify` information.
