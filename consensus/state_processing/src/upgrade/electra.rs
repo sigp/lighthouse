@@ -1,8 +1,9 @@
+use bls::Signature;
 use safe_arith::SafeArith;
 use std::mem;
 use types::{
     BeaconState, BeaconStateElectra, BeaconStateError as Error, ChainSpec, Epoch, EpochCache,
-    EthSpec, Fork, PendingBalanceDeposit,
+    EthSpec, Fork, PendingDeposit,
 };
 
 /// Transform a `Deneb` state into an `Electra` state.
@@ -70,11 +71,16 @@ pub fn upgrade_to_electra<E: EthSpec>(
             .ok_or(Error::UnknownValidator(index))?;
         validator.effective_balance = 0;
         validator.activation_eligibility_epoch = spec.far_future_epoch;
+        let pubkey = validator.pubkey;
+        let withdrawal_credentials = validator.withdrawal_credentials;
 
-        post.pending_balance_deposits_mut()?
-            .push(PendingBalanceDeposit {
-                index: index as u64,
+        post.pending_deposits_mut()?
+            .push(PendingDeposit {
+                pubkey,
+                withdrawal_credentials,
                 amount: balance_copy,
+                signature: Signature::infinity()?,
+                slot: spec.genesis_slot,
             })
             .map_err(Error::MilhouseError)?;
     }
@@ -156,7 +162,7 @@ pub fn upgrade_state_to_electra<E: EthSpec>(
         earliest_exit_epoch,
         consolidation_balance_to_consume: 0,
         earliest_consolidation_epoch,
-        pending_balance_deposits: Default::default(),
+        pending_deposits: Default::default(),
         pending_partial_withdrawals: Default::default(),
         pending_consolidations: Default::default(),
         // Caches

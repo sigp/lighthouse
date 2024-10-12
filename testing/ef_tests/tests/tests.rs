@@ -243,8 +243,7 @@ mod ssz_static {
     use types::historical_summary::HistoricalSummary;
     use types::{
         AttesterSlashingBase, AttesterSlashingElectra, ConsolidationRequest, DepositRequest,
-        LightClientBootstrapAltair, PendingBalanceDeposit, PendingPartialWithdrawal,
-        WithdrawalRequest, *,
+        LightClientBootstrapAltair, PendingDeposit, PendingPartialWithdrawal, WithdrawalRequest, *,
     };
 
     ssz_static_test!(attestation_data, AttestationData);
@@ -664,8 +663,8 @@ mod ssz_static {
 
     #[test]
     fn pending_balance_deposit() {
-        SszStaticHandler::<PendingBalanceDeposit, MinimalEthSpec>::electra_and_later().run();
-        SszStaticHandler::<PendingBalanceDeposit, MainnetEthSpec>::electra_and_later().run();
+        SszStaticHandler::<PendingDeposit, MinimalEthSpec>::electra_and_later().run();
+        SszStaticHandler::<PendingDeposit, MainnetEthSpec>::electra_and_later().run();
     }
 
     #[test]

@@ -5,6 +5,7 @@ use crate::common::{
 };
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
 use crate::VerifySignatures;
+use errors::DepositInvalid;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 use types::typenum::U33;
 
@@ -449,47 +450,73 @@ pub fn apply_deposit<E: EthSpec>(
 
     if let Some(index) = validator_index {
         // [Modified in Electra:EIP7251]
-        if let Ok(pending_balance_deposits) = state.pending_balance_deposits_mut() {
-            pending_balance_deposits.push(PendingBalanceDeposit { index, amount })?;
+        if let Ok(pending_deposits) = state.pending_deposits_mut() {
+            pending_deposits.push(PendingDeposit {
+                pubkey: deposit_data.pubkey,
+                withdrawal_credentials: deposit_data.withdrawal_credentials,
+                amount,
+                signature: deposit_data.signature.decompress().map_err(|_| {
+                    BlockProcessingError::DepositInvalid {
+                        index: deposit_index,
+                        reason: DepositInvalid::BadBlsBytes,
+                    }
+                })?,
+                slot: spec.genesis_slot, // Use `genesis_slot` to distinguish from a pending deposit request
+            })?;
         } else {
             // Update the existing validator balance.
             increase_balance(state, index as usize, amount)?;
         }
-    } else {
+    }
+    // New validator
+    else {
         // The signature should be checked for new validators. Return early for a bad
         // signature.
         if is_valid_deposit_signature(&deposit_data, spec).is_err() {
             return Ok(());
         }
 
-        let new_validator_index = state.validators().len();
-
         // [Modified in Electra:EIP7251]
-        let (effective_balance, state_balance) = if state.fork_name_unchecked() >= ForkName::Electra
-        {
-            (0, 0)
+        if state.fork_name_unchecked() >= ForkName::Electra {
+            // Create a new validator.
+            let mut validator = Validator {
+                pubkey: deposit_data.pubkey,
+                withdrawal_credentials: deposit_data.withdrawal_credentials,
+                activation_eligibility_epoch: spec.far_future_epoch,
+                activation_epoch: spec.far_future_epoch,
+                exit_epoch: spec.far_future_epoch,
+                withdrawable_epoch: spec.far_future_epoch,
+                effective_balance: 0,
+                slashed: false,
+            };
+            let max_effective_balance =
+                validator.get_max_effective_balance(spec, state.fork_name_unchecked());
+            validator.effective_balance = std::cmp::min(
+                amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
+                max_effective_balance,
+            );
+
+            state.validators_mut().push(validator)?;
+            // state balances is set to 0 in electra
+            state.balances_mut().push(0)?;
         } else {
-            (
-                std::cmp::min(
+            let validator = Validator {
+                pubkey: deposit_data.pubkey,
+                withdrawal_credentials: deposit_data.withdrawal_credentials,
+                activation_eligibility_epoch: spec.far_future_epoch,
+                activation_epoch: spec.far_future_epoch,
+                exit_epoch: spec.far_future_epoch,
+                withdrawable_epoch: spec.far_future_epoch,
+                effective_balance: std::cmp::min(
                     amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
                     spec.max_effective_balance,
                 ),
-                amount,
-            )
+                slashed: false,
+            };
+            state.validators_mut().push(validator)?;
+            // state balances is set to 0 in electra
+            state.balances_mut().push(amount)?;
         };
-        // Create a new validator.
-        let validator = Validator {
-            pubkey: deposit_data.pubkey,
-            withdrawal_credentials: deposit_data.withdrawal_credentials,
-            activation_eligibility_epoch: spec.far_future_epoch,
-            activation_epoch: spec.far_future_epoch,
-            exit_epoch: spec.far_future_epoch,
-            withdrawable_epoch: spec.far_future_epoch,
-            effective_balance,
-            slashed: false,
-        };
-        state.validators_mut().push(validator)?;
-        state.balances_mut().push(state_balance)?;
 
         // Altair or later initializations.
         if let Ok(previous_epoch_participation) = state.previous_epoch_participation_mut() {
@@ -503,10 +530,18 @@ pub fn apply_deposit<E: EthSpec>(
         }
 
         // [New in Electra:EIP7251]
-        if let Ok(pending_balance_deposits) = state.pending_balance_deposits_mut() {
-            pending_balance_deposits.push(PendingBalanceDeposit {
-                index: new_validator_index as u64,
+        if let Ok(pending_deposits) = state.pending_deposits_mut() {
+            pending_deposits.push(PendingDeposit {
+                pubkey: deposit_data.pubkey,
+                withdrawal_credentials: deposit_data.withdrawal_credentials,
                 amount,
+                signature: deposit_data.signature.decompress().map_err(|_| {
+                    BlockProcessingError::DepositInvalid {
+                        index: deposit_index,
+                        reason: DepositInvalid::BadBlsBytes,
+                    }
+                })?,
+                slot: spec.genesis_slot, // Use `genesis_slot` to distinguish from a pending deposit request
             })?;
         }
     }
@@ -620,13 +655,18 @@ pub fn process_deposit_requests<E: EthSpec>(
         if state.deposit_requests_start_index()? == spec.unset_deposit_requests_start_index {
             *state.deposit_requests_start_index_mut()? = request.index
         }
-        let deposit_data = DepositData {
-            pubkey: request.pubkey,
-            withdrawal_credentials: request.withdrawal_credentials,
-            amount: request.amount,
-            signature: request.signature.clone().into(),
-        };
-        apply_deposit(state, deposit_data, None, false, spec)?
+        let slot = state.slot();
+
+        // [New in Electra:EIP7251]
+        if let Ok(pending_deposits) = state.pending_deposits_mut() {
+            pending_deposits.push(PendingDeposit {
+                pubkey: request.pubkey,
+                withdrawal_credentials: request.withdrawal_credentials,
+                amount: request.amount,
+                signature: request.signature.clone(),
+                slot,
+            })?;
+        }
     }
 
     Ok(())

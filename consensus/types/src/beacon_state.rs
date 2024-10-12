@@ -510,7 +510,7 @@ where
     #[compare_fields(as_iter)]
     #[test_random(default)]
     #[superstruct(only(Electra))]
-    pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
+    pub pending_deposits: List<PendingDeposit, E::PendingDepositsLimit>,
     #[compare_fields(as_iter)]
     #[test_random(default)]
     #[superstruct(only(Electra))]
@@ -2147,11 +2147,14 @@ impl<E: EthSpec> BeaconState<E> {
         if *balance > spec.min_activation_balance {
             let excess_balance = balance.safe_sub(spec.min_activation_balance)?;
             *balance = spec.min_activation_balance;
-            self.pending_balance_deposits_mut()?
-                .push(PendingBalanceDeposit {
-                    index: validator_index as u64,
-                    amount: excess_balance,
-                })?;
+            let validator = self.get_validator(validator_index)?.clone();
+            self.pending_deposits_mut()?.push(PendingDeposit {
+                pubkey: validator.pubkey,
+                withdrawal_credentials: validator.withdrawal_credentials,
+                amount: excess_balance,
+                signature: Signature::infinity()?,
+                slot: spec.genesis_slot,
+            })?;
         }
         Ok(())
     }
