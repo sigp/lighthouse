@@ -22,23 +22,23 @@ mod tests {
         }
     }
 
-    fn get_logger(actual_log: bool) -> Logger {
-        if actual_log {
-            let drain = {
-                let decorator = slog_term::TermDecorator::new().build();
-                let decorator =
-                    logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
-                let drain = slog_term::FullFormat::new(decorator).build().fuse();
-                let drain = slog_async::Async::new(drain).chan_size(2048).build();
-                drain.filter_level(Level::Debug)
-            };
+    // fn get_logger(actual_log: bool) -> Logger {
+    //     if actual_log {
+    //         let drain = {
+    //             let decorator = slog_term::TermDecorator::new().build();
+    //             let decorator =
+    //                 logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
+    //             let drain = slog_term::FullFormat::new(decorator).build().fuse();
+    //             let drain = slog_async::Async::new(drain).chan_size(2048).build();
+    //             drain.filter_level(Level::Debug)
+    //         };
 
-            Logger::root(drain.fuse(), o!())
-        } else {
-            let builder = NullLoggerBuilder;
-            builder.build().expect("should build logger")
-        }
-    }
+    //         Logger::root(drain.fuse(), o!())
+    //     } else {
+    //         let builder = NullLoggerBuilder;
+    //         builder.build().expect("should build logger")
+    //     }
+    // }
 
     #[test]
     fn test_dht_persistence() {

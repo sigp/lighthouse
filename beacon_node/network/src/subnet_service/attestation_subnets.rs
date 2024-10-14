@@ -14,7 +14,6 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use delay_map::{HashMapDelay, HashSetDelay};
 use futures::prelude::*;
 use lighthouse_network::{discv5::enr::NodeId, NetworkConfig, Subnet, SubnetDiscovery};
-use slog::o;
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, trace, warn};
 use types::{Attestation, EthSpec, Slot, SubnetId, ValidatorSubscription};

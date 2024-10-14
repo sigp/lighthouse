@@ -7,7 +7,6 @@ use beacon_chain::{
 };
 use eth2::types::{self as api_types};
 use safe_arith::SafeArith;
-use slog::Logger;
 use slot_clock::SlotClock;
 use std::cmp::Ordering;
 use tracing::debug;

@@ -1,6 +1,5 @@
 //! Creates a simple DISCV5 server which can be used to bootstrap an Eth2 network.
 use clap::ArgMatches;
-use slog::{o, Drain, Level, Logger};
 
 use eth2_network_config::Eth2NetworkConfig;
 mod cli;
@@ -28,24 +27,6 @@ pub fn run(
         "error" => log::Level::Error,
         "crit" => log::Level::Error,
         _ => unreachable!(),
-    };
-
-    // Setting up the initial logger format and building it.
-    let drain = {
-        let decorator = slog_term::TermDecorator::new().build();
-        let decorator = logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        slog_async::Async::new(drain)
-            .chan_size(LOG_CHANNEL_SIZE)
-            .build()
-    };
-
-    let drain = match debug_level {
-        log::Level::Info => drain.filter_level(Level::Info),
-        log::Level::Debug => drain.filter_level(Level::Debug),
-        log::Level::Trace => drain.filter_level(Level::Trace),
-        log::Level::Warn => drain.filter_level(Level::Warning),
-        log::Level::Error => drain.filter_level(Level::Error),
     };
 
     // Run the main function emitting any errors

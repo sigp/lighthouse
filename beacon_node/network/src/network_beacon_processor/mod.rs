@@ -18,7 +18,6 @@ use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId,
 };
-use slog::Logger;
 use slot_clock::ManualSlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;

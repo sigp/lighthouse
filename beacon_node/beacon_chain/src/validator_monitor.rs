@@ -8,7 +8,6 @@ use itertools::Itertools;
 use logging::crit;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
-use slog::Logger;
 use slot_clock::SlotClock;
 use smallvec::SmallVec;
 use state_processing::common::get_attestation_participation_flag_indices;

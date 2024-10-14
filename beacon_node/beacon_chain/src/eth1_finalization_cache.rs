@@ -1,4 +1,3 @@
-use slog::Logger;
 use ssz_derive::{Decode, Encode};
 use std::cmp;
 use std::collections::BTreeMap;

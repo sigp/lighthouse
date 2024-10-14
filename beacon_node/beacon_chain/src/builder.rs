@@ -31,7 +31,6 @@ use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
 use slasher::Slasher;
-use slog::{o, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::{per_slot_processing, AllCaches};
 use std::marker::PhantomData;

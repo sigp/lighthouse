@@ -43,7 +43,6 @@ use beacon_processor::work_reprocessing_queue::{QueuedUnaggregate, ReprocessQueu
 use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::Logger;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{

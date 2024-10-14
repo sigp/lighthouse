@@ -7,7 +7,6 @@ use std::{
 use futures::FutureExt;
 use libp2p::{swarm::NotifyHandler, PeerId};
 use logging::crit;
-use slog::Logger;
 use smallvec::SmallVec;
 use tokio_util::time::DelayQueue;
 use tracing::debug;

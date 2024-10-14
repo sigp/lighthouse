@@ -15,7 +15,6 @@ use libp2p::swarm::{ConnectionClosed, FromSwarm, SubstreamProtocol, THandlerInEv
 use libp2p::PeerId;
 use logging::crit;
 use rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr};
-use slog::o;
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

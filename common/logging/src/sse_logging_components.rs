@@ -1,13 +1,10 @@
 //! This module provides an implementation of `slog::Drain` that optionally writes to a channel if
 //! there are subscribers to a HTTP SSE stream.
 
-use crate::async_record::AsyncRecord;
 use once_cell::sync::Lazy;
 use serde_json;
 use serde_json::json;
 use serde_json::Value;
-use slog::{Drain, OwnedKVList, Record};
-use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::sync::broadcast::Sender;

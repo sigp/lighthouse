@@ -226,10 +226,10 @@ mod tests {
     use crate::ChainConfig;
     use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES};
     use execution_layer::EngineCapabilities;
-    use slog::info;
     use std::sync::Arc;
     use std::sync::LazyLock;
     use std::time::Duration;
+    use tracing::info;
     use types::{ChainSpec, Graffiti, Keypair, MinimalEthSpec, GRAFFITI_BYTES_LEN};
 
     const VALIDATOR_COUNT: usize = 48;
@@ -290,7 +290,7 @@ mod tests {
         let graffiti_str =
             std::str::from_utf8(graffiti_slice).expect("bytes should convert nicely to ascii");
 
-        info!(harness.chain.log, "results"; "lighthouse_version" => lighthouse_version::VERSION, "graffiti_str" => graffiti_str);
+        info!(lighthouse_version = lighthouse_version::VERSION, graffiti_str = %graffiti_str, "results");
         println!("lighthouse_version: '{}'", lighthouse_version::VERSION);
         println!("graffiti_str:       '{}'", graffiti_str);
 
@@ -327,7 +327,7 @@ mod tests {
             std::str::from_utf8(&found_graffiti_bytes[..expected_graffiti_prefix_len])
                 .expect("bytes should convert nicely to ascii");
 
-        info!(harness.chain.log, "results"; "expected_graffiti_string" => &expected_graffiti_string, "found_graffiti_string" => &found_graffiti_string);
+        info!(%expected_graffiti_string, %found_graffiti_string, "results");
         println!("expected_graffiti_string: '{}'", expected_graffiti_string);
         println!("found_graffiti_string:    '{}'", found_graffiti_string);
 

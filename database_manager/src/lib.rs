@@ -12,7 +12,6 @@ use clap::ValueEnum;
 use cli::{Compact, Inspect};
 use environment::{Environment, RuntimeContext};
 use serde::{Deserialize, Serialize};
-use slog::Logger;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;

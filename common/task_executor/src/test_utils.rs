@@ -1,5 +1,4 @@
 use crate::TaskExecutor;
-use slog::Logger;
 use std::sync::Arc;
 use tokio::runtime;
 

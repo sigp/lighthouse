@@ -3,7 +3,6 @@ pub mod test_utils;
 
 use futures::channel::mpsc::Sender;
 use futures::prelude::*;
-use slog::o;
 use std::sync::Weak;
 use tokio::runtime::{Handle, Runtime};
 use tracing::{debug, trace};
