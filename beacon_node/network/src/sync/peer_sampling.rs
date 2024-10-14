@@ -42,6 +42,18 @@ impl<T: BeaconChainTypes> Sampling<T> {
         self.requests.values().map(|r| r.block_root).collect()
     }
 
+    #[cfg(test)]
+    pub fn assert_sampling_request_status(
+        &self,
+        block_root: Hash256,
+        ongoing: &Vec<ColumnIndex>,
+        no_peers: &Vec<ColumnIndex>,
+    ) {
+        let requester = SamplingRequester::ImportedBlock(block_root);
+        let active_sampling_request = self.requests.get(&requester).unwrap();
+        active_sampling_request.assert_sampling_request_status(ongoing, no_peers);
+    }
+
     /// Create a new sampling request for a known block
     ///
     /// ### Returns
@@ -220,6 +232,21 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
         }
     }
 
+    #[cfg(test)]
+    pub fn assert_sampling_request_status(
+        &self,
+        ongoing: &Vec<ColumnIndex>,
+        no_peers: &Vec<ColumnIndex>,
+    ) {
+        for idx in ongoing {
+            assert!(self.column_requests.get(idx).unwrap().is_ongoing());
+        }
+
+        for idx in no_peers {
+            assert!(self.column_requests.get(idx).unwrap().is_no_peers());
+        }
+    }
+
     /// Insert a downloaded column into an active sampling request. Then make progress on the
     /// entire request.
     ///
@@ -253,10 +280,14 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
 
         match resp {
             Ok((mut resp_data_columns, seen_timestamp)) => {
+                let resp_column_indexes = resp_data_columns
+                    .iter()
+                    .map(|r| r.index)
+                    .collect::<Vec<_>>();
                 debug!(self.log,
                     "Sample download success";
                     "block_root" => %self.block_root,
-                    "column_indexes" => ?column_indexes,
+                    "column_indexes" => ?resp_column_indexes,
                     "count" => resp_data_columns.len()
                 );
                 metrics::inc_counter_vec(&metrics::SAMPLE_DOWNLOAD_RESULT, &[metrics::SUCCESS]);
@@ -596,6 +627,11 @@ mod request {
                 Status::NoPeers | Status::NotStarted => true,
                 Status::Sampling(_) | Status::Verified => false,
             }
+        }
+
+        #[cfg(test)]
+        pub(crate) fn is_no_peers(&self) -> bool {
+            matches!(self.status, Status::NoPeers)
         }
 
         pub(crate) fn choose_peer<T: BeaconChainTypes>(
