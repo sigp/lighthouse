@@ -196,10 +196,6 @@ Options:
       --http-tls-key <http-tls-key>
           The path of the private key to be used when serving the HTTP API
           server over TLS. Must not be password-protected.
-      --idontwant-message-size-threshold <idontwant-message-size-threshold>
-          Specifies the minimum message size for which IDONTWANT messages are
-          sent. This an optimization strategy to not send IDONTWANT messages for
-          smaller messages.
       --inbound-rate-limiter-protocols <inbound-rate-limiter-protocols>
           Configures the inbound rate limiter (requests received by this
           node).Rate limit quotas per protocol can be set in the form of
