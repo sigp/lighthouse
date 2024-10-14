@@ -1789,22 +1789,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // buffer.
         match self.hierarchy.storage_strategy(slot)? {
             StorageStrategy::Snapshot | StorageStrategy::DiffFrom(_) => {
-                let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_LOAD_TIME);
+                let buffer_timer =
+                    metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_LOAD_TIME);
                 let (_, buffer) = self.load_hdiff_buffer_for_slot(slot)?;
-                let mut state = buffer.as_state(&self.spec)?;
-
-                // Build all state caches prior to storing in the historic state cache because:
-                // - The caches are required to replay blocks on this state, and
-                // - For most requests aside from raw SSZ, the caller will require caches to compute
-                //   info like rewards, committees, etc.
-                let t = std::time::Instant::now();
-                state.build_all_caches(&self.spec)?;
-                debug!(
-                    self.log,
-                    "Built caches for state";
-                    "target_slot" => slot,
-                    "build_time_ms" => t.elapsed().as_millis()
-                );
+                drop(buffer_timer);
+                let state = buffer.as_state(&self.spec)?;
 
                 self.historic_state_cache
                     .lock()
@@ -1826,9 +1815,26 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     fn load_cold_state_by_slot_using_replay(
         &self,
-        base_state: BeaconState<E>,
+        mut base_state: BeaconState<E>,
         slot: Slot,
     ) -> Result<BeaconState<E>, Error> {
+        if !base_state.all_caches_built() {
+            // Build all caches and update the historic state cache so that these caches may be used
+            // at future slots. We do this lazily here rather than when populating the cache in
+            // order to speed up queries at snapshot/diff slots, which are already slow.
+            let t = std::time::Instant::now();
+            base_state.build_all_caches(&self.spec)?;
+            debug!(
+                self.log,
+                "Built caches for state";
+                "target_slot" => slot,
+                "build_time_ms" => t.elapsed().as_millis()
+            );
+            self.historic_state_cache
+                .lock()
+                .put_state(base_state.slot(), base_state.clone());
+        }
+
         if base_state.slot() == slot {
             return Ok(base_state);
         }
@@ -1905,19 +1911,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         match self.hierarchy.storage_strategy(slot)? {
             // Base case.
             StorageStrategy::Snapshot => {
-                let mut state = self
+                let state = self
                     .load_cold_state_as_snapshot(slot)?
                     .ok_or(Error::MissingSnapshot(slot))?;
                 let buffer = HDiffBuffer::from_state(state.clone());
-
-                let t = std::time::Instant::now();
-                state.build_all_caches(&self.spec)?;
-                debug!(
-                    self.log,
-                    "Built caches for state";
-                    "target_slot" => slot,
-                    "build_time_ms" => t.elapsed().as_millis()
-                );
 
                 self.historic_state_cache
                     .lock()
