@@ -5,12 +5,12 @@ use derivative::Derivative;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_types::typenum::Unsigned;
 use ssz_types::BitVector;
 use std::hash::{Hash, Hasher};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
-use ssz_types::typenum::Unsigned;
 
 use super::{
     AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
@@ -672,19 +672,41 @@ impl SingleAttestation {
     //     Ok(attesting_indices)
     // }
 
-    pub fn to_attestation(&self, _committees: &[BeaconCommittee]) -> Result<(), Error> {
-        // let beacon_committee = committees.get(self.committee_index).unwrap();
-        // let mut participant_count = 0;
-        // beacon_committee
-        //     .committee
-        //     .iter()
-        //     .enumerate()
-        //     .filter_map(|(i, &beacon_committee)| {
-        //         todo!()
-        //     });
+    pub fn to_attestation<E: EthSpec>(
+        &self,
+        committees: &[BeaconCommittee],
+    ) -> Result<Attestation<E>, Error> {
+        let beacon_committee = committees.get(self.committee_index).unwrap();
+        let temp = beacon_committee
+            .committee
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &validator_index)| {
+                if self.attester_index == validator_index {
+                    return Some(i);
+                }
+                None
+            })
+            .collect::<Vec<_>>();
 
-        Ok(())
+        let aggregation_bit = temp.first().unwrap();
 
+        let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
+        committee_bits
+            .set(self.committee_index, true)
+            .map_err(|_| Error::InvalidCommitteeIndex)?;
+
+        let mut aggregation_bits = BitList::with_capacity(beacon_committee.committee.len())
+            .map_err(|_| Error::InvalidCommitteeLength)?;
+
+        aggregation_bits.set(*aggregation_bit, true)?;
+
+        Ok(Attestation::Electra(AttestationElectra {
+            aggregation_bits,
+            committee_bits,
+            data: self.data.clone(),
+            signature: self.signature.clone(),
+        }))
     }
 }
 

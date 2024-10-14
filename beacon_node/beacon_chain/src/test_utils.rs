@@ -1,3 +1,4 @@
+use crate::attestation_verification::VerifiedAttestation;
 use crate::block_verification_types::{AsBlock, RpcBlock};
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
@@ -2100,7 +2101,7 @@ where
         {
             let verified = result.unwrap();
             self.chain
-                .apply_attestation_to_fork_choice(&verified)
+                .apply_attestation_to_fork_choice(verified.indexed_attestation().to_ref())
                 .unwrap();
             self.chain.add_to_block_inclusion_pool(verified).unwrap();
         }

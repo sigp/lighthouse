@@ -7,8 +7,8 @@ use crate::{
 };
 use proto_array::Block as ProtoBlock;
 use types::{
-    BeaconCommittee, EthSpec, IndexedAttestation, IndexedAttestationElectra, SingleAttestation,
-    SubnetId, VariableList,
+    AttestationError, BeaconCommittee, EthSpec, IndexedAttestation, IndexedAttestationElectra,
+    SingleAttestation, SubnetId, VariableList,
 };
 
 /// A helper trait implemented on wrapper types that can be progressed to a state where they can be
@@ -293,7 +293,10 @@ impl<'a, T: BeaconChainTypes> IndexedSingleAttestation<'a, T> {
         }
 
         let (indexed_attestation, committees_per_slot) =
-            match obtain_indexed_attestation_and_committees_per_slot(chain, attestation) {
+            match obtain_indexed_attestation_and_committees_per_slot_from_single_attestation(
+                chain,
+                attestation,
+            ) {
                 Ok(x) => x,
                 Err(e) => {
                     return Err(Box::new(SignatureNotCheckedSingleAttestation(
@@ -444,16 +447,18 @@ pub fn get_indexed_attestation<E: EthSpec>(
         if committee.slot == attestation.data.slot
             && committee.index == attestation.attester_index as u64
         {
-            // TODO(single-attestation) RAISE ERROR
-            todo!()
+            return Err(Error::NoCommitteeForSlotAndIndex {
+                slot: attestation.data.slot,
+                index: committee.index,
+            });
         }
     }
 
     let attesting_indices = vec![attestation.attester_index as u64];
 
     Ok(IndexedAttestation::Electra(IndexedAttestationElectra {
-        // TODO(single-attestation) UNWRAP
-        attesting_indices: VariableList::new(attesting_indices).unwrap(),
+        attesting_indices: VariableList::new(attesting_indices)
+            .map_err(|e| Error::BeaconChainError(e.into()))?,
         data: attestation.data.clone(),
         signature: attestation.signature.clone(),
     }))
@@ -463,25 +468,37 @@ pub fn get_indexed_attestation<E: EthSpec>(
 type CommitteesPerSlot = u64;
 
 /// Returns the `indexed_attestation` and committee count per slot for the `single_attestation`.
-pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
+pub fn obtain_indexed_attestation_and_committees_per_slot_from_single_attestation<
+    T: BeaconChainTypes,
+>(
     chain: &BeaconChain<T>,
     attestation: &SingleAttestation,
 ) -> Result<(IndexedAttestation<T::EthSpec>, CommitteesPerSlot), Error> {
-    // TODO(single-attestation) ERROR types
-    let result = chain
+    chain
         .with_committee_cache(
             attestation.data.target.root,
             attestation.data.slot.epoch(T::EthSpec::slots_per_epoch()),
             |committee_cache, _| {
-                let committees = committee_cache
+                let committees_per_slot = committee_cache.committees_per_slot();
+
+                let indexed_attestation = committee_cache
                     .get_beacon_committees_at_slot(attestation.data.slot)
-                    .map_err(|_| Error::InvalidSignature).map_err(|_| BeaconChainError::AttestationCommitteeIndexNotSet)?;
-                let indexed_attestation =
-                    get_indexed_attestation(&committees, attestation).map_err(|_s| BeaconChainError::AttestationCommitteeIndexNotSet)?;
+                    .map(|committees| get_indexed_attestation(&committees, attestation))
+                    .unwrap_or_else(|_| {
+                        Err(Error::NoCommitteeForSlotAndIndex {
+                            slot: attestation.data.slot,
+                            index: attestation.committee_index as u64,
+                        })
+                    })
+                    .map_err(|_| {
+                        BeaconChainError::AttestationError(AttestationError::InvalidCommitteeLength)
+                    })?;
 
-                Ok((indexed_attestation, committees.len() as u64))
+                Ok((indexed_attestation, committees_per_slot))
             },
-        )?;
-
-    Ok(result)
+        )
+        .map_err(|_| Error::NoCommitteeForSlotAndIndex {
+            slot: attestation.data.slot,
+            index: attestation.committee_index as u64,
+        })
 }

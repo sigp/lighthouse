@@ -609,7 +609,7 @@ impl<E: EthSpec> Tester<E> {
 
         self.harness
             .chain
-            .apply_attestation_to_fork_choice(&verified_attestation)
+            .apply_attestation_to_fork_choice(verified_attestation.indexed_attestation().to_ref())
             .map_err(|e| Error::InternalError(format!("attestation import failed with {:?}", e)))
     }
 

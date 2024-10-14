@@ -3543,7 +3543,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     // Import aggregate attestations
                     for (index, verified_aggregate) in verified_aggregates {
-                        if let Err(e) = chain.apply_attestation_to_fork_choice(&verified_aggregate) {
+                        if let Err(e) = chain.apply_attestation_to_fork_choice(verified_aggregate.indexed_attestation().to_ref()) {
                             error!(log,
                                     "Failure applying verified aggregate attestation to fork choice";
                                     "error" => format!("{:?}", e),

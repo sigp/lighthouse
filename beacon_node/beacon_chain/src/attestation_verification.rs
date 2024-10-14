@@ -38,6 +38,7 @@ use crate::{
     metrics,
     observed_aggregates::{ObserveOutcome, ObservedAttestationKey},
     observed_attesters::Error as ObservedAttestersError,
+    single_attestation_verification::obtain_indexed_attestation_and_committees_per_slot_from_single_attestation,
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::verify_signature_sets;
@@ -423,9 +424,30 @@ pub fn process_slash_info<T: BeaconChainTypes>(
                     }
                 }
             }
+            SignatureNotCheckedSingleAttestation(attestation, err) => {
+                if let Error::UnknownHeadBlock { .. } = err {
+                    if attestation.data.beacon_block_root == attestation.data.target.root {
+                        return err;
+                    }
+                }
+                match obtain_indexed_attestation_and_committees_per_slot_from_single_attestation(
+                    chain,
+                    attestation,
+                ) {
+                    Ok((indexed, _)) => (indexed, true, err),
+                    Err(e) => {
+                        debug!(
+                            chain.log,
+                            "Unable to obtain indexed form of attestation for slasher";
+                            "attestation_root" => format!("{:?}", attestation.tree_hash_root()),
+                            "error" => format!("{:?}", e)
+                        );
+                        return err;
+                    }
+                }
+            }
             SignatureNotCheckedIndexed(indexed, err) => (indexed, true, err),
-            // TODO(single-attestation) SignatureNotCheckedSingleAttestation variant
-            SignatureNotCheckedSingleAttestation(_, e) | SignatureInvalid(e) => return e,
+            SignatureInvalid(e) => return e,
             SignatureValid(indexed, err) => (indexed, false, err),
         };
 

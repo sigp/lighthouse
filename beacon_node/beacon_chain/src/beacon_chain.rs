@@ -61,9 +61,7 @@ use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_B
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
-use crate::single_attestation_verification::{
-    ToVerifiedSingleAttestation, VerifiedSingleAttestation,
-};
+use crate::single_attestation_verification::VerifiedSingleAttestation;
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
@@ -2220,42 +2218,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Accepts some attestation-type object and attempts to verify it in the context of fork
+    /// Accepts an indexed attestation object and attempts to verify it in the context of fork
     /// choice. If it is valid it is applied to `self.fork_choice`.
-    ///
-    /// Common items that implement `VerifiedAttestation`:
-    ///
-    /// - `VerifiedUnaggregatedAttestation`
-    /// - `VerifiedAggregatedAttestation`
     pub fn apply_attestation_to_fork_choice(
         &self,
-        verified: &impl VerifiedAttestation<T>,
+        indexed_attestation: IndexedAttestationRef<T::EthSpec>,
     ) -> Result<(), Error> {
         self.canonical_head
             .fork_choice_write_lock()
             .on_attestation(
                 self.slot()?,
-                verified.indexed_attestation().to_ref(),
-                AttestationFromBlock::False,
-            )
-            .map_err(Into::into)
-    }
-
-    /// Accepts a `SingleAttestation` object and attempts to verify it in the context of fork
-    /// choice. If it is valid it is applied to `self.fork_choice`.
-    ///
-    /// Common items that implement `VerifiedSingle`:
-    ///
-    /// - `VerifiedSingleAttestation`
-    pub fn apply_single_attestation_to_fork_choice(
-        &self,
-        verified: &impl ToVerifiedSingleAttestation<T>,
-    ) -> Result<(), Error> {
-        self.canonical_head
-            .fork_choice_write_lock()
-            .on_attestation(
-                self.slot()?,
-                verified.indexed_attestation().to_ref(),
+                indexed_attestation,
                 AttestationFromBlock::False,
             )
             .map_err(Into::into)
@@ -2275,15 +2248,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), AttestationError> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
 
-        let state = self.state_at_slot(attestation.data.slot, StateSkipConfig::WithoutStateRoots)?;
-        
-        // TODO(single-attestation) unwrap
-        let _committees = state.get_beacon_committees_at_slot(attestation.data.slot).unwrap();
+        let state =
+            self.state_at_slot(attestation.data.slot, StateSkipConfig::WithoutStateRoots)?;
 
+        let committees = state
+            .get_beacon_committees_at_slot(attestation.data.slot)
+            .map_err(|_| AttestationError::NoCommitteeForSlotAndIndex {
+                slot: attestation.data.slot,
+                index: attestation.data.index,
+            })?;
 
-        let attestation = Attestation::Electra(AttestationElectra::from_single_attestation(attestation).unwrap());
+        let attestation = attestation
+            .to_attestation(&committees)
+            .map_err(|e| AttestationError::BeaconChainError(e.into()))?;
 
-        match self.naive_aggregation_pool.write().insert(attestation.to_ref()) {
+        match self
+            .naive_aggregation_pool
+            .write()
+            .insert(attestation.to_ref())
+        {
             Ok(outcome) => trace!(
                 self.log,
                 "Stored unaggregated attestation";

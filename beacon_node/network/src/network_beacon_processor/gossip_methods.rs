@@ -4,7 +4,6 @@ use crate::{
     service::NetworkMessage,
     sync::SyncMessage,
 };
-use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
@@ -24,6 +23,10 @@ use beacon_chain::{
 use beacon_chain::{
     block_verification_types::AsBlock, single_attestation_verification::ToVerifiedSingleAttestation,
 };
+use beacon_chain::{
+    data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn},
+    StateSkipConfig,
+};
 use lighthouse_network::{
     Client, MessageAcceptance, MessageId, PeerAction, PeerId, PubsubMessage, ReportSource,
 };
@@ -39,10 +42,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    beacon_block::BlockImportSource, Attestation, AttestationData, AttestationElectra,
-    AttestationRef, AttesterSlashing, BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec,
-    Hash256, IndexedAttestation, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    beacon_block::BlockImportSource, Attestation, AttestationData, AttestationRef,
+    AttesterSlashing, BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
+    IndexedAttestation, LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
     SyncCommitteeMessage, SyncSubnetId,
 };
@@ -503,8 +506,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
 
                 // If the attestation is still timely, propagate it.
-                self.propagate_single_attestation_if_timely(
-                    verified_attestation.attestation(),
+                self.propagate_attestation_if_timely(
+                    &verified_attestation.attestation().data,
                     message_id,
                     peer_id,
                 );
@@ -517,10 +520,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL,
                 );
 
-                if let Err(e) = self
-                    .chain
-                    .apply_single_attestation_to_fork_choice(&verified_attestation)
-                {
+                if let Err(e) = self.chain.apply_attestation_to_fork_choice(
+                    verified_attestation.indexed_attestation().to_ref(),
+                ) {
                     match e {
                         BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(
                             e,
@@ -543,13 +545,46 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 }
 
-                // TODO(single-attestation) should we change naive agg pool
-                let attestation = Attestation::Electra(
-                    AttestationElectra::from_single_attestation(
-                        verified_attestation.attestation().clone(),
-                    )
-                    .unwrap(),
-                );
+                let Ok(state) = self.chain.state_at_slot(
+                    verified_attestation.attestation().data.slot,
+                    StateSkipConfig::WithoutStateRoots,
+                ) else {
+                    error!(
+                        self.log,
+                        "Error calculating state at slot";
+                        "peer" => %peer_id,
+                        "slot" => verified_attestation.attestation().data.slot,
+                        "beacon_block_root" => ?beacon_block_root
+                    );
+                    return
+                };
+
+                let Ok(committees) = state
+                    .get_beacon_committees_at_slot(verified_attestation.attestation().data.slot)
+                else {
+                    error!(
+                        self.log,
+                        "Error calculating beacon committee at slot";
+                        "peer" => %peer_id,
+                        "slot" => verified_attestation.attestation().data.slot,
+                        "beacon_block_root" => ?beacon_block_root
+                    );
+                    return
+                };
+
+                let Ok(attestation) = verified_attestation
+                    .attestation()
+                    .to_attestation(&committees)
+                else {
+                    error!(
+                        self.log,
+                        "Error converting to single attestation";
+                        "peer" => %peer_id,
+                        "slot" => verified_attestation.attestation().data.slot,
+                        "beacon_block_root" => ?beacon_block_root
+                    );
+                    return
+                };
 
                 if let Err(e) = self
                     .chain
@@ -616,7 +651,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 // If the attestation is still timely, propagate it.
                 self.propagate_attestation_if_timely(
-                    verified_attestation.attestation(),
+                    verified_attestation.attestation().data(),
                     message_id,
                     peer_id,
                 );
@@ -629,10 +664,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL,
                 );
 
-                if let Err(e) = self
-                    .chain
-                    .apply_attestation_to_fork_choice(&verified_attestation)
-                {
+                if let Err(e) = self.chain.apply_attestation_to_fork_choice(
+                    verified_attestation.indexed_attestation().to_ref(),
+                ) {
                     match e {
                         BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(
                             e,
@@ -812,7 +846,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 // If the attestation is still timely, propagate it.
                 self.propagate_attestation_if_timely(
-                    verified_aggregate.attestation(),
+                    verified_aggregate.attestation().data(),
                     message_id,
                     peer_id,
                 );
@@ -832,10 +866,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_VERIFIED_TOTAL,
                 );
 
-                if let Err(e) = self
-                    .chain
-                    .apply_attestation_to_fork_choice(&verified_aggregate)
-                {
+                if let Err(e) = self.chain.apply_attestation_to_fork_choice(
+                    verified_aggregate.indexed_attestation().to_ref(),
+                ) {
                     match e {
                         BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(
                             e,
@@ -3395,31 +3428,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// timely), propagate it on gossip. Otherwise, ignore it.
     fn propagate_attestation_if_timely(
         &self,
-        attestation: AttestationRef<T::EthSpec>,
+        attestation_data: &AttestationData,
         message_id: MessageId,
         peer_id: PeerId,
     ) {
         let is_timely = attestation_verification::verify_propagation_slot_range::<
             T::SlotClock,
             T::EthSpec,
-        >(&self.chain.slot_clock, attestation.data(), &self.chain.spec)
-        .is_ok();
-
-        self.propagate_if_timely(is_timely, message_id, peer_id)
-    }
-
-    /// If a `SingleAttestation` is still valid with respect to the current time (i.e.,
-    /// timely), propagate it on gossip. Otherwise, ignore it.
-    fn propagate_single_attestation_if_timely(
-        &self,
-        attestation: &SingleAttestation,
-        message_id: MessageId,
-        peer_id: PeerId,
-    ) {
-        let is_timely = attestation_verification::verify_propagation_slot_range::<
-            T::SlotClock,
-            T::EthSpec,
-        >(&self.chain.slot_clock, &attestation.data, &self.chain.spec)
+        >(&self.chain.slot_clock, attestation_data, &self.chain.spec)
         .is_ok();
 
         self.propagate_if_timely(is_timely, message_id, peer_id)
