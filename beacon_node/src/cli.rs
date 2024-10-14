@@ -665,6 +665,7 @@ pub fn cli_app() -> Command {
                 .help("Specifies the minimum message size for which IDONTWANT messages are sent. \
                 This an optimization strategy to not send IDONTWANT messages for smaller messages.")
                 .action(ArgAction::Set)
+                .hide(true)
                 .display_order(0)
         )
         /*
