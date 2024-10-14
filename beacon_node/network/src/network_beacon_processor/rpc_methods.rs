@@ -10,7 +10,7 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
-use methods::{LightClientUpdatesByRangeRequest, MAX_REQUEST_LIGHT_CLIENT_UPDATES};
+use methods::LightClientUpdatesByRangeRequest;
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
@@ -470,7 +470,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // Should not send more than max light client updates
-        let max_request_size: u64 = MAX_REQUEST_LIGHT_CLIENT_UPDATES;
+        let max_request_size: u64 = req.max_requested();
         if req.count > max_request_size {
             return Err((
                 RpcErrorResponse::InvalidRequest,

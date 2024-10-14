@@ -14,20 +14,16 @@ use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
-use types::LightClientUpdate;
+use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
     blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
     Epoch, EthSpec, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, RuntimeVariableList, SignedBeaconBlock, Slot,
+    LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock, Slot,
 };
 
 /// Maximum length of error message.
 pub type MaxErrorLen = U256;
 pub const MAX_ERROR_LEN: u64 = 256;
-
-// Max light client updates by range request limits
-// spec: https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/light-client/p2p-interface.md#configuration
-pub const MAX_REQUEST_LIGHT_CLIENT_UPDATES: u64 = 128;
 
 /// Wrapper over SSZ List to represent error message in rpc responses.
 #[derive(Debug, Clone)]
@@ -492,8 +488,8 @@ pub struct LightClientUpdatesByRangeRequest {
 }
 
 impl LightClientUpdatesByRangeRequest {
-    pub fn max_requested<E: EthSpec>(&self) -> u64 {
-        E::max_light_client_updates_by_range_requests() as u64
+    pub fn max_requested(&self) -> u64 {
+        MAX_REQUEST_LIGHT_CLIENT_UPDATES
     }
 
     pub fn ssz_min_len() -> usize {

@@ -36,6 +36,10 @@ pub const CURRENT_SYNC_COMMITTEE_PROOF_LEN: usize = 5;
 pub const NEXT_SYNC_COMMITTEE_PROOF_LEN: usize = 5;
 pub const EXECUTION_PAYLOAD_PROOF_LEN: usize = 4;
 
+// Max light client updates by range request limits
+// spec: https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/light-client/p2p-interface.md#configuration
+pub const MAX_REQUEST_LIGHT_CLIENT_UPDATES: u64 = 128;
+
 type FinalityBranch = FixedVector<Hash256, FinalizedRootProofLen>;
 type NextSyncCommitteeBranch = FixedVector<Hash256, NextSyncCommitteeProofLen>;
 
