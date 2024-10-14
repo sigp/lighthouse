@@ -212,19 +212,24 @@ pub static STORE_BEACON_STATE_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock:
         "Current count of items in beacon store state cache",
     )
 });
-pub static STORE_BEACON_HISTORIC_STATE_CACHE_SIZE: LazyLock<Result<IntGaugeVec>> =
+pub static STORE_BEACON_HISTORIC_STATE_CACHE_SIZE: LazyLock<Result<IntGauge>> =
     LazyLock::new(|| {
-        try_create_int_gauge_vec(
+        try_create_int_gauge(
             "store_beacon_historic_state_cache_size",
-            "Current count of items in the historic state cache",
-            &["type"],
+            "Current count of states in the historic state cache",
         )
     });
+pub static STORE_BEACON_HDIFF_BUFFER_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "store_beacon_hdiff_buffer_cache_size",
+        "Current count of hdiff buffers in the historic state cache",
+    )
+});
 pub static STORE_BEACON_HDIFF_BUFFER_CACHE_BYTE_SIZE: LazyLock<Result<IntGauge>> =
     LazyLock::new(|| {
         try_create_int_gauge(
-            "store_beacon_historic_state_cache_hdiff_byte_size",
-            "Current byte size sum of all hdiff buffers in beacon store hdiff buffer cache",
+            "store_beacon_hdiff_buffer_cache_byte_size",
+            "Memory consumed by hdiff buffers in the historic state cache",
         )
     });
 pub static STORE_BEACON_STATE_FREEZER_COMPRESS_TIME: LazyLock<Result<Histogram>> =
@@ -316,20 +321,38 @@ pub static STORE_BEACON_REPLAYED_BLOCKS: LazyLock<Result<IntCounter>> = LazyLock
         "Total count of replayed blocks",
     )
 });
-pub static STORE_BEACON_COLD_REPLAY_BLOCKS_TIME: LazyLock<Result<IntCounter>> =
+pub static STORE_BEACON_LOAD_COLD_BLOCKS_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "store_beacon_load_cold_blocks_time",
+        "Time spent loading blocks to replay for historic states",
+    )
+});
+pub static STORE_BEACON_LOAD_HOT_BLOCKS_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "store_beacon_load_hot_blocks_time",
+        "Time spent loading blocks to replay for hot states",
+    )
+});
+pub static STORE_BEACON_REPLAY_COLD_BLOCKS_TIME: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
-        try_create_int_counter(
-            "store_beacon_cold_replay_blocks_time",
+        try_create_histogram(
+            "store_beacon_replay_cold_blocks_time",
             "Time spent replaying blocks for historic states",
         )
     });
-pub static STORE_BEACON_HOT_REPLAY_BLOCKS_TIME: LazyLock<Result<IntCounter>> =
+pub static STORE_BEACON_COLD_BUILD_BEACON_CACHES_TIME: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
-        try_create_int_counter(
-            "store_beacon_cold_replay_blocks_time",
-            "Time spent replaying blocks for historic states",
+        try_create_histogram(
+            "store_beacon_cold_build_beacon_caches_time",
+            "Time spent building caches on historic states",
         )
     });
+pub static STORE_BEACON_REPLAY_HOT_BLOCKS_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "store_beacon_replay_hot_blocks_time",
+        "Time spent replaying blocks for hot states",
+    )
+});
 pub static STORE_BEACON_RECONSTRUCTION_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "store_beacon_reconstruction_time_seconds",

@@ -460,15 +460,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &metrics::STORE_BEACON_STATE_CACHE_SIZE,
             self.state_cache.lock().len() as i64,
         );
-        metrics::set_int_gauge(
+        metrics::set_gauge(
             &metrics::STORE_BEACON_HISTORIC_STATE_CACHE_SIZE,
-            &["hdiff"],
-            hsc_metrics.num_hdiff as i64,
-        );
-        metrics::set_int_gauge(
-            &metrics::STORE_BEACON_HISTORIC_STATE_CACHE_SIZE,
-            &["state"],
             hsc_metrics.num_state as i64,
+        );
+        metrics::set_gauge(
+            &metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_SIZE,
+            hsc_metrics.num_hdiff as i64,
         );
         metrics::set_gauge(
             &metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_BYTE_SIZE,
@@ -1587,6 +1585,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 };
                 let blocks =
                     self.load_blocks_to_replay(boundary_state.slot(), slot, latest_block_root)?;
+                let _t = metrics::start_timer(&metrics::STORE_BEACON_REPLAY_HOT_BLOCKS_TIME);
                 self.replay_blocks(
                     boundary_state,
                     blocks,
@@ -1820,13 +1819,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             // Build all caches and update the historic state cache so that these caches may be used
             // at future slots. We do this lazily here rather than when populating the cache in
             // order to speed up queries at snapshot/diff slots, which are already slow.
-            let t = std::time::Instant::now();
+            let cache_timer =
+                metrics::start_timer(&metrics::STORE_BEACON_COLD_BUILD_BEACON_CACHES_TIME);
             base_state.build_all_caches(&self.spec)?;
             debug!(
                 self.log,
-                "Built caches for state";
+                "Built caches for historic state";
                 "target_slot" => slot,
-                "build_time_ms" => t.elapsed().as_millis()
+                "build_time_ms" => metrics::stop_timer_with_duration(cache_timer).as_millis()
             );
             self.historic_state_cache
                 .lock()
@@ -1837,33 +1837,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(base_state);
         }
 
-        let t = std::time::Instant::now();
-
         let blocks = self.load_cold_blocks(base_state.slot() + 1, slot)?;
-        // FIXME(sproul): add metric
-        debug!(
-            self.log,
-            "Loaded cold blocks";
-            "target_slot" => slot,
-            "num_blocks" => blocks.len(),
-            "load_time_ms" => t.elapsed().as_millis()
-        );
 
         // Include state root for base state as it is required by block processing to not
         // have to hash the state.
-        let t = std::time::Instant::now();
+        let replay_timer = metrics::start_timer(&metrics::STORE_BEACON_REPLAY_COLD_BLOCKS_TIME);
         let state_root_iter =
             self.forwards_state_roots_iterator_until(base_state.slot(), slot, || {
                 Err(Error::StateShouldNotBeRequired(slot))
             })?;
-
         let state = self.replay_blocks(base_state, blocks, slot, Some(state_root_iter), None)?;
-
         debug!(
             self.log,
-            "Replayed blocks";
+            "Replayed blocks for historic state";
             "target_slot" => slot,
-            "replay_time_ms" => t.elapsed().as_millis()
+            "replay_time_ms" => metrics::stop_timer_with_duration(replay_timer).as_millis()
         );
 
         self.historic_state_cache
@@ -1895,11 +1883,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         if let Some(buffer) = self.historic_state_cache.lock().get_hdiff_buffer(slot) {
             debug!(
                 self.log,
-                "Hit diff buffer cache";
+                "Hit hdiff buffer cache";
                 "slot" => slot
             );
             metrics::inc_counter(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT);
-            return Ok((slot, buffer.clone()));
+            return Ok((slot, buffer));
         }
         metrics::inc_counter(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS);
 
@@ -1921,7 +1909,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 let load_time_ms = t.elapsed().as_millis();
                 debug!(
                     self.log,
-                    "Added state and diff buffer to cache";
+                    "Cached state and hdiff buffer";
                     "load_time_ms" => load_time_ms,
                     "slot" => slot
                 );
@@ -1939,14 +1927,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_APPLY_TIME);
                     diff.apply(&mut buffer, &self.config)?;
                 }
-                let load_time_ms = t.elapsed().as_millis();
 
                 self.historic_state_cache
                     .lock()
                     .put_hdiff_buffer(slot, buffer.clone());
+
+                let load_time_ms = t.elapsed().as_millis();
                 debug!(
                     self.log,
-                    "Added diff buffer to cache";
+                    "Cached hdiff buffer";
                     "load_time_ms" => load_time_ms,
                     "slot" => slot
                 );
@@ -1963,6 +1952,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         start_slot: Slot,
         end_slot: Slot,
     ) -> Result<Vec<SignedBlindedBeaconBlock<E>>, Error> {
+        let _t = metrics::start_timer(&metrics::STORE_BEACON_LOAD_COLD_BLOCKS_TIME);
         let block_root_iter =
             self.forwards_block_roots_iterator_until(start_slot, end_slot, || {
                 Err(Error::StateShouldNotBeRequired(end_slot))
@@ -1988,6 +1978,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         end_slot: Slot,
         end_block_hash: Hash256,
     ) -> Result<Vec<SignedBeaconBlock<E, BlindedPayload<E>>>, Error> {
+        let _t = metrics::start_timer(&metrics::STORE_BEACON_LOAD_HOT_BLOCKS_TIME);
         let mut blocks = ParentRootBlockIterator::new(self, end_block_hash)
             .map(|result| result.map(|(_, block)| block))
             // Include the block at the end slot (if any), it needs to be
