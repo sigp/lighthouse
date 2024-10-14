@@ -1,71 +1,44 @@
 use crate::hdiff::{Error, HDiffBuffer};
+use crate::metrics;
 use lru::LruCache;
 use std::num::NonZeroUsize;
 use types::{BeaconState, ChainSpec, EthSpec, Slot};
 
-/// Empty HDiffBuffer used to replace a real buffer temporarily during mutation.
-const EMPTY_HDIFF_BUFFER: HDiffBuffer = HDiffBuffer {
-    state: Vec::new(),
-    balances: Vec::new(),
-};
-
-#[derive(Debug)]
-pub enum HistoricState<E: EthSpec> {
-    State(BeaconState<E>),
-    HDiff(HDiffBuffer),
-    Both(BeaconState<E>, HDiffBuffer),
-}
-
 #[derive(Debug)]
 pub struct HistoricStateCache<E: EthSpec> {
-    cache: LruCache<Slot, HistoricState<E>>,
+    hdiff_buffers: LruCache<Slot, HDiffBuffer>,
+    states: LruCache<Slot, BeaconState<E>>,
 }
 
 #[derive(Debug, Default)]
 pub struct Metrics {
-    pub num_total: usize,
-    pub num_both: usize,
     pub num_hdiff: usize,
     pub num_state: usize,
     pub hdiff_byte_size: usize,
 }
 
-impl<E: EthSpec> HistoricState<E> {
-    fn as_hdiff_buffer(&mut self) -> HDiffBuffer {
-        match self {
-            HistoricState::State(state) => {
-                let buffer = HDiffBuffer::from_state(state.clone());
-                *self = HistoricState::Both(state.clone(), buffer.clone());
-                buffer
-            }
-            HistoricState::HDiff(buffer) | HistoricState::Both(_, buffer) => buffer.clone(),
-        }
-    }
-
-    fn as_state(&mut self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
-        match self {
-            HistoricState::HDiff(buffer) => {
-                let state = buffer.as_state(spec)?;
-                let buffer = std::mem::replace(buffer, EMPTY_HDIFF_BUFFER);
-                *self = HistoricState::Both(state.clone(), buffer);
-                Ok(state)
-            }
-            HistoricState::State(state) | HistoricState::Both(state, _) => Ok(state.clone()),
-        }
-    }
-}
-
 impl<E: EthSpec> HistoricStateCache<E> {
-    pub fn new(cache_size: NonZeroUsize) -> Self {
+    pub fn new(hdiff_buffer_cache_size: NonZeroUsize, state_cache_size: NonZeroUsize) -> Self {
         Self {
-            cache: LruCache::new(cache_size),
+            hdiff_buffers: LruCache::new(hdiff_buffer_cache_size),
+            states: LruCache::new(state_cache_size),
         }
     }
 
     pub fn get_hdiff_buffer(&mut self, slot: Slot) -> Option<HDiffBuffer> {
-        self.cache
-            .get_mut(&slot)
-            .map(HistoricState::as_hdiff_buffer)
+        if let Some(buffer_ref) = self.hdiff_buffers.get(&slot) {
+            let _timer = metrics::start_timer(&metrics::BEACON_HDIFF_BUFFER_CLONE_TIMES);
+            Some(buffer_ref.clone())
+        } else if let Some(state) = self.states.get(&slot) {
+            let buffer = HDiffBuffer::from_state(state.clone());
+            let _timer = metrics::start_timer(&metrics::BEACON_HDIFF_BUFFER_CLONE_TIMES);
+            let cloned = buffer.clone();
+            drop(_timer);
+            self.hdiff_buffers.put(slot, cloned);
+            Some(buffer)
+        } else {
+            None
+        }
     }
 
     pub fn get_state(
@@ -73,53 +46,40 @@ impl<E: EthSpec> HistoricStateCache<E> {
         slot: Slot,
         spec: &ChainSpec,
     ) -> Result<Option<BeaconState<E>>, Error> {
-        self.cache
-            .get_mut(&slot)
-            .map(|entry| entry.as_state(spec))
-            .transpose()
+        if let Some(state) = self.states.get(&slot) {
+            Ok(Some(state.clone()))
+        } else if let Some(buffer) = self.hdiff_buffers.get(&slot) {
+            let state = buffer.as_state(spec)?;
+            self.states.put(slot, state.clone());
+            Ok(Some(state))
+        } else {
+            Ok(None)
+        }
     }
 
     pub fn put_state(&mut self, slot: Slot, state: BeaconState<E>) {
-        let cache_entry = self
-            .cache
-            .get_or_insert_mut(slot, || HistoricState::State(state.clone()));
-        if let HistoricState::HDiff(buffer) = cache_entry {
-            let buffer = std::mem::replace(buffer, EMPTY_HDIFF_BUFFER);
-            *cache_entry = HistoricState::Both(state, buffer);
-        }
+        self.states.put(slot, state);
     }
 
     pub fn put_hdiff_buffer(&mut self, slot: Slot, buffer: HDiffBuffer) {
-        let cache_entry = self
-            .cache
-            .get_or_insert_mut(slot, || HistoricState::HDiff(buffer.clone()));
-        if let HistoricState::State(state) = cache_entry {
-            *cache_entry = HistoricState::Both(state.clone(), buffer);
-        }
+        self.hdiff_buffers.put(slot, buffer);
     }
 
     pub fn put_both(&mut self, slot: Slot, state: BeaconState<E>, buffer: HDiffBuffer) {
-        self.cache.put(slot, HistoricState::Both(state, buffer));
+        self.put_state(slot, state);
+        self.put_hdiff_buffer(slot, buffer);
     }
 
     pub fn metrics(&self) -> Metrics {
-        let mut metrics = Metrics::default();
-        for (_, entry) in &self.cache {
-            metrics.num_total += 1;
-            match entry {
-                HistoricState::Both(_, buffer) => {
-                    metrics.num_both += 1;
-                    metrics.hdiff_byte_size += buffer.size();
-                }
-                HistoricState::HDiff(buffer) => {
-                    metrics.num_hdiff += 1;
-                    metrics.hdiff_byte_size += buffer.size();
-                }
-                HistoricState::State(..) => {
-                    metrics.num_state += 1;
-                }
-            }
+        let hdiff_byte_size = self
+            .hdiff_buffers
+            .iter()
+            .map(|(_, buffer)| buffer.size())
+            .sum::<usize>();
+        Metrics {
+            num_hdiff: self.hdiff_buffers.len(),
+            num_state: self.states.len(),
+            hdiff_byte_size,
         }
-        metrics
     }
 }

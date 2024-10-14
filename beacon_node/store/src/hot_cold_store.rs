@@ -217,8 +217,9 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             hot_db: MemoryStore::open(),
             block_cache: Mutex::new(BlockCache::new(config.block_cache_size)),
             state_cache: Mutex::new(StateCache::new(config.state_cache_size)),
-            // FIXME(sproul): rename
+            // FIXME(sproul): plumbing
             historic_state_cache: Mutex::new(HistoricStateCache::new(
+                config.hdiff_buffer_cache_size,
                 config.hdiff_buffer_cache_size,
             )),
             config,
@@ -263,7 +264,9 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             hot_db,
             block_cache: Mutex::new(BlockCache::new(config.block_cache_size)),
             state_cache: Mutex::new(StateCache::new(config.state_cache_size)),
+            // FIXME(sproul): plumb
             historic_state_cache: Mutex::new(HistoricStateCache::new(
+                config.hdiff_buffer_cache_size,
                 config.hdiff_buffer_cache_size,
             )),
             config,
@@ -458,16 +461,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         metrics::set_gauge(
             &metrics::STORE_BEACON_STATE_CACHE_SIZE,
             self.state_cache.lock().len() as i64,
-        );
-        metrics::set_int_gauge(
-            &metrics::STORE_BEACON_HISTORIC_STATE_CACHE_SIZE,
-            &["total"],
-            hsc_metrics.num_total as i64,
-        );
-        metrics::set_int_gauge(
-            &metrics::STORE_BEACON_HISTORIC_STATE_CACHE_SIZE,
-            &["both"],
-            hsc_metrics.num_both as i64,
         );
         metrics::set_int_gauge(
             &metrics::STORE_BEACON_HISTORIC_STATE_CACHE_SIZE,

@@ -163,6 +163,12 @@ pub static BEACON_HDIFF_DECODE_TIMES: LazyLock<Result<Histogram>> = LazyLock::ne
         "Time required to decode hierarchical diff bytes",
     )
 });
+pub static BEACON_HDIFF_BUFFER_CLONE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "store_hdiff_buffer_clone_seconds",
+        "Time required to clone hierarchical diff buffer bytes",
+    )
+});
 /*
  * Beacon Block
  */
