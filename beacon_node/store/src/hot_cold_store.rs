@@ -217,10 +217,9 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             hot_db: MemoryStore::open(),
             block_cache: Mutex::new(BlockCache::new(config.block_cache_size)),
             state_cache: Mutex::new(StateCache::new(config.state_cache_size)),
-            // FIXME(sproul): plumbing
             historic_state_cache: Mutex::new(HistoricStateCache::new(
                 config.hdiff_buffer_cache_size,
-                config.hdiff_buffer_cache_size,
+                config.historic_state_cache_size,
             )),
             config,
             hierarchy,
@@ -264,10 +263,9 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             hot_db,
             block_cache: Mutex::new(BlockCache::new(config.block_cache_size)),
             state_cache: Mutex::new(StateCache::new(config.state_cache_size)),
-            // FIXME(sproul): plumb
             historic_state_cache: Mutex::new(HistoricStateCache::new(
                 config.hdiff_buffer_cache_size,
-                config.hdiff_buffer_cache_size,
+                config.historic_state_cache_size,
             )),
             config,
             hierarchy,

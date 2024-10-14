@@ -316,6 +316,20 @@ pub static STORE_BEACON_REPLAYED_BLOCKS: LazyLock<Result<IntCounter>> = LazyLock
         "Total count of replayed blocks",
     )
 });
+pub static STORE_BEACON_COLD_REPLAY_BLOCKS_TIME: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "store_beacon_cold_replay_blocks_time",
+            "Time spent replaying blocks for historic states",
+        )
+    });
+pub static STORE_BEACON_HOT_REPLAY_BLOCKS_TIME: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "store_beacon_cold_replay_blocks_time",
+            "Time spent replaying blocks for historic states",
+        )
+    });
 pub static STORE_BEACON_RECONSTRUCTION_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "store_beacon_reconstruction_time_seconds",
