@@ -44,6 +44,7 @@ use duties_service::{sync::SyncDutiesMap, DutiesService};
 use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, types::Graffiti, BeaconNodeHttpClient, StatusCode, Timeouts};
 use http_api::ApiSecret;
+use logging::SSE_LOGGING_COMPONENTS;
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
 use preparation_service::{PreparationService, PreparationServiceBuilder};
@@ -65,7 +66,6 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 use types::{EthSpec, Hash256, PublicKeyBytes};
 use validator_store::ValidatorStore;
-
 /// The interval between attempts to contact the beacon node during startup.
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 
@@ -553,7 +553,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 graffiti_flag: self.config.graffiti,
                 spec: self.context.eth2_config.spec.clone(),
                 config: self.config.http_api.clone(),
-                // sse_logging_components: self.context.sse_logging_components.clone(),
+                sse_logging_components: SSE_LOGGING_COMPONENTS.lock().unwrap().clone(),
                 slot_clock: self.slot_clock.clone(),
                 // log: log.clone(),
                 _phantom: PhantomData,

@@ -83,7 +83,7 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub spec: Arc<ChainSpec>,
     pub config: Config,
     // pub log: Logger,
-    // pub sse_logging_components: Option<SSELoggingComponents>,
+    pub sse_logging_components: Option<SSELoggingComponents>,
     pub slot_clock: T,
     pub _phantom: PhantomData<E>,
 }

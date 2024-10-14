@@ -3881,6 +3881,7 @@ dependencies = [
  "bs58 0.4.0",
  "bytes",
  "directory",
+ "environment",
  "eth1",
  "eth2",
  "ethereum_serde_utils",
@@ -5221,6 +5222,7 @@ version = "0.2.0"
 dependencies = [
  "chrono",
  "lighthouse_metrics",
+ "once_cell",
  "parking_lot 0.12.3",
  "serde",
  "serde_json",

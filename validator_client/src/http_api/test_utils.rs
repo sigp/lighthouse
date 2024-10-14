@@ -134,7 +134,7 @@ impl ApiTester {
             spec,
             config: http_config,
             // log,
-            // sse_logging_components: None,
+            sse_logging_components: None,
             slot_clock,
             _phantom: PhantomData,
         });

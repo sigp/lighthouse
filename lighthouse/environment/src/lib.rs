@@ -11,9 +11,9 @@ use eth2_config::Eth2Config;
 use eth2_network_config::Eth2NetworkConfig;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
-
-// use logging::{SELoggingComponents};
 use logging::tracing_logging_layer::LoggingLayer;
+use logging::SSELoggingComponents;
+use logging::SSE_LOGGING_COMPONENTS;
 use serde::{Deserialize, Serialize};
 use std::io::{Result as IOResult, Write};
 use std::path::PathBuf;
@@ -25,7 +25,6 @@ use tracing_appender::non_blocking::NonBlocking;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
-
 #[cfg(target_family = "unix")]
 use {
     futures::Future,
@@ -37,7 +36,7 @@ use {
 use {futures::channel::oneshot, std::cell::RefCell};
 
 const LOG_CHANNEL_SIZE: usize = 16384;
-const SSE_LOG_CHANNEL_SIZE: usize = 2048;
+pub const SSE_LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.
 const MAXIMUM_SHUTDOWN_TIME: u64 = 15;
 
@@ -90,7 +89,7 @@ pub struct RuntimeContext<E: EthSpec> {
     pub eth_spec_instance: E,
     pub eth2_config: Eth2Config,
     pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,
-    // pub sse_logging_components: Option<SSELoggingComponents>,
+    pub sse_logging_components: Option<SSELoggingComponents>,
 }
 
 impl<E: EthSpec> RuntimeContext<E> {
@@ -103,7 +102,7 @@ impl<E: EthSpec> RuntimeContext<E> {
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
-            // sse_logging_components: self.sse_logging_components.clone(),
+            sse_logging_components: SSE_LOGGING_COMPONENTS.lock().unwrap().clone(),
         }
     }
 
@@ -117,7 +116,7 @@ impl<E: EthSpec> RuntimeContext<E> {
 pub struct EnvironmentBuilder<E: EthSpec> {
     runtime: Option<Arc<Runtime>>,
     // log: Option<Logger>,
-    // sse_logging_components: Option<SSELoggingComponents>,
+    sse_logging_components: Option<SSELoggingComponents>,
     eth_spec_instance: E,
     eth2_config: Eth2Config,
     eth2_network_config: Option<Eth2NetworkConfig>,
@@ -129,7 +128,7 @@ impl EnvironmentBuilder<MinimalEthSpec> {
         Self {
             runtime: None,
             // log: None,
-            // sse_logging_components: None,
+            sse_logging_components: None,
             eth_spec_instance: MinimalEthSpec,
             eth2_config: Eth2Config::minimal(),
             eth2_network_config: None,
@@ -143,7 +142,7 @@ impl EnvironmentBuilder<MainnetEthSpec> {
         Self {
             runtime: None,
             // log: None,
-            // sse_logging_components: None,
+            sse_logging_components: None,
             eth_spec_instance: MainnetEthSpec,
             eth2_config: Eth2Config::mainnet(),
             eth2_network_config: None,
@@ -157,7 +156,7 @@ impl EnvironmentBuilder<GnosisEthSpec> {
         Self {
             runtime: None,
             // log: None,
-            // sse_logging_components: None,
+            sse_logging_components: None,
             eth_spec_instance: GnosisEthSpec,
             eth2_config: Eth2Config::gnosis(),
             eth2_network_config: None,
@@ -189,12 +188,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(())
     }
 
-    /// Initializes the logger using the specified configuration.
-    /// The logger is "async" because it has a dedicated thread that accepts logs and then
-    /// asynchronously flushes them to stdout/files/etc. This means the thread that raised the log
-    /// does not have to wait for the logs to be flushed.
-    /// The logger can be duplicated and more detailed logs can be output to `logfile`.
-    /// Note that background file logging will spawn a new thread.
     pub fn init_tracing(mut self, config: LoggerConfig) -> (Self, LoggingLayer, LoggingLayer) {
         let mut log_path = config.path.unwrap();
 
@@ -210,7 +203,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         }
         let Ok(file_appender) = RollingFileAppender::builder()
             .rotation(Rotation::DAILY)
-            .max_log_files(2)
+            .max_log_files(config.max_log_number)
             .filename_prefix("beacon")
             .filename_suffix("log")
             .build(path.clone())
@@ -233,9 +226,25 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             guard: stdout_guard,
         };
 
+        if config.sse_logging {
+            let mut global_sse_logging_component = SSE_LOGGING_COMPONENTS.lock().unwrap();
+
+            if global_sse_logging_component.is_none() {
+                *global_sse_logging_component =
+                    Some(SSELoggingComponents::new(SSE_LOG_CHANNEL_SIZE));
+            }
+        }
+
         (self, file_logging_layer, stdout_logging_layer)
     }
     /*
+        /// Initializes the logger using the specified configuration.
+    /// The logger is "async" because it has a dedicated thread that accepts logs and then
+    /// asynchronously flushes them to stdout/files/etc. This means the thread that raised the log
+    /// does not have to wait for the logs to be flushed.
+    /// The logger can be duplicated and more detailed logs can be output to `logfile`.
+    /// Note that background file logging will spawn a new thread.
+
     pub fn initialize_logger(mut self, config: LoggerConfig) -> Result<Self, String> {
         // Setting up the initial logger format and build it.
         let stdout_drain = if let Some(ref format) = config.log_format {
@@ -383,7 +392,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             signal: Some(signal),
             exit,
             // log: self.log.ok_or("Cannot build environment without log")?,
-            // sse_logging_components: self.sse_logging_components,
+            sse_logging_components: SSE_LOGGING_COMPONENTS.lock().unwrap().clone(),
             eth_spec_instance: self.eth_spec_instance,
             eth2_config: self.eth2_config,
             eth2_network_config: self.eth2_network_config.map(Arc::new),
@@ -402,7 +411,7 @@ pub struct Environment<E: EthSpec> {
     signal: Option<async_channel::Sender<()>>,
     exit: async_channel::Receiver<()>,
     // log: Logger,
-    // sse_logging_components: Option<SSELoggingComponents>,
+    sse_logging_components: Option<SSELoggingComponents>,
     eth_spec_instance: E,
     pub eth2_config: Eth2Config,
     pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,
@@ -429,7 +438,7 @@ impl<E: EthSpec> Environment<E> {
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
-            // sse_logging_components: self.sse_logging_components.clone(),
+            sse_logging_components: SSE_LOGGING_COMPONENTS.lock().unwrap().clone(),
         }
     }
 
@@ -445,7 +454,7 @@ impl<E: EthSpec> Environment<E> {
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
-            // sse_logging_components: self.sse_logging_components.clone(),
+            sse_logging_components: SSE_LOGGING_COMPONENTS.lock().unwrap().clone(),
         }
     }
 

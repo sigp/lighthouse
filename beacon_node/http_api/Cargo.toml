@@ -44,6 +44,8 @@ store = { workspace = true }
 bytes = { workspace = true }
 beacon_processor = { workspace = true }
 rand = { workspace = true }
+serde_json = { workspace = true }
+environment = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

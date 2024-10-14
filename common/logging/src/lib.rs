@@ -19,6 +19,7 @@ pub mod tracing_logging_layer;
 mod tracing_metrics_layer;
 
 pub use sse_logging_components::SSELoggingComponents;
+pub use sse_logging_components::SSE_LOGGING_COMPONENTS;
 pub use tracing_metrics_layer::MetricsLayer;
 
 /// The minimum interval between log messages indicating that a queue is full.

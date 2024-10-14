@@ -17,13 +17,12 @@ use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use logging::crit;
-use logging::tracing_logging_layer::LoggingLayer;
+use logging::SSE_LOGGING_COMPONENTS;
 use malloc_utils::configure_memory_allocator;
 use std::backtrace::Backtrace;
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
-use std::sync::{Arc, Mutex};
 use task_executor::ShutdownReason;
 use tracing::{info, level_filters::LevelFilter};
 use tracing_subscriber::EnvFilter;
@@ -644,6 +643,7 @@ fn run<E: EthSpec>(
         .with(discv5_layer)
         .with(file_logging_layer)
         .with(stdout_logging_layer)
+        .with(SSE_LOGGING_COMPONENTS.lock().unwrap().clone().unwrap())
         .try_init()
     {
         eprintln!("Failed to initialize dependency logging: {e}");

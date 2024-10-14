@@ -44,6 +44,8 @@ pub use block_id::BlockId;
 use builder_states::get_next_withdrawals;
 use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
+use environment::SSE_LOG_CHANNEL_SIZE;
+use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
     LightClientUpdatesQuery, PublishBlockRequest, ValidatorBalancesRequestBody, ValidatorId,
@@ -54,6 +56,7 @@ use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, Pubsu
 use lighthouse_version::version_with_platform;
 use logging::crit;
 use logging::SSELoggingComponents;
+use logging::SSE_LOGGING_COMPONENTS;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
@@ -61,6 +64,7 @@ pub use publish_blocks::{
     publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock,
 };
 use serde::{Deserialize, Serialize};
+
 use slot_clock::SlotClock;
 use ssz::Encode;
 pub use state_id::StateId;
@@ -135,7 +139,7 @@ pub struct Context<T: BeaconChainTypes> {
     pub beacon_processor_send: Option<BeaconProcessorSend<T::EthSpec>>,
     pub beacon_processor_reprocess_send: Option<Sender<ReprocessQueueMessage>>,
     pub eth1_service: Option<eth1::Service>,
-    // pub sse_logging_components: Option<SSELoggingComponents>,
+    pub sse_logging_components: Option<SSELoggingComponents>,
 }
 
 /// Configuration for the HTTP server.
@@ -485,13 +489,6 @@ pub fn serve<T: BeaconChainTypes>(
                     }
                 },
             );
-
-    // Create a `warp` filter that provides access to the logger.
-    let inner_ctx = ctx.clone();
-    // let log_filter = warp::any().map(move || inner_ctx.log.clone());
-
-    // let inner_components = ctx.sse_logging_components.clone();
-    // let sse_component_filter = warp::any().map(move || inner_components.clone());
 
     // Create a `warp` filter that provides access to local system information.
     let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
@@ -4526,49 +4523,43 @@ pub fn serve<T: BeaconChainTypes>(
 
     // Subscribe to logs via Server Side Events
     // /lighthouse/logs
-    // let lighthouse_log_events = warp::path("lighthouse")
-    //     .and(warp::path("logs"))
-    //     .and(warp::path::end())
-    //     .and(task_spawner_filter)
-    //     // .and(sse_component_filter)
-    //     .then(
-    //         |task_spawner: TaskSpawner<T::EthSpec>| {
-    //             task_spawner.blocking_response_task(Priority::P1, move || {
-    //                 if let Some(logging_components) = sse_component {
-    //                     // Build a JSON stream
-    //                     let s = BroadcastStream::new(logging_components.sender.subscribe()).map(
-    //                         |msg| {
-    //                             match msg {
-    //                                 Ok(data) => {
-    //                                     // Serialize to json
-    //                                     match data.to_json_string() {
-    //                                         // Send the json as a Server Side Event
-    //                                         Ok(json) => Ok(Event::default().data(json)),
-    //                                         Err(e) => {
-    //                                             Err(warp_utils::reject::server_sent_event_error(
-    //                                                 format!("Unable to serialize to JSON {}", e),
-    //                                             ))
-    //                                         }
-    //                                     }
-    //                                 }
-    //                                 Err(e) => Err(warp_utils::reject::server_sent_event_error(
-    //                                     format!("Unable to receive event {}", e),
-    //                                 )),
-    //                             }
-    //                         },
-    //                     );
+    let lighthouse_log_events = warp::path("lighthouse")
+        .and(warp::path("logs"))
+        .and(warp::path::end())
+        .and(task_spawner_filter)
+        .then(|task_spawner: TaskSpawner<T::EthSpec>| {
+            task_spawner.blocking_response_task(Priority::P1, move || {
+                if let Some(logging_components) = SSE_LOGGING_COMPONENTS.lock().unwrap().as_ref() {
+                    // Build a JSON stream
+                    let s =
+                        BroadcastStream::new(logging_components.sender.subscribe()).map(|msg| {
+                            match msg {
+                                Ok(data) => {
+                                    // Serialize to json
+                                    match serde_json::to_string(&data)
+                                        .map_err(|e| format!("{:?}", e))
+                                    {
+                                        // Send the json as a Server Side Event
+                                        Ok(json) => Ok(Event::default().data(json)),
+                                        Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                            format!("Unable to serialize to JSON {}", e),
+                                        )),
+                                    }
+                                }
+                                Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                    format!("Unable to receive event {}", e),
+                                )),
+                            }
+                        });
 
-    //                     Ok::<_, warp::Rejection>(warp::sse::reply(
-    //                         warp::sse::keep_alive().stream(s),
-    //                     ))
-    //                 } else {
-    //                     Err(warp_utils::reject::custom_server_error(
-    //                         "SSE Logging is not enabled".to_string(),
-    //                     ))
-    //                 }
-    //             })
-    //         },
-    //     );
+                    Ok::<_, warp::Rejection>(warp::sse::reply(warp::sse::keep_alive().stream(s)))
+                } else {
+                    Err(warp_utils::reject::custom_server_error(
+                        "SSE Logging is not enabled".to_string(),
+                    ))
+                }
+            })
+        });
 
     // Define the ultimate set of routes that will be provided to the server.
     // Use `uor` rather than `or` in order to simplify types (see `UnifyingOrFilter`).
@@ -4654,7 +4645,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_merge_readiness)
                 .uor(get_events)
                 .uor(get_expected_withdrawals)
-                // .uor(lighthouse_log_events.boxed())
+                .uor(lighthouse_log_events.boxed())
                 .recover(warp_utils::reject::handle_rejection),
         )
         .boxed()
