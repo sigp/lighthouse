@@ -30,7 +30,6 @@ pub struct SSELoggingComponents {
 }
 
 impl SSELoggingComponents {
-    /// Create a new SSE drain.
     pub fn new(channel_size: usize) -> Self {
         let (sender, _receiver) = tokio::sync::broadcast::channel(channel_size);
 
@@ -48,7 +47,23 @@ impl<S: Subscriber> Layer<S> for SSELoggingComponents {
 
         let mut visitor = TracingEventVisitor::new();
         event.record(&mut visitor);
-        let log_entry = visitor.finish(event.metadata());
+        let mut log_entry = visitor.finish(event.metadata());
+
+        if let Some(error_type) = log_entry
+            .get("fields")
+            .and_then(|fields| fields.get("error_type"))
+            .and_then(|val| val.as_str())
+        {
+            if error_type.eq_ignore_ascii_case("crit") {
+                log_entry["level"] = json!("CRIT");
+
+                if let Some(fields) = log_entry.get_mut("fields") {
+                    if let Value::Object(ref mut map) = fields {
+                        map.remove("error_type");
+                    }
+                }
+            }
+        }
 
         let _ = self.sender.send(Arc::new(log_entry));
     }
