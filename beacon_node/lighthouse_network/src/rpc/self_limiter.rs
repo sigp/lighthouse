@@ -215,13 +215,12 @@ mod tests {
     /// Test that `next_peer_request_ready` correctly maintains the queue.
     #[tokio::test]
     async fn test_next_peer_request_ready() {
-        let log = logging::test_logger();
         let config = OutboundRateLimiterConfig(RateLimiterConfig {
             ping_quota: Quota::n_every(1, 2),
             ..Default::default()
         });
         let mut limiter: SelfRateLimiter<RequestId, MainnetEthSpec> =
-            SelfRateLimiter::new(config, log).unwrap();
+            SelfRateLimiter::new(config).unwrap();
         let peer_id = PeerId::random();
 
         for i in 1..=5u32 {

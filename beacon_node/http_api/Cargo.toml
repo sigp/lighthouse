@@ -14,7 +14,6 @@ types = { workspace = true }
 hex = { workspace = true }
 beacon_chain = { workspace = true }
 eth2 = { workspace = true }
-slog = { workspace = true }
 network = { workspace = true }
 lighthouse_network = { workspace = true }
 eth1 = { workspace = true }

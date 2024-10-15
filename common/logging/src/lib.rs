@@ -1,7 +1,6 @@
 use lighthouse_metrics::{
     inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult,
 };
-use slog_term::Decorator;
 use std::io::{Result, Write};
 use std::path::PathBuf;
 use std::sync::LazyLock;

@@ -1113,7 +1113,6 @@ mod test {
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
     };
-    use sloggers::{null::NullLoggerBuilder, Build};
     use ssz::Encode;
     use std::time::Duration;
     use store::config::StoreConfig;
@@ -1124,11 +1123,6 @@ mod test {
 
     type TestEthSpec = MinimalEthSpec;
     type Builder = BeaconChainBuilder<EphemeralHarnessType<TestEthSpec>>;
-
-    fn get_logger() -> Logger {
-        let builder = NullLoggerBuilder;
-        builder.build().expect("should build logger")
-    }
 
     #[test]
     fn recent_genesis() {

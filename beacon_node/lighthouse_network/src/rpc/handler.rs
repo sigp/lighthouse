@@ -1022,17 +1022,6 @@ where
     }
 }
 
-impl slog::Value for SubstreamId {
-    fn serialize(
-        &self,
-        record: &slog::Record,
-        key: slog::Key,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        slog::Value::serialize(&self.0, record, key, serializer)
-    }
-}
-
 /// Creates a future that can be polled that will send any queued message to the peer.
 ///
 /// This function returns the given substream, along with whether it has been closed or not. Any

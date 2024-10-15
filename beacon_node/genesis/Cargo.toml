@@ -21,5 +21,4 @@ ethereum_hashing = { workspace = true }
 tree_hash = { workspace = true }
 tracing = {workspace = true}
 tokio = { workspace = true }
-slog = { workspace = true }
 int_to_bytes = { workspace = true }

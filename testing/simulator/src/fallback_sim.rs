@@ -88,7 +88,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
         })
         .collect::<Vec<_>>();
 
-    let mut env = EnvironmentBuilder::minimal()
+    let (env_builder, _file_logging_layer, _stdout_logging_layer) = EnvironmentBuilder::minimal()
         .init_tracing(LoggerConfig {
             path: None,
             debug_level: log_level.clone(),
@@ -102,9 +102,9 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
             compression: false,
             is_restricted: true,
             sse_logging: false,
-        })?
-        .multi_threaded_tokio_runtime()?
-        .build()?;
+        });
+
+    let mut env = env_builder.multi_threaded_tokio_runtime()?.build()?;
 
     let mut spec = (*env.eth2_config.spec).clone();
 

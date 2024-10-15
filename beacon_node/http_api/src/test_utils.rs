@@ -20,7 +20,6 @@ use lighthouse_network::{
 };
 use network::{NetworkReceivers, NetworkSenders};
 use sensitive_url::SensitiveUrl;
-use slog::Logger;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -125,7 +124,6 @@ impl<E: EthSpec> InteractiveTester<E> {
 pub async fn create_api_server<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     test_runtime: &TestRuntime,
-    log: Logger,
 ) -> ApiServer<T, impl Future<Output = ()>> {
     create_api_server_with_config(chain, Config::default(), test_runtime).await
 }

@@ -35,7 +35,6 @@ malloc_utils = { workspace = true }
 
 [dependencies]
 beacon_node = { workspace = true }
-slog = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }

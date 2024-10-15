@@ -1305,23 +1305,10 @@ impl BannedPeersCount {
 mod tests {
     use super::*;
     use libp2p::core::multiaddr::Protocol;
-    use slog::{o, Drain};
     use std::net::{Ipv4Addr, Ipv6Addr};
     use types::MinimalEthSpec;
 
     type M = MinimalEthSpec;
-
-    pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
-        let decorator = slog_term::TermDecorator::new().build();
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
-
-        if enabled {
-            slog::Logger::root(drain.filter_level(level).fuse(), o!())
-        } else {
-            slog::Logger::root(drain.filter(|_| false).fuse(), o!())
-        }
-    }
 
     fn add_score<E: EthSpec>(db: &mut PeerDB<E>, peer_id: &PeerId, score: f64) {
         if let Some(info) = db.peer_info_mut(peer_id) {
@@ -1336,8 +1323,7 @@ mod tests {
     }
 
     fn get_db() -> PeerDB<M> {
-        let log = build_log(slog::Level::Debug, false);
-        PeerDB::new(vec![], false, &log)
+        PeerDB::new(vec![], false)
     }
 
     #[test]
@@ -2035,8 +2021,7 @@ mod tests {
     #[allow(clippy::float_cmp)]
     fn test_trusted_peers_score() {
         let trusted_peer = PeerId::random();
-        let log = build_log(slog::Level::Debug, false);
-        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer], false, &log);
+        let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer], false);
 
         pdb.connect_ingoing(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
@@ -2059,8 +2044,7 @@ mod tests {
     #[test]
     fn test_disable_peer_scoring() {
         let peer = PeerId::random();
-        let log = build_log(slog::Level::Debug, false);
-        let mut pdb: PeerDB<M> = PeerDB::new(vec![], true, &log);
+        let mut pdb: PeerDB<M> = PeerDB::new(vec![], true);
 
         pdb.connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 

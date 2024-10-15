@@ -41,9 +41,6 @@ use rand::Rng;
 use rand::SeedableRng;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
-use slog::{o, Drain, Logger};
-use slog_async::Async;
-use slog_term::{FullFormat, PlainSyncDecorator, TermDecorator};
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::state_advance::complete_state_advance;
@@ -2734,30 +2731,6 @@ pub enum LoggerType {
     CI,
     // No logs will be printed.
     Null,
-}
-
-fn ci_decorator() -> PlainSyncDecorator<BufWriter<File>> {
-    let log_dir = std::env::var(CI_LOGGER_DIR_ENV_VAR).unwrap_or_else(|e| {
-        panic!("{CI_LOGGER_DIR_ENV_VAR} env var must be defined when using ci_logger: {e:?}");
-    });
-    let fork_name = std::env::var(FORK_NAME_ENV_VAR)
-        .map(|s| format!("{s}_"))
-        .unwrap_or_default();
-    // The current test name can be got via the thread name.
-    let test_name = std::thread::current()
-        .name()
-        .unwrap()
-        .to_string()
-        // Colons are not allowed in files that are uploaded to GitHub Artifacts.
-        .replace("::", "_");
-    let log_path = format!("/{log_dir}/{fork_name}{test_name}.log");
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path)
-        .unwrap();
-    let file = BufWriter::new(file);
-    PlainSyncDecorator::new(file)
 }
 
 pub enum NumBlobs {

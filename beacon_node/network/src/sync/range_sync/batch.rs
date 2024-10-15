@@ -502,39 +502,6 @@ impl Attempt {
     }
 }
 
-impl<E: EthSpec, B: BatchConfig> slog::KV for &mut BatchInfo<E, B> {
-    fn serialize(
-        &self,
-        record: &slog::Record,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        slog::KV::serialize(*self, record, serializer)
-    }
-}
-
-impl<E: EthSpec, B: BatchConfig> slog::KV for BatchInfo<E, B> {
-    fn serialize(
-        &self,
-        record: &slog::Record,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        use slog::Value;
-        Value::serialize(&self.start_slot, record, "start_slot", serializer)?;
-        Value::serialize(
-            &(self.end_slot - 1), // NOTE: The -1 shows inclusive blocks
-            record,
-            "end_slot",
-            serializer,
-        )?;
-        serializer.emit_usize("downloaded", self.failed_download_attempts.len())?;
-        serializer.emit_usize("processed", self.failed_processing_attempts.len())?;
-        serializer.emit_u8("processed_no_penalty", self.non_faulty_processing_attempts)?;
-        serializer.emit_arguments("state", &format_args!("{:?}", self.state))?;
-        serializer.emit_arguments("batch_ty", &format_args!("{}", self.batch_type))?;
-        slog::Result::Ok(())
-    }
-}
-
 impl<E: EthSpec> std::fmt::Debug for BatchState<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

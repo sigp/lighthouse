@@ -210,7 +210,6 @@ impl DatabasePubkey {
 mod test {
     use super::*;
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-    use logging::test_logger;
     use std::sync::Arc;
     use store::HotColdDB;
     use types::{EthSpec, Keypair, MainnetEthSpec};

@@ -9,7 +9,6 @@ edition = { workspace = true }
 [dependencies]
 warp = { workspace = true }
 serde = { workspace = true }
-slog = { workspace = true }
 beacon_chain = { workspace = true }
 store = { workspace = true }
 lighthouse_network = { workspace = true }

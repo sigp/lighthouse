@@ -8,7 +8,6 @@ use beacon_chain::{
 use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use http_api::test_utils::{create_api_server, ApiServer};
 use log::error;
-use logging::test_logger;
 use network::NetworkReceivers;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -141,12 +140,7 @@ impl TesterBuilder {
             listening_socket: bn_api_listening_socket,
             network_rx: _bn_network_rx,
             ..
-        } = create_api_server(
-            harness.chain.clone(),
-            &harness.runtime,
-            harness.logger().clone(),
-        )
-        .await;
+        } = create_api_server(harness.chain.clone(), &harness.runtime).await;
         tokio::spawn(server);
 
         /*

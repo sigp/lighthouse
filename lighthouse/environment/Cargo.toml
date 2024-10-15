@@ -11,17 +11,12 @@ tracing-subscriber = { version = "0.3", features = ["json"] }
 tracing = { workspace = true }
 tracing-appender = { workspace = true }
 tracing-log = { workspace = true }
-slog = { workspace = true }
-sloggers = { workspace = true }
 types = { workspace = true }
 eth2_config = { workspace = true }
 task_executor = { workspace = true }
 eth2_network_config = { workspace = true }
 logging = { workspace = true }
-slog-term = { workspace = true }
-slog-async = { workspace = true }
 futures = { workspace = true }
-slog-json = "2.3.0"
 serde = { workspace = true }
 
 [target.'cfg(not(target_family = "unix"))'.dependencies]

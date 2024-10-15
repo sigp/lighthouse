@@ -129,8 +129,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 default_datadir: execution_engine.datadir(),
                 ..Default::default()
             };
-            let execution_layer =
-                ExecutionLayer::from_config(config, executor.clone(), log.clone()).unwrap();
+            let execution_layer = ExecutionLayer::from_config(config, executor.clone()).unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,

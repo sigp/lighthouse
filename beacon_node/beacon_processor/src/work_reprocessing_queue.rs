@@ -1007,7 +1007,6 @@ impl<S: SlotClock> ReprocessQueue<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use logging::test_logger;
     use slot_clock::{ManualSlotClock, TestingSlotClock};
     use std::ops::Add;
     use std::sync::Arc;
@@ -1056,7 +1055,6 @@ mod tests {
     #[tokio::test]
     async fn backfill_schedule_failed_should_reschedule() {
         let runtime = TestRuntime::default();
-        let log = test_logger();
         let (work_reprocessing_tx, work_reprocessing_rx) = mpsc::channel(1);
         let (ready_work_tx, mut ready_work_rx) = mpsc::channel(1);
         let slot_duration = 12;
@@ -1067,7 +1065,6 @@ mod tests {
             work_reprocessing_rx,
             &runtime.task_executor,
             slot_clock.clone(),
-            log,
             Duration::from_millis(500),
         )
         .unwrap();

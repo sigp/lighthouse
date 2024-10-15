@@ -169,7 +169,6 @@ impl<E: EthSpec> NetworkGlobals<E> {
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.
     pub fn new_test_globals(
         trusted_peers: Vec<PeerId>,
-        log: &slog::Logger,
         config: Arc<NetworkConfig>,
         spec: Arc<ChainSpec>,
     ) -> NetworkGlobals<E> {
@@ -179,13 +178,12 @@ impl<E: EthSpec> NetworkGlobals<E> {
             syncnets: Default::default(),
             custody_subnet_count: spec.custody_requirement,
         });
-        Self::new_test_globals_with_metadata(trusted_peers, metadata, log, config, spec)
+        Self::new_test_globals_with_metadata(trusted_peers, metadata, config, spec)
     }
 
     pub(crate) fn new_test_globals_with_metadata(
         trusted_peers: Vec<PeerId>,
         metadata: MetaData<E>,
-        log: &slog::Logger,
         config: Arc<NetworkConfig>,
         spec: Arc<ChainSpec>,
     ) -> NetworkGlobals<E> {
@@ -204,7 +202,6 @@ mod test {
 
     #[test]
     fn test_sampling_subnets() {
-        let log = logging::test_logger();
         let mut spec = E::default_spec();
         spec.eip7594_fork_epoch = Some(Epoch::new(0));
 
@@ -216,7 +213,6 @@ mod test {
         let globals = NetworkGlobals::<E>::new_test_globals_with_metadata(
             vec![],
             metadata,
-            &log,
             config,
             Arc::new(spec),
         );
@@ -228,7 +224,6 @@ mod test {
 
     #[test]
     fn test_sampling_columns() {
-        let log = logging::test_logger();
         let mut spec = E::default_spec();
         spec.eip7594_fork_epoch = Some(Epoch::new(0));
 
@@ -240,7 +235,6 @@ mod test {
         let globals = NetworkGlobals::<E>::new_test_globals_with_metadata(
             vec![],
             metadata,
-            &log,
             config,
             Arc::new(spec),
         );

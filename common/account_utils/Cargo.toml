@@ -14,7 +14,6 @@ filesystem = { workspace = true }
 zeroize = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
-slog = { workspace = true }
 types = { workspace = true }
 tracing = { workspace = true }
 validator_dir = { workspace = true }

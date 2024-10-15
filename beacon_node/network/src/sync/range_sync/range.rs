@@ -397,7 +397,6 @@ mod tests {
     use lighthouse_network::{
         rpc::StatusMessage, service::api_types::AppRequestId, NetworkConfig, NetworkGlobals,
     };
-    use slog::{o, Drain};
     use slot_clock::TestingSlotClock;
     use std::collections::HashSet;
     use store::MemoryStore;
@@ -451,21 +450,8 @@ mod tests {
     type TestBeaconChainType =
         Witness<TestingSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
-    fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
-        let decorator = slog_term::TermDecorator::new().build();
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
-
-        if enabled {
-            slog::Logger::root(drain.filter_level(level).fuse(), o!())
-        } else {
-            slog::Logger::root(drain.filter(|_| false).fuse(), o!())
-        }
-    }
-
     #[allow(unused)]
     struct TestRig {
-        log: slog::Logger,
         /// To check what does sync send to the beacon processor.
         beacon_processor_rx: mpsc::Receiver<BeaconWorkEvent<E>>,
         /// To set up different scenarios where sync is told about known/unknown blocks.
@@ -671,27 +657,21 @@ mod tests {
     }
 
     fn range(log_enabled: bool) -> (TestRig, RangeSync<TestBeaconChainType, FakeStorage>) {
-        let log = build_log(slog::Level::Trace, log_enabled);
         // Initialise a new beacon chain
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .default_spec()
-            .logger(log.clone())
             .deterministic_keypairs(1)
             .fresh_ephemeral_store()
             .build();
         let chain = harness.chain;
 
         let fake_store = Arc::new(FakeStorage::default());
-        let range_sync = RangeSync::<TestBeaconChainType, FakeStorage>::new(
-            fake_store.clone(),
-            log.new(o!("component" => "range")),
-        );
+        let range_sync = RangeSync::<TestBeaconChainType, FakeStorage>::new(fake_store.clone());
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         let (sync_tx, _sync_rx) = mpsc::unbounded_channel::<SyncMessage<E>>();
         let network_config = Arc::new(NetworkConfig::default());
         let globals = Arc::new(NetworkGlobals::new_test_globals(
             Vec::new(),
-            &log,
             network_config,
             chain.spec.clone(),
         ));
@@ -701,16 +681,14 @@ mod tests {
                 sync_tx,
                 chain.clone(),
                 harness.runtime.task_executor.clone(),
-                log.clone(),
             );
         let cx = SyncNetworkContext::new(
             network_tx,
             Arc::new(network_beacon_processor),
             chain,
-            log.new(o!("component" => "network_context")),
+            // log.new(o!("component" => "network_context")),
         );
         let test_rig = TestRig {
-            log,
             beacon_processor_rx,
             chain: fake_store,
             cx,

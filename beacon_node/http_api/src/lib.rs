@@ -197,36 +197,6 @@ impl From<String> for Error {
     }
 }
 
-/// Creates a `warp` logging wrapper which we use to create `slog` logs.
-pub fn slog_logging() -> warp::filters::log::Log<impl Fn(warp::filters::log::Info) + Clone> {
-    warp::log::custom(move |info| {
-        match info.status() {
-            status
-                if status == StatusCode::OK
-                    || status == StatusCode::NOT_FOUND
-                    || status == StatusCode::PARTIAL_CONTENT =>
-            {
-                debug!(
-                    elapsed = ?info.elapsed(),
-                    status = status.to_string(),
-                    path = info.path(),
-                    method = info.method().to_string(),
-                    "Processed HTTP API request"
-                );
-            }
-            status => {
-                warn!(
-                    elapsed = ?info.elapsed(),
-                    status = status.to_string(),
-                    path = info.path(),
-                    method = info.method().to_string(),
-                    "Error processing HTTP API request"
-                );
-            }
-        };
-    })
-}
-
 /// Creates a `warp` logging wrapper which we use for Prometheus metrics (not necessarily logging,
 /// per say).
 pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::log::Info) + Clone> {
@@ -4691,7 +4661,6 @@ pub fn serve<T: BeaconChainTypes>(
             ),
         )
         .recover(warp_utils::reject::handle_rejection)
-        .with(slog_logging())
         .with(prometheus_metrics())
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))

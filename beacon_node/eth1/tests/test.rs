@@ -4,7 +4,6 @@ use eth1::{Config, Eth1Endpoint, Service};
 use eth1::{DepositCache, DEFAULT_CHAIN_ID};
 use eth1_test_rig::{AnvilEth1Instance, Http, Middleware, Provider};
 use execution_layer::http::{deposit_methods::*, HttpJsonRpc, Log};
-use logging::test_logger;
 use merkle_proof::verify_merkle_proof;
 use sensitive_url::SensitiveUrl;
 use std::ops::Range;
@@ -22,8 +21,6 @@ pub fn new_env() -> Environment<MinimalEthSpec> {
     EnvironmentBuilder::minimal()
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
-        .test_logger()
-        .expect("should start null logger")
         .build()
         .expect("should build env")
 }
@@ -101,8 +98,6 @@ mod eth1_cache {
     #[tokio::test]
     async fn simple_scenario() {
         async {
-            let log = test_logger();
-
             for follow_distance in 0..3 {
                 let eth1 = new_anvil_instance()
                     .await
@@ -123,12 +118,8 @@ mod eth1_cache {
                 };
                 let cache_follow_distance = config.cache_follow_distance();
 
-                let service = Service::new(
-                    config,
-                    log.clone(),
-                    Arc::new(MainnetEthSpec::default_spec()),
-                )
-                .unwrap();
+                let service =
+                    Service::new(config, Arc::new(MainnetEthSpec::default_spec())).unwrap();
 
                 // Create some blocks and then consume them, performing the test `rounds` times.
                 for round in 0..2 {
@@ -187,8 +178,6 @@ mod eth1_cache {
     #[tokio::test]
     async fn big_skip() {
         async {
-            let log = test_logger();
-
             let eth1 = new_anvil_instance()
                 .await
                 .expect("should start eth1 environment");
@@ -208,7 +197,6 @@ mod eth1_cache {
                     block_cache_truncation: Some(cache_len),
                     ..Config::default()
                 },
-                log,
                 Arc::new(MainnetEthSpec::default_spec()),
             )
             .unwrap();
@@ -242,8 +230,6 @@ mod eth1_cache {
     #[tokio::test]
     async fn pruning() {
         async {
-            let log = test_logger();
-
             let eth1 = new_anvil_instance()
                 .await
                 .expect("should start eth1 environment");
@@ -263,7 +249,6 @@ mod eth1_cache {
                     block_cache_truncation: Some(cache_len),
                     ..Config::default()
                 },
-                log,
                 Arc::new(MainnetEthSpec::default_spec()),
             )
             .unwrap();
@@ -294,8 +279,6 @@ mod eth1_cache {
     #[tokio::test]
     async fn double_update() {
         async {
-            let log = test_logger();
-
             let n = 16;
 
             let eth1 = new_anvil_instance()
@@ -314,7 +297,6 @@ mod eth1_cache {
                     follow_distance: 0,
                     ..Config::default()
                 },
-                log,
                 Arc::new(MainnetEthSpec::default_spec()),
             )
             .unwrap();
@@ -347,8 +329,6 @@ mod deposit_tree {
     #[tokio::test]
     async fn updating() {
         async {
-            let log = test_logger();
-
             let n = 4;
 
             let eth1 = new_anvil_instance()
@@ -369,7 +349,6 @@ mod deposit_tree {
                     follow_distance: 0,
                     ..Config::default()
                 },
-                log,
                 Arc::new(MainnetEthSpec::default_spec()),
             )
             .unwrap();
@@ -428,8 +407,6 @@ mod deposit_tree {
     #[tokio::test]
     async fn double_update() {
         async {
-            let log = test_logger();
-
             let n = 8;
 
             let eth1 = new_anvil_instance()
@@ -451,7 +428,6 @@ mod deposit_tree {
                     follow_distance: 0,
                     ..Config::default()
                 },
-                log,
                 Arc::new(MainnetEthSpec::default_spec()),
             )
             .unwrap();
@@ -690,8 +666,6 @@ mod fast {
     #[tokio::test]
     async fn deposit_cache_query() {
         async {
-            let log = test_logger();
-
             let eth1 = new_anvil_instance()
                 .await
                 .expect("should start eth1 environment");
@@ -712,7 +686,6 @@ mod fast {
                     block_cache_truncation: None,
                     ..Config::default()
                 },
-                log,
                 spec.clone(),
             )
             .unwrap();
@@ -773,8 +746,6 @@ mod persist {
     #[tokio::test]
     async fn test_persist_caches() {
         async {
-            let log = test_logger();
-
             let eth1 = new_anvil_instance()
                 .await
                 .expect("should start eth1 environment");
@@ -793,12 +764,8 @@ mod persist {
                 block_cache_truncation: None,
                 ..Config::default()
             };
-            let service = Service::new(
-                config.clone(),
-                log.clone(),
-                Arc::new(MainnetEthSpec::default_spec()),
-            )
-            .unwrap();
+            let service =
+                Service::new(config.clone(), Arc::new(MainnetEthSpec::default_spec())).unwrap();
             let n = 10;
             let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
             for deposit in &deposits {

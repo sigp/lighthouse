@@ -661,7 +661,6 @@ impl DoppelgangerService {
 mod test {
     use super::*;
     use futures::executor::block_on;
-    use logging::test_logger;
     use slot_clock::TestingSlotClock;
     use std::future;
     use std::time::Duration;
@@ -711,7 +710,7 @@ mod test {
                 validators: (0..self.validator_count)
                     .map(|_| PublicKeyBytes::random_for_test(&mut rng))
                     .collect(),
-                doppelganger: DoppelgangerService::new(log),
+                doppelganger: DoppelgangerService::new(),
                 slot_clock,
             }
         }

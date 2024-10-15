@@ -1200,22 +1200,9 @@ mod tests {
     use super::*;
     use crate::rpc::methods::{MetaData, MetaDataV2};
     use libp2p::identity::secp256k1;
-    use slog::{o, Drain};
     use types::{BitVector, MinimalEthSpec, SubnetId};
 
     type E = MinimalEthSpec;
-
-    pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
-        let decorator = slog_term::TermDecorator::new().build();
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
-
-        if enabled {
-            slog::Logger::root(drain.filter_level(level).fuse(), o!())
-        } else {
-            slog::Logger::root(drain.filter(|_| false).fuse(), o!())
-        }
-    }
 
     async fn build_discovery() -> Discovery<E> {
         let spec = Arc::new(ChainSpec::default());
@@ -1225,7 +1212,6 @@ mod tests {
         let config = Arc::new(config);
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
         let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default(), &spec).unwrap();
-        let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,
             MetaData::V2(MetaDataV2 {
@@ -1235,12 +1221,11 @@ mod tests {
             }),
             vec![],
             false,
-            &log,
             config.clone(),
             spec.clone(),
         );
         let keypair = keypair.into();
-        Discovery::new(keypair, &config, Arc::new(globals), &log, &spec)
+        Discovery::new(keypair, &config, Arc::new(globals), &spec)
             .await
             .unwrap()
     }

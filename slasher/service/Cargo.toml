@@ -10,7 +10,6 @@ directory = { workspace = true }
 lighthouse_network = { workspace = true }
 network = { workspace = true }
 slasher = { workspace = true }
-slog = { workspace = true }
 slot_clock = { workspace = true }
 state_processing = { workspace = true }
 task_executor = { workspace = true }

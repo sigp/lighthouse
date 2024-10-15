@@ -23,7 +23,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 error-chain = { workspace = true }
 logging = {workspace = true}
-slog = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }

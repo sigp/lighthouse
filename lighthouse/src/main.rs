@@ -643,7 +643,7 @@ fn run<E: EthSpec>(
         .with(discv5_layer)
         .with(file_logging_layer)
         .with(stdout_logging_layer)
-        .with(SSE_LOGGING_COMPONENTS.lock().unwrap().clone().unwrap())
+        .with(SSE_LOGGING_COMPONENTS.lock().unwrap().clone())
         .try_init()
     {
         eprintln!("Failed to initialize dependency logging: {e}");

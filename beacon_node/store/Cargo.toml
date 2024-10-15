@@ -18,11 +18,9 @@ ethereum_ssz_derive = { workspace = true }
 types = { workspace = true }
 safe_arith = { workspace = true }
 state_processing = { workspace = true }
-slog = { workspace = true }
 serde = { workspace = true }
 lighthouse_metrics = { workspace = true }
 lru = { workspace = true }
-sloggers = { workspace = true }
 directory = { workspace = true }
 strum = { workspace = true }
 tracing-subscriber = { workspace = true }

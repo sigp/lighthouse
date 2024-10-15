@@ -643,7 +643,7 @@ fn main() {
 }
 
 fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> Result<(), String> {
-    let env = env_builder
+    let (env_builder, _file_logging_layer, _stdout_logging_layer) = env_builder
         .multi_threaded_tokio_runtime()
         .map_err(|e| format!("should start tokio runtime: {:?}", e))?
         .init_tracing(LoggerConfig {
@@ -659,8 +659,9 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
             compression: false,
             is_restricted: true,
             sse_logging: false, // No SSE Logging in LCLI
-        })
-        .map_err(|e| format!("should start logger: {:?}", e))?
+        });
+
+    let env = env_builder
         .build()
         .map_err(|e| format!("should build env: {:?}", e))?;
 

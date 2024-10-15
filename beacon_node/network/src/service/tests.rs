@@ -9,8 +9,6 @@ mod tests {
     use futures::StreamExt;
     use lighthouse_network::types::{GossipEncoding, GossipKind};
     use lighthouse_network::{Enr, GossipTopic};
-    use slog::{o, Drain, Level, Logger};
-    use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
     use std::sync::Arc;
     use tokio::runtime::Runtime;
@@ -21,24 +19,6 @@ mod tests {
             self.libp2p.get_topic_params(topic)
         }
     }
-
-    // fn get_logger(actual_log: bool) -> Logger {
-    //     if actual_log {
-    //         let drain = {
-    //             let decorator = slog_term::TermDecorator::new().build();
-    //             let decorator =
-    //                 logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
-    //             let drain = slog_term::FullFormat::new(decorator).build().fuse();
-    //             let drain = slog_async::Async::new(drain).chan_size(2048).build();
-    //             drain.filter_level(Level::Debug)
-    //         };
-
-    //         Logger::root(drain.fuse(), o!())
-    //     } else {
-    //         let builder = NullLoggerBuilder;
-    //         builder.build().expect("should build logger")
-    //     }
-    // }
 
     #[test]
     fn test_dht_persistence() {
@@ -139,12 +119,8 @@ mod tests {
         let (mut network_service, network_globals, _network_senders) = runtime.block_on(async {
             let (_, exit) = async_channel::bounded(1);
             let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-            let executor = task_executor::TaskExecutor::new(
-                Arc::downgrade(&runtime),
-                exit,
-                get_logger(false),
-                shutdown_tx,
-            );
+            let executor =
+                task_executor::TaskExecutor::new(Arc::downgrade(&runtime), exit, shutdown_tx);
 
             let mut config = NetworkConfig::default();
             config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 21214, 21214, 21215);

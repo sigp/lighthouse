@@ -24,7 +24,6 @@ use lighthouse_network::{
 };
 use logging::crit;
 use logging::TimeLatch;
-use slog::o;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;

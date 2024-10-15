@@ -739,7 +739,7 @@ mod test {
         spec.deneb_fork_epoch = Some(deneb_fork_epoch);
         let spec = Arc::new(spec);
 
-        let chain_store = get_store_with_spec::<E>(db_path, spec.clone(), log.clone());
+        let chain_store = get_store_with_spec::<E>(db_path, spec.clone());
         let validators_keypairs =
             types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
         let harness = BeaconChainHarness::builder(E::default())
@@ -786,7 +786,6 @@ mod test {
         Cold: ItemStore<E>,
     {
         let chain = &harness.chain;
-        let log = chain.log.clone();
         let head = chain.head_snapshot();
         let parent_state = head.beacon_state.clone();
 

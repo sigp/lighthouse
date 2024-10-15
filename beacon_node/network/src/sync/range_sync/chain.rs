@@ -1243,45 +1243,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 }
 
-impl<T: BeaconChainTypes> slog::KV for &mut SyncingChain<T> {
-    fn serialize(
-        &self,
-        record: &slog::Record,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        slog::KV::serialize(*self, record, serializer)
-    }
-}
-
-impl<T: BeaconChainTypes> slog::KV for SyncingChain<T> {
-    fn serialize(
-        &self,
-        record: &slog::Record,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        use slog::Value;
-        serializer.emit_u64("id", self.id)?;
-        Value::serialize(&self.start_epoch, record, "from", serializer)?;
-        Value::serialize(
-            &self.target_head_slot.epoch(T::EthSpec::slots_per_epoch()),
-            record,
-            "to",
-            serializer,
-        )?;
-        serializer.emit_arguments("end_root", &format_args!("{}", self.target_head_root))?;
-        Value::serialize(
-            &self.processing_target,
-            record,
-            "current_target",
-            serializer,
-        )?;
-        serializer.emit_usize("batches", self.batches.len())?;
-        serializer.emit_usize("peers", self.peers.len())?;
-        serializer.emit_arguments("state", &format_args!("{:?}", self.state))?;
-        slog::Result::Ok(())
-    }
-}
-
 use super::batch::WrongState as WrongBatchState;
 impl From<WrongBatchState> for RemoveChain {
     fn from(err: WrongBatchState) -> Self {

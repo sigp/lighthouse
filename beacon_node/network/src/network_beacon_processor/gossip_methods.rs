@@ -27,7 +27,6 @@ use lighthouse_network::{
 };
 use logging::crit;
 use operation_pool::ReceivedPreCapella;
-use slog::Logger;
 use slot_clock::SlotClock;
 use ssz::Encode;
 use std::fs;

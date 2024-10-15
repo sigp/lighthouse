@@ -1438,20 +1438,7 @@ enum ConnectingType {
 mod tests {
     use super::*;
     use crate::NetworkConfig;
-    use slog::{o, Drain};
     use types::MainnetEthSpec as E;
-
-    pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
-        let decorator = slog_term::TermDecorator::new().build();
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
-
-        if enabled {
-            slog::Logger::root(drain.filter_level(level).fuse(), o!())
-        } else {
-            slog::Logger::root(drain.filter(|_| false).fuse(), o!())
-        }
-    }
 
     async fn build_peer_manager(target_peer_count: usize) -> PeerManager<E> {
         build_peer_manager_with_trusted_peers(vec![], target_peer_count).await
@@ -1470,10 +1457,9 @@ mod tests {
             target_peers: target_peer_count,
             ..Default::default()
         });
-        let log = build_log(slog::Level::Debug, false);
         let spec = Arc::new(E::default_spec());
-        let globals = NetworkGlobals::new_test_globals(trusted_peers, &log, network_config, spec);
-        PeerManager::new(config, Arc::new(globals), &log).unwrap()
+        let globals = NetworkGlobals::new_test_globals(trusted_peers, network_config, spec);
+        PeerManager::new(config, Arc::new(globals)).unwrap()
     }
 
     #[tokio::test]

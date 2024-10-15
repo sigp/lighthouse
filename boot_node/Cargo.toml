@@ -11,13 +11,9 @@ clap_utils = { workspace = true }
 lighthouse_network = { workspace = true }
 types = { workspace = true }
 ethereum_ssz = { workspace = true }
-slog = { workspace = true }
 tokio = { workspace = true }
 log = { workspace = true }
-slog-term = { workspace = true }
 logging = { workspace = true }
-slog-async = { workspace = true }
-slog-scope = "4.3.0"
 hex = { workspace = true }
 serde = { workspace = true }
 eth2_network_config = { workspace = true }

@@ -318,10 +318,6 @@ where
             (),
         );
 
-        // let log = self
-        //     .log
-        //     .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
-
         let handler = RPCHandler::new(
             protocol,
             self.fork_context.clone(),
@@ -517,52 +513,5 @@ where
         }
 
         Poll::Pending
-    }
-}
-
-impl<Id, E> slog::KV for RPCMessage<Id, E>
-where
-    E: EthSpec,
-    Id: ReqId,
-{
-    fn serialize(
-        &self,
-        _record: &slog::Record,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        serializer.emit_arguments("peer_id", &format_args!("{}", self.peer_id))?;
-        match &self.message {
-            Ok(received) => {
-                let (msg_kind, protocol) = match received {
-                    RPCReceived::Request(Request { r#type, .. }) => {
-                        ("request", r#type.versioned_protocol().protocol())
-                    }
-                    RPCReceived::Response(_, res) => ("response", res.protocol()),
-                    RPCReceived::EndOfStream(_, end) => (
-                        "end_of_stream",
-                        match end {
-                            ResponseTermination::BlocksByRange => Protocol::BlocksByRange,
-                            ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,
-                            ResponseTermination::BlobsByRange => Protocol::BlobsByRange,
-                            ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
-                            ResponseTermination::DataColumnsByRoot => Protocol::DataColumnsByRoot,
-                            ResponseTermination::DataColumnsByRange => Protocol::DataColumnsByRange,
-                        },
-                    ),
-                };
-                serializer.emit_str("msg_kind", msg_kind)?;
-                serializer.emit_arguments("protocol", &format_args!("{}", protocol))?;
-            }
-            Err(error) => {
-                let (msg_kind, protocol) = match &error {
-                    HandlerErr::Inbound { proto, .. } => ("inbound_err", *proto),
-                    HandlerErr::Outbound { proto, .. } => ("outbound_err", *proto),
-                };
-                serializer.emit_str("msg_kind", msg_kind)?;
-                serializer.emit_arguments("protocol", &format_args!("{}", protocol))?;
-            }
-        };
-
-        slog::Result::Ok(())
     }
 }

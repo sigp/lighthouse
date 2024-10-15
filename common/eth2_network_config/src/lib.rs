@@ -474,7 +474,7 @@ mod tests {
     async fn mainnet_genesis_state() {
         let config = Eth2NetworkConfig::from_hardcoded_net(&MAINNET).unwrap();
         config
-            .genesis_state::<E>(None, Duration::from_secs(1), &logging::test_logger())
+            .genesis_state::<E>(None, Duration::from_secs(1))
             .await
             .expect("beacon state can decode");
     }

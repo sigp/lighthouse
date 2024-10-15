@@ -1,6 +1,5 @@
 #![cfg(any(feature = "mdbx", feature = "lmdb", feature = "redb"))]
 
-use logging::test_logger;
 use slasher::{
     test_utils::{chain_spec, indexed_att},
     Config, Slasher,
@@ -17,7 +16,7 @@ fn attestation_pruning_empty_wrap_around() {
     config.chunk_size = 16;
     config.history_length = 16;
 
-    let slasher = Slasher::open(config.clone(), spec, test_logger()).unwrap();
+    let slasher = Slasher::open(config.clone(), spec).unwrap();
 
     let v = vec![0];
     let history_length = config.history_length as u64;
