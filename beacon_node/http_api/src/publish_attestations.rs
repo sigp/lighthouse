@@ -50,7 +50,7 @@ use tokio::sync::{
     mpsc::{Sender, UnboundedSender},
     oneshot,
 };
-use types::Attestation;
+use types::{Attestation, EthSpec};
 
 // Error variants are only used in `Debug` and considered `dead_code` by the compiler.
 #[derive(Debug)]
@@ -94,21 +94,28 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
                 })
                 .map_err(|_| Error::Publication)?;
         }
-        types::AttestationRef::Electra(attn) => {
-            let single_attestation = attn
-                .to_single_attestation()
-                .map_err(|_| Error::Publication)?;
+        types::AttestationRef::Electra(attn) => chain
+            .with_committee_cache(
+                attn.data.target.root,
+                attn.data.slot.epoch(T::EthSpec::slots_per_epoch()),
+                |committee_cache, _| {
+                    let committees =
+                        committee_cache.get_beacon_committees_at_slot(attn.data.slot)?;
 
-            // Publish.
-            network_tx
-                .send(NetworkMessage::Publish {
-                    messages: vec![PubsubMessage::SingleAttestation(Box::new((
-                        attestation.subnet_id(),
-                        single_attestation,
-                    )))],
-                })
-                .map_err(|_| Error::Publication)?;
-        }
+                    let single_attestation = attn.to_single_attestation(&committees)?;
+
+                    network_tx
+                        .send(NetworkMessage::Publish {
+                            messages: vec![PubsubMessage::SingleAttestation(Box::new((
+                                attestation.subnet_id(),
+                                single_attestation,
+                            )))],
+                        })
+                        .map_err(|_| BeaconChainError::UnableToPublish)?;
+                    Ok(())
+                },
+            )
+            .map_err(|_| Error::Publication)?,
     };
 
     // Publish.

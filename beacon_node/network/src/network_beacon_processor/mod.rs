@@ -105,7 +105,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             },
         ) else {
             // TODO(single-attestation) raising a try send error here is problematic...
-            // is logging an error! sufficient?
+            // is logging an error sufficient?
             todo!()
         };
 

@@ -5,7 +5,6 @@ use derivative::Derivative;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use ssz_types::typenum::Unsigned;
 use ssz_types::BitVector;
 use std::hash::{Hash, Hasher};
 use superstruct::superstruct;
@@ -361,54 +360,59 @@ impl<E: EthSpec> AttestationElectra<E> {
         }
     }
 
-    pub fn to_single_attestation(&self) -> Result<SingleAttestation, Error> {
+    pub fn to_single_attestation(
+        &self,
+        committees: &[BeaconCommittee],
+    ) -> Result<SingleAttestation, Error> {
         let committee_indices = self.get_committee_indices();
-        let attester_indices = self.get_aggregation_bits();
 
         if committee_indices.len() != 1 {
             return Err(Error::InvalidCommitteeLength);
         }
 
+        let aggregation_bits = self.get_aggregation_bits();
+
+        if aggregation_bits.len() != 1 {
+            return Err(Error::InvalidAggregationBit);
+        }
+
+        let committee_index = *committee_indices
+            .first()
+            .ok_or(Error::InvalidCommitteeIndex)?;
+
+        let aggregation_bit = *aggregation_bits
+            .first()
+            .ok_or(Error::InvalidAggregationBit)?;
+
+        let beacon_committee = committees
+            .get(committee_index as usize)
+            .ok_or(Error::InvalidCommitteeIndex)?;
+
+        let attester_indices = beacon_committee
+            .committee
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &index)| {
+                if aggregation_bit as usize == i {
+                    return Some(index);
+                }
+                None
+            })
+            .collect::<Vec<_>>();
+
         if attester_indices.len() != 1 {
             return Err(Error::InvalidAggregationBit);
-        }
-
-        let Some(committee_index) = committee_indices.first() else {
-            return Err(Error::InvalidCommitteeLength);
         };
 
-        let Some(attester_index) = attester_indices.first() else {
-            return Err(Error::InvalidAggregationBit);
-        };
+        let attester_index = *attester_indices
+            .first()
+            .ok_or(Error::InvalidAggregationBit)?;
 
         Ok(SingleAttestation {
-            committee_index: *committee_index as usize,
-            attester_index: *attester_index as usize,
+            committee_index: committee_index as usize,
+            attester_index,
             data: self.data.clone(),
             signature: self.signature.clone(),
-        })
-    }
-
-    pub fn from_single_attestation(single_attestation: SingleAttestation) -> Result<Self, Error> {
-        let mut committee_bits = BitVector::new();
-        committee_bits.set(single_attestation.committee_index, true)?;
-
-        if committee_bits.num_set_bits() != 1 {
-            return Err(Error::InvalidCommitteeIndex);
-        }
-
-        let mut aggregation_bits = BitList::with_capacity(E::MaxValidatorsPerSlot::to_usize())?;
-        aggregation_bits.set(single_attestation.attester_index, true)?;
-
-        if aggregation_bits.num_set_bits() != 1 {
-            return Err(Error::InvalidAggregationBit);
-        }
-
-        Ok(Self {
-            data: single_attestation.data,
-            signature: single_attestation.signature,
-            committee_bits,
-            aggregation_bits,
         })
     }
 }
@@ -641,8 +645,10 @@ impl SingleAttestation {
         &self,
         committees: &[BeaconCommittee],
     ) -> Result<Attestation<E>, Error> {
-        let beacon_committee = committees.get(self.committee_index).unwrap();
-        let temp = beacon_committee
+        let beacon_committee = committees
+            .get(self.committee_index)
+            .ok_or(Error::InvalidAggregationBit)?;
+        let aggregation_bits = beacon_committee
             .committee
             .iter()
             .enumerate()
@@ -654,7 +660,11 @@ impl SingleAttestation {
             })
             .collect::<Vec<_>>();
 
-        let aggregation_bit = temp.first().unwrap();
+        if aggregation_bits.len() != 1 {
+            return Err(Error::InvalidAggregationBit);
+        }
+
+        let aggregation_bit = aggregation_bits.first().unwrap();
 
         let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
         committee_bits
