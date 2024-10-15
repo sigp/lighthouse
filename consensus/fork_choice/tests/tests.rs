@@ -502,15 +502,13 @@ fn justified_and_finalized_blocks() {
     assert!(fork_choice.get_finalized_block().is_ok());
 }
 
-/// - The new justified checkpoint descends from the current.
-/// - Current slot is within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`
+/// - The new justified checkpoint descends from the current. Near genesis.
 #[tokio::test]
-async fn justified_checkpoint_updates_with_descendent_inside_safe_slots() {
+async fn justified_checkpoint_updates_with_descendent_first_justification() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint().epoch == 0)
         .await
         .unwrap()
-        .move_inside_safe_to_update()
         .assert_justified_epoch(0)
         .apply_blocks(1)
         .await
@@ -518,111 +516,33 @@ async fn justified_checkpoint_updates_with_descendent_inside_safe_slots() {
 }
 
 /// - The new justified checkpoint descends from the current.
-/// - Current slot is **not** within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`
 /// - This is **not** the first justification since genesis
 #[tokio::test]
-async fn justified_checkpoint_updates_with_descendent_outside_safe_slots() {
+async fn justified_checkpoint_updates_with_descendent() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint().epoch <= 2)
         .await
         .unwrap()
-        .move_outside_safe_to_update()
         .assert_justified_epoch(2)
         .apply_blocks(1)
         .await
         .assert_justified_epoch(3);
 }
 
-/// - The new justified checkpoint descends from the current.
-/// - Current slot is **not** within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`
-/// - This is the first justification since genesis
-#[tokio::test]
-async fn justified_checkpoint_updates_first_justification_outside_safe_to_update() {
-    ForkChoiceTest::new()
-        .apply_blocks_while(|_, state| state.current_justified_checkpoint().epoch == 0)
-        .await
-        .unwrap()
-        .move_to_next_unsafe_period()
-        .assert_justified_epoch(0)
-        .apply_blocks(1)
-        .await
-        .assert_justified_epoch(2);
-}
-
 /// - The new justified checkpoint **does not** descend from the current.
-/// - Current slot is within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`
 /// - Finalized epoch has **not** increased.
 #[tokio::test]
-async fn justified_checkpoint_updates_with_non_descendent_inside_safe_slots_without_finality() {
+async fn justified_checkpoint_updates_with_non_descendent() {
     ForkChoiceTest::new()
         .apply_blocks_while(|_, state| state.current_justified_checkpoint().epoch == 0)
         .await
         .unwrap()
         .apply_blocks(1)
         .await
-        .move_inside_safe_to_update()
         .assert_justified_epoch(2)
         .apply_block_directly_to_fork_choice(|_, state| {
             // The finalized checkpoint should not change.
             state.finalized_checkpoint().epoch = Epoch::new(0);
-
-            // The justified checkpoint has changed.
-            state.current_justified_checkpoint_mut().epoch = Epoch::new(3);
-            // The new block should **not** include the current justified block as an ancestor.
-            state.current_justified_checkpoint_mut().root = *state
-                .get_block_root(Epoch::new(1).start_slot(E::slots_per_epoch()))
-                .unwrap();
-        })
-        .await
-        .assert_justified_epoch(3);
-}
-
-/// - The new justified checkpoint **does not** descend from the current.
-/// - Current slot is **not** within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`.
-/// - Finalized epoch has **not** increased.
-#[tokio::test]
-async fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_without_finality() {
-    ForkChoiceTest::new()
-        .apply_blocks_while(|_, state| state.current_justified_checkpoint().epoch == 0)
-        .await
-        .unwrap()
-        .apply_blocks(1)
-        .await
-        .move_to_next_unsafe_period()
-        .assert_justified_epoch(2)
-        .apply_block_directly_to_fork_choice(|_, state| {
-            // The finalized checkpoint should not change.
-            state.finalized_checkpoint().epoch = Epoch::new(0);
-
-            // The justified checkpoint has changed.
-            state.current_justified_checkpoint_mut().epoch = Epoch::new(3);
-            // The new block should **not** include the current justified block as an ancestor.
-            state.current_justified_checkpoint_mut().root = *state
-                .get_block_root(Epoch::new(1).start_slot(E::slots_per_epoch()))
-                .unwrap();
-        })
-        .await
-        // Now that `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` has been removed, the new
-        // block should have updated the justified checkpoint.
-        .assert_justified_epoch(3);
-}
-
-/// - The new justified checkpoint **does not** descend from the current.
-/// - Current slot is **not** within `SAFE_SLOTS_TO_UPDATE_JUSTIFIED`
-/// - Finalized epoch has increased.
-#[tokio::test]
-async fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_with_finality() {
-    ForkChoiceTest::new()
-        .apply_blocks_while(|_, state| state.current_justified_checkpoint().epoch == 0)
-        .await
-        .unwrap()
-        .apply_blocks(1)
-        .await
-        .move_to_next_unsafe_period()
-        .assert_justified_epoch(2)
-        .apply_block_directly_to_fork_choice(|_, state| {
-            // The finalized checkpoint should change.
-            state.finalized_checkpoint_mut().epoch = Epoch::new(1);
 
             // The justified checkpoint has changed.
             state.current_justified_checkpoint_mut().epoch = Epoch::new(3);
