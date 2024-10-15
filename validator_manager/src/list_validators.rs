@@ -16,11 +16,7 @@ pub fn cli_app() -> Command {
             Arg::new(VC_URL_FLAG)
                 .long(VC_URL_FLAG)
                 .value_name("HTTP_ADDRESS")
-                .help(
-                    "A HTTP(S) address of a validator client using the keymanager-API. \
-            If this value is not supplied then a 'dry run' will be conducted where \
-            no changes are made to the validator client.",
-                )
+                .help("A HTTP(S) address of a validator client using the keymanager-API.")
                 .default_value("http://localhost:5062")
                 .requires(VC_TOKEN_FLAG)
                 .action(ArgAction::Set)
