@@ -373,7 +373,7 @@ pub async fn handle_rpc<E: EthSpec>(
                                 ))?
                                 .into(),
                             should_override_builder: false,
-                            // TODO(pawan): add EL requests in mock el
+                            // TODO(electra): add EL requests in mock el
                             requests: Default::default(),
                         })
                         .unwrap()
