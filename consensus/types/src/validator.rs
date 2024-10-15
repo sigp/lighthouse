@@ -236,7 +236,7 @@ impl Validator {
         spec: &ChainSpec,
         current_fork: ForkName,
     ) -> bool {
-        let max_effective_balance = self.get_validator_max_effective_balance(spec, current_fork);
+        let max_effective_balance = self.get_max_effective_balance(spec, current_fork);
         let has_max_effective_balance = self.effective_balance == max_effective_balance;
         let has_excess_balance = balance > max_effective_balance;
         self.has_execution_withdrawal_credential(spec)
@@ -251,11 +251,7 @@ impl Validator {
     }
 
     /// Returns the max effective balance for a validator in gwei.
-    pub fn get_validator_max_effective_balance(
-        &self,
-        spec: &ChainSpec,
-        current_fork: ForkName,
-    ) -> u64 {
+    pub fn get_max_effective_balance(&self, spec: &ChainSpec, current_fork: ForkName) -> u64 {
         if current_fork >= ForkName::Electra {
             if self.has_compounding_withdrawal_credential(spec) {
                 spec.max_effective_balance_electra
@@ -273,7 +269,7 @@ impl Validator {
         spec: &ChainSpec,
         current_fork: ForkName,
     ) -> u64 {
-        let max_effective_balance = self.get_validator_max_effective_balance(spec, current_fork);
+        let max_effective_balance = self.get_max_effective_balance(spec, current_fork);
         std::cmp::min(validator_balance, max_effective_balance)
     }
 }

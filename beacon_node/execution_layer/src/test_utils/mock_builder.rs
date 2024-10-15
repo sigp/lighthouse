@@ -20,9 +20,9 @@ use types::builder_bid::{
 };
 use types::{
     Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, FixedBytesExtended, ForkName, ForkVersionedResponse, Hash256,
-    PublicKeyBytes, Signature, SignedBlindedBeaconBlock, SignedRoot,
-    SignedValidatorRegistrationData, Slot, Uint256,
+    ExecutionPayloadHeaderRefMut, ExecutionRequests, FixedBytesExtended, ForkName,
+    ForkVersionedResponse, Hash256, PublicKeyBytes, Signature, SignedBlindedBeaconBlock,
+    SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
 };
 use types::{ExecutionBlockHash, SecretKey};
 use warp::{Filter, Rejection};
@@ -542,10 +542,12 @@ pub fn serve<E: EthSpec>(
 
                 let mut message = match payload_response_type {
                     crate::GetPayloadResponseType::Full(payload_response) => {
-                        let (payload, _block_value, maybe_blobs_bundle): (
+                        #[allow(clippy::type_complexity)]
+                        let (payload, _block_value, maybe_blobs_bundle, _maybe_requests): (
                             ExecutionPayload<E>,
                             Uint256,
                             Option<BlobsBundle<E>>,
+                            Option<ExecutionRequests<E>>,
                         ) = payload_response.into();
 
                         match fork {
@@ -593,10 +595,12 @@ pub fn serve<E: EthSpec>(
                         }
                     }
                     crate::GetPayloadResponseType::Blinded(payload_response) => {
-                        let (payload, _block_value, maybe_blobs_bundle): (
+                        #[allow(clippy::type_complexity)]
+                        let (payload, _block_value, maybe_blobs_bundle, _maybe_requests): (
                             ExecutionPayload<E>,
                             Uint256,
                             Option<BlobsBundle<E>>,
+                            Option<ExecutionRequests<E>>,
                         ) = payload_response.into();
                         match fork {
                             ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {
