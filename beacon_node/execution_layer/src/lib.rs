@@ -198,7 +198,7 @@ pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
         kzg_commitments: KzgCommitments<E>,
         /// `None` for blinded `PayloadAndBlobs`.
         blobs_and_proofs: Option<(BlobsList<E>, KzgProofs<E>)>,
-        // TODO(pawan): this should probably be a separate variant/superstruct
+        // TODO(electra): this should probably be a separate variant/superstruct
         requests: Option<ExecutionRequests<E>>,
     },
 }
