@@ -1,9 +1,11 @@
 use crate::sync::manager::BlockProcessType;
 use crate::sync::SamplingId;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
+use attestation::SingleAttestation;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend, BeaconChain};
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
+use beacon_processor::GossipSingleAttestationPackage;
 use beacon_processor::{
     work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorChannels, BeaconProcessorSend,
     DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
@@ -69,6 +71,55 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.beacon_processor_send
             .try_send(event)
             .map_err(Into::into)
+    }
+
+    /// Create a new `Work` event for some unaggregated attestation.
+    pub fn send_single_attestation(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        attestation: SingleAttestation,
+        subnet_id: SubnetId,
+        should_import: bool,
+        seen_timestamp: Duration,
+    ) -> Result<(), Error<T::EthSpec>> {
+        // Define a closure for processing individual attestations.
+        let processor = self.clone();
+        let process_individual = move |package: GossipSingleAttestationPackage| {
+            let reprocess_tx = processor.reprocess_tx.clone();
+            processor.process_single_gossip_attestation(
+                package.message_id,
+                package.peer_id,
+                package.attestation,
+                package.subnet_id,
+                package.should_import,
+                Some(reprocess_tx),
+                package.seen_timestamp,
+            )
+        };
+
+        // Define a closure for processing batches of attestations.
+        let processor = self.clone();
+        let process_batch = move |attestations| {
+            let reprocess_tx = processor.reprocess_tx.clone();
+            processor.process_gossip_single_attestation_batch(attestations, Some(reprocess_tx))
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::GossipSingleAttestation {
+                attestation: Box::new(GossipSingleAttestationPackage {
+                    message_id,
+                    peer_id,
+                    attestation: Box::new(attestation),
+                    subnet_id,
+                    should_import,
+                    seen_timestamp,
+                }),
+                process_individual: Box::new(process_individual),
+                process_batch: Box::new(process_batch),
+            },
+        })
     }
 
     /// Create a new `Work` event for some unaggregated attestation.

@@ -13,7 +13,11 @@ use super::{
     CheckAttestationSignature, Error, IndexedAggregatedAttestation, IndexedUnaggregatedAttestation,
     VerifiedAggregatedAttestation, VerifiedUnaggregatedAttestation,
 };
-use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::single_attestation_verification::VerifiedSingleAttestation;
+use crate::{
+    metrics, single_attestation_verification::IndexedSingleAttestation, BeaconChain,
+    BeaconChainError, BeaconChainTypes,
+};
 use bls::verify_signature_sets;
 use state_processing::signature_sets::{
     indexed_attestation_signature_set_from_pubkeys, signed_aggregate_selection_proof_signature_set,
@@ -205,6 +209,92 @@ where
         .map(|result| match result {
             Ok(partial) => {
                 VerifiedUnaggregatedAttestation::from_indexed(partial, chain, check_signatures)
+            }
+            Err(e) => Err(e),
+        })
+        .collect();
+
+    Ok(final_results)
+}
+
+/// Verify `SingleAttestations` using batch BLS signature verification.
+///
+/// See module-level docs for more info.
+pub fn batch_verify_single_attestations<'a, T, I>(
+    attestations: I,
+    chain: &BeaconChain<T>,
+) -> Result<Vec<Result<VerifiedSingleAttestation<'a, T>, Error>>, Error>
+where
+    T: BeaconChainTypes,
+    I: Iterator<Item = (&'a SingleAttestation, Option<SubnetId>)> + ExactSizeIterator,
+{
+    let mut num_partially_verified = 0;
+    let mut num_failed = 0;
+
+    // Perform partial verification of all attestations, collecting the results.
+    let partial_results = attestations
+        .map(|(attn, subnet_opt)| {
+            let result = IndexedSingleAttestation::verify(attn, subnet_opt, chain);
+            if result.is_ok() {
+                num_partially_verified += 1;
+            } else {
+                num_failed += 1;
+            }
+            result
+        })
+        .collect::<Vec<_>>();
+
+    // May be set to `No` if batch verification succeeds.
+    let mut check_signatures = CheckAttestationSignature::Yes;
+
+    // Perform batch BLS verification, if any attestation signatures are worth checking.
+    if num_partially_verified > 0 {
+        let signature_setup_timer = metrics::start_timer(
+            &metrics::ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_SETUP_TIMES,
+        );
+
+        let pubkey_cache = chain.validator_pubkey_cache.read();
+
+        let mut signature_sets = Vec::with_capacity(num_partially_verified);
+
+        // Iterate, flattening to get only the `Ok` values.
+        for partially_verified in partial_results.iter().flatten() {
+            let indexed_attestation = &partially_verified.indexed_attestation;
+            let fork = chain
+                .spec
+                .fork_at_epoch(indexed_attestation.data().target.epoch);
+
+            let signature_set = indexed_attestation_signature_set_from_pubkeys(
+                |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
+                indexed_attestation.signature(),
+                indexed_attestation,
+                &fork,
+                chain.genesis_validators_root,
+                &chain.spec,
+            )
+            .map_err(BeaconChainError::SignatureSetError)?;
+
+            signature_sets.push(signature_set);
+        }
+
+        metrics::stop_timer(signature_setup_timer);
+
+        let _signature_verification_timer =
+            metrics::start_timer(&metrics::ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_TIMES);
+
+        if verify_signature_sets(signature_sets.iter()) {
+            // Since all the signatures verified in a batch, there's no reason for them to be
+            // checked again later.
+            check_signatures = CheckAttestationSignature::No
+        }
+    }
+
+    // Complete the attestation verification, potentially verifying all signatures independently.
+    let final_results = partial_results
+        .into_iter()
+        .map(|result| match result {
+            Ok(partial) => {
+                VerifiedSingleAttestation::from_indexed(partial, chain, check_signatures)
             }
             Err(e) => Err(e),
         })

@@ -1,7 +1,7 @@
 use crate::attestation_verification::{
-    batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations,
-    Error as AttestationError, VerifiedAggregatedAttestation, VerifiedAttestation,
-    VerifiedUnaggregatedAttestation,
+    batch_verify_aggregated_attestations, batch_verify_single_attestations,
+    batch_verify_unaggregated_attestations, Error as AttestationError,
+    VerifiedAggregatedAttestation, VerifiedAttestation, VerifiedUnaggregatedAttestation,
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
@@ -61,6 +61,7 @@ use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_B
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
+use crate::single_attestation_verification::VerifiedSingleAttestation;
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
@@ -2005,6 +2006,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?)
     }
 
+    /// Performs the same validation as `Self::verify_single_attestation_for_gossip`, but for
+    /// multiple attestations using batch BLS verification. Batch verification can provide
+    /// significant CPU-time savings compared to individual verification.
+    pub fn batch_verify_single_attestations_for_gossip<'a, I>(
+        &self,
+        attestations: I,
+    ) -> Result<Vec<Result<VerifiedSingleAttestation<'a, T>, AttestationError>>, AttestationError>
+    where
+        I: Iterator<Item = (&'a SingleAttestation, Option<SubnetId>)> + ExactSizeIterator,
+    {
+        batch_verify_single_attestations(attestations, self)
+    }
+
     /// Performs the same validation as `Self::verify_unaggregated_attestation_for_gossip`, but for
     /// multiple attestations using batch BLS verification. Batch verification can provide
     /// significant CPU-time savings compared to individual verification.
@@ -2019,6 +2033,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         I: Iterator<Item = (&'a Attestation<T::EthSpec>, Option<SubnetId>)> + ExactSizeIterator,
     {
         batch_verify_unaggregated_attestations(attestations, self)
+    }
+
+    /// Accepts some `Attestation` from the network and attempts to verify it, returning `Ok(_)` if
+    /// it is valid to be (re)broadcast on the gossip network.
+    ///
+    /// The attestation must be "unaggregated", that is it must have exactly one
+    /// aggregation bit set.
+    pub fn verify_single_attestation_for_gossip<'a>(
+        &self,
+        single_attestation: &'a SingleAttestation,
+        subnet_id: Option<SubnetId>,
+    ) -> Result<VerifiedSingleAttestation<'a, T>, AttestationError> {
+        metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
+        let _timer =
+            metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
+
+        VerifiedSingleAttestation::verify(single_attestation, subnet_id, self).inspect(|v| {
+            // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
+            if let Some(event_handler) = self.event_handler.as_ref() {
+                if event_handler.has_attestation_subscribers() {
+                    event_handler.register(EventKind::SingleAttestation(Box::new(
+                        v.attestation().clone(),
+                    )));
+                }
+            }
+            metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
+        })
     }
 
     /// Accepts some `Attestation` from the network and attempts to verify it, returning `Ok(_)` if
@@ -2177,25 +2218,86 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Accepts some attestation-type object and attempts to verify it in the context of fork
+    /// Accepts an indexed attestation object and attempts to verify it in the context of fork
     /// choice. If it is valid it is applied to `self.fork_choice`.
-    ///
-    /// Common items that implement `VerifiedAttestation`:
-    ///
-    /// - `VerifiedUnaggregatedAttestation`
-    /// - `VerifiedAggregatedAttestation`
     pub fn apply_attestation_to_fork_choice(
         &self,
-        verified: &impl VerifiedAttestation<T>,
+        indexed_attestation: IndexedAttestationRef<T::EthSpec>,
     ) -> Result<(), Error> {
         self.canonical_head
             .fork_choice_write_lock()
             .on_attestation(
                 self.slot()?,
-                verified.indexed_attestation().to_ref(),
+                indexed_attestation,
                 AttestationFromBlock::False,
             )
             .map_err(Into::into)
+    }
+
+    /// Accepts a `SingleAttestation` and attempts to apply it to the "naive
+    /// aggregation pool".
+    ///
+    /// The naive aggregation pool is used by local validators to produce
+    /// `SignedAggregateAndProof`.
+    ///
+    /// If the attestation is too old (low slot) to be included in the pool it is simply dropped
+    /// and no error is returned.
+    pub fn add_single_attestation_to_naive_aggregation_pool(
+        &self,
+        attestation: SingleAttestation,
+    ) -> Result<(), AttestationError> {
+        let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
+
+        let state =
+            self.state_at_slot(attestation.data.slot, StateSkipConfig::WithoutStateRoots)?;
+
+        let committees = state
+            .get_beacon_committees_at_slot(attestation.data.slot)
+            .map_err(|_| AttestationError::NoCommitteeForSlotAndIndex {
+                slot: attestation.data.slot,
+                index: attestation.data.index,
+            })?;
+
+        let attestation = attestation
+            .to_attestation(&committees)
+            .map_err(|e| AttestationError::BeaconChainError(e.into()))?;
+
+        match self
+            .naive_aggregation_pool
+            .write()
+            .insert(attestation.to_ref())
+        {
+            Ok(outcome) => trace!(
+                self.log,
+                "Stored unaggregated attestation";
+                "outcome" => ?outcome,
+                "index" => attestation.committee_index(),
+                "slot" => attestation.data().slot.as_u64(),
+            ),
+            Err(NaiveAggregationError::SlotTooLow {
+                slot,
+                lowest_permissible_slot,
+            }) => {
+                trace!(
+                    self.log,
+                    "Refused to store unaggregated attestation";
+                    "lowest_permissible_slot" => lowest_permissible_slot.as_u64(),
+                    "slot" => slot.as_u64(),
+                );
+            }
+            Err(e) => {
+                error!(
+                        self.log,
+                        "Failed to store unaggregated attestation";
+                        "error" => ?e,
+                        "index" => attestation.committee_index(),
+                        "slot" => attestation.data().slot.as_u64(),
+                );
+                return Err(Error::from(e).into());
+            }
+        };
+
+        Ok(())
     }
 
     /// Accepts an `VerifiedUnaggregatedAttestation` and attempts to apply it to the "naive
@@ -2208,11 +2310,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// and no error is returned.
     pub fn add_to_naive_aggregation_pool(
         &self,
-        unaggregated_attestation: &impl VerifiedAttestation<T>,
+        attestation: AttestationRef<'_, T::EthSpec>,
     ) -> Result<(), AttestationError> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
-
-        let attestation = unaggregated_attestation.attestation();
 
         match self.naive_aggregation_pool.write().insert(attestation) {
             Ok(outcome) => trace!(

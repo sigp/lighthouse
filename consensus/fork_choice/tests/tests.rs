@@ -496,7 +496,7 @@ impl ForkChoiceTest {
         let result = self
             .harness
             .chain
-            .apply_attestation_to_fork_choice(&verified_attestation);
+            .apply_attestation_to_fork_choice(verified_attestation.indexed_attestation().to_ref());
 
         comparison_func(result);
 

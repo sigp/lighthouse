@@ -53,6 +53,8 @@ mod pre_finalization_cache;
 pub mod proposer_prep_service;
 pub mod schema_change;
 pub mod shuffling_cache;
+mod single_attestation_aggregation_pool;
+pub mod single_attestation_verification;
 pub mod state_advance_timer;
 pub mod sync_committee_rewards;
 pub mod sync_committee_verification;
