@@ -151,7 +151,6 @@ impl<E: EthSpec> MockServer<E> {
         let ctx: Arc<Context<E>> = Arc::new(Context {
             config: server_config,
             jwt_key,
-            // log: test_logger(),
             last_echo_request: last_echo_request.clone(),
             execution_block_generator: RwLock::new(execution_block_generator),
             previous_request: <_>::default(),

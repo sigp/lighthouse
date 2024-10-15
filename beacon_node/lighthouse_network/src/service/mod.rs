@@ -41,7 +41,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, span, trace, warn, Level};
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
@@ -172,7 +172,8 @@ impl<E: EthSpec> Network<E> {
         executor: task_executor::TaskExecutor,
         mut ctx: ServiceContext<'_>,
     ) -> error::Result<(Self, Arc<NetworkGlobals<E>>)> {
-        // let log = log.new(o!("service"=> "libp2p"));
+        let span = span!(Level::INFO, "service = libp2p");
+        let _enter = span.enter();
 
         let config = ctx.config.clone();
         trace!("Libp2p Service starting");

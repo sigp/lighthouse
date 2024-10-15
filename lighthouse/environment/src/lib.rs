@@ -20,9 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
-use tracing::{error, info, warn};
-use tracing_appender::non_blocking::NonBlocking;
-use tracing_appender::non_blocking::WorkerGuard;
+use tracing::{error, info, span, warn, Level};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 #[cfg(target_family = "unix")]
@@ -115,7 +113,6 @@ impl<E: EthSpec> RuntimeContext<E> {
 /// Builds an `Environment`.
 pub struct EnvironmentBuilder<E: EthSpec> {
     runtime: Option<Arc<Runtime>>,
-    // log: Option<Logger>,
     sse_logging_components: Option<SSELoggingComponents>,
     eth_spec_instance: E,
     eth2_config: Eth2Config,
@@ -127,7 +124,6 @@ impl EnvironmentBuilder<MinimalEthSpec> {
     pub fn minimal() -> Self {
         Self {
             runtime: None,
-            // log: None,
             sse_logging_components: None,
             eth_spec_instance: MinimalEthSpec,
             eth2_config: Eth2Config::minimal(),
@@ -141,7 +137,6 @@ impl EnvironmentBuilder<MainnetEthSpec> {
     pub fn mainnet() -> Self {
         Self {
             runtime: None,
-            // log: None,
             sse_logging_components: None,
             eth_spec_instance: MainnetEthSpec,
             eth2_config: Eth2Config::mainnet(),
@@ -155,7 +150,6 @@ impl EnvironmentBuilder<GnosisEthSpec> {
     pub fn gnosis() -> Self {
         Self {
             runtime: None,
-            // log: None,
             sse_logging_components: None,
             eth_spec_instance: GnosisEthSpec,
             eth2_config: Eth2Config::gnosis(),
@@ -177,12 +171,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         ));
         Ok(self)
     }
-
-    /// Sets a logger suitable for test usage.
-    // pub fn test_logger(mut self) -> Result<Self, String> {
-    //     // self.log = Some(test_logger());
-    //     Ok(self)
-    // }
 
     fn log_nothing(_: &mut dyn Write) -> IOResult<()> {
         Ok(())
@@ -262,7 +250,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             signal_rx: Some(signal_rx),
             signal: Some(signal),
             exit,
-            // log: self.log.ok_or("Cannot build environment without log")?,
             sse_logging_components: SSE_LOGGING_COMPONENTS.lock().unwrap().clone(),
             eth_spec_instance: self.eth_spec_instance,
             eth2_config: self.eth2_config,
@@ -303,7 +290,6 @@ impl<E: EthSpec> Environment<E> {
             executor: TaskExecutor::new(
                 Arc::downgrade(self.runtime()),
                 self.exit.clone(),
-                // self.log.clone(),
                 self.signal_tx.clone(),
             ),
             eth_spec_instance: self.eth_spec_instance.clone(),
@@ -315,11 +301,13 @@ impl<E: EthSpec> Environment<E> {
 
     /// Returns a `Context` where the `service_name` is added to the logger output.
     pub fn service_context(&self, service_name: String) -> RuntimeContext<E> {
+        let span = span!(Level::INFO, "service = {}", service_name);
+        let _enter = span.enter();
+
         RuntimeContext {
             executor: TaskExecutor::new(
                 Arc::downgrade(self.runtime()),
                 self.exit.clone(),
-                // self.log.new(o!("service" => service_name)),
                 self.signal_tx.clone(),
             ),
             eth_spec_instance: self.eth_spec_instance.clone(),

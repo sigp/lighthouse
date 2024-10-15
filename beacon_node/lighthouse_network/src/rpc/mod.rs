@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tracing::{debug, trace};
+use tracing::{debug, span, trace, Level};
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::{HandlerErr, HandlerEvent};
@@ -175,7 +175,8 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         network_params: NetworkParams,
         seq_number: u64,
     ) -> Self {
-        // let log = log.new(o!("service" => "libp2p_rpc"));
+        let span = span!(Level::INFO, "service = libp2p_rpc");
+        let _enter = span.enter();
 
         let inbound_limiter = inbound_rate_limiter_config.map(|config| {
             debug!(?config, "Using inbound rate limiting params");
@@ -287,9 +288,15 @@ where
             },
             (),
         );
-        // let log = self
-        //     .log
-        //     .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
+        let span = span!(
+            Level::INFO,
+            "peer_id = {peer_id}, connection_id = {connection_id}",
+            %peer_id,
+            %connection_id
+        );
+
+        let _enter = span.enter();
+
         let handler = RPCHandler::new(
             protocol,
             self.fork_context.clone(),

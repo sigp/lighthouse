@@ -775,7 +775,6 @@ where
                     beacon_processor_channels.work_reprocessing_tx.clone(),
                 ),
                 sse_logging_components: SSE_LOGGING_COMPONENTS.lock().unwrap().clone(),
-                // log: log.clone(),
             });
 
             let exit = runtime_context.executor.exit();

@@ -11,7 +11,7 @@ use crate::{
 use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, span, Level};
 use types::{
     AttesterSlashing, ChainSpec, Epoch, EthSpec, IndexedAttestation, ProposerSlashing,
     SignedBeaconBlockHeader,
@@ -29,6 +29,9 @@ pub struct Slasher<E: EthSpec> {
 
 impl<E: EthSpec> Slasher<E> {
     pub fn open(config: Config, spec: Arc<ChainSpec>) -> Result<Self, Error> {
+        let span = span!(Level::INFO, "service = slasher");
+        let _enter = span.enter();
+
         config.validate()?;
         let config = Arc::new(config);
         let db = SlasherDB::open(config.clone(), spec)?;

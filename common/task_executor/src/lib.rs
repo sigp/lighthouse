@@ -5,7 +5,7 @@ use futures::channel::mpsc::Sender;
 use futures::prelude::*;
 use std::sync::Weak;
 use tokio::runtime::{Handle, Runtime};
-use tracing::{debug, trace};
+use tracing::{debug, span, trace, Level};
 
 pub use tokio::task::JoinHandle;
 
@@ -104,11 +104,13 @@ impl TaskExecutor {
 
     /// Clones the task executor adding a service name.
     pub fn clone_with_name(&self, service_name: String) -> Self {
+        let span = span!(Level::INFO, "service = {}", service_name);
+        let _enter = span.enter();
+
         TaskExecutor {
             handle_provider: self.handle_provider.clone(),
             exit: self.exit.clone(),
             signal_tx: self.signal_tx.clone(),
-            // log: self.log.new(o!("service" => service_name)),
         }
     }
 
@@ -218,7 +220,6 @@ impl TaskExecutor {
         name: &'static str,
     ) -> Option<tokio::task::JoinHandle<Option<R>>> {
         let exit = self.exit();
-        // let log = self.log.clone();
 
         if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
             // Task is shutdown before it completes if `exit` receives

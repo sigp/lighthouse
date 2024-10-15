@@ -27,7 +27,7 @@ use std::collections::{
     HashMap, HashSet,
 };
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, span, warn, Level};
 use types::{Epoch, EthSpec};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
@@ -159,6 +159,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // running instance.
         // If, for some reason a backfill has already been completed (or we've used a trusted
         // genesis root) then backfill has been completed.
+
+        let span = span!(Level::INFO, "service = backfill_sync");
+        let _enter = span.enter();
 
         let (state, current_start) = match beacon_chain.store.get_anchor_info() {
             Some(anchor_info) => {

@@ -409,7 +409,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     pub fn new(
         config: ValidatorMonitorConfig,
         beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
-        // log: Logger,
     ) -> Self {
         let ValidatorMonitorConfig {
             auto_register,
@@ -425,7 +424,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             missed_blocks: <_>::default(),
             beacon_proposer_cache,
             unaggregated_attestations: <_>::default(),
-            // log,
             _phantom: PhantomData,
         };
         for pubkey in validators {
@@ -449,7 +447,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             .find(|(_, candidate_pk)| **candidate_pk == pubkey)
             .map(|(index, _)| *index);
 
-        // let log = self.log.clone();
         self.validators.entry(pubkey).or_insert_with(|| {
             info!(
                 %pubkey,

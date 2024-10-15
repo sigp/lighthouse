@@ -56,7 +56,7 @@ use logging::crit;
 use lru_cache::LRUTimeCache;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, trace, warn};
+use tracing::{debug, span, trace, warn, Level};
 use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// For how long we store failed finalized chains to prevent retries.
@@ -84,6 +84,9 @@ where
     T: BeaconChainTypes,
 {
     pub fn new(beacon_chain: Arc<C>) -> Self {
+        let span = span!(Level::INFO, "service = range_sync");
+        let _enter = span.enter();
+
         RangeSync {
             beacon_chain: beacon_chain.clone(),
             chains: ChainCollection::new(beacon_chain),
@@ -682,12 +685,7 @@ mod tests {
                 chain.clone(),
                 harness.runtime.task_executor.clone(),
             );
-        let cx = SyncNetworkContext::new(
-            network_tx,
-            Arc::new(network_beacon_processor),
-            chain,
-            // log.new(o!("component" => "network_context")),
-        );
+        let cx = SyncNetworkContext::new(network_tx, Arc::new(network_beacon_processor), chain);
         let test_rig = TestRig {
             beacon_processor_rx,
             chain: fake_store,

@@ -311,7 +311,7 @@ mod test {
             previous: Some(shuffling_id(current_epoch - 1)),
             block_root: Hash256::from_low_u64_le(0),
         };
-        // let logger = test_logger();
+
         ShufflingCache::new(TEST_CACHE_SIZE, head_shuffling_ids)
     }
 

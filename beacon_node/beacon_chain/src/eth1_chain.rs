@@ -722,7 +722,6 @@ mod test {
     mod eth1_chain_json_backend {
         use super::*;
         use eth1::DepositLog;
-        // use logging::test_logger;
         use types::{test_utils::generate_deterministic_keypair, MainnetEthSpec};
 
         fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E>, E> {
@@ -730,7 +729,6 @@ mod test {
                 ..Eth1Config::default()
             };
 
-            // let log = test_logger();
             Eth1Chain::new(
                 CachingEth1Backend::new(eth1_config, Arc::new(MainnetEthSpec::default_spec()))
                     .unwrap(),

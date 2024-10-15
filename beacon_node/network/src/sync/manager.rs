@@ -292,17 +292,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 network_send,
                 beacon_processor.clone(),
                 beacon_chain.clone(),
-                // log.clone(),
             ),
-            range_sync: RangeSync::new(
-                beacon_chain.clone(),
-                // log.new(o!("service" => "range_sync")),
-            ),
-            backfill_sync: BackFillSync::new(
-                beacon_chain.clone(),
-                network_globals,
-                // log.new(o!("service" => "backfill_sync")),
-            ),
+            range_sync: RangeSync::new(beacon_chain.clone()),
+            backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals),
             block_lookups: BlockLookups::new(),
             notified_unknown_roots: LRUTimeCache::new(Duration::from_secs(
                 NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,

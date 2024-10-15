@@ -704,7 +704,6 @@ mod tests {
         let harness = BeaconChainHarness::builder(MinimalEthSpec)
             .spec(spec)
             .keypairs(KEYPAIRS[0..validator_count].to_vec())
-            // .logger(logging::test_logger())
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .build();

@@ -555,7 +555,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 config: self.config.http_api.clone(),
                 sse_logging_components: SSE_LOGGING_COMPONENTS.lock().unwrap().clone(),
                 slot_clock: self.slot_clock.clone(),
-                // log: log.clone(),
                 _phantom: PhantomData,
             });
 

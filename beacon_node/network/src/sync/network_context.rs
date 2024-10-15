@@ -37,7 +37,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, span, warn, Level};
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
     BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256,
@@ -244,6 +244,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         chain: Arc<BeaconChain<T>>,
     ) -> Self {
+        let span = span!(Level::INFO, "service = network_context");
+        let _enter = span.enter();
         SyncNetworkContext {
             network_send,
             execution_engine_state: EngineState::Online, // always assume `Online` at the start
