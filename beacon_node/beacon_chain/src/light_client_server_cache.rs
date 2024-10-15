@@ -1,25 +1,19 @@
 use crate::errors::BeaconChainError;
 use crate::{metrics, BeaconChainTypes, BeaconStore};
-use eth2::types::light_client_update::CurrentSyncCommitteeProofLen;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
 use slog::{debug, Logger};
 use ssz::Decode;
-use ssz_types::FixedVector;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use store::DBColumn;
 use store::KeyValueStore;
 use tree_hash::TreeHash;
-use types::light_client_update::{
-    FinalizedRootProofLen, NextSyncCommitteeProofLen, CURRENT_SYNC_COMMITTEE_INDEX,
-    FINALIZED_ROOT_INDEX, NEXT_SYNC_COMMITTEE_INDEX,
-};
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
     BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, EthSpec, ForkName, Hash256,
     LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    LightClientUpdate, Slot, SyncAggregate, SyncCommittee,
+    LightClientUpdate, MerkleProof, Slot, SyncAggregate, SyncCommittee,
 };
 
 /// A prev block cache miss requires to re-generate the state of the post-parent block. Items in the
@@ -69,16 +63,13 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         block_post_state: &mut BeaconState<T::EthSpec>,
     ) -> Result<(), BeaconChainError> {
         let _timer = metrics::start_timer(&metrics::LIGHT_CLIENT_SERVER_CACHE_STATE_DATA_TIMES);
-
+        let fork_name = spec.fork_name_at_slot::<T::EthSpec>(block.slot());
         // Only post-altair
-        if spec.fork_name_at_slot::<T::EthSpec>(block.slot()) == ForkName::Base {
-            return Ok(());
+        if fork_name.altair_enabled() {
+            // Persist in memory cache for a descendent block
+            let cached_data = LightClientCachedData::from_state(block_post_state)?;
+            self.prev_block_cache.lock().put(block_root, cached_data);
         }
-
-        // Persist in memory cache for a descendent block
-
-        let cached_data = LightClientCachedData::from_state(block_post_state)?;
-        self.prev_block_cache.lock().put(block_root, cached_data);
 
         Ok(())
     }
@@ -413,16 +404,12 @@ impl<T: BeaconChainTypes> Default for LightClientServerCache<T> {
     }
 }
 
-type FinalityBranch = FixedVector<Hash256, FinalizedRootProofLen>;
-type NextSyncCommitteeBranch = FixedVector<Hash256, NextSyncCommitteeProofLen>;
-type CurrentSyncCommitteeBranch = FixedVector<Hash256, CurrentSyncCommitteeProofLen>;
-
 #[derive(Clone)]
 struct LightClientCachedData<E: EthSpec> {
     finalized_checkpoint: Checkpoint,
-    finality_branch: FinalityBranch,
-    next_sync_committee_branch: NextSyncCommitteeBranch,
-    current_sync_committee_branch: CurrentSyncCommitteeBranch,
+    finality_branch: MerkleProof,
+    next_sync_committee_branch: MerkleProof,
+    current_sync_committee_branch: MerkleProof,
     next_sync_committee: Arc<SyncCommittee<E>>,
     current_sync_committee: Arc<SyncCommittee<E>>,
     finalized_block_root: Hash256,
@@ -430,17 +417,18 @@ struct LightClientCachedData<E: EthSpec> {
 
 impl<E: EthSpec> LightClientCachedData<E> {
     fn from_state(state: &mut BeaconState<E>) -> Result<Self, BeaconChainError> {
+        let (finality_branch, next_sync_committee_branch, current_sync_committee_branch) = (
+            state.compute_finalized_root_proof()?,
+            state.compute_current_sync_committee_proof()?,
+            state.compute_next_sync_committee_proof()?,
+        );
         Ok(Self {
             finalized_checkpoint: state.finalized_checkpoint(),
-            finality_branch: state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?.into(),
+            finality_branch,
             next_sync_committee: state.next_sync_committee()?.clone(),
             current_sync_committee: state.current_sync_committee()?.clone(),
-            next_sync_committee_branch: state
-                .compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX)?
-                .into(),
-            current_sync_committee_branch: state
-                .compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?
-                .into(),
+            next_sync_committee_branch,
+            current_sync_committee_branch,
             finalized_block_root: state.finalized_checkpoint().root,
         })
     }

@@ -63,8 +63,13 @@ pub struct LightClientFinalityUpdate<E: EthSpec> {
     #[superstruct(only(Electra), partial_getter(rename = "finalized_header_electra"))]
     pub finalized_header: LightClientHeaderElectra<E>,
     /// Merkle proof attesting finalized header.
-    #[test_random(default)]
+    #[superstruct(
+        only(Altair, Capella, Deneb),
+        partial_getter(rename = "finality_branch_altair")
+    )]
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
+    #[superstruct(only(Electra), partial_getter(rename = "finality_branch_electra"))]
+    pub finality_branch: FixedVector<Hash256, FinalizedRootProofLenElectra>,
     /// current sync aggregate
     pub sync_aggregate: SyncAggregate<E>,
     /// Slot of the sync aggregated signature
@@ -75,7 +80,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
     pub fn new(
         attested_block: &SignedBlindedBeaconBlock<E>,
         finalized_block: &SignedBlindedBeaconBlock<E>,
-        finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
+        finality_branch: Vec<Hash256>,
         sync_aggregate: SyncAggregate<E>,
         signature_slot: Slot,
         chain_spec: &ChainSpec,
@@ -92,7 +97,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                     finalized_header: LightClientHeaderAltair::block_to_light_client_header(
                         finalized_block,
                     )?,
-                    finality_branch,
+                    finality_branch: finality_branch.into(),
                     sync_aggregate,
                     signature_slot,
                 })
@@ -104,7 +109,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 finalized_header: LightClientHeaderCapella::block_to_light_client_header(
                     finalized_block,
                 )?,
-                finality_branch,
+                finality_branch: finality_branch.into(),
                 sync_aggregate,
                 signature_slot,
             }),
@@ -115,7 +120,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 finalized_header: LightClientHeaderDeneb::block_to_light_client_header(
                     finalized_block,
                 )?,
-                finality_branch,
+                finality_branch: finality_branch.into(),
                 sync_aggregate,
                 signature_slot,
             }),
@@ -126,7 +131,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 finalized_header: LightClientHeaderElectra::block_to_light_client_header(
                     finalized_block,
                 )?,
-                finality_branch,
+                finality_branch: finality_branch.into(),
                 sync_aggregate,
                 signature_slot,
             }),
@@ -226,8 +231,28 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientFinalityUpdate<E> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::MainnetEthSpec;
+    // `ssz_tests!` can only be defined once per namespace
+    #[cfg(test)]
+    mod altair {
+        use crate::{LightClientFinalityUpdateAltair, MainnetEthSpec};
+        ssz_tests!(LightClientFinalityUpdateAltair<MainnetEthSpec>);
+    }
 
-    ssz_tests!(LightClientFinalityUpdateDeneb<MainnetEthSpec>);
+    #[cfg(test)]
+    mod capella {
+        use crate::{LightClientFinalityUpdateCapella, MainnetEthSpec};
+        ssz_tests!(LightClientFinalityUpdateCapella<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod deneb {
+        use crate::{LightClientFinalityUpdateDeneb, MainnetEthSpec};
+        ssz_tests!(LightClientFinalityUpdateDeneb<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod electra {
+        use crate::{LightClientFinalityUpdateElectra, MainnetEthSpec};
+        ssz_tests!(LightClientFinalityUpdateElectra<MainnetEthSpec>);
+    }
 }
