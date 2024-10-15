@@ -360,7 +360,7 @@ impl RequestPrefix {
 
 /// Format of `ExecutionRequests` received over the engine api.
 ///
-/// Array of ssz-encoded requests list` encoded as hex bytes.
+/// Array of ssz-encoded requests list encoded as hex bytes.
 /// The prefix of the request type is used to index into the array.
 ///
 /// For e.g. [0xab, 0xcd, 0xef]
