@@ -3008,6 +3008,7 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_json",
+ "sha2 0.9.9",
  "slog",
  "slot_clock",
  "ssz_types",
