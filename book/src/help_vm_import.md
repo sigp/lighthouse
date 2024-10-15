@@ -110,10 +110,8 @@ Options:
       --vc-token <PATH>
           The file containing a token required by the validator client.
       --vc-url <HTTP_ADDRESS>
-          A HTTP(S) address of a validator client using the keymanager-API. If
-          this value is not supplied then a 'dry run' will be conducted where no
-          changes are made to the validator client. [default:
-          http://localhost:5062]
+          A HTTP(S) address of a validator client using the keymanager-API.
+          [default: http://localhost:5062]
 
 Flags:
       --disable-log-timestamp
