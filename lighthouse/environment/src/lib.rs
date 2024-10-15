@@ -172,10 +172,6 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
-    fn log_nothing(_: &mut dyn Write) -> IOResult<()> {
-        Ok(())
-    }
-
     pub fn init_tracing(mut self, config: LoggerConfig) -> (Self, LoggingLayer, LoggingLayer) {
         let mut log_path = config.path.unwrap();
 

@@ -1,11 +1,9 @@
 use lighthouse_metrics::{
     inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult,
 };
-use std::io::{Result, Write};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
-use tracing::Value;
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};

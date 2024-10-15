@@ -1,6 +1,6 @@
 use chrono::prelude::*;
 use std::io::Write;
-use tracing::field::{Field, Value, Visit};
+use tracing::field::Field;
 use tracing::Subscriber;
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
 use tracing_subscriber::layer::Context;

@@ -21,7 +21,7 @@ use store::{
     metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION},
     DBColumn, HotColdDB, KeyValueStore, LevelDB,
 };
-use strum::{EnumString, EnumVariantNames, VariantNames};
+use strum::{EnumString, EnumVariantNames};
 use tracing::{info, warn};
 use types::{BeaconState, EthSpec, Slot};
 
