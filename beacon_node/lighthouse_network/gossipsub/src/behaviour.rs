@@ -1837,7 +1837,7 @@ where
 
         // Record the received message with the metrics
         if let Some(metrics) = self.metrics.as_mut() {
-            metrics.msg_recvd(&message.topic);
+            metrics.msg_recvd(&message.topic, message.get_size());
         }
 
         // Consider the message as delivered for gossip promises.
