@@ -256,36 +256,6 @@ impl ForkChoiceTest {
         self
     }
 
-    /// Moves to the next slot that is *outside* the `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` range.
-    ///
-    /// If the chain is presently in an unsafe period, transition through it and the following safe
-    /// period.
-    ///
-    /// Note: the `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` variable has been removed
-    /// from the fork choice spec in Q1 2023. We're still leaving references to
-    /// it in our tests because (a) it's easier and (b) it allows us to easily
-    /// test for the absence of that parameter.
-    pub fn move_to_next_unsafe_period(self) -> Self {
-        self.move_inside_safe_to_update()
-            .move_outside_safe_to_update()
-    }
-
-    /// Moves to the next slot that is *outside* the `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` range.
-    pub fn move_outside_safe_to_update(self) -> Self {
-        while is_safe_to_update(self.harness.chain.slot().unwrap(), &self.harness.chain.spec) {
-            self.harness.advance_slot()
-        }
-        self
-    }
-
-    /// Moves to the next slot that is *inside* the `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` range.
-    pub fn move_inside_safe_to_update(self) -> Self {
-        while !is_safe_to_update(self.harness.chain.slot().unwrap(), &self.harness.chain.spec) {
-            self.harness.advance_slot()
-        }
-        self
-    }
-
     /// Applies a block directly to fork choice, bypassing the beacon chain.
     ///
     /// Asserts the block was applied successfully.
@@ -514,10 +484,6 @@ impl ForkChoiceTest {
 
         self
     }
-}
-
-fn is_safe_to_update(slot: Slot, spec: &ChainSpec) -> bool {
-    slot % E::slots_per_epoch() < spec.safe_slots_to_update_justified
 }
 
 #[test]

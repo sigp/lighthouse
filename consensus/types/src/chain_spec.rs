@@ -116,7 +116,6 @@ pub struct ChainSpec {
     /*
      * Fork choice
      */
-    pub safe_slots_to_update_justified: u64,
     pub proposer_score_boost: Option<u64>,
     pub reorg_head_weight_threshold: Option<u64>,
     pub reorg_parent_weight_threshold: Option<u64>,
@@ -159,7 +158,6 @@ pub struct ChainSpec {
     pub terminal_total_difficulty: Uint256,
     pub terminal_block_hash: ExecutionBlockHash,
     pub terminal_block_hash_activation_epoch: Epoch,
-    pub safe_slots_to_import_optimistically: u64,
 
     /*
      * Capella hard fork params
@@ -709,7 +707,6 @@ impl ChainSpec {
             /*
              * Fork choice
              */
-            safe_slots_to_update_justified: 8,
             proposer_score_boost: Some(40),
             reorg_head_weight_threshold: Some(20),
             reorg_parent_weight_threshold: Some(160),
@@ -760,7 +757,6 @@ impl ChainSpec {
                 .expect("terminal_total_difficulty is a valid integer"),
             terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
-            safe_slots_to_import_optimistically: 128u64,
 
             /*
              * Capella hard fork params
@@ -890,7 +886,6 @@ impl ChainSpec {
             inactivity_penalty_quotient: u64::checked_pow(2, 25).expect("pow does not overflow"),
             min_slashing_penalty_quotient: 64,
             proportional_slashing_multiplier: 2,
-            safe_slots_to_update_justified: 2,
             // Altair
             epochs_per_sync_committee_period: Epoch::new(8),
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
@@ -1031,7 +1026,6 @@ impl ChainSpec {
             /*
              * Fork choice
              */
-            safe_slots_to_update_justified: 8,
             proposer_score_boost: Some(40),
             reorg_head_weight_threshold: Some(20),
             reorg_parent_weight_threshold: Some(160),
@@ -1082,7 +1076,6 @@ impl ChainSpec {
                 .expect("terminal_total_difficulty is a valid integer"),
             terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
-            safe_slots_to_import_optimistically: 128u64,
 
             /*
              * Capella hard fork params
@@ -1217,9 +1210,6 @@ pub struct Config {
     pub terminal_block_hash: ExecutionBlockHash,
     #[serde(default = "default_terminal_block_hash_activation_epoch")]
     pub terminal_block_hash_activation_epoch: Epoch,
-    #[serde(default = "default_safe_slots_to_import_optimistically")]
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub safe_slots_to_import_optimistically: u64,
 
     #[serde(with = "serde_utils::quoted_u64")]
     min_genesis_active_validator_count: u64,
@@ -1428,10 +1418,6 @@ fn default_terminal_block_hash() -> ExecutionBlockHash {
 
 fn default_terminal_block_hash_activation_epoch() -> Epoch {
     Epoch::new(u64::MAX)
-}
-
-fn default_safe_slots_to_import_optimistically() -> u64 {
-    128u64
 }
 
 fn default_subnets_per_node() -> u8 {
@@ -1654,7 +1640,6 @@ impl Config {
             terminal_total_difficulty: spec.terminal_total_difficulty,
             terminal_block_hash: spec.terminal_block_hash,
             terminal_block_hash_activation_epoch: spec.terminal_block_hash_activation_epoch,
-            safe_slots_to_import_optimistically: spec.safe_slots_to_import_optimistically,
 
             min_genesis_active_validator_count: spec.min_genesis_active_validator_count,
             min_genesis_time: spec.min_genesis_time,
@@ -1756,7 +1741,6 @@ impl Config {
             terminal_total_difficulty,
             terminal_block_hash,
             terminal_block_hash_activation_epoch,
-            safe_slots_to_import_optimistically,
             min_genesis_active_validator_count,
             min_genesis_time,
             genesis_fork_version,
@@ -1856,7 +1840,6 @@ impl Config {
             terminal_total_difficulty,
             terminal_block_hash,
             terminal_block_hash_activation_epoch,
-            safe_slots_to_import_optimistically,
             gossip_max_size,
             min_epochs_for_block_requests,
             max_chunk_size,
@@ -2158,7 +2141,6 @@ mod yaml_tests {
         check_default!(terminal_total_difficulty);
         check_default!(terminal_block_hash);
         check_default!(terminal_block_hash_activation_epoch);
-        check_default!(safe_slots_to_import_optimistically);
         check_default!(bellatrix_fork_version);
         check_default!(gossip_max_size);
         check_default!(min_epochs_for_block_requests);

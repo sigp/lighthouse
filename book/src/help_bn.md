@@ -329,14 +329,6 @@ Options:
       --quic-port6 <PORT>
           The UDP port that quic will listen on over IPv6 if listening over both
           IPv4 and IPv6. Defaults to `port6` + 1
-      --safe-slots-to-import-optimistically <INTEGER>
-          Used to coordinate manual overrides of the
-          SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should only
-          be used if the user has a clear understanding that the broad Ethereum
-          community has elected to override this parameter in the event of an
-          attack at the PoS transition block. Incorrect use of this flag can
-          cause your node to possibly accept an invalid chain or sync more
-          slowly. Be extremely careful with this flag.
       --self-limiter-protocols <self-limiter-protocols>
           Enables the outbound rate limiter (requests made by this node).Rate
           limit quotas per protocol can be set in the form of

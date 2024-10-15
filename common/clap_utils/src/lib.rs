@@ -56,12 +56,6 @@ pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfi
             .terminal_block_hash_activation_epoch = epoch;
     }
 
-    if let Some(slots) = parse_optional(cli_args, "safe-slots-to-import-optimistically")? {
-        eth2_network_config
-            .config
-            .safe_slots_to_import_optimistically = slots;
-    }
-
     Ok(eth2_network_config)
 }
 

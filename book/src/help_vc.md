@@ -118,14 +118,6 @@ Options:
           specify nodes that are used to send beacon block proposals. A failure
           will revert back to the standard beacon nodes specified in
           --beacon-nodes.
-      --safe-slots-to-import-optimistically <INTEGER>
-          Used to coordinate manual overrides of the
-          SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should only
-          be used if the user has a clear understanding that the broad Ethereum
-          community has elected to override this parameter in the event of an
-          attack at the PoS transition block. Incorrect use of this flag can
-          cause your node to possibly accept an invalid chain or sync more
-          slowly. Be extremely careful with this flag.
       --secrets-dir <SECRETS_DIRECTORY>
           The directory which contains the password to unlock the validator
           voting keypairs. Each password should be contained in a file where the

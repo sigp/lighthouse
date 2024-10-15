@@ -74,14 +74,6 @@ Options:
           If this flag is set, Lighthouse will always prefer blocks constructed
           by builders, regardless of payload value. [possible values: true,
           false]
-      --safe-slots-to-import-optimistically <INTEGER>
-          Used to coordinate manual overrides of the
-          SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should only
-          be used if the user has a clear understanding that the broad Ethereum
-          community has elected to override this parameter in the event of an
-          attack at the PoS transition block. Incorrect use of this flag can
-          cause your node to possibly accept an invalid chain or sync more
-          slowly. Be extremely careful with this flag.
       --src-vc-token <PATH>
           The file containing a token required by the source validator client.
       --src-vc-url <HTTP_ADDRESS>

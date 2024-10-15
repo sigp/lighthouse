@@ -796,14 +796,12 @@ fn epoch_override_missing_terminal_block_hash() {
         .flag("terminal-block-hash-epoch-override", Some("1337"))
         .run_with_zero_port();
 }
+// DEPRECATED. This flag is deprecated but should not cause a crash.
 #[test]
 fn safe_slots_to_import_optimistically_flag() {
     CommandLineTest::new()
         .flag("safe-slots-to-import-optimistically", Some("421337"))
-        .run_with_zero_port()
-        .with_spec::<MainnetEthSpec, _>(|spec| {
-            assert_eq!(spec.safe_slots_to_import_optimistically, 421337)
-        });
+        .run_with_zero_port();
 }
 
 // Tests for Network flags.
