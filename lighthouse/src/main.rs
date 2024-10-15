@@ -627,6 +627,20 @@ fn run<E: EthSpec>(
         );
     }
 
+    // Warn for DEPRECATED global flags. This code should be removed when we finish deleting these
+    // flags.
+    let deprecated_flags = [
+        "terminal-total-difficulty-override",
+        "terminal-block-hash-override",
+        "terminal-block-hash-epoch-override",
+        "safe-slots-to-import-optimistically",
+    ];
+    for flag in deprecated_flags {
+        if matches.get_one::<String>(flag).is_some() {
+            slog::warn!(log, "The {} flag is deprecated and does nothing", flag);
+        }
+    }
+
     // Note: the current code technically allows for starting a beacon node _and_ a validator
     // client at the same time.
     //
