@@ -1,20 +1,14 @@
 #![cfg(not(debug_assertions))]
 
-use beacon_chain::otb_verification_service::{
-    load_optimistic_transition_blocks, validate_optimistic_transition_blocks,
-    OptimisticTransitionBlock,
-};
 use beacon_chain::{
     canonical_head::{CachedHead, CanonicalHead},
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
     BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError, NotifyExecutionLayer,
     OverrideForkchoiceUpdate, StateSkipConfig, WhenSlotSkipped,
-    INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use execution_layer::{
     json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributes, JsonPayloadAttributesV1},
-    test_utils::ExecutionBlockGenerator,
     ExecutionLayer, ForkchoiceState, PayloadAttributes,
 };
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
@@ -1268,43 +1262,6 @@ async fn attesting_to_optimistic_head() {
     produce_unaggregated().unwrap();
     get_aggregated().unwrap();
     get_aggregated_by_slot_and_root().unwrap();
-}
-
-/// A helper struct to build out a chain of some configurable length which undergoes the merge
-/// transition.
-struct OptimisticTransitionSetup {
-    blocks: Vec<Arc<SignedBeaconBlock<E>>>,
-    execution_block_generator: ExecutionBlockGenerator<E>,
-}
-
-impl OptimisticTransitionSetup {
-    async fn new(num_blocks: usize, ttd: u64) -> Self {
-        let mut spec = E::default_spec();
-        spec.terminal_total_difficulty = Uint256::from(ttd);
-        let mut rig = InvalidPayloadRig::new_with_spec(spec).enable_attestations();
-        rig.move_to_terminal_block();
-
-        let mut blocks = Vec::with_capacity(num_blocks);
-        for _ in 0..num_blocks {
-            let root = rig.import_block(Payload::Valid).await;
-            let block = rig.harness.chain.get_block(&root).await.unwrap().unwrap();
-            blocks.push(Arc::new(block));
-        }
-
-        let execution_block_generator = rig
-            .harness
-            .mock_execution_layer
-            .as_ref()
-            .unwrap()
-            .server
-            .execution_block_generator()
-            .clone();
-
-        Self {
-            blocks,
-            execution_block_generator,
-        }
-    }
 }
 
 /// Helper for running tests where we generate a chain with an invalid head and then a
