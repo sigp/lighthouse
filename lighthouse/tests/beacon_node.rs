@@ -749,16 +749,16 @@ fn jwt_optional_flags() {
 fn jwt_optional_alias_flags() {
     run_jwt_optional_flags_test("jwt-secrets", "jwt-id", "jwt-version");
 }
+// DEPRECATED. This flag is deprecated but should not cause a crash.
 #[test]
 fn terminal_total_difficulty_override_flag() {
     use beacon_node::beacon_chain::types::Uint256;
     CommandLineTest::new()
         .flag("terminal-total-difficulty-override", Some("1337424242"))
-        .run_with_zero_port()
-        .with_spec::<MainnetEthSpec, _>(|spec| {
-            assert_eq!(spec.terminal_total_difficulty, Uint256::from(1337424242))
-        });
+        .run_with_zero_port();
 }
+// DEPRECATED but should not crash.
+// DEPRECATED. This flag is deprecated but should not cause a crash.
 #[test]
 fn terminal_block_hash_and_activation_epoch_override_flags() {
     CommandLineTest::new()
@@ -767,33 +767,6 @@ fn terminal_block_hash_and_activation_epoch_override_flags() {
             "terminal-block-hash-override",
             Some("0x4242424242424242424242424242424242424242424242424242424242424242"),
         )
-        .run_with_zero_port()
-        .with_spec::<MainnetEthSpec, _>(|spec| {
-            assert_eq!(
-                spec.terminal_block_hash,
-                ExecutionBlockHash::from_str(
-                    "0x4242424242424242424242424242424242424242424242424242424242424242"
-                )
-                .unwrap()
-            );
-            assert_eq!(spec.terminal_block_hash_activation_epoch, 1337);
-        });
-}
-#[test]
-#[should_panic]
-fn terminal_block_hash_missing_activation_epoch() {
-    CommandLineTest::new()
-        .flag(
-            "terminal-block-hash-override",
-            Some("0x4242424242424242424242424242424242424242424242424242424242424242"),
-        )
-        .run_with_zero_port();
-}
-#[test]
-#[should_panic]
-fn epoch_override_missing_terminal_block_hash() {
-    CommandLineTest::new()
-        .flag("terminal-block-hash-epoch-override", Some("1337"))
         .run_with_zero_port();
 }
 // DEPRECATED. This flag is deprecated but should not cause a crash.

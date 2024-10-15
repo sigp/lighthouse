@@ -382,27 +382,6 @@ Options:
           database.
       --target-peers <target-peers>
           The target number of peers.
-      --terminal-block-hash-epoch-override <EPOCH>
-          Used to coordinate manual overrides to the
-          TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH parameter. This flag should only
-          be used if the user has a clear understanding that the broad Ethereum
-          community has elected to override the terminal PoW block. Incorrect
-          use of this flag will cause your node to experience a consensus
-          failure. Be extremely careful with this flag.
-      --terminal-block-hash-override <TERMINAL_BLOCK_HASH>
-          Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH
-          parameter. This flag should only be used if the user has a clear
-          understanding that the broad Ethereum community has elected to
-          override the terminal PoW block. Incorrect use of this flag will cause
-          your node to experience a consensus failure. Be extremely careful with
-          this flag.
-      --terminal-total-difficulty-override <INTEGER>
-          Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY
-          parameter. Accepts a 256-bit decimal integer (not a hex value). This
-          flag should only be used if the user has a clear understanding that
-          the broad Ethereum community has elected to override the terminal
-          difficulty. Incorrect use of this flag will cause your node to
-          experience a consensus failure. Be extremely careful with this flag.
       --trusted-peers <TRUSTED_PEERS>
           One or more comma-delimited trusted peer ids which always have the
           highest score according to the peer scoring system.

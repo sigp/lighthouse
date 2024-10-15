@@ -333,43 +333,33 @@ fn main() {
             Arg::new("terminal-total-difficulty-override")
                 .long("terminal-total-difficulty-override")
                 .value_name("INTEGER")
-                .help("Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY parameter. \
-                       Accepts a 256-bit decimal integer (not a hex value). \
-                       This flag should only be used if the user has a clear understanding that \
-                       the broad Ethereum community has elected to override the terminal difficulty. \
-                       Incorrect use of this flag will cause your node to experience a consensus \
-                       failure. Be extremely careful with this flag.")
+                .help("DEPRECATED")
                 .action(ArgAction::Set)
                 .global(true)
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("terminal-block-hash-override")
                 .long("terminal-block-hash-override")
                 .value_name("TERMINAL_BLOCK_HASH")
-                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH parameter. \
-                       This flag should only be used if the user has a clear understanding that \
-                       the broad Ethereum community has elected to override the terminal PoW block. \
-                       Incorrect use of this flag will cause your node to experience a consensus \
-                       failure. Be extremely careful with this flag.")
+                .help("DEPRECATED")
                 .requires("terminal-block-hash-epoch-override")
                 .action(ArgAction::Set)
                 .global(true)
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("terminal-block-hash-epoch-override")
                 .long("terminal-block-hash-epoch-override")
                 .value_name("EPOCH")
-                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH \
-                       parameter. This flag should only be used if the user has a clear understanding \
-                       that the broad Ethereum community has elected to override the terminal PoW block. \
-                       Incorrect use of this flag will cause your node to experience a consensus \
-                       failure. Be extremely careful with this flag.")
+                .help("DEPRECATED")
                 .requires("terminal-block-hash-override")
                 .action(ArgAction::Set)
                 .global(true)
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("safe-slots-to-import-optimistically")
