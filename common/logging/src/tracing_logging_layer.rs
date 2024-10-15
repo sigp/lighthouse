@@ -8,6 +8,7 @@ use tracing_subscriber::Layer;
 pub struct LoggingLayer {
     pub non_blocking_writer: NonBlocking,
     pub guard: WorkerGuard,
+    pub disable_log_timestamp: bool,
 }
 
 impl<S> Layer<S> for LoggingLayer
@@ -17,7 +18,11 @@ where
     fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<S>) {
         let meta = event.metadata();
         let log_level = meta.level();
-        let timestamp = Local::now().format("%b %d %H:%M:%S%.3f").to_string();
+        let timestamp = if !self.disable_log_timestamp {
+            Local::now().format("%b %d %H:%M:%S%.3f").to_string()
+        } else {
+            String::new()
+        };
 
         let mut writer = self.non_blocking_writer.clone();
 
@@ -96,7 +101,7 @@ impl tracing_core::field::Visit for LogMessageExtractor {
             self.is_crit = true;
         } else {
             self.fields
-                .push((field.name().to_string(), value.to_string()));
+                .push((field.name().to_string(), format!("\"{}\"", value)));
         }
     }
 

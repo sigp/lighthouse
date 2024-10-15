@@ -200,6 +200,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         let file_logging_layer = LoggingLayer {
             non_blocking_writer: file_non_blocking_writer,
             guard: file_guard,
+            disable_log_timestamp: config.disable_log_timestamp,
         };
 
         let (stdout_non_blocking_writer, stdout_guard) =
@@ -208,6 +209,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         let stdout_logging_layer = LoggingLayer {
             non_blocking_writer: stdout_non_blocking_writer,
             guard: stdout_guard,
+            disable_log_timestamp: config.disable_log_timestamp,
         };
 
         if config.sse_logging {

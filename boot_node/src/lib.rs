@@ -9,8 +9,6 @@ pub use cli::cli_app;
 use config::BootNodeConfig;
 use types::{EthSpec, EthSpecId};
 
-const LOG_CHANNEL_SIZE: usize = 2048;
-
 /// Run the bootnode given the CLI configuration.
 pub fn run(
     lh_matches: &ArgMatches,
