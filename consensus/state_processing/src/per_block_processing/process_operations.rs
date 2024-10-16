@@ -711,7 +711,6 @@ fn is_valid_switch_to_compounding_request<E: EthSpec>(
         return Ok(false);
     }
     // Verify exits for source has not been initiated
-    // TODO(pawan): this could be set by process_registry_updates too
     if source_validator.exit_epoch != spec.far_future_epoch {
         return Ok(false);
     }

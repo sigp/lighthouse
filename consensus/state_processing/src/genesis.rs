@@ -120,7 +120,8 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         let post = upgrade_state_to_electra(&mut state, Epoch::new(0), Epoch::new(0), spec)?;
         state = post;
 
-        // TODO(electra): do we need to iterate over an empty pending_deposits list here and increase balance?!
+        // TODO(electra): do we need to iterate over an empty pending_deposits list here and increase balance?
+        // in accordance with `initialize_beacon_state_from_eth1` function from the spec
 
         // Remove intermediate Deneb fork from `state.fork`.
         state.fork_mut().previous_version = spec.electra_fork_version;
