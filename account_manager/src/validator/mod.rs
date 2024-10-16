@@ -14,6 +14,8 @@ use environment::Environment;
 use std::path::PathBuf;
 use types::EthSpec;
 
+pub const CMD: &str = "validator";
+
 pub fn cli_run<E: EthSpec>(
     validator_config: &Validator,
     matches: &ArgMatches,

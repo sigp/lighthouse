@@ -20,9 +20,10 @@ use super::cli::Import;
 pub const PASSWORD_PROMPT: &str = "Enter the keystore password, or press enter to omit it:";
 pub const KEYSTORE_REUSE_WARNING: &str = "DO NOT USE THE ORIGINAL KEYSTORES TO VALIDATE WITH \
                                           ANOTHER CLIENT, OR YOU WILL GET SLASHED.";
-
+pub const CMD: &str = "import";
 pub const KEYSTORE_FLAG: &str = "keystore";
 pub const DIR_FLAG: &str = "directory";
+pub const REUSE_PASSWORD_FLAG: &str = "reuse-password";
 
 pub fn cli_run(
     import_config: &Import,

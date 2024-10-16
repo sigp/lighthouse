@@ -21,7 +21,11 @@ use super::cli::Create;
 
 pub const COUNT_FLAG: &str = "count";
 pub const AT_MOST_FLAG: &str = "at-most";
+pub const WALLET_NAME_FLAG: &str = "wallet-name";
+pub const WALLET_PASSWORD_FLAG: &str = "wallet-password";
 pub const WALLET_PASSWORD_PROMPT: &str = "Enter your wallet's password:";
+pub const STORE_WITHDRAW_FLAG: &str = "store-withdrawal-keystore";
+pub const DEPOSIT_GWEI_FLAG: &str = "deposit-gwei";
 
 pub fn cli_run<E: EthSpec>(
     create_config: &Create,

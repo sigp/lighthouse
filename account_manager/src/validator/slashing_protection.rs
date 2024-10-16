@@ -10,6 +10,8 @@ use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
 
 use super::cli::SlashingProtection;
 
+pub const IMPORT_CMD: &str = "import";
+pub const EXPORT_CMD: &str = "export";
 pub const PUBKEYS_FLAG: &str = "pubkeys";
 
 pub fn cli_run<E: EthSpec>(

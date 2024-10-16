@@ -6,6 +6,13 @@ use crate::validator::cli::Modifiable;
 
 use super::cli::Modify;
 
+pub const CMD: &str = "modify";
+pub const ENABLE: &str = "enable";
+pub const DISABLE: &str = "disable";
+
+pub const PUBKEY_FLAG: &str = "pubkey";
+pub const ALL: &str = "all";
+
 pub fn cli_run(modify_config: &Modify, validator_dir: PathBuf) -> Result<(), String> {
     // `true` implies we are setting `validator_definition.enabled = true` and
     // vice versa.
