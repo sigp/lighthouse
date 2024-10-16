@@ -228,14 +228,12 @@ mod tests {
     use beacon_chain::test_utils::{
         generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec, NumBlobs,
     };
-    use lighthouse_network::PeerId;
     use rand::SeedableRng;
     use types::{test_utils::XorShiftRng, ForkName, MinimalEthSpec as E};
 
     #[test]
     fn no_blobs_into_responses() {
-        let peer_id = PeerId::random();
-        let mut info = RangeBlockComponentsRequest::<E>::new(false, None, None, vec![peer_id]);
+        let mut info = RangeBlockComponentsRequest::<E>::new(false, None, None);
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {
@@ -255,8 +253,7 @@ mod tests {
 
     #[test]
     fn empty_blobs_into_responses() {
-        let peer_id = PeerId::random();
-        let mut info = RangeBlockComponentsRequest::<E>::new(true, None, None, vec![peer_id]);
+        let mut info = RangeBlockComponentsRequest::<E>::new(true, None, None);
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {
@@ -283,12 +280,11 @@ mod tests {
     fn rpc_block_with_custody_columns() {
         let spec = test_spec::<E>();
         let expects_custody_columns = vec![1, 2, 3, 4];
-        let custody_column_request_ids = vec![0, 1, 2, 3];
+        let custody_column_request_ids = [0, 1, 2, 3];
         let mut info = RangeBlockComponentsRequest::<E>::new(
             false,
             Some(expects_custody_columns.clone()),
             Some(custody_column_request_ids.len()),
-            vec![PeerId::random()],
         );
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
@@ -336,11 +332,11 @@ mod tests {
     #[test]
     fn rpc_block_with_custody_columns_batched() {
         let spec = test_spec::<E>();
-        let batched_column_requests = vec![vec![1_u64, 2], vec![3, 4]];
+        let batched_column_requests = [vec![1_u64, 2], vec![3, 4]];
         let expects_custody_columns = batched_column_requests
             .iter()
-            .cloned()
             .flatten()
+            .cloned()
             .collect::<Vec<_>>();
         let custody_column_request_ids =
             (0..batched_column_requests.len() as u32).collect::<Vec<_>>();
@@ -349,7 +345,6 @@ mod tests {
             false,
             Some(expects_custody_columns.clone()),
             Some(custody_column_request_ids.len()),
-            vec![PeerId::random()],
         );
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)

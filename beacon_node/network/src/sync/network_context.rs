@@ -456,15 +456,24 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             let request = entry.get_mut();
             match block_or_blob {
                 BlockOrBlob::Block(resp) => match resp {
-                    Ok((blocks, _)) => Ok(request.add_blocks(blocks)),
+                    Ok((blocks, _)) => {
+                        request.add_blocks(blocks);
+                        Ok(())
+                    }
                     Err(e) => Err(e),
                 },
                 BlockOrBlob::Blob(resp) => match resp {
-                    Ok((blobs, _)) => Ok(request.add_blobs(blobs)),
+                    Ok((blobs, _)) => {
+                        request.add_blobs(blobs);
+                        Ok(())
+                    }
                     Err(e) => Err(e),
                 },
                 BlockOrBlob::CustodyColumns(resp) => match resp {
-                    Ok((custody_columns, _)) => Ok(request.add_custody_columns(custody_columns)),
+                    Ok((custody_columns, _)) => {
+                        request.add_custody_columns(custody_columns);
+                        Ok(())
+                    }
                     Err(e) => Err(e),
                 },
             }
