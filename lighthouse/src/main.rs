@@ -778,6 +778,8 @@ fn run<E: EthSpec>(
             },
             "validator_client",
         );
+
+        return Ok(())
     };
 
     match matches.subcommand() {
