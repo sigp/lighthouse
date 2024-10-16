@@ -803,7 +803,8 @@ pub fn cli_app() -> Command {
             Arg::new("historic-state-cache-size")
                 .long("historic-state-cache-size")
                 .value_name("SIZE")
-                .help("This cache is currently inactive. Please use hdiff-buffer-cache-size instead.")
+                .help("Specifies how many states from the freezer database should be cached in \
+                       memory")
                 .default_value("1")
                 .action(ArgAction::Set)
                 .display_order(0)

@@ -163,6 +163,12 @@ pub static BEACON_HDIFF_DECODE_TIMES: LazyLock<Result<Histogram>> = LazyLock::ne
         "Time required to decode hierarchical diff bytes",
     )
 });
+pub static BEACON_HDIFF_BUFFER_CLONE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "store_hdiff_buffer_clone_seconds",
+        "Time required to clone hierarchical diff buffer bytes",
+    )
+});
 /*
  * Beacon Block
  */
@@ -210,20 +216,20 @@ pub static STORE_BEACON_HISTORIC_STATE_CACHE_SIZE: LazyLock<Result<IntGauge>> =
     LazyLock::new(|| {
         try_create_int_gauge(
             "store_beacon_historic_state_cache_size",
-            "Current count of items in beacon store historic state cache",
+            "Current count of states in the historic state cache",
         )
     });
 pub static STORE_BEACON_HDIFF_BUFFER_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "store_beacon_hdiff_buffer_cache_size",
-        "Current count of items in beacon store hdiff buffer cache",
+        "Current count of hdiff buffers in the historic state cache",
     )
 });
 pub static STORE_BEACON_HDIFF_BUFFER_CACHE_BYTE_SIZE: LazyLock<Result<IntGauge>> =
     LazyLock::new(|| {
         try_create_int_gauge(
             "store_beacon_hdiff_buffer_cache_byte_size",
-            "Current byte size sum of all elements in beacon store hdiff buffer cache",
+            "Memory consumed by hdiff buffers in the historic state cache",
         )
     });
 pub static STORE_BEACON_STATE_FREEZER_COMPRESS_TIME: LazyLock<Result<Histogram>> =
@@ -267,6 +273,20 @@ pub static STORE_BEACON_HDIFF_BUFFER_LOAD_FOR_STORE_TIME: LazyLock<Result<Histog
             "Time taken to load an hdiff buffer to store another hdiff",
         )
     });
+pub static STORE_BEACON_HISTORIC_STATE_CACHE_HIT: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "store_beacon_historic_state_cache_hit_total",
+            "Total count of historic state cache hits for full states",
+        )
+    });
+pub static STORE_BEACON_HISTORIC_STATE_CACHE_MISS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "store_beacon_historic_state_cache_miss_total",
+            "Total count of historic state cache misses for full states",
+        )
+    });
 pub static STORE_BEACON_HDIFF_BUFFER_CACHE_HIT: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
@@ -299,6 +319,38 @@ pub static STORE_BEACON_REPLAYED_BLOCKS: LazyLock<Result<IntCounter>> = LazyLock
     try_create_int_counter(
         "store_beacon_replayed_blocks_total",
         "Total count of replayed blocks",
+    )
+});
+pub static STORE_BEACON_LOAD_COLD_BLOCKS_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "store_beacon_load_cold_blocks_time",
+        "Time spent loading blocks to replay for historic states",
+    )
+});
+pub static STORE_BEACON_LOAD_HOT_BLOCKS_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "store_beacon_load_hot_blocks_time",
+        "Time spent loading blocks to replay for hot states",
+    )
+});
+pub static STORE_BEACON_REPLAY_COLD_BLOCKS_TIME: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "store_beacon_replay_cold_blocks_time",
+            "Time spent replaying blocks for historic states",
+        )
+    });
+pub static STORE_BEACON_COLD_BUILD_BEACON_CACHES_TIME: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "store_beacon_cold_build_beacon_caches_time",
+            "Time spent building caches on historic states",
+        )
+    });
+pub static STORE_BEACON_REPLAY_HOT_BLOCKS_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "store_beacon_replay_hot_blocks_time",
+        "Time spent replaying blocks for hot states",
     )
 });
 pub static STORE_BEACON_RECONSTRUCTION_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {

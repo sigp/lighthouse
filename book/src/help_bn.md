@@ -181,8 +181,8 @@ Options:
           slots, and second-level diffs every 16 (2^4) slots. Cannot be changed
           after initialization. [default: 5,9,11,13,16,18,21]
       --historic-state-cache-size <SIZE>
-          This cache is currently inactive. Please use hdiff-buffer-cache-size
-          instead. [default: 1]
+          Specifies how many states from the freezer database should be cached
+          in memory [default: 1]
       --http-address <ADDRESS>
           Set the listen address for the RESTful HTTP API server.
       --http-allow-origin <ORIGIN>

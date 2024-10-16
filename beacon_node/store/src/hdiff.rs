@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::io::{Read, Write};
+use std::ops::RangeInclusive;
 use std::str::FromStr;
 use types::{BeaconState, ChainSpec, EthSpec, List, Slot};
 use zstd::{Decoder, Encoder};
@@ -124,12 +125,12 @@ impl HDiffBuffer {
         HDiffBuffer { state, balances }
     }
 
-    pub fn into_state<E: EthSpec>(self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
+    pub fn as_state<E: EthSpec>(&self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_INTO_STATE_TIME);
         let mut state =
             BeaconState::from_ssz_bytes(&self.state, spec).map_err(Error::InvalidSszState)?;
-        *state.balances_mut() =
-            List::new(self.balances).map_err(|_| Error::InvalidBalancesLength)?;
+        *state.balances_mut() = List::try_from_iter(self.balances.iter().copied())
+            .map_err(|_| Error::InvalidBalancesLength)?;
         Ok(state)
     }
 
@@ -354,6 +355,35 @@ impl HierarchyModuli {
             || Ok(slot == self.next_snapshot_slot(slot)?),
             |second_layer_moduli| Ok(slot % *second_layer_moduli == 0),
         )
+    }
+}
+
+impl StorageStrategy {
+    /// For the state stored with this `StorageStrategy` at `slot`, return the range of slots which
+    /// should be checked for ancestor states in the historic state cache.
+    ///
+    /// The idea is that for states which need to be built by replaying blocks we should scan
+    /// for any viable ancestor state between their `from` slot and `slot`. If we find such a
+    /// state it will save us from the slow reconstruction of the `from` state using diffs.
+    ///
+    /// Similarly for `DiffFrom` and `Snapshot` states, loading the prior state and replaying 1
+    /// block is often going to be faster than loading and applying diffs/snapshots, so we may as
+    /// well check the cache for that 1 slot prior (in case the caller is iterating sequentially).
+    pub fn replay_from_range(
+        &self,
+        slot: Slot,
+    ) -> std::iter::Map<RangeInclusive<u64>, fn(u64) -> Slot> {
+        match self {
+            Self::ReplayFrom(from) => from.as_u64()..=slot.as_u64(),
+            Self::Snapshot | Self::DiffFrom(_) => {
+                if slot > 0 {
+                    (slot - 1).as_u64()..=slot.as_u64()
+                } else {
+                    slot.as_u64()..=slot.as_u64()
+                }
+            }
+        }
+        .map(Slot::from)
     }
 }
 

@@ -420,8 +420,7 @@ pub fn prune_states<E: EthSpec>(
     // correct network, and that we don't end up storing the wrong genesis state.
     let genesis_from_db = db
         .load_cold_state_by_slot(Slot::new(0))
-        .map_err(|e| format!("Error reading genesis state: {e:?}"))?
-        .ok_or("Error: genesis state missing from database. Check schema version.")?;
+        .map_err(|e| format!("Error reading genesis state: {e:?}"))?;
 
     if genesis_from_db.genesis_validators_root() != genesis_state.genesis_validators_root() {
         return Err(format!(
