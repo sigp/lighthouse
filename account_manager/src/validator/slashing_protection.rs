@@ -1,4 +1,3 @@
-use clap::{Arg, ArgAction, ArgMatches, Command};
 use environment::Environment;
 use slashing_protection::{
     interchange::Interchange, InterchangeError, InterchangeImportOutcome, SlashingDatabase,
@@ -9,56 +8,12 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
 
-pub const CMD: &str = "slashing-protection";
-pub const IMPORT_CMD: &str = "import";
-pub const EXPORT_CMD: &str = "export";
-
-pub const IMPORT_FILE_ARG: &str = "IMPORT-FILE";
-pub const EXPORT_FILE_ARG: &str = "EXPORT-FILE";
+use super::cli::SlashingProtection;
 
 pub const PUBKEYS_FLAG: &str = "pubkeys";
 
-pub fn cli_app() -> Command {
-    Command::new(CMD)
-        .about("Import or export slashing protection data to or from another client")
-        .display_order(0)
-        .subcommand(
-            Command::new(IMPORT_CMD)
-                .about("Import an interchange file")
-                .arg(
-                    Arg::new(IMPORT_FILE_ARG)
-                        .action(ArgAction::Set)
-                        .value_name("FILE")
-                         .display_order(0)
-                        .help("The slashing protection interchange file to import (.json)"),
-                )
-        )
-        .subcommand(
-            Command::new(EXPORT_CMD)
-                .about("Export an interchange file")
-                .arg(
-                    Arg::new(EXPORT_FILE_ARG)
-                        .action(ArgAction::Set)
-                        .value_name("FILE")
-                        .help("The filename to export the interchange file to")
-                        .display_order(0)
-                )
-                .arg(
-                    Arg::new(PUBKEYS_FLAG)
-                        .long(PUBKEYS_FLAG)
-                        .action(ArgAction::Set)
-                        .value_name("PUBKEYS")
-                        .help(
-                            "List of public keys to export history for. Keys should be 0x-prefixed, \
-                             comma-separated. All known keys will be exported if omitted",
-                        )
-                        .display_order(0)
-                )
-        )
-}
-
 pub fn cli_run<E: EthSpec>(
-    matches: &ArgMatches,
+    slashing_protection_config: &SlashingProtection,
     env: Environment<E>,
     validator_base_dir: PathBuf,
 ) -> Result<(), String> {
@@ -71,9 +26,9 @@ pub fn cli_run<E: EthSpec>(
         .genesis_validators_root::<E>()?
         .ok_or_else(|| "Unable to get genesis state, has genesis occurred?".to_string())?;
 
-    match matches.subcommand() {
-        Some((IMPORT_CMD, matches)) => {
-            let import_filename: PathBuf = clap_utils::parse_required(matches, IMPORT_FILE_ARG)?;
+    match slashing_protection_config {
+        SlashingProtection::Import(import_config) => {
+            let import_filename = import_config.import_file.clone();
             let import_file = File::open(&import_filename).map_err(|e| {
                 format!(
                     "Unable to open import file at {}: {:?}",
@@ -172,15 +127,13 @@ pub fn cli_run<E: EthSpec>(
 
             Ok(())
         }
-        Some((EXPORT_CMD, matches)) => {
-            let export_filename: PathBuf = clap_utils::parse_required(matches, EXPORT_FILE_ARG)?;
+        SlashingProtection::Export(export_config) => {
+            let export_filename = export_config.export_file.clone();
 
-            let selected_pubkeys = if let Some(pubkeys) =
-                clap_utils::parse_optional::<String>(matches, PUBKEYS_FLAG)?
-            {
+            let selected_pubkeys = if let Some(pubkeys) = export_config.pubkeys.clone() {
                 let pubkeys = pubkeys
-                    .split(',')
-                    .map(PublicKeyBytes::from_str)
+                    .iter()
+                    .map(|s| PublicKeyBytes::from_str(s))
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|e| format!("Invalid --{} value: {:?}", PUBKEYS_FLAG, e))?;
                 Some(pubkeys)
@@ -219,7 +172,5 @@ pub fn cli_run<E: EthSpec>(
 
             Ok(())
         }
-        Some((command, _)) => Err(format!("No such subcommand `{}`", command)),
-        _ => Err("No subcommand provided, see --help for options".to_string()),
     }
 }

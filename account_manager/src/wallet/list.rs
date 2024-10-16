@@ -1,13 +1,8 @@
 use crate::WALLETS_DIR_FLAG;
-use clap::Command;
 use eth2_wallet_manager::WalletManager;
 use std::path::PathBuf;
 
 pub const CMD: &str = "list";
-
-pub fn cli_app() -> Command {
-    Command::new(CMD).about("Lists the names of all wallets.")
-}
 
 pub fn cli_run(wallet_base_dir: PathBuf) -> Result<(), String> {
     let mgr = WalletManager::open(wallet_base_dir)

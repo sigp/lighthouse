@@ -2,8 +2,10 @@ use crate::{
     filesystem::{create, Error as FilesystemError},
     LockedWallet,
 };
+use clap::ValueEnum;
 use eth2_wallet::{bip39::Mnemonic, Error as WalletError, Uuid, Wallet, WalletBuilder};
 use lockfile::LockfileError;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::{create_dir_all, read_dir, File};
@@ -54,6 +56,7 @@ impl From<LockfileError> for Error {
 /// Defines the type of an EIP-2386 wallet.
 ///
 /// Presently only `Hd` wallets are supported.
+#[derive(Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Deserialize, Serialize, Debug, ValueEnum)]
 pub enum WalletType {
     /// Hierarchical-deterministic.
     Hd,

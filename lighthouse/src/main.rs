@@ -423,7 +423,6 @@ fn main() {
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
-        .subcommand(account_manager::cli_app())
         .subcommand(validator_manager::cli_app());
 
     let cli = LighthouseSubcommands::augment_subcommands(cli);
@@ -660,18 +659,19 @@ fn run<E: EthSpec>(
         (Some(_), Some(_)) => panic!("CLI prevents both --network and --testnet-dir"),
     };
 
-    if let Some(sub_matches) = matches.subcommand_matches(account_manager::CMD) {
+    if let Ok(LighthouseSubcommands::AccountManager(account_manager_config)) =
+        LighthouseSubcommands::from_arg_matches(matches)
+    {
         eprintln!("Running account manager for {} network", network_name);
         // Pass the entire `environment` to the account manager so it can run blocking operations.
-        account_manager::run(sub_matches, environment)?;
+        account_manager::run(&account_manager_config, matches, environment)?;
 
         // Exit as soon as account manager returns control.
         return Ok(());
-    }
+    };
 
     if let Some(sub_matches) = matches.subcommand_matches(validator_manager::CMD) {
         eprintln!("Running validator manager for {} network", network_name);
-
         // Pass the entire `environment` to the account manager so it can run blocking operations.
         validator_manager::run::<E>(sub_matches, environment)?;
 

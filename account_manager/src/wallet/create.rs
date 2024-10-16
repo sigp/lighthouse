@@ -1,19 +1,17 @@
-use crate::common::read_wallet_name_from_cli;
-use crate::WALLETS_DIR_FLAG;
+use crate::wallet::cli::NewWallet;
 use account_utils::{
-    is_password_sufficiently_complex, random_password, read_password_from_user, strip_off_newlines,
-    STDIN_INPUTS_FLAG,
+    is_password_sufficiently_complex, read_password_from_user, strip_off_newlines,
 };
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::ArgMatches;
 use eth2_wallet::{
     bip39::{Language, Mnemonic, MnemonicType},
     PlainText,
 };
-use eth2_wallet_manager::{LockedWallet, WalletManager, WalletType};
 use filesystem::create_with_600_perms;
-use std::ffi::OsStr;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+use super::cli::Create;
 
 pub const CMD: &str = "create";
 pub const HD_TYPE: &str = "hd";
@@ -33,97 +31,24 @@ pub const NEW_WALLET_PASSWORD_PROMPT: &str =
     "Enter a password for your new wallet that is at least 12 characters long:";
 pub const RETYPE_PASSWORD_PROMPT: &str = "Please re-enter your wallet's new password:";
 
-pub fn cli_app() -> Command {
-    Command::new(CMD)
-        .about("Creates a new HD (hierarchical-deterministic) EIP-2386 wallet.")
-        .arg(
-            Arg::new(NAME_FLAG)
-                .long(NAME_FLAG)
-                .value_name("WALLET_NAME")
-                .help(
-                    "The wallet will be created with this name. It is not allowed to \
-                            create two wallets with the same name for the same --base-dir.",
-                )
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new(PASSWORD_FLAG)
-                .long(PASSWORD_FLAG)
-                .value_name("WALLET_PASSWORD_PATH")
-                .help(
-                    "A path to a file containing the password which will unlock the wallet. \
-                    If the file does not exist, a random password will be generated and \
-                    saved at that path. To avoid confusion, if the file does not already \
-                    exist it must include a '.pass' suffix.",
-                )
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new(TYPE_FLAG)
-                .long(TYPE_FLAG)
-                .value_name("WALLET_TYPE")
-                .help(
-                    "The type of wallet to create. Only HD (hierarchical-deterministic) \
-                            wallets are supported presently..",
-                )
-                .action(ArgAction::Set)
-                .value_parser([HD_TYPE])
-                .default_value(HD_TYPE)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new(MNEMONIC_FLAG)
-                .long(MNEMONIC_FLAG)
-                .value_name("MNEMONIC_PATH")
-                .help(
-                    "If present, the mnemonic will be saved to this file. DO NOT SHARE THE MNEMONIC.",
-                )
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new(MNEMONIC_LENGTH_FLAG)
-                .long(MNEMONIC_LENGTH_FLAG)
-                .value_name("MNEMONIC_LENGTH")
-                .help("The number of words to use for the mnemonic phrase.")
-                .action(ArgAction::Set)
-                .value_parser(|len: &str| {
-                    match len
-                        .parse::<usize>()
-                        .ok()
-                        .and_then(|words| MnemonicType::for_word_count(words).ok())
-                        {
-                            Some(_) => Ok(len.to_string()),
-                            None => Err(format!(
-                                "Mnemonic length must be one of {}",
-                                MNEMONIC_TYPES
-                                    .iter()
-                                    .map(|t| t.word_count().to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            )),
-                        }
-                })
-                .default_value("24")
-                .display_order(0)
-        )
-}
-
-pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), String> {
-    let mnemonic_output_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
+pub fn cli_run(
+    create_config: &Create,
+    matches: &ArgMatches,
+    wallet_base_dir: PathBuf,
+) -> Result<(), String> {
+    let mnemonic_output_path = create_config.mnemonic_output_path.clone();
 
     // Create a new random mnemonic.
     //
     // The `tiny-bip39` crate uses `thread_rng()` for this entropy.
-    let mnemonic_length = clap_utils::parse_required(matches, MNEMONIC_LENGTH_FLAG)?;
+    let mnemonic_length = create_config.mnemonic_length;
     let mnemonic = Mnemonic::new(
         MnemonicType::for_word_count(mnemonic_length).expect("Mnemonic length already validated"),
         Language::English,
     );
 
-    let wallet = create_wallet_from_mnemonic(matches, wallet_base_dir.as_path(), &mnemonic)?;
+    let wallet =
+        create_config.create_wallet_from_mnemonic(wallet_base_dir.as_path(), matches, &mnemonic)?;
 
     if let Some(path) = mnemonic_output_path {
         create_with_600_perms(&path, mnemonic.phrase().as_bytes())
@@ -152,57 +77,6 @@ pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), Str
     println!("You do not need to backup your UUID or keep it secret.");
 
     Ok(())
-}
-
-pub fn create_wallet_from_mnemonic(
-    matches: &ArgMatches,
-    wallet_base_dir: &Path,
-    mnemonic: &Mnemonic,
-) -> Result<LockedWallet, String> {
-    let name: Option<String> = clap_utils::parse_optional(matches, NAME_FLAG)?;
-    let wallet_password_path: Option<PathBuf> = clap_utils::parse_optional(matches, PASSWORD_FLAG)?;
-    let type_field: String = clap_utils::parse_required(matches, TYPE_FLAG)?;
-    let stdin_inputs = cfg!(windows) || matches.get_flag(STDIN_INPUTS_FLAG);
-    let wallet_type = match type_field.as_ref() {
-        HD_TYPE => WalletType::Hd,
-        unknown => return Err(format!("--{} {} is not supported", TYPE_FLAG, unknown)),
-    };
-
-    let mgr = WalletManager::open(wallet_base_dir)
-        .map_err(|e| format!("Unable to open --{}: {:?}", WALLETS_DIR_FLAG, e))?;
-
-    let wallet_password: PlainText = match wallet_password_path {
-        Some(path) => {
-            // Create a random password if the file does not exist.
-            if !path.exists() {
-                // To prevent users from accidentally supplying their password to the PASSWORD_FLAG and
-                // create a file with that name, we require that the password has a .pass suffix.
-                if path.extension() != Some(OsStr::new("pass")) {
-                    return Err(format!(
-                        "Only creates a password file if that file ends in .pass: {:?}",
-                        path
-                    ));
-                }
-
-                create_with_600_perms(&path, random_password().as_bytes())
-                    .map_err(|e| format!("Unable to write to {:?}: {:?}", path, e))?;
-            }
-            read_new_wallet_password_from_cli(Some(path), stdin_inputs)?
-        }
-        None => read_new_wallet_password_from_cli(None, stdin_inputs)?,
-    };
-
-    let wallet_name = read_wallet_name_from_cli(name, stdin_inputs)?;
-
-    let wallet = mgr
-        .create_wallet(
-            wallet_name,
-            wallet_type,
-            mnemonic,
-            wallet_password.as_bytes(),
-        )
-        .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
-    Ok(wallet)
 }
 
 /// Used when a user is creating a new wallet. Read in a wallet password from a file if the password file
@@ -243,5 +117,23 @@ pub fn read_new_wallet_password_from_cli(
                 Err(message) => eprintln!("{}", message),
             }
         },
+    }
+}
+
+pub fn validate_mnemonic_length(len: &str) -> Result<(), String> {
+    match len
+        .parse::<usize>()
+        .ok()
+        .and_then(|words| MnemonicType::for_word_count(words).ok())
+    {
+        Some(_) => Ok(()),
+        None => Err(format!(
+            "Mnemonic length must be one of {}",
+            MNEMONIC_TYPES
+                .iter()
+                .map(|t| t.word_count().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
     }
 }

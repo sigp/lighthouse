@@ -1,15 +1,14 @@
 use crate::common::read_wallet_name_from_cli;
-use crate::{SECRETS_DIR_FLAG, WALLETS_DIR_FLAG};
+use crate::wallet::create::MNEMONIC_TYPES;
+use crate::WALLETS_DIR_FLAG;
 use account_utils::{
     random_password, read_password_from_user, strip_off_newlines, validator_definitions, PlainText,
     STDIN_INPUTS_FLAG,
 };
-use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::FLAG_HEADER;
-use directory::{
-    ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR,
-};
+use clap::ArgMatches;
+use directory::{ensure_dir_exists, DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR};
 use environment::Environment;
+use eth2_wallet::bip39::MnemonicType;
 use eth2_wallet_manager::WalletManager;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::ffi::OsStr;
@@ -18,131 +17,47 @@ use std::path::{Path, PathBuf};
 use types::EthSpec;
 use validator_dir::Builder as ValidatorDirBuilder;
 
-pub const CMD: &str = "create";
-pub const WALLET_NAME_FLAG: &str = "wallet-name";
-pub const WALLET_PASSWORD_FLAG: &str = "wallet-password";
-pub const DEPOSIT_GWEI_FLAG: &str = "deposit-gwei";
-pub const STORE_WITHDRAW_FLAG: &str = "store-withdrawal-keystore";
+use super::cli::Create;
+
 pub const COUNT_FLAG: &str = "count";
 pub const AT_MOST_FLAG: &str = "at-most";
 pub const WALLET_PASSWORD_PROMPT: &str = "Enter your wallet's password:";
 
-pub fn cli_app() -> Command {
-    Command::new(CMD)
-        .about(
-            "Creates new validators from an existing EIP-2386 wallet using the EIP-2333 HD key \
-            derivation scheme.",
-        )
-        .arg(
-            Arg::new(WALLET_NAME_FLAG)
-                .long(WALLET_NAME_FLAG)
-                .value_name("WALLET_NAME")
-                .help("Use the wallet identified by this name")
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new(WALLET_PASSWORD_FLAG)
-                .long(WALLET_PASSWORD_FLAG)
-                .value_name("WALLET_PASSWORD_PATH")
-                .help("A path to a file containing the password which will unlock the wallet.")
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new(WALLETS_DIR_FLAG)
-                .long(WALLETS_DIR_FLAG)
-                .value_name(WALLETS_DIR_FLAG)
-                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets")
-                .action(ArgAction::Set)
-                .conflicts_with("datadir")
-                .display_order(0)
-        )
-        .arg(
-            Arg::new(SECRETS_DIR_FLAG)
-                .long(SECRETS_DIR_FLAG)
-                .value_name("SECRETS_DIR")
-                .help(
-                    "The path where the validator keystore passwords will be stored. \
-                    Defaults to ~/.lighthouse/{network}/secrets",
-                )
-                .conflicts_with("datadir")
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new(DEPOSIT_GWEI_FLAG)
-                .long(DEPOSIT_GWEI_FLAG)
-                .value_name("DEPOSIT_GWEI")
-                .help(
-                    "The GWEI value of the deposit amount. Defaults to the minimum amount \
-                    required for an active validator (MAX_EFFECTIVE_BALANCE)",
-                )
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new(STORE_WITHDRAW_FLAG)
-                .long(STORE_WITHDRAW_FLAG)
-                .help(
-                    "If present, the withdrawal keystore will be stored alongside the voting \
-                    keypair. It is generally recommended to *not* store the withdrawal key and \
-                    instead generate them from the wallet seed when required.",
-                )
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new(COUNT_FLAG)
-                .long(COUNT_FLAG)
-                .value_name("VALIDATOR_COUNT")
-                .help("The number of validators to create, regardless of how many already exist")
-                .conflicts_with("at-most")
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new(AT_MOST_FLAG)
-                .long(AT_MOST_FLAG)
-                .value_name("AT_MOST_VALIDATORS")
-                .help(
-                    "Observe the number of validators in --validator-dir, only creating enough to \
-                    reach the given count. Never deletes an existing validator.",
-                )
-                .conflicts_with("count")
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-}
-
 pub fn cli_run<E: EthSpec>(
+    create_config: &Create,
     matches: &ArgMatches,
     env: Environment<E>,
     validator_dir: PathBuf,
 ) -> Result<(), String> {
     let spec = env.core_context().eth2_config.spec;
 
-    let name: Option<String> = clap_utils::parse_optional(matches, WALLET_NAME_FLAG)?;
+    let name: Option<String> = create_config.wallet_name.clone();
     let stdin_inputs = cfg!(windows) || matches.get_flag(STDIN_INPUTS_FLAG);
 
     let wallet_base_dir = if matches.get_one::<String>("datadir").is_some() {
         let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
         path.join(DEFAULT_WALLET_DIR)
     } else {
-        parse_path_or_default_with_flag(matches, WALLETS_DIR_FLAG, DEFAULT_WALLET_DIR)?
+        create_config
+            .wallets_dir
+            .clone()
+            .unwrap_or(PathBuf::from(DEFAULT_WALLET_DIR))
     };
     let secrets_dir = if matches.get_one::<String>("datadir").is_some() {
         let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
         path.join(DEFAULT_SECRET_DIR)
     } else {
-        parse_path_or_default_with_flag(matches, SECRETS_DIR_FLAG, DEFAULT_SECRET_DIR)?
+        create_config
+            .secrets_dir
+            .clone()
+            .unwrap_or(PathBuf::from(DEFAULT_SECRET_DIR))
     };
 
-    let deposit_gwei = clap_utils::parse_optional(matches, DEPOSIT_GWEI_FLAG)?
+    let deposit_gwei = create_config
+        .deposit_gwei
         .unwrap_or(spec.max_effective_balance);
-    let count: Option<usize> = clap_utils::parse_optional(matches, COUNT_FLAG)?;
-    let at_most: Option<usize> = clap_utils::parse_optional(matches, AT_MOST_FLAG)?;
+    let count = create_config.count;
+    let at_most = create_config.at_most;
 
     // The command will always fail if the wallet dir does not exist.
     if !wallet_base_dir.exists() {
@@ -185,8 +100,7 @@ pub fn cli_run<E: EthSpec>(
         return Ok(());
     }
 
-    let wallet_password_path: Option<PathBuf> =
-        clap_utils::parse_optional(matches, WALLET_PASSWORD_FLAG)?;
+    let wallet_password_path = create_config.wallet_password.clone();
 
     let wallet_name = read_wallet_name_from_cli(name, stdin_inputs)?;
     let wallet_password = read_wallet_password_from_cli(wallet_password_path, stdin_inputs)?;
@@ -250,7 +164,7 @@ pub fn cli_run<E: EthSpec>(
             .voting_keystore(keystores.voting, voting_password.as_bytes())
             .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
             .create_eth1_tx_data(deposit_gwei, &spec)
-            .store_withdrawal_keystore(matches.get_flag(STORE_WITHDRAW_FLAG))
+            .store_withdrawal_keystore(create_config.store_withdrawal_keystore)
             .build()
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 
@@ -297,5 +211,23 @@ pub fn read_wallet_password_from_cli(
                 PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
             Ok(password)
         }
+    }
+}
+
+pub fn validate_mnemonic_length(len: &str) -> Result<(), String> {
+    match len
+        .parse::<usize>()
+        .ok()
+        .and_then(|words| MnemonicType::for_word_count(words).ok())
+    {
+        Some(_) => Ok(()),
+        None => Err(format!(
+            "Mnemonic length must be one of {}",
+            MNEMONIC_TYPES
+                .iter()
+                .map(|t| t.word_count().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
     }
 }
