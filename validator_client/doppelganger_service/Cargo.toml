@@ -1,0 +1,20 @@
+[package]
+name = "doppelganger_service"
+version = "0.1.0"
+edition = { workspace = true }
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+
+[dependencies]
+beacon_node_fallback = { workspace = true }
+environment = { workspace = true }
+eth2 = { workspace = true }
+parking_lot = { workspace = true }
+slog = { workspace = true }
+slot_clock = { workspace = true }
+task_executor = { workspace = true }
+tokio = { workspace = true }
+types = { workspace = true }
+
+[dev-dependencies]
+futures = { workspace = true }
+logging = {workspace = true }
