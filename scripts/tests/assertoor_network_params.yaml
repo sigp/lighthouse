@@ -10,7 +10,7 @@ participants:
 network_params:
   deneb_fork_epoch: 0
   seconds_per_slot: 12
-  num_validator_keys_per_node: 1
+  num_validator_keys_per_node: 20
 global_log_level: debug
 snooper_enabled: false
 additional_services: 
