@@ -1,8 +1,6 @@
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
-use std::str::FromStr;
 use types::Slot;
 
 /// Sync distances between 0 and DEFAULT_SYNC_TOLERANCE are considered `synced`.
@@ -281,7 +279,6 @@ mod tests {
         SyncDistanceTier,
     };
     use crate::beacon_node_fallback::Config;
-    use std::str::FromStr;
     use types::Slot;
 
     #[test]
