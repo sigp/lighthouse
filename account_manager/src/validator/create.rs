@@ -1,5 +1,4 @@
 use crate::common::read_wallet_name_from_cli;
-use crate::wallet::create::MNEMONIC_TYPES;
 use crate::WALLETS_DIR_FLAG;
 use account_utils::{
     random_password, read_password_from_user, strip_off_newlines, validator_definitions, PlainText,
@@ -8,7 +7,6 @@ use account_utils::{
 use clap::ArgMatches;
 use directory::{ensure_dir_exists, DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR};
 use environment::Environment;
-use eth2_wallet::bip39::MnemonicType;
 use eth2_wallet_manager::WalletManager;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::ffi::OsStr;
@@ -215,19 +213,5 @@ pub fn read_wallet_password_from_cli(
                 PlainText::from(read_password_from_user(stdin_inputs)?.as_ref().to_vec());
             Ok(password)
         }
-    }
-}
-
-pub fn validate_mnemonic_length(len: usize) -> Result<(), String> {
-    match MnemonicType::for_word_count(len).ok() {
-        Some(_) => Ok(()),
-        None => Err(format!(
-            "Mnemonic length must be one of {}",
-            MNEMONIC_TYPES
-                .iter()
-                .map(|t| t.word_count().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        )),
     }
 }

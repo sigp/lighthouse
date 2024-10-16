@@ -1,4 +1,3 @@
-use crate::wallet::cli::NewWallet;
 use account_utils::{
     is_password_sufficiently_complex, read_password_from_user, strip_off_newlines,
 };
@@ -11,6 +10,8 @@ use filesystem::create_with_600_perms;
 use std::fs;
 use std::path::PathBuf;
 
+use crate::wallet::cli::NewWallet;
+
 use super::cli::Create;
 
 pub const CMD: &str = "create";
@@ -20,6 +21,10 @@ pub const PASSWORD_FLAG: &str = "password-file";
 pub const TYPE_FLAG: &str = "type";
 pub const MNEMONIC_FLAG: &str = "mnemonic-output-path";
 pub const MNEMONIC_LENGTH_FLAG: &str = "mnemonic-length";
+pub const NEW_WALLET_PASSWORD_PROMPT: &str =
+    "Enter a password for your new wallet that is at least 12 characters long:";
+pub const RETYPE_PASSWORD_PROMPT: &str = "Please re-enter your wallet's new password:";
+
 pub const MNEMONIC_TYPES: &[MnemonicType] = &[
     MnemonicType::Words12,
     MnemonicType::Words15,
@@ -27,9 +32,6 @@ pub const MNEMONIC_TYPES: &[MnemonicType] = &[
     MnemonicType::Words21,
     MnemonicType::Words24,
 ];
-pub const NEW_WALLET_PASSWORD_PROMPT: &str =
-    "Enter a password for your new wallet that is at least 12 characters long:";
-pub const RETYPE_PASSWORD_PROMPT: &str = "Please re-enter your wallet's new password:";
 
 pub fn cli_run(
     create_config: &Create,
@@ -120,13 +122,15 @@ pub fn read_new_wallet_password_from_cli(
     }
 }
 
-pub fn validate_mnemonic_length(len: &str) -> Result<(), String> {
-    match len
-        .parse::<usize>()
-        .ok()
-        .and_then(|words| MnemonicType::for_word_count(words).ok())
-    {
-        Some(_) => Ok(()),
+pub fn validate_mnemonic_length(len: &str) -> Result<usize, String> {
+    match len.parse::<usize>().ok().and_then(|words| {
+        if MnemonicType::for_word_count(words).is_ok() {
+            Some(words)
+        } else {
+            None
+        }
+    }) {
+        Some(words) => Ok(words),
         None => Err(format!(
             "Mnemonic length must be one of {}",
             MNEMONIC_TYPES
