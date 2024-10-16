@@ -46,6 +46,7 @@ warp = { workspace = true }
 hyper = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 libsecp256k1 = { workspace = true }
+r2d2_sqlite = "0.21.0"
 ring = { workspace = true }
 rand = { workspace = true, features = ["small_rng"] }
 lighthouse_metrics = { workspace = true }

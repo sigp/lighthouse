@@ -6,6 +6,7 @@ use crate::block_tests::block;
 use crate::test_utils::*;
 use crate::*;
 use rayon::prelude::*;
+use rusqlite::TransactionBehavior;
 use tempfile::tempdir;
 
 #[test]
@@ -44,11 +45,18 @@ fn attestation_same_target() {
     let results = (0..num_attestations)
         .into_par_iter()
         .map(|i| {
-            slashing_db.check_and_insert_attestation(
+            let mut conn = slashing_db.get_db_connection().unwrap();
+            let txn = conn
+                .transaction_with_behavior(TransactionBehavior::Exclusive)
+                .unwrap();
+            let result = slashing_db.check_and_insert_attestation(
                 &pk,
                 &attestation_data_builder(i, num_attestations),
                 DEFAULT_DOMAIN,
-            )
+                &txn,
+            );
+            slashing_db.commit(txn).unwrap();
+            result
         })
         .collect::<Vec<_>>();
 
@@ -72,8 +80,14 @@ fn attestation_surround_fest() {
     let results = (0..num_attestations)
         .into_par_iter()
         .map(|i| {
+            let mut conn = slashing_db.get_db_connection().unwrap();
+            let txn = conn
+                .transaction_with_behavior(TransactionBehavior::Exclusive)
+                .unwrap();
             let att = attestation_data_builder(i, 2 * num_attestations - i);
-            slashing_db.check_and_insert_attestation(&pk, &att, DEFAULT_DOMAIN)
+            let result = slashing_db.check_and_insert_attestation(&pk, &att, DEFAULT_DOMAIN, &txn);
+            slashing_db.commit(txn).unwrap();
+            result
         })
         .collect::<Vec<_>>();
 

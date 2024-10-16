@@ -9,6 +9,7 @@ edition = { workspace = true }
 
 [dev-dependencies]
 async-channel = { workspace = true }
+eth2 = { workspace = true }
 eth2_keystore = { workspace = true }
 types = { workspace = true }
 tempfile = { workspace = true }
@@ -16,6 +17,7 @@ tokio = { workspace = true }
 reqwest = { workspace = true }
 url = { workspace = true }
 validator_client = { workspace = true }
+slashing_protection = { workspace = true }
 slot_clock = { workspace = true }
 futures = { workspace = true }
 task_executor = { workspace = true }

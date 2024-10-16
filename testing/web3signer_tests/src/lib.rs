@@ -20,12 +20,14 @@ mod tests {
     use account_utils::validator_definitions::{
         SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
     };
+    use eth2::types::AttesterData;
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
     use logging::test_logger;
     use parking_lot::Mutex;
     use reqwest::Client;
     use serde::Serialize;
+    use slashing_protection::NotSafe;
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::env;
     use std::fmt::Debug;
@@ -41,6 +43,7 @@ mod tests {
     use tokio::time::sleep;
     use types::{attestation::AttestationBase, *};
     use url::Url;
+    use validator_client::duties_service::DutyAndProof;
     use validator_client::{
         initialized_validators::{
             load_pem_certificate, load_pkcs12_identity, InitializedValidators,
@@ -841,9 +844,41 @@ mod tests {
             "double_vote_attestation",
             move |pubkey, validator_store| async move {
                 let mut attestation = double_vote_attestation();
+                let validator_duty = DutyAndProof::new_without_selection_proof(
+                    AttesterData {
+                        pubkey: pubkey,
+                        validator_index: 0,
+                        committees_at_slot: 0,
+                        committee_index: 0,
+                        committee_length: 0,
+                        validator_committee_index: 0,
+                        slot: attestation.data().slot,
+                    },
+                    attestation.data().slot,
+                );
+
                 validator_store
                     .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
                     .await
+                    .unwrap();
+
+                let safe_attestations = validator_store
+                    .check_and_insert_attestations(vec![(attestation, validator_duty)])
+                    .unwrap();
+
+                if !slashable_message_should_sign && safe_attestations.len() > 0 {
+                    // if slashability checks are disabled and we don't return any safe attestations
+                    // we raise an error to indicate that thi test case has failed
+                    return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
+                }
+
+                if slashable_message_should_sign && !safe_attestations.len() > 0 {
+                    // if slashability checks are eabled and we return safe attestations
+                    // we raise an error to indicate that this test case has failed
+                    return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
+                }
+
+                Ok(())
             },
             slashable_message_should_sign,
         )
@@ -852,9 +887,40 @@ mod tests {
             "surrounding_attestation",
             move |pubkey, validator_store| async move {
                 let mut attestation = surrounding_attestation();
+                let validator_duty = DutyAndProof::new_without_selection_proof(
+                    AttesterData {
+                        pubkey: pubkey,
+                        validator_index: 0,
+                        committees_at_slot: 0,
+                        committee_index: 0,
+                        committee_length: 0,
+                        validator_committee_index: 0,
+                        slot: attestation.data().slot,
+                    },
+                    attestation.data().slot,
+                );
                 validator_store
                     .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
                     .await
+                    .unwrap();
+
+                let safe_attestations = validator_store
+                    .check_and_insert_attestations(vec![(attestation, validator_duty)])
+                    .unwrap();
+
+                if !slashable_message_should_sign && safe_attestations.len() > 0 {
+                    // if slashability checks are disabled and we don't return any safe attestations
+                    // we raise an error to indicate that thi test case has failed
+                    return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
+                }
+
+                if slashable_message_should_sign && !safe_attestations.len() > 0 {
+                    // if slashability checks are eabled and we return safe attestations
+                    // we raise an error to indicate that this test case has failed
+                    return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
+                }
+
+                Ok(())
             },
             slashable_message_should_sign,
         )
@@ -863,9 +929,40 @@ mod tests {
             "surrounded_attestation",
             move |pubkey, validator_store| async move {
                 let mut attestation = surrounded_attestation();
+                let validator_duty = DutyAndProof::new_without_selection_proof(
+                    AttesterData {
+                        pubkey: pubkey,
+                        validator_index: 0,
+                        committees_at_slot: 0,
+                        committee_index: 0,
+                        committee_length: 0,
+                        validator_committee_index: 0,
+                        slot: attestation.data().slot,
+                    },
+                    attestation.data().slot,
+                );
                 validator_store
                     .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
                     .await
+                    .unwrap();
+
+                let safe_attestations = validator_store
+                    .check_and_insert_attestations(vec![(attestation, validator_duty)])
+                    .unwrap();
+
+                if !slashable_message_should_sign && safe_attestations.len() > 0 {
+                    // if slashability checks are disabled and we don't return any safe attestations
+                    // we raise an error to indicate that thi test case has failed
+                    return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
+                }
+
+                if slashable_message_should_sign && !safe_attestations.len() > 0 {
+                    // if slashability checks are eabled and we return safe attestations
+                    // we raise an error to indicate that this test case has failed
+                    return Err(ValidatorStoreError::Slashable(NotSafe::ConsistencyError));
+                }
+
+                Ok(())
             },
             slashable_message_should_sign,
         )

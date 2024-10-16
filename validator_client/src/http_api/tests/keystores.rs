@@ -1,5 +1,6 @@
 use super::super::super::validator_store::DEFAULT_GAS_LIMIT;
 use super::*;
+use crate::duties_service::DutyAndProof;
 use account_utils::random_password_string;
 use bls::PublicKeyBytes;
 use eth2::lighthouse_vc::types::UpdateFeeRecipientRequest;
@@ -8,6 +9,7 @@ use eth2::lighthouse_vc::{
     std_types::{KeystoreJsonStr as Keystore, *},
     types::Web3SignerValidatorRequest,
 };
+use eth2::types::AttesterData;
 use itertools::Itertools;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use slashing_protection::interchange::{Interchange, InterchangeMetadata};
@@ -1091,16 +1093,52 @@ async fn generic_migration_test(
             .unwrap();
         check_keystore_import_response(&import_res, all_imported(keystores.len()));
 
+        let attestations_and_duties = first_vc_attestations
+            .into_iter()
+            .map(|(validator_index, attestation)| {
+                (
+                    attestation.clone(),
+                    DutyAndProof::new_without_selection_proof(
+                        AttesterData {
+                            pubkey: keystore_pubkey(&keystores[validator_index]),
+                            validator_index: validator_index as u64,
+                            committees_at_slot: 0,
+                            committee_index: 0,
+                            committee_length: 0,
+                            validator_committee_index: 0,
+                            slot: attestation.data().slot,
+                        },
+                        attestation.data().slot,
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+
         // Sign attestations on VC1.
-        for (validator_index, mut attestation) in first_vc_attestations {
-            let public_key = keystore_pubkey(&keystores[validator_index]);
+        for (mut attestation, validator_duty) in attestations_and_duties.clone() {
             let current_epoch = attestation.data().target.epoch;
             tester1
                 .validator_store
-                .sign_attestation(public_key, 0, &mut attestation, current_epoch)
+                .sign_attestation(
+                    validator_duty.duty.pubkey,
+                    0,
+                    &mut attestation,
+                    current_epoch,
+                )
                 .await
                 .unwrap();
         }
+
+        tester1
+            .validator_store
+            .check_and_insert_attestations(
+                attestations_and_duties
+                    .clone()
+                    .into_iter()
+                    .map(|(a, b)| (a.clone(), b.clone()))
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
 
         // Delete the selected keys from VC1.
         let delete_res = tester1
@@ -1114,6 +1152,7 @@ async fn generic_migration_test(
             })
             .await
             .unwrap();
+
         check_keystore_delete_response(&delete_res, all_deleted(delete_indices.len()));
 
         // Check that slashing protection data was returned for all selected validators.
@@ -1167,17 +1206,70 @@ async fn generic_migration_test(
             .unwrap();
         check_keystore_import_response(&import_res, all_imported(import_indices.len()));
 
+        let attestations_and_duties = second_vc_attestations
+            .into_iter()
+            .map(|(validator_index, attestation, should_succeed)| {
+                (
+                    attestation.clone(),
+                    DutyAndProof::new_without_selection_proof(
+                        AttesterData {
+                            pubkey: keystore_pubkey(&keystores[validator_index]),
+                            validator_index: validator_index as u64,
+                            committees_at_slot: 0,
+                            committee_index: 0,
+                            committee_length: 0,
+                            validator_committee_index: 0,
+                            slot: attestation.data().slot,
+                        },
+                        attestation.data().slot,
+                    ),
+                    should_succeed,
+                )
+            })
+            .collect::<Vec<_>>();
+
         // Sign attestations on the second VC.
-        for (validator_index, mut attestation, should_succeed) in second_vc_attestations {
-            let public_key = keystore_pubkey(&keystores[validator_index]);
+        for (mut attestation, validator_duty, should_succeed) in attestations_and_duties.clone() {
             let current_epoch = attestation.data().target.epoch;
+
             match tester2
                 .validator_store
-                .sign_attestation(public_key, 0, &mut attestation, current_epoch)
+                .sign_attestation(
+                    validator_duty.duty.pubkey,
+                    0,
+                    &mut attestation,
+                    current_epoch,
+                )
                 .await
             {
-                Ok(()) => assert!(should_succeed),
-                Err(e) => assert!(!should_succeed, "{:?}", e),
+                Ok(_) => (),
+                Err(_) => {
+                    if should_succeed {
+                        panic!("Should succeed");
+                    } else {
+                        continue;
+                    }
+                }
+            };
+
+            let attestation_and_duty = vec![(attestation, validator_duty)];
+
+            let Ok(safe_attestation) = tester2.validator_store.check_and_insert_attestations(
+                attestation_and_duty
+                    .clone()
+                    .into_iter()
+                    .map(|(a, b)| (a.clone(), b.clone()))
+                    .collect::<Vec<_>>(),
+            ) else {
+                panic!("Should succeed");
+            };
+
+            if safe_attestation.len() > 0 && !should_succeed {
+                panic!("should fail")
+            }
+
+            if safe_attestation.len() == 0 && should_succeed {
+                panic!("should succeed")
             }
         }
     })

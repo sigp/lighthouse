@@ -1791,7 +1791,7 @@ impl ApiTester {
 
     pub async fn test_post_beacon_pool_attestations_valid_v1(mut self) -> Self {
         self.client
-            .post_beacon_pool_attestations_v1(self.attestations.as_slice())
+            .post_beacon_pool_attestations_v1(&self.attestations.iter().collect::<Vec<_>>())
             .await
             .unwrap();
 
@@ -1810,7 +1810,10 @@ impl ApiTester {
             .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
             .unwrap();
         self.client
-            .post_beacon_pool_attestations_v2(self.attestations.as_slice(), fork_name)
+            .post_beacon_pool_attestations_v2(
+                &self.attestations.iter().collect::<Vec<_>>(),
+                fork_name,
+            )
             .await
             .unwrap();
         assert!(
@@ -1834,7 +1837,7 @@ impl ApiTester {
 
         let err = self
             .client
-            .post_beacon_pool_attestations_v1(attestations.as_slice())
+            .post_beacon_pool_attestations_v1(&attestations.iter().collect::<Vec<_>>())
             .await
             .unwrap_err();
 
@@ -1876,7 +1879,7 @@ impl ApiTester {
 
         let err_v2 = self
             .client
-            .post_beacon_pool_attestations_v2(attestations.as_slice(), fork_name)
+            .post_beacon_pool_attestations_v2(&attestations.iter().collect::<Vec<_>>(), fork_name)
             .await
             .unwrap_err();
 
@@ -3940,7 +3943,7 @@ impl ApiTester {
 
         // Attest to the current slot
         self.client
-            .post_beacon_pool_attestations_v1(self.attestations.as_slice())
+            .post_beacon_pool_attestations_v1(&self.attestations.iter().collect::<Vec<_>>())
             .await
             .unwrap();
 
@@ -5580,7 +5583,7 @@ impl ApiTester {
 
         // Attest to the current slot
         self.client
-            .post_beacon_pool_attestations_v1(self.attestations.as_slice())
+            .post_beacon_pool_attestations_v1(&self.attestations.iter().collect::<Vec<_>>())
             .await
             .unwrap();
 
@@ -5636,7 +5639,7 @@ impl ApiTester {
         let expected_attestation_len = self.attestations.len();
 
         self.client
-            .post_beacon_pool_attestations_v1(self.attestations.as_slice())
+            .post_beacon_pool_attestations_v1(&self.attestations.iter().collect::<Vec<_>>())
             .await
             .unwrap();
 

@@ -3,6 +3,7 @@ use crate::{
     test_utils::{pubkey, DEFAULT_GENESIS_VALIDATORS_ROOT},
     SigningRoot, SlashingDatabase,
 };
+use rusqlite::TransactionBehavior;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use tempfile::tempdir;
@@ -132,12 +133,18 @@ impl MultiTestCase {
                 }
             }
 
+            let mut conn = slashing_db.get_db_connection().unwrap();
+            let txn = conn
+                .transaction_with_behavior(TransactionBehavior::Exclusive)
+                .unwrap();
+
             for (i, att) in test_case.attestations.iter().enumerate() {
                 match slashing_db.check_and_insert_attestation_signing_root(
                     &att.pubkey,
                     att.source_epoch,
                     att.target_epoch,
                     SigningRoot::from(att.signing_root),
+                    &txn,
                 ) {
                     Ok(safe) if !att.should_succeed => {
                         panic!(
@@ -154,6 +161,8 @@ impl MultiTestCase {
                     _ => (),
                 }
             }
+
+            slashing_db.commit(txn).unwrap();
         }
     }
 }
