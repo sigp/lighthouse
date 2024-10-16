@@ -1319,7 +1319,7 @@ impl TestRig {
         });
     }
 
-    fn assert_sampling_request_ongoing(&self, block_root: Hash256, indices: &Vec<ColumnIndex>) {
+    fn assert_sampling_request_ongoing(&self, block_root: Hash256, indices: &[ColumnIndex]) {
         for index in indices {
             let status = self
                 .sync_manager
@@ -1331,7 +1331,7 @@ impl TestRig {
         }
     }
 
-    fn assert_sampling_request_nopeers(&self, block_root: Hash256, indices: &Vec<ColumnIndex>) {
+    fn assert_sampling_request_nopeers(&self, block_root: Hash256, indices: &[ColumnIndex]) {
         for index in indices {
             let status = self
                 .sync_manager
@@ -1341,6 +1341,22 @@ impl TestRig {
                 panic!("expected {block_root} {index} request to be no peers: {status:?}");
             }
         }
+    }
+
+    fn log_sampling_requests(&self, block_root: Hash256, indices: &[ColumnIndex]) {
+        let statuses = indices
+            .iter()
+            .map(|index| {
+                let status = self
+                    .sync_manager
+                    .get_sampling_request_status(block_root, index)
+                    .unwrap_or_else(|| panic!("No request state for {index}"));
+                (index, status)
+            })
+            .collect::<Vec<_>>();
+        self.log(&format!(
+            "Sampling request status for {block_root}: {statuses:?}"
+        ));
     }
 }
 
@@ -2159,6 +2175,7 @@ fn sampling_batch_requests_not_enough_responses_returned() {
     );
 
     // The request status should be set to NoPeers since the supernode, the only peer, returned not enough responses.
+    r.log_sampling_requests(block_root, &column_indexes);
     r.assert_sampling_request_nopeers(block_root, &column_indexes);
 
     // The sampling request stalls.
