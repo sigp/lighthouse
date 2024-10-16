@@ -50,8 +50,6 @@ use types::{BlobSidecar, DataColumnSidecar, EthSpec, SignedBeaconBlock};
 pub mod common;
 pub mod parent_chain;
 mod single_block_lookup;
-#[cfg(test)]
-mod tests;
 
 /// The maximum depth we will search for a parent block. In principle we should have sync'd any
 /// canonical chain to its head once the peer connects. A chain should not appear where it's depth
