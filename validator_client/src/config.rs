@@ -190,15 +190,17 @@ impl Config {
         if let Some(beacon_nodes) = validator_client_config.beacon_nodes.as_ref() {
             config.beacon_nodes = beacon_nodes
                 .iter()
-                .map(|s| SensitiveUrl::parse(s).unwrap())
-                .collect::<Vec<_>>();
+                .map(|s| SensitiveUrl::parse(s))
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         }
 
         if let Some(proposer_nodes) = validator_client_config.proposer_nodes.as_ref() {
             config.proposer_nodes = proposer_nodes
                 .iter()
-                .map(|s| SensitiveUrl::parse(s).unwrap())
-                .collect::<Vec<_>>();
+                .map(|s| SensitiveUrl::parse(s))
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("Unable to parse proposer node URL: {:?}", e))?;
         }
 
         config.disable_auto_discover = validator_client_config.disable_auto_discover;
@@ -253,15 +255,7 @@ impl Config {
         }
 
         if let Some(broadcast_topics) = validator_client_config.broadcast.as_ref() {
-            config.broadcast_topics = broadcast_topics
-                .iter()
-                .filter(|t| *t != "none")
-                .map(|t| {
-                    t.trim()
-                        .parse::<ApiTopic>()
-                        .map_err(|_| format!("Unknown API topic to broadcast: {t}"))
-                })
-                .collect::<Result<_, _>>()?;
+            config.broadcast_topics = broadcast_topics.clone();
         }
 
         /*

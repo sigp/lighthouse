@@ -1,3 +1,4 @@
+use crate::ApiTopic;
 pub use clap::{Arg, ArgAction, Args, Command, FromArgMatches, Parser};
 use clap_utils::get_color_style;
 use clap_utils::FLAG_HEADER;
@@ -66,7 +67,7 @@ pub struct ValidatorClient {
                 subscriptions only.",
         display_order = 0
     )]
-    pub broadcast: Option<Vec<String>>,
+    pub broadcast: Option<Vec<ApiTopic>>,
 
     #[clap(
         long,

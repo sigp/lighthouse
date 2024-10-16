@@ -1,4 +1,7 @@
-use validator_client::{config::DEFAULT_WEB3SIGNER_KEEP_ALIVE, beacon_node_health::BeaconNodeSyncDistanceTiers, ApiTopic, Config};
+use validator_client::{
+    beacon_node_health::BeaconNodeSyncDistanceTiers, config::DEFAULT_WEB3SIGNER_KEEP_ALIVE,
+    ApiTopic, Config,
+};
 
 use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
