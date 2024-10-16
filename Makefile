@@ -60,8 +60,6 @@ install-lcli:
 # - The current user is in the `docker` group.
 #
 # The resulting binaries will be created in the `target/` directory.
-#
-# The *-portable options is the default feature.
 build-x86_64:
 	cross build --bin lighthouse --target x86_64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 build-aarch64:
@@ -206,9 +204,10 @@ test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 # Lints the code for bad style and potentially unsafe arithmetic using Clippy.
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
-	cargo clippy --workspace --tests $(EXTRA_CLIPPY_OPTS) --features "$(TEST_FEATURES)" -- \
+	cargo clippy --workspace --benches --tests $(EXTRA_CLIPPY_OPTS) --features "$(TEST_FEATURES)" -- \
 		-D clippy::fn_to_numeric_cast_any \
 		-D clippy::manual_let_else \
+		-D clippy::large_stack_frames \
 		-D warnings \
 		-A clippy::derive_partial_eq_without_eq \
 		-A clippy::upper-case-acronyms \

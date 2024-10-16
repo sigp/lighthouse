@@ -196,7 +196,6 @@ impl RPCRateLimiterBuilder {
         let blbrange_quota = self
             .blbrange_quota
             .ok_or("BlobsByRange quota not specified")?;
-
         let blbroots_quota = self
             .blbroot_quota
             .ok_or("BlobsByRoot quota not specified")?;
@@ -253,7 +252,7 @@ pub trait RateLimiterItem {
     fn max_responses(&self) -> u64;
 }
 
-impl<E: EthSpec> RateLimiterItem for super::InboundRequest<E> {
+impl<E: EthSpec> RateLimiterItem for super::RequestType<E> {
     fn protocol(&self) -> Protocol {
         self.versioned_protocol().protocol()
     }
@@ -263,15 +262,6 @@ impl<E: EthSpec> RateLimiterItem for super::InboundRequest<E> {
     }
 }
 
-impl<E: EthSpec> RateLimiterItem for super::OutboundRequest<E> {
-    fn protocol(&self) -> Protocol {
-        self.versioned_protocol().protocol()
-    }
-
-    fn max_responses(&self) -> u64 {
-        self.max_responses()
-    }
-}
 impl RPCRateLimiter {
     pub fn new_with_config(config: RateLimiterConfig) -> Result<Self, &'static str> {
         // Destructure to make sure every configuration value is used.
@@ -357,6 +347,8 @@ impl RPCRateLimiter {
         self.bbroots_rl.prune(time_since_start);
         self.blbrange_rl.prune(time_since_start);
         self.blbroot_rl.prune(time_since_start);
+        self.dcbrange_rl.prune(time_since_start);
+        self.dcbroot_rl.prune(time_since_start);
     }
 }
 

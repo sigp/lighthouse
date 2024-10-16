@@ -507,7 +507,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockCapella<E, Payload>
                 message: BlsToExecutionChange {
                     validator_index: 0,
                     from_bls_pubkey: PublicKeyBytes::empty(),
-                    to_execution_address: Address::zero(),
+                    to_execution_address: Address::ZERO,
                 },
                 signature: Signature::empty()
             };
@@ -637,7 +637,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
                 message: BlsToExecutionChange {
                     validator_index: 0,
                     from_bls_pubkey: PublicKeyBytes::empty(),
-                    to_execution_address: Address::zero(),
+                    to_execution_address: Address::ZERO,
                 },
                 signature: Signature::empty()
             };
@@ -670,6 +670,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockElectra<E, Payload>
                 graffiti: Graffiti::default(),
                 execution_payload: Payload::Electra::default(),
                 blob_kzg_commitments: VariableList::empty(),
+                execution_requests: ExecutionRequests::default(),
             },
         }
     }
@@ -700,6 +701,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockElec
                 execution_payload: Payload::Electra::default(),
                 bls_to_execution_changes: VariableList::empty(),
                 blob_kzg_commitments: VariableList::empty(),
+                execution_requests: ExecutionRequests::default(),
             },
         }
     }

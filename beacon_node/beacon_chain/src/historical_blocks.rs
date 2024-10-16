@@ -11,7 +11,7 @@ use std::iter;
 use std::time::Duration;
 use store::metadata::DataColumnInfo;
 use store::{chunked_vector::BlockRoots, AnchorInfo, BlobInfo, ChunkWriter, KeyValueStore};
-use types::{Hash256, Slot};
+use types::{FixedBytesExtended, Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
 ///
@@ -94,7 +94,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Blobs are stored per block, and data columns are each stored individually
         let n_blob_ops_per_block = if self.spec.is_peer_das_scheduled() {
-            self.data_availability_checker.get_custody_columns_count()
+            // TODO(das): `available_block includes all sampled columns, but we only need to store
+            // custody columns. To be clarified in spec PR.
+            self.data_availability_checker.get_sampling_column_count()
         } else {
             1
         };

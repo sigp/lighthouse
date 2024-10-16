@@ -77,8 +77,6 @@ pub enum BeaconChainError {
     AttesterSlashingValidationError(AttesterSlashingValidationError),
     BlsExecutionChangeValidationError(BlsExecutionChangeValidationError),
     MissingFinalizedStateRoot(Slot),
-    /// Returned when an internal check fails, indicating corrupt data.
-    InvariantViolated(String),
     SszTypesError(SszTypesError),
     NoProposerForSlot(Slot),
     CanonicalHeadLockTimeout,
@@ -216,10 +214,13 @@ pub enum BeaconChainError {
     InconsistentFork(InconsistentFork),
     ProposerHeadForkChoiceError(fork_choice::Error<proto_array::Error>),
     UnableToPublish,
+    UnableToBuildColumnSidecar(String),
     AvailabilityCheckError(AvailabilityCheckError),
-    LightClientError(LightClientError),
+    LightClientUpdateError(LightClientUpdateError),
+    LightClientBootstrapError(String),
     UnsupportedFork,
     MilhouseError(MilhouseError),
+    EmptyRpcCustodyColumns,
     AttestationError(AttestationError),
     AttestationCommitteeIndexNotSet,
 }
@@ -250,7 +251,7 @@ easy_from_to!(BlockReplayError, BeaconChainError);
 easy_from_to!(InconsistentFork, BeaconChainError);
 easy_from_to!(AvailabilityCheckError, BeaconChainError);
 easy_from_to!(EpochCacheError, BeaconChainError);
-easy_from_to!(LightClientError, BeaconChainError);
+easy_from_to!(LightClientUpdateError, BeaconChainError);
 easy_from_to!(MilhouseError, BeaconChainError);
 easy_from_to!(AttestationError, BeaconChainError);
 
@@ -290,10 +291,10 @@ pub enum BlockProductionError {
     TokioJoin(JoinError),
     BeaconChain(BeaconChainError),
     InvalidPayloadFork,
-    TrustedSetupNotInitialized,
     InvalidBlockVariant(String),
     KzgError(kzg::Error),
     FailedToBuildBlobSidecars(String),
+    MissingExecutionRequests,
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

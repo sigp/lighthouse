@@ -1,7 +1,9 @@
 use crate::beacon_node_fallback::ApiTopic;
 use crate::cli::ValidatorClient;
 use crate::graffiti_file::GraffitiFile;
-use crate::{http_api, http_metrics};
+use crate::{
+    beacon_node_fallback, beacon_node_health::BeaconNodeSyncDistanceTiers, http_api, http_metrics,
+};
 use clap::ArgMatches;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_required};
 use directory::{
@@ -21,7 +23,7 @@ pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 pub const DEFAULT_WEB3SIGNER_KEEP_ALIVE: Option<Duration> = Some(Duration::from_secs(20));
 
 /// Stores the core configuration for this validator instance.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     /// The data directory, which stores all validator databases
     pub validator_dir: PathBuf,
@@ -52,6 +54,8 @@ pub struct Config {
     pub http_api: http_api::Config,
     /// Configuration for the HTTP REST API.
     pub http_metrics: http_metrics::Config,
+    /// Configuration for the Beacon Node fallback.
+    pub beacon_node_fallback: beacon_node_fallback::Config,
     /// Configuration for sending metrics to a remote explorer endpoint.
     pub monitoring_api: Option<monitoring_api::Config>,
     /// If true, enable functionality that monitors the network for attestations or proposals from
@@ -117,6 +121,7 @@ impl Default for Config {
             fee_recipient: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
+            beacon_node_fallback: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
             enable_high_validator_count_metrics: false,
@@ -257,6 +262,16 @@ impl Config {
                         .map_err(|_| format!("Unknown API topic to broadcast: {t}"))
                 })
                 .collect::<Result<_, _>>()?;
+        }
+
+        /*
+         * Beacon node fallback
+         */
+        if let Some(sync_tolerance) = &validator_client_config.beacon_nodes_sync_tolerances {
+            config.beacon_node_fallback.sync_tolerances =
+                BeaconNodeSyncDistanceTiers::from_vec(sync_tolerance)?;
+        } else {
+            config.beacon_node_fallback.sync_tolerances = BeaconNodeSyncDistanceTiers::default();
         }
 
         /*
