@@ -327,6 +327,7 @@ fn test_blobs_by_range_chunked_rpc() {
         let rpc_request = RequestType::BlobsByRange(BlobsByRangeRequest {
             start_slot: 0,
             count: slot_count,
+            max_blobs_per_block: E::max_blobs_per_block(),
         });
 
         // BlocksByRange Response
