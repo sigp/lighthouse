@@ -381,7 +381,7 @@ mod tests {
         // medium 9..=12
         // large: 13..
 
-        let distance_tiers = BeaconNodeSyncDistanceTiers::from_vec(&vec![4, 4, 4]).unwrap();
+        let distance_tiers = BeaconNodeSyncDistanceTiers::from_vec(&[4, 4, 4]).unwrap();
 
         let synced_low = new_distance_tier(0, &distance_tiers);
         let synced_high = new_distance_tier(4, &distance_tiers);
