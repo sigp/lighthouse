@@ -1,6 +1,5 @@
 use validator_client::{
-    beacon_node_health::BeaconNodeSyncDistanceTiers, config::DEFAULT_WEB3SIGNER_KEEP_ALIVE,
-    ApiTopic, Config,
+    config::DEFAULT_WEB3SIGNER_KEEP_ALIVE, ApiTopic, BeaconNodeSyncDistanceTiers, Config,
 };
 
 use crate::exec::CommandLineTestExec;

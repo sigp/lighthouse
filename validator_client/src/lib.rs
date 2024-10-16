@@ -21,6 +21,7 @@ pub mod initialized_validators;
 pub mod validator_store;
 
 pub use beacon_node_fallback::ApiTopic;
+pub use beacon_node_health::BeaconNodeSyncDistanceTiers;
 pub use config::Config;
 use initialized_validators::InitializedValidators;
 use lighthouse_metrics::set_gauge;

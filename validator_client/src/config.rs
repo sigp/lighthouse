@@ -1,9 +1,7 @@
 use crate::beacon_node_fallback::ApiTopic;
 use crate::cli::ValidatorClient;
 use crate::graffiti_file::GraffitiFile;
-use crate::{
-    beacon_node_fallback, beacon_node_health::BeaconNodeSyncDistanceTiers, http_api, http_metrics,
-};
+use crate::{beacon_node_fallback, http_api, http_metrics, BeaconNodeSyncDistanceTiers};
 use clap::ArgMatches;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_required};
 use directory::{
