@@ -2094,7 +2094,7 @@ fn sampling_batch_requests_not_enough_responses_returned() {
     r.assert_sampling_request_status(block_root, &column_indexes, &vec![]);
 
     // Split the indexes to simulate the case where the supernode doesn't have the requested column.
-    let (_column_indexes_supernode_does_not_have, column_indexes_to_complete) =
+    let (column_indexes_supernode_does_not_have, column_indexes_to_complete) =
         column_indexes.split_at(1);
 
     // Complete the requests but only partially, so a NotEnoughResponsesReturned error occurs.
@@ -2109,7 +2109,11 @@ fn sampling_batch_requests_not_enough_responses_returned() {
     );
 
     // The request status should be set to NoPeers since the supernode, the only peer, returned not enough responses.
-    r.assert_sampling_request_status(block_root, &vec![], &column_indexes);
+    r.assert_sampling_request_status(
+        block_root,
+        &vec![],
+        &column_indexes_supernode_does_not_have.to_vec(),
+    );
 
     // The sampling request stalls.
     r.expect_empty_network();
