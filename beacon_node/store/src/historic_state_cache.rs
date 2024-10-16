@@ -4,6 +4,13 @@ use lru::LruCache;
 use std::num::NonZeroUsize;
 use types::{BeaconState, ChainSpec, EthSpec, Slot};
 
+/// Holds a combination of finalized states in two formats:
+/// - `hdiff_buffers`: Format close to an SSZ serialized state for rapid application of diffs on top
+///   of it
+/// - `states`: Deserialized states for direct use or for rapid application of blocks (replay)
+///
+/// An example use: when requesting state data for consecutive slots, this cache allows the node to
+/// apply diffs once on the first request, and latter just apply blocks one at a time.
 #[derive(Debug)]
 pub struct HistoricStateCache<E: EthSpec> {
     hdiff_buffers: LruCache<Slot, HDiffBuffer>,
