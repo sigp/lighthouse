@@ -2152,7 +2152,7 @@ impl<E: EthSpec> BeaconState<E> {
                 pubkey: validator.pubkey,
                 withdrawal_credentials: validator.withdrawal_credentials,
                 amount: excess_balance,
-                signature: Signature::infinity()?,
+                signature: Signature::infinity()?.into(),
                 slot: spec.genesis_slot,
             })?;
         }

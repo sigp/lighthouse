@@ -73,13 +73,14 @@ pub fn upgrade_to_electra<E: EthSpec>(
         validator.activation_eligibility_epoch = spec.far_future_epoch;
         let pubkey = validator.pubkey;
         let withdrawal_credentials = validator.withdrawal_credentials;
+        dbg!("is this getting hit");
 
         post.pending_deposits_mut()?
             .push(PendingDeposit {
                 pubkey,
                 withdrawal_credentials,
                 amount: balance_copy,
-                signature: Signature::infinity()?,
+                signature: Signature::infinity()?.into(),
                 slot: spec.genesis_slot,
             })
             .map_err(Error::MilhouseError)?;

@@ -5,7 +5,6 @@ use crate::common::{
 };
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
 use crate::VerifySignatures;
-use errors::DepositInvalid;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 use types::typenum::U33;
 
@@ -455,12 +454,7 @@ pub fn apply_deposit<E: EthSpec>(
                 pubkey: deposit_data.pubkey,
                 withdrawal_credentials: deposit_data.withdrawal_credentials,
                 amount,
-                signature: deposit_data.signature.decompress().map_err(|_| {
-                    BlockProcessingError::DepositInvalid {
-                        index: deposit_index,
-                        reason: DepositInvalid::BadBlsBytes,
-                    }
-                })?,
+                signature: deposit_data.signature,
                 slot: spec.genesis_slot, // Use `genesis_slot` to distinguish from a pending deposit request
             })?;
         } else {
@@ -478,6 +472,7 @@ pub fn apply_deposit<E: EthSpec>(
 
         // [Modified in Electra:EIP7251]
         if state.fork_name_unchecked() >= ForkName::Electra {
+            let amount = 0;
             // Create a new validator.
             let mut validator = Validator {
                 pubkey: deposit_data.pubkey,
@@ -535,12 +530,7 @@ pub fn apply_deposit<E: EthSpec>(
                 pubkey: deposit_data.pubkey,
                 withdrawal_credentials: deposit_data.withdrawal_credentials,
                 amount,
-                signature: deposit_data.signature.decompress().map_err(|_| {
-                    BlockProcessingError::DepositInvalid {
-                        index: deposit_index,
-                        reason: DepositInvalid::BadBlsBytes,
-                    }
-                })?,
+                signature: deposit_data.signature,
                 slot: spec.genesis_slot, // Use `genesis_slot` to distinguish from a pending deposit request
             })?;
         }
@@ -706,7 +696,7 @@ fn is_valid_switch_to_compounding_request<E: EthSpec>(
 
     let source_validator = state.get_validator(source_index)?;
     // Verify the source withdrawal credentials
-    if let Some(withdrawal_address) = source_validator.get_execution_withdrawal_address(spec) {
+    if let Some(withdrawal_address) = source_validator.get_eth1_withdrawal_credential(spec) {
         if withdrawal_address != consolidation_request.source_address {
             return Ok(false);
         }
@@ -721,6 +711,7 @@ fn is_valid_switch_to_compounding_request<E: EthSpec>(
         return Ok(false);
     }
     // Verify exits for source has not been initiated
+    // TODO(pawan): this could be set by process_registry_updates too
     if source_validator.exit_epoch != spec.far_future_epoch {
         return Ok(false);
     }
@@ -733,6 +724,7 @@ pub fn process_consolidation_request<E: EthSpec>(
     consolidation_request: &ConsolidationRequest,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    dbg!("here");
     if is_valid_switch_to_compounding_request(state, consolidation_request, spec)? {
         let Some(source_index) = state
             .pubkey_cache()

@@ -168,7 +168,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let mut next_epoch_cache = PreEpochCache::new_for_next_epoch(state)?;
 
     let pending_deposits_ctxt = if fork_name.electra_enabled() && conf.pending_deposits {
-        Some(PendingDepositsContext::new(state, spec)?)
+        Some(PendingDepositsContext::new(state, spec, &conf)?)
     } else {
         None
     };
@@ -367,7 +367,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
                     pubkey: deposit.pubkey,
                     withdrawal_credentials: deposit.withdrawal_credentials,
                     amount: deposit.amount,
-                    signature: deposit.signature.into(),
+                    signature: deposit.signature,
                 },
                 spec,
             )
@@ -869,7 +869,11 @@ fn process_single_slashing(
 }
 
 impl PendingDepositsContext {
-    fn new<E: EthSpec>(state: &BeaconState<E>, spec: &ChainSpec) -> Result<Self, Error> {
+    fn new<E: EthSpec>(
+        state: &BeaconState<E>,
+        spec: &ChainSpec,
+        config: &SinglePassConfig,
+    ) -> Result<Self, Error> {
         let available_for_processing = state
             .deposit_balance_to_consume()?
             .safe_add(state.get_activation_exit_churn_limit(spec)?)?;
@@ -925,8 +929,11 @@ impl PendingDepositsContext {
                 // balance update does not happen until *after* the registry update, so we don't need to
                 // account for changes to the effective balance that would push it below the ejection
                 // balance here.
-                let will_be_exited = validator.is_active_at(current_epoch)
-                    && validator.effective_balance <= spec.ejection_balance;
+                // Note: we only consider this if registry_updates are enabled in the config.
+                // EF tests require us to run epoch_processing functions in isolation.
+                let will_be_exited = config.registry_updates
+                    && (validator.is_active_at(current_epoch)
+                        && validator.effective_balance <= spec.ejection_balance);
                 is_validator_exited = already_exited || will_be_exited;
                 is_validator_withdrawn = validator.withdrawable_epoch < next_epoch;
             }

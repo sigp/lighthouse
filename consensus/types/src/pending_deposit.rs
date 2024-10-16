@@ -9,7 +9,6 @@ use tree_hash_derive::TreeHash;
     arbitrary::Arbitrary,
     Debug,
     PartialEq,
-    Eq,
     Hash,
     Clone,
     Serialize,
@@ -24,7 +23,7 @@ pub struct PendingDeposit {
     pub withdrawal_credentials: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
     pub amount: u64,
-    pub signature: Signature,
+    pub signature: SignatureBytes,
     pub slot: Slot,
 }
 
