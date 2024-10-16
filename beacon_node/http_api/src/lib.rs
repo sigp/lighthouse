@@ -4478,7 +4478,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter)
         .then(|task_spawner: TaskSpawner<T::EthSpec>| {
             task_spawner.blocking_response_task(Priority::P1, move || {
-                if let Some(logging_components) = SSE_LOGGING_COMPONENTS.lock().unwrap().as_ref() {
+                let logging_components_guard = match SSE_LOGGING_COMPONENTS.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner()
+                };
+                if let Some(logging_components) = logging_components_guard.as_ref() {
                     // Build a JSON stream
                     let s =
                         BroadcastStream::new(logging_components.sender.subscribe()).map(|msg| {

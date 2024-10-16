@@ -553,7 +553,10 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 graffiti_flag: self.config.graffiti,
                 spec: self.context.eth2_config.spec.clone(),
                 config: self.config.http_api.clone(),
-                sse_logging_components: SSE_LOGGING_COMPONENTS.lock().unwrap().clone(),
+                sse_logging_components: match SSE_LOGGING_COMPONENTS.lock(){
+                    Ok(guard) => guard.clone(),
+                    Err(poisoned) => poisoned.into_inner().clone()
+                },
                 slot_clock: self.slot_clock.clone(),
                 _phantom: PhantomData,
             });

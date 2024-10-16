@@ -637,14 +637,17 @@ fn run<E: EthSpec>(
     let filter_layer = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new("info"))
         .unwrap();
-
+    let sse_logging_layer = match SSE_LOGGING_COMPONENTS.lock(){
+        Ok(guard) => guard.clone(),
+        Err(poisoned) => poisoned.into_inner().clone()
+    };
     if let Err(e) = tracing_subscriber::registry()
         .with(filter_layer)
         .with(libp2p_layer)
         .with(discv5_layer)
         .with(file_logging_layer)
         .with(stdout_logging_layer)
-        .with(SSE_LOGGING_COMPONENTS.lock().unwrap().clone())
+        .with(sse_logging_layer)
         .with(MetricsLayer)
         .try_init()
     {
