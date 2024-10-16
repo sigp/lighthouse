@@ -54,10 +54,6 @@ fn bellatrix_block_large(fork_context: &ForkContext, spec: &ChainSpec) -> Beacon
 #[test]
 #[allow(clippy::single_match)]
 fn test_tcp_status_rpc() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::DEBUG;
-    let enable_logging = false;
-
     let rt = Arc::new(Runtime::new().unwrap());
 
     let spec = Arc::new(E::default_spec());
@@ -146,10 +142,6 @@ fn test_tcp_status_rpc() {
 #[test]
 #[allow(clippy::single_match)]
 fn test_tcp_blocks_by_range_chunked_rpc() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::DEBUG;
-    let enable_logging = false;
-
     let messages_to_send = 6;
 
     let rt = Arc::new(Runtime::new().unwrap());
@@ -290,10 +282,6 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
 #[test]
 #[allow(clippy::single_match)]
 fn test_blobs_by_range_chunked_rpc() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::DEBUG;
-    let enable_logging = false;
-
     let slot_count = 32;
     let messages_to_send = 34;
 
@@ -410,10 +398,6 @@ fn test_blobs_by_range_chunked_rpc() {
 #[test]
 #[allow(clippy::single_match)]
 fn test_tcp_blocks_by_range_over_limit() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::DEBUG;
-    let enable_logging = false;
-
     let messages_to_send = 5;
 
     let rt = Arc::new(Runtime::new().unwrap());
@@ -513,10 +497,6 @@ fn test_tcp_blocks_by_range_over_limit() {
 // Tests that a streamed BlocksByRange RPC Message terminates when all expected chunks were received
 #[test]
 fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::DEBUG;
-    let enable_logging = false;
-
     let messages_to_send = 10;
     let extra_messages_to_send = 10;
 
@@ -767,10 +747,6 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
 #[test]
 #[allow(clippy::single_match)]
 fn test_tcp_blocks_by_root_chunked_rpc() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::DEBUG;
-    let enable_logging = false;
-
     let messages_to_send = 6;
 
     let spec = Arc::new(E::default_spec());
@@ -907,10 +883,6 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
 // Tests a streamed, chunked BlocksByRoot RPC Message terminates when all expected reponses have been received
 #[test]
 fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::DEBUG;
-    let enable_logging = false;
-
     let messages_to_send: u64 = 10;
     let extra_messages_to_send: u64 = 10;
 
@@ -1103,9 +1075,6 @@ fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
 #[test]
 #[allow(clippy::single_match)]
 fn tcp_test_goodbye_rpc() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::DEBUG;
-    let enable_logging = false;
     goodbye_test(log_level, enable_logging, Protocol::Tcp);
 }
 
@@ -1113,8 +1082,5 @@ fn tcp_test_goodbye_rpc() {
 #[test]
 #[allow(clippy::single_match)]
 fn quic_test_goodbye_rpc() {
-    // set up the logging. The level and enabled logging or not
-    let log_level = Level::DEBUG;
-    let enable_logging = false;
     goodbye_test(log_level, enable_logging, Protocol::Quic);
 }

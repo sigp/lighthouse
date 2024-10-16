@@ -599,7 +599,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 }
             },
             AppRequestId::Router => {
-                crit!( %peer_id, "All BBRange requests belong to sync");
+                crit!(%peer_id, "All BBRange requests belong to sync");
                 return;
             }
         };
@@ -652,12 +652,12 @@ impl<T: BeaconChainTypes> Router<T> {
             AppRequestId::Sync(sync_id) => match sync_id {
                 id @ SyncRequestId::SingleBlock { .. } => id,
                 other => {
-                    crit!( request = ?other, "BlocksByRoot response on incorrect request");
+                    crit!(request = ?other, "BlocksByRoot response on incorrect request");
                     return;
                 }
             },
             AppRequestId::Router => {
-                crit!( %peer_id, "All BBRoot requests belong to sync");
+                crit!(%peer_id, "All BBRoot requests belong to sync");
                 return;
             }
         };
@@ -685,12 +685,12 @@ impl<T: BeaconChainTypes> Router<T> {
             AppRequestId::Sync(sync_id) => match sync_id {
                 id @ SyncRequestId::SingleBlob { .. } => id,
                 other => {
-                    crit!( request = ?other, "BlobsByRoot response on incorrect request");
+                    crit!(request = ?other, "BlobsByRoot response on incorrect request");
                     return;
                 }
             },
             AppRequestId::Router => {
-                crit!( %peer_id, "All BlobsByRoot requests belong to sync");
+                crit!(%peer_id, "All BlobsByRoot requests belong to sync");
                 return;
             }
         };
@@ -718,12 +718,12 @@ impl<T: BeaconChainTypes> Router<T> {
             AppRequestId::Sync(sync_id) => match sync_id {
                 id @ SyncRequestId::DataColumnsByRoot { .. } => id,
                 other => {
-                    crit!( request = ?other, "DataColumnsByRoot response on incorrect request");
+                    crit!(request = ?other, "DataColumnsByRoot response on incorrect request");
                     return;
                 }
             },
             AppRequestId::Router => {
-                crit!( %peer_id, "All DataColumnsByRoot requests belong to sync");
+                crit!(%peer_id, "All DataColumnsByRoot requests belong to sync");
                 return;
             }
         };

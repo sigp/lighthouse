@@ -231,7 +231,7 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                     .unwrap_or_else(|e| {
                         warn!(
                             error = ?e,
-                            slot = ?next_slot,
+                            slot = %next_slot,
                             "Unable to prepare proposer with lookahead"
                         );
                         None
@@ -246,7 +246,7 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                             if let Err(e) = tx.notify_fork_choice_complete(next_slot) {
                                 warn!(
                                     error = ?e,
-                                    slot = ?next_slot,
+                                    slot = %next_slot,
                                     "Error signalling fork choice waiter"
                                 );
                             }
@@ -350,8 +350,8 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
 
     debug!(
         ?head_block_root,
-        state_slot = ?state.slot(),
-        ?current_slot,
+        state_slot = %state.slot(),
+        %current_slot,
         "Advanced head state one slot"
     );
 
@@ -399,8 +399,8 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
         debug!(
             ?head_block_root,
             next_epoch_shuffling_root = ?shuffling_id.shuffling_decision_block,
-            state_epoch = ?state.current_epoch(),
-            current_epoch = ?current_slot.epoch(T::EthSpec::slots_per_epoch()),
+            state_epoch = %state.current_epoch(),
+            current_epoch = %current_slot.epoch(T::EthSpec::slots_per_epoch()),
             "Primed proposer and attester caches"
         );
     }
@@ -424,9 +424,9 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
     if starting_slot < current_slot {
         warn!(
             %head_block_root,
-            advanced_slot = ?final_slot,
-            ?current_slot,
-            ?starting_slot,
+            advanced_slot = %final_slot,
+            %current_slot,
+            %starting_slot,
             msg = "system resources may be overloaded",
             "State advance too slow"
         );

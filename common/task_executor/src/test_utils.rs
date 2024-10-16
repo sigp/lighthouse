@@ -54,10 +54,3 @@ impl Drop for TestRuntime {
         }
     }
 }
-
-// impl TestRuntime {
-//     pub fn set_logger(&mut self, log: Logger) {
-//         self.log = log.clone();
-//         self.task_executor.log = log;
-//     }
-// }

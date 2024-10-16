@@ -545,7 +545,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                             // checkpoint, i.e. there aren't any forks starting at a block that is a
                             // strict ancestor of old_finalized_checkpoint.
                             warn!(
-                                head_block_root = %head_hash,
+                                head_block_root = ?head_hash,
                                 %head_slot,
                                 "Found a chain that should already have been pruned"
                             );
@@ -601,7 +601,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
             if let Some(abandoned_head) = potentially_abandoned_head {
                 debug!(
-                    head_block_root = %abandoned_head,
+                    head_block_root = ?abandoned_head,
                     %head_slot,
                     "Pruning head"
                 );

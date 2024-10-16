@@ -3349,11 +3349,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .execution_payload()?
                 .parent_hash()
                 .into_root(),
-                 ""
             );
             info!(
                 merge_transition_block_root = ?block.message().tree_hash_root(),
-                 ""
             );
             info!(
                 merge_transition_execution_hash = ?block
@@ -3361,7 +3359,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .execution_payload()?
                 .block_hash()
                 .into_root(),
-                 ""
             );
         }
         Ok(ExecutedBlock::new(
@@ -3829,7 +3826,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
             error!(
-                msg= "Restoring fork choice from disk",
+                msg = "Restoring fork choice from disk",
                 error = ?e,
                 "Database write failed!"
             );
@@ -5673,7 +5670,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             crit!(
                 error = ?e,
                 latest_valid_ancestor=?op.latest_valid_ancestor(),
-                block_root=?op.block_root(),
+                block_root = ?op.block_root(),
                 "Failed to process invalid payload"
             );
         }

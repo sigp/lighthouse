@@ -183,7 +183,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 head_block = %head_root,
                 %head_slot,
                 %current_slot,
-                sync_state =%current_sync_state,
+                sync_state = %current_sync_state,
                 "Slot timer"
             );
 

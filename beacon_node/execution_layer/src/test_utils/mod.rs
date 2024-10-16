@@ -9,7 +9,7 @@ use bytes::Bytes;
 use execution_block_generator::PoWBlock;
 use handle_rpc::handle_rpc;
 use kzg::Kzg;
-// use logging::test_logger;
+
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -518,7 +518,7 @@ impl warp::reject::Reject for AuthError {}
 pub struct Context<E: EthSpec> {
     pub config: Config,
     pub jwt_key: JwtKey,
-    // pub log: Logger,
+
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
     pub execution_block_generator: RwLock<ExecutionBlockGenerator<E>>,
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,

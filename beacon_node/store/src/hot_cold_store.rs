@@ -947,7 +947,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 .put_state(*state_root, block_root, state)?;
             debug!(
                 ?state_root,
-                slot = ?state.slot(),
+                slot = %state.slot(),
                 "Cached state"
             );
         }
@@ -1850,11 +1850,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self.spec
     }
 
-    // /// Get a reference to the `Logger` used by the database.
-    // pub fn logger(&self) -> &Logger {
-    //     &self.log
-    // }
-
     /// Fetch a copy of the current split slot from memory.
     pub fn get_split_slot(&self) -> Slot {
         self.split.read_recursive().slot
@@ -2631,7 +2626,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         ops.push(StoreOp::DeleteDataColumns(block_root, indices));
                     }
                 } else if self.blobs_exist(&block_root)? {
-                    trace!(%slot, %block_root, "Pruning blobs of block");
+                    trace!(%slot, ?block_root, "Pruning blobs of block");
                     last_pruned_block_root = Some(block_root);
                     ops.push(StoreOp::DeleteBlobs(block_root));
                 }

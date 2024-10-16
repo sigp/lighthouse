@@ -419,7 +419,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
             if is_outdated(&chain.target_head_slot, &chain.target_head_root)
                 || chain.available_peers() == 0
             {
-                debug!( %chain,"Purging out of finalized chain");
+                debug!(%chain,"Purging out of finalized chain");
                 Some((*id, chain.is_syncing(), RangeSyncType::Finalized))
             } else {
                 None

@@ -54,9 +54,7 @@ use eth2::types::{
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
-use logging::crit;
-use logging::SSELoggingComponents;
-use logging::SSE_LOGGING_COMPONENTS;
+use logging::{crit, SSELoggingComponents, SSE_LOGGING_COMPONENTS};
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
@@ -1281,7 +1279,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(network_globals.clone())
-        // .and(log_filter.clone())
         .then(
             move |block_bytes: Bytes,
                   consensus_version: ForkName,
@@ -1321,7 +1318,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(network_globals.clone())
-        // .and(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_contents: PublishBlockRequest<T::EthSpec>,
@@ -1355,7 +1351,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(network_globals.clone())
-        // .and(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_bytes: Bytes,
@@ -1400,7 +1395,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(network_globals.clone())
-        // .and(log_filter.clone())
         .then(
             move |block_contents: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
                   task_spawner: TaskSpawner<T::EthSpec>,
@@ -1431,7 +1425,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(network_globals.clone())
-        // .and(log_filter.clone())
         .then(
             move |block_bytes: Bytes,
                   task_spawner: TaskSpawner<T::EthSpec>,
@@ -1470,7 +1463,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(network_globals.clone())
-        // .and(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   blinded_block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
@@ -1502,7 +1494,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(network_globals.clone())
-        // .and(log_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_bytes: Bytes,
@@ -1787,7 +1778,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
         .and(reprocess_send_filter)
-        // .and(log_filter.clone())
         .then(
             // V1 and V2 are identical except V2 has a consensus version header in the request.
             // We only require this header for SSZ deserialization, which isn't supported for
@@ -2078,7 +2068,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
-        // .and(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -2114,7 +2103,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
-        // .and(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -2538,7 +2526,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(block_id_or_err)
         .and(warp::path::end())
         .and(warp_utils::json::json())
-        // .and(log_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -3127,7 +3114,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(not_while_syncing_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        // .and(log_filter.clone())
         .then(
             |epoch: Epoch,
              not_synced_filter: Result<(), Rejection>,
@@ -3155,7 +3141,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        // .and(log_filter.clone())
         .then(
             |endpoint_version: EndpointVersion,
              slot: Slot,
@@ -3517,7 +3502,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(warp_utils::json::json())
         .and(network_tx_filter)
-        // .and(log_filter.clone())
         .then(
             |not_synced_filter: Result<(), Rejection>,
              task_spawner: TaskSpawner<T::EthSpec>,
@@ -3545,7 +3529,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(validator_subscription_tx_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        // .and(log_filter.clone())
         .then(
             |subscriptions: Vec<api_types::BeaconCommitteeSubscription>,
              validator_subscription_tx: Sender<ValidatorSubscriptionMessage>,
@@ -3594,7 +3577,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(not_while_syncing_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        // .and(log_filter.clone())
         .and(warp_utils::json::json())
         .then(
             |not_synced_filter: Result<(), Rejection>,
@@ -3645,7 +3627,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        // .and(log_filter.clone())
         .and(warp_utils::json::json())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
@@ -3820,7 +3801,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(validator_subscription_tx_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        // .and(log_filter.clone())
         .then(
             |subscriptions: Vec<types::SyncCommitteeSubscription>,
              validator_subscription_tx: Sender<ValidatorSubscriptionMessage>,
@@ -4328,7 +4308,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        // .and(log_filter.clone())
         .then(|blocks, task_spawner: TaskSpawner<T::EthSpec>, chain| {
             task_spawner.blocking_json_task(Priority::P1, move || {
                 block_rewards::compute_block_rewards(blocks, chain)

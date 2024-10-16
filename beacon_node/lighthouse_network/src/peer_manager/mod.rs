@@ -182,7 +182,7 @@ impl<E: EthSpec> PeerManager<E> {
     pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
         // Update the sync status if required
         if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            debug!(%peer_id, %reason, score= %info.score(), "Sending goodbye to peer");
+            debug!(%peer_id, %reason, score = %info.score(), "Sending goodbye to peer");
             if matches!(reason, GoodbyeReason::IrrelevantNetwork) {
                 info.update_sync_status(SyncStatus::IrrelevantPeer);
             }
@@ -487,7 +487,7 @@ impl<E: EthSpec> PeerManager<E> {
     ) {
         let client = self.network_globals.client(peer_id);
         let score = self.network_globals.peers.read().score(peer_id);
-        debug!( %protocol, %err, %client,%peer_id, %score, ?direction, "RPC Error");
+        debug!( %protocol, %err, %client, %peer_id, %score, ?direction, "RPC Error");
         metrics::inc_counter_vec(
             &metrics::TOTAL_RPC_ERRORS_PER_CLIENT,
             &[
@@ -654,7 +654,7 @@ impl<E: EthSpec> PeerManager<E> {
                 }
             } else {
                 // if we don't know the meta-data, request it
-                debug!(%peer_id,"Requesting first metadata from peer");
+                debug!(%peer_id, "Requesting first metadata from peer");
                 self.events.push(PeerManagerEvent::MetaData(*peer_id));
             }
         } else {

@@ -582,7 +582,7 @@ where
                     // We will restart it again after we've finished setting up for genesis.
                     while TcpListener::bind(http_listen).is_err() {
                         warn!(
-                            port = ?http_listen,
+                            port = %http_listen,
                             "Waiting for HTTP server port to open"
                         );
                         tokio::time::sleep(Duration::from_secs(1)).await;

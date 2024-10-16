@@ -347,8 +347,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             if !duty.match_attestation_data::<E>(attestation_data, &self.context.eth2_config.spec) {
                 crit!(
                     validator = ?duty.pubkey,
-                    ?duty.slot,
-                    attestation_slot = ?attestation_data.slot,
+                    %duty.slot,
+                    attestation_slot = %attestation_data.slot,
                     duty_index = duty.committee_index,
                     attestation_index = attestation_data.index,
                     "Inconsistent validator duties during signing"

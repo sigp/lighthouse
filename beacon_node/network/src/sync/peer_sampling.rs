@@ -373,7 +373,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
             }
             Err(err) => {
                 debug!(
-                    block = %self.block_root,
+                    block_root = %self.block_root,
                     ?column_indexes,
                     "Sample download error"
                 );
@@ -384,7 +384,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                 for column_index in column_indexes {
                     let Some(request) = self.column_requests.get_mut(column_index) else {
                         warn!(
-                            block = %self.block_root,
+                            block_root = %self.block_root,
                             column_index,
                             "Active column sample request not found"
                         );

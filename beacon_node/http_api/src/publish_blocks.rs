@@ -709,7 +709,7 @@ fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
             msg = "system may be overloaded, block may be orphaned",
             provenance,
             delay_ms = delay.as_millis(),
-            slot = ?block.slot(),
+            slot = %block.slot(),
             ?root,
             "Block broadcast was delayed"
         )

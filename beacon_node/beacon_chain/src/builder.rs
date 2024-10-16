@@ -975,10 +975,10 @@ where
                 &head.beacon_state,
             ) {
                 crit!(
-                    head_block_root =%head.beacon_block_root,
-                    head_slot =%head.beacon_block.slot(),
-                    finalized_epoch =%head.beacon_state.finalized_checkpoint().epoch,
-                    wss_checkpoint_epoch =%wss_checkpoint.epoch,
+                    head_block_root = %head.beacon_block_root,
+                    head_slot = %head.beacon_block.slot(),
+                    finalized_epoch = %head.beacon_state.finalized_checkpoint().epoch,
+                    wss_checkpoint_epoch = %wss_checkpoint.epoch,
                     error = ?e,
                     "Weak subjectivity checkpoint verification failed on startup!"
                 );
@@ -988,9 +988,9 @@ where
         }
 
         info!(
-            head_state =%head.beacon_state_root(),
-            head_block =%head.beacon_block_root,
-            head_slot =%head.beacon_block.slot(),
+            head_state = %head.beacon_state_root(),
+            head_block = %head.beacon_block_root,
+            head_slot = %head.beacon_block.slot(),
             "Beacon chain initialized"
         );
 

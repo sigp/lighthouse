@@ -701,7 +701,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         if self.libp2p.subscribe(topic.clone()) {
                             subscribed_topics.push(topic);
                         } else {
-                            warn!( %topic, "Could not subscribe to topic");
+                            warn!(%topic, "Could not subscribe to topic");
                         }
                     }
                 }
@@ -922,7 +922,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         if let Some(new_fork_name) = fork_context.from_context_bytes(new_fork_digest) {
             info!(
                 old_fork = ?fork_context.current_fork(),
-                ?new_fork_name,
+                new_fork = ?new_fork_name,
                 "Transitioned to new fork"
             );
             fork_context.update_current_fork(*new_fork_name);

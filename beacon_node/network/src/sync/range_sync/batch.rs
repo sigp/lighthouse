@@ -94,6 +94,7 @@ pub enum BatchProcessingResult {
     FaultyFailure,
     NonFaultyFailure,
 }
+
 #[derive(Debug)]
 /// A segment of a chain.
 pub struct BatchInfo<E: EthSpec, B: BatchConfig = RangeSyncBatchConfig> {

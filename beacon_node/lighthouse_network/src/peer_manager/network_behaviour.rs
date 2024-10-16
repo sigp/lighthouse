@@ -110,7 +110,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
             ]
             .concat();
 
-            debug!(peer_id=%enr.peer_id(), ?multiaddrs, "Dialing peer");
+            debug!(peer_id = %enr.peer_id(), ?multiaddrs, "Dialing peer");
             return Poll::Ready(ToSwarm::Dial {
                 opts: DialOpts::peer_id(enr.peer_id())
                     .condition(PeerCondition::Disconnected)

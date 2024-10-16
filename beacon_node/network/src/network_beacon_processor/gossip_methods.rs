@@ -778,7 +778,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     debug!(
                         block_root = ?gossip_verified_blob.block_root(),
                         proposer_index = gossip_verified_blob.block_proposer_index(),
-                        slot = ?gossip_verified_blob.slot(),
+                        slot = %gossip_verified_blob.slot(),
                         delay = ?delay,
                         commitment = %gossip_verified_blob.kzg_commitment(),
                         "Gossip blob arrived late"
@@ -1162,7 +1162,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
 
                 info!(
-                    slot = ?verified_block.block.slot(),
+                    slot = %verified_block.block.slot(),
                     root = ?verified_block.block_root,
                     "New block received"
                 );
@@ -2041,7 +2041,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     LightClientOptimisticUpdateError::TooEarly => {
                         metrics::register_optimistic_update_error(&e);
                         debug!(
-                            ?peer_id,
+                            %peer_id,
                             error = ?e,
                             "Light client optimistic update too early"
                         );
@@ -2550,7 +2550,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             AttnError::HeadBlockFinalized { beacon_block_root } => {
                 debug!(
                     block_root = ?beacon_block_root,
-                    attestation_slot = ?failed_att.attestation().data().slot,
+                    attestation_slot = %failed_att.attestation().data().slot,
                     "Ignored attestation to finalized block"
                 );
 
@@ -3043,14 +3043,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         error = e,
                         ?path,
                         ?block_root,
-                        slot = ?block.slot(),
+                        slot = %block.slot(),
                         "Failed to store invalid block/error"
                     )
                 } else {
                     info!(
                         ?path,
                         ?block_root,
-                        slot = ?block.slot(),
+                        slot = %block.slot(),
                         "Stored invalid block/error"
                     )
                 }

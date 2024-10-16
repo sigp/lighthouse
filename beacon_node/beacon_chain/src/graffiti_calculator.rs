@@ -3,7 +3,6 @@ use crate::BeaconChainTypes;
 use execution_layer::{http::ENGINE_GET_CLIENT_VERSION_V1, CommitPrefix, ExecutionLayer};
 use logging::crit;
 use serde::{Deserialize, Serialize};
-
 use slot_clock::SlotClock;
 use std::{fmt::Debug, time::Duration};
 use task_executor::TaskExecutor;
@@ -100,7 +99,7 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
                 {
                     Ok(engine_versions) => engine_versions,
                     Err(el_error) => {
-                        warn!(error = ?el_error, "Failed to determine execution engine version for graffiti" );
+                        warn!(error = ?el_error, "Failed to determine execution engine version for graffiti");
                         return default_graffiti;
                     }
                 };

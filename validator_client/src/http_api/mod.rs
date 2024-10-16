@@ -82,7 +82,6 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub graffiti_flag: Option<Graffiti>,
     pub spec: Arc<ChainSpec>,
     pub config: Config,
-    // pub log: Logger,
     pub sse_logging_components: Option<SSELoggingComponents>,
     pub slot_clock: T,
     pub _phantom: PhantomData<E>,
@@ -224,7 +223,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let graffiti_flag_filter = warp::any().map(move || inner_graffiti_flag);
 
     let inner_ctx = ctx.clone();
-    //let log_filter = warp::any().map(move || inner_ctx.log.clone());
 
     let inner_slot_clock = ctx.slot_clock.clone();
     let slot_clock_filter = warp::any().map(move || inner_slot_clock.clone());
@@ -1214,7 +1212,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
-        // .and(log_filter.clone())
         .then(|request, validator_store, task_executor| {
             blocking_json_task(move || remotekeys::import(request, validator_store, task_executor))
         });
@@ -1224,7 +1221,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_store_filter)
         .and(task_executor_filter)
-        // .and(log_filter.clone())
         .then(|request, validator_store, task_executor| {
             blocking_json_task(move || remotekeys::delete(request, validator_store, task_executor))
         });

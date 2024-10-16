@@ -63,7 +63,6 @@ slasher = { workspace = true }
 validator_manager = { path = "../validator_manager" }
 logging = { workspace = true }
 
-
 [dev-dependencies]
 tempfile = { workspace = true }
 validator_dir = { workspace = true }

@@ -257,7 +257,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // check if we have this batch
         let batch = match self.batches.get_mut(&batch_id) {
             None => {
-                debug!( epoch = ?batch_id,"Received a block for unknown batch");
+                debug!( epoch = %batch_id,"Received a block for unknown batch");
                 // A batch might get removed when the chain advances, so this is non fatal.
                 return Ok(KeepChain);
             }
@@ -287,7 +287,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     let awaiting_batches = batch_id
                         .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
                         / EPOCHS_PER_BATCH;
-                    debug!(epoch = ?batch_id, blocks = received, batch_state = self.visualize_batch_state(), ?awaiting_batches,"Batch downloaded");
+                    debug!(epoch = %batch_id, blocks = received, batch_state = self.visualize_batch_state(), ?awaiting_batches,"Batch downloaded");
 
                     // pre-emptively request more blocks from peers whilst we process current blocks,
                     self.request_batches(network)?;
@@ -899,7 +899,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 return Ok(KeepChain);
             }
             debug!(
-                batch_epoch = ?batch_id,
+                batch_epoch = %batch_id,
                 batch_state = ?batch.state(),
                 ?peer_id,
                 ?request_id,

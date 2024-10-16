@@ -471,9 +471,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                     (_, Err(e)) => {
                         debug!(
-                            batch_epoch = ?epoch,
-                            first_block_slot = ?start_slot,
-                            last_block_slot = ?end_slot,
+                            batch_epoch = %epoch,
+                            first_block_slot = %start_slot.map_or("None".to_string(), |slot| slot.to_string()),
+                            last_block_slot = %end_slot.map_or("None".to_string(), |slot| slot.to_string()),
                             processed_blobs = n_blobs,
                             error = %e.message,
                             service = "sync",

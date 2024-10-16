@@ -98,7 +98,6 @@ impl TaskExecutor {
             handle_provider: handle.into(),
             exit,
             signal_tx,
-            // log,
         }
     }
 
@@ -265,7 +264,6 @@ impl TaskExecutor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        // let log = self.log.clone();
 
         let timer = metrics::start_timer_vec(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]);
         metrics::inc_gauge_vec(&metrics::BLOCKING_TASKS_COUNT, &[name]);
@@ -316,7 +314,6 @@ impl TaskExecutor {
     ) -> Option<F::Output> {
         let timer = metrics::start_timer_vec(&metrics::BLOCK_ON_TASKS_HISTOGRAM, &[name]);
         metrics::inc_gauge_vec(&metrics::BLOCK_ON_TASKS_COUNT, &[name]);
-        // let log = self.log.clone();
         let handle = self.handle()?;
         let exit = self.exit();
 

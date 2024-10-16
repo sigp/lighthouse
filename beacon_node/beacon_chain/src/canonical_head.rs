@@ -1071,8 +1071,8 @@ fn perform_debug_logging<T: BeaconChainTypes>(
         debug!(
             new_head_weight = ?fork_choice
             .get_block_weight(&new_view.head_block_root),
-        new_head =?new_view.head_block_root,
-        old_head_weight =?fork_choice
+        new_head = ?new_view.head_block_root,
+        old_head_weight = ?fork_choice
             .get_block_weight(&old_view.head_block_root),
         old_head = ?old_view.head_block_root,
             "Fork choice updated head"
@@ -1409,7 +1409,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
             metrics::inc_counter(&metrics::BEACON_BLOCK_DELAY_HEAD_SLOT_START_EXCEEDED_TOTAL);
             debug!(
                 block_root = ?head_block_root,
-                proposer_index =head_block_proposer_index,
+                proposer_index = head_block_proposer_index,
                 slot = %head_block_slot,
                 total_delay_ms = block_delay_total.as_millis(),
                 observed_delay_ms = format_delay(&block_delays.observed),
@@ -1425,7 +1425,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
         } else {
             debug!(
                 block_root = ?head_block_root,
-                proposer_index=head_block_proposer_index,
+                proposer_index= head_block_proposer_index,
                 slot = %head_block_slot,
                 total_delay_ms = block_delay_total.as_millis(),
                 observed_delay_ms = format_delay(&block_delays.observed),

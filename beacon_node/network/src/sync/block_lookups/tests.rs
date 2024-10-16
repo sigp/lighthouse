@@ -207,9 +207,9 @@ impl TestRig {
         }
     }
 
-    // fn log(&self, msg: &str) {
-    //     info!(self.log, "TEST_RIG"; "msg" => msg);
-    // }
+    fn log(msg: &str) {
+        info!(msg, "TEST_RIG");
+    }
 
     fn after_deneb(&self) -> bool {
         matches!(self.fork_name, ForkName::Deneb | ForkName::Electra)

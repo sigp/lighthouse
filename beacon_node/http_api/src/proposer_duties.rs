@@ -51,7 +51,7 @@ pub fn proposer_duties<T: BeaconChainTypes>(
         if let Some(duties) = try_proposer_duties_from_cache(request_epoch, chain)? {
             Ok(duties)
         } else {
-            debug!(?request_epoch, "Proposer cache miss");
+            debug!(%request_epoch, "Proposer cache miss");
             compute_and_cache_proposer_duties(request_epoch, chain)
         }
     } else if request_epoch
