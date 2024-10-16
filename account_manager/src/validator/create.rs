@@ -218,12 +218,8 @@ pub fn read_wallet_password_from_cli(
     }
 }
 
-pub fn validate_mnemonic_length(len: &str) -> Result<(), String> {
-    match len
-        .parse::<usize>()
-        .ok()
-        .and_then(|words| MnemonicType::for_word_count(words).ok())
-    {
+pub fn validate_mnemonic_length(len: usize) -> Result<(), String> {
+    match MnemonicType::for_word_count(len).ok() {
         Some(_) => Ok(()),
         None => Err(format!(
             "Mnemonic length must be one of {}",
