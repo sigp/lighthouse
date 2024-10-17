@@ -69,6 +69,8 @@ lighthouse \
 > Be sure to remove `./validators.json` after the import is successful since it
 > contains unencrypted validator keystores.
 
+> Note: To import validators with validator-manager using keystore files created using the staking deposit CLI, refer to [Managing Validators](./validator-manager-api.md#import).
+
 ## Detailed Guide
 
 This guide will create two validators and import them to a VC. For simplicity,

@@ -8,7 +8,9 @@ use types::EthSpec;
 
 pub mod common;
 pub mod create_validators;
+pub mod delete_validators;
 pub mod import_validators;
+pub mod list_validators;
 pub mod move_validators;
 
 pub const CMD: &str = "validator_manager";
@@ -51,11 +53,14 @@ pub fn cli_app() -> Command {
                 .help("Prints help information")
                 .action(ArgAction::HelpLong)
                 .display_order(0)
-                .help_heading(FLAG_HEADER),
+                .help_heading(FLAG_HEADER)
+                .global(true),
         )
         .subcommand(create_validators::cli_app())
         .subcommand(import_validators::cli_app())
         .subcommand(move_validators::cli_app())
+        .subcommand(list_validators::cli_app())
+        .subcommand(delete_validators::cli_app())
 }
 
 /// Run the account manager, returning an error if the operation did not succeed.
@@ -83,6 +88,13 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), 
                     Some((move_validators::CMD, matches)) => {
                         move_validators::cli_run(matches, dump_config).await
                     }
+                    Some((list_validators::CMD, matches)) => {
+                        list_validators::cli_run(matches, dump_config).await
+                    }
+                    Some((delete_validators::CMD, matches)) => {
+                        delete_validators::cli_run(matches, dump_config).await
+                    }
+                    Some(("", _)) => Err("No command supplied. See --help.".to_string()),
                     Some((unknown, _)) => Err(format!(
                         "{} is not a valid {} command. See --help.",
                         unknown, CMD

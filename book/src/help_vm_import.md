@@ -8,6 +8,14 @@ command.
 Usage: lighthouse validator_manager import [OPTIONS] --validators-file <PATH_TO_JSON_FILE>
 
 Options:
+      --builder-boost-factor <UINT64>
+          When provided, the imported validator will use this percentage
+          multiplier to apply to the builder's payload value when choosing
+          between a builder payload header and payload from the local execution
+          node.
+      --builder-proposals <builder-proposals>
+          When provided, the imported validator will attempt to create blocks
+          via builder rather than the local EL. [possible values: true, false]
   -d, --datadir <DIR>
           Used to specify a custom root data directory for lighthouse keys and
           databases. Defaults to $HOME/.lighthouse/{network} where network is
@@ -17,6 +25,10 @@ Options:
           Specifies the verbosity level used when emitting logs to the terminal.
           [default: info] [possible values: info, debug, trace, warn, error,
           crit]
+      --gas-limit <UINT64>
+          When provided, the imported validator will use this gas limit. It is
+          recommended to leave this as the default value by not specifying this
+          flag.
       --genesis-state-url <URL>
           A URL of a beacon-API compatible server from which to download the
           genesis state. Checkpoint sync server URLs can generally be used with
@@ -50,6 +62,12 @@ Options:
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
           values: mainnet, gnosis, chiado, sepolia, holesky]
+      --password <STRING>
+          Password of the keystore file.
+      --prefer-builder-proposals <prefer-builder-proposals>
+          When provided, the imported validator will always prefer blocks
+          constructed by builders, regardless of payload value. [possible
+          values: true, false]
       --safe-slots-to-import-optimistically <INTEGER>
           Used to coordinate manual overrides of the
           SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should only
@@ -58,6 +76,9 @@ Options:
           attack at the PoS transition block. Incorrect use of this flag can
           cause your node to possibly accept an invalid chain or sync more
           slowly. Be extremely careful with this flag.
+      --suggested-fee-recipient <ETH1_ADDRESS>
+          When provided, the imported validator will use the suggested fee
+          recipient. Omit this flag to use the default value from the VC.
   -t, --testnet-dir <DIR>
           Path to directory containing eth2_testnet specs. Defaults to a
           hard-coded Lighthouse testnet. Only effective if there is no existing
@@ -89,10 +110,8 @@ Options:
       --vc-token <PATH>
           The file containing a token required by the validator client.
       --vc-url <HTTP_ADDRESS>
-          A HTTP(S) address of a validator client using the keymanager-API. If
-          this value is not supplied then a 'dry run' will be conducted where no
-          changes are made to the validator client. [default:
-          http://localhost:5062]
+          A HTTP(S) address of a validator client using the keymanager-API.
+          [default: http://localhost:5062]
 
 Flags:
       --disable-log-timestamp
@@ -121,6 +140,9 @@ Flags:
           contain sensitive information about your validator and so this flag
           should be used with caution. For Windows users, the log file
           permissions will be inherited from the parent folder.
+      --standard-format
+          Use this flag when the validator keystore files are generated using
+          staking-deposit-cli or ethstaker-deposit-cli.
       --stdin-inputs
           If present, read all user inputs from stdin instead of tty.
 ```
