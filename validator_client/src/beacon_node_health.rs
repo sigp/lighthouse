@@ -1,8 +1,6 @@
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display, Formatter};
-use std::str::FromStr;
 use types::Slot;
 
 /// Sync distances between 0 and DEFAULT_SYNC_TOLERANCE are considered `synced`.
@@ -50,29 +48,6 @@ impl Default for BeaconNodeSyncDistanceTiers {
     }
 }
 
-impl FromStr for BeaconNodeSyncDistanceTiers {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, String> {
-        let values: (u64, u64, u64) = s
-            .split(',')
-            .map(|s| {
-                s.parse()
-                    .map_err(|e| format!("Invalid sync distance modifier: {e:?}"))
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .collect_tuple()
-            .ok_or("Invalid number of sync distance modifiers".to_string())?;
-
-        Ok(BeaconNodeSyncDistanceTiers {
-            synced: Slot::new(values.0),
-            small: Slot::new(values.0 + values.1),
-            medium: Slot::new(values.0 + values.1 + values.2),
-        })
-    }
-}
-
 impl BeaconNodeSyncDistanceTiers {
     /// Takes a given sync distance and determines its tier based on the `sync_tolerance` defined by
     /// the CLI.
@@ -86,6 +61,17 @@ impl BeaconNodeSyncDistanceTiers {
         } else {
             SyncDistanceTier::Large
         }
+    }
+
+    pub fn from_vec(tiers: &[u64]) -> Result<Self, String> {
+        if tiers.len() != 3 {
+            return Err("Invalid number of sync distance modifiers".to_string());
+        }
+        Ok(BeaconNodeSyncDistanceTiers {
+            synced: Slot::new(tiers[0]),
+            small: Slot::new(tiers[0] + tiers[1]),
+            medium: Slot::new(tiers[0] + tiers[1] + tiers[2]),
+        })
     }
 }
 
@@ -293,7 +279,6 @@ mod tests {
         SyncDistanceTier,
     };
     use crate::beacon_node_fallback::Config;
-    use std::str::FromStr;
     use types::Slot;
 
     #[test]
@@ -396,7 +381,7 @@ mod tests {
         // medium 9..=12
         // large: 13..
 
-        let distance_tiers = BeaconNodeSyncDistanceTiers::from_str("4,4,4").unwrap();
+        let distance_tiers = BeaconNodeSyncDistanceTiers::from_vec(&[4, 4, 4]).unwrap();
 
         let synced_low = new_distance_tier(0, &distance_tiers);
         let synced_high = new_distance_tier(4, &distance_tiers);

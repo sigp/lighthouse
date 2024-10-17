@@ -379,6 +379,13 @@ fn metrics_port_flag() {
         .with_config(|config| assert_eq!(config.http_metrics.listen_port, 9090));
 }
 #[test]
+fn metrics_port_flag_default() {
+    CommandLineTest::new()
+        .flag("metrics", None)
+        .run()
+        .with_config(|config| assert_eq!(config.http_metrics.listen_port, 5064));
+}
+#[test]
 fn metrics_allow_origin_flag() {
     CommandLineTest::new()
         .flag("metrics", None)
@@ -437,7 +444,7 @@ fn produce_block_v3_flag() {
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
-        .with_config(|config| assert!(config.gas_limit.is_none()));
+        .with_config(|config| assert!(config.gas_limit == Some(30_000_000)));
 }
 #[test]
 fn gas_limit_flag() {
@@ -627,7 +634,7 @@ fn disable_latency_measurement_service() {
 fn latency_measurement_service() {
     // This flag is DEPRECATED so has no effect, but should still be accepted.
     CommandLineTest::new()
-        .flag("latency-measurement-service", Some("false"))
+        .flag("latency-measurement-service", None)
         .run()
         .with_config(|config| {
             assert!(config.enable_latency_measurement_service);

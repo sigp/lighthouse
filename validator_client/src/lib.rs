@@ -3,7 +3,7 @@ mod beacon_node_fallback;
 mod beacon_node_health;
 mod block_service;
 mod check_synced;
-mod cli;
+pub mod cli;
 mod duties_service;
 mod graffiti_file;
 mod http_metrics;
@@ -22,7 +22,6 @@ pub mod validator_store;
 
 pub use beacon_node_fallback::ApiTopic;
 pub use beacon_node_health::BeaconNodeSyncDistanceTiers;
-pub use cli::cli_app;
 pub use config::Config;
 use initialized_validators::InitializedValidators;
 use lighthouse_metrics::set_gauge;
@@ -33,6 +32,7 @@ pub use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use crate::beacon_node_fallback::{
     start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode,
 };
+use crate::cli::ValidatorClient;
 use crate::doppelganger_service::DoppelgangerService;
 use crate::graffiti_file::GraffitiFile;
 use crate::initialized_validators::Error::UnableToOpenVotingKeystore;
@@ -112,8 +112,9 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
     pub async fn new_from_cli(
         context: RuntimeContext<E>,
         cli_args: &ArgMatches,
+        validator_client_config: &ValidatorClient,
     ) -> Result<Self, String> {
-        let config = Config::from_cli(cli_args, context.log())
+        let config = Config::from_cli(cli_args, validator_client_config, context.log())
             .map_err(|e| format!("Unable to initialize config: {}", e))?;
         Self::new(context, config).await
     }
