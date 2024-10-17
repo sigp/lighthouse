@@ -82,7 +82,7 @@ pub type AvailabilityAndReconstructedColumns<E> = (Availability<E>, DataColumnSi
 #[derive(Debug)]
 pub enum DataColumnReconstructionResult<E: EthSpec> {
     Success(AvailabilityAndReconstructedColumns<E>),
-    NotRequired(&'static str),
+    NotStarted(&'static str),
     RecoveredColumnsNotImported(&'static str),
 }
 
@@ -536,7 +536,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         {
             ReconstructColumnsDecision::Yes(pending_components) => pending_components,
             ReconstructColumnsDecision::No(reason) => {
-                return Ok(DataColumnReconstructionResult::NotRequired(reason));
+                return Ok(DataColumnReconstructionResult::NotStarted(reason));
             }
         };
 

@@ -3193,7 +3193,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         Some((availability_processing_status, data_columns_to_publish))
                     })
             }
-            DataColumnReconstructionResult::NotRequired(reason)
+            DataColumnReconstructionResult::NotStarted(reason)
             | DataColumnReconstructionResult::RecoveredColumnsNotImported(reason) => {
                 // We use metric here because logging this would be *very* noisy.
                 metrics::inc_counter_vec(
