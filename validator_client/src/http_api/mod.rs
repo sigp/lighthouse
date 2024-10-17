@@ -31,6 +31,7 @@ use eth2::lighthouse_vc::{
 use lighthouse_version::version_with_platform;
 use logging::crit;
 use logging::SSELoggingComponents;
+use logging::SSE_LOGGING_COMPONENTS;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
@@ -1222,46 +1223,51 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     // Subscribe to get VC logs via Server side events
     // /lighthouse/logs
-    // let get_log_events = warp::path("lighthouse")
-    //     .and(warp::path("logs"))
-    //     .and(warp::path::end())
-    //     // .and(sse_component_filter)
-    //     .and_then(|| {
-    //         warp_utils::task::blocking_task(move || {
-    //             if let Some(logging_components) = sse_component {
-    //                 // Build a JSON stream
-    //                 let s =
-    //                     BroadcastStream::new(logging_components.sender.subscribe()).map(|msg| {
-    //                         match msg {
-    //                             Ok(data) => {
-    //                                 // Serialize to json
-    //                                 match data.to_json_string() {
-    //                                     // Send the json as a Server Sent Event
-    //                                     Ok(json) => Event::default().json_data(json).map_err(|e| {
-    //                                         warp_utils::reject::server_sent_event_error(format!(
-    //                                             "{:?}",
-    //                                             e
-    //                                         ))
-    //                                     }),
-    //                                     Err(e) => Err(warp_utils::reject::server_sent_event_error(
-    //                                         format!("Unable to serialize to JSON {}", e),
-    //                                     )),
-    //                                 }
-    //                             }
-    //                             Err(e) => Err(warp_utils::reject::server_sent_event_error(
-    //                                 format!("Unable to receive event {}", e),
-    //                             )),
-    //                         }
-    //                     });
+    let get_log_events = warp::path("lighthouse")
+        .and(warp::path("logs"))
+        .and(warp::path::end())
+        .and_then(|| {
+            warp_utils::task::blocking_task(move || {
+                let logging_components_guard = match SSE_LOGGING_COMPONENTS.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => poisoned.into_inner()
+                };
+                if let Some(logging_components) = logging_components_guard.as_ref() {
+                    // Build a JSON stream
+                    let s =
+                        BroadcastStream::new(logging_components.sender.subscribe()).map(|msg| {
+                            match msg {
+                                Ok(data) => {
+                                    // Serialize to json
+                                    match serde_json::to_string(&data)
+                                    .map_err(|e| format!("{:?}", e)) 
+                                    {
+                                        // Send the json as a Server Sent Event
+                                        Ok(json) => Event::default().json_data(json).map_err(|e| {
+                                            warp_utils::reject::server_sent_event_error(format!(
+                                                "{:?}",
+                                                e
+                                            ))
+                                        }),
+                                        Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                            format!("Unable to serialize to JSON {}", e),
+                                        )),
+                                    }
+                                }
+                                Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                    format!("Unable to receive event {}", e),
+                                )),
+                            }
+                        });
 
-    //                 Ok::<_, warp::Rejection>(warp::sse::reply(warp::sse::keep_alive().stream(s)))
-    //             } else {
-    //                 Err(warp_utils::reject::custom_server_error(
-    //                     "SSE Logging is not enabled".to_string(),
-    //                 ))
-    //             }
-    //         })
-    //     });
+                    Ok::<_, warp::Rejection>(warp::sse::reply(warp::sse::keep_alive().stream(s)))
+                } else {
+                    Err(warp_utils::reject::custom_server_error(
+                        "SSE Logging is not enabled".to_string(),
+                    ))
+                }
+            })
+        });
 
     let routes = warp::any()
         .and(authorization_header_filter)
@@ -1313,7 +1319,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 )),
         )
         // The auth route and logs  are the only routes that are allowed to be accessed without the API token.
-        .or(warp::get().and(get_auth))
+        .or(warp::get().and(get_auth.or(get_log_events.boxed())))
         // Maps errors into HTTP responses.
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.
