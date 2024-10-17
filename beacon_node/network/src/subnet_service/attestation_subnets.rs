@@ -434,7 +434,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     // duration of the subscription.
                     let min_ttl = self
                         .beacon_chain
-                      i  .slot_clock
+                        .slot_clock
                         .duration_to_slot(exact_subnet.slot + 1)
                         .map(|duration| std::time::Instant::now() + duration);
                     Some(SubnetDiscovery {
