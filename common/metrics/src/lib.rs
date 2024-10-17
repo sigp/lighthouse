@@ -20,10 +20,10 @@
 //! ## Example
 //!
 //! ```rust
-//! use lighthouse_metrics::*;
+//! use metrics::*;
 //! use std::sync::LazyLock;
 //!
-//! // These metrics are "magically" linked to the global registry defined in `lighthouse_metrics`.
+//! // These metrics are "magically" linked to the global registry defined in `metrics`.
 //! pub static RUN_COUNT: LazyLock<Result<IntCounter>> = LazyLock::new(|| try_create_int_counter(
 //!     "runs_total",
 //!     "Total number of runs"

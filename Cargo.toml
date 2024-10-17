@@ -30,7 +30,7 @@ members = [
     "common/eth2_interop_keypairs",
     "common/eth2_network_config",
     "common/eth2_wallet_manager",
-    "common/lighthouse_metrics",
+    "common/metrics",
     "common/lighthouse_version",
     "common/lockfile",
     "common/logging",
@@ -141,6 +141,7 @@ milhouse = "0.3"
 num_cpus = "1"
 parking_lot = "0.12"
 paste = "1"
+prometheus = "0.13"
 quickcheck = "1"
 quickcheck_macros = "1"
 quote = "1"
@@ -213,7 +214,7 @@ gossipsub = { path = "beacon_node/lighthouse_network/gossipsub/" }
 http_api = { path = "beacon_node/http_api" }
 int_to_bytes = { path = "consensus/int_to_bytes" }
 kzg = { path = "crypto/kzg" }
-lighthouse_metrics = { path = "common/lighthouse_metrics" }
+metrics = { path = "common/metrics" }
 lighthouse_network = { path = "beacon_node/lighthouse_network" }
 lighthouse_version = { path = "common/lighthouse_version" }
 lockfile = { path = "common/lockfile" }

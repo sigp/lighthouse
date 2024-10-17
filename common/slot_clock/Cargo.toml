@@ -6,5 +6,5 @@ edition = { workspace = true }
 
 [dependencies]
 types = { workspace = true }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 parking_lot = { workspace = true }

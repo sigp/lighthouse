@@ -1,4 +1,4 @@
-pub use lighthouse_metrics::*;
+pub use metrics::*;
 use std::sync::LazyLock;
 
 pub static BUILD_REWARD_CACHE_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {

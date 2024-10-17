@@ -14,7 +14,7 @@ eth2 = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
 lighthouse_version = { workspace = true }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 slog = { workspace = true }
 store = { workspace = true }
 regex = { workspace = true }

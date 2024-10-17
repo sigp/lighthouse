@@ -35,7 +35,7 @@ slot_clock = { workspace = true }
 tempfile = { workspace = true }
 rand = { workspace = true }
 zeroize = { workspace = true }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 ethers-core = { workspace = true }
 builder_client = { path = "../builder_client" }
 fork_choice = { workspace = true }

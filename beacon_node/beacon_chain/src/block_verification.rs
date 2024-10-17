@@ -70,7 +70,7 @@ use derivative::Derivative;
 use eth2::types::{BlockGossip, EventKind};
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
-use lighthouse_metrics::TryExt;
+use metrics::TryExt;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;

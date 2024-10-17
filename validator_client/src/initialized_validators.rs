@@ -16,8 +16,8 @@ use account_utils::{
     ZeroizeString,
 };
 use eth2_keystore::Keystore;
-use lighthouse_metrics::set_gauge;
 use lockfile::{Lockfile, LockfileError};
+use metrics::set_gauge;
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 use reqwest::{Certificate, Client, Error as ReqwestError, Identity};
 use slog::{debug, error, info, warn, Logger};
