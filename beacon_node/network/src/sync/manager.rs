@@ -474,13 +474,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::SingleBlob { id } => {
                 self.on_single_blob_response(id, peer_id, RpcEvent::RPCError(error))
             }
-            SyncRequestId::DataColumnsByRoot(req_id, requester) => self
-                .on_data_columns_by_root_response(
-                    req_id,
-                    requester,
-                    peer_id,
-                    RpcEvent::RPCError(error),
-                ),
+            SyncRequestId::DataColumnsByRoot(req_id) => {
+                self.on_data_columns_by_root_response(req_id, peer_id, RpcEvent::RPCError(error))
+            }
             SyncRequestId::RangeBlockAndBlobs { id } => {
                 if let Some(sender_id) = self.network.range_request_failed(id) {
                     match sender_id {
@@ -1106,10 +1102,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         seen_timestamp: Duration,
     ) {
         match request_id {
-            SyncRequestId::DataColumnsByRoot(req_id, requester) => {
+            SyncRequestId::DataColumnsByRoot(req_id) => {
                 self.on_data_columns_by_root_response(
                     req_id,
-                    requester,
                     peer_id,
                     match data_column {
                         Some(data_column) => RpcEvent::Response(data_column, seen_timestamp),
@@ -1151,7 +1146,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn on_data_columns_by_root_response(
         &mut self,
         req_id: DataColumnsByRootRequestId,
-        requester: DataColumnsByRootRequester,
         peer_id: PeerId,
         data_column: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
@@ -1159,7 +1153,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.network
                 .on_data_columns_by_root_response(req_id, peer_id, data_column)
         {
-            match requester {
+            match req_id.requester {
                 DataColumnsByRootRequester::Sampling(id) => {
                     if let Some((requester, result)) =
                         self.sampling
