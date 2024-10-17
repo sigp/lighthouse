@@ -239,6 +239,37 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         }
     }
 
+    /// Produce a signed beacon block header AND a merkle proof for the KZG commitments.
+    ///
+    /// This method is more efficient than generating each part separately as it reuses hashing.
+    pub fn signed_block_header_and_kzg_commitments_proof(
+        &self,
+    ) -> Result<
+        (
+            SignedBeaconBlockHeader,
+            FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
+        ),
+        Error,
+    > {
+        let proof = self.message().body().kzg_commitments_merkle_proof()?;
+        let body_root = *proof.last().unwrap();
+
+        let block_header = BeaconBlockHeader {
+            slot: self.slot(),
+            proposer_index: self.message().proposer_index(),
+            parent_root: self.parent_root(),
+            state_root: self.state_root(),
+            body_root,
+        };
+
+        let signed_header = SignedBeaconBlockHeader {
+            message: block_header,
+            signature: self.signature().clone(),
+        };
+
+        Ok((signed_header, proof))
+    }
+
     /// Convenience accessor for the block's slot.
     pub fn slot(&self) -> Slot {
         self.message().slot()

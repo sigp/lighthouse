@@ -28,6 +28,7 @@ pub mod eth1_chain;
 mod eth1_finalization_cache;
 pub mod events;
 pub mod execution_payload;
+pub mod fetch_blobs;
 pub mod fork_choice_signal;
 pub mod fork_revert;
 pub mod graffiti_calculator;

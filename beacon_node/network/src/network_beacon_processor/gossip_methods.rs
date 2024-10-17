@@ -925,7 +925,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
                 info!(
                     self.log,
-                    "Gossipsub blob processed, imported fully available block";
+                    "Gossipsub blob processed - imported fully available block";
                     "block_root" => %block_root
                 );
                 self.chain.recompute_head_at_current_slot().await;
@@ -936,9 +936,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
-                trace!(
+                debug!(
                     self.log,
-                    "Processed blob, waiting for other components";
+                    "Processed gossip blob - waiting for other components";
                     "slot" => %slot,
                     "blob_index" => %blob_index,
                     "block_root" => %block_root,
@@ -1079,7 +1079,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 message_id,
                 peer_id,
                 peer_client,
-                block,
+                block.clone(),
                 reprocess_tx.clone(),
                 seen_duration,
             )
@@ -1497,6 +1497,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "slot" => slot,
                     "block_root" => %block_root,
                 );
+
+                // Block is valid, we can now attempt fetching blobs from EL using version hashes
+                // derived from kzg commitments from the block, without having to wait for all blobs
+                // to be sent from the peers if we already have them.
+                self.fetch_engine_blobs_and_publish(block.clone(), *block_root)
+                    .await;
             }
             Err(BlockError::ParentUnknown { .. }) => {
                 // This should not occur. It should be checked by `should_forward_block`.
