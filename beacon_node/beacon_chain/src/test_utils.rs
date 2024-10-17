@@ -2790,12 +2790,12 @@ pub fn build_log(level: slog::Level, logger_type: LoggerType) -> Logger {
     match logger_type {
         LoggerType::Test => {
             let drain = FullFormat::new(TermDecorator::new().build()).build().fuse();
-            let drain = Async::new(drain).build().fuse();
+            let drain = Async::new(drain).chan_size(10_000).build().fuse();
             Logger::root(drain.filter_level(level).fuse(), o!())
         }
         LoggerType::CI => {
             let drain = FullFormat::new(ci_decorator()).build().fuse();
-            let drain = Async::new(drain).build().fuse();
+            let drain = Async::new(drain).chan_size(10_000).build().fuse();
             Logger::root(drain.filter_level(level).fuse(), o!())
         }
         LoggerType::Null => {

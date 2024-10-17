@@ -6,6 +6,7 @@ pub use self::requests::{BlocksByRootSingleRequest, DataColumnsByRootSingleBlock
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
 use super::manager::BlockProcessType;
 use super::range_sync::{BatchId, ByRangeRequestType, ChainId};
+use super::SyncMessage;
 use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::NetworkMessage;
@@ -250,6 +251,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
+    pub fn send_sync_message(&mut self, sync_message: SyncMessage<T::EthSpec>) {
+        self.network_beacon_processor
+            .send_sync_message(sync_message);
+    }
+
     /// Returns the ids of all the requests made to the given peer_id.
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) -> Vec<SyncRequestId> {
         let failed_range_ids =
@@ -395,6 +401,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     request: RequestType::BlobsByRange(BlobsByRangeRequest {
                         start_slot: *request.start_slot(),
                         count: *request.count(),
+                        max_blobs_per_block: T::EthSpec::max_blobs_per_block(),
                     }),
                     request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
                 })
@@ -618,45 +625,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         lookup_id: SingleLookupId,
         peer_id: PeerId,
         block_root: Hash256,
-        downloaded_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        expected_blobs: usize,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
-        let Some(block) = downloaded_block.or_else(|| {
-            // If the block is already being processed or fully validated, retrieve how many blobs
-            // it expects. Consider any stage of the block. If the block root has been validated, we
-            // can assert that this is the correct value of `blob_kzg_commitments_count`.
-            match self.chain.get_block_process_status(&block_root) {
-                BlockProcessStatus::Unknown => None,
-                BlockProcessStatus::NotValidated(block)
-                | BlockProcessStatus::ExecutionValidated(block) => Some(block.clone()),
-            }
-        }) else {
-            // Wait to download the block before downloading blobs. Then we can be sure that the
-            // block has data, so there's no need to do "blind" requests for all possible blobs and
-            // latter handle the case where if the peer sent no blobs, penalize.
-            // - if `downloaded_block_expected_blobs` is Some = block is downloading or processing.
-            // - if `num_expected_blobs` returns Some = block is processed.
-            //
-            // Lookup sync event safety: Reaching this code means that a block is not in any pre-import
-            // cache nor in the request state of this lookup. Therefore, the block must either: (1) not
-            // be downloaded yet or (2) the block is already imported into the fork-choice.
-            // In case (1) the lookup must either successfully download the block or get dropped.
-            // In case (2) the block will be downloaded, processed, reach `DuplicateFullyImported`
-            // and get dropped as completed.
-            return Ok(LookupRequestResult::Pending("waiting for block download"));
-        };
-        let expected_blobs = block.num_expected_blobs();
-        let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
-
-        // Check if we are in deneb, before peerdas and inside da window
-        if !self.chain.should_fetch_blobs(block_epoch) {
-            return Ok(LookupRequestResult::NoRequestNeeded("blobs not required"));
-        }
-
-        // No data required for this block
-        if expected_blobs == 0 {
-            return Ok(LookupRequestResult::NoRequestNeeded("no data"));
-        }
-
         let imported_blob_indexes = self
             .chain
             .data_availability_checker
@@ -759,35 +729,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         lookup_id: SingleLookupId,
         block_root: Hash256,
-        downloaded_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
-        let Some(block) =
-            downloaded_block.or_else(|| match self.chain.get_block_process_status(&block_root) {
-                BlockProcessStatus::Unknown => None,
-                BlockProcessStatus::NotValidated(block)
-                | BlockProcessStatus::ExecutionValidated(block) => Some(block.clone()),
-            })
-        else {
-            // Wait to download the block before downloading columns. Then we can be sure that the
-            // block has data, so there's no need to do "blind" requests for all possible columns and
-            // latter handle the case where if the peer sent no columns, penalize.
-            // - if `downloaded_block_expected_blobs` is Some = block is downloading or processing.
-            // - if `num_expected_blobs` returns Some = block is processed.
-            return Ok(LookupRequestResult::Pending("waiting for block download"));
-        };
-        let expected_blobs = block.num_expected_blobs();
-        let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
-
-        // Check if we are into peerdas and inside da window
-        if !self.chain.should_fetch_custody_columns(block_epoch) {
-            return Ok(LookupRequestResult::NoRequestNeeded("columns not required"));
-        }
-
-        // No data required for this block
-        if expected_blobs == 0 {
-            return Ok(LookupRequestResult::NoRequestNeeded("no data"));
-        }
-
         let custody_indexes_imported = self
             .chain
             .data_availability_checker

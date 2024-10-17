@@ -86,12 +86,6 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     #[superstruct(only(Deneb, Electra), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
-    #[superstruct(only(Electra), partial_getter(copy))]
-    pub deposit_requests_root: Hash256,
-    #[superstruct(only(Electra), partial_getter(copy))]
-    pub withdrawal_requests_root: Hash256,
-    #[superstruct(only(Electra), partial_getter(copy))]
-    pub consolidation_requests_root: Hash256,
 }
 
 impl<E: EthSpec> ExecutionPayloadHeader<E> {
@@ -214,9 +208,6 @@ impl<E: EthSpec> ExecutionPayloadHeaderDeneb<E> {
             withdrawals_root: self.withdrawals_root,
             blob_gas_used: self.blob_gas_used,
             excess_blob_gas: self.excess_blob_gas,
-            deposit_requests_root: Hash256::zero(),
-            withdrawal_requests_root: Hash256::zero(),
-            consolidation_requests_root: Hash256::zero(),
         }
     }
 }
@@ -308,9 +299,6 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadElectra<E>> for ExecutionPayloadHe
             withdrawals_root: payload.withdrawals.tree_hash_root(),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
-            deposit_requests_root: payload.deposit_requests.tree_hash_root(),
-            withdrawal_requests_root: payload.withdrawal_requests.tree_hash_root(),
-            consolidation_requests_root: payload.consolidation_requests.tree_hash_root(),
         }
     }
 }

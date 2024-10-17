@@ -679,6 +679,14 @@ mod ssz_static {
         SszStaticHandler::<PendingPartialWithdrawal, MinimalEthSpec>::electra_and_later().run();
         SszStaticHandler::<PendingPartialWithdrawal, MainnetEthSpec>::electra_and_later().run();
     }
+
+    #[test]
+    fn execution_requests() {
+        SszStaticHandler::<ExecutionRequests<MainnetEthSpec>, MainnetEthSpec>::electra_and_later()
+            .run();
+        SszStaticHandler::<ExecutionRequests<MinimalEthSpec>, MinimalEthSpec>::electra_and_later()
+            .run();
+    }
 }
 
 #[test]
