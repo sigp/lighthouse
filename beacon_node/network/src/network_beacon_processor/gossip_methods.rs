@@ -1293,7 +1293,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(e @ BlockError::BlobNotRequired(_)) => {
                 // TODO(das): penalty not implemented yet as other clients may still send us blobs
                 // during early stage of implementation.
-                debug!(error = %e,%peer_id, "Received blobs for slot after PeerDAS epoch from peer");
+                debug!(error = %e, %peer_id, "Received blobs for slot after PeerDAS epoch from peer");
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }

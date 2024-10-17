@@ -567,7 +567,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // result
         let batch = match &self.current_processing_batch {
             Some(processing_id) if *processing_id != batch_id => {
-                debug!(batch_epoch = ?batch_id, expected_batch_epoch = ?processing_id,"Unexpected batch result");
+                debug!(batch_epoch = %batch_id.as_u64(), expected_batch_epoch = processing_id.as_u64(),"Unexpected batch result");
                 return Ok(ProcessResult::Successful);
             }
             None => {

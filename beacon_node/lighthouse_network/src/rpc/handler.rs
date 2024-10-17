@@ -50,12 +50,6 @@ impl SubstreamId {
     }
 }
 
-impl fmt::Display for SubstreamId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 type InboundSubstream<E> = InboundFramed<Stream, E>;
 
 /// Events the handler emits to the behaviour.
@@ -974,7 +968,7 @@ where
                 )
                 .is_some()
             {
-                crit!(id = %self.current_outbound_substream_id, "Duplicate outbound substream id");
+                crit!(id = ?self.current_outbound_substream_id, "Duplicate outbound substream id");
             }
             self.current_outbound_substream_id.0 += 1;
         }

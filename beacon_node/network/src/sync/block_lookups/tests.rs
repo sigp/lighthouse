@@ -34,6 +34,7 @@ use lighthouse_network::NetworkGlobals;
 use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
 use store::MemoryStore;
 use tokio::sync::mpsc;
+use tracing::info;
 use types::data_column_sidecar::ColumnIndex;
 use types::test_utils::TestRandom;
 use types::{

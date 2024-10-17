@@ -381,7 +381,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(graffiti_file_filter.clone())
         .and(graffiti_flag_filter)
-        // .and(log_filter.clone())
         .then(
             |validator_store: Arc<ValidatorStore<T, E>>,
              graffiti_file: Option<GraffitiFile>,
@@ -814,7 +813,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
-        // .and(log_filter.clone())
         .then(move |request, validator_store, task_executor| {
             blocking_json_task(move || {
                 if allow_keystore_export {
@@ -1059,7 +1057,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(slot_clock_filter)
-        // .and(log_filter.clone())
         .and(task_executor_filter.clone())
         .then(
             |pubkey: PublicKey,
@@ -1174,7 +1171,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(secrets_dir_filter)
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
-        // .and(log_filter.clone())
         .then(
             move |request, validator_dir, secrets_dir, validator_store, task_executor| {
                 let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
@@ -1195,7 +1191,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
-        // .and(log_filter.clone())
         .then(|request, validator_store, task_executor| {
             blocking_json_task(move || keystores::delete(request, validator_store, task_executor))
         });

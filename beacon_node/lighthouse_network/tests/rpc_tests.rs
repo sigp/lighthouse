@@ -1019,7 +1019,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
 
 /// Establishes a pair of nodes and disconnects the pair based on the selected protocol via an RPC
 /// Goodbye message.
-fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
+fn goodbye_test(protocol: Protocol) {
     let rt = Arc::new(Runtime::new().unwrap());
 
     let spec = Arc::new(E::default_spec());
@@ -1075,12 +1075,12 @@ fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
 #[test]
 #[allow(clippy::single_match)]
 fn tcp_test_goodbye_rpc() {
-    goodbye_test(log_level, enable_logging, Protocol::Tcp);
+    goodbye_test(Protocol::Tcp);
 }
 
 // Tests a Goodbye RPC message
 #[test]
 #[allow(clippy::single_match)]
 fn quic_test_goodbye_rpc() {
-    goodbye_test(log_level, enable_logging, Protocol::Quic);
+    goodbye_test(Protocol::Quic);
 }

@@ -1247,7 +1247,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .and(network_globals.clone())
-        // .and(log_filter.clone())
         .then(
             move |block_contents: PublishBlockRequest<T::EthSpec>,
                   task_spawner: TaskSpawner<T::EthSpec>,
@@ -3384,7 +3383,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
-        // .and(log_filter.clone())
         .then(
             // V1 and V2 are identical except V2 has a consensus version header in the request.
             // We only require this header for SSZ deserialization, which isn't supported for
@@ -4293,7 +4291,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        // .and(log_filter.clone())
         .then(|query, task_spawner: TaskSpawner<T::EthSpec>, chain| {
             task_spawner.blocking_json_task(Priority::P1, move || {
                 block_rewards::get_block_rewards(query, chain)
