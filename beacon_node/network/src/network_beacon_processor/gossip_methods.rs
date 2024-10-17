@@ -4,6 +4,7 @@ use crate::{
     service::NetworkMessage,
     sync::SyncMessage,
 };
+use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::store::Error;
@@ -18,15 +19,8 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
     GossipVerifiedBlock, NotifyExecutionLayer,
 };
-use beacon_chain::{
-    blob_verification::{GossipBlobError, GossipVerifiedBlob},
-    data_availability_checker::DataColumnsToPublish,
-};
-use lighthouse_network::{
-    Client, MessageAcceptance, MessageId, PeerAction, PeerId, PubsubMessage, ReportSource,
-};
+use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use operation_pool::ReceivedPreCapella;
-use rand::prelude::SliceRandom;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -39,8 +33,8 @@ use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
     beacon_block::BlockImportSource, Attestation, AttestationRef, AttesterSlashing, BlobSidecar,
-    DataColumnSidecar, DataColumnSidecarList, DataColumnSubnetId, EthSpec, Hash256,
-    IndexedAttestation, LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
+    DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage,
     SyncSubnetId,
@@ -57,12 +51,6 @@ use beacon_processor::{
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
 /// messages.
 const STRICT_LATE_MESSAGE_PENALTIES: bool = false;
-
-/// Number of batches that supernodes split data columns into during publishing.
-pub const SUPERNODE_DATA_COLUMN_PUBLICATION_BATCHES: usize = 4;
-
-/// The delay applied by supernodes between the sending of each data column batch.
-pub const SUPERNODE_DATA_COLUMN_PUBLICATION_BATCH_INTERVAL: Duration = Duration::from_millis(200);
 
 /// An attestation that has been validated by the `BeaconChain`.
 ///
@@ -176,67 +164,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             source: ReportSource::Gossipsub,
             msg,
         })
-    }
-
-    pub(crate) fn handle_data_columns_to_publish(
-        self: &Arc<Self>,
-        data_columns_to_publish: DataColumnsToPublish<T::EthSpec>,
-        block_root: Hash256,
-    ) {
-        let Some(mut data_columns_to_publish) = data_columns_to_publish else {
-            return;
-        };
-        // let self_executor= self.clone();
-        let self_clone = self.clone();
-        self.executor.spawn(
-            async move {
-                let publish_fn = |columns: DataColumnSidecarList<T::EthSpec>| {
-                    self_clone.send_network_message(NetworkMessage::Publish {
-                        messages: columns
-                            .into_iter()
-                            .map(|d| {
-                                let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
-                                    d.index as usize,
-                                    &self_clone.chain.spec,
-                                );
-                                PubsubMessage::DataColumnSidecar(Box::new((subnet, d)))
-                            })
-                            .collect(),
-                    });
-                };
-
-                // If this node is a super node, permute the columns and split them into batches.
-                // The hope is that we won't need to publish some columns because we will receive them
-                // on gossip from other supernodes.
-                data_columns_to_publish.shuffle(&mut rand::thread_rng());
-                let batch_size =
-                    data_columns_to_publish.len() / SUPERNODE_DATA_COLUMN_PUBLICATION_BATCHES;
-
-                for batch in data_columns_to_publish.chunks(batch_size) {
-                    let already_seen = self_clone
-                        .chain
-                        .data_availability_checker
-                        .imported_custody_column_indexes(&block_root)
-                        .unwrap_or_default();
-                    let publishable = batch
-                        .iter()
-                        .filter(|col| !already_seen.contains(&col.index))
-                        .cloned()
-                        .collect::<Vec<_>>();
-
-                    if !publishable.is_empty() {
-                        debug!(
-                            self_clone.chain.logger(),
-                            "Publishing data column batch";
-                            "count" => publishable.len()
-                        );
-                        publish_fn(publishable);
-                    }
-                    tokio::time::sleep(SUPERNODE_DATA_COLUMN_PUBLICATION_BATCH_INTERVAL).await;
-                }
-            },
-            "handle_data_columns_publish",
-        );
     }
 
     /// Send a message on `message_tx` that the `message_id` sent by `peer_id` should be propagated on
@@ -759,6 +686,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | GossipDataColumnError::InvalidSubnetId { .. }
                     | GossipDataColumnError::InvalidInclusionProof { .. }
                     | GossipDataColumnError::InvalidKzgProof { .. }
+                    | GossipDataColumnError::UnexpectedDataColumn
+                    | GossipDataColumnError::InvalidColumnIndex(_)
+                    | GossipDataColumnError::InconsistentCommitmentsOrProofLength
                     | GossipDataColumnError::NotFinalizedDescendant { .. } => {
                         debug!(
                             self.log,
@@ -1067,9 +997,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .process_gossip_data_columns(vec![verified_data_column], || Ok(()))
             .await
         {
-            Ok((availability, data_columns_to_publish)) => {
-                self.handle_data_columns_to_publish(data_columns_to_publish, block_root);
-
+            Ok(availability) => {
                 match availability {
                     AvailabilityProcessingStatus::Imported(block_root) => {
                         // Note: Reusing block imported metric here
@@ -1097,7 +1025,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "block_root" => %block_root,
                         );
 
-                        // Potentially trigger reconstruction
+                        self.attempt_data_column_reconstruction(block_root).await;
                     }
                 }
             }

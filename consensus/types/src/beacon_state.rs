@@ -2131,7 +2131,7 @@ impl<E: EthSpec> BeaconState<E> {
         let max_effective_balance = self
             .validators()
             .get(validator_index)
-            .map(|validator| validator.get_validator_max_effective_balance(spec, current_fork))
+            .map(|validator| validator.get_max_effective_balance(spec, current_fork))
             .ok_or(Error::UnknownValidator(validator_index))?;
         Ok(std::cmp::min(
             *self

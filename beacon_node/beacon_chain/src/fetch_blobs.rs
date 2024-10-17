@@ -167,7 +167,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
                 // publish components already seen on gossip.
                 let is_supernode = chain_cloned
                     .data_availability_checker
-                    .get_custody_columns_count()
+                    .get_sampling_column_count()
                     == spec.number_of_columns;
 
                 // At the moment non supernodes are not required to publish any columns.
@@ -189,7 +189,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
                 for batch in all_data_columns.chunks(batch_size) {
                     let already_seen = chain_cloned
                         .data_availability_checker
-                        .imported_custody_column_indexes(&block_root)
+                        .cached_data_column_indexes(&block_root)
                         .unwrap_or_default();
                     let publishable = batch
                         .iter()
@@ -229,7 +229,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
 
         let blobs_to_publish = match chain
             .data_availability_checker
-            .imported_blob_indexes(&block_root)
+            .cached_blob_indexes(&block_root)
         {
             None => Either::Left(all_blobs_iter),
             Some(imported_blob_indices) => Either::Right(

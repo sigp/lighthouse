@@ -14,13 +14,13 @@ use types::EthSpec;
 use super::{
     config::OutboundRateLimiterConfig,
     rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr},
-    BehaviourAction, OutboundRequest, Protocol, RPCSend, ReqId,
+    BehaviourAction, Protocol, RPCSend, ReqId, RequestType,
 };
 
 /// A request that was rate limited or waiting on rate limited requests for the same peer and
 /// protocol.
-struct QueuedRequest<Id: ReqId, E: EthSpec> {
-    req: OutboundRequest<E>,
+struct QueuedRequest<Id: ReqId> {
+    req: RequestType,
     request_id: Id,
 }
 
@@ -28,7 +28,7 @@ pub(crate) struct SelfRateLimiter<Id: ReqId, E: EthSpec> {
     /// Requests queued for sending per peer. This requests are stored when the self rate
     /// limiter rejects them. Rate limiting is based on a Peer and Protocol basis, therefore
     /// are stored in the same way.
-    delayed_requests: HashMap<(PeerId, Protocol), VecDeque<QueuedRequest<Id, E>>>,
+    delayed_requests: HashMap<(PeerId, Protocol), VecDeque<QueuedRequest<Id>>>,
     /// The delay required to allow a peer's outbound request per protocol.
     next_peer_request: DelayQueue<(PeerId, Protocol)>,
     /// Rate limiter for our own requests.
@@ -70,7 +70,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         &mut self,
         peer_id: PeerId,
         request_id: Id,
-        req: OutboundRequest<E>,
+        req: RequestType,
     ) -> Result<BehaviourAction<Id, E>, Error> {
         let protocol = req.versioned_protocol().protocol();
         // First check that there are not already other requests waiting to be sent.
@@ -101,9 +101,9 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         limiter: &mut RateLimiter,
         peer_id: PeerId,
         request_id: Id,
-        req: OutboundRequest<E>,
+        req: RequestType,
         log: &Logger,
-    ) -> Result<BehaviourAction<Id, E>, (QueuedRequest<Id, E>, Duration)> {
+    ) -> Result<BehaviourAction<Id, E>, (QueuedRequest<Id>, Duration)> {
         match limiter.allows(&peer_id, &req) {
             Ok(()) => Ok(BehaviourAction::NotifyHandler {
                 peer_id,
@@ -211,7 +211,7 @@ mod tests {
     use crate::rpc::config::{OutboundRateLimiterConfig, RateLimiterConfig};
     use crate::rpc::rate_limiter::Quota;
     use crate::rpc::self_limiter::SelfRateLimiter;
-    use crate::rpc::{OutboundRequest, Ping, Protocol};
+    use crate::rpc::{Ping, Protocol, RequestType};
     use crate::service::api_types::{AppRequestId, RequestId, SyncRequestId};
     use libp2p::PeerId;
     use std::time::Duration;
@@ -235,7 +235,7 @@ mod tests {
                 RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
                     id: i,
                 })),
-                OutboundRequest::Ping(Ping { data: i as u64 }),
+                RequestType::Ping(Ping { data: i as u64 }),
             );
         }
 
