@@ -39,3 +39,15 @@ pub static HTTP_API_BLOCK_GOSSIP_TIMES: LazyLock<Result<HistogramVec>> = LazyLoc
         &["provenance"],
     )
 });
+pub static HTTP_API_STATE_SSZ_ENCODE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "http_api_state_ssz_encode_times",
+        "Time to SSZ encode a BeaconState for a response",
+    )
+});
+pub static HTTP_API_STATE_ROOT_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "http_api_state_root_times",
+        "Time to load a state root for a request",
+    )
+});

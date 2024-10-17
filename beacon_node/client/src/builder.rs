@@ -1060,21 +1060,21 @@ where
         self.db_path = Some(hot_path.into());
         self.freezer_db_path = Some(cold_path.into());
 
-        let inner_spec = spec.clone();
-        let deposit_contract_deploy_block = context
+        // Optionally grab the genesis state root.
+        // This will only be required if a DB upgrade to V22 is needed.
+        let genesis_state_root = context
             .eth2_network_config
             .as_ref()
-            .map(|config| config.deposit_contract_deploy_block)
-            .unwrap_or(0);
+            .and_then(|config| config.genesis_state_root::<E>().transpose())
+            .transpose()?;
 
         let schema_upgrade = |db, from, to| {
             migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(
                 db,
-                deposit_contract_deploy_block,
+                genesis_state_root,
                 from,
                 to,
                 log,
-                &inner_spec,
             )
         };
 

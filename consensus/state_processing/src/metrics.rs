@@ -41,6 +41,20 @@ pub static PROCESS_EPOCH_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {
         "Time required for process_epoch",
     )
 });
+pub static BUILD_EPOCH_CACHE_TIME: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_state_processing_epoch_cache",
+        "Time required to build the epoch cache",
+    )
+});
+pub static BUILD_PROGRESSIVE_BALANCES_CACHE_TIME: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "beacon_state_processing_progressive_balances_cache",
+            "Time required to build the progressive balances cache",
+        )
+    });
+
 /*
  * Participation Metrics (progressive balances)
  */
