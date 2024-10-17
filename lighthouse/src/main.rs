@@ -637,9 +637,9 @@ fn run<E: EthSpec>(
     let filter_layer = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new("info"))
         .unwrap();
-    let sse_logging_layer = match SSE_LOGGING_COMPONENTS.lock(){
+    let sse_logging_layer = match SSE_LOGGING_COMPONENTS.lock() {
         Ok(guard) => guard.clone(),
-        Err(poisoned) => poisoned.into_inner().clone()
+        Err(poisoned) => poisoned.into_inner().clone(),
     };
     if let Err(e) = tracing_subscriber::registry()
         .with(filter_layer)

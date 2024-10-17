@@ -56,7 +56,7 @@ pub enum RouterMessage<E: EthSpec> {
     RPCRequestReceived {
         peer_id: PeerId,
         id: PeerRequestId,
-        request: rpc::Request<E>,
+        request: rpc::Request,
     },
     /// An RPC response has been received.
     RPCResponseReceived {
@@ -191,11 +191,11 @@ impl<T: BeaconChainTypes> Router<T> {
     /* RPC - Related functionality */
 
     /// A new RPC request has been received from the network.
-    fn handle_rpc_request<E: EthSpec>(
+    fn handle_rpc_request(
         &mut self,
         peer_id: PeerId,
         request_id: PeerRequestId,
-        rpc_request: rpc::Request<E>,
+        rpc_request: rpc::Request,
     ) {
         if !self.network_globals.peers.read().is_connected(&peer_id) {
             debug!( %peer_id, request = ?rpc_request, "Dropping request of disconnected peer");
@@ -802,7 +802,7 @@ impl<E: EthSpec> HandlerNetworkContext<E> {
     }
 
     /// Sends a request to the network task.
-    pub fn send_processor_request(&mut self, peer_id: PeerId, request: RequestType<E>) {
+    pub fn send_processor_request(&mut self, peer_id: PeerId, request: RequestType) {
         self.inform_network(NetworkMessage::SendRequest {
             peer_id,
             request_id: AppRequestId::Router,

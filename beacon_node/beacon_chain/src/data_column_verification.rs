@@ -313,10 +313,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
         kzg: &Kzg,
         partial_set_of_columns: &[Self],
         spec: &ChainSpec,
-    ) -> Result<Vec<Self>, KzgError> {
-        // Will only return an error if:
-        // - < 50% of columns
-        // - There are duplicates
+    ) -> Result<Vec<KzgVerifiedCustodyDataColumn<E>>, KzgError> {
         let all_data_columns = reconstruct_data_columns(
             kzg,
             &partial_set_of_columns
@@ -328,10 +325,8 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
 
         Ok(all_data_columns
             .into_iter()
-            .map(|d| {
-                KzgVerifiedCustodyDataColumn::from_asserted_custody(KzgVerifiedDataColumn {
-                    data: d,
-                })
+            .map(|data| {
+                KzgVerifiedCustodyDataColumn::from_asserted_custody(KzgVerifiedDataColumn { data })
             })
             .collect::<Vec<_>>())
     }

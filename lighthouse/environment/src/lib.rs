@@ -100,9 +100,9 @@ impl<E: EthSpec> RuntimeContext<E> {
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: match SSE_LOGGING_COMPONENTS.lock(){
+            sse_logging_components: match SSE_LOGGING_COMPONENTS.lock() {
                 Ok(guard) => guard.clone(),
-                Err(poisoned) => poisoned.into_inner().clone()
+                Err(poisoned) => poisoned.into_inner().clone(),
             },
         }
     }
@@ -216,9 +216,9 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         };
 
         if config.sse_logging {
-            let mut global_sse_logging_component = match SSE_LOGGING_COMPONENTS.lock(){
+            let mut global_sse_logging_component = match SSE_LOGGING_COMPONENTS.lock() {
                 Ok(guard) => guard,
-                Err(poisoned) => poisoned.into_inner()
+                Err(poisoned) => poisoned.into_inner(),
             };
 
             if global_sse_logging_component.is_none() {
@@ -254,9 +254,9 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             signal_rx: Some(signal_rx),
             signal: Some(signal),
             exit,
-            sse_logging_components: match SSE_LOGGING_COMPONENTS.lock(){
+            sse_logging_components: match SSE_LOGGING_COMPONENTS.lock() {
                 Ok(guard) => guard.clone(),
-                Err(poisoned) => poisoned.into_inner().clone()
+                Err(poisoned) => poisoned.into_inner().clone(),
             },
             eth_spec_instance: self.eth_spec_instance,
             eth2_config: self.eth2_config,
@@ -302,9 +302,9 @@ impl<E: EthSpec> Environment<E> {
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: match SSE_LOGGING_COMPONENTS.lock(){
+            sse_logging_components: match SSE_LOGGING_COMPONENTS.lock() {
                 Ok(guard) => guard.clone(),
-                Err(poisoned) => poisoned.into_inner().clone()
+                Err(poisoned) => poisoned.into_inner().clone(),
             },
         }
     }
@@ -323,9 +323,9 @@ impl<E: EthSpec> Environment<E> {
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: match SSE_LOGGING_COMPONENTS.lock(){
+            sse_logging_components: match SSE_LOGGING_COMPONENTS.lock() {
                 Ok(guard) => guard.clone(),
-                Err(poisoned) => poisoned.into_inner().clone()
+                Err(poisoned) => poisoned.into_inner().clone(),
             },
         }
     }

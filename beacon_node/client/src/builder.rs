@@ -542,9 +542,9 @@ where
                         beacon_processor_send: None,
                         beacon_processor_reprocess_send: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
-                        sse_logging_components: match SSE_LOGGING_COMPONENTS.lock(){
+                        sse_logging_components: match SSE_LOGGING_COMPONENTS.lock() {
                             Ok(guard) => guard.clone(),
-                            Err(poisoned) => poisoned.into_inner().clone()
+                            Err(poisoned) => poisoned.into_inner().clone(),
                         },
                     });
 
@@ -777,9 +777,9 @@ where
                 beacon_processor_reprocess_send: Some(
                     beacon_processor_channels.work_reprocessing_tx.clone(),
                 ),
-                sse_logging_components: match SSE_LOGGING_COMPONENTS.lock(){
+                sse_logging_components: match SSE_LOGGING_COMPONENTS.lock() {
                     Ok(guard) => guard.clone(),
-                    Err(poisoned) => poisoned.into_inner().clone()
+                    Err(poisoned) => poisoned.into_inner().clone(),
                 },
             });
 

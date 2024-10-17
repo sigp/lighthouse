@@ -30,9 +30,9 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    Attestation, AttesterSlashing, BlobSidecar, BlobSidecarList, Epoch, Hash256, MainnetEthSpec,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, Slot,
-    SubnetId,
+    Attestation, AttesterSlashing, BlobSidecar, BlobSidecarList, Epoch, EthSpec, Hash256,
+    MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedVoluntaryExit, Slot, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -366,6 +366,7 @@ impl TestRig {
                 BlobsByRangeRequest {
                     start_slot: 0,
                     count,
+                    max_blobs_per_block: E::max_blobs_per_block(),
                 },
             )
             .unwrap();

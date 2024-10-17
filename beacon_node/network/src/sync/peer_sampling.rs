@@ -1,4 +1,6 @@
 use self::request::ActiveColumnSampleRequest;
+#[cfg(test)]
+pub(crate) use self::request::Status;
 use super::network_context::{
     DataColumnsByRootSingleBlockRequest, RpcResponseError, SyncNetworkContext,
 };
@@ -41,15 +43,15 @@ impl<T: BeaconChainTypes> Sampling<T> {
     }
 
     #[cfg(test)]
-    pub fn assert_sampling_request_status(
+    pub fn get_request_status(
         &self,
         block_root: Hash256,
-        ongoing: &Vec<ColumnIndex>,
-        no_peers: &Vec<ColumnIndex>,
-    ) {
+        index: &ColumnIndex,
+    ) -> Option<self::request::Status> {
         let requester = SamplingRequester::ImportedBlock(block_root);
-        let active_sampling_request = self.requests.get(&requester).unwrap();
-        active_sampling_request.assert_sampling_request_status(ongoing, no_peers);
+        self.requests
+            .get(&requester)
+            .and_then(|req| req.get_request_status(index))
     }
 
     /// Create a new sampling request for a known block
@@ -226,18 +228,8 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
     }
 
     #[cfg(test)]
-    pub fn assert_sampling_request_status(
-        &self,
-        ongoing: &Vec<ColumnIndex>,
-        no_peers: &Vec<ColumnIndex>,
-    ) {
-        for idx in ongoing {
-            assert!(self.column_requests.get(idx).unwrap().is_ongoing());
-        }
-
-        for idx in no_peers {
-            assert!(self.column_requests.get(idx).unwrap().is_no_peers());
-        }
+    pub fn get_request_status(&self, index: &ColumnIndex) -> Option<self::request::Status> {
+        self.column_requests.get(index).map(|req| req.status())
     }
 
     /// Insert a downloaded column into an active sampling request. Then make progress on the
@@ -580,8 +572,9 @@ mod request {
         peers_dont_have: HashSet<PeerId>,
     }
 
+    // Exposed only for testing assertions in lookup tests
     #[derive(Debug, Clone)]
-    enum Status {
+    pub(crate) enum Status {
         NoPeers,
         NotStarted,
         Sampling(PeerId),
@@ -626,8 +619,8 @@ mod request {
         }
 
         #[cfg(test)]
-        pub(crate) fn is_no_peers(&self) -> bool {
-            matches!(self.status, Status::NoPeers)
+        pub(crate) fn status(&self) -> Status {
+            self.status.clone()
         }
 
         pub(crate) fn choose_peer<T: BeaconChainTypes>(

@@ -20,8 +20,8 @@ use super::{
 
 /// A request that was rate limited or waiting on rate limited requests for the same peer and
 /// protocol.
-struct QueuedRequest<Id: ReqId, E: EthSpec> {
-    req: RequestType<E>,
+struct QueuedRequest<Id: ReqId> {
+    req: RequestType,
     request_id: Id,
 }
 
@@ -29,7 +29,7 @@ pub(crate) struct SelfRateLimiter<Id: ReqId, E: EthSpec> {
     /// Requests queued for sending per peer. This requests are stored when the self rate
     /// limiter rejects them. Rate limiting is based on a Peer and Protocol basis, therefore
     /// are stored in the same way.
-    delayed_requests: HashMap<(PeerId, Protocol), VecDeque<QueuedRequest<Id, E>>>,
+    delayed_requests: HashMap<(PeerId, Protocol), VecDeque<QueuedRequest<Id>>>,
     /// The delay required to allow a peer's outbound request per protocol.
     next_peer_request: DelayQueue<(PeerId, Protocol)>,
     /// Rate limiter for our own requests.
@@ -68,7 +68,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         &mut self,
         peer_id: PeerId,
         request_id: Id,
-        req: RequestType<E>,
+        req: RequestType,
     ) -> Result<BehaviourAction<Id, E>, Error> {
         let protocol = req.versioned_protocol().protocol();
         // First check that there are not already other requests waiting to be sent.
@@ -99,8 +99,8 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         limiter: &mut RateLimiter,
         peer_id: PeerId,
         request_id: Id,
-        req: RequestType<E>,
-    ) -> Result<BehaviourAction<Id, E>, (QueuedRequest<Id, E>, Duration)> {
+        req: RequestType,
+    ) -> Result<BehaviourAction<Id, E>, (QueuedRequest<Id>, Duration)> {
         match limiter.allows(&peer_id, &req) {
             Ok(()) => Ok(BehaviourAction::NotifyHandler {
                 peer_id,

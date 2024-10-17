@@ -1230,7 +1230,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             warp_utils::task::blocking_task(move || {
                 let logging_components_guard = match SSE_LOGGING_COMPONENTS.lock() {
                     Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner()
+                    Err(poisoned) => poisoned.into_inner(),
                 };
                 if let Some(logging_components) = logging_components_guard.as_ref() {
                     // Build a JSON stream
@@ -1240,7 +1240,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 Ok(data) => {
                                     // Serialize to json
                                     match serde_json::to_string(&data)
-                                    .map_err(|e| format!("{:?}", e)) 
+                                        .map_err(|e| format!("{:?}", e))
                                     {
                                         // Send the json as a Server Sent Event
                                         Ok(json) => Event::default().json_data(json).map_err(|e| {

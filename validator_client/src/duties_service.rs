@@ -594,7 +594,6 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         &[metrics::UPDATE_ATTESTERS_CURRENT_EPOCH],
     );
 
-
     let current_slot = duties_service
         .slot_clock
         .now()

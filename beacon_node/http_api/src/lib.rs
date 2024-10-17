@@ -4477,7 +4477,7 @@ pub fn serve<T: BeaconChainTypes>(
             task_spawner.blocking_response_task(Priority::P1, move || {
                 let logging_components_guard = match SSE_LOGGING_COMPONENTS.lock() {
                     Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner()
+                    Err(poisoned) => poisoned.into_inner(),
                 };
                 if let Some(logging_components) = logging_components_guard.as_ref() {
                     // Build a JSON stream

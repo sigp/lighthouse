@@ -2,7 +2,9 @@ use crate::sync::manager::BlockProcessType;
 use crate::sync::SamplingId;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend, BeaconChain};
+use beacon_chain::{
+    builder::Witness, eth1_chain::CachingEth1Backend, AvailabilityProcessingStatus, BeaconChain,
+};
 use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{
     work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorChannels, BeaconProcessorSend,
@@ -16,7 +18,7 @@ use lighthouse_network::rpc::methods::{
 use lighthouse_network::rpc::{RequestId, SubstreamId};
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
-    Client, MessageId, NetworkGlobals, PeerId,
+    Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
 };
 use slot_clock::ManualSlotClock;
 use std::path::PathBuf;
@@ -26,7 +28,7 @@ use store::MemoryStore;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::{self, error::TrySendError};
-use tracing::debug;
+use tracing::{debug, error, trace};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
@@ -844,6 +846,71 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.network_tx.send(message).unwrap_or_else(|e| {
             debug!(error = %e, "Could not send message to the network service. Likely shutdown")
         });
+    }
+
+    /// Attempt to reconstruct all data columns if the following conditions satisfies:
+    /// - Our custody requirement is all columns
+    /// - We have >= 50% of columns, but not all columns
+    ///
+    /// Returns `Some(AvailabilityProcessingStatus)` if reconstruction is successfully performed,
+    /// otherwise returns `None`.
+    async fn attempt_data_column_reconstruction(
+        &self,
+        block_root: Hash256,
+    ) -> Option<AvailabilityProcessingStatus> {
+        let result = self.chain.reconstruct_data_columns(block_root).await;
+        match result {
+            Ok(Some((availability_processing_status, data_columns_to_publish))) => {
+                self.send_network_message(NetworkMessage::Publish {
+                    messages: data_columns_to_publish
+                        .iter()
+                        .map(|d| {
+                            let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
+                                d.index as usize,
+                                &self.chain.spec,
+                            );
+                            PubsubMessage::DataColumnSidecar(Box::new((subnet, d.clone())))
+                        })
+                        .collect(),
+                });
+
+                match &availability_processing_status {
+                    AvailabilityProcessingStatus::Imported(hash) => {
+                        debug!(
+                            result = "imported block and custody columns",
+                            block_hash = %hash,
+                            "Block components available via reconstruction"
+                        );
+                        self.chain.recompute_head_at_current_slot().await;
+                    }
+                    AvailabilityProcessingStatus::MissingComponents(_, _) => {
+                        debug!(
+                            result = "imported all custody columns",
+                            block_hash = %block_root,
+                            "Block components still missing block after reconstruction"
+                        );
+                    }
+                }
+
+                Some(availability_processing_status)
+            }
+            Ok(None) => {
+                // reason is tracked via the `KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL` metric
+                trace!(
+                    block_hash = %block_root,
+                    "Reconstruction not required for block"
+                );
+                None
+            }
+            Err(e) => {
+                error!(
+                    %block_root,
+                    error = ?e,
+                    "Error during data column reconstruction"
+                );
+                None
+            }
+        }
     }
 }
 
