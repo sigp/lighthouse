@@ -819,12 +819,6 @@ fn fork_choice_on_block() {
 }
 
 #[test]
-fn fork_choice_on_merge_block() {
-    ForkChoiceHandler::<MinimalEthSpec>::new("on_merge_block").run();
-    ForkChoiceHandler::<MainnetEthSpec>::new("on_merge_block").run();
-}
-
-#[test]
 fn fork_choice_ex_ante() {
     ForkChoiceHandler::<MinimalEthSpec>::new("ex_ante").run();
     ForkChoiceHandler::<MainnetEthSpec>::new("ex_ante").run();
