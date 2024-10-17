@@ -794,7 +794,7 @@ impl HttpJsonRpc {
             new_payload_request_electra.versioned_hashes,
             new_payload_request_electra.parent_beacon_block_root,
             new_payload_request_electra
-                .execution_requests_list
+                .execution_requests
                 .get_execution_requests_list(),
         ]);
 
