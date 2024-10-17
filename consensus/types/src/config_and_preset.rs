@@ -41,6 +41,7 @@ pub struct ConfigAndPreset {
 }
 
 impl ConfigAndPreset {
+    // DEPRECATED: the `fork_name` argument is never used, we should remove it.
     pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec, fork_name: Option<ForkName>) -> Self {
         let config = Config::from_chain_spec::<E>(spec);
         let base_preset = BasePreset::from_chain_spec::<E>(spec);

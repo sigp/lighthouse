@@ -160,13 +160,6 @@ fn max_skip_slots_flag() {
 }
 
 #[test]
-fn disable_lock_timeouts_flag() {
-    CommandLineTest::new()
-        .flag("disable-lock-timeouts", None)
-        .run_with_zero_port();
-}
-
-#[test]
 fn shuffling_cache_default() {
     CommandLineTest::new()
         .run_with_zero_port()
@@ -1612,19 +1605,6 @@ fn http_port_flag() {
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_port, port1));
 }
-#[test]
-fn empty_self_limiter_flag() {
-    // Test that empty rate limiter is accepted using the default rate limiting configurations.
-    CommandLineTest::new()
-        .flag("self-limiter", None)
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.network.outbound_rate_limiter_config,
-                Some(lighthouse_network::rpc::config::OutboundRateLimiterConfig::default())
-            )
-        });
-}
 
 #[test]
 fn empty_inbound_rate_limiter_flag() {
@@ -1668,14 +1648,6 @@ fn http_allow_origin_all_flag() {
 }
 
 #[test]
-fn http_allow_sync_stalled_flag() {
-    CommandLineTest::new()
-        .flag("http", None)
-        .flag("http-allow-sync-stalled", None)
-        .run_with_zero_port();
-}
-
-#[test]
 fn http_enable_beacon_processor() {
     CommandLineTest::new()
         .flag("http", None)
@@ -1711,22 +1683,6 @@ fn http_tls_flags() {
             assert_eq!(tls_config.cert, Path::new("tests/tls/cert.pem"));
             assert_eq!(tls_config.key, Path::new("tests/tls/key.rsa"));
         });
-}
-
-#[test]
-fn http_spec_fork_default() {
-    CommandLineTest::new()
-        .flag("http", None)
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.spec_fork_name, None));
-}
-
-#[test]
-fn http_spec_fork_override() {
-    CommandLineTest::new()
-        .flag("http", None)
-        .flag("http-spec-fork", Some("altair"))
-        .run_with_zero_port();
 }
 
 // Tests for Metrics flags.
@@ -2629,14 +2585,6 @@ fn invalid_gossip_verified_blocks_path() {
                 Some(PathBuf::from(path))
             )
         });
-}
-
-#[test]
-fn progressive_balances_checked() {
-    // Flag is deprecated but supplying it should not crash until we remove it completely.
-    CommandLineTest::new()
-        .flag("progressive-balances", Some("checked"))
-        .run_with_zero_port();
 }
 
 #[test]

@@ -1,5 +1,4 @@
 mod attestation;
-mod attestation_id;
 mod attestation_storage;
 mod attester_slashing;
 mod bls_to_execution_changes;

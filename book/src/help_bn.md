@@ -292,9 +292,6 @@ Options:
           which don't improve their payload after the first call, and high
           values are useful for ensuring the EL is given ample notice. Default:
           1/3 of a slot.
-      --progressive-balances <MODE>
-          Deprecated. This optimisation is now the default and cannot be
-          disabled.
       --proposer-reorg-cutoff <MILLISECONDS>
           Maximum delay after the start of the slot at which to propose a
           reorging block. Lower values can prevent failed reorgs by ensuring the
@@ -445,8 +442,6 @@ Flags:
           incompatible with data availability checks. Checkpoint syncing is the
           preferred method for syncing a node. Only use this flag when testing.
           DO NOT use on mainnet!
-      --always-prefer-builder-payload
-          This flag is deprecated and has no effect.
       --always-prepare-payload
           Send payload attributes with every fork choice update. This is
           intended for use by block builders, relays and developers. You should
@@ -470,8 +465,6 @@ Flags:
           Explicitly disables syncing of deposit logs from the execution node.
           This overrides any previous option that depends on it. Useful if you
           intend to run a non-validating beacon node.
-      --disable-duplicate-warn-logs
-          This flag is deprecated and has no effect.
       --disable-enr-auto-update
           Discovery automatically updates the nodes local ENR with an external
           IP address and port as seen by other peers on the network. This
@@ -479,8 +472,6 @@ Flags:
           boot.
       --disable-inbound-rate-limiter
           Disables the inbound rate limiter (requests received by this node).
-      --disable-lock-timeouts
-          This flag is deprecated and has no effect.
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning
