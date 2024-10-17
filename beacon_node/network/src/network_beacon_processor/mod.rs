@@ -14,6 +14,7 @@ use beacon_processor::{
 use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
+    LightClientUpdatesByRangeRequest,
 };
 use lighthouse_network::rpc::{RequestId, SubstreamId};
 use lighthouse_network::{
@@ -828,6 +829,32 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
             work: Work::LightClientFinalityUpdateRequest(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process a `LightClientUpdatesByRange` request from the RPC network.
+    pub fn send_light_client_updates_by_range_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
+        substream_id: SubstreamId,
+        request_id: RequestId,
+        request: LightClientUpdatesByRangeRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = move || {
+            processor.handle_light_client_updates_by_range(
+                peer_id,
+                connection_id,
+                substream_id,
+                request_id,
+                request,
+            )
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::LightClientUpdatesByRangeRequest(Box::new(process_fn)),
         })
     }
 
