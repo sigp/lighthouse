@@ -354,14 +354,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     #[cfg(test)]
-    pub(crate) fn assert_sampling_request_status(
+    pub(crate) fn get_sampling_request_status(
         &self,
         block_root: Hash256,
-        ongoing: &Vec<ColumnIndex>,
-        no_peers: &Vec<ColumnIndex>,
-    ) {
-        self.sampling
-            .assert_sampling_request_status(block_root, ongoing, no_peers);
+        index: &ColumnIndex,
+    ) -> Option<super::peer_sampling::Status> {
+        self.sampling.get_request_status(block_root, index)
     }
 
     fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
