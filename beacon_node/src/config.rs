@@ -1487,6 +1487,20 @@ pub fn set_network_config(
             Some(Default::default())
         }
     };
+
+    if let Some(idontwant_message_size_threshold) =
+        cli_args.get_one::<String>("idontwant-message-size-threshold")
+    {
+        config.idontwant_message_size_threshold = idontwant_message_size_threshold
+            .parse::<usize>()
+            .map_err(|_| {
+                format!(
+                    "Invalid idontwant message size threshold value passed: {}",
+                    idontwant_message_size_threshold
+                )
+            })?;
+    }
+
     Ok(())
 }
 
