@@ -1,7 +1,7 @@
-use slog::{debug, Logger};
 use ssz_derive::{Decode, Encode};
 use std::cmp;
 use std::collections::BTreeMap;
+use tracing::debug;
 use types::{Checkpoint, Epoch, Eth1Data, Hash256 as Root};
 
 /// The default size of the cache.
@@ -104,28 +104,25 @@ pub struct Eth1FinalizationCache {
     by_checkpoint: CheckpointMap,
     pending_eth1: BTreeMap<u64, Eth1Data>,
     last_finalized: Option<Eth1Data>,
-    log: Logger,
 }
 
 /// Provides a cache of `Eth1CacheData` at epoch boundaries. This is used to
 /// finalize deposits when a new epoch is finalized.
 ///
 impl Eth1FinalizationCache {
-    pub fn new(log: Logger) -> Self {
+    pub fn new() -> Self {
         Eth1FinalizationCache {
             by_checkpoint: CheckpointMap::new(),
             pending_eth1: BTreeMap::new(),
             last_finalized: None,
-            log,
         }
     }
 
-    pub fn with_capacity(log: Logger, capacity: usize) -> Self {
+    pub fn with_capacity(capacity: usize) -> Self {
         Eth1FinalizationCache {
             by_checkpoint: CheckpointMap::with_capacity(capacity),
             pending_eth1: BTreeMap::new(),
             last_finalized: None,
-            log,
         }
     }
 
@@ -136,10 +133,9 @@ impl Eth1FinalizationCache {
                 eth1_finalization_data.eth1_data.clone(),
             );
             debug!(
-                self.log,
-                "Eth1Cache: inserted pending eth1";
-                "eth1_data.deposit_count" => eth1_finalization_data.eth1_data.deposit_count,
-                "eth1_deposit_index" => eth1_finalization_data.eth1_deposit_index,
+                eth1_data.deposit_count = eth1_finalization_data.eth1_data.deposit_count,
+                eth1_deposit_index = eth1_finalization_data.eth1_deposit_index,
+                "Eth1Cache: inserted pending eth1"
             );
         }
         self.by_checkpoint
@@ -154,10 +150,8 @@ impl Eth1FinalizationCache {
                 if finalized_deposit_index >= pending_count {
                     result = self.pending_eth1.remove(&pending_count);
                     debug!(
-                        self.log,
-                        "Eth1Cache: dropped pending eth1";
-                        "pending_count" => pending_count,
-                        "finalized_deposit_index" => finalized_deposit_index,
+                        pending_count,
+                        finalized_deposit_index, "Eth1Cache: dropped pending eth1"
                     );
                 } else {
                     break;
@@ -172,9 +166,8 @@ impl Eth1FinalizationCache {
             self.last_finalized.clone()
         } else {
             debug!(
-                self.log,
-                "Eth1Cache: cache miss";
-                "epoch" => checkpoint.epoch,
+                epoch = %checkpoint.epoch,
+                "Eth1Cache: cache miss"
             );
             None
         }
@@ -194,8 +187,6 @@ impl Eth1FinalizationCache {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use sloggers::null::NullLoggerBuilder;
-    use sloggers::Build;
     use std::collections::HashMap;
 
     const SLOTS_PER_EPOCH: u64 = 32;
@@ -203,8 +194,7 @@ pub mod tests {
     const EPOCHS_PER_ETH1_VOTING_PERIOD: u64 = 64;
 
     fn eth1cache() -> Eth1FinalizationCache {
-        let log_builder = NullLoggerBuilder;
-        Eth1FinalizationCache::new(log_builder.build().expect("should build log"))
+        Eth1FinalizationCache::new()
     }
 
     fn random_eth1_data(deposit_count: u64) -> Eth1Data {

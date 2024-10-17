@@ -32,11 +32,11 @@ use execution_layer::ExecutionLayer;
 use futures::channel::mpsc::Receiver;
 use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
+use logging::SSE_LOGGING_COMPONENTS;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
-use slog::{debug, info, warn, Logger};
 use ssz::Decode;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -45,6 +45,7 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use timer::spawn_timer;
 use tokio::sync::oneshot;
+use tracing::{debug, info, warn};
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, BlobSidecarList, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
@@ -171,11 +172,9 @@ where
         let runtime_context =
             runtime_context.ok_or("beacon_chain_start_method requires a runtime context")?;
         let context = runtime_context.service_context("beacon".into());
-        let log = context.log();
         let spec = chain_spec.ok_or("beacon_chain_start_method requires a chain spec")?;
         let event_handler = if self.http_api_config.enabled {
             Some(ServerSentEventHandler::new(
-                context.log().clone(),
                 self.http_api_config.sse_capacity_multiplier,
             ))
         } else {
@@ -184,12 +183,8 @@ where
 
         let execution_layer = if let Some(config) = config.execution_layer.clone() {
             let context = runtime_context.service_context("exec".into());
-            let execution_layer = ExecutionLayer::from_config(
-                config,
-                context.executor.clone(),
-                context.log().clone(),
-            )
-            .map_err(|e| format!("unable to start execution layer endpoints: {:?}", e))?;
+            let execution_layer = ExecutionLayer::from_config(config, context.executor.clone())
+                .map_err(|e| format!("unable to start execution layer endpoints: {:?}", e))?;
             Some(execution_layer)
         } else {
             None
@@ -206,7 +201,6 @@ where
         };
 
         let builder = BeaconChainBuilder::new(eth_spec_instance, Arc::new(kzg))
-            .logger(context.log().clone())
             .store(store)
             .task_executor(context.executor.clone())
             .custom_spec(spec.clone())
@@ -246,7 +240,7 @@ where
         // using it.
         let client_genesis = if matches!(client_genesis, ClientGenesis::FromStore) && !chain_exists
         {
-            info!(context.log(), "Defaulting to deposit contract genesis");
+            info!("Defaulting to deposit contract genesis");
 
             ClientGenesis::DepositContract
         } else if chain_exists {
@@ -254,9 +248,8 @@ where
                 || matches!(client_genesis, ClientGenesis::CheckpointSyncUrl { .. })
             {
                 info!(
-                    context.log(),
-                    "Refusing to checkpoint sync";
-                    "msg" => "database already exists, use --purge-db to force checkpoint sync"
+                    msg = "database already exists, use --purge-db to force checkpoint sync",
+                    "Refusing to checkpoint sync"
                 );
             }
 
@@ -296,12 +289,9 @@ where
                 builder.genesis_state(genesis_state).map(|v| (v, None))?
             }
             ClientGenesis::GenesisState => {
-                info!(
-                    context.log(),
-                    "Starting from known genesis state";
-                );
+                info!("Starting from known genesis state");
 
-                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
+                let genesis_state = genesis_state(&runtime_context, &config).await?;
 
                 // If the user has not explicitly allowed genesis sync, prevent
                 // them from trying to sync from genesis if we're outside of the
@@ -349,12 +339,9 @@ where
                 anchor_block_bytes,
                 anchor_blobs_bytes,
             } => {
-                info!(context.log(), "Starting checkpoint sync");
+                info!("Starting checkpoint sync");
                 if config.chain.genesis_backfill {
-                    info!(
-                        context.log(),
-                        "Blocks will downloaded all the way back to genesis"
-                    );
+                    info!("Blocks will downloaded all the way back to genesis");
                 }
 
                 let anchor_state = BeaconState::from_ssz_bytes(&anchor_state_bytes, &spec)
@@ -371,7 +358,7 @@ where
                 } else {
                     None
                 };
-                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
+                let genesis_state = genesis_state(&runtime_context, &config).await?;
 
                 builder
                     .weak_subjectivity_state(
@@ -384,15 +371,11 @@ where
             }
             ClientGenesis::CheckpointSyncUrl { url } => {
                 info!(
-                    context.log(),
-                    "Starting checkpoint sync";
-                    "remote_url" => %url,
+                    remote_url = %url,
+                    "Starting checkpoint sync"
                 );
                 if config.chain.genesis_backfill {
-                    info!(
-                        context.log(),
-                        "Blocks will be downloaded all the way back to genesis"
-                    );
+                    info!("Blocks will be downloaded all the way back to genesis");
                 }
 
                 let remote = BeaconNodeHttpClient::new(
@@ -406,7 +389,7 @@ where
                     // We want to fetch deposit snapshot before fetching the finalized beacon state to
                     // ensure that the snapshot is not newer than the beacon state that satisfies the
                     // deposit finalization conditions
-                    debug!(context.log(), "Downloading deposit snapshot");
+                    debug!("Downloading deposit snapshot");
                     let deposit_snapshot_result = remote
                         .get_deposit_snapshot()
                         .await
@@ -423,22 +406,18 @@ where
                             if deposit_snapshot.is_valid() {
                                 Some(deposit_snapshot)
                             } else {
-                                warn!(context.log(), "Remote BN sent invalid deposit snapshot!");
+                                warn!("Remote BN sent invalid deposit snapshot!");
                                 None
                             }
                         }
                         Ok(None) => {
-                            warn!(
-                                context.log(),
-                                "Remote BN does not support EIP-4881 fast deposit sync"
-                            );
+                            warn!("Remote BN does not support EIP-4881 fast deposit sync");
                             None
                         }
                         Err(e) => {
                             warn!(
-                                context.log(),
-                                "Remote BN does not support EIP-4881 fast deposit sync";
-                                "error" => e
+                                error = e,
+                                "Remote BN does not support EIP-4881 fast deposit sync"
                             );
                             None
                         }
@@ -447,21 +426,18 @@ where
                     None
                 };
 
-                debug!(
-                    context.log(),
-                    "Downloading finalized state";
-                );
+                debug!("Downloading finalized state");
                 let state = remote
                     .get_debug_beacon_states_ssz::<E>(StateId::Finalized, &spec)
                     .await
                     .map_err(|e| format!("Error loading checkpoint state from remote: {:?}", e))?
                     .ok_or_else(|| "Checkpoint state missing from remote".to_string())?;
 
-                debug!(context.log(), "Downloaded finalized state"; "slot" => ?state.slot());
+                debug!(slot = ?state.slot(), "Downloaded finalized state");
 
                 let finalized_block_slot = state.latest_block_header().slot;
 
-                debug!(context.log(), "Downloading finalized block"; "block_slot" => ?finalized_block_slot);
+                debug!(block_slot = ?finalized_block_slot,"Downloading finalized block");
                 let block = remote
                     .get_beacon_blocks_ssz::<E>(BlockId::Slot(finalized_block_slot), &spec)
                     .await
@@ -476,24 +452,23 @@ where
                     .ok_or("Finalized block missing from remote, it returned 404")?;
                 let block_root = block.canonical_root();
 
-                debug!(context.log(), "Downloaded finalized block");
+                debug!("Downloaded finalized block");
 
                 let blobs = if block.message().body().has_blobs() {
-                    debug!(context.log(), "Downloading finalized blobs");
+                    debug!("Downloading finalized blobs");
                     if let Some(response) = remote
                         .get_blobs::<E>(BlockId::Root(block_root), None)
                         .await
                         .map_err(|e| format!("Error fetching finalized blobs from remote: {e:?}"))?
                     {
-                        debug!(context.log(), "Downloaded finalized blobs");
+                        debug!("Downloaded finalized blobs");
                         Some(response.data)
                     } else {
                         warn!(
-                            context.log(),
-                            "Checkpoint server is missing blobs";
-                            "block_root" => %block_root,
-                            "hint" => "use a different URL or ask the provider to update",
-                            "impact" => "db will be slightly corrupt until these blobs are pruned",
+                            block_root = %block_root,
+                            hint = "use a different URL or ask the provider to update",
+                            impact = "db will be slightly corrupt until these blobs are pruned",
+                            "Checkpoint server is missing blobs"
                         );
                         None
                     }
@@ -501,35 +476,31 @@ where
                     None
                 };
 
-                let genesis_state = genesis_state(&runtime_context, &config, log).await?;
+                let genesis_state = genesis_state(&runtime_context, &config).await?;
 
                 info!(
-                    context.log(),
-                    "Loaded checkpoint block and state";
-                    "block_slot" => block.slot(),
-                    "state_slot" => state.slot(),
-                    "block_root" => ?block_root,
+                    block_slot = %block.slot(),
+                    state_slot = %state.slot(),
+                    block_root = ?block_root,
+                    "Loaded checkpoint block and state"
                 );
 
                 let service =
                     deposit_snapshot.and_then(|snapshot| match Eth1Service::from_deposit_snapshot(
                         config.eth1,
-                        context.log().clone(),
                         spec.clone(),
                         &snapshot,
                     ) {
                         Ok(service) => {
                             info!(
-                                context.log(),
-                                "Loaded deposit tree snapshot";
-                                "deposits loaded" => snapshot.deposit_count,
+                                deposits_loaded = snapshot.deposit_count,
+                                "Loaded deposit tree snapshot"
                             );
                             Some(service)
                         }
                         Err(e) => {
-                            warn!(context.log(),
-                                "Unable to load deposit snapshot";
-                                "error" => ?e
+                            warn!(error = ?e,
+                                "Unable to load deposit snapshot"
                             );
                             None
                         }
@@ -541,18 +512,14 @@ where
             }
             ClientGenesis::DepositContract => {
                 info!(
-                    context.log(),
-                    "Waiting for eth2 genesis from eth1";
-                    "eth1_endpoints" => format!("{:?}", &config.eth1.endpoint),
-                    "contract_deploy_block" => config.eth1.deposit_contract_deploy_block,
-                    "deposit_contract" => &config.eth1.deposit_contract_address
+                    eth1_endpoints = ?config.eth1.endpoint,
+                    contract_deploy_block = config.eth1.deposit_contract_deploy_block,
+                    deposit_contract = &config.eth1.deposit_contract_address,
+                    "Waiting for eth2 genesis from eth1"
                 );
 
-                let genesis_service = Eth1GenesisService::new(
-                    config.eth1,
-                    context.log().clone(),
-                    context.eth2_config().spec.clone(),
-                )?;
+                let genesis_service =
+                    Eth1GenesisService::new(config.eth1, context.eth2_config().spec.clone())?;
 
                 // If the HTTP API server is enabled, start an instance of it where it only
                 // contains a reference to the eth1 service (all non-eth1 endpoints will fail
@@ -575,8 +542,10 @@ where
                         beacon_processor_send: None,
                         beacon_processor_reprocess_send: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
-                        log: context.log().clone(),
-                        sse_logging_components: runtime_context.sse_logging_components.clone(),
+                        sse_logging_components: match SSE_LOGGING_COMPONENTS.lock() {
+                            Ok(guard) => guard.clone(),
+                            Err(poisoned) => poisoned.into_inner().clone(),
+                        },
                     });
 
                     // Discard the error from the oneshot.
@@ -587,10 +556,9 @@ where
                     let (listen_addr, server) = http_api::serve(ctx, exit_future)
                         .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
-                    let log_clone = context.log().clone();
                     let http_api_task = async move {
                         server.await;
-                        debug!(log_clone, "HTTP API server task ended");
+                        debug!("HTTP API server task ended");
                     };
 
                     context
@@ -617,9 +585,8 @@ where
                     // We will restart it again after we've finished setting up for genesis.
                     while TcpListener::bind(http_listen).is_err() {
                         warn!(
-                            context.log(),
-                            "Waiting for HTTP server port to open";
-                            "port" => http_listen
+                            port = %http_listen,
+                            "Waiting for HTTP server port to open"
                         );
                         tokio::time::sleep(Duration::from_secs(1)).await;
                     }
@@ -738,7 +705,7 @@ where
             .as_ref()
             .ok_or("monitoring_client requires a runtime_context")?
             .service_context("monitoring_client".into());
-        let monitoring_client = MonitoringHttpClient::new(config, context.log().clone())?;
+        let monitoring_client = MonitoringHttpClient::new(config)?;
         monitoring_client.auto_update(
             context.executor,
             vec![ProcessType::BeaconNode, ProcessType::System],
@@ -798,7 +765,6 @@ where
             .beacon_processor_config
             .take()
             .ok_or("build requires a beacon_processor_config")?;
-        let log = runtime_context.log().clone();
 
         let http_api_listen_addr = if self.http_api_config.enabled {
             let ctx = Arc::new(http_api::Context {
@@ -811,8 +777,10 @@ where
                 beacon_processor_reprocess_send: Some(
                     beacon_processor_channels.work_reprocessing_tx.clone(),
                 ),
-                sse_logging_components: runtime_context.sse_logging_components.clone(),
-                log: log.clone(),
+                sse_logging_components: match SSE_LOGGING_COMPONENTS.lock() {
+                    Ok(guard) => guard.clone(),
+                    Err(poisoned) => poisoned.into_inner().clone(),
+                },
             });
 
             let exit = runtime_context.executor.exit();
@@ -820,10 +788,9 @@ where
             let (listen_addr, server) = http_api::serve(ctx, exit)
                 .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
-            let http_log = runtime_context.log().clone();
             let http_api_task = async move {
                 server.await;
-                debug!(http_log, "HTTP API server task ended");
+                debug!("HTTP API server task ended");
             };
 
             runtime_context
@@ -833,7 +800,7 @@ where
 
             Some(listen_addr)
         } else {
-            info!(log, "HTTP server is disabled");
+            info!("HTTP server is disabled");
             None
         };
 
@@ -844,7 +811,6 @@ where
                 db_path: self.db_path.clone(),
                 freezer_db_path: self.freezer_db_path.clone(),
                 gossipsub_registry: self.libp2p_registry.take().map(std::sync::Mutex::new),
-                log: log.clone(),
             });
 
             let exit = runtime_context.executor.exit();
@@ -858,7 +824,7 @@ where
 
             Some(listen_addr)
         } else {
-            debug!(log, "Metrics server is disabled");
+            debug!("Metrics server is disabled");
             None
         };
 
@@ -874,7 +840,6 @@ where
                     executor: beacon_processor_context.executor.clone(),
                     current_workers: 0,
                     config: beacon_processor_config,
-                    log: beacon_processor_context.log().clone(),
                 }
                 .spawn_manager(
                     beacon_processor_channels.beacon_processor_rx,
@@ -895,12 +860,7 @@ where
             }
 
             let state_advance_context = runtime_context.service_context("state_advance".into());
-            let state_advance_log = state_advance_context.log().clone();
-            spawn_state_advance_timer(
-                state_advance_context.executor,
-                beacon_chain.clone(),
-                state_advance_log,
-            );
+            spawn_state_advance_timer(state_advance_context.executor, beacon_chain.clone());
 
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
                 // Only send a head update *after* genesis.
@@ -929,9 +889,8 @@ where
                                 // node comes online.
                                 if let Err(e) = result {
                                     warn!(
-                                        log,
-                                        "Failed to update head on execution engines";
-                                        "error" => ?e
+                                        error = ?e,
+                                        "Failed to update head on execution engines"
                                     );
                                 }
                             },
@@ -954,14 +913,12 @@ where
                 let inner_chain = beacon_chain.clone();
                 let light_client_update_context =
                     runtime_context.service_context("lc_update".to_string());
-                let log = light_client_update_context.log().clone();
                 light_client_update_context.executor.spawn(
                     async move {
                         compute_light_client_updates(
                             &inner_chain,
                             light_client_server_rv,
                             beacon_processor_channels.work_reprocessing_tx,
-                            &log,
                         )
                         .await
                     },
@@ -1045,7 +1002,6 @@ where
         cold_path: &Path,
         blobs_path: &Path,
         config: StoreConfig,
-        log: Logger,
     ) -> Result<Self, String> {
         let context = self
             .runtime_context
@@ -1073,7 +1029,6 @@ where
                 deposit_contract_deploy_block,
                 from,
                 to,
-                log,
                 &inner_spec,
             )
         };
@@ -1085,7 +1040,6 @@ where
             schema_upgrade,
             config,
             spec,
-            context.log().clone(),
         )
         .map_err(|e| format!("Unable to open database: {:?}", e))?;
         self.store = Some(store);
@@ -1133,22 +1087,15 @@ where
 
             CachingEth1Backend::from_service(eth1_service_from_genesis)
         } else if config.purge_cache {
-            CachingEth1Backend::new(config, context.log().clone(), spec)?
+            CachingEth1Backend::new(config, spec)?
         } else {
             beacon_chain_builder
                 .get_persisted_eth1_backend()?
                 .map(|persisted| {
-                    Eth1Chain::from_ssz_container(
-                        &persisted,
-                        config.clone(),
-                        &context.log().clone(),
-                        spec.clone(),
-                    )
-                    .map(|chain| chain.into_backend())
+                    Eth1Chain::from_ssz_container(&persisted, config.clone(), spec.clone())
+                        .map(|chain| chain.into_backend())
                 })
-                .unwrap_or_else(|| {
-                    CachingEth1Backend::new(config, context.log().clone(), spec.clone())
-                })?
+                .unwrap_or_else(|| CachingEth1Backend::new(config, spec.clone()))?
         };
 
         self.eth1_service = Some(backend.core.clone());
@@ -1231,7 +1178,6 @@ where
 async fn genesis_state<E: EthSpec>(
     context: &RuntimeContext<E>,
     config: &ClientConfig,
-    log: &Logger,
 ) -> Result<BeaconState<E>, String> {
     let eth2_network_config = context
         .eth2_network_config
@@ -1241,7 +1187,6 @@ async fn genesis_state<E: EthSpec>(
         .genesis_state::<E>(
             config.genesis_state_url.as_deref(),
             config.genesis_state_url_timeout,
-            log,
         )
         .await?
         .ok_or_else(|| "Genesis state is unknown".to_string())

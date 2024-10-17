@@ -8,13 +8,13 @@ use crate::types::{Enr, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use crate::NetworkConfig;
 use alloy_rlp::bytes::Bytes;
 use libp2p::identity::Keypair;
-use slog::{debug, warn};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use std::str::FromStr;
+use tracing::{debug, warn};
 use types::{ChainSpec, EnrForkId, EthSpec};
 
 use super::enr_ext::{EnrExt, QUIC6_ENR_KEY, QUIC_ENR_KEY};
@@ -98,20 +98,19 @@ pub fn use_or_load_enr(
     enr_key: &CombinedKey,
     local_enr: &mut Enr,
     config: &NetworkConfig,
-    log: &slog::Logger,
 ) -> Result<(), String> {
     let enr_f = config.network_dir.join(ENR_FILENAME);
     if let Ok(mut enr_file) = File::open(enr_f.clone()) {
         let mut enr_string = String::new();
         match enr_file.read_to_string(&mut enr_string) {
-            Err(_) => debug!(log, "Could not read ENR from file"),
+            Err(_) => debug!("Could not read ENR from file"),
             Ok(_) => {
                 match Enr::from_str(&enr_string) {
                     Ok(disk_enr) => {
                         // if the same node id, then we may need to update our sequence number
                         if local_enr.node_id() == disk_enr.node_id() {
                             if compare_enr(local_enr, &disk_enr) {
-                                debug!(log, "ENR loaded from disk"; "file" => ?enr_f);
+                                debug!(file = ?enr_f,"ENR loaded from disk");
                                 // the stored ENR has the same configuration, use it
                                 *local_enr = disk_enr;
                                 return Ok(());
@@ -124,18 +123,18 @@ pub fn use_or_load_enr(
                             local_enr.set_seq(new_seq_no, enr_key).map_err(|e| {
                                 format!("Could not update ENR sequence number: {:?}", e)
                             })?;
-                            debug!(log, "ENR sequence number increased"; "seq" =>  new_seq_no);
+                            debug!(seq = new_seq_no, "ENR sequence number increased");
                         }
                     }
                     Err(e) => {
-                        warn!(log, "ENR from file could not be decoded"; "error" => ?e);
+                        warn!(error = ?e,"ENR from file could not be decoded");
                     }
                 }
             }
         }
     }
 
-    save_enr_to_disk(&config.network_dir, local_enr, log);
+    save_enr_to_disk(&config.network_dir, local_enr);
 
     Ok(())
 }
@@ -149,7 +148,6 @@ pub fn build_or_load_enr<E: EthSpec>(
     local_key: Keypair,
     config: &NetworkConfig,
     enr_fork_id: &EnrForkId,
-    log: &slog::Logger,
     spec: &ChainSpec,
 ) -> Result<Enr, String> {
     // Build the local ENR.
@@ -158,7 +156,7 @@ pub fn build_or_load_enr<E: EthSpec>(
     let enr_key = CombinedKey::from_libp2p(local_key)?;
     let mut local_enr = build_enr::<E>(&enr_key, config, enr_fork_id, spec)?;
 
-    use_or_load_enr(&enr_key, &mut local_enr, config, log)?;
+    use_or_load_enr(&enr_key, &mut local_enr, config)?;
     Ok(local_enr)
 }
 
@@ -308,18 +306,19 @@ pub fn load_enr_from_disk(dir: &Path) -> Result<Enr, String> {
 }
 
 /// Saves an ENR to disk
-pub fn save_enr_to_disk(dir: &Path, enr: &Enr, log: &slog::Logger) {
+pub fn save_enr_to_disk(dir: &Path, enr: &Enr) {
     let _ = std::fs::create_dir_all(dir);
     match File::create(dir.join(Path::new(ENR_FILENAME)))
         .and_then(|mut f| f.write_all(enr.to_base64().as_bytes()))
     {
         Ok(_) => {
-            debug!(log, "ENR written to disk");
+            debug!("ENR written to disk");
         }
         Err(e) => {
             warn!(
-                log,
-                "Could not write ENR to file"; "file" => format!("{:?}{:?}",dir, ENR_FILENAME),  "error" => %e
+                file = format!("{:?}{:?}",dir, ENR_FILENAME),
+                error = %e,
+                "Could not write ENR to file"
             );
         }
     }

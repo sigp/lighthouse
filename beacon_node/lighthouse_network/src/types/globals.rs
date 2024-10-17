@@ -41,7 +41,6 @@ impl<E: EthSpec> NetworkGlobals<E> {
         local_metadata: MetaData<E>,
         trusted_peers: Vec<PeerId>,
         disable_peer_scoring: bool,
-        log: &slog::Logger,
         config: Arc<NetworkConfig>,
         spec: Arc<ChainSpec>,
     ) -> Self {
@@ -79,7 +78,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
             peer_id: RwLock::new(enr.peer_id()),
             listen_multiaddrs: RwLock::new(Vec::new()),
             local_metadata: RwLock::new(local_metadata),
-            peers: RwLock::new(PeerDB::new(trusted_peers, disable_peer_scoring, log)),
+            peers: RwLock::new(PeerDB::new(trusted_peers, disable_peer_scoring)),
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
             sync_state: RwLock::new(SyncState::Stalled),
             backfill_state: RwLock::new(BackFillState::NotRequired),
@@ -170,7 +169,6 @@ impl<E: EthSpec> NetworkGlobals<E> {
     /// TESTING ONLY. Build a dummy NetworkGlobals instance.
     pub fn new_test_globals(
         trusted_peers: Vec<PeerId>,
-        log: &slog::Logger,
         config: Arc<NetworkConfig>,
         spec: Arc<ChainSpec>,
     ) -> NetworkGlobals<E> {
@@ -180,13 +178,12 @@ impl<E: EthSpec> NetworkGlobals<E> {
             syncnets: Default::default(),
             custody_subnet_count: spec.custody_requirement,
         });
-        Self::new_test_globals_with_metadata(trusted_peers, metadata, log, config, spec)
+        Self::new_test_globals_with_metadata(trusted_peers, metadata, config, spec)
     }
 
     pub(crate) fn new_test_globals_with_metadata(
         trusted_peers: Vec<PeerId>,
         metadata: MetaData<E>,
-        log: &slog::Logger,
         config: Arc<NetworkConfig>,
         spec: Arc<ChainSpec>,
     ) -> NetworkGlobals<E> {
@@ -194,7 +191,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
         let keypair = libp2p::identity::secp256k1::Keypair::generate();
         let enr_key: discv5::enr::CombinedKey = discv5::enr::CombinedKey::from_secp256k1(&keypair);
         let enr = discv5::enr::Enr::builder().build(&enr_key).unwrap();
-        NetworkGlobals::new(enr, metadata, trusted_peers, false, log, config, spec)
+        NetworkGlobals::new(enr, metadata, trusted_peers, false, config, spec)
     }
 }
 
@@ -205,7 +202,6 @@ mod test {
 
     #[test]
     fn test_sampling_subnets() {
-        let log = logging::test_logger();
         let mut spec = E::default_spec();
         spec.eip7594_fork_epoch = Some(Epoch::new(0));
 
@@ -217,7 +213,6 @@ mod test {
         let globals = NetworkGlobals::<E>::new_test_globals_with_metadata(
             vec![],
             metadata,
-            &log,
             config,
             Arc::new(spec),
         );
@@ -229,7 +224,6 @@ mod test {
 
     #[test]
     fn test_sampling_columns() {
-        let log = logging::test_logger();
         let mut spec = E::default_spec();
         spec.eip7594_fork_epoch = Some(Epoch::new(0));
 
@@ -241,7 +235,6 @@ mod test {
         let globals = NetworkGlobals::<E>::new_test_globals_with_metadata(
             vec![],
             metadata,
-            &log,
             config,
             Arc::new(spec),
         );

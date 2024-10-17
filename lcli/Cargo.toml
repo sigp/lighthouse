@@ -14,7 +14,6 @@ jemalloc = ["malloc_utils/jemalloc"]
 bls = { workspace = true }
 clap = { workspace = true }
 log = { workspace = true }
-sloggers = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
 serde_json = { workspace = true }
@@ -41,6 +40,7 @@ malloc_utils = { workspace = true }
 rayon = { workspace = true }
 execution_layer = { workspace = true }
 hex = { workspace = true }
+tracing = { workspace = true }
 
 [package.metadata.cargo-udeps.ignore]
 normal = ["malloc_utils"]

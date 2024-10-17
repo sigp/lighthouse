@@ -1,6 +1,5 @@
 //! Creates a simple DISCV5 server which can be used to bootstrap an Eth2 network.
 use clap::ArgMatches;
-use slog::{o, Drain, Level, Logger};
 
 use eth2_network_config::Eth2NetworkConfig;
 mod cli;
@@ -9,8 +8,6 @@ mod server;
 pub use cli::cli_app;
 use config::BootNodeConfig;
 use types::{EthSpec, EthSpecId};
-
-const LOG_CHANNEL_SIZE: usize = 2048;
 
 /// Run the bootnode given the CLI configuration.
 pub fn run(
@@ -30,39 +27,19 @@ pub fn run(
         _ => unreachable!(),
     };
 
-    // Setting up the initial logger format and building it.
-    let drain = {
-        let decorator = slog_term::TermDecorator::new().build();
-        let decorator = logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        slog_async::Async::new(drain)
-            .chan_size(LOG_CHANNEL_SIZE)
-            .build()
-    };
-
-    let drain = match debug_level {
-        log::Level::Info => drain.filter_level(Level::Info),
-        log::Level::Debug => drain.filter_level(Level::Debug),
-        log::Level::Trace => drain.filter_level(Level::Trace),
-        log::Level::Warn => drain.filter_level(Level::Warning),
-        log::Level::Error => drain.filter_level(Level::Error),
-    };
-
-    let log = Logger::root(drain.fuse(), o!());
-
     // Run the main function emitting any errors
     if let Err(e) = match eth_spec_id {
         EthSpecId::Minimal => {
-            main::<types::MinimalEthSpec>(lh_matches, bn_matches, eth2_network_config, log)
+            main::<types::MinimalEthSpec>(lh_matches, bn_matches, eth2_network_config)
         }
         EthSpecId::Mainnet => {
-            main::<types::MainnetEthSpec>(lh_matches, bn_matches, eth2_network_config, log)
+            main::<types::MainnetEthSpec>(lh_matches, bn_matches, eth2_network_config)
         }
         EthSpecId::Gnosis => {
-            main::<types::GnosisEthSpec>(lh_matches, bn_matches, eth2_network_config, log)
+            main::<types::GnosisEthSpec>(lh_matches, bn_matches, eth2_network_config)
         }
     } {
-        slog::crit!(slog_scope::logger(), "{}", e);
+        logging::crit!(?e);
     }
 }
 
@@ -70,7 +47,6 @@ fn main<E: EthSpec>(
     lh_matches: &ArgMatches,
     bn_matches: &ArgMatches,
     eth2_network_config: &Eth2NetworkConfig,
-    log: slog::Logger,
 ) -> Result<(), String> {
     // Builds a custom executor for the bootnode
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -83,7 +59,6 @@ fn main<E: EthSpec>(
         lh_matches,
         bn_matches,
         eth2_network_config,
-        log,
     ))?;
 
     Ok(())

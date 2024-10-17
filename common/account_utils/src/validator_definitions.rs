@@ -10,11 +10,11 @@ use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use slog::{error, Logger};
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
+use tracing::error;
 use types::{graffiti::GraffitiString, Address, PublicKey};
 use validator_dir::VOTING_KEYSTORE_FILE;
 
@@ -269,7 +269,6 @@ impl ValidatorDefinitions {
         &mut self,
         validators_dir: P,
         secrets_dir: P,
-        log: &Logger,
     ) -> Result<usize, Error> {
         let mut keystore_paths = vec![];
         recursively_find_voting_keystores(validators_dir, &mut keystore_paths)
@@ -314,10 +313,9 @@ impl ValidatorDefinitions {
                     Ok(keystore) => keystore,
                     Err(e) => {
                         error!(
-                            log,
-                            "Unable to read validator keystore";
-                            "error" => e,
-                            "keystore" => format!("{:?}", voting_keystore_path)
+                            error = ?e,
+                            keystore = ?voting_keystore_path,
+                            "Unable to read validator keystore"
                         );
                         return None;
                     }
@@ -339,9 +337,8 @@ impl ValidatorDefinitions {
                     }
                     None => {
                         error!(
-                            log,
-                            "Invalid keystore public key";
-                            "keystore" => format!("{:?}", voting_keystore_path)
+                            keystore = ?voting_keystore_path,
+                            "Invalid keystore public key"
                         );
                         return None;
                     }

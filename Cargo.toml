@@ -78,7 +78,6 @@ members = [
     "testing/execution_engine_integration",
     "testing/node_test_rig",
     "testing/simulator",
-    "testing/test-test_logger",
     "testing/state_transition_vectors",
     "testing/web3signer_tests",
 
@@ -157,10 +156,6 @@ serde_json = "1"
 serde_repr = "0.1"
 serde_yaml = "0.9"
 sha2 = "0.9"
-slog = { version = "2", features = ["max_level_debug", "release_max_level_debug", "nested-values"] }
-slog-async = "2"
-slog-term = "2"
-sloggers = { version = "2", features = ["json"] }
 smallvec = { version = "1.11.2", features = ["arbitrary"] }
 snap = "1"
 ssz_types = "0.8"

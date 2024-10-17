@@ -16,13 +16,18 @@ use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODE
 use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
 use lighthouse_version::VERSION;
+use logging::crit;
+use logging::MetricsLayer;
+use logging::SSE_LOGGING_COMPONENTS;
 use malloc_utils::configure_memory_allocator;
-use slog::{crit, info};
 use std::backtrace::Backtrace;
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
+use tracing::info;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
@@ -602,42 +607,82 @@ fn run<E: EthSpec>(
         sse_logging,
     };
 
-    let builder = environment_builder.initialize_logger(logger_config.clone())?;
+    let mut tracing_log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
+
+    if tracing_log_path.is_none() {
+        tracing_log_path = Some(
+            parse_path_or_default(matches, "datadir")?
+                .join(DEFAULT_BEACON_NODE_DIR)
+                .join("logs"),
+        )
+    }
+
+    let path = tracing_log_path.clone().unwrap();
+
+    let (libp2p_non_blocking_writer, _libp2p_guard, discv5_non_blocking_writer, _discv5_guard) =
+        logging::create_tracing_layer(path);
+    let libp2p_layer = tracing_subscriber::fmt::layer()
+        .with_writer(libp2p_non_blocking_writer)
+        .with_file(true)
+        .with_line_number(true);
+
+    let discv5_layer = tracing_subscriber::fmt::layer()
+        .with_writer(discv5_non_blocking_writer)
+        .with_file(true)
+        .with_line_number(true);
+
+    let (builder, file_logging_layer, stdout_logging_layer) =
+        environment_builder.init_tracing(logger_config.clone());
+
+    let filter_layer = EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new("info"))
+        .unwrap();
+    let sse_logging_layer = match SSE_LOGGING_COMPONENTS.lock() {
+        Ok(guard) => guard.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    };
+    if let Err(e) = tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(libp2p_layer)
+        .with(discv5_layer)
+        .with(file_logging_layer)
+        .with(stdout_logging_layer)
+        .with(sse_logging_layer)
+        .with(MetricsLayer)
+        .try_init()
+    {
+        eprintln!("Failed to initialize dependency logging: {e}");
+    }
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
         .eth2_network_config(eth2_network_config)?
         .build()?;
 
-    let log = environment.core_context().log().clone();
-
     // Log panics properly.
     {
-        let log = log.clone();
         std::panic::set_hook(Box::new(move |info| {
             crit!(
-                log,
-                "Task panic. This is a bug!";
-                "location" => info.location().map(ToString::to_string),
-                "message" => info.payload().downcast_ref::<String>(),
-                "backtrace" => %Backtrace::capture(),
-                "advice" => "Please check above for a backtrace and notify the developers",
+                location = info.location().map(ToString::to_string),
+                message = info.payload().downcast_ref::<String>(),
+                backtrace = %Backtrace::capture(),
+                advice = "Please check above for a backtrace and notify the developers",
+                "Task panic. This is a bug!"
             );
         }));
     }
 
     // Allow Prometheus to export the time at which the process was started.
-    metrics::expose_process_start_time(&log);
+    metrics::expose_process_start_time();
 
     // Allow Prometheus access to the version and commit of the Lighthouse build.
     metrics::expose_lighthouse_version();
 
     #[cfg(all(feature = "modern", target_arch = "x86_64"))]
     if !std::is_x86_feature_detected!("adx") {
-        slog::warn!(
-            log,
-            "CPU seems incompatible with optimized Lighthouse build";
-            "advice" => "If you get a SIGILL, please try Lighthouse portable build"
+        tracing::warn!(
+            advice = "If you get a SIGILL, please try Lighthouse portable build",
+            "CPU seems incompatible with optimized Lighthouse build"
         );
     }
 
@@ -682,22 +727,17 @@ fn run<E: EthSpec>(
     if let Ok(LighthouseSubcommands::DatabaseManager(db_manager_config)) =
         LighthouseSubcommands::from_arg_matches(matches)
     {
-        info!(log, "Running database manager for {} network", network_name);
+        info!(network_name, "Running database manager network");
         database_manager::run(matches, &db_manager_config, environment)?;
         return Ok(());
     };
 
-    info!(log, "Lighthouse started"; "version" => VERSION);
-    info!(
-        log,
-        "Configured for network";
-        "name" => &network_name
-    );
+    info!(version = VERSION, "Lighthouse started");
+    info!(network_name, "Configured network");
 
     match matches.subcommand() {
         Some(("beacon_node", matches)) => {
             let context = environment.core_context();
-            let log = context.log().clone();
             let executor = context.executor.clone();
             let mut config = beacon_node::get_config::<E>(matches, &context)?;
             config.logger_config = logger_config;
@@ -706,29 +746,14 @@ fn run<E: EthSpec>(
 
             let shutdown_flag = matches.get_flag("immediate-shutdown");
             if shutdown_flag {
-                info!(log, "Beacon node immediate shutdown triggered.");
+                info!("Beacon node immediate shutdown triggered.");
                 return Ok(());
             }
-
-            let mut tracing_log_path: Option<PathBuf> =
-                clap_utils::parse_optional(matches, "logfile")?;
-
-            if tracing_log_path.is_none() {
-                tracing_log_path = Some(
-                    parse_path_or_default(matches, "datadir")?
-                        .join(DEFAULT_BEACON_NODE_DIR)
-                        .join("logs"),
-                )
-            }
-
-            let path = tracing_log_path.clone().unwrap();
-
-            logging::create_tracing_layer(path);
 
             executor.clone().spawn(
                 async move {
                     if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
-                        crit!(log, "Failed to start beacon node"; "reason" => e);
+                        crit!(reason = ?e ,"Failed to start beacon node");
                         // Ignore the error since it always occurs during normal operation when
                         // shutting down.
                         let _ = executor
@@ -741,16 +766,15 @@ fn run<E: EthSpec>(
         }
         Some(("validator_client", matches)) => {
             let context = environment.core_context();
-            let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = validator_client::Config::from_cli(matches, context.log())
+            let config = validator_client::Config::from_cli(matches)
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
             // Dump configs if `dump-config` or `dump-chain-config` flags are set
             clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
 
             let shutdown_flag = matches.get_flag("immediate-shutdown");
             if shutdown_flag {
-                info!(log, "Validator client immediate shutdown triggered.");
+                info!("Validator client immediate shutdown triggered.");
                 return Ok(());
             }
 
@@ -760,7 +784,7 @@ fn run<E: EthSpec>(
                         .and_then(|mut vc| async move { vc.start_service().await })
                         .await
                     {
-                        crit!(log, "Failed to start validator client"; "reason" => e);
+                        crit!(reason = ?e,"Failed to start validator client");
                         // Ignore the error since it always occurs during normal operation when
                         // shutting down.
                         let _ = executor
@@ -772,14 +796,14 @@ fn run<E: EthSpec>(
             );
         }
         _ => {
-            crit!(log, "No subcommand supplied. See --help .");
+            crit!("No subcommand supplied. See --help .");
             return Err("No subcommand supplied.".into());
         }
     };
 
     // Block this thread until we get a ctrl-c or a task sends a shutdown signal.
     let shutdown_reason = environment.block_until_shutdown_requested()?;
-    info!(log, "Shutting down.."; "reason" => ?shutdown_reason);
+    info!(reason=?shutdown_reason,"Shutting down..");
 
     environment.fire_signal();
 

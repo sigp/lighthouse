@@ -2,7 +2,6 @@ use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
 use beacon_chain::validator_monitor::{ValidatorMonitorConfig, MISSED_BLOCK_LAG_SLOTS};
-use logging::test_logger;
 use std::sync::LazyLock;
 use types::{Epoch, EthSpec, ForkName, Keypair, MainnetEthSpec, PublicKeyBytes, Slot};
 
@@ -22,7 +21,6 @@ fn get_harness(
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
-        .logger(test_logger())
         .fresh_ephemeral_store()
         .mock_execution_layer()
         .validator_monitor_config(ValidatorMonitorConfig {

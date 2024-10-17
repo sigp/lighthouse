@@ -3,7 +3,6 @@ use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2::lighthouse::Eth1SyncStatusData;
 use ethereum_hashing::hash;
 use int_to_bytes::int_to_bytes32;
-use slog::{debug, error, trace, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::get_new_eth1_data;
@@ -14,6 +13,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::{DBColumn, Error as StoreError, StoreItem};
 use task_executor::TaskExecutor;
+use tracing::{debug, error, trace};
 use types::{
     BeaconState, BeaconStateError, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256, Slot, Unsigned,
 };
@@ -284,11 +284,9 @@ where
     pub fn from_ssz_container(
         ssz_container: &SszEth1,
         config: Eth1Config,
-        log: &Logger,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, String> {
-        let backend =
-            Eth1ChainBackend::from_bytes(&ssz_container.backend_bytes, config, log.clone(), spec)?;
+        let backend = Eth1ChainBackend::from_bytes(&ssz_container.backend_bytes, config, spec)?;
         Ok(Self {
             use_dummy_backend: ssz_container.use_dummy_backend,
             backend,
@@ -352,12 +350,7 @@ pub trait Eth1ChainBackend<E: EthSpec>: Sized + Send + Sync {
     fn as_bytes(&self) -> Vec<u8>;
 
     /// Create a `Eth1ChainBackend` instance given encoded bytes.
-    fn from_bytes(
-        bytes: &[u8],
-        config: Eth1Config,
-        log: Logger,
-        spec: Arc<ChainSpec>,
-    ) -> Result<Self, String>;
+    fn from_bytes(bytes: &[u8], config: Eth1Config, spec: Arc<ChainSpec>) -> Result<Self, String>;
 }
 
 /// Provides a simple, testing-only backend that generates deterministic, meaningless eth1 data.
@@ -413,7 +406,6 @@ impl<E: EthSpec> Eth1ChainBackend<E> for DummyEth1ChainBackend<E> {
     fn from_bytes(
         _bytes: &[u8],
         _config: Eth1Config,
-        _log: Logger,
         _spec: Arc<ChainSpec>,
     ) -> Result<Self, String> {
         Ok(Self(PhantomData))
@@ -434,7 +426,6 @@ impl<E: EthSpec> Default for DummyEth1ChainBackend<E> {
 #[derive(Clone)]
 pub struct CachingEth1Backend<E: EthSpec> {
     pub core: HttpService,
-    log: Logger,
     _phantom: PhantomData<E>,
 }
 
@@ -442,11 +433,10 @@ impl<E: EthSpec> CachingEth1Backend<E> {
     /// Instantiates `self` with empty caches.
     ///
     /// Does not connect to the eth1 node or start any tasks to keep the cache updated.
-    pub fn new(config: Eth1Config, log: Logger, spec: Arc<ChainSpec>) -> Result<Self, String> {
+    pub fn new(config: Eth1Config, spec: Arc<ChainSpec>) -> Result<Self, String> {
         Ok(Self {
-            core: HttpService::new(config, log.clone(), spec)
+            core: HttpService::new(config, spec)
                 .map_err(|e| format!("Failed to create eth1 http service: {:?}", e))?,
-            log,
             _phantom: PhantomData,
         })
     }
@@ -459,7 +449,6 @@ impl<E: EthSpec> CachingEth1Backend<E> {
     /// Instantiates `self` from an existing service.
     pub fn from_service(service: HttpService) -> Self {
         Self {
-            log: service.log.clone(),
             core: service,
             _phantom: PhantomData,
         }
@@ -482,9 +471,8 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
         };
 
         trace!(
-            self.log,
-            "Found eth1 data votes_to_consider";
-            "votes_to_consider" => votes_to_consider.len(),
+            votes_to_consider = votes_to_consider.len(),
+            "Found eth1 data votes_to_consider"
         );
         let valid_votes = collect_valid_votes(state, &votes_to_consider);
 
@@ -501,22 +489,20 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
                 .map(|vote| {
                     let vote = vote.0.clone();
                     debug!(
-                        self.log,
-                        "No valid eth1_data votes";
-                        "outcome" => "Casting vote corresponding to last candidate eth1 block",
-                        "vote" => ?vote
+                        outcome = "Casting vote corresponding to last candidate eth1 block",
+                        ?vote,
+                        "No valid eth1_data votes"
                     );
                     vote
                 })
                 .unwrap_or_else(|| {
                     let vote = state.eth1_data().clone();
                     error!(
-                        self.log,
-                        "No valid eth1_data votes, `votes_to_consider` empty";
-                        "lowest_block_number" => self.core.lowest_block_number(),
-                        "earliest_block_timestamp" => self.core.earliest_block_timestamp(),
-                        "genesis_time" => state.genesis_time(),
-                        "outcome" => "casting `state.eth1_data` as eth1 vote"
+                        lowest_block_number = self.core.lowest_block_number(),
+                        earliest_block_timestamp = self.core.earliest_block_timestamp(),
+                        genesis_time = state.genesis_time(),
+                        outcome = "casting `state.eth1_data` as eth1 vote",
+                        "No valid eth1_data votes, `votes_to_consider` empty"
                     );
                     metrics::inc_counter(&metrics::DEFAULT_ETH1_VOTES);
                     vote
@@ -524,11 +510,10 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
         };
 
         debug!(
-            self.log,
-            "Produced vote for eth1 chain";
-            "deposit_root" => format!("{:?}", eth1_data.deposit_root),
-            "deposit_count" => eth1_data.deposit_count,
-            "block_hash" => format!("{:?}", eth1_data.block_hash),
+            deposit_root = ?eth1_data.deposit_root,
+            deposit_count = eth1_data.deposit_count,
+            block_hash = ?eth1_data.block_hash,
+            "Produced vote for eth1 chain"
         );
 
         Ok(eth1_data)
@@ -593,16 +578,10 @@ impl<E: EthSpec> Eth1ChainBackend<E> for CachingEth1Backend<E> {
     }
 
     /// Recover the cached backend from encoded bytes.
-    fn from_bytes(
-        bytes: &[u8],
-        config: Eth1Config,
-        log: Logger,
-        spec: Arc<ChainSpec>,
-    ) -> Result<Self, String> {
-        let inner = HttpService::from_bytes(bytes, config, log.clone(), spec)?;
+    fn from_bytes(bytes: &[u8], config: Eth1Config, spec: Arc<ChainSpec>) -> Result<Self, String> {
+        let inner = HttpService::from_bytes(bytes, config, spec)?;
         Ok(Self {
             core: inner,
-            log,
             _phantom: PhantomData,
         })
     }
@@ -743,7 +722,6 @@ mod test {
     mod eth1_chain_json_backend {
         use super::*;
         use eth1::DepositLog;
-        use logging::test_logger;
         use types::{test_utils::generate_deterministic_keypair, MainnetEthSpec};
 
         fn get_eth1_chain() -> Eth1Chain<CachingEth1Backend<E>, E> {
@@ -751,9 +729,8 @@ mod test {
                 ..Eth1Config::default()
             };
 
-            let log = test_logger();
             Eth1Chain::new(
-                CachingEth1Backend::new(eth1_config, log, Arc::new(MainnetEthSpec::default_spec()))
+                CachingEth1Backend::new(eth1_config, Arc::new(MainnetEthSpec::default_spec()))
                     .unwrap(),
             )
         }

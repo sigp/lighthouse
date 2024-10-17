@@ -72,8 +72,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };
-        let el =
-            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone()).unwrap();
+        let el = ExecutionLayer::from_config(config, executor.clone()).unwrap();
 
         Self {
             server,

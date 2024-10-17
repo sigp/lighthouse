@@ -1,9 +1,9 @@
 use crate::{BeaconChain, BeaconChainTypes};
-use slog::{debug, error};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
+use tracing::{debug, error};
 
 /// Spawns a routine which ensures the EL is provided advance notice of any block producers.
 ///
@@ -38,10 +38,7 @@ async fn proposer_prep_service<T: BeaconChainTypes>(
                     slot_duration.saturating_sub(chain.config.prepare_payload_lookahead);
                 sleep(duration + additional_delay).await;
 
-                debug!(
-                    chain.log,
-                    "Proposer prepare routine firing";
-                );
+                debug!("Proposer prepare routine firing");
 
                 let inner_chain = chain.clone();
                 executor.spawn(
@@ -50,20 +47,19 @@ async fn proposer_prep_service<T: BeaconChainTypes>(
                             if let Err(e) = inner_chain.prepare_beacon_proposer(current_slot).await
                             {
                                 error!(
-                                    inner_chain.log,
-                                    "Proposer prepare routine failed";
-                                    "error" => ?e
+                                    error = ?e,
+                                    "Proposer prepare routine failed"
                                 );
                             }
                         } else {
-                            debug!(inner_chain.log, "No slot for proposer prepare routine");
+                            debug!("No slot for proposer prepare routine");
                         }
                     },
                     "proposer_prep_update",
                 );
             }
             None => {
-                error!(chain.log, "Failed to read slot clock");
+                error!("Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
                 sleep(slot_duration).await;
             }

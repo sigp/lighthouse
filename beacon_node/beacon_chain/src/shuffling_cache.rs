@@ -2,9 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use slog::{debug, Logger};
-
 use oneshot_broadcast::{oneshot, Receiver, Sender};
+use tracing::debug;
 use types::{
     beacon_state::CommitteeCache, AttestationShufflingId, BeaconState, Epoch, EthSpec, Hash256,
     RelativeEpoch,
@@ -61,16 +60,14 @@ pub struct ShufflingCache {
     cache: HashMap<AttestationShufflingId, CacheItem>,
     cache_size: usize,
     head_shuffling_ids: BlockShufflingIds,
-    logger: Logger,
 }
 
 impl ShufflingCache {
-    pub fn new(cache_size: usize, head_shuffling_ids: BlockShufflingIds, logger: Logger) -> Self {
+    pub fn new(cache_size: usize, head_shuffling_ids: BlockShufflingIds) -> Self {
         Self {
             cache: HashMap::new(),
             cache_size,
             head_shuffling_ids,
-            logger,
         }
     }
 
@@ -179,10 +176,9 @@ impl ShufflingCache {
 
             for shuffling_id in shuffling_ids_to_prune.iter() {
                 debug!(
-                    self.logger,
-                    "Removing old shuffling from cache";
-                    "shuffling_epoch" => shuffling_id.shuffling_epoch,
-                    "shuffling_decision_block" => ?shuffling_id.shuffling_decision_block
+                    shuffling_epoch = %shuffling_id.shuffling_epoch,
+                    shuffling_decision_block = ?shuffling_id.shuffling_decision_block,
+                    "Removing old shuffling from cache"
                 );
                 self.cache.remove(shuffling_id);
             }
@@ -315,8 +311,8 @@ mod test {
             previous: Some(shuffling_id(current_epoch - 1)),
             block_root: Hash256::from_low_u64_le(0),
         };
-        let logger = test_logger();
-        ShufflingCache::new(TEST_CACHE_SIZE, head_shuffling_ids, logger)
+
+        ShufflingCache::new(TEST_CACHE_SIZE, head_shuffling_ids)
     }
 
     /// Returns two different committee caches for testing.

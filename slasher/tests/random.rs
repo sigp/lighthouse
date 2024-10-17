@@ -1,6 +1,5 @@
 #![cfg(any(feature = "mdbx", feature = "lmdb", feature = "redb"))]
 
-use logging::test_logger;
 use rand::prelude::*;
 use slasher::{
     test_utils::{
@@ -36,9 +35,8 @@ impl Default for TestConfig {
 fn make_db() -> (TempDir, SlasherDB<E>) {
     let tempdir = tempdir().unwrap();
     let initial_config = Arc::new(Config::new(tempdir.path().into()));
-    let logger = test_logger();
     let spec = chain_spec();
-    let db = SlasherDB::open(initial_config.clone(), spec, logger).unwrap();
+    let db = SlasherDB::open(initial_config.clone(), spec).unwrap();
     (tempdir, db)
 }
 
@@ -60,7 +58,7 @@ fn random_test(seed: u64, mut db: SlasherDB<E>, test_config: TestConfig) -> Slas
     let config = Arc::new(config);
     db.update_config(config.clone());
 
-    let slasher = Slasher::<E>::from_config_and_db(config.clone(), db, test_logger()).unwrap();
+    let slasher = Slasher::<E>::from_config_and_db(config.clone(), db).unwrap();
 
     let validators = (0..num_validators as u64).collect::<Vec<u64>>();
 

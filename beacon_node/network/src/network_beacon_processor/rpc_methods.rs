@@ -10,11 +10,11 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
-use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
+use tracing::{debug, error, warn};
 use types::blob_sidecar::BlobIdentifier;
 use types::{Epoch, EthSpec, FixedBytesExtended, Hash256, Slot};
 
@@ -114,7 +114,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn process_status(&self, peer_id: PeerId, status: StatusMessage) {
         match self.check_peer_relevance(&status) {
             Ok(Some(irrelevant_reason)) => {
-                debug!(self.log, "Handshake Failure"; "peer" => %peer_id, "reason" => irrelevant_reason);
+                debug!(%peer_id, reason = irrelevant_reason, "Handshake Failure");
                 self.goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
             }
             Ok(None) => {
@@ -126,9 +126,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 };
                 self.send_sync_message(SyncMessage::AddPeer(peer_id, info));
             }
-            Err(e) => error!(self.log, "Could not process status message";
-                "peer" => %peer_id,
-                "error" => ?e
+            Err(e) => error!(
+                %peer_id,
+                error = ?e,
+                "Could not process status message"
             ),
         }
     }
@@ -171,11 +172,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let log_results = |peer_id, requested_blocks, send_block_count| {
             debug!(
-                self.log,
-                "BlocksByRoot outgoing response processed";
-                "peer" => %peer_id,
-                "requested" => requested_blocks,
-                "returned" => %send_block_count
+                %peer_id,
+                requested = requested_blocks,
+                returned = %send_block_count,
+                "BlocksByRoot outgoing response processed"
             );
         };
 
@@ -186,7 +186,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         {
             Ok(block_stream) => block_stream,
             Err(e) => {
-                error!(self.log, "Error getting block stream"; "error" => ?e);
+                error!( error = ?e, "Error getting block stream");
                 return Err((RpcErrorResponse::ServerError, "Error getting block stream"));
             }
         };
@@ -206,18 +206,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
                 Ok(None) => {
                     debug!(
-                        self.log,
-                        "Peer requested unknown block";
-                        "peer" => %peer_id,
-                        "request_root" => ?root
+                        %peer_id,
+                        request_root = ?root,
+                        "Peer requested unknown block"
                     );
                 }
                 Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
                     debug!(
-                        self.log,
-                        "Failed to fetch execution payload for blocks by root request";
-                        "block_root" => ?root,
-                        "reason" => "execution layer not synced",
+                        block_root = ?root,
+                        reason = "execution layer not synced",
+                        "Failed to fetch execution payload for blocks by root request"
                     );
                     log_results(peer_id, requested_blocks, send_block_count);
                     return Err((
@@ -227,11 +225,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
                 Err(e) => {
                     debug!(
-                        self.log,
-                        "Error fetching block for peer";
-                        "peer" => %peer_id,
-                        "request_root" => ?root,
-                        "error" => ?e,
+                        ?peer_id,
+                        request_root = ?root,
+                        error = ?e,
+                        "Error fetching block for peer"
                     );
                 }
             }
@@ -331,23 +328,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                     Err(e) => {
                         debug!(
-                            self.log,
-                            "Error fetching blob for peer";
-                            "peer" => %peer_id,
-                            "request_root" => ?root,
-                            "error" => ?e,
+                            ?peer_id,
+                            request_root = ?root,
+                            error = ?e,
+                            "Error fetching blob for peer"
                         );
                     }
                 }
             }
         }
         debug!(
-            self.log,
-            "BlobsByRoot outgoing response processed";
-            "peer" => %peer_id,
-            "request_root" => %requested_root,
-            "request_indices" => ?requested_indices,
-            "returned" => send_blob_count
+            %peer_id,
+            %requested_root,
+            ?requested_indices,
+            returned = send_blob_count,
+            "BlobsByRoot outgoing response processed"
         );
 
         Ok(())
@@ -407,10 +402,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Ok(None) => {} // no-op
                 Err(e) => {
                     // TODO(das): lower log level when feature is stabilized
-                    error!(self.log, "Error getting data column";
-                        "block_root" => ?data_column_id.block_root,
-                        "peer" => %peer_id,
-                        "error" => ?e
+                    error!(
+                        block_root = ?data_column_id.block_root,
+                        %peer_id,
+                        error = ?e,
+                        "Error getting data column"
                     );
                     return Err((RpcErrorResponse::ServerError, "Error getting data column"));
                 }
@@ -418,11 +414,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         debug!(
-            self.log,
-            "Received DataColumnsByRoot Request";
-            "peer" => %peer_id,
-            "request" => ?request.group_by_ordered_block_root(),
-            "returned" => send_data_column_count
+            %peer_id,
+            request = ?request.group_by_ordered_block_root(),
+            returned = send_data_column_count,
+            "Received DataColumnsByRoot Request"
         );
 
         Ok(())
@@ -449,10 +444,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Bootstrap not available".to_string(),
                 )),
                 Err(e) => {
-                    error!(self.log, "Error getting LightClientBootstrap instance";
-                        "block_root" => ?request.root,
-                        "peer" => %peer_id,
-                        "error" => ?e
+                    error!(
+                        block_root = ?request.root,
+                        %peer_id,
+                        error = ?e,
+                        "Error getting LightClientBootstrap instance"
                     );
                     Err((RpcErrorResponse::ResourceUnavailable, format!("{:?}", e)))
                 }
@@ -553,10 +549,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request_id: RequestId,
         req: BlocksByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
-        debug!(self.log, "Received BlocksByRange Request";
-            "peer_id" => %peer_id,
-            "count" => req.count(),
-            "start_slot" => req.start_slot(),
+        debug!(
+            %peer_id,
+            count = req.count(),
+            start_slot = %req.start_slot(),
+            "Received BlocksByRange Request"
         );
 
         // Should not send more than max request blocks
@@ -588,17 +585,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     oldest_block_slot,
                 },
             )) => {
-                debug!(self.log, "Range request failed during backfill";
-                    "requested_slot" => slot,
-                    "oldest_known_slot" => oldest_block_slot
+                debug!(
+                    requested_slot = %slot,
+                    oldest_known_slot = %oldest_block_slot,
+                    "Range request failed during backfill"
                 );
                 return Err((RpcErrorResponse::ResourceUnavailable, "Backfilling"));
             }
             Err(e) => {
-                error!(self.log, "Unable to obtain root iter";
-                    "request" => ?req,
-                    "peer" => %peer_id,
-                    "error" => ?e
+                error!(
+                    request = ?req,
+                    %peer_id,
+                    error = ?e,
+                    "Unable to obtain root iter"
                 );
                 return Err((RpcErrorResponse::ServerError, "Database error"));
             }
@@ -626,10 +625,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block_roots = match maybe_block_roots {
             Ok(block_roots) => block_roots,
             Err(e) => {
-                error!(self.log, "Error during iteration over blocks";
-                    "request" => ?req,
-                    "peer" => %peer_id,
-                    "error" => ?e
+                error!(
+                    request = ?req,
+                    %peer_id,
+                    error = ?e,
+                    "Error during iteration over blocks"
                 );
                 return Err((RpcErrorResponse::ServerError, "Iteration error"));
             }
@@ -646,24 +646,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let log_results = |req: BlocksByRangeRequest, peer_id, blocks_sent| {
             if blocks_sent < (*req.count() as usize) {
                 debug!(
-                    self.log,
-                    "BlocksByRange outgoing response processed";
-                    "peer" => %peer_id,
-                    "msg" => "Failed to return all requested blocks",
-                    "start_slot" => req.start_slot(),
-                    "current_slot" => current_slot,
-                    "requested" => req.count(),
-                    "returned" => blocks_sent
+                    %peer_id,
+                    msg = "Failed to return all requested blocks",
+                    start_slot = %req.start_slot(),
+                    %current_slot,
+                    requested = req.count(),
+                    returned = blocks_sent,
+                    "BlocksByRange outgoing response processed"
                 );
             } else {
                 debug!(
-                    self.log,
-                    "BlocksByRange outgoing response processed";
-                    "peer" => %peer_id,
-                    "start_slot" => req.start_slot(),
-                    "current_slot" => current_slot,
-                    "requested" => req.count(),
-                    "returned" => blocks_sent
+                    %peer_id,
+                    start_slot = %req.start_slot(),
+                    %current_slot,
+                    requested = req.count(),
+                    returned = blocks_sent,
+                    "BlocksByRange outgoing response processed"
                 );
             }
         };
@@ -671,7 +669,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let mut block_stream = match self.chain.get_blocks(block_roots) {
             Ok(block_stream) => block_stream,
             Err(e) => {
-                error!(self.log, "Error getting block stream"; "error" => ?e);
+                error!(error = ?e, "Error getting block stream");
                 return Err((RpcErrorResponse::ServerError, "Iterator error"));
             }
         };
@@ -697,21 +695,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
                 Ok(None) => {
                     error!(
-                        self.log,
-                        "Block in the chain is not in the store";
-                        "request" => ?req,
-                        "peer" => %peer_id,
-                        "request_root" => ?root
+                        request = ?req,
+                        %peer_id,
+                        request_root = ?root,
+                        "Block in the chain is not in the store"
                     );
                     log_results(req, peer_id, blocks_sent);
                     return Err((RpcErrorResponse::ServerError, "Database inconsistency"));
                 }
                 Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
                     debug!(
-                        self.log,
-                        "Failed to fetch execution payload for blocks by range request";
-                        "block_root" => ?root,
-                        "reason" => "execution layer not synced",
+                        block_root = ?root,
+                        reason = "execution layer not synced",
+                        "Failed to fetch execution payload for blocks by range request"
                     );
                     log_results(req, peer_id, blocks_sent);
                     // send the stream terminator
@@ -727,18 +723,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         if matches!(**boxed_error, execution_layer::Error::EngineError(_))
                     ) {
                         warn!(
-                            self.log,
-                            "Error rebuilding payload for peer";
-                            "info" => "this may occur occasionally when the EE is busy",
-                            "block_root" => ?root,
-                            "error" => ?e,
+                            info = "this may occur occasionally when the EE is busy",
+                            block_root = ?root,
+                            error = ?e,
+                            "Error rebuilding payload for peer"
                         );
                     } else {
                         error!(
-                            self.log,
-                            "Error fetching block for peer";
-                            "block_root" => ?root,
-                            "error" => ?e
+                            block_root = ?root,
+                            error = ?e,
+                            "Error fetching block for peer"
                         );
                     }
                     log_results(req, peer_id, blocks_sent);
@@ -786,10 +780,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request_id: RequestId,
         req: BlobsByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
-        debug!(self.log, "Received BlobsByRange Request";
-            "peer_id" => %peer_id,
-            "count" => req.count,
-            "start_slot" => req.start_slot,
+        debug!(
+            ?peer_id,
+            count = req.count,
+            start_slot = req.start_slot,
+            "Received BlobsByRange Request"
         );
 
         // Should not send more than max request blocks
@@ -805,7 +800,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let data_availability_boundary_slot = match self.chain.data_availability_boundary() {
             Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
             None => {
-                debug!(self.log, "Deneb fork is disabled");
+                debug!("Deneb fork is disabled");
                 return Err((RpcErrorResponse::InvalidRequest, "Deneb fork is disabled"));
             }
         };
@@ -818,11 +813,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .unwrap_or(data_availability_boundary_slot);
         if request_start_slot < oldest_blob_slot {
             debug!(
-                self.log,
-                "Range request start slot is older than data availability boundary.";
-                "requested_slot" => request_start_slot,
-                "oldest_blob_slot" => oldest_blob_slot,
-                "data_availability_boundary" => data_availability_boundary_slot
+                %request_start_slot,
+                %oldest_blob_slot,
+                %data_availability_boundary_slot,
+                "Range request start slot is older than data availability boundary."
             );
 
             return if data_availability_boundary_slot < oldest_blob_slot {
@@ -847,17 +841,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         oldest_block_slot,
                     },
                 )) => {
-                    debug!(self.log, "Range request failed during backfill";
-                        "requested_slot" => slot,
-                        "oldest_known_slot" => oldest_block_slot
+                    debug!(
+                        requested_slot = %slot,
+                        oldest_known_slot = %oldest_block_slot,
+                        "Range request failed during backfill"
                     );
                     return Err((RpcErrorResponse::ResourceUnavailable, "Backfilling"));
                 }
                 Err(e) => {
-                    error!(self.log, "Unable to obtain root iter";
-                        "request" => ?req,
-                        "peer" => %peer_id,
-                        "error" => ?e
+                    error!(
+                        request = ?req,
+                        %peer_id,
+                        error = ?e,
+                        "Unable to obtain root iter"
                     );
                     return Err((RpcErrorResponse::ServerError, "Database error"));
                 }
@@ -891,10 +887,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block_roots = match maybe_block_roots {
             Ok(block_roots) => block_roots,
             Err(e) => {
-                error!(self.log, "Error during iteration over blocks";
-                    "request" => ?req,
-                    "peer" => %peer_id,
-                    "error" => ?e
+                error!(
+                    request = ?req,
+                    %peer_id,
+                    error = ?e,
+                    "Error during iteration over blocks"
                 );
                 return Err((RpcErrorResponse::ServerError, "Database error"));
             }
@@ -907,13 +904,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let log_results = |peer_id, req: BlobsByRangeRequest, blobs_sent| {
             debug!(
-                self.log,
-                "BlobsByRange outgoing response processed";
-                "peer" => %peer_id,
-                "start_slot" => req.start_slot,
-                "current_slot" => current_slot,
-                "requested" => req.count,
-                "returned" => blobs_sent
+                %peer_id,
+                start_slot = req.start_slot,
+                %current_slot,
+                requested = req.count,
+                returned = blobs_sent,
+                "BlobsByRange outgoing response processed"
             );
         };
 
@@ -936,12 +932,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
                 Err(e) => {
                     error!(
-                        self.log,
-                        "Error fetching blobs block root";
-                        "request" => ?req,
-                        "peer" => %peer_id,
-                        "block_root" => ?root,
-                        "error" => ?e
+                        request = ?req,
+                        %peer_id,
+                        block_root = ?root,
+                        error = ?e,
+                        "Error fetching blobs block root"
                     );
                     log_results(peer_id, req, blobs_sent);
 
@@ -991,10 +986,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request_id: RequestId,
         req: DataColumnsByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
-        debug!(self.log, "Received DataColumnsByRange Request";
-            "peer_id" => %peer_id,
-            "count" => req.count,
-            "start_slot" => req.start_slot,
+        debug!(
+            %peer_id,
+            count = req.count,
+            start_slot = req.start_slot,
+            "Received DataColumnsByRange Request"
         );
 
         // Should not send more than max request data columns
@@ -1010,7 +1006,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let data_availability_boundary_slot = match self.chain.data_availability_boundary() {
             Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
             None => {
-                debug!(self.log, "Deneb fork is disabled");
+                debug!("Deneb fork is disabled");
                 return Err((RpcErrorResponse::InvalidRequest, "Deneb fork is disabled"));
             }
         };
@@ -1024,11 +1020,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         if request_start_slot < oldest_data_column_slot {
             debug!(
-                self.log,
-                "Range request start slot is older than data availability boundary.";
-                "requested_slot" => request_start_slot,
-                "oldest_data_column_slot" => oldest_data_column_slot,
-                "data_availability_boundary" => data_availability_boundary_slot
+                %request_start_slot,
+                %oldest_data_column_slot,
+                %data_availability_boundary_slot,
+                "Range request start slot is older than data availability boundary."
             );
 
             return if data_availability_boundary_slot < oldest_data_column_slot {
@@ -1053,17 +1048,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         oldest_block_slot,
                     },
                 )) => {
-                    debug!(self.log, "Range request failed during backfill";
-                        "requested_slot" => slot,
-                        "oldest_known_slot" => oldest_block_slot
+                    debug!(
+                        requested_slot = %slot,
+                        oldest_known_slot = %oldest_block_slot,
+                        "Range request failed during backfill"
                     );
                     return Err((RpcErrorResponse::ResourceUnavailable, "Backfilling"));
                 }
                 Err(e) => {
-                    error!(self.log, "Unable to obtain root iter";
-                        "request" => ?req,
-                        "peer" => %peer_id,
-                        "error" => ?e
+                    error!(
+                        request = ?req,
+                        %peer_id,
+                        error = ?e,
+                        "Unable to obtain root iter"
                     );
                     return Err((RpcErrorResponse::ServerError, "Database error"));
                 }
@@ -1097,10 +1094,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block_roots = match maybe_block_roots {
             Ok(block_roots) => block_roots,
             Err(e) => {
-                error!(self.log, "Error during iteration over blocks";
-                    "request" => ?req,
-                    "peer" => %peer_id,
-                    "error" => ?e
+                error!(
+                    request = ?req,
+                    %peer_id,
+                    error = ?e,
+                    "Error during iteration over blocks"
                 );
                 return Err((RpcErrorResponse::ServerError, "Database error"));
             }
@@ -1127,12 +1125,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     Ok(None) => {} // no-op
                     Err(e) => {
                         error!(
-                            self.log,
-                            "Error fetching data columns block root";
-                            "request" => ?req,
-                            "peer" => %peer_id,
-                            "block_root" => ?root,
-                            "error" => ?e
+                            request = ?req,
+                            %peer_id,
+                            block_root = ?root,
+                            error = ?e,
+                            "Error fetching data columns block root"
                         );
                         return Err((
                             RpcErrorResponse::ServerError,
@@ -1149,13 +1146,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
 
         debug!(
-            self.log,
-            "DataColumnsByRange Response processed";
-            "peer" => %peer_id,
-            "start_slot" => req.start_slot,
-            "current_slot" => current_slot,
-            "requested" => req.count,
-            "returned" => data_columns_sent
+            %peer_id,
+            start_slot = req.start_slot,
+            %current_slot,
+            requested = req.count,
+            returned = data_columns_sent,
+            "DataColumnsByRange Response processed"
         );
 
         Ok(())
