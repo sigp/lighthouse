@@ -47,6 +47,22 @@ pub trait CommandLineTestExec {
             .arg(tmp_config_path.as_os_str())
             .arg(format!("--{}", "dump-chain-config"))
             .arg(tmp_chain_config_path.as_os_str());
+        if !cmd
+            .get_args()
+            .any(|arg| arg == "--execution-endpoint" || arg == "--execution-endpoints")
+        {
+            cmd.arg("--execution-endpoint").arg("http://localhost");
+        }
+        if !cmd.get_args().any(|arg| {
+            arg == "--execution-jwt"
+                || arg == "--execution-jwt-secret-key"
+                || arg == "--jwt-file"
+                || arg == "--jwt-secrets"
+        }) {
+            // jwt-secret-key length should be 64
+            cmd.arg("--execution-jwt-secret-key")
+                .arg("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        }
 
         if immediate_shutdown {
             cmd.arg("--immediate-shutdown");
