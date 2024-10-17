@@ -54,8 +54,8 @@ pub mod light_client_finality_update;
 pub mod light_client_optimistic_update;
 pub mod light_client_update;
 pub mod pending_attestation;
-pub mod pending_balance_deposit;
 pub mod pending_consolidation;
+pub mod pending_deposit;
 pub mod pending_partial_withdrawal;
 pub mod proposer_preparation_data;
 pub mod proposer_slashing;
@@ -210,8 +210,8 @@ pub use crate::payload::{
     FullPayloadRef, OwnedExecPayload,
 };
 pub use crate::pending_attestation::PendingAttestation;
-pub use crate::pending_balance_deposit::PendingBalanceDeposit;
 pub use crate::pending_consolidation::PendingConsolidation;
+pub use crate::pending_deposit::PendingDeposit;
 pub use crate::pending_partial_withdrawal::PendingPartialWithdrawal;
 pub use crate::preset::{
     AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, DenebPreset, ElectraPreset,

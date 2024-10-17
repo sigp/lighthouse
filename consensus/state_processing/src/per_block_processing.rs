@@ -514,6 +514,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
     // Consume pending partial withdrawals
     let partial_withdrawals_count =
         if let Ok(partial_withdrawals) = state.pending_partial_withdrawals() {
+            let mut partial_withdrawals_count = 0;
             for withdrawal in partial_withdrawals {
                 if withdrawal.withdrawable_epoch > epoch
                     || withdrawals.len() == spec.max_pending_partials_per_withdrawals_sweep as usize
@@ -546,8 +547,9 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                     });
                     withdrawal_index.safe_add_assign(1)?;
                 }
+                partial_withdrawals_count.safe_add_assign(1)?;
             }
-            Some(withdrawals.len())
+            Some(partial_withdrawals_count)
         } else {
             None
         };

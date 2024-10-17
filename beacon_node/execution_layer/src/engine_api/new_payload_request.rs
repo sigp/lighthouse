@@ -44,7 +44,7 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
     #[superstruct(only(Deneb, Electra))]
     pub parent_beacon_block_root: Hash256,
     #[superstruct(only(Electra))]
-    pub execution_requests_list: &'block ExecutionRequests<E>,
+    pub execution_requests: &'block ExecutionRequests<E>,
 }
 
 impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
@@ -185,7 +185,7 @@ impl<'a, E: EthSpec> TryFrom<BeaconBlockRef<'a, E>> for NewPayloadRequest<'a, E>
                     .map(kzg_commitment_to_versioned_hash)
                     .collect(),
                 parent_beacon_block_root: block_ref.parent_root,
-                execution_requests_list: &block_ref.body.execution_requests,
+                execution_requests: &block_ref.body.execution_requests,
             })),
         }
     }

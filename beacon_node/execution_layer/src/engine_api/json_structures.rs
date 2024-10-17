@@ -379,7 +379,8 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequests<E> {
 
         for (i, request) in value.0.into_iter().enumerate() {
             // hex string
-            let decoded_bytes = hex::decode(request).map_err(|e| format!("Invalid hex {:?}", e))?;
+            let decoded_bytes = hex::decode(request.strip_prefix("0x").unwrap_or(&request))
+                .map_err(|e| format!("Invalid hex {:?}", e))?;
             match RequestPrefix::from_prefix(i as u8) {
                 Some(RequestPrefix::Deposit) => {
                     requests.deposits = DepositRequests::<E>::from_ssz_bytes(&decoded_bytes)
@@ -431,7 +432,7 @@ pub struct JsonGetPayloadResponse<E: EthSpec> {
     #[superstruct(only(V3, V4))]
     pub should_override_builder: bool,
     #[superstruct(only(V4))]
-    pub requests: JsonExecutionRequests,
+    pub execution_requests: JsonExecutionRequests,
 }
 
 impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
@@ -464,7 +465,7 @@ impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle.into(),
                     should_override_builder: response.should_override_builder,
-                    requests: response.requests.try_into()?,
+                    requests: response.execution_requests.try_into()?,
                 }))
             }
         }

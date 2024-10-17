@@ -134,7 +134,7 @@ where
     pub earliest_consolidation_epoch: Epoch,
 
     #[superstruct(only(Electra))]
-    pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
+    pub pending_deposits: List<PendingDeposit, E::PendingDepositsLimit>,
     #[superstruct(only(Electra))]
     pub pending_partial_withdrawals:
         List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
@@ -290,7 +290,7 @@ impl<E: EthSpec> PartialBeaconState<E> {
                     earliest_exit_epoch,
                     consolidation_balance_to_consume,
                     earliest_consolidation_epoch,
-                    pending_balance_deposits,
+                    pending_deposits,
                     pending_partial_withdrawals,
                     pending_consolidations
                 ],
@@ -563,7 +563,7 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     earliest_exit_epoch,
                     consolidation_balance_to_consume,
                     earliest_consolidation_epoch,
-                    pending_balance_deposits,
+                    pending_deposits,
                     pending_partial_withdrawals,
                     pending_consolidations
                 ],

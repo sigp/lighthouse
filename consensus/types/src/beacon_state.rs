@@ -510,7 +510,7 @@ where
     #[compare_fields(as_iter)]
     #[test_random(default)]
     #[superstruct(only(Electra))]
-    pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
+    pub pending_deposits: List<PendingDeposit, E::PendingDepositsLimit>,
     #[compare_fields(as_iter)]
     #[test_random(default)]
     #[superstruct(only(Electra))]
@@ -2121,27 +2121,6 @@ impl<E: EthSpec> BeaconState<E> {
             .map_err(Into::into)
     }
 
-    /// Get active balance for the given `validator_index`.
-    pub fn get_active_balance(
-        &self,
-        validator_index: usize,
-        spec: &ChainSpec,
-        current_fork: ForkName,
-    ) -> Result<u64, Error> {
-        let max_effective_balance = self
-            .validators()
-            .get(validator_index)
-            .map(|validator| validator.get_max_effective_balance(spec, current_fork))
-            .ok_or(Error::UnknownValidator(validator_index))?;
-        Ok(std::cmp::min(
-            *self
-                .balances()
-                .get(validator_index)
-                .ok_or(Error::UnknownValidator(validator_index))?,
-            max_effective_balance,
-        ))
-    }
-
     pub fn get_pending_balance_to_withdraw(&self, validator_index: usize) -> Result<u64, Error> {
         let mut pending_balance = 0;
         for withdrawal in self
@@ -2168,40 +2147,16 @@ impl<E: EthSpec> BeaconState<E> {
         if *balance > spec.min_activation_balance {
             let excess_balance = balance.safe_sub(spec.min_activation_balance)?;
             *balance = spec.min_activation_balance;
-            self.pending_balance_deposits_mut()?
-                .push(PendingBalanceDeposit {
-                    index: validator_index as u64,
-                    amount: excess_balance,
-                })?;
+            let validator = self.get_validator(validator_index)?.clone();
+            self.pending_deposits_mut()?.push(PendingDeposit {
+                pubkey: validator.pubkey,
+                withdrawal_credentials: validator.withdrawal_credentials,
+                amount: excess_balance,
+                signature: Signature::infinity()?.into(),
+                slot: spec.genesis_slot,
+            })?;
         }
         Ok(())
-    }
-
-    pub fn queue_entire_balance_and_reset_validator(
-        &mut self,
-        validator_index: usize,
-        spec: &ChainSpec,
-    ) -> Result<(), Error> {
-        let balance = self
-            .balances_mut()
-            .get_mut(validator_index)
-            .ok_or(Error::UnknownValidator(validator_index))?;
-        let balance_copy = *balance;
-        *balance = 0_u64;
-
-        let validator = self
-            .validators_mut()
-            .get_mut(validator_index)
-            .ok_or(Error::UnknownValidator(validator_index))?;
-        validator.effective_balance = 0;
-        validator.activation_eligibility_epoch = spec.far_future_epoch;
-
-        self.pending_balance_deposits_mut()?
-            .push(PendingBalanceDeposit {
-                index: validator_index as u64,
-                amount: balance_copy,
-            })
-            .map_err(Into::into)
     }
 
     /// Change the withdrawal prefix of the given `validator_index` to the compounding withdrawal validator prefix.
@@ -2214,12 +2169,10 @@ impl<E: EthSpec> BeaconState<E> {
             .validators_mut()
             .get_mut(validator_index)
             .ok_or(Error::UnknownValidator(validator_index))?;
-        if validator.has_eth1_withdrawal_credential(spec) {
-            AsMut::<[u8; 32]>::as_mut(&mut validator.withdrawal_credentials)[0] =
-                spec.compounding_withdrawal_prefix_byte;
+        AsMut::<[u8; 32]>::as_mut(&mut validator.withdrawal_credentials)[0] =
+            spec.compounding_withdrawal_prefix_byte;
 
-            self.queue_excess_active_balance(validator_index, spec)?;
-        }
+        self.queue_excess_active_balance(validator_index, spec)?;
         Ok(())
     }
 
