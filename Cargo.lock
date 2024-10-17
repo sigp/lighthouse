@@ -30,6 +30,8 @@ dependencies = [
  "filesystem",
  "safe_arith",
  "sensitive_url",
+ "serde",
+ "serde_json",
  "slashing_protection",
  "slot_clock",
  "tempfile",
@@ -2659,8 +2661,10 @@ dependencies = [
 name = "eth2_wallet_manager"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "eth2_wallet",
  "lockfile",
+ "serde",
  "tempfile",
 ]
 

@@ -1,7 +1,7 @@
+use crate::validator::cli::Exit;
 use account_utils::STDIN_INPUTS_FLAG;
 use bls::{Keypair, PublicKey};
-use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::FLAG_HEADER;
+use clap::ArgMatches;
 use environment::Environment;
 use eth2::{
     types::{GenesisData, StateId, ValidatorData, ValidatorId, ValidatorStatus},
@@ -17,76 +17,25 @@ use std::time::Duration;
 use tokio::time::sleep;
 use types::{ChainSpec, Epoch, EthSpec, VoluntaryExit};
 
-pub const CMD: &str = "exit";
-pub const KEYSTORE_FLAG: &str = "keystore";
-pub const PASSWORD_FILE_FLAG: &str = "password-file";
-pub const BEACON_SERVER_FLAG: &str = "beacon-node";
-pub const NO_WAIT: &str = "no-wait";
-pub const NO_CONFIRMATION: &str = "no-confirmation";
 pub const PASSWORD_PROMPT: &str = "Enter the keystore password";
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 pub const CONFIRMATION_PHRASE: &str = "Exit my validator";
 pub const WEBSITE_URL: &str = "https://lighthouse-book.sigmaprime.io/voluntary-exit.html";
 
-pub fn cli_app() -> Command {
-    Command::new("exit")
-        .about("Submits a VoluntaryExit to the beacon chain for a given validator keystore.")
-        .arg(
-            Arg::new(KEYSTORE_FLAG)
-                .long(KEYSTORE_FLAG)
-                .value_name("KEYSTORE_PATH")
-                .help("The path to the EIP-2335 voting keystore for the validator")
-                .action(ArgAction::Set)
-                .required(true)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new(PASSWORD_FILE_FLAG)
-                .long(PASSWORD_FILE_FLAG)
-                .value_name("PASSWORD_FILE_PATH")
-                .help("The path to the password file which unlocks the validator voting keystore")
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new(BEACON_SERVER_FLAG)
-                .long(BEACON_SERVER_FLAG)
-                .value_name("NETWORK_ADDRESS")
-                .help("Address to a beacon node HTTP API")
-                .default_value(DEFAULT_BEACON_NODE)
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new(NO_WAIT)
-                .long(NO_WAIT)
-                .help("Exits after publishing the voluntary exit without waiting for confirmation that the exit was included in the beacon chain")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new(NO_CONFIRMATION)
-                .long(NO_CONFIRMATION)
-                .help("Exits without prompting for confirmation that you understand the implications of a voluntary exit. This should be used with caution")
-                .display_order(0)
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-        )
-}
-
-pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), String> {
-    let keystore_path: PathBuf = clap_utils::parse_required(matches, KEYSTORE_FLAG)?;
-    let password_file_path: Option<PathBuf> =
-        clap_utils::parse_optional(matches, PASSWORD_FILE_FLAG)?;
-
+pub fn cli_run<E: EthSpec>(
+    exit_config: &Exit,
+    matches: &ArgMatches,
+    env: Environment<E>,
+) -> Result<(), String> {
+    let keystore_path: PathBuf = exit_config.keystore.clone();
+    let password_file_path: Option<PathBuf> = exit_config.password_file.clone();
     let stdin_inputs = cfg!(windows) || matches.get_flag(STDIN_INPUTS_FLAG);
-    let no_wait = matches.get_flag(NO_WAIT);
-    let no_confirmation = matches.get_flag(NO_CONFIRMATION);
+    let no_wait = exit_config.no_wait;
+    let no_confirmation = exit_config.no_confirmation;
 
     let spec = env.eth2_config().spec.clone();
-    let server_url: String = clap_utils::parse_required(matches, BEACON_SERVER_FLAG)?;
+    let server_url = exit_config.beacon_node.clone();
     let client = BeaconNodeHttpClient::new(
         SensitiveUrl::parse(&server_url)
             .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
