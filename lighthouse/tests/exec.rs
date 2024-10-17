@@ -140,11 +140,6 @@ impl<C> CompletedTest<C> {
         func(&self.config);
     }
 
-    pub fn with_spec<E: EthSpec, F: Fn(ChainSpec)>(self, func: F) {
-        let spec = ChainSpec::from_config::<E>(&self.chain_config).unwrap();
-        func(spec);
-    }
-
     pub fn with_config_and_dir<F: Fn(&C, &TempDir)>(self, func: F) {
         func(&self.config, &self.dir);
     }
