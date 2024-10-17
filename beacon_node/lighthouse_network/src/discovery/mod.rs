@@ -1215,10 +1215,11 @@ mod tests {
     }
 
     async fn build_discovery() -> Discovery<E> {
-        let spec = ChainSpec::default();
+        let spec = Arc::new(ChainSpec::default());
         let keypair = secp256k1::Keypair::generate();
         let mut config = NetworkConfig::default();
         config.set_listening_addr(crate::ListenAddress::unused_v4_ports());
+        let config = Arc::new(config);
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
         let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default(), &spec).unwrap();
         let log = build_log(slog::Level::Debug, false);
@@ -1232,6 +1233,7 @@ mod tests {
             vec![],
             false,
             &log,
+            config.clone(),
             spec.clone(),
         );
         let keypair = keypair.into();

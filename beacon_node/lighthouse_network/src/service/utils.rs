@@ -24,16 +24,14 @@ use types::{
 };
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
-/// The maximum simultaneous libp2p connections per peer.
-pub const MAX_CONNECTIONS_PER_PEER: u32 = 1;
 /// The filename to store our local metadata.
 pub const METADATA_FILENAME: &str = "metadata";
 
 pub struct Context<'a> {
-    pub config: &'a NetworkConfig,
+    pub config: Arc<NetworkConfig>,
     pub enr_fork_id: EnrForkId,
     pub fork_context: Arc<ForkContext>,
-    pub chain_spec: &'a ChainSpec,
+    pub chain_spec: Arc<ChainSpec>,
     pub libp2p_registry: Option<&'a mut Registry>,
 }
 

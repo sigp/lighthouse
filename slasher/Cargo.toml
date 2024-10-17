@@ -37,7 +37,7 @@ mdbx = { package = "libmdbx", git = "https://github.com/sigp/libmdbx-rs", rev = 
 lmdb-rkv = { git = "https://github.com/sigp/lmdb-rs", rev = "f33845c6469b94265319aac0ed5085597862c27e", optional = true }
 lmdb-rkv-sys = { git = "https://github.com/sigp/lmdb-rs", rev = "f33845c6469b94265319aac0ed5085597862c27e", optional = true }
 
-redb = { version = "2.1", optional = true }
+redb = { version = "2.1.4", optional = true }
 
 [dev-dependencies]
 maplit = { workspace = true }

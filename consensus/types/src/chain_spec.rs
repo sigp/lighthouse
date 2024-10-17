@@ -26,7 +26,6 @@ pub enum Domain {
     SyncCommittee,
     ContributionAndProof,
     SyncCommitteeSelectionProof,
-    Consolidation,
     ApplicationMask(ApplicationDomain),
 }
 
@@ -111,7 +110,6 @@ pub struct ChainSpec {
     pub(crate) domain_voluntary_exit: u32,
     pub(crate) domain_selection_proof: u32,
     pub(crate) domain_aggregate_and_proof: u32,
-    pub(crate) domain_consolidation: u32,
 
     /*
      * Fork choice
@@ -198,6 +196,7 @@ pub struct ChainSpec {
     pub custody_requirement: u64,
     pub data_column_sidecar_subnet_count: u64,
     pub number_of_columns: usize,
+    pub samples_per_slot: u64,
 
     /*
      * Networking
@@ -478,7 +477,6 @@ impl ChainSpec {
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
             Domain::ApplicationMask(application_domain) => application_domain.get_domain_constant(),
             Domain::BlsToExecutionChange => self.domain_bls_to_execution_change,
-            Domain::Consolidation => self.domain_consolidation,
         }
     }
 
@@ -703,7 +701,6 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
-            domain_consolidation: 0x0B,
 
             /*
              * Fork choice
@@ -811,6 +808,7 @@ impl ChainSpec {
             custody_requirement: 4,
             data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
+            samples_per_slot: 8,
 
             /*
              * Network specific
@@ -1024,7 +1022,6 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
-            domain_consolidation: 0x0B,
 
             /*
              * Fork choice
@@ -1132,6 +1129,7 @@ impl ChainSpec {
             custody_requirement: 4,
             data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
+            samples_per_slot: 8,
             /*
              * Network specific
              */
@@ -1382,6 +1380,9 @@ pub struct Config {
     #[serde(default = "default_number_of_columns")]
     #[serde(with = "serde_utils::quoted_u64")]
     number_of_columns: u64,
+    #[serde(default = "default_samples_per_slot")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    samples_per_slot: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1521,15 +1522,19 @@ const fn default_maximum_gossip_clock_disparity_millis() -> u64 {
 }
 
 const fn default_custody_requirement() -> u64 {
-    1
+    4
 }
 
 const fn default_data_column_sidecar_subnet_count() -> u64 {
-    32
+    128
 }
 
 const fn default_number_of_columns() -> u64 {
     128
+}
+
+const fn default_samples_per_slot() -> u64 {
+    8
 }
 
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
@@ -1727,6 +1732,7 @@ impl Config {
             custody_requirement: spec.custody_requirement,
             data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
             number_of_columns: spec.number_of_columns as u64,
+            samples_per_slot: spec.samples_per_slot,
         }
     }
 
@@ -1802,6 +1808,7 @@ impl Config {
             custody_requirement,
             data_column_sidecar_subnet_count,
             number_of_columns,
+            samples_per_slot,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -1881,6 +1888,7 @@ impl Config {
             custody_requirement,
             data_column_sidecar_subnet_count,
             number_of_columns: number_of_columns as usize,
+            samples_per_slot,
 
             ..chain_spec.clone()
         })
@@ -1946,7 +1954,6 @@ mod tests {
             &spec,
         );
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
-        test_domain(Domain::Consolidation, spec.domain_consolidation, &spec);
 
         // The builder domain index is zero
         let builder_domain_pre_mask = [0; 4];
@@ -2125,6 +2132,7 @@ mod yaml_tests {
         CUSTODY_REQUIREMENT: 1
         DATA_COLUMN_SIDECAR_SUBNET_COUNT: 128
         NUMBER_OF_COLUMNS: 128
+        SAMPLES_PER_SLOT: 8
         "#;
 
         let chain_spec: Config = serde_yaml::from_str(spec).unwrap();

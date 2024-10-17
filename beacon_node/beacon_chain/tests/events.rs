@@ -12,7 +12,7 @@ type E = MinimalEthSpec;
 /// Verifies that a blob event is emitted when a gossip verified blob is received via gossip or the publish block API.
 #[tokio::test]
 async fn blob_sidecar_event_on_process_gossip_blob() {
-    let spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
+    let spec = Arc::new(ForkName::Deneb.make_genesis_spec(E::default_spec()));
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec)
         .deterministic_keypairs(8)
@@ -35,7 +35,7 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
 
     let _ = harness
         .chain
-        .process_gossip_blob(gossip_verified_blob)
+        .process_gossip_blob(gossip_verified_blob, || Ok(()))
         .await
         .unwrap();
 
@@ -46,7 +46,7 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
 /// Verifies that a blob event is emitted when blobs are received via RPC.
 #[tokio::test]
 async fn blob_sidecar_event_on_process_rpc_blobs() {
-    let spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
+    let spec = Arc::new(ForkName::Deneb.make_genesis_spec(E::default_spec()));
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec)
         .deterministic_keypairs(8)

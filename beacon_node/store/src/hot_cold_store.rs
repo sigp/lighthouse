@@ -82,7 +82,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// LRU cache of replayed states.
     historic_state_cache: Mutex<LruCache<Slot, BeaconState<E>>>,
     /// Chain spec.
-    pub(crate) spec: ChainSpec,
+    pub(crate) spec: Arc<ChainSpec>,
     /// Logger.
     pub log: Logger,
     /// Mere vessel for E.
@@ -194,7 +194,7 @@ pub enum HotColdDBError {
 impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
     pub fn open_ephemeral(
         config: StoreConfig,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         log: Logger,
     ) -> Result<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>, Error> {
         Self::verify_config(&config)?;
@@ -231,7 +231,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         blobs_db_path: &Path,
         migrate_schema: impl FnOnce(Arc<Self>, SchemaVersion, SchemaVersion) -> Result<(), Error>,
         config: StoreConfig,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         log: Logger,
     ) -> Result<Arc<Self>, Error> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
@@ -1160,9 +1160,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::DeleteState(state_root, slot) => {
+                    // Delete the hot state summary.
                     let state_summary_key =
                         get_key_for_col(DBColumn::BeaconStateSummary.into(), state_root.as_slice());
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(state_summary_key));
+
+                    // Delete the state temporary flag (if any). Temporary flags are commonly
+                    // created by the state advance routine.
+                    let state_temp_key = get_key_for_col(
+                        DBColumn::BeaconStateTemporary.into(),
+                        state_root.as_slice(),
+                    );
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(state_temp_key));
 
                     if slot.map_or(true, |slot| slot % E::slots_per_epoch() == 0) {
                         let state_key =
@@ -1868,7 +1877,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Get a reference to the `ChainSpec` used by the database.
-    pub fn get_chain_spec(&self) -> &ChainSpec {
+    pub fn get_chain_spec(&self) -> &Arc<ChainSpec> {
         &self.spec
     }
 

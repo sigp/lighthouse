@@ -1887,6 +1887,31 @@ pub static DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS: LazyLock<Result<IntCounter>>
         )
     });
 
+pub static KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "kzg_data_column_reconstruction_attempts",
+            "Count of times data column reconstruction has been attempted",
+        )
+    });
+
+pub static KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "kzg_data_column_reconstruction_failures",
+            "Count of times data column reconstruction has failed",
+        )
+    });
+
+pub static KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "kzg_data_column_reconstruction_incomplete_total",
+            "Count of times data column reconstruction attempts did not result in an import",
+            &["reason"],
+        )
+    });
+
 /*
  * light_client server metrics
  */

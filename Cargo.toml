@@ -95,7 +95,7 @@ resolver = "2"
 edition = "2021"
 
 [workspace.dependencies]
-alloy-primitives = "0.8"
+alloy-primitives = { version = "0.8", features = ["rlp", "getrandom"] }
 alloy-rlp = "0.3.4"
 alloy-consensus = "0.3.0"
 anyhow = "1"
