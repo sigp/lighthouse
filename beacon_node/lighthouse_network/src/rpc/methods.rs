@@ -502,12 +502,7 @@ impl LightClientUpdatesByRangeRequest {
     }
 
     pub fn ssz_max_len() -> usize {
-        LightClientUpdatesByRangeRequest {
-            start_period: 0,
-            count: 0,
-        }
-        .as_ssz_bytes()
-        .len()
+        Self::ssz_min_len()
     }
 }
 
