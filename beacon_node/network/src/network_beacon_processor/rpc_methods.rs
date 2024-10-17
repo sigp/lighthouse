@@ -509,7 +509,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.log,
                 "LightClientUpdatesByRange outgoing response processed";
                 "peer" => %peer_id,
-                "msg" => "Failed to return all requested light client updates. The peer may have requested data ahead of whats currently available.",
+                "info" => "Failed to return all requested light client updates. The peer may have requested data ahead of whats currently available",
                 "start_period" => req.start_period,
                 "requested" => req.count,
                 "returned" => lc_updates_sent
