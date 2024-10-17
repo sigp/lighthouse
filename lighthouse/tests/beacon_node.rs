@@ -21,7 +21,7 @@ use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
 use types::non_zero_usize::new_non_zero_usize;
-use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, Hash256, MainnetEthSpec};
+use types::{Address, Checkpoint, Epoch, Hash256, MainnetEthSpec};
 use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
@@ -752,7 +752,6 @@ fn jwt_optional_alias_flags() {
 // DEPRECATED. This flag is deprecated but should not cause a crash.
 #[test]
 fn terminal_total_difficulty_override_flag() {
-    use beacon_node::beacon_chain::types::Uint256;
     CommandLineTest::new()
         .flag("terminal-total-difficulty-override", Some("1337424242"))
         .run_with_zero_port();
