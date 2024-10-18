@@ -854,7 +854,7 @@ fn supernode_data_column_publication_batch_interval() {
                 config
                     .chain
                     .supernode_data_column_publication_batch_interval,
-                300
+                Duration::from_millis(300)
             )
         });
 }

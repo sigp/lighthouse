@@ -99,7 +99,7 @@ pub fn cli_app() -> Command {
                 .long("supernode-data-column-publication-batch-interval")
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
-                .help("The delay applied by supernodes between the sending of each data column batch. For PeerDAS only.")
+                .help("The delay in milliseconds applied by supernodes between the sending of each data column batch. For PeerDAS only.")
                 .display_order(0)
         )
         .arg(
