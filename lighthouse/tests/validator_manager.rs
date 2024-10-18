@@ -199,10 +199,18 @@ pub fn validator_import_defaults() {
         .flag("--vc-token", Some("./token.json"))
         .assert_success(|config| {
             let expected = ImportConfig {
-                validators_file_path: PathBuf::from("./vals.json"),
+                validators_file_path: Some(PathBuf::from("./vals.json")),
+                keystore_file_path: None,
                 vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
                 vc_token_path: PathBuf::from("./token.json"),
                 ignore_duplicates: false,
+                password: None,
+                fee_recipient: None,
+                builder_boost_factor: None,
+                gas_limit: None,
+                builder_proposals: None,
+                enabled: None,
+                prefer_builder_proposals: None,
             };
             assert_eq!(expected, config);
         });
@@ -216,10 +224,18 @@ pub fn validator_import_misc_flags() {
         .flag("--ignore-duplicates", None)
         .assert_success(|config| {
             let expected = ImportConfig {
-                validators_file_path: PathBuf::from("./vals.json"),
+                validators_file_path: Some(PathBuf::from("./vals.json")),
+                keystore_file_path: None,
                 vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
                 vc_token_path: PathBuf::from("./token.json"),
                 ignore_duplicates: true,
+                password: None,
+                fee_recipient: None,
+                builder_boost_factor: None,
+                gas_limit: None,
+                builder_proposals: None,
+                enabled: None,
+                prefer_builder_proposals: None,
             };
             assert_eq!(expected, config);
         });
@@ -233,9 +249,11 @@ pub fn validator_import_missing_token() {
 }
 
 #[test]
-pub fn validator_import_missing_validators_file() {
+pub fn validator_import_using_both_file_flags() {
     CommandLineTest::validators_import()
         .flag("--vc-token", Some("./token.json"))
+        .flag("--validators-file", Some("./vals.json"))
+        .flag("--keystore-file", Some("./keystore.json"))
         .assert_failed();
 }
 
