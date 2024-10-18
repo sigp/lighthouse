@@ -191,8 +191,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         publish_blob_sidecars(network_tx, &blob).map_err(|_| {
             warp_utils::reject::custom_server_error("unable to publish blob sidecars".into())
         })?;
-        // Importing the blobs could trigger block import and network publication in the case
-        // where the block was already seen on gossip.
         if let Err(e) = Box::pin(chain.process_gossip_blob(blob)).await {
             let msg = format!("Invalid blob: {e}");
             return if let BroadcastValidation::Gossip = validation_level {

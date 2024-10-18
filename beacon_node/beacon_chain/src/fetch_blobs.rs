@@ -119,18 +119,10 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         &kzg_commitments_proof,
     )?;
 
-    // Spawn an async task here for long computation tasks, so it doesn't block processing, and it
-    // allows blobs / data columns to propagate without waiting for processing.
-    //
-    // An `mpsc::Sender` is then used to send the produced data columns to the `beacon_chain` for it
-    // to be persisted, **after** the block is made attestable.
-    //
-    // The reason for doing this is to make the block available and attestable as soon as possible,
-    // while maintaining the invariant that block and data columns are persisted atomically.
     let peer_das_enabled = chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
 
-    // Partial blobs response isn't useful for PeerDAS, so we don't bother building and publishing data columns.
     let data_columns_receiver_opt = if peer_das_enabled {
+        // Partial blobs response isn't useful for PeerDAS, so we don't bother building and publishing data columns.
         if !num_fetched_blobs == num_expected_blobs {
             debug!(
                 log,
@@ -192,6 +184,14 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     Ok(Some(availability_processing_status))
 }
 
+/// Spawn a blocking task here for long computation tasks, so it doesn't block processing, and it
+/// allows blobs / data columns to propagate without waiting for processing.
+///
+/// An `mpsc::Sender` is then used to send the produced data columns to the `beacon_chain` for it
+/// to be persisted, **after** the block is made attestable.
+///
+/// The reason for doing this is to make the block available and attestable as soon as possible,
+/// while maintaining the invariant that block and data columns are persisted atomically.
 fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block_root: Hash256,

@@ -37,13 +37,12 @@ fn all_benches(c: &mut Criterion) {
 
     let kzg = get_kzg(&spec);
     for blob_count in [1, 2, 3, 6] {
-        let kzg = kzg.clone();
         let (signed_block, blobs) = create_test_block_and_blobs::<E>(blob_count, &spec);
 
         let column_sidecars = blobs_to_data_column_sidecars(
             &blobs.iter().collect::<Vec<_>>(),
             &signed_block,
-            &kzg.clone(),
+            &kzg,
             &spec,
         )
         .unwrap();

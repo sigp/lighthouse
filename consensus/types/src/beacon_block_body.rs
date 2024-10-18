@@ -178,7 +178,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         leaves
     }
 
-    /// Calculate a KZG commitment merkle proof slowly.
+    /// Calculate a KZG commitment merkle proof.
     ///
     /// Prefer to use `complete_kzg_commitment_merkle_proof` with a reused proof for the
     /// `blob_kzg_commitments` field.
