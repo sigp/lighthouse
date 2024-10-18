@@ -112,9 +112,10 @@ pub static BLOCK_PROCESSING_POST_EXEC_PROCESSING: LazyLock<Result<Histogram>> =
         )
     });
 pub static BLOCK_PROCESSING_DATA_COLUMNS_WAIT: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
+    try_create_histogram_with_buckets(
         "beacon_block_processing_data_columns_wait_seconds",
         "Time spent waiting for data columns to be computed before starting database write",
+        exponential_buckets(0.01, 2.0, 10),
     )
 });
 pub static BLOCK_PROCESSING_DB_WRITE: LazyLock<Result<Histogram>> = LazyLock::new(|| {
@@ -1708,6 +1709,20 @@ pub static BLOBS_FROM_EL_MISS_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::ne
     try_create_int_counter(
         "beacon_blobs_from_el_miss_total",
         "Number of blob batches failed to fetch from the execution layer",
+    )
+});
+
+pub static BLOBS_FROM_EL_EXPECTED_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_blobs_from_el_expected_total",
+        "Number of blob expected from the execution layer",
+    )
+});
+
+pub static BLOBS_FROM_EL_RECEIVED_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_blobs_from_el_received_total",
+        "Number of blob fetched from the execution layer",
     )
 });
 

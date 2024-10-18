@@ -3083,6 +3083,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.remove_notified(&block_root, r)
     }
 
+    /// Process blobs retrieved from the EL and returns the `AvailabilityProcessingStatus`.
+    ///
+    /// `data_column_recv`: An optional receiver for `DataColumnSidecarList`.
+    /// If PeerDAS is enabled, this receiver will be provided and used to send
+    /// the `DataColumnSidecar`s once they have been successfully computed.
     pub async fn process_engine_blobs(
         self: &Arc<Self>,
         slot: Slot,
@@ -3896,7 +3901,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let (_, signed_block, blobs, data_columns) = signed_block.deconstruct();
         // TODO(das) we currently store all subnet sampled columns. Tracking issue to exclude non custody columns: https://github.com/sigp/lighthouse/issues/6465
         let custody_columns_count = self.data_availability_checker.get_sampling_column_count();
-        let data_columns = data_columns.filter(|columns| columns.len() >= custody_columns_count);
+        // if block is made available via blobs, dropped the data columns.
+        let data_columns = data_columns.filter(|columns| columns.len() == custody_columns_count);
 
         let data_columns = match (data_columns, data_column_recv) {
             // If the block was made available via custody columns received from gossip / rpc, use them

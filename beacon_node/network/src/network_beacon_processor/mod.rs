@@ -45,12 +45,6 @@ mod tests;
 
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
 
-/// Number of batches that supernodes split data columns into during publishing.
-const SUPERNODE_DATA_COLUMN_PUBLICATION_BATCHES: usize = 4;
-
-/// The delay applied by supernodes between the sending of each data column batch.
-const SUPERNODE_DATA_COLUMN_PUBLICATION_BATCH_INTERVAL: Duration = Duration::from_millis(200);
-
 /// Defines if and where we will store the SSZ files of invalid blocks.
 #[derive(Clone)]
 pub enum InvalidBlockStorage {
@@ -919,7 +913,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                 }
             },
-            Ok(None) => { /* No blobs fetched from the EL. Reasons logged separately. */ }
+            Ok(None) => {
+                debug!(
+                    self.log,
+                    "Fetch blobs completed without import";
+                    "block_hash" => %block_root,
+                );
+            }
             Err(e) => {
                 error!(
                     self.log,
@@ -994,8 +994,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
     ) {
         let self_clone = self.clone();
+
         self.executor.spawn(
             async move {
+                let chain = self_clone.chain.clone();
                 let publish_fn = |columns: DataColumnSidecarList<T::EthSpec>| {
                     self_clone.send_network_message(NetworkMessage::Publish {
                         messages: columns
@@ -1003,7 +1005,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             .map(|d| {
                                 let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
                                     d.index as usize,
-                                    &self_clone.chain.spec,
+                                    &chain.spec,
                                 );
                                 PubsubMessage::DataColumnSidecar(Box::new((subnet, d)))
                             })
@@ -1015,12 +1017,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // The hope is that we won't need to publish some columns because we will receive them
                 // on gossip from other supernodes.
                 data_columns_to_publish.shuffle(&mut rand::thread_rng());
+
+                let supernode_data_column_publication_batch_interval = chain
+                    .config
+                    .supernode_data_column_publication_batch_interval;
+                let supernode_data_column_publication_batches =
+                    chain.config.supernode_data_column_publication_batches;
                 let batch_size =
-                    data_columns_to_publish.len() / SUPERNODE_DATA_COLUMN_PUBLICATION_BATCHES;
+                    data_columns_to_publish.len() / supernode_data_column_publication_batches;
 
                 for batch in data_columns_to_publish.chunks(batch_size) {
-                    let already_seen = self_clone
-                        .chain
+                    let already_seen = chain
                         .data_availability_checker
                         .cached_data_column_indexes(&block_root)
                         .unwrap_or_default();
@@ -1038,7 +1045,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                         publish_fn(publishable);
                     }
-                    tokio::time::sleep(SUPERNODE_DATA_COLUMN_PUBLICATION_BATCH_INTERVAL).await;
+
+                    tokio::time::sleep(supernode_data_column_publication_batch_interval).await;
                 }
             },
             "handle_data_columns_publish",
