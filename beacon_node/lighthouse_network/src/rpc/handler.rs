@@ -15,7 +15,7 @@ use libp2p::swarm::handler::{
     ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, DialUpgradeError,
     FullyNegotiatedInbound, FullyNegotiatedOutbound, StreamUpgradeError, SubstreamProtocol,
 };
-use libp2p::swarm::Stream;
+use libp2p::swarm::{ConnectionId, Stream};
 use slog::{crit, debug, trace};
 use smallvec::SmallVec;
 use std::{
@@ -140,6 +140,9 @@ where
 
     /// Timeout that will be used for inbound and outbound responses.
     resp_timeout: Duration,
+
+    /// This `ConnectionId`.
+    connection_id: ConnectionId,
 }
 
 enum HandlerState {
@@ -223,6 +226,7 @@ where
         fork_context: Arc<ForkContext>,
         log: &slog::Logger,
         resp_timeout: Duration,
+        connection_id: ConnectionId,
     ) -> Self {
         RPCHandler {
             listen_protocol,
@@ -242,6 +246,7 @@ where
             waker: None,
             log: log.clone(),
             resp_timeout,
+            connection_id,
         }
     }
 
@@ -898,6 +903,7 @@ where
         self.events_out
             .push(HandlerEvent::Ok(RPCReceived::Request(Request {
                 id: RequestId::next(),
+                connection_id: self.connection_id,
                 substream_id: self.current_inbound_substream_id,
                 r#type: req,
             })));

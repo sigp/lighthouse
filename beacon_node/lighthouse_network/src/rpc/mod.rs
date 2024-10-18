@@ -118,6 +118,7 @@ impl RequestId {
 #[derive(Debug, Clone)]
 pub struct Request<E: EthSpec> {
     pub id: RequestId,
+    pub connection_id: ConnectionId,
     pub substream_id: SubstreamId,
     pub r#type: RequestType<E>,
 }
@@ -162,7 +163,7 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
     /// simultaneously on the same protocol per peer.
     active_inbound_requests_limiter: ActiveRequestsLimiter,
     /// Active inbound requests that are awaiting a response.
-    active_inbound_requests: HashMap<RequestId, (ConnectionId, Request<E>)>,
+    active_inbound_requests: HashMap<RequestId, Request<E>>,
     /// Queue of events to be processed.
     events: Vec<BehaviourAction<Id, E>>,
     fork_context: Arc<ForkContext>,
@@ -220,8 +221,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         request_id: RequestId,
         event: RpcResponse<E>,
     ) {
-        let Some((connection_id, request)) = self.active_inbound_requests.remove(&request_id)
-        else {
+        let Some(request) = self.active_inbound_requests.remove(&request_id) else {
             error!(self.log, "Request not found in active_inbound_requests. Response not sent"; "peer_id" => %peer_id, "request_id" => ?request_id, "response" => %event);
             return;
         };
@@ -231,14 +231,14 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             && !matches!(event, RpcResponse::StreamTermination(_))
         {
             self.active_inbound_requests
-                .insert(request_id, (connection_id, request.clone()));
+                .insert(request_id, request.clone());
         }
 
         if let Some(response_limiter) = self.response_limiter.as_mut() {
             if !response_limiter.allows(
                 peer_id,
                 request.r#type.protocol(),
-                connection_id,
+                request.connection_id,
                 request.substream_id,
                 event.clone(),
             ) {
@@ -248,13 +248,13 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
 
         self.active_inbound_requests_limiter.remove_request(
             peer_id,
-            &connection_id,
+            &request.connection_id,
             &request.substream_id,
         );
 
         self.events.push(ToSwarm::NotifyHandler {
             peer_id,
-            handler: NotifyHandler::One(connection_id),
+            handler: NotifyHandler::One(request.connection_id),
             event: RPCSend::Response(request.substream_id, event),
         });
     }
@@ -358,6 +358,7 @@ where
             self.fork_context.clone(),
             &log,
             self.network_params.resp_timeout,
+            connection_id,
         );
 
         Ok(handler)
@@ -391,6 +392,7 @@ where
             self.fork_context.clone(),
             &log,
             self.network_params.resp_timeout,
+            connection_id,
         );
 
         Ok(handler)
@@ -468,16 +470,17 @@ where
         match event {
             HandlerEvent::Ok(RPCReceived::Request(Request {
                 id,
+                connection_id,
                 substream_id,
                 r#type,
             })) => {
                 let request = Request {
                     id,
+                    connection_id,
                     substream_id,
                     r#type,
                 };
-                self.active_inbound_requests
-                    .insert(id, (conn_id, request.clone()));
+                self.active_inbound_requests.insert(id, request.clone());
 
                 if !self.active_inbound_requests_limiter.allows(
                     peer_id,
