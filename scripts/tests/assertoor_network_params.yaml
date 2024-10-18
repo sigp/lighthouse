@@ -21,3 +21,4 @@ assertoor_params:
   run_blob_transaction_test: true
   tests:
     - https://raw.githubusercontent.com/ethpandaops/assertoor-test/master/assertoor-tests/synchronized-check.yaml
+    - https://raw.githubusercontent.com/ethpandaops/assertoor-test/master/assertoor-tests/big-calldata-tx-test.yaml
