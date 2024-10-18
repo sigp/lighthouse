@@ -554,33 +554,7 @@ fn run<E: EthSpec>(
     let logfile_restricted = !matches.get_flag("logfile-no-restricted-perms");
 
     // Construct the path to the log file.
-    let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
-    if log_path.is_none() {
-        log_path = match matches.subcommand() {
-            Some(("beacon_node", _)) => Some(
-                parse_path_or_default(matches, "datadir")?
-                    .join(DEFAULT_BEACON_NODE_DIR)
-                    .join("logs")
-                    .join("beacon")
-                    .with_extension("log"),
-            ),
-            Some(("validator_client", vc_matches)) => {
-                let base_path = if vc_matches.contains_id("validators-dir") {
-                    parse_path_or_default(vc_matches, "validators-dir")?
-                } else {
-                    parse_path_or_default(matches, "datadir")?.join(DEFAULT_VALIDATOR_DIR)
-                };
-
-                Some(
-                    base_path
-                        .join("logs")
-                        .join("validator")
-                        .with_extension("log"),
-                )
-            }
-            _ => None,
-        };
-    }
+    let log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
 
     let sse_logging = {
         if let Some(bn_matches) = matches.subcommand_matches("beacon_node") {
@@ -607,28 +581,14 @@ fn run<E: EthSpec>(
         sse_logging,
     };
 
-    let mut tracing_log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
-
-    if tracing_log_path.is_none() {
-        tracing_log_path = Some(
-            parse_path_or_default(matches, "datadir")?
-                .join(DEFAULT_BEACON_NODE_DIR)
-                .join("logs"),
-        )
-    }
-
-    let path = tracing_log_path.clone().unwrap();
-
     let (libp2p_non_blocking_writer, _libp2p_guard, discv5_non_blocking_writer, _discv5_guard) =
-        logging::create_tracing_layer(path);
+        logging::create_tracing_layer(log_path.clone());
     let libp2p_layer = tracing_subscriber::fmt::layer()
         .with_writer(libp2p_non_blocking_writer)
-        .with_file(true)
         .with_line_number(true);
 
     let discv5_layer = tracing_subscriber::fmt::layer()
         .with_writer(discv5_non_blocking_writer)
-        .with_file(true)
         .with_line_number(true);
 
     let (builder, file_logging_layer, stdout_logging_layer) =

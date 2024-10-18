@@ -176,34 +176,43 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     }
 
     pub fn init_tracing(mut self, config: LoggerConfig) -> (Self, LoggingLayer, LoggingLayer) {
-        let mut log_path = config.path.unwrap();
+        let file_logging_layer = if let Some(path) = config.path {
+            match RollingFileAppender::builder()
+                .rotation(Rotation::DAILY)
+                .max_log_files(config.max_log_number)
+                .filename_prefix("beacon")
+                .filename_suffix("log")
+                .build(path.clone())
+            {
+                Ok(file_appender) => {
+                    info!(?path, "Logging to file");
+                    let (file_non_blocking_writer, file_guard) =
+                        tracing_appender::non_blocking(file_appender);
 
-        let mut path = PathBuf::new();
-        for p in log_path.iter() {
-            path = path.join(p);
-            if let Ok(metadata) = path.metadata() {
-                if !metadata.is_dir() {
-                    path.pop();
-                    break;
+                    LoggingLayer {
+                        non_blocking_writer: file_non_blocking_writer,
+                        guard: file_guard,
+                        disable_log_timestamp: config.disable_log_timestamp,
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to initialize rolling file appender: {}", e);
+                    let (sink_writer, sink_guard) = tracing_appender::non_blocking(std::io::sink());
+                    LoggingLayer {
+                        non_blocking_writer: sink_writer,
+                        guard: sink_guard,
+                        disable_log_timestamp: config.disable_log_timestamp,
+                    }
                 }
             }
-        }
-        let Ok(file_appender) = RollingFileAppender::builder()
-            .rotation(Rotation::DAILY)
-            .max_log_files(config.max_log_number)
-            .filename_prefix("beacon")
-            .filename_suffix("log")
-            .build(path.clone())
-        else {
-            panic!("Failed to initialize rolling file appender");
-        };
-
-        let (file_non_blocking_writer, file_guard) = tracing_appender::non_blocking(file_appender);
-
-        let file_logging_layer = LoggingLayer {
-            non_blocking_writer: file_non_blocking_writer,
-            guard: file_guard,
-            disable_log_timestamp: config.disable_log_timestamp,
+        } else {
+            eprintln!("No path provided. File logging is disabled.");
+            let (sink_writer, sink_guard) = tracing_appender::non_blocking(std::io::sink());
+            LoggingLayer {
+                non_blocking_writer: sink_writer,
+                guard: sink_guard,
+                disable_log_timestamp: config.disable_log_timestamp,
+            }
         };
 
         let (stdout_non_blocking_writer, stdout_guard) =
@@ -275,7 +284,6 @@ pub struct Environment<E: EthSpec> {
     signal_tx: Sender<ShutdownReason>,
     signal: Option<async_channel::Sender<()>>,
     exit: async_channel::Receiver<()>,
-    // log: Logger,
     sse_logging_components: Option<SSELoggingComponents>,
     eth_spec_instance: E,
     pub eth2_config: Eth2Config,

@@ -50,48 +50,58 @@ impl TimeLatch {
 }
 
 pub fn create_tracing_layer(
-    base_tracing_log_path: PathBuf,
+    base_tracing_log_path: Option<PathBuf>,
 ) -> (NonBlocking, WorkerGuard, NonBlocking, WorkerGuard) {
-    let mut tracing_log_path = PathBuf::new();
-
-    // Ensure that `tracing_log_path` only contains directories.
-    for p in base_tracing_log_path.iter() {
-        tracing_log_path = tracing_log_path.join(p);
-        if let Ok(metadata) = tracing_log_path.metadata() {
-            if !metadata.is_dir() {
-                tracing_log_path.pop();
-                break;
+    if let Some(mut tracing_log_path) = base_tracing_log_path {
+        // Ensure that `tracing_log_path` only contains directories.
+        for p in tracing_log_path.clone().iter() {
+            tracing_log_path = tracing_log_path.join(p);
+            if let Ok(metadata) = tracing_log_path.metadata() {
+                if !metadata.is_dir() {
+                    tracing_log_path.pop();
+                    break;
+                }
             }
         }
+        let Ok(libp2p_writer) = RollingFileAppender::builder()
+            .rotation(Rotation::DAILY)
+            .max_log_files(2)
+            .filename_prefix("libp2p")
+            .filename_suffix("log")
+            .build(tracing_log_path.clone())
+        else {
+            eprintln!("Failed to initialize libp2p rolling file appender");
+            std::process::exit(1);
+        };
+
+        let Ok(discv5_writer) = RollingFileAppender::builder()
+            .rotation(Rotation::DAILY)
+            .max_log_files(2)
+            .filename_prefix("discv5")
+            .filename_suffix("log")
+            .build(tracing_log_path)
+        else {
+            eprintln!("Failed to initialize discv5 rolling file appender");
+            std::process::exit(1);
+        };
+
+        let (libp2p_non_blocking_writer, _libp2p_guard) = NonBlocking::new(libp2p_writer);
+        let (discv5_non_blocking_writer, _discv5_guard) = NonBlocking::new(discv5_writer);
+
+        (
+            libp2p_non_blocking_writer,
+            _libp2p_guard,
+            discv5_non_blocking_writer,
+            _discv5_guard,
+        )
+    } else {
+        let (libp2p_non_blocking_writer, _libp2p_guard) = NonBlocking::new(std::io::sink());
+        let (discv5_non_blocking_writer, _discv5_guard) = NonBlocking::new(std::io::sink());
+        return (
+            libp2p_non_blocking_writer,
+            _libp2p_guard,
+            discv5_non_blocking_writer,
+            _discv5_guard,
+        );
     }
-
-    let Ok(libp2p_writer) = RollingFileAppender::builder()
-        .rotation(Rotation::DAILY)
-        .max_log_files(2)
-        .filename_prefix("libp2p")
-        .filename_suffix("log")
-        .build(tracing_log_path.clone())
-    else {
-        panic!("Failed to initialize libp2p rolling file appender");
-    };
-
-    let Ok(discv5_writer) = RollingFileAppender::builder()
-        .rotation(Rotation::DAILY)
-        .max_log_files(2)
-        .filename_prefix("discv5")
-        .filename_suffix("log")
-        .build(tracing_log_path)
-    else {
-        panic!("Failed to initialize discv5 rolling file appender");
-    };
-
-    let (libp2p_non_blocking_writer, _libp2p_guard) = NonBlocking::new(libp2p_writer);
-    let (discv5_non_blocking_writer, _discv5_guard) = NonBlocking::new(discv5_writer);
-
-    (
-        libp2p_non_blocking_writer,
-        _libp2p_guard,
-        discv5_non_blocking_writer,
-        _discv5_guard,
-    )
 }
