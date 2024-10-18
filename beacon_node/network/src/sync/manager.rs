@@ -36,7 +36,7 @@
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
 use super::block_lookups::BlockLookups;
 use super::network_context::{
-    BlockOrBlob, CustodyByRootResult, RangeRequestId, RpcEvent, SyncNetworkContext,
+    CustodyByRootResult, RangeBlockComponent, RangeRequestId, RpcEvent, SyncNetworkContext,
 };
 use super::peer_sampling::{Sampling, SamplingConfig, SamplingResult};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
@@ -1150,7 +1150,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         if let Some(resp) = self.network.on_blocks_by_range_response(id, peer_id, block) {
-            self.on_range_components_response(id.requester, peer_id, BlockOrBlob::Block(resp));
+            self.on_range_components_response(
+                id.requester,
+                peer_id,
+                RangeBlockComponent::Block(resp),
+            );
         }
     }
 
@@ -1161,7 +1165,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         blob: RpcEvent<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
         if let Some(resp) = self.network.on_blobs_by_range_response(id, peer_id, blob) {
-            self.on_range_components_response(id.requester, peer_id, BlockOrBlob::Blob(resp));
+            self.on_range_components_response(
+                id.requester,
+                peer_id,
+                RangeBlockComponent::Blob(resp),
+            );
         }
     }
 
@@ -1178,7 +1186,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.on_range_components_response(
                 id.requester,
                 peer_id,
-                BlockOrBlob::CustodyColumns(resp),
+                RangeBlockComponent::CustodyColumns(resp),
             );
         }
     }
@@ -1237,11 +1245,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         id: ComponentsByRangeRequestId,
         peer_id: PeerId,
-        block_or_blob: BlockOrBlob<T::EthSpec>,
+        block_or_blob: RangeBlockComponent<T::EthSpec>,
     ) {
         if let Some(resp) = self
             .network
-            .range_block_and_blob_response(id, block_or_blob)
+            .range_block_component_response(id, block_or_blob)
         {
             match resp {
                 Ok(blocks) => {

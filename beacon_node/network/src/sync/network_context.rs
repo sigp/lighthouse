@@ -208,7 +208,7 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 }
 
 /// Small enumeration to make dealing with block and blob requests easier.
-pub enum BlockOrBlob<E: EthSpec> {
+pub enum RangeBlockComponent<E: EthSpec> {
     Block(RpcResponseResult<Vec<Arc<SignedBeaconBlock<E>>>>),
     Blob(RpcResponseResult<Vec<Arc<BlobSidecar<E>>>>),
     CustodyColumns(RpcResponseResult<Vec<Arc<DataColumnSidecar<E>>>>),
@@ -449,10 +449,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     /// Received a blocks by range or blobs by range response for a request that couples blocks '
     /// and blobs.
-    pub fn range_block_and_blob_response(
+    pub fn range_block_component_response(
         &mut self,
         id: ComponentsByRangeRequestId,
-        block_or_blob: BlockOrBlob<T::EthSpec>,
+        block_or_blob: RangeBlockComponent<T::EthSpec>,
     ) -> Option<Result<Vec<RpcBlock<T::EthSpec>>, RpcResponseError>> {
         let Entry::Occupied(mut entry) = self.components_by_range_requests.entry(id) else {
             metrics::inc_counter_vec(&metrics::SYNC_UNKNOWN_NETWORK_REQUESTS, &["range_blocks"]);
@@ -462,27 +462,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         if let Err(e) = {
             let request = entry.get_mut();
             match block_or_blob {
-                BlockOrBlob::Block(resp) => match resp {
-                    Ok((blocks, _)) => {
-                        request.add_blocks(blocks);
-                        Ok(())
-                    }
-                    Err(e) => Err(e),
-                },
-                BlockOrBlob::Blob(resp) => match resp {
-                    Ok((blobs, _)) => {
-                        request.add_blobs(blobs);
-                        Ok(())
-                    }
-                    Err(e) => Err(e),
-                },
-                BlockOrBlob::CustodyColumns(resp) => match resp {
-                    Ok((custody_columns, _)) => {
-                        request.add_custody_columns(custody_columns);
-                        Ok(())
-                    }
-                    Err(e) => Err(e),
-                },
+                RangeBlockComponent::Block(resp) => resp.map(|(blocks, _)| {
+                    request.add_blocks(blocks);
+                }),
+                RangeBlockComponent::Blob(resp) => resp.map(|(blobs, _)| {
+                    request.add_blobs(blobs);
+                }),
+                RangeBlockComponent::CustodyColumns(resp) => resp.map(|(custody_columns, _)| {
+                    request.add_custody_columns(custody_columns);
+                }),
             }
         } {
             entry.remove();

@@ -390,7 +390,7 @@ mod tests {
     use crate::NetworkMessage;
 
     use super::*;
-    use crate::sync::network_context::{BlockOrBlob, RangeRequestId, RpcResponseResult};
+    use crate::sync::network_context::{RangeBlockComponent, RangeRequestId, RpcResponseResult};
     use beacon_chain::builder::Witness;
     use beacon_chain::eth1_chain::CachingEth1Backend;
     use beacon_chain::parking_lot::RwLock;
@@ -569,17 +569,17 @@ mod tests {
             if blob_req_opt.is_some() {
                 match block_req {
                     AppRequestId::Sync(SyncRequestId::BlocksByRange(id)) => {
-                        let result = self.cx.range_block_and_blob_response(
+                        let result = self.cx.range_block_component_response(
                             id.requester,
-                            BlockOrBlob::Block(empty_response()),
+                            RangeBlockComponent::Block(empty_response()),
                         );
                         if result.is_some() {
                             panic!("range components should not complete yet");
                         }
                         self.cx
-                            .range_block_and_blob_response(
+                            .range_block_component_response(
                                 id.requester,
-                                BlockOrBlob::Blob(empty_response()),
+                                RangeBlockComponent::Blob(empty_response()),
                             )
                             .unwrap()
                             .unwrap();
@@ -593,9 +593,9 @@ mod tests {
                 match block_req {
                     AppRequestId::Sync(SyncRequestId::BlocksByRange(id)) => {
                         self.cx
-                            .range_block_and_blob_response(
+                            .range_block_component_response(
                                 id.requester,
-                                BlockOrBlob::Block(empty_response()),
+                                RangeBlockComponent::Block(empty_response()),
                             )
                             .unwrap()
                             .unwrap();
