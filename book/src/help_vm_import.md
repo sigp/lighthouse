@@ -5,7 +5,7 @@ Uploads validators to a validator client using the HTTP API. The validators are
 defined in a JSON file which can be generated using the "create-validators"
 command.
 
-Usage: lighthouse validator_manager import [OPTIONS] --validators-file <PATH_TO_JSON_FILE>
+Usage: lighthouse validator_manager import [OPTIONS]
 
 Options:
       --builder-boost-factor <UINT64>
@@ -38,6 +38,10 @@ Options:
       --genesis-state-url-timeout <SECONDS>
           The timeout in seconds for the request to --genesis-state-url.
           [default: 180]
+      --keystore-file <PATH_TO_KEYSTORE_FILE>
+          The path to a keystore JSON file to be imported to the validator
+          client. This file is usually created using staking-deposit-cli or
+          ethstaker-deposit-cli
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]
@@ -140,9 +144,6 @@ Flags:
           contain sensitive information about your validator and so this flag
           should be used with caution. For Windows users, the log file
           permissions will be inherited from the parent folder.
-      --standard-format
-          Use this flag when the validator keystore files are generated using
-          staking-deposit-cli or ethstaker-deposit-cli.
       --stdin-inputs
           If present, read all user inputs from stdin instead of tty.
 ```
