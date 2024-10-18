@@ -1,12 +1,5 @@
 use account_utils::validator_definitions::ValidatorDefinitions;
-use clap::Command;
 use std::path::PathBuf;
-
-pub const CMD: &str = "list";
-
-pub fn cli_app() -> Command {
-    Command::new(CMD).about("Lists the public keys of all validators.")
-}
 
 pub fn cli_run(validator_dir: PathBuf) -> Result<(), String> {
     let validator_definitions = ValidatorDefinitions::open(&validator_dir).map_err(|e| {

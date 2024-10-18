@@ -73,6 +73,24 @@ pub fn parse_path_or_default_with_flag(
     )
 }
 
+/// If `arg` is in `matches`, parses the value as a path.
+///
+/// Otherwise, attempts to find the default directory for the `testnet` from the `matches`
+/// and appends `flag` to it.
+pub fn parse_path_or_default_with_flag_v2(
+    matches: &ArgMatches,
+    dir: Option<PathBuf>,
+    flag: &str,
+) -> Result<PathBuf, String> {
+    clap_utils::parse_path_with_default_in_home_dir_v2(
+        dir,
+        PathBuf::new()
+            .join(DEFAULT_ROOT_DIR)
+            .join(get_network_dir(matches))
+            .join(flag),
+    )
+}
+
 /// Get the approximate size of a directory and its contents.
 ///
 /// Will skip unreadable files, and files. Not 100% accurate if files are being created and deleted
