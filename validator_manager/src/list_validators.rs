@@ -1,4 +1,5 @@
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use eth2::lighthouse_vc::types::SingleKeystoreResponse;
 use eth2::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -52,12 +53,12 @@ pub async fn cli_run(matches: &ArgMatches, dump_config: DumpConfig) -> Result<()
     if dump_config.should_exit_early(&config)? {
         Ok(())
     } else {
-        println!("{}", run(config).await?);
+        run(config).await?;
         Ok(())
     }
 }
 
-async fn run<'a>(config: ListConfig) -> Result<String, String> {
+async fn run<'a>(config: ListConfig) -> Result<Vec<SingleKeystoreResponse>, String> {
     let ListConfig {
         vc_url,
         vc_token_path,
@@ -65,16 +66,13 @@ async fn run<'a>(config: ListConfig) -> Result<String, String> {
 
     let (_, validators) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
 
-    let mut result = String::new();
+    println!("List of validators ({}):", validators.len());
 
-    result.push_str(format!("List of validators ({}):", validators.len()).as_str());
-    result.push('\n');
-    for validator in validators {
-        result.push_str(format!("{}", validator.validating_pubkey).as_str());
-        result.push('\n');
+    for validator in &validators {
+        println!("{}", validator.validating_pubkey);
     }
 
-    Ok(result)
+    Ok(validators)
 }
 
 #[cfg(not(debug_assertions))]
@@ -160,9 +158,12 @@ mod test {
 
                 for local_validator in &self.validators {
                     let local_keystore = &local_validator.voting_keystore.0;
-                    let local_pubkey = local_keystore.public_key().unwrap().as_hex_string();
+                    let local_pubkey = local_keystore.public_key().unwrap();
                     assert!(
-                        result_ref.contains(&local_pubkey),
+                        result_ref
+                            .iter()
+                            .any(|validator| validator.validating_pubkey
+                                == local_pubkey.clone().into()),
                         "local validator pubkey not found in result"
                     );
                 }
