@@ -25,6 +25,8 @@ excluded_paths = [
     # Intentionally omitted, as per https://github.com/sigp/lighthouse/issues/1835
     "tests/.*/.*/ssz_static/Eth1Block/",
     "tests/.*/.*/ssz_static/PowBlock/",
+    # We no longer implement merge logic.
+    "tests/.*/bellatrix/fork_choice/on_merge_block",
     # light_client
     "tests/.*/.*/light_client/single_merkle_proof",
     "tests/.*/.*/light_client/sync",

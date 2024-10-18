@@ -1300,43 +1300,6 @@ where
         }
     }
 
-    /// Returns `Ok(false)` if a block is not viable to be imported optimistically.
-    ///
-    /// ## Notes
-    ///
-    /// Equivalent to the function with the same name in the optimistic sync specs:
-    ///
-    /// https://github.com/ethereum/consensus-specs/blob/dev/sync/optimistic.md#helpers
-    pub fn is_optimistic_candidate_block(
-        &self,
-        current_slot: Slot,
-        block_slot: Slot,
-        block_parent_root: &Hash256,
-        spec: &ChainSpec,
-    ) -> Result<bool, Error<T::Error>> {
-        // If the block is sufficiently old, import it.
-        if block_slot + spec.safe_slots_to_import_optimistically <= current_slot {
-            return Ok(true);
-        }
-
-        // If the parent block has execution enabled, always import the block.
-        //
-        // See:
-        //
-        // https://github.com/ethereum/consensus-specs/pull/2844
-        if self
-            .proto_array
-            .get_block(block_parent_root)
-            .map_or(false, |parent| {
-                parent.execution_status.is_execution_enabled()
-            })
-        {
-            return Ok(true);
-        }
-
-        Ok(false)
-    }
-
     /// Return the current finalized checkpoint.
     pub fn finalized_checkpoint(&self) -> Checkpoint {
         *self.fc_store.finalized_checkpoint()
