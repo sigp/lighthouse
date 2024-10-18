@@ -73,6 +73,9 @@ jobs:
         uses: ethpandaops/kurtosis-assertoor-github-action@v1
         with:
           ethereum_package_args: scripts/tests/assertoor_network_params.yaml
+          path: |
+            scripts/local_testnet/logs
+          retention-days: 3
 
       - name: Upload logs artifact
         uses: actions/upload-artifact@v4
