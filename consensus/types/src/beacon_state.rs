@@ -1548,6 +1548,35 @@ impl<E: EthSpec> BeaconState<E> {
             .ok_or(Error::UnknownValidator(validator_index))
     }
 
+    pub fn add_validator_to_registry(
+        &mut self,
+        deposit_data: &DepositData,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let fork = self.fork_name_unchecked();
+        let amount = if fork.electra_enabled() {
+            0
+        } else {
+            deposit_data.amount
+        };
+        self.validators_mut()
+            .push(Validator::from_deposit(deposit_data, amount, fork, spec))?;
+        self.balances_mut().push(amount)?;
+
+        // Altair or later initializations.
+        if let Ok(previous_epoch_participation) = self.previous_epoch_participation_mut() {
+            previous_epoch_participation.push(ParticipationFlags::default())?;
+        }
+        if let Ok(current_epoch_participation) = self.current_epoch_participation_mut() {
+            current_epoch_participation.push(ParticipationFlags::default())?;
+        }
+        if let Ok(inactivity_scores) = self.inactivity_scores_mut() {
+            inactivity_scores.push(0)?;
+        }
+
+        Ok(())
+    }
+
     /// Safe copy-on-write accessor for the `validators` list.
     pub fn get_validator_cow(
         &mut self,
