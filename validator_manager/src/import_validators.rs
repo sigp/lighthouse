@@ -686,7 +686,7 @@ pub mod tests {
         TestBuilder::new()
             .await
             .mutate_import_config(|config| {
-                // Set to use the keystore_file_path so that keystore format keystore is used
+                // Set to use the keystore_file_path so that keystore format is used
                 config.validators_file_path = None;
                 config.keystore_file_path = Some(dir.path().into());
             })

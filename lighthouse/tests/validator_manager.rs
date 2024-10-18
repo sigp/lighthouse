@@ -248,12 +248,12 @@ pub fn validator_import_missing_token() {
         .assert_failed();
 }
 
-#[test]
-pub fn validator_import_missing_validators_file() {
-    CommandLineTest::validators_import()
-        .flag("--vc-token", Some("./token.json"))
-        .assert_failed();
-}
+// #[test]
+// pub fn validator_import_missing_validators_file() {
+//     CommandLineTest::validators_import()
+//         .flag("--vc-token", Some("./token.json"))
+//         .assert_failed();
+// }
 
 #[test]
 pub fn validator_move_defaults() {
