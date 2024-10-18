@@ -122,9 +122,6 @@ Flags:
           debugging specific memory allocation issues.
   -h, --help
           Prints help information
-  -l
-          DEPRECATED Enables environment logging giving access to sub-protocol
-          logs such as discv5 and libp2p
       --log-color
           Force outputting colors when emitting logs to the terminal.
       --logfile-compress
