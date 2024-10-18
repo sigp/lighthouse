@@ -1,5 +1,5 @@
 use eth2::lighthouse::{ProcessHealth, SystemHealth};
-use lighthouse_metrics::*;
+use metrics::*;
 use std::sync::LazyLock;
 
 pub static PROCESS_NUM_THREADS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {

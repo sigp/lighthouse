@@ -7,7 +7,7 @@
 //!
 //! A) `JEMALLOC_SYS_WITH_MALLOC_CONF` at compile-time.
 //! B) `_RJEM_MALLOC_CONF` at runtime.
-use lighthouse_metrics::{set_gauge, try_create_int_gauge, IntGauge};
+use metrics::{set_gauge, try_create_int_gauge, IntGauge};
 use std::sync::LazyLock;
 use tikv_jemalloc_ctl::{arenas, epoch, stats, Error};
 
@@ -15,22 +15,22 @@ use tikv_jemalloc_ctl::{arenas, epoch, stats, Error};
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 // Metrics for jemalloc.
-pub static NUM_ARENAS: LazyLock<lighthouse_metrics::Result<IntGauge>> =
+pub static NUM_ARENAS: LazyLock<metrics::Result<IntGauge>> =
     LazyLock::new(|| try_create_int_gauge("jemalloc_num_arenas", "The number of arenas in use"));
-pub static BYTES_ALLOCATED: LazyLock<lighthouse_metrics::Result<IntGauge>> = LazyLock::new(|| {
+pub static BYTES_ALLOCATED: LazyLock<metrics::Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge("jemalloc_bytes_allocated", "Equivalent to stats.allocated")
 });
-pub static BYTES_ACTIVE: LazyLock<lighthouse_metrics::Result<IntGauge>> =
+pub static BYTES_ACTIVE: LazyLock<metrics::Result<IntGauge>> =
     LazyLock::new(|| try_create_int_gauge("jemalloc_bytes_active", "Equivalent to stats.active"));
-pub static BYTES_MAPPED: LazyLock<lighthouse_metrics::Result<IntGauge>> =
+pub static BYTES_MAPPED: LazyLock<metrics::Result<IntGauge>> =
     LazyLock::new(|| try_create_int_gauge("jemalloc_bytes_mapped", "Equivalent to stats.mapped"));
-pub static BYTES_METADATA: LazyLock<lighthouse_metrics::Result<IntGauge>> = LazyLock::new(|| {
+pub static BYTES_METADATA: LazyLock<metrics::Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge("jemalloc_bytes_metadata", "Equivalent to stats.metadata")
 });
-pub static BYTES_RESIDENT: LazyLock<lighthouse_metrics::Result<IntGauge>> = LazyLock::new(|| {
+pub static BYTES_RESIDENT: LazyLock<metrics::Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge("jemalloc_bytes_resident", "Equivalent to stats.resident")
 });
-pub static BYTES_RETAINED: LazyLock<lighthouse_metrics::Result<IntGauge>> = LazyLock::new(|| {
+pub static BYTES_RETAINED: LazyLock<metrics::Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge("jemalloc_bytes_retained", "Equivalent to stats.retained")
 });
 

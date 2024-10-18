@@ -1,5 +1,5 @@
 use super::types::{BeaconProcessMetrics, ValidatorProcessMetrics};
-use lighthouse_metrics::{MetricFamily, MetricType};
+use metrics::{MetricFamily, MetricType};
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::Path;
@@ -155,7 +155,7 @@ fn get_value(mf: &MetricFamily) -> Option<i64> {
 /// Collects all metrics and returns a `serde_json::Value` object with the required metrics
 /// from the metrics hashmap.
 pub fn gather_metrics(metrics_map: &HashMap<String, JsonMetric>) -> Option<serde_json::Value> {
-    let metric_families = lighthouse_metrics::gather();
+    let metric_families = metrics::gather();
     let mut res = serde_json::Map::with_capacity(metrics_map.len());
     for mf in metric_families.iter() {
         let metric_name = mf.get_name();
