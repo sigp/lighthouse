@@ -476,12 +476,12 @@ pub fn apply_deposit<E: EthSpec>(
         }
 
         state.add_validator_to_registry(&deposit_data, spec)?;
-        let new_validator_index = state.validators().len() as u64 - 1;
+        let new_validator_index = state.validators().len().safe_sub(1)? as u64;
 
         // [New in Electra:EIP7251]
         if let Ok(pending_balance_deposits) = state.pending_balance_deposits_mut() {
             pending_balance_deposits.push(PendingBalanceDeposit {
-                index: new_validator_index as u64,
+                index: new_validator_index,
                 amount,
             })?;
         }

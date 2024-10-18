@@ -35,6 +35,7 @@ pub struct Validator {
 }
 
 impl Validator {
+    #[allow(clippy::arithmetic_side_effects)]
     pub fn from_deposit(deposit_data: &DepositData, fork_name: ForkName, spec: &ChainSpec) -> Self {
         let mut validator = Validator {
             pubkey: deposit_data.pubkey,
