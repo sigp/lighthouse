@@ -116,16 +116,6 @@ fn main() {
                 .display_order(0),
         )
         .arg(
-            Arg::new("env_log")
-                .short('l')
-                .help(
-                    "DEPRECATED Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
-                )
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
             Arg::new("logfile")
                 .long("logfile")
                 .value_name("FILE")
