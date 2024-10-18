@@ -10,7 +10,7 @@ use std::borrow::Cow;
 use std::iter;
 use std::time::Duration;
 use store::metadata::DataColumnInfo;
-use store::{chunked_vector::BlockRoots, AnchorInfo, BlobInfo, ChunkWriter, KeyValueStore};
+use store::{get_key_for_col, AnchorInfo, BlobInfo, DBColumn, KeyValueStore, KeyValueStoreOp};
 use types::{FixedBytesExtended, Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
@@ -33,8 +33,6 @@ pub enum HistoricalBlockError {
     InvalidSignature,
     /// Transitory error, caller should retry with the same blocks.
     ValidatorPubkeyCacheTimeout,
-    /// No historical sync needed.
-    NoAnchorInfo,
     /// Logic error: should never occur.
     IndexOutOfBounds,
 }
@@ -62,10 +60,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         mut blocks: Vec<AvailableBlock<T::EthSpec>>,
     ) -> Result<usize, Error> {
-        let anchor_info = self
-            .store
-            .get_anchor_info()
-            .ok_or(HistoricalBlockError::NoAnchorInfo)?;
+        let anchor_info = self.store.get_anchor_info();
         let blob_info = self.store.get_blob_info();
         let data_column_info = self.store.get_data_column_info();
 
@@ -109,8 +104,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut expected_block_root = anchor_info.oldest_block_parent;
         let mut prev_block_slot = anchor_info.oldest_block_slot;
-        let mut chunk_writer =
-            ChunkWriter::<BlockRoots, _, _>::new(&self.store.cold_db, prev_block_slot.as_usize())?;
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
         let mut new_oldest_data_column_slot = data_column_info.oldest_data_column_slot;
 
@@ -149,8 +142,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             // Store block roots, including at all skip slots in the freezer DB.
-            for slot in (block.slot().as_usize()..prev_block_slot.as_usize()).rev() {
-                chunk_writer.set(slot, block_root, &mut cold_batch)?;
+            for slot in (block.slot().as_u64()..prev_block_slot.as_u64()).rev() {
+                cold_batch.push(KeyValueStoreOp::PutKeyValue(
+                    get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
+                    block_root.as_slice().to_vec(),
+                ));
             }
 
             prev_block_slot = block.slot();
@@ -162,15 +158,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // completion.
             if expected_block_root == self.genesis_block_root {
                 let genesis_slot = self.spec.genesis_slot;
-                for slot in genesis_slot.as_usize()..prev_block_slot.as_usize() {
-                    chunk_writer.set(slot, self.genesis_block_root, &mut cold_batch)?;
+                for slot in genesis_slot.as_u64()..prev_block_slot.as_u64() {
+                    cold_batch.push(KeyValueStoreOp::PutKeyValue(
+                        get_key_for_col(DBColumn::BeaconBlockRoots.into(), &slot.to_be_bytes()),
+                        self.genesis_block_root.as_slice().to_vec(),
+                    ));
                 }
                 prev_block_slot = genesis_slot;
                 expected_block_root = Hash256::zero();
                 break;
             }
         }
-        chunk_writer.write(&mut cold_batch)?;
         // these were pushed in reverse order so we reverse again
         signed_blocks.reverse();
 
@@ -262,7 +260,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let backfill_complete = new_anchor.block_backfill_complete(self.genesis_backfill_slot);
         anchor_and_blob_batch.push(
             self.store
-                .compare_and_set_anchor_info(Some(anchor_info), Some(new_anchor))?,
+                .compare_and_set_anchor_info(anchor_info, new_anchor)?,
         );
         self.store.hot_db.do_atomically(anchor_and_blob_batch)?;
 
