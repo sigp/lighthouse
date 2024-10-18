@@ -12,7 +12,6 @@ use crate::{metrics, BeaconChainError};
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
 use slog::debug;
 use ssz_derive::{Decode, Encode};
-use ssz_types::VariableList;
 use std::time::Duration;
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
@@ -155,11 +154,6 @@ impl From<BeaconStateError> for GossipBlobError {
         GossipBlobError::BeaconChainError(BeaconChainError::BeaconStateError(e))
     }
 }
-
-pub type GossipVerifiedBlobList<T> = VariableList<
-    GossipVerifiedBlob<T>,
-    <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
->;
 
 /// A wrapper around a `BlobSidecar` that indicates it has been approved for re-gossiping on
 /// the p2p network.
@@ -334,6 +328,25 @@ impl<E: EthSpec> KzgVerifiedBlobList<E> {
         Ok(Self {
             verified_blobs: blobs,
         })
+    }
+
+    /// Create a `KzgVerifiedBlobList` from `blobs` that are already KZG verified.
+    ///
+    /// This should be used with caution, as used incorrectly it could result in KZG verification
+    /// being skipped and invalid blobs being deemed valid.
+    pub fn from_verified<I: IntoIterator<Item = Arc<BlobSidecar<E>>>>(
+        blobs: I,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            verified_blobs: blobs
+                .into_iter()
+                .map(|blob| KzgVerifiedBlob {
+                    blob,
+                    seen_timestamp,
+                })
+                .collect(),
+        }
     }
 }
 

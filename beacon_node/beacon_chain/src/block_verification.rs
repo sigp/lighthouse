@@ -683,7 +683,7 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
     consensus_context: ConsensusContext<T::EthSpec>,
 }
 
-/// Used to await the result of executing payload with a remote EE.
+/// Used to await the result of executing payload with an EE.
 type PayloadVerificationHandle = JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError>>>;
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that this block is fully verified and
@@ -750,7 +750,8 @@ pub fn build_blob_data_column_sidecars<T: BeaconChainTypes>(
         &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
         &[&blobs.len().to_string()],
     );
-    let sidecars = blobs_to_data_column_sidecars(&blobs, block, &chain.kzg, &chain.spec)
+    let blob_refs = blobs.iter().collect::<Vec<_>>();
+    let sidecars = blobs_to_data_column_sidecars(&blob_refs, block, &chain.kzg, &chain.spec)
         .discard_timer_on_break(&mut timer)?;
     drop(timer);
     Ok(sidecars)
@@ -1343,7 +1344,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         /*
          *  Perform cursory checks to see if the block is even worth processing.
          */
-
         check_block_relevancy(block.as_block(), block_root, chain)?;
 
         // Define a future that will verify the execution payload with an execution engine.

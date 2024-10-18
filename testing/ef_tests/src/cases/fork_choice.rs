@@ -505,8 +505,8 @@ impl<E: EthSpec> Tester<E> {
                         }
                         Err(_) => GossipVerifiedBlob::__assumed_valid(blob_sidecar),
                     };
-                let result = self
-                    .block_on_dangerous(self.harness.chain.process_gossip_blob(blob, || Ok(())))?;
+                let result =
+                    self.block_on_dangerous(self.harness.chain.process_gossip_blob(blob))?;
                 if valid {
                     assert!(result.is_ok());
                 }

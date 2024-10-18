@@ -586,6 +586,12 @@ Flags:
           Subscribe to all subnets regardless of validator count. This will also
           advertise the beacon node as being long-lived subscribed to all
           subnets.
+      --supernode-data-column-publication-batch-interval <supernode-data-column-publication-batch-interval>
+          The delay in milliseconds applied by supernodes between the sending of
+          each data column batch. For PeerDAS only.
+      --supernode-data-column-publication-batches <supernode-data-column-publication-batches>
+          Number of batches that supernodes split data columns into during
+          publishing by a non-proposer. For PeerDAS only.
       --validator-monitor-auto
           Enables the automatic detection and monitoring of validators connected
           to the HTTP API and using the subnet subscription endpoint. This

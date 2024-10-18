@@ -88,6 +88,10 @@ pub struct ChainConfig {
     pub malicious_withhold_count: usize,
     /// Enable peer sampling on blocks.
     pub enable_sampling: bool,
+    /// Number of batches that supernodes split data columns into during publishing by a non-proposer.
+    pub supernode_data_column_publication_batches: usize,
+    /// The delay applied by supernodes between the sending of each data column batch.
+    pub supernode_data_column_publication_batch_interval: Duration,
 }
 
 impl Default for ChainConfig {
@@ -121,6 +125,8 @@ impl Default for ChainConfig {
             enable_light_client_server: false,
             malicious_withhold_count: 0,
             enable_sampling: false,
+            supernode_data_column_publication_batches: 4,
+            supernode_data_column_publication_batch_interval: Duration::from_millis(200),
         }
     }
 }
