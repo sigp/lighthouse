@@ -311,6 +311,17 @@ impl<T: BeaconChainTypes> Router<T> {
                         rpc_request.id,
                     ),
             ),
+            RequestType::LightClientUpdatesByRange(request) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_light_client_updates_by_range_request(
+                            peer_id,
+                            request_id.0,
+                            request_id.1,
+                            rpc_request.id,
+                            request,
+                        ),
+                ),
             _ => {}
         }
     }
@@ -351,7 +362,8 @@ impl<T: BeaconChainTypes> Router<T> {
             // Light client responses should not be received
             Response::LightClientBootstrap(_)
             | Response::LightClientOptimisticUpdate(_)
-            | Response::LightClientFinalityUpdate(_) => unreachable!(),
+            | Response::LightClientFinalityUpdate(_)
+            | Response::LightClientUpdatesByRange(_) => unreachable!(),
         }
     }
 
