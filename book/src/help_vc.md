@@ -210,12 +210,6 @@ Flags:
           If present, do not configure the system allocator. Providing this flag
           will generally increase memory usage, it should only be provided when
           debugging specific memory allocation issues.
-      --disable-run-on-all
-          DEPRECATED. Use --broadcast. By default, Lighthouse publishes
-          attestation, sync committee subscriptions and proposer preparation
-          messages to all beacon nodes provided in the `--beacon-nodes flag`.
-          This option changes that behaviour such that these api calls only go
-          out to the first available and synced beacon node
       --disable-slashing-protection-web3signer
           Disable Lighthouse's slashing protection for all web3signer keys. This
           can reduce the I/O burden on the VC but is only safe if slashing
@@ -280,8 +274,6 @@ Flags:
       --prefer-builder-proposals
           If this flag is set, Lighthouse will always prefer blocks constructed
           by builders, regardless of payload value.
-      --produce-block-v3
-          This flag is deprecated and is no longer in use.
       --stdin-inputs
           If present, read all user inputs from stdin instead of tty.
       --unencrypted-http-transport
