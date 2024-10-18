@@ -36,7 +36,12 @@ pub struct Validator {
 
 impl Validator {
     #[allow(clippy::arithmetic_side_effects)]
-    pub fn from_deposit(deposit_data: &DepositData, fork_name: ForkName, spec: &ChainSpec) -> Self {
+    pub fn from_deposit(
+        deposit_data: &DepositData,
+        amount: u64,
+        fork_name: ForkName,
+        spec: &ChainSpec,
+    ) -> Self {
         let mut validator = Validator {
             pubkey: deposit_data.pubkey,
             withdrawal_credentials: deposit_data.withdrawal_credentials,
@@ -48,7 +53,6 @@ impl Validator {
             slashed: false,
         };
 
-        let amount = deposit_data.amount;
         let max_effective_balance = validator.get_max_effective_balance(spec, fork_name);
         // safe math is unnecessary here since the spec.effecive_balance_increment is never <= 0
         validator.effective_balance = std::cmp::min(

@@ -1554,13 +1554,14 @@ impl<E: EthSpec> BeaconState<E> {
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         let fork = self.fork_name_unchecked();
-        self.validators_mut()
-            .push(Validator::from_deposit(deposit_data, fork, spec))?;
-        if fork.electra_enabled() {
-            self.balances_mut().push(0)?;
+        let amount = if fork.electra_enabled() {
+            0
         } else {
-            self.balances_mut().push(deposit_data.amount)?;
+            deposit_data.amount
         };
+        self.validators_mut()
+            .push(Validator::from_deposit(deposit_data, amount, fork, spec))?;
+        self.balances_mut().push(amount)?;
 
         // Altair or later initializations.
         if let Ok(previous_epoch_participation) = self.previous_epoch_participation_mut() {
