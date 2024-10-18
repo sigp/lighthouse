@@ -123,7 +123,8 @@ mod test {
 
             let local_validators: Vec<ValidatorSpecification> = {
                 let contents =
-                    fs::read_to_string(builder.get_import_config().validators_file_path).unwrap();
+                    fs::read_to_string(builder.get_import_config().validators_file_path.unwrap())
+                        .unwrap();
                 serde_json::from_str(&contents).unwrap()
             };
 

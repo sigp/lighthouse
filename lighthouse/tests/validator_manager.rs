@@ -199,7 +199,8 @@ pub fn validator_import_defaults() {
         .flag("--vc-token", Some("./token.json"))
         .assert_success(|config| {
             let expected = ImportConfig {
-                validators_file_path: PathBuf::from("./vals.json"),
+                validators_file_path: Some(PathBuf::from("./vals.json")),
+                keystore_file_path: None,
                 vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
                 vc_token_path: PathBuf::from("./token.json"),
                 ignore_duplicates: false,
@@ -210,7 +211,6 @@ pub fn validator_import_defaults() {
                 builder_proposals: None,
                 enabled: None,
                 prefer_builder_proposals: None,
-                standard_format: false,
             };
             assert_eq!(expected, config);
         });
@@ -224,7 +224,8 @@ pub fn validator_import_misc_flags() {
         .flag("--ignore-duplicates", None)
         .assert_success(|config| {
             let expected = ImportConfig {
-                validators_file_path: PathBuf::from("./vals.json"),
+                validators_file_path: Some(PathBuf::from("./vals.json")),
+                keystore_file_path: None,
                 vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
                 vc_token_path: PathBuf::from("./token.json"),
                 ignore_duplicates: true,
@@ -235,7 +236,6 @@ pub fn validator_import_misc_flags() {
                 builder_proposals: None,
                 enabled: None,
                 prefer_builder_proposals: None,
-                standard_format: false,
             };
             assert_eq!(expected, config);
         });
