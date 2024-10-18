@@ -756,7 +756,6 @@ fn terminal_total_difficulty_override_flag() {
         .flag("terminal-total-difficulty-override", Some("1337424242"))
         .run_with_zero_port();
 }
-// DEPRECATED but should not crash.
 // DEPRECATED. This flag is deprecated but should not cause a crash.
 #[test]
 fn terminal_block_hash_and_activation_epoch_override_flags() {
