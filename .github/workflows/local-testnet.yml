@@ -38,10 +38,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo add-apt-repository ppa:rmescandon/yq
           echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
           sudo apt update
-          sudo apt install -y kurtosis-cli yq
+          sudo snap install yq
+          sudo apt install -y kurtosis-cli
           kurtosis analytics disable
 
       - name: Download Docker image artifact
@@ -69,6 +69,14 @@ jobs:
         run: ./stop_local_testnet.sh local-blinded
         working-directory: scripts/local_testnet
 
+      - name: Start a local testnet and run assertoor tests
+        uses: ethpandaops/kurtosis-assertoor-github-action@v1
+        with:
+          ethereum_package_args: scripts/tests/assertoor_network_params.yaml
+          path: |
+            scripts/local_testnet/logs
+          retention-days: 3
+
       - name: Upload logs artifact
         uses: actions/upload-artifact@v4
         with:
@@ -85,10 +93,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo add-apt-repository ppa:rmescandon/yq
           echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
           sudo apt update
-          sudo apt install -y kurtosis-cli yq
+          sudo snap install yq
+          sudo apt install -y kurtosis-cli
           kurtosis analytics disable
 
       - name: Download Docker image artifact
@@ -121,10 +129,10 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo add-apt-repository ppa:rmescandon/yq
           echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
           sudo apt update
-          sudo apt install -y kurtosis-cli yq
+          sudo snap install yq
+          sudo apt install -y kurtosis-cli
           kurtosis analytics disable
 
       - name: Download Docker image artifact
