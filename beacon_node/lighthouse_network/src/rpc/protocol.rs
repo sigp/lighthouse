@@ -21,7 +21,8 @@ use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, ForkContext, ForkName,
     LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
     LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
-    LightClientOptimisticUpdateAltair, MainnetEthSpec, Signature, SignedBeaconBlock,
+    LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, Signature,
+    SignedBeaconBlock,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -143,6 +144,13 @@ pub static LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|
     LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra)
 });
 
+pub static LIGHT_CLIENT_UPDATES_BY_RANGE_CAPELLA_MAX: LazyLock<usize> =
+    LazyLock::new(|| LightClientUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella));
+pub static LIGHT_CLIENT_UPDATES_BY_RANGE_DENEB_MAX: LazyLock<usize> =
+    LazyLock::new(|| LightClientUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb));
+pub static LIGHT_CLIENT_UPDATES_BY_RANGE_ELECTRA_MAX: LazyLock<usize> =
+    LazyLock::new(|| LightClientUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra));
+
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// The number of seconds to wait for the first bytes of a request once a protocol has been
@@ -187,6 +195,26 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
             *SIGNED_BEACON_BLOCK_ELECTRA_MAX, // Electra block is larger than Deneb block
         ),
+    }
+}
+
+fn rpc_light_client_updates_by_range_limits_by_fork(current_fork: ForkName) -> RpcLimits {
+    let altair_fixed_len = LightClientFinalityUpdateAltair::<MainnetEthSpec>::ssz_fixed_len();
+
+    match &current_fork {
+        ForkName::Base => RpcLimits::new(0, 0),
+        ForkName::Altair | ForkName::Bellatrix => {
+            RpcLimits::new(altair_fixed_len, altair_fixed_len)
+        }
+        ForkName::Capella => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_CAPELLA_MAX)
+        }
+        ForkName::Deneb => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_DENEB_MAX)
+        }
+        ForkName::Electra => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_ELECTRA_MAX)
+        }
     }
 }
 
@@ -286,6 +314,9 @@ pub enum Protocol {
     /// The `LightClientFinalityUpdate` protocol name.
     #[strum(serialize = "light_client_finality_update")]
     LightClientFinalityUpdate,
+    /// The `LightClientUpdatesByRange` protocol name
+    #[strum(serialize = "light_client_updates_by_range")]
+    LightClientUpdatesByRange,
 }
 
 impl Protocol {
@@ -304,6 +335,7 @@ impl Protocol {
             Protocol::LightClientBootstrap => None,
             Protocol::LightClientOptimisticUpdate => None,
             Protocol::LightClientFinalityUpdate => None,
+            Protocol::LightClientUpdatesByRange => None,
         }
     }
 }
@@ -334,6 +366,7 @@ pub enum SupportedProtocol {
     LightClientBootstrapV1,
     LightClientOptimisticUpdateV1,
     LightClientFinalityUpdateV1,
+    LightClientUpdatesByRangeV1,
 }
 
 impl SupportedProtocol {
@@ -356,6 +389,7 @@ impl SupportedProtocol {
             SupportedProtocol::LightClientBootstrapV1 => "1",
             SupportedProtocol::LightClientOptimisticUpdateV1 => "1",
             SupportedProtocol::LightClientFinalityUpdateV1 => "1",
+            SupportedProtocol::LightClientUpdatesByRangeV1 => "1",
         }
     }
 
@@ -380,6 +414,7 @@ impl SupportedProtocol {
                 Protocol::LightClientOptimisticUpdate
             }
             SupportedProtocol::LightClientFinalityUpdateV1 => Protocol::LightClientFinalityUpdate,
+            SupportedProtocol::LightClientUpdatesByRangeV1 => Protocol::LightClientUpdatesByRange,
         }
     }
 
@@ -542,6 +577,10 @@ impl ProtocolId {
             ),
             Protocol::LightClientOptimisticUpdate => RpcLimits::new(0, 0),
             Protocol::LightClientFinalityUpdate => RpcLimits::new(0, 0),
+            Protocol::LightClientUpdatesByRange => RpcLimits::new(
+                LightClientUpdatesByRangeRequest::ssz_min_len(),
+                LightClientUpdatesByRangeRequest::ssz_max_len(),
+            ),
             Protocol::MetaData => RpcLimits::new(0, 0), // Metadata requests are empty
         }
     }
@@ -577,6 +616,9 @@ impl ProtocolId {
             Protocol::LightClientFinalityUpdate => {
                 rpc_light_client_finality_update_limits_by_fork(fork_context.current_fork())
             }
+            Protocol::LightClientUpdatesByRange => {
+                rpc_light_client_updates_by_range_limits_by_fork(fork_context.current_fork())
+            }
         }
     }
 
@@ -592,7 +634,8 @@ impl ProtocolId {
             | SupportedProtocol::DataColumnsByRangeV1
             | SupportedProtocol::LightClientBootstrapV1
             | SupportedProtocol::LightClientOptimisticUpdateV1
-            | SupportedProtocol::LightClientFinalityUpdateV1 => true,
+            | SupportedProtocol::LightClientFinalityUpdateV1
+            | SupportedProtocol::LightClientUpdatesByRangeV1 => true,
             SupportedProtocol::StatusV1
             | SupportedProtocol::BlocksByRootV1
             | SupportedProtocol::BlocksByRangeV1
@@ -723,6 +766,7 @@ pub enum RequestType {
     LightClientBootstrap(LightClientBootstrapRequest),
     LightClientOptimisticUpdate,
     LightClientFinalityUpdate,
+    LightClientUpdatesByRange(LightClientUpdatesByRangeRequest),
     Ping(Ping),
     MetaData(MetadataRequest),
 }
@@ -747,6 +791,7 @@ impl RequestType {
             RequestType::LightClientBootstrap(_) => 1,
             RequestType::LightClientOptimisticUpdate => 1,
             RequestType::LightClientFinalityUpdate => 1,
+            RequestType::LightClientUpdatesByRange(req) => req.max_requested(),
         }
     }
 
@@ -780,6 +825,9 @@ impl RequestType {
             RequestType::LightClientFinalityUpdate => {
                 SupportedProtocol::LightClientFinalityUpdateV1
             }
+            RequestType::LightClientUpdatesByRange(_) => {
+                SupportedProtocol::LightClientUpdatesByRangeV1
+            }
         }
     }
 
@@ -802,6 +850,7 @@ impl RequestType {
             RequestType::LightClientBootstrap(_) => unreachable!(),
             RequestType::LightClientFinalityUpdate => unreachable!(),
             RequestType::LightClientOptimisticUpdate => unreachable!(),
+            RequestType::LightClientUpdatesByRange(_) => unreachable!(),
         }
     }
 
@@ -861,6 +910,10 @@ impl RequestType {
                 SupportedProtocol::LightClientFinalityUpdateV1,
                 Encoding::SSZSnappy,
             )],
+            RequestType::LightClientUpdatesByRange(_) => vec![ProtocolId::new(
+                SupportedProtocol::LightClientUpdatesByRangeV1,
+                Encoding::SSZSnappy,
+            )],
         }
     }
 
@@ -879,6 +932,7 @@ impl RequestType {
             RequestType::LightClientBootstrap(_) => true,
             RequestType::LightClientOptimisticUpdate => true,
             RequestType::LightClientFinalityUpdate => true,
+            RequestType::LightClientUpdatesByRange(_) => true,
         }
     }
 }
@@ -996,6 +1050,9 @@ impl std::fmt::Display for RequestType {
             }
             RequestType::LightClientFinalityUpdate => {
                 write!(f, "Light client finality update request")
+            }
+            RequestType::LightClientUpdatesByRange(_) => {
+                write!(f, "Light client updates by range request")
             }
         }
     }
