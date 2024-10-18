@@ -4,6 +4,7 @@ use crate::{
         update_progressive_balances_cache::initialize_progressive_balances_cache,
     },
     epoch_cache::{initialize_epoch_cache, PreEpochCache},
+    per_block_processing::is_valid_deposit_signature,
     per_epoch_processing::{Delta, Error, ParticipationEpochSummary},
 };
 use itertools::izip;
@@ -16,9 +17,9 @@ use types::{
         TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
     },
     milhouse::Cow,
-    ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec,
-    ExitCache, ForkName, List, ParticipationFlags, PendingBalanceDeposit, ProgressiveBalancesCache,
-    RelativeEpoch, Unsigned, Validator,
+    ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Checkpoint, DepositData, Epoch,
+    EthSpec, ExitCache, ForkName, List, ParticipationFlags, PendingDeposit,
+    ProgressiveBalancesCache, RelativeEpoch, Unsigned, Validator,
 };
 
 pub struct SinglePassConfig {
@@ -26,7 +27,7 @@ pub struct SinglePassConfig {
     pub rewards_and_penalties: bool,
     pub registry_updates: bool,
     pub slashings: bool,
-    pub pending_balance_deposits: bool,
+    pub pending_deposits: bool,
     pub pending_consolidations: bool,
     pub effective_balance_updates: bool,
 }
@@ -44,7 +45,7 @@ impl SinglePassConfig {
             rewards_and_penalties: true,
             registry_updates: true,
             slashings: true,
-            pending_balance_deposits: true,
+            pending_deposits: true,
             pending_consolidations: true,
             effective_balance_updates: true,
         }
@@ -56,7 +57,7 @@ impl SinglePassConfig {
             rewards_and_penalties: false,
             registry_updates: false,
             slashings: false,
-            pending_balance_deposits: false,
+            pending_deposits: false,
             pending_consolidations: false,
             effective_balance_updates: false,
         }
@@ -85,15 +86,17 @@ struct SlashingsContext {
     penalty_per_effective_balance_increment: u64,
 }
 
-struct PendingBalanceDepositsContext {
+struct PendingDepositsContext {
     /// The value to set `next_deposit_index` to *after* processing completes.
     next_deposit_index: usize,
     /// The value to set `deposit_balance_to_consume` to *after* processing completes.
     deposit_balance_to_consume: u64,
     /// Total balance increases for each validator due to pending balance deposits.
     validator_deposits_to_process: HashMap<usize, u64>,
-    /// The deposits to append to `pending_balance_deposits` after processing all applicable deposits.
-    deposits_to_postpone: Vec<PendingBalanceDeposit>,
+    /// The deposits to append to `pending_deposits` after processing all applicable deposits.
+    deposits_to_postpone: Vec<PendingDeposit>,
+    /// New validators to be added to the state *after* processing completes.
+    new_validator_deposits: Vec<PendingDeposit>,
 }
 
 struct EffectiveBalancesContext {
@@ -138,6 +141,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     state.build_exit_cache(spec)?;
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
+    state.update_pubkey_cache()?;
 
     let previous_epoch = state.previous_epoch();
     let current_epoch = state.current_epoch();
@@ -163,12 +167,11 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let slashings_ctxt = &SlashingsContext::new(state, state_ctxt, spec)?;
     let mut next_epoch_cache = PreEpochCache::new_for_next_epoch(state)?;
 
-    let pending_balance_deposits_ctxt =
-        if fork_name.electra_enabled() && conf.pending_balance_deposits {
-            Some(PendingBalanceDepositsContext::new(state, spec)?)
-        } else {
-            None
-        };
+    let pending_deposits_ctxt = if fork_name.electra_enabled() && conf.pending_deposits {
+        Some(PendingDepositsContext::new(state, spec, &conf)?)
+    } else {
+        None
+    };
 
     let mut earliest_exit_epoch = state.earliest_exit_epoch().ok();
     let mut exit_balance_to_consume = state.exit_balance_to_consume().ok();
@@ -303,9 +306,9 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             process_single_slashing(&mut balance, &validator, slashings_ctxt, state_ctxt, spec)?;
         }
 
-        // `process_pending_balance_deposits`
-        if let Some(pending_balance_deposits_ctxt) = &pending_balance_deposits_ctxt {
-            process_pending_balance_deposits_for_validator(
+        // `process_pending_deposits`
+        if let Some(pending_balance_deposits_ctxt) = &pending_deposits_ctxt {
+            process_pending_deposits_for_validator(
                 &mut balance,
                 validator_info,
                 pending_balance_deposits_ctxt,
@@ -342,20 +345,66 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     // Finish processing pending balance deposits if relevant.
     //
     // This *could* be reordered after `process_pending_consolidations` which pushes only to the end
-    // of the `pending_balance_deposits` list. But we may as well preserve the write ordering used
+    // of the `pending_deposits` list. But we may as well preserve the write ordering used
     // by the spec and do this first.
-    if let Some(ctxt) = pending_balance_deposits_ctxt {
-        let mut new_pending_balance_deposits = List::try_from_iter(
+    if let Some(ctxt) = pending_deposits_ctxt {
+        let mut new_balance_deposits = List::try_from_iter(
             state
-                .pending_balance_deposits()?
+                .pending_deposits()?
                 .iter_from(ctxt.next_deposit_index)?
                 .cloned(),
         )?;
         for deposit in ctxt.deposits_to_postpone {
-            new_pending_balance_deposits.push(deposit)?;
+            new_balance_deposits.push(deposit)?;
         }
-        *state.pending_balance_deposits_mut()? = new_pending_balance_deposits;
+        *state.pending_deposits_mut()? = new_balance_deposits;
         *state.deposit_balance_to_consume_mut()? = ctxt.deposit_balance_to_consume;
+
+        // Apply the new deposits to the state
+        for deposit in ctxt.new_validator_deposits.into_iter() {
+            if is_valid_deposit_signature(
+                &DepositData {
+                    pubkey: deposit.pubkey,
+                    withdrawal_credentials: deposit.withdrawal_credentials,
+                    amount: deposit.amount,
+                    signature: deposit.signature,
+                },
+                spec,
+            )
+            .is_ok()
+            {
+                let mut validator = Validator {
+                    pubkey: deposit.pubkey,
+                    withdrawal_credentials: deposit.withdrawal_credentials,
+                    activation_eligibility_epoch: spec.far_future_epoch,
+                    activation_epoch: spec.far_future_epoch,
+                    exit_epoch: spec.far_future_epoch,
+                    withdrawable_epoch: spec.far_future_epoch,
+                    effective_balance: 0,
+                    slashed: false,
+                };
+                let amount = deposit.amount;
+                let max_effective_balance =
+                    validator.get_max_effective_balance(spec, state.fork_name_unchecked());
+                validator.effective_balance = std::cmp::min(
+                    amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
+                    max_effective_balance,
+                );
+
+                state.validators_mut().push(validator)?;
+                state.balances_mut().push(amount)?;
+                // Altair or later initializations.
+                if let Ok(previous_epoch_participation) = state.previous_epoch_participation_mut() {
+                    previous_epoch_participation.push(ParticipationFlags::default())?;
+                }
+                if let Ok(current_epoch_participation) = state.current_epoch_participation_mut() {
+                    current_epoch_participation.push(ParticipationFlags::default())?;
+                }
+                if let Ok(inactivity_scores) = state.inactivity_scores_mut() {
+                    inactivity_scores.push(0)?;
+                }
+            }
+        }
     }
 
     // Process consolidations outside the single-pass loop, as they depend on balances for multiple
@@ -819,8 +868,12 @@ fn process_single_slashing(
     Ok(())
 }
 
-impl PendingBalanceDepositsContext {
-    fn new<E: EthSpec>(state: &BeaconState<E>, spec: &ChainSpec) -> Result<Self, Error> {
+impl PendingDepositsContext {
+    fn new<E: EthSpec>(
+        state: &BeaconState<E>,
+        spec: &ChainSpec,
+        config: &SinglePassConfig,
+    ) -> Result<Self, Error> {
         let available_for_processing = state
             .deposit_balance_to_consume()?
             .safe_add(state.get_activation_exit_churn_limit(spec)?)?;
@@ -830,10 +883,31 @@ impl PendingBalanceDepositsContext {
         let mut next_deposit_index = 0;
         let mut validator_deposits_to_process = HashMap::new();
         let mut deposits_to_postpone = vec![];
+        let mut new_validator_deposits = vec![];
+        let mut is_churn_limit_reached = false;
+        let finalized_slot = state
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(E::slots_per_epoch());
 
-        let pending_balance_deposits = state.pending_balance_deposits()?;
+        let pending_deposits = state.pending_deposits()?;
 
-        for deposit in pending_balance_deposits.iter() {
+        for deposit in pending_deposits.iter() {
+            // Do not process deposit requests if the Eth1 bridge deposits are not yet applied.
+            if deposit.slot > spec.genesis_slot
+                && state.eth1_deposit_index() < state.deposit_requests_start_index()?
+            {
+                break;
+            }
+            // Do not process is deposit slot has not been finalized.
+            if deposit.slot > finalized_slot {
+                break;
+            }
+            // Do not process if we have reached the limit for the number of deposits
+            // processed in an epoch.
+            if next_deposit_index >= E::max_pending_deposits_per_epoch() {
+                break;
+            }
             // We have to do a bit of indexing into `validators` here, but I can't see any way
             // around that without changing the spec.
             //
@@ -844,48 +918,74 @@ impl PendingBalanceDepositsContext {
             // take, just whether it is non-default. Nor do we need to know the value of
             // `withdrawable_epoch`, because `next_epoch <= withdrawable_epoch` will evaluate to
             // `true` both for the actual value & the default placeholder value (`FAR_FUTURE_EPOCH`).
-            let validator = state.get_validator(deposit.index as usize)?;
-            let already_exited = validator.exit_epoch < spec.far_future_epoch;
-            // In the spec process_registry_updates is called before process_pending_balance_deposits
-            // so we must account for process_registry_updates ejecting the validator for low balance
-            // and setting the exit_epoch to < far_future_epoch. Note that in the spec the effective
-            // balance update does not happen until *after* the registry update, so we don't need to
-            // account for changes to the effective balance that would push it below the ejection
-            // balance here.
-            let will_be_exited = validator.is_active_at(current_epoch)
-                && validator.effective_balance <= spec.ejection_balance;
-            if already_exited || will_be_exited {
-                if next_epoch <= validator.withdrawable_epoch {
-                    deposits_to_postpone.push(deposit.clone());
-                } else {
-                    // Deposited balance will never become active. Increase balance but do not
-                    // consume churn.
+            let mut is_validator_exited = false;
+            let mut is_validator_withdrawn = false;
+            if let Some(validator_index) = state.pubkey_cache().get(&deposit.pubkey) {
+                let validator = state.get_validator(validator_index)?;
+                let already_exited = validator.exit_epoch < spec.far_future_epoch;
+                // In the spec process_registry_updates is called before process_pending_deposits
+                // so we must account for process_registry_updates ejecting the validator for low balance
+                // and setting the exit_epoch to < far_future_epoch. Note that in the spec the effective
+                // balance update does not happen until *after* the registry update, so we don't need to
+                // account for changes to the effective balance that would push it below the ejection
+                // balance here.
+                // Note: we only consider this if registry_updates are enabled in the config.
+                // EF tests require us to run epoch_processing functions in isolation.
+                let will_be_exited = config.registry_updates
+                    && (validator.is_active_at(current_epoch)
+                        && validator.effective_balance <= spec.ejection_balance);
+                is_validator_exited = already_exited || will_be_exited;
+                is_validator_withdrawn = validator.withdrawable_epoch < next_epoch;
+            }
+
+            if is_validator_withdrawn {
+                // Deposited balance will never become active. Queue a balance increase
+                // but do not consume churn
+                if let Some(validator_index) = state.pubkey_cache().get(&deposit.pubkey) {
                     validator_deposits_to_process
-                        .entry(deposit.index as usize)
+                        .entry(validator_index)
                         .or_insert(0)
                         .safe_add_assign(deposit.amount)?;
+                } else {
+                    // The `PendingDeposit` is for a new validator
+                    // We add the new validator to the state at the end of all processing.
+                    // Note that the new validator will not be eligible for activation until
+                    // next epoch, so none of the operations will affect a newly added validator.
+                    new_validator_deposits.push(deposit.clone());
                 }
+            } else if is_validator_exited {
+                // Validator is exiting, postpone the deposit until after withdrawable epoch
+                deposits_to_postpone.push(deposit.clone());
             } else {
-                // Deposit does not fit in the churn, no more deposit processing in this epoch.
-                if processed_amount.safe_add(deposit.amount)? > available_for_processing {
+                // Check if deposit fits in the churn, otherwise, do no more deposit processing in this epoch.
+                is_churn_limit_reached =
+                    processed_amount.safe_add(deposit.amount)? > available_for_processing;
+                if is_churn_limit_reached {
                     break;
                 }
-                // Deposit fits in the churn, process it. Increase balance and consume churn.
-                validator_deposits_to_process
-                    .entry(deposit.index as usize)
-                    .or_insert(0)
-                    .safe_add_assign(deposit.amount)?;
                 processed_amount.safe_add_assign(deposit.amount)?;
+
+                // Deposit fits in the churn, process it. Increase balance and consume churn.
+                if let Some(validator_index) = state.pubkey_cache().get(&deposit.pubkey) {
+                    validator_deposits_to_process
+                        .entry(validator_index)
+                        .or_insert(0)
+                        .safe_add_assign(deposit.amount)?;
+                } else {
+                    // The `PendingDeposit` is for a new validator
+                    new_validator_deposits.push(deposit.clone());
+                }
             }
 
             // Regardless of how the deposit was handled, we move on in the queue.
             next_deposit_index.safe_add_assign(1)?;
         }
 
-        let deposit_balance_to_consume = if next_deposit_index == pending_balance_deposits.len() {
-            0
-        } else {
+        // Accumulate churn only if the churn limit has been hit.
+        let deposit_balance_to_consume = if is_churn_limit_reached {
             available_for_processing.safe_sub(processed_amount)?
+        } else {
+            0
         };
 
         Ok(Self {
@@ -893,14 +993,15 @@ impl PendingBalanceDepositsContext {
             deposit_balance_to_consume,
             validator_deposits_to_process,
             deposits_to_postpone,
+            new_validator_deposits,
         })
     }
 }
 
-fn process_pending_balance_deposits_for_validator(
+fn process_pending_deposits_for_validator(
     balance: &mut Cow<u64>,
     validator_info: &ValidatorInfo,
-    pending_balance_deposits_ctxt: &PendingBalanceDepositsContext,
+    pending_balance_deposits_ctxt: &PendingDepositsContext,
 ) -> Result<(), Error> {
     if let Some(deposit_amount) = pending_balance_deposits_ctxt
         .validator_deposits_to_process
@@ -941,21 +1042,20 @@ fn process_pending_consolidations<E: EthSpec>(
             break;
         }
 
-        // Calculate the active balance while we have the source validator loaded. This is a safe
-        // reordering.
-        let source_balance = *state
-            .balances()
-            .get(source_index)
-            .ok_or(BeaconStateError::UnknownValidator(source_index))?;
-        let active_balance =
-            source_validator.get_active_balance(source_balance, spec, state_ctxt.fork_name);
-
-        // Churn any target excess active balance of target and raise its max.
-        state.switch_to_compounding_validator(target_index, spec)?;
+        // Calculate the consolidated balance
+        let max_effective_balance =
+            source_validator.get_max_effective_balance(spec, state_ctxt.fork_name);
+        let source_effective_balance = std::cmp::min(
+            *state
+                .balances()
+                .get(source_index)
+                .ok_or(BeaconStateError::UnknownValidator(source_index))?,
+            max_effective_balance,
+        );
 
         // Move active balance to target. Excess balance is withdrawable.
-        decrease_balance(state, source_index, active_balance)?;
-        increase_balance(state, target_index, active_balance)?;
+        decrease_balance(state, source_index, source_effective_balance)?;
+        increase_balance(state, target_index, source_effective_balance)?;
 
         affected_validators.insert(source_index);
         affected_validators.insert(target_index);

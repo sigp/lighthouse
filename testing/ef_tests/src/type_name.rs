@@ -134,7 +134,7 @@ type_name_generic!(LightClientUpdateElectra, "LightClientUpdate");
 type_name_generic!(PendingAttestation);
 type_name!(PendingConsolidation);
 type_name!(PendingPartialWithdrawal);
-type_name!(PendingBalanceDeposit);
+type_name!(PendingDeposit);
 type_name!(ProposerSlashing);
 type_name_generic!(SignedAggregateAndProof);
 type_name_generic!(SignedAggregateAndProofBase, "SignedAggregateAndProof");

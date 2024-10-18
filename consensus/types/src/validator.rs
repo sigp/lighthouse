@@ -152,6 +152,17 @@ impl Validator {
             .flatten()
     }
 
+    pub fn get_eth1_withdrawal_credential(&self, spec: &ChainSpec) -> Option<Address> {
+        self.has_eth1_withdrawal_credential(spec)
+            .then(|| {
+                self.withdrawal_credentials
+                    .as_slice()
+                    .get(12..)
+                    .map(Address::from_slice)
+            })
+            .flatten()
+    }
+
     /// Changes withdrawal credentials to  the provided eth1 execution address.
     ///
     /// WARNING: this function does NO VALIDATION - it just does it!
@@ -261,16 +272,6 @@ impl Validator {
         } else {
             spec.max_effective_balance
         }
-    }
-
-    pub fn get_active_balance(
-        &self,
-        validator_balance: u64,
-        spec: &ChainSpec,
-        current_fork: ForkName,
-    ) -> u64 {
-        let max_effective_balance = self.get_max_effective_balance(spec, current_fork);
-        std::cmp::min(validator_balance, max_effective_balance)
     }
 }
 
