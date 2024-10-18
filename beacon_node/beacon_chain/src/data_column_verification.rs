@@ -160,8 +160,6 @@ impl From<BeaconStateError> for GossipDataColumnError {
     }
 }
 
-pub type GossipVerifiedDataColumnList<T> = RuntimeVariableList<GossipVerifiedDataColumn<T>>;
-
 /// A wrapper around a `DataColumnSidecar` that indicates it has been approved for re-gossiping on
 /// the p2p network.
 #[derive(Debug)]

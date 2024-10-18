@@ -914,10 +914,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
 
-        let result = self
-            .chain
-            .process_gossip_blob(verified_blob, || Ok(()))
-            .await;
+        let result = self.chain.process_gossip_blob(verified_blob).await;
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {

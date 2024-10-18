@@ -12,7 +12,6 @@ use crate::{metrics, BeaconChainError};
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
 use slog::debug;
 use ssz_derive::{Decode, Encode};
-use ssz_types::VariableList;
 use std::time::Duration;
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
@@ -155,11 +154,6 @@ impl From<BeaconStateError> for GossipBlobError {
         GossipBlobError::BeaconChainError(BeaconChainError::BeaconStateError(e))
     }
 }
-
-pub type GossipVerifiedBlobList<T> = VariableList<
-    GossipVerifiedBlob<T>,
-    <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
->;
 
 /// A wrapper around a `BlobSidecar` that indicates it has been approved for re-gossiping on
 /// the p2p network.
