@@ -558,6 +558,7 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::LightClientBootstrap => return,
                     Protocol::LightClientOptimisticUpdate => return,
                     Protocol::LightClientFinalityUpdate => return,
+                    Protocol::LightClientUpdatesByRange => return,
                     Protocol::BlobsByRoot => PeerAction::MidToleranceError,
                     Protocol::DataColumnsByRoot => PeerAction::MidToleranceError,
                     Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
@@ -585,6 +586,7 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::LightClientBootstrap => return,
                     Protocol::LightClientOptimisticUpdate => return,
                     Protocol::LightClientFinalityUpdate => return,
+                    Protocol::LightClientUpdatesByRange => return,
                     Protocol::MetaData => PeerAction::Fatal,
                     Protocol::Status => PeerAction::Fatal,
                 }
@@ -606,6 +608,7 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::LightClientBootstrap => return,
                     Protocol::LightClientOptimisticUpdate => return,
                     Protocol::LightClientFinalityUpdate => return,
+                    Protocol::LightClientUpdatesByRange => return,
                     Protocol::Goodbye => return,
                     Protocol::MetaData => return,
                     Protocol::Status => return,

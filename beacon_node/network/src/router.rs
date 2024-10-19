@@ -58,7 +58,7 @@ pub enum RouterMessage<E: EthSpec> {
     RPCRequestReceived {
         peer_id: PeerId,
         id: PeerRequestId,
-        request: rpc::Request<E>,
+        request: rpc::Request,
     },
     /// An RPC response has been received.
     RPCResponseReceived {
@@ -193,11 +193,11 @@ impl<T: BeaconChainTypes> Router<T> {
     /* RPC - Related functionality */
 
     /// A new RPC request has been received from the network.
-    fn handle_rpc_request<E: EthSpec>(
+    fn handle_rpc_request(
         &mut self,
         peer_id: PeerId,
         request_id: PeerRequestId,
-        rpc_request: rpc::Request<E>,
+        rpc_request: rpc::Request,
     ) {
         if !self.network_globals.peers.read().is_connected(&peer_id) {
             debug!(self.log, "Dropping request of disconnected peer"; "peer_id" => %peer_id, "request" => ?rpc_request);
@@ -311,6 +311,17 @@ impl<T: BeaconChainTypes> Router<T> {
                         rpc_request.id,
                     ),
             ),
+            RequestType::LightClientUpdatesByRange(request) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_light_client_updates_by_range_request(
+                            peer_id,
+                            request_id.0,
+                            request_id.1,
+                            rpc_request.id,
+                            request,
+                        ),
+                ),
             _ => {}
         }
     }
@@ -351,7 +362,8 @@ impl<T: BeaconChainTypes> Router<T> {
             // Light client responses should not be received
             Response::LightClientBootstrap(_)
             | Response::LightClientOptimisticUpdate(_)
-            | Response::LightClientFinalityUpdate(_) => unreachable!(),
+            | Response::LightClientFinalityUpdate(_)
+            | Response::LightClientUpdatesByRange(_) => unreachable!(),
         }
     }
 
@@ -824,7 +836,7 @@ impl<E: EthSpec> HandlerNetworkContext<E> {
     }
 
     /// Sends a request to the network task.
-    pub fn send_processor_request(&mut self, peer_id: PeerId, request: RequestType<E>) {
+    pub fn send_processor_request(&mut self, peer_id: PeerId, request: RequestType) {
         self.inform_network(NetworkMessage::SendRequest {
             peer_id,
             request_id: AppRequestId::Router,
