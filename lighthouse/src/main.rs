@@ -28,8 +28,10 @@ use task_executor::ShutdownReason;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::prelude::*;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
+use tracing_subscriber::filter::LevelFilter;
 
 pub static SHORT_VERSION: LazyLock<String> = LazyLock::new(|| VERSION.replace("Lighthouse/", ""));
 pub static LONG_VERSION: LazyLock<String> = LazyLock::new(|| {
@@ -595,18 +597,37 @@ fn run<E: EthSpec>(
         environment_builder.init_tracing(logger_config.clone());
 
     let filter_layer = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new("info"))
+        .or_else(|_| EnvFilter::try_new(logger_config.debug_level.to_lowercase().as_str()))
         .unwrap();
     let sse_logging_layer = match SSE_LOGGING_COMPONENTS.lock() {
         Ok(guard) => guard.clone(),
         Err(poisoned) => poisoned.into_inner().clone(),
     };
+
+    let stdout_level = match logger_config.debug_level.to_lowercase().as_str() {
+        "error" => LevelFilter::ERROR,
+        "warn" => LevelFilter::WARN,
+        "info" => LevelFilter::INFO,
+        "debug" => LevelFilter::DEBUG,
+        "trace" => LevelFilter::TRACE,
+        _ => LevelFilter::INFO,
+    };
+
+    let file_level = match logger_config.logfile_debug_level.to_lowercase().as_str() {
+        "error" => LevelFilter::ERROR,
+        "warn" => LevelFilter::WARN,
+        "info" => LevelFilter::INFO,
+        "debug" => LevelFilter::DEBUG,
+        "trace" => LevelFilter::TRACE,
+        _ => LevelFilter::INFO,
+    };
+
     if let Err(e) = tracing_subscriber::registry()
         .with(filter_layer)
         .with(libp2p_layer)
         .with(discv5_layer)
-        .with(file_logging_layer)
-        .with(stdout_logging_layer)
+        .with(file_logging_layer.with_filter(file_level))
+        .with(stdout_logging_layer.with_filter(stdout_level))
         .with(sse_logging_layer)
         .with(MetricsLayer)
         .try_init()
