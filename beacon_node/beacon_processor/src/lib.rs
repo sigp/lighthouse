@@ -136,6 +136,7 @@ pub struct BeaconProcessorQueueLengths {
     lc_bootstrap_queue: usize,
     lc_optimistic_update_queue: usize,
     lc_finality_update_queue: usize,
+    lc_update_range_queue: usize,
     api_request_p0_queue: usize,
     api_request_p1_queue: usize,
 }
@@ -203,6 +204,7 @@ impl BeaconProcessorQueueLengths {
             lc_bootstrap_queue: 1024,
             lc_optimistic_update_queue: 512,
             lc_finality_update_queue: 512,
+            lc_update_range_queue: 512,
             api_request_p0_queue: 1024,
             api_request_p1_queue: 1024,
         })
@@ -622,6 +624,7 @@ pub enum Work<E: EthSpec> {
     LightClientBootstrapRequest(BlockingFn),
     LightClientOptimisticUpdateRequest(BlockingFn),
     LightClientFinalityUpdateRequest(BlockingFn),
+    LightClientUpdatesByRangeRequest(BlockingFn),
     ApiRequestP0(BlockingOrAsync),
     ApiRequestP1(BlockingOrAsync),
 }
@@ -673,6 +676,7 @@ pub enum WorkType {
     LightClientBootstrapRequest,
     LightClientOptimisticUpdateRequest,
     LightClientFinalityUpdateRequest,
+    LightClientUpdatesByRangeRequest,
     ApiRequestP0,
     ApiRequestP1,
 }
@@ -723,6 +727,7 @@ impl<E: EthSpec> Work<E> {
                 WorkType::LightClientOptimisticUpdateRequest
             }
             Work::LightClientFinalityUpdateRequest(_) => WorkType::LightClientFinalityUpdateRequest,
+            Work::LightClientUpdatesByRangeRequest(_) => WorkType::LightClientUpdatesByRangeRequest,
             Work::UnknownBlockAttestation { .. } => WorkType::UnknownBlockAttestation,
             Work::UnknownBlockAggregate { .. } => WorkType::UnknownBlockAggregate,
             Work::UnknownBlockSamplingRequest { .. } => WorkType::UnknownBlockSamplingRequest,
@@ -901,6 +906,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut lc_optimistic_update_queue =
             FifoQueue::new(queue_lengths.lc_optimistic_update_queue);
         let mut lc_finality_update_queue = FifoQueue::new(queue_lengths.lc_finality_update_queue);
+        let mut lc_update_range_queue = FifoQueue::new(queue_lengths.lc_update_range_queue);
 
         let mut api_request_p0_queue = FifoQueue::new(queue_lengths.api_request_p0_queue);
         let mut api_request_p1_queue = FifoQueue::new(queue_lengths.api_request_p1_queue);
@@ -1348,6 +1354,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::LightClientFinalityUpdateRequest { .. } => {
                                 lc_finality_update_queue.push(work, work_id)
                             }
+                            Work::LightClientUpdatesByRangeRequest { .. } => {
+                                lc_update_range_queue.push(work, work_id, &self.log)
+                            }
                             Work::UnknownBlockAttestation { .. } => {
                                 unknown_block_attestation_queue.push(work)
                             }
@@ -1433,6 +1442,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::LightClientFinalityUpdateRequest => {
                             lc_finality_update_queue.len()
                         }
+                        WorkType::LightClientUpdatesByRangeRequest => lc_update_range_queue.len(),
                         WorkType::ApiRequestP0 => api_request_p0_queue.len(),
                         WorkType::ApiRequestP1 => api_request_p1_queue.len(),
                     };
@@ -1581,7 +1591,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::GossipBlsToExecutionChange(process_fn)
             | Work::LightClientBootstrapRequest(process_fn)
             | Work::LightClientOptimisticUpdateRequest(process_fn)
-            | Work::LightClientFinalityUpdateRequest(process_fn) => {
+            | Work::LightClientFinalityUpdateRequest(process_fn)
+            | Work::LightClientUpdatesByRangeRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
         };

@@ -148,13 +148,6 @@ pub fn get_config<E: EthSpec>(
             client_config.http_api.allow_origin = Some(allow_origin.to_string());
         }
 
-        if cli_args.get_one::<String>("http-spec-fork").is_some() {
-            warn!(
-                info = "this flag is deprecated and will be removed",
-                "Ignoring --http-spec-fork"
-            );
-        }
-
         if cli_args.get_flag("http-enable-tls") {
             client_config.http_api.tls_config = Some(TlsConfig {
                 cert: cli_args
@@ -168,13 +161,6 @@ pub fn get_config<E: EthSpec>(
                     .parse::<PathBuf>()
                     .map_err(|_| "http-tls-key is not a valid path name.")?,
             });
-        }
-
-        if cli_args.get_flag("http-allow-sync-stalled") {
-            warn!(
-                info = "this flag is deprecated and will be removed",
-                "Ignoring --http-allow-sync-stalled"
-            );
         }
 
         client_config.http_api.sse_capacity_multiplier =
@@ -352,13 +338,6 @@ pub fn get_config<E: EthSpec>(
             el_config.builder_header_timeout =
                 clap_utils::parse_optional(cli_args, "builder-header-timeout")?
                     .map(Duration::from_millis);
-        }
-
-        if cli_args.get_flag("always-prefer-builder-payload") {
-            warn!(
-                info = "this flag is deprecated and will be removed",
-                "Ignoring --always-prefer-builder-payload"
-            );
         }
 
         // Set config values from parse values.
@@ -777,13 +756,6 @@ pub fn get_config<E: EthSpec>(
             .individual_tracking_threshold = count;
     }
 
-    if cli_args.get_flag("disable-lock-timeouts") {
-        warn!(
-            info = "this flag is deprecated and will be removed",
-            "Ignoring --disable-lock-timeouts"
-        );
-    }
-
     if cli_args.get_flag("disable-proposer-reorgs") {
         client_config.chain.re_org_head_threshold = None;
         client_config.chain.re_org_parent_threshold = None;
@@ -881,13 +853,6 @@ pub fn get_config<E: EthSpec>(
     if let Some(path) = clap_utils::parse_optional(cli_args, "invalid-gossip-verified-blocks-path")?
     {
         client_config.network.invalid_block_storage = Some(path);
-    }
-
-    if cli_args.get_one::<String>("progressive-balances").is_some() {
-        warn!(
-            info = "please remove --progressive-balances",
-            "Progressive balances mode is deprecated"
-        );
     }
 
     if let Some(max_workers) = clap_utils::parse_optional(cli_args, "beacon-processor-max-workers")?
@@ -1474,6 +1439,20 @@ pub fn set_network_config(
             Some(Default::default())
         }
     };
+
+    if let Some(idontwant_message_size_threshold) =
+        cli_args.get_one::<String>("idontwant-message-size-threshold")
+    {
+        config.idontwant_message_size_threshold = idontwant_message_size_threshold
+            .parse::<usize>()
+            .map_err(|_| {
+                format!(
+                    "Invalid idontwant message size threshold value passed: {}",
+                    idontwant_message_size_threshold
+                )
+            })?;
+    }
+
     Ok(())
 }
 

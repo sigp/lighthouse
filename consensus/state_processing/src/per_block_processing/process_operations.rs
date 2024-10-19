@@ -475,50 +475,13 @@ pub fn apply_deposit<E: EthSpec>(
             return Ok(());
         }
 
-        let new_validator_index = state.validators().len();
-
-        // [Modified in Electra:EIP7251]
-        let (effective_balance, state_balance) = if state.fork_name_unchecked() >= ForkName::Electra
-        {
-            (0, 0)
-        } else {
-            (
-                std::cmp::min(
-                    amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
-                    spec.max_effective_balance,
-                ),
-                amount,
-            )
-        };
-        // Create a new validator.
-        let validator = Validator {
-            pubkey: deposit_data.pubkey,
-            withdrawal_credentials: deposit_data.withdrawal_credentials,
-            activation_eligibility_epoch: spec.far_future_epoch,
-            activation_epoch: spec.far_future_epoch,
-            exit_epoch: spec.far_future_epoch,
-            withdrawable_epoch: spec.far_future_epoch,
-            effective_balance,
-            slashed: false,
-        };
-        state.validators_mut().push(validator)?;
-        state.balances_mut().push(state_balance)?;
-
-        // Altair or later initializations.
-        if let Ok(previous_epoch_participation) = state.previous_epoch_participation_mut() {
-            previous_epoch_participation.push(ParticipationFlags::default())?;
-        }
-        if let Ok(current_epoch_participation) = state.current_epoch_participation_mut() {
-            current_epoch_participation.push(ParticipationFlags::default())?;
-        }
-        if let Ok(inactivity_scores) = state.inactivity_scores_mut() {
-            inactivity_scores.push(0)?;
-        }
+        state.add_validator_to_registry(&deposit_data, spec)?;
+        let new_validator_index = state.validators().len().safe_sub(1)? as u64;
 
         // [New in Electra:EIP7251]
         if let Ok(pending_balance_deposits) = state.pending_balance_deposits_mut() {
             pending_balance_deposits.push(PendingBalanceDeposit {
-                index: new_validator_index as u64,
+                index: new_validator_index,
                 amount,
             })?;
         }
