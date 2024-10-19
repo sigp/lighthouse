@@ -1355,7 +1355,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 lc_finality_update_queue.push(work, work_id)
                             }
                             Work::LightClientUpdatesByRangeRequest { .. } => {
-                                lc_update_range_queue.push(work, work_id, &self.log)
+                                lc_update_range_queue.push(work, work_id)
                             }
                             Work::UnknownBlockAttestation { .. } => {
                                 unknown_block_attestation_queue.push(work)
