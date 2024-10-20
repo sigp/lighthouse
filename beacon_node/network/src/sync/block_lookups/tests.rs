@@ -1708,7 +1708,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
         rig.assert_not_failed_chain(block_root);
         // send the right parent but fail processing
         rig.parent_lookup_block_response(id, peer_id, Some(parent.clone().into()));
-        rig.parent_block_processed(block_root, BlockError::InvalidSignature.into());
+        rig.parent_block_processed(block_root, BlockError::BlockSlotLimitReached.into());
         rig.parent_lookup_block_response(id, peer_id, None);
         rig.expect_penalty(peer_id, "lookup_block_processing_failure");
     }
@@ -2602,7 +2602,7 @@ mod deneb_only {
         fn invalid_parent_processed(mut self) -> Self {
             self.rig.parent_block_processed(
                 self.block_root,
-                BlockProcessingResult::Err(BlockError::ProposalSignatureInvalid),
+                BlockProcessingResult::Err(BlockError::BlockSlotLimitReached),
             );
             assert_eq!(self.rig.active_parent_lookups_count(), 1);
             self
@@ -2611,7 +2611,7 @@ mod deneb_only {
         fn invalid_block_processed(mut self) -> Self {
             self.rig.single_block_component_processed(
                 self.block_req_id.expect("block request id").lookup_id,
-                BlockProcessingResult::Err(BlockError::ProposalSignatureInvalid),
+                BlockProcessingResult::Err(BlockError::BlockSlotLimitReached),
             );
             self.rig.assert_single_lookups_count(1);
             self
