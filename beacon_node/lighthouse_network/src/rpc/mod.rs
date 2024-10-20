@@ -520,26 +520,27 @@ where
                             "The request requires responses greater than the number defined in the spec.".into(),
                         ),
                     );
-                } else {
-                    // If we received a Ping, we queue a Pong response.
-                    if let RequestType::Ping(_) = request.r#type {
-                        trace!(self.log, "Received Ping, queueing Pong";"connection_id" => %conn_id, "peer_id" => %peer_id);
-                        self.send_response(
-                            peer_id,
-                            (conn_id, substream_id),
-                            id,
-                            RpcResponse::Success(RpcSuccessResponse::Pong(Ping {
-                                data: self.seq_number,
-                            })),
-                        );
-                    }
-
-                    self.events.push(ToSwarm::GenerateEvent(RPCMessage {
-                        peer_id,
-                        conn_id,
-                        message: Ok(RPCReceived::Request(request)),
-                    }));
+                    return;
                 }
+
+                // If we received a Ping, we queue a Pong response.
+                if let RequestType::Ping(_) = request.r#type {
+                    trace!(self.log, "Received Ping, queueing Pong";"connection_id" => %conn_id, "peer_id" => %peer_id);
+                    self.send_response(
+                        peer_id,
+                        (conn_id, substream_id),
+                        id,
+                        RpcResponse::Success(RpcSuccessResponse::Pong(Ping {
+                            data: self.seq_number,
+                        })),
+                    );
+                }
+
+                self.events.push(ToSwarm::GenerateEvent(RPCMessage {
+                    peer_id,
+                    conn_id,
+                    message: Ok(RPCReceived::Request(request)),
+                }));
             }
             HandlerEvent::Ok(rpc) => {
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
