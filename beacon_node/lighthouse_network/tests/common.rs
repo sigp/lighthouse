@@ -130,8 +130,8 @@ pub async fn build_node_pair(
     spec: Arc<ChainSpec>,
     protocol: Protocol,
 ) -> (Libp2pInstance, Libp2pInstance) {
-    let sender_span = span!(Level::INFO, "who = sender");
-    let reciever_span = span!(Level::INFO, "who = reciever");
+    let sender_span = span!(Level::INFO,"Sender",who = "sender");
+    let reciever_span = span!(Level::INFO,"Receiver",who = "reciever");
 
     let mut sender = {
         let _enter = sender_span.enter();

@@ -90,7 +90,7 @@ impl<T: BeaconChainTypes> Router<T> {
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
     ) -> error::Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>> {
-        let span = span!(Level::INFO, "service = router");
+        let span = span!(Level::INFO,"Router",service = "router");
         let _enter = span.enter();
 
         trace!("Service starting");
@@ -98,7 +98,7 @@ impl<T: BeaconChainTypes> Router<T> {
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
 
         //let sync_logger = log.new(o!("service"=> "sync"));
-        let sync_span = span!(Level::INFO, "service = sync");
+        let sync_span = span!(Level::INFO,"Router",service = "sync");
         let _enter = sync_span.enter();
         // generate the message channel
         let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();

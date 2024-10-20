@@ -245,7 +245,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         chain: Arc<BeaconChain<T>>,
     ) -> Self {
-        let span = span!(Level::INFO, "service = network_context");
+        let span = span!(Level::INFO,"SyncNetworkContext",service = "network_context");
         let _enter = span.enter();
         SyncNetworkContext {
             network_send,

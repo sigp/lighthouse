@@ -103,7 +103,7 @@ impl TaskExecutor {
 
     /// Clones the task executor adding a service name.
     pub fn clone_with_name(&self, service_name: String) -> Self {
-        let span = span!(Level::INFO, "service = {}", service_name);
+        let span = span!(Level::INFO, "TaskExecutor", service = service_name);
         let _enter = span.enter();
 
         TaskExecutor {

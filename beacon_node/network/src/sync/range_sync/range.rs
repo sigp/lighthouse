@@ -84,7 +84,7 @@ where
     T: BeaconChainTypes,
 {
     pub fn new(beacon_chain: Arc<C>) -> Self {
-        let span = span!(Level::INFO, "service = range_sync");
+        let span = span!(Level::INFO,"RangeSync",service = "range_sync");
         let _enter = span.enter();
 
         RangeSync {

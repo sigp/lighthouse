@@ -175,7 +175,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         network_params: NetworkParams,
         seq_number: u64,
     ) -> Self {
-        let span = span!(Level::INFO, "service = libp2p_rpc");
+        let span = span!(Level::INFO, "RPC",service = "libp2p_rpc");
         let _enter = span.enter();
 
         let inbound_limiter = inbound_rate_limiter_config.map(|config| {
@@ -290,9 +290,9 @@ where
         );
         let span = span!(
             Level::INFO,
-            "peer_id = {peer_id}, connection_id = {connection_id}",
-            %peer_id,
-            %connection_id
+            "RPC",
+            peer_id = %peer_id,
+            connection_id = %connection_id
         );
 
         let _enter = span.enter();

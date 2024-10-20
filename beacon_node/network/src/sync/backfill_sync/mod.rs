@@ -160,7 +160,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // If, for some reason a backfill has already been completed (or we've used a trusted
         // genesis root) then backfill has been completed.
 
-        let span = span!(Level::INFO, "service = backfill_sync");
+        let span = span!(Level::INFO, "BackFillSync", service = "backfill_sync");
         let _enter = span.enter();
 
         let (state, current_start) = match beacon_chain.store.get_anchor_info() {

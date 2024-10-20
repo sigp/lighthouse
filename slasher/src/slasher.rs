@@ -29,7 +29,7 @@ pub struct Slasher<E: EthSpec> {
 
 impl<E: EthSpec> Slasher<E> {
     pub fn open(config: Config, spec: Arc<ChainSpec>) -> Result<Self, Error> {
-        let span = span!(Level::INFO, "service = slasher");
+        let span = span!(Level::INFO, "Slasher", service = "slasher");
         let _enter = span.enter();
 
         config.validate()?;

@@ -319,7 +319,7 @@ impl<E: EthSpec> Environment<E> {
 
     /// Returns a `Context` where the `service_name` is added to the logger output.
     pub fn service_context(&self, service_name: String) -> RuntimeContext<E> {
-        let span = span!(Level::INFO, "service = {}", service_name);
+        let span = span!(Level::INFO, "", service = service_name);
         let _enter = span.enter();
 
         RuntimeContext {
