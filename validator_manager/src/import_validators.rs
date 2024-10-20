@@ -420,7 +420,7 @@ pub mod tests {
                 import_config: ImportConfig {
                     // This field will be overwritten later on.
                     validators_file_path: Some(dir.path().into()),
-                    keystore_file_path: None,
+                    keystore_file_path: Some(dir.path().into()),
                     vc_url: vc.url.clone(),
                     vc_token_path,
                     ignore_duplicates: false,
@@ -682,13 +682,11 @@ pub mod tests {
 
     #[tokio::test]
     async fn create_one_validator_keystore_format() {
-        let dir = tempdir().unwrap();
         TestBuilder::new()
             .await
             .mutate_import_config(|config| {
-                // Set to use the keystore_file_path so that keystore format is used
+                // Set validators_file_path to None so that keystore_file_path is used for tests with the keystore format
                 config.validators_file_path = None;
-                config.keystore_file_path = Some(dir.path().into());
             })
             .create_validators_keystore_format(1, 0)
             .await
@@ -699,12 +697,10 @@ pub mod tests {
 
     #[tokio::test]
     async fn create_one_validator_with_offset_keystore_format() {
-        let dir = tempdir().unwrap();
         TestBuilder::new()
             .await
             .mutate_import_config(|config| {
                 config.validators_file_path = None;
-                config.keystore_file_path = Some(dir.path().into());
             })
             .create_validators_keystore_format(1, 42)
             .await
@@ -715,12 +711,10 @@ pub mod tests {
 
     #[tokio::test]
     async fn import_duplicates_when_disallowed_keystore_format() {
-        let dir = tempdir().unwrap();
         TestBuilder::new()
             .await
             .mutate_import_config(|config| {
                 config.validators_file_path = None;
-                config.keystore_file_path = Some(dir.path().into());
             })
             .create_validators_keystore_format(1, 0)
             .await
@@ -733,13 +727,11 @@ pub mod tests {
 
     #[tokio::test]
     async fn import_duplicates_when_allowed_keystore_format() {
-        let dir = tempdir().unwrap();
         TestBuilder::new()
             .await
             .mutate_import_config(|config| {
                 config.ignore_duplicates = true;
                 config.validators_file_path = None;
-                config.keystore_file_path = Some(dir.path().into());
             })
             .create_validators_keystore_format(1, 0)
             .await
