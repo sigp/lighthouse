@@ -32,7 +32,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use types::*;
 
-pub use sync_methods::ChainSegmentProcessId;
+pub use sync_methods::{
+    ChainSegmentProcessId, ErrorCategory as LookupSyncErrorCategory, LookupSyncProcessingResult,
+};
 use types::blob_sidecar::FixedBlobSidecarList;
 
 pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
@@ -912,7 +914,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "result" => "imported block and custody columns",
                             "block_hash" => %hash,
                         );
-                        self.chain.recompute_head_at_current_slot().await;
+                        // Head will be recomputed `handle_lookup_sync_processing_result`
                     }
                     AvailabilityProcessingStatus::MissingComponents(_, _) => {
                         debug!(
