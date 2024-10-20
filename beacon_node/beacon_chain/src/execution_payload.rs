@@ -10,7 +10,7 @@
 use crate::otb_verification_service::OptimisticTransitionBlock;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
-    ExecutionPayloadError,
+    ExecutionPayloadError, InvalidBlockError,
 };
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, NewPayloadRequest,
@@ -77,7 +77,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                 block_message.body(),
                 &chain.spec,
             )
-            .map_err(BlockError::PerBlockProcessingError)?;
+            .map_err(|e| BlockError::InvalidBlock(InvalidBlockError::PerBlockProcessingError(e)))?;
 
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
@@ -348,9 +348,11 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
             // If the parent has an invalid payload then it's impossible to build a valid block upon
             // it. Reject the block.
             ExecutionStatus::Invalid(_) => {
-                return Err(BlockError::ParentExecutionPayloadInvalid {
-                    parent_root: parent_block.root,
-                })
+                return Err(BlockError::InvalidBlock(
+                    InvalidBlockError::ParentExecutionPayloadInvalid {
+                        parent_root: parent_block.root,
+                    },
+                ))
             }
         };
 

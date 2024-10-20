@@ -2704,7 +2704,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if let Err(e) = block.as_block().fork_name(&self.spec) {
                 return Err(ChainSegmentResult::Failed {
                     imported_blocks,
-                    error: BlockError::InconsistentFork(e),
+                    error: e.into(),
                 });
             }
 

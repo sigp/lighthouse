@@ -155,14 +155,13 @@ pub enum BlockError {
         present_slot: Slot,
         block_slot: Slot,
     },
-    /// The block state_root does not match the generated state.
+    /// The block conflicts with finalization, no need to propagate.
     ///
     /// ## Peer scoring
     ///
-    /// The peer has incompatible state transition logic and is faulty.
-    StateRootMismatch { block: Hash256, local: Hash256 },
-    /// The block was a genesis block, these blocks cannot be re-imported.
-    GenesisBlock,
+    /// It's unclear if this block is valid, but it conflicts with finality and shouldn't be
+    /// imported.
+    NotFinalizedDescendant { block_parent_root: Hash256 },
     /// The slot is finalized, no need to import.
     ///
     /// ## Peer scoring
@@ -173,13 +172,8 @@ pub enum BlockError {
         block_slot: Slot,
         finalized_slot: Slot,
     },
-    /// The block conflicts with finalization, no need to propagate.
-    ///
-    /// ## Peer scoring
-    ///
-    /// It's unclear if this block is valid, but it conflicts with finality and shouldn't be
-    /// imported.
-    NotFinalizedDescendant { block_parent_root: Hash256 },
+    /// The block was a genesis block, these blocks cannot be re-imported.
+    GenesisBlock,
     /// Block is already known and valid, no need to re-import.
     ///
     /// ## Peer scoring
@@ -192,45 +186,19 @@ pub enum BlockError {
     ///
     /// The block could be valid, or invalid. We don't know.
     DuplicateImportStatusUnknown(Hash256),
-    /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
-    ///
-    /// ## Peer scoring
-    ///
-    /// We set a very, very high maximum slot number and this block exceeds it. There's no good
-    /// reason to be sending these blocks, they're from future slots.
-    ///
-    /// The block is invalid and the peer is faulty.
-    BlockSlotLimitReached,
-    /// The `BeaconBlock` has a `proposer_index` that does not match the index we computed locally.
+    /// BeaconBlock data structure is spec invalid, excludes proposer signature validity as it's
+    /// outside the BeaconBlock container.
     ///
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
+    InvalidBlock(InvalidBlockError),
     /// The proposal signature in invalid.
     ///
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
     ProposalSignatureInvalid,
-    /// The `block.proposal_index` is not known.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The block is invalid and the peer is faulty.
-    UnknownValidator(u64),
-    /// A signature in the block is invalid (exactly which is unknown).
-    ///
-    /// ## Peer scoring
-    ///
-    /// The block is invalid and the peer is faulty.
-    InvalidSignature,
-    /// The provided block is not from a later slot than its parent.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The block is invalid and the peer is faulty.
-    BlockIsNotLaterThanParent { block_slot: Slot, parent_slot: Slot },
     /// At least one block in the chain segment did not have it's parent root set to the root of
     /// the prior block.
     ///
@@ -245,12 +213,6 @@ pub enum BlockError {
     ///
     /// The chain of blocks is invalid and the peer is faulty.
     NonLinearSlots,
-    /// The block failed the specification's `per_block_processing` function, it is invalid.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The block is invalid and the peer is faulty.
-    PerBlockProcessingError(BlockProcessingError),
     /// There was an error whilst processing the block. It is not necessarily invalid.
     ///
     /// ## Peer scoring
@@ -265,28 +227,12 @@ pub enum BlockError {
     ///
     /// The block is invalid and the peer is faulty.
     WeakSubjectivityConflict,
-    /// The block has the wrong structure for the fork at `block.slot`.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The block is invalid and the peer is faulty.
-    InconsistentFork(InconsistentFork),
     /// There was an error while validating the ExecutionPayload
     ///
     /// ## Peer scoring
     ///
     /// See `ExecutionPayloadError` for scoring information
     ExecutionPayloadError(ExecutionPayloadError),
-    /// The block references an parent block which has an execution payload which was found to be
-    /// invalid.
-    ///
-    /// ## Peer scoring
-    ///
-    /// The peer sent us an invalid block, we must penalise harshly.
-    /// If it's actually our fault (e.g. our execution node database is corrupt) we have bigger
-    /// problems to worry about than losing peers, and we're doing the network a favour by
-    /// disconnecting.
-    ParentExecutionPayloadInvalid { parent_root: Hash256 },
     /// The block is a slashable equivocation from the proposer.
     ///
     /// ## Peer scoring
@@ -326,6 +272,72 @@ pub enum BlockError {
     /// We were unable to process this block due to an internal error. It's unclear if the block is
     /// valid.
     InternalError(String),
+}
+
+#[derive(Debug)]
+pub enum InvalidBlockError {
+    /// The block state_root does not match the generated state.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer has incompatible state transition logic and is faulty.
+    StateRootMismatch { block: Hash256, local: Hash256 },
+    /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
+    ///
+    /// ## Peer scoring
+    ///
+    /// We set a very, very high maximum slot number and this block exceeds it. There's no good
+    /// reason to be sending these blocks, they're from future slots.
+    ///
+    /// The block is invalid and the peer is faulty.
+    BlockSlotLimitReached,
+    /// The `BeaconBlock` has a `proposer_index` that does not match the index we computed locally.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty.
+    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
+    /// The `block.proposal_index` is not known.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty.
+    UnknownValidator(u64),
+    /// A signature in the block body is invalid (exactly which is unknown, but excludes the
+    /// proposer signature).
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty.
+    InvalidBlockBodySignatures,
+    /// The provided block is not from a later slot than its parent.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty.
+    BlockIsNotLaterThanParent { block_slot: Slot, parent_slot: Slot },
+    /// The block failed the specification's `per_block_processing` function, it is invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty.
+    PerBlockProcessingError(BlockProcessingError),
+    /// The block has the wrong structure for the fork at `block.slot`.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty.
+    InconsistentFork(InconsistentFork),
+    /// The block references an parent block which has an execution payload which was found to be
+    /// invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer sent us an invalid block, we must penalise harshly.
+    /// If it's actually our fault (e.g. our execution node database is corrupt) we have bigger
+    /// problems to worry about than losing peers, and we're doing the network a favour by
+    /// disconnecting.
+    ParentExecutionPayloadInvalid { parent_root: Hash256 },
 }
 
 impl From<AvailabilityCheckError> for BlockError {
@@ -444,7 +456,7 @@ impl From<ExecutionPayloadError> for BlockError {
 
 impl From<InconsistentFork> for BlockError {
     fn from(e: InconsistentFork) -> Self {
-        BlockError::InconsistentFork(e)
+        BlockError::InvalidBlock(InvalidBlockError::InconsistentFork(e))
     }
 }
 
@@ -462,10 +474,10 @@ impl From<BlockSignatureVerifierError> for BlockError {
             BlockSignatureVerifierError::IncorrectBlockProposer {
                 block,
                 local_shuffling,
-            } => BlockError::IncorrectBlockProposer {
+            } => BlockError::InvalidBlock(InvalidBlockError::IncorrectBlockProposer {
                 block,
                 local_shuffling,
-            },
+            }),
             e => BlockError::BeaconChainError(BeaconChainError::BlockSignatureVerifierError(e)),
         }
     }
@@ -651,7 +663,8 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     }
 
     if signature_verifier.verify().is_err() {
-        return Err(BlockError::InvalidSignature);
+        todo!("should have separate error for chain-segment")
+        // return Err(BlockError::InvalidSignature);
     }
 
     drop(pubkey_cache);
@@ -820,9 +833,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError> {
         // Ensure the block is the correct structure for the fork at `block.slot()`.
-        block
-            .fork_name(&chain.spec)
-            .map_err(BlockError::InconsistentFork)?;
+        block.fork_name(&chain.spec)?;
 
         // Do not gossip or process blocks from future slots.
         let present_slot_with_tolerance = chain
@@ -887,10 +898,12 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         //
         // https://github.com/ethereum/eth2.0-specs/pull/2196
         if parent_block.slot >= block.slot() {
-            return Err(BlockError::BlockIsNotLaterThanParent {
-                block_slot: block.slot(),
-                parent_slot: parent_block.slot,
-            });
+            return Err(BlockError::InvalidBlock(
+                InvalidBlockError::BlockIsNotLaterThanParent {
+                    block_slot: block.slot(),
+                    parent_slot: parent_block.slot,
+                },
+            ));
         }
 
         let proposer_shuffling_decision_block =
@@ -954,7 +967,11 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             let pubkey_cache = get_validator_pubkey_cache(chain)?;
             let pubkey = pubkey_cache
                 .get(block.message().proposer_index() as usize)
-                .ok_or_else(|| BlockError::UnknownValidator(block.message().proposer_index()))?;
+                .ok_or_else(|| {
+                    BlockError::InvalidBlock(InvalidBlockError::UnknownValidator(
+                        block.message().proposer_index(),
+                    ))
+                })?;
             block.verify_signature(
                 Some(block_root),
                 pubkey,
@@ -994,10 +1011,12 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         };
 
         if block.message().proposer_index() != expected_proposer as u64 {
-            return Err(BlockError::IncorrectBlockProposer {
-                block: block.message().proposer_index(),
-                local_shuffling: expected_proposer as u64,
-            });
+            return Err(BlockError::InvalidBlock(
+                InvalidBlockError::IncorrectBlockProposer {
+                    block: block.message().proposer_index(),
+                    local_shuffling: expected_proposer as u64,
+                },
+            ));
         }
 
         // Validate the block's execution_payload (if any).
@@ -1068,10 +1087,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError> {
         // Ensure the block is the correct structure for the fork at `block.slot()`.
-        block
-            .as_block()
-            .fork_name(&chain.spec)
-            .map_err(BlockError::InconsistentFork)?;
+        block.as_block().fork_name(&chain.spec)?;
 
         // Check the anchor slot before loading the parent, to avoid spurious lookups.
         check_block_against_anchor_slot(block.message(), chain)?;
@@ -1102,7 +1118,17 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                 parent: Some(parent),
             })
         } else {
-            Err(BlockError::InvalidSignature)
+            // Re-verify the proposer signature in isolation to attribute fault
+            let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
+            signature_verifier.include_block_proposal(block.as_block(), Some(block_root), None)?;
+            if signature_verifier.verify().is_ok() {
+                // Proposer signature is valid, the invalid signature must be in the body
+                Err(BlockError::InvalidBlock(
+                    InvalidBlockError::InvalidBlockBodySignatures,
+                ))
+            } else {
+                Err(BlockError::ProposalSignatureInvalid)
+            }
         }
     }
 
@@ -1157,7 +1183,9 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                 consensus_context,
             })
         } else {
-            Err(BlockError::InvalidSignature)
+            Err(BlockError::InvalidBlock(
+                InvalidBlockError::InvalidBlockBodySignatures,
+            ))
         }
     }
 
@@ -1320,9 +1348,11 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             // Reject any block where the parent has an invalid payload. It's impossible for a valid
             // block to descend from an invalid parent.
             if parent.execution_status.is_invalid() {
-                return Err(BlockError::ParentExecutionPayloadInvalid {
-                    parent_root: block.parent_root(),
-                });
+                return Err(BlockError::InvalidBlock(
+                    InvalidBlockError::ParentExecutionPayloadInvalid {
+                        parent_root: block.parent_root(),
+                    },
+                ));
             }
         } else {
             // Reject any block if its parent is not known to fork choice.
@@ -1450,10 +1480,12 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         // The block must have a higher slot than its parent.
         if block.slot() <= parent.beacon_block.slot() {
-            return Err(BlockError::BlockIsNotLaterThanParent {
-                block_slot: block.slot(),
-                parent_slot: parent.beacon_block.slot(),
-            });
+            return Err(BlockError::InvalidBlock(
+                InvalidBlockError::BlockIsNotLaterThanParent {
+                    block_slot: block.slot(),
+                    parent_slot: parent.beacon_block.slot(),
+                },
+            ));
         }
 
         // Perform a sanity check on the pre-state.
@@ -1628,7 +1660,11 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 // Capture `BeaconStateError` so that we can easily distinguish between a block
                 // that's invalid and one that caused an internal error.
                 BlockProcessingError::BeaconStateError(e) => return Err(e.into()),
-                other => return Err(BlockError::PerBlockProcessingError(other)),
+                other => {
+                    return Err(BlockError::InvalidBlock(
+                        InvalidBlockError::PerBlockProcessingError(other),
+                    ))
+                }
             }
         };
 
@@ -1655,10 +1691,12 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
          */
 
         if block.state_root() != state_root {
-            return Err(BlockError::StateRootMismatch {
-                block: block.state_root(),
-                local: state_root,
-            });
+            return Err(BlockError::InvalidBlock(
+                InvalidBlockError::StateRootMismatch {
+                    block: block.state_root(),
+                    local: state_root,
+                },
+            ));
         }
 
         /*
@@ -1679,7 +1717,11 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         for (i, attestation) in block.message().body().attestations().enumerate() {
             let indexed_attestation = consensus_context
                 .get_indexed_attestation(&state, attestation)
-                .map_err(|e| BlockError::PerBlockProcessingError(e.into_with_index(i)))?;
+                .map_err(|e| {
+                    BlockError::InvalidBlock(InvalidBlockError::PerBlockProcessingError(
+                        e.into_with_index(i),
+                    ))
+                })?;
 
             match fork_choice.on_attestation(
                 current_slot,
@@ -1824,7 +1866,9 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
     // This is an artificial (non-spec) restriction that provides some protection from overflow
     // abuses.
     if block.slot() >= MAXIMUM_BLOCK_SLOT_NUMBER {
-        return Err(BlockError::BlockSlotLimitReached);
+        return Err(BlockError::InvalidBlock(
+            InvalidBlockError::BlockSlotLimitReached,
+        ));
     }
 
     // Do not process a block from a finalized slot.
@@ -2009,14 +2053,14 @@ pub trait BlockBlobError: From<BeaconStateError> + From<BeaconChainError> + Debu
 
 impl BlockBlobError for BlockError {
     fn not_later_than_parent_error(block_slot: Slot, parent_slot: Slot) -> Self {
-        BlockError::BlockIsNotLaterThanParent {
+        BlockError::InvalidBlock(InvalidBlockError::BlockIsNotLaterThanParent {
             block_slot,
             parent_slot,
-        }
+        })
     }
 
     fn unknown_validator_error(validator_index: u64) -> Self {
-        BlockError::UnknownValidator(validator_index)
+        BlockError::InvalidBlock(InvalidBlockError::UnknownValidator(validator_index))
     }
 
     fn proposer_signature_invalid() -> Self {

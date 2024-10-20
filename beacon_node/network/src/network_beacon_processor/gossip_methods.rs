@@ -1273,20 +1273,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
-            Err(e @ BlockError::StateRootMismatch { .. })
-            | Err(e @ BlockError::IncorrectBlockProposer { .. })
-            | Err(e @ BlockError::BlockSlotLimitReached)
+            Err(e @ BlockError::InvalidBlock { .. })
             | Err(e @ BlockError::ProposalSignatureInvalid)
             | Err(e @ BlockError::NonLinearSlots)
-            | Err(e @ BlockError::UnknownValidator(_))
-            | Err(e @ BlockError::PerBlockProcessingError(_))
             | Err(e @ BlockError::NonLinearParentRoots)
-            | Err(e @ BlockError::BlockIsNotLaterThanParent { .. })
-            | Err(e @ BlockError::InvalidSignature)
             | Err(e @ BlockError::WeakSubjectivityConflict)
-            | Err(e @ BlockError::InconsistentFork(_))
             | Err(e @ BlockError::ExecutionPayloadError(_))
-            | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
             | Err(e @ BlockError::GenesisBlock) => {
                 warn!(self.log, "Could not verify block for gossip. Rejecting the block";
                             "error" => %e);

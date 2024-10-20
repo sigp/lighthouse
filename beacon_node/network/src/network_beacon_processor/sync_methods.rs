@@ -11,7 +11,8 @@ use beacon_chain::data_availability_checker::MaybeAvailableBlock;
 use beacon_chain::data_column_verification::verify_kzg_for_data_column_list;
 use beacon_chain::{
     validator_monitor::get_slot_delay_ms, AvailabilityProcessingStatus, BeaconChainError,
-    BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError, NotifyExecutionLayer,
+    BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError, InvalidBlockError,
+    NotifyExecutionLayer,
 };
 use beacon_processor::{
     work_reprocessing_queue::{QueuedRpcBlock, ReprocessQueueMessage},
@@ -805,7 +806,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     })
                 }
             }
-            ref err @ BlockError::ParentExecutionPayloadInvalid { ref parent_root } => {
+            ref err @ BlockError::InvalidBlock(
+                InvalidBlockError::ParentExecutionPayloadInvalid { ref parent_root },
+            ) => {
                 warn!(
                     self.log,
                     "Failed to sync chain built on invalid parent";

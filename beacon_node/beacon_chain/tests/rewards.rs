@@ -7,7 +7,7 @@ use beacon_chain::test_utils::{
 use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy, RelativeSyncCommittee},
     types::{Epoch, EthSpec, Keypair, MinimalEthSpec},
-    BlockError, ChainConfig, StateSkipConfig, WhenSlotSkipped,
+    BlockError, ChainConfig, InvalidBlockError, StateSkipConfig, WhenSlotSkipped,
 };
 use eth2::lighthouse::attestation_rewards::TotalAttestationRewards;
 use eth2::lighthouse::StandardAttestationRewards;
@@ -278,7 +278,7 @@ async fn test_rewards_base_multi_inclusion() {
     // funky hack: on first try, the state root will mismatch due to our modification
     // thankfully, the correct state root is reported back, so we just take that one :^)
     // there probably is a better way...
-    let Err(BlockError::StateRootMismatch { local, .. }) = harness
+    let Err(BlockError::InvalidBlock(InvalidBlockError::StateRootMismatch { local, .. })) = harness
         .process_block(slot, block.0.canonical_root(), block.clone())
         .await
     else {
