@@ -480,6 +480,9 @@ where
                     substream_id,
                     r#type,
                 };
+
+                // We need to insert the request regardless of whether it is allowed by the limiter,
+                // since we send an error response (RateLimited) if it is not allowed.
                 self.active_inbound_requests.insert(id, request.clone());
 
                 if !self.active_inbound_requests_limiter.allows(
