@@ -820,6 +820,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_action: Some(PeerAction::LowToleranceError),
                 })
             }
+            BlockError::AvailabilityCheck(availability_check_error) => {
+                match availability_check_error {
+                    AvailabilityCheckError::InvalidBlobs(_) => todo!(),
+                    AvailabilityCheckError::InvalidColumn(_, _) => todo!(),
+                    _ => todo!(),
+                }
+            }
             other => {
                 debug!(
                     self.log, "Invalid block received";
