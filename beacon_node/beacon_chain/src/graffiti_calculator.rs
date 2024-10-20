@@ -1,11 +1,12 @@
 use crate::BeaconChain;
 use crate::BeaconChainTypes;
 use execution_layer::{http::ENGINE_GET_CLIENT_VERSION_V1, CommitPrefix, ExecutionLayer};
+use logging::crit;
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::{fmt::Debug, time::Duration};
 use task_executor::TaskExecutor;
+use tracing::{debug, error, warn};
 use types::{EthSpec, Graffiti, GRAFFITI_BYTES_LEN};
 
 const ENGINE_VERSION_AGE_LIMIT_EPOCH_MULTIPLE: u32 = 6; // 6 epochs
@@ -51,7 +52,6 @@ pub struct GraffitiCalculator<T: BeaconChainTypes> {
     pub beacon_graffiti: GraffitiOrigin,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     pub epoch_duration: Duration,
-    log: Logger,
 }
 
 impl<T: BeaconChainTypes> GraffitiCalculator<T> {
@@ -59,13 +59,11 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
         beacon_graffiti: GraffitiOrigin,
         execution_layer: Option<ExecutionLayer<T::EthSpec>>,
         epoch_duration: Duration,
-        log: Logger,
     ) -> Self {
         Self {
             beacon_graffiti,
             execution_layer,
             epoch_duration,
-            log,
         }
     }
 
@@ -86,7 +84,7 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
                 let Some(execution_layer) = self.execution_layer.as_ref() else {
                     // Return default graffiti if there is no execution layer. This
                     // shouldn't occur if we're actually producing blocks.
-                    crit!(self.log, "No execution layer available for graffiti calculation during block production!");
+                    crit!("No execution layer available for graffiti calculation during block production!");
                     return default_graffiti;
                 };
 
@@ -101,7 +99,7 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
                 {
                     Ok(engine_versions) => engine_versions,
                     Err(el_error) => {
-                        warn!(self.log, "Failed to determine execution engine version for graffiti"; "error" => ?el_error);
+                        warn!(error = ?el_error, "Failed to determine execution engine version for graffiti");
                         return default_graffiti;
                     }
                 };
@@ -109,9 +107,8 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
                 let Some(engine_version) = engine_versions.first() else {
                     // Got an empty array which indicates the EL doesn't support the method
                     debug!(
-                        self.log,
                         "Using default lighthouse graffiti: EL does not support {} method",
-                        ENGINE_GET_CLIENT_VERSION_V1;
+                        ENGINE_GET_CLIENT_VERSION_V1
                     );
                     return default_graffiti;
                 };
@@ -119,19 +116,20 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
                     // More than one version implies lighthouse is connected to
                     // an EL multiplexer. We don't support modifying the graffiti
                     // with these configurations.
-                    warn!(
-                        self.log,
-                        "Execution Engine multiplexer detected, using default graffiti"
-                    );
+                    warn!("Execution Engine multiplexer detected, using default graffiti");
                     return default_graffiti;
                 }
 
-                let lighthouse_commit_prefix = CommitPrefix::try_from(lighthouse_version::COMMIT_PREFIX.to_string())
-                    .unwrap_or_else(|error_message| {
-                        // This really shouldn't happen but we want to definitly log if it does
-                        crit!(self.log, "Failed to parse lighthouse commit prefix"; "error" => error_message);
-                        CommitPrefix("00000000".to_string())
-                    });
+                let lighthouse_commit_prefix =
+                    CommitPrefix::try_from(lighthouse_version::COMMIT_PREFIX.to_string())
+                        .unwrap_or_else(|error_message| {
+                            // This really shouldn't happen but we want to definitly log if it does
+                            crit!(
+                                error = error_message,
+                                "Failed to parse lighthouse commit prefix"
+                            );
+                            CommitPrefix("00000000".to_string())
+                        });
 
                 engine_version.calculate_graffiti(lighthouse_commit_prefix)
             }
@@ -144,36 +142,24 @@ pub fn start_engine_version_cache_refresh_service<T: BeaconChainTypes>(
     executor: TaskExecutor,
 ) {
     let Some(el_ref) = chain.execution_layer.as_ref() else {
-        debug!(
-            chain.log,
-            "No execution layer configured, not starting engine version cache refresh service"
-        );
+        debug!("No execution layer configured, not starting engine version cache refresh service");
         return;
     };
     if matches!(
         chain.graffiti_calculator.beacon_graffiti,
         GraffitiOrigin::UserSpecified(_)
     ) {
-        debug!(
-            chain.log,
-            "Graffiti is user-specified, not starting engine version cache refresh service"
-        );
+        debug!("Graffiti is user-specified, not starting engine version cache refresh service");
         return;
     }
 
     let execution_layer = el_ref.clone();
-    let log = chain.log.clone();
     let slot_clock = chain.slot_clock.clone();
     let epoch_duration = chain.graffiti_calculator.epoch_duration;
     executor.spawn(
         async move {
-            engine_version_cache_refresh_service::<T>(
-                execution_layer,
-                slot_clock,
-                epoch_duration,
-                log,
-            )
-            .await
+            engine_version_cache_refresh_service::<T>(execution_layer, slot_clock, epoch_duration)
+                .await
         },
         "engine_version_cache_refresh_service",
     );
@@ -183,13 +169,15 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
     execution_layer: ExecutionLayer<T::EthSpec>,
     slot_clock: T::SlotClock,
     epoch_duration: Duration,
-    log: Logger,
 ) {
     // Preload the engine version cache after a brief delay to allow for EL initialization.
     // This initial priming ensures cache readiness before the service's regular update cycle begins.
     tokio::time::sleep(ENGINE_VERSION_CACHE_PRELOAD_STARTUP_DELAY).await;
     if let Err(e) = execution_layer.get_engine_version(None).await {
-        debug!(log, "Failed to preload engine version cache"; "error" => format!("{:?}", e));
+        debug!(
+            error = ?e,
+            "Failed to preload engine version cache"
+        );
     }
 
     // this service should run 3/8 of the way through the epoch
@@ -203,18 +191,14 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
                 let firing_delay = partial_firing_delay + duration_to_next_epoch + epoch_delay;
                 tokio::time::sleep(firing_delay).await;
 
-                debug!(
-                    log,
-                    "Engine version cache refresh service firing";
-                );
+                debug!("Engine version cache refresh service firing");
 
                 match execution_layer.get_engine_version(None).await {
-                    Err(e) => warn!(log, "Failed to populate engine version cache"; "error" => ?e),
+                    Err(e) => warn!( error = ?e,"Failed to populate engine version cache"),
                     Ok(versions) => {
                         if versions.is_empty() {
                             // Empty array indicates the EL doesn't support the method
                             debug!(
-                                log,
                                 "EL does not support {} method. Sleeping twice as long before retry",
                                 ENGINE_GET_CLIENT_VERSION_V1
                             );
@@ -227,7 +211,7 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
                 }
             }
             None => {
-                error!(log, "Failed to read slot clock");
+                error!("Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
                 tokio::time::sleep(slot_clock.slot_duration()).await;
             }
@@ -241,10 +225,10 @@ mod tests {
     use crate::ChainConfig;
     use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES};
     use execution_layer::EngineCapabilities;
-    use slog::info;
     use std::sync::Arc;
     use std::sync::LazyLock;
     use std::time::Duration;
+    use tracing::info;
     use types::{ChainSpec, Graffiti, Keypair, MinimalEthSpec, GRAFFITI_BYTES_LEN};
 
     const VALIDATOR_COUNT: usize = 48;
@@ -261,7 +245,6 @@ mod tests {
             .spec(spec)
             .chain_config(chain_config.unwrap_or_default())
             .keypairs(KEYPAIRS[0..validator_count].to_vec())
-            .logger(logging::test_logger())
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .build();
@@ -305,7 +288,7 @@ mod tests {
         let graffiti_str =
             std::str::from_utf8(graffiti_slice).expect("bytes should convert nicely to ascii");
 
-        info!(harness.chain.log, "results"; "lighthouse_version" => lighthouse_version::VERSION, "graffiti_str" => graffiti_str);
+        info!(lighthouse_version = lighthouse_version::VERSION, graffiti_str = %graffiti_str, "results");
         println!("lighthouse_version: '{}'", lighthouse_version::VERSION);
         println!("graffiti_str:       '{}'", graffiti_str);
 
@@ -342,7 +325,7 @@ mod tests {
             std::str::from_utf8(&found_graffiti_bytes[..expected_graffiti_prefix_len])
                 .expect("bytes should convert nicely to ascii");
 
-        info!(harness.chain.log, "results"; "expected_graffiti_string" => &expected_graffiti_string, "found_graffiti_string" => &found_graffiti_string);
+        info!(%expected_graffiti_string, %found_graffiti_string, "results");
         println!("expected_graffiti_string: '{}'", expected_graffiti_string);
         println!("found_graffiti_string:    '{}'", found_graffiti_string);
 

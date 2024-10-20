@@ -26,7 +26,7 @@ types = { workspace = true }
 store = { workspace = true }
 client = { path = "client" }
 clap = { workspace = true }
-slog = { workspace = true }
+tracing = { workspace = true }
 dirs = { workspace = true }
 directory = { workspace = true }
 environment = { workspace = true }

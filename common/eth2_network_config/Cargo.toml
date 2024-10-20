@@ -18,6 +18,7 @@ ethereum_ssz = { workspace = true }
 [dependencies]
 serde_yaml = { workspace = true }
 types = { workspace = true }
+tracing = { workspace = true }
 eth2_config = { workspace = true }
 discv5 = { workspace = true }
 reqwest = { workspace = true }
@@ -25,7 +26,6 @@ pretty_reqwest_error = { workspace = true }
 sha2 = { workspace = true }
 url = { workspace = true }
 sensitive_url = { workspace = true }
-slog = { workspace = true }
 logging = { workspace = true }
 bytes = { workspace = true }
 kzg = { workspace = true }

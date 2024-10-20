@@ -12,12 +12,12 @@ use directory::{
 use eth2::types::Graffiti;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::{info, warn, Logger};
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
+use tracing::{info, warn};
 use types::{Address, GRAFFITI_BYTES_LEN};
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
@@ -146,7 +146,7 @@ impl Default for Config {
 impl Config {
     /// Returns a `Default` implementation of `Self` with some parameters modified by the supplied
     /// `cli_args`.
-    pub fn from_cli(cli_args: &ArgMatches, log: &Logger) -> Result<Config, String> {
+    pub fn from_cli(cli_args: &ArgMatches) -> Result<Config, String> {
         let mut config = Config::default();
 
         let default_root_dir = dirs::home_dir()
@@ -208,7 +208,10 @@ impl Config {
                 .read_graffiti_file()
                 .map_err(|e| format!("Error reading graffiti file: {:?}", e))?;
             config.graffiti_file = Some(graffiti_file);
-            info!(log, "Successfully loaded graffiti file"; "path" => graffiti_file_path);
+            info!(
+                path = graffiti_file_path,
+                "Successfully loaded graffiti file"
+            );
         }
 
         if let Some(input_graffiti) = cli_args.get_one::<String>("graffiti") {
@@ -422,10 +425,9 @@ impl Config {
         config.enable_web3signer_slashing_protection =
             if cli_args.get_flag("disable-slashing-protection-web3signer") {
                 warn!(
-                    log,
-                    "Slashing protection for remote keys disabled";
-                    "info" => "ensure slashing protection on web3signer is enabled or you WILL \
-                               get slashed"
+                    info = "ensure slashing protection on web3signer is enabled or you WILL \
+                               get slashed",
+                    "Slashing protection for remote keys disabled"
                 );
                 false
             } else {

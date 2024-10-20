@@ -7,9 +7,9 @@ use beacon_chain::{
 };
 use eth2::types::{self as api_types};
 use safe_arith::SafeArith;
-use slog::{debug, Logger};
 use slot_clock::SlotClock;
 use std::cmp::Ordering;
+use tracing::debug;
 use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// The struct that is returned to the requesting HTTP client.
@@ -19,7 +19,6 @@ type ApiDuties = api_types::DutiesResponse<Vec<api_types::ProposerData>>;
 pub fn proposer_duties<T: BeaconChainTypes>(
     request_epoch: Epoch,
     chain: &BeaconChain<T>,
-    log: &Logger,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
     let current_epoch = chain
         .slot_clock
@@ -52,11 +51,7 @@ pub fn proposer_duties<T: BeaconChainTypes>(
         if let Some(duties) = try_proposer_duties_from_cache(request_epoch, chain)? {
             Ok(duties)
         } else {
-            debug!(
-                log,
-                "Proposer cache miss";
-                "request_epoch" =>  request_epoch,
-            );
+            debug!(%request_epoch, "Proposer cache miss");
             compute_and_cache_proposer_duties(request_epoch, chain)
         }
     } else if request_epoch

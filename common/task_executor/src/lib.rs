@@ -3,9 +3,9 @@ pub mod test_utils;
 
 use futures::channel::mpsc::Sender;
 use futures::prelude::*;
-use slog::{debug, o, trace};
 use std::sync::Weak;
 use tokio::runtime::{Handle, Runtime};
+use tracing::{debug, span, trace, Level};
 
 pub use tokio::task::JoinHandle;
 
@@ -79,8 +79,6 @@ pub struct TaskExecutor {
     ///
     /// The task must provide a reason for shutting down.
     signal_tx: Sender<ShutdownReason>,
-
-    log: slog::Logger,
 }
 
 impl TaskExecutor {
@@ -94,24 +92,24 @@ impl TaskExecutor {
     pub fn new<T: Into<HandleProvider>>(
         handle: T,
         exit: async_channel::Receiver<()>,
-        log: slog::Logger,
         signal_tx: Sender<ShutdownReason>,
     ) -> Self {
         Self {
             handle_provider: handle.into(),
             exit,
             signal_tx,
-            log,
         }
     }
 
     /// Clones the task executor adding a service name.
     pub fn clone_with_name(&self, service_name: String) -> Self {
+        let span = span!(Level::INFO, "TaskExecutor", service = service_name);
+        let _enter = span.enter();
+
         TaskExecutor {
             handle_provider: self.handle_provider.clone(),
             exit: self.exit.clone(),
             signal_tx: self.signal_tx.clone(),
-            log: self.log.new(o!("service" => service_name)),
         }
     }
 
@@ -150,10 +148,7 @@ impl TaskExecutor {
                 drop(timer);
             });
         } else {
-            debug!(
-                self.log,
-                "Couldn't spawn monitor task. Runtime shutting down"
-            )
+            debug!("Couldn't spawn monitor task. Runtime shutting down")
         }
     }
 
@@ -197,7 +192,7 @@ impl TaskExecutor {
             if let Some(handle) = self.handle() {
                 handle.spawn(future);
             } else {
-                debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+                debug!("Couldn't spawn task. Runtime shutting down");
             }
         }
     }
@@ -224,7 +219,6 @@ impl TaskExecutor {
         name: &'static str,
     ) -> Option<tokio::task::JoinHandle<Option<R>>> {
         let exit = self.exit();
-        let log = self.log.clone();
 
         if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
             // Task is shutdown before it completes if `exit` receives
@@ -235,11 +229,11 @@ impl TaskExecutor {
                     futures::pin_mut!(exit);
                     let result = match future::select(Box::pin(task), exit).await {
                         future::Either::Left((value, _)) => {
-                            trace!(log, "Async task completed"; "task" => name);
+                            trace!(task = name, "Async task completed");
                             Some(value)
                         }
                         future::Either::Right(_) => {
-                            debug!(log, "Async task shutdown, exit received"; "task" => name);
+                            debug!(task = name, "Async task shutdown, exit received");
                             None
                         }
                     };
@@ -247,7 +241,7 @@ impl TaskExecutor {
                     result
                 }))
             } else {
-                debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+                debug!("Couldn't spawn task. Runtime shutting down");
                 None
             }
         } else {
@@ -270,26 +264,24 @@ impl TaskExecutor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let log = self.log.clone();
-
         let timer = metrics::start_timer_vec(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]);
         metrics::inc_gauge_vec(&metrics::BLOCKING_TASKS_COUNT, &[name]);
 
         let join_handle = if let Some(handle) = self.handle() {
             handle.spawn_blocking(task)
         } else {
-            debug!(self.log, "Couldn't spawn task. Runtime shutting down");
+            debug!("Couldn't spawn task. Runtime shutting down");
             return None;
         };
 
         let future = async move {
             let result = match join_handle.await {
                 Ok(result) => {
-                    trace!(log, "Blocking task completed"; "task" => name);
+                    trace!(task = name, "Blocking task completed");
                     Ok(result)
                 }
                 Err(e) => {
-                    debug!(log, "Blocking task ended unexpectedly"; "error" => %e);
+                    debug!(error = %e, "Blocking task ended unexpectedly");
                     Err(e)
                 }
             };
@@ -321,31 +313,24 @@ impl TaskExecutor {
     ) -> Option<F::Output> {
         let timer = metrics::start_timer_vec(&metrics::BLOCK_ON_TASKS_HISTOGRAM, &[name]);
         metrics::inc_gauge_vec(&metrics::BLOCK_ON_TASKS_COUNT, &[name]);
-        let log = self.log.clone();
         let handle = self.handle()?;
         let exit = self.exit();
 
-        debug!(
-            log,
-            "Starting block_on task";
-            "name" => name
-        );
+        debug!(name, "Starting block_on task");
 
         handle.block_on(async {
             let output = tokio::select! {
                 output = future => {
                     debug!(
-                        log,
-                        "Completed block_on task";
-                        "name" => name
+                        name,
+                        "Completed block_on task"
                     );
                     Some(output)
                 },
                 _ = exit => {
                     debug!(
-                        log,
-                        "Cancelled block_on task";
-                        "name" => name,
+                        name,
+                        "Cancelled block_on task"
                     );
                     None
                 }
@@ -373,10 +358,5 @@ impl TaskExecutor {
     /// Get a channel to request shutting down.
     pub fn shutdown_sender(&self) -> Sender<ShutdownReason> {
         self.signal_tx.clone()
-    }
-
-    /// Returns a reference to the logger.
-    pub fn log(&self) -> &slog::Logger {
-        &self.log
     }
 }

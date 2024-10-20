@@ -9,10 +9,10 @@ use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::BeaconChainTypes;
 use lru::LruCache;
 use parking_lot::RwLock;
-use slog::{debug, Logger};
 use ssz_types::{FixedVector, VariableList};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use tracing::debug;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar, Epoch, EthSpec,
@@ -199,11 +199,7 @@ impl<E: EthSpec> PendingComponents<E> {
     ///
     /// Returns `true` if both the block exists and the number of received blobs / custody columns
     /// matches the number of expected blobs / custody columns.
-    pub fn is_available(
-        &self,
-        block_import_requirement: &BlockImportRequirement,
-        log: &Logger,
-    ) -> bool {
+    pub fn is_available(&self, block_import_requirement: &BlockImportRequirement) -> bool {
         let block_kzg_commitments_count_opt = self.block_kzg_commitments_count();
 
         match block_import_requirement {
@@ -214,12 +210,12 @@ impl<E: EthSpec> PendingComponents<E> {
                     .map(|num| num.to_string())
                     .unwrap_or("unknown".to_string());
 
-                debug!(log,
-                    "Component(s) added to data availability checker";
-                    "block_root" => ?self.block_root,
-                    "received_block" => block_kzg_commitments_count_opt.is_some(),
-                    "received_blobs" => received_blobs,
-                    "expected_blobs" => expected_blobs_msg,
+                debug!(
+                    block_root = ?self.block_root,
+                    received_block = block_kzg_commitments_count_opt.is_some(),
+                    received_blobs = received_blobs,
+                    expected_blobs = expected_blobs_msg,
+                    "Component(s) added to data availability checker"
                 );
 
                 block_kzg_commitments_count_opt.map_or(false, |num_expected_blobs| {
@@ -243,12 +239,12 @@ impl<E: EthSpec> PendingComponents<E> {
 
                 let num_received_columns = self.num_received_data_columns();
 
-                debug!(log,
-                    "Component(s) added to data availability checker";
-                    "block_root" => ?self.block_root,
-                    "received_block" => block_kzg_commitments_count_opt.is_some(),
-                    "received_columns" => num_received_columns,
-                    "expected_columns" => expected_columns_msg,
+                debug!(
+                    block_root = ?self.block_root,
+                    received_block = block_kzg_commitments_count_opt.is_some(),
+                    received_columns = num_received_columns,
+                    expected_columns = expected_columns_msg,
+                    "Component(s) added to data availability checker"
                 );
 
                 expected_columns_opt.map_or(false, |num_expected_columns| {
@@ -494,7 +490,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         block_root: Hash256,
         epoch: Epoch,
         kzg_verified_blobs: I,
-        log: &Logger,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut fixed_blobs = FixedVector::default();
 
@@ -516,7 +511,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         pending_components.merge_blobs(fixed_blobs);
 
         let block_import_requirement = self.block_import_requirement(epoch)?;
-        if pending_components.is_available(&block_import_requirement, log) {
+        if pending_components.is_available(&block_import_requirement) {
             write_lock.put(block_root, pending_components.clone());
             // No need to hold the write lock anymore
             drop(write_lock);
@@ -537,7 +532,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         block_root: Hash256,
         epoch: Epoch,
         kzg_verified_data_columns: I,
-        log: &Logger,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut write_lock = self.critical.write();
 
@@ -552,7 +546,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         let block_import_requirement = self.block_import_requirement(epoch)?;
 
-        if pending_components.is_available(&block_import_requirement, log) {
+        if pending_components.is_available(&block_import_requirement) {
             write_lock.put(block_root, pending_components.clone());
             // No need to hold the write lock anymore
             drop(write_lock);
@@ -621,7 +615,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn put_pending_executed_block(
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
-        log: &Logger,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut write_lock = self.critical.write();
         let block_root = executed_block.import_data.block_root;
@@ -643,7 +636,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         // Check if we have all components and entire set is consistent.
         let block_import_requirement = self.block_import_requirement(epoch)?;
-        if pending_components.is_available(&block_import_requirement, log) {
+        if pending_components.is_available(&block_import_requirement) {
             write_lock.put(block_root, pending_components.clone());
             // No need to hold the write lock anymore
             drop(write_lock);
@@ -712,12 +705,11 @@ mod test {
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
     use fork_choice::PayloadVerificationStatus;
-    use logging::test_logger;
-    use slog::{info, Logger};
     use state_processing::ConsensusContext;
     use std::collections::VecDeque;
     use store::{HotColdDB, ItemStore, LevelDB, StoreConfig};
     use tempfile::{tempdir, TempDir};
+    use tracing::info;
     use types::non_zero_usize::new_non_zero_usize;
     use types::{ExecPayload, MinimalEthSpec};
 
@@ -727,7 +719,6 @@ mod test {
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,
         spec: Arc<ChainSpec>,
-        log: Logger,
     ) -> Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>> {
         let hot_path = db_path.path().join("hot_db");
         let cold_path = db_path.path().join("cold_db");
@@ -741,14 +732,12 @@ mod test {
             |_, _, _| Ok(()),
             config,
             spec,
-            log,
         )
         .expect("disk store should initialize")
     }
 
     // get a beacon chain harness advanced to just before deneb fork
     async fn get_deneb_chain<E: EthSpec>(
-        log: Logger,
         db_path: &TempDir,
     ) -> BeaconChainHarness<DiskHarnessType<E>> {
         let altair_fork_epoch = Epoch::new(1);
@@ -765,12 +754,11 @@ mod test {
         spec.deneb_fork_epoch = Some(deneb_fork_epoch);
         let spec = Arc::new(spec);
 
-        let chain_store = get_store_with_spec::<E>(db_path, spec.clone(), log.clone());
+        let chain_store = get_store_with_spec::<E>(db_path, spec.clone());
         let validators_keypairs =
             types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.clone())
-            .logger(log.clone())
             .keypairs(validators_keypairs)
             .fresh_disk_store(chain_store)
             .mock_execution_layer()
@@ -813,7 +801,6 @@ mod test {
         Cold: ItemStore<E>,
     {
         let chain = &harness.chain;
-        let log = chain.log.clone();
         let head = chain.head_snapshot();
         let parent_state = head.beacon_state.clone();
 
@@ -841,7 +828,7 @@ mod test {
         );
 
         // log kzg commitments
-        info!(log, "printing kzg commitments");
+        info!("printing kzg commitments");
         for comm in Vec::from(
             block
                 .message()
@@ -850,9 +837,9 @@ mod test {
                 .expect("should be deneb fork")
                 .clone(),
         ) {
-            info!(log, "kzg commitment"; "commitment" => ?comm);
+            info!(commitment = ?comm,"kzg commitment");
         }
-        info!(log, "done printing kzg commitments");
+        info!("done printing kzg commitments");
 
         let gossip_verified_blobs = if let Some((kzg_proofs, blobs)) = maybe_blobs {
             let sidecars = BlobSidecar::build_sidecars(blobs, &block, kzg_proofs).unwrap();
@@ -904,9 +891,8 @@ mod test {
         E: EthSpec,
         T: BeaconChainTypes<HotStore = LevelDB<E>, ColdStore = LevelDB<E>, EthSpec = E>,
     {
-        let log = test_logger();
         let chain_db_path = tempdir().expect("should get temp dir");
-        let harness = get_deneb_chain(log.clone(), &chain_db_path).await;
+        let harness = get_deneb_chain(&chain_db_path).await;
         let spec = harness.spec.clone();
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);

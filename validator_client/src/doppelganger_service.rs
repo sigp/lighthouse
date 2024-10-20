@@ -33,14 +33,15 @@ use crate::beacon_node_fallback::BeaconNodeFallback;
 use crate::validator_store::ValidatorStore;
 use environment::RuntimeContext;
 use eth2::types::LivenessResponseData;
+use logging::crit;
 use parking_lot::RwLock;
-use slog::{crit, error, info, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
 use task_executor::ShutdownReason;
 use tokio::time::sleep;
+use tracing::{error, info};
 use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
 
 /// A wrapper around `PublicKeyBytes` which encodes information about the status of a validator
@@ -158,7 +159,6 @@ impl DoppelgangerState {
 /// doppelganger progression.
 async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
-    log: Logger,
     current_epoch: Epoch,
     validator_indices: Vec<u64>,
 ) -> LivenessResponses {
@@ -197,10 +197,9 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
             .await
             .unwrap_or_else(|e| {
                 crit!(
-                    log,
-                    "Failed previous epoch liveness query";
-                    "error" => %e,
-                    "previous_epoch" => %previous_epoch,
+                    error = %e,
+                    previous_epoch = %previous_epoch,
+                    "Failed previous epoch liveness query"
                 );
                 // Return an empty vec. In effect, this means to keep trying to make doppelganger
                 // progress even if some of the calls are failing.
@@ -233,10 +232,9 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
         .await
         .unwrap_or_else(|e| {
             crit!(
-                log,
-                "Failed current epoch liveness query";
-                "error" => %e,
-                "current_epoch" => %current_epoch,
+                error = %e,
+                current_epoch = %current_epoch,
+                "Failed current epoch liveness query"
             );
             // Return an empty vec. In effect, this means to keep trying to make doppelganger
             // progress even if some of the calls are failing.
@@ -251,11 +249,10 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
         || current_epoch_responses.len() != previous_epoch_responses.len()
     {
         error!(
-            log,
-            "Liveness query omitted validators";
-            "previous_epoch_response" => previous_epoch_responses.len(),
-            "current_epoch_response" => current_epoch_responses.len(),
-            "requested" => validator_indices.len(),
+            previous_epoch_response = previous_epoch_responses.len(),
+            current_epoch_response = current_epoch_responses.len(),
+            requested = validator_indices.len(),
+            "Liveness query omitted validators"
         )
     }
 
@@ -267,14 +264,12 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
 
 pub struct DoppelgangerService {
     doppelganger_states: RwLock<HashMap<PublicKeyBytes, DoppelgangerState>>,
-    log: Logger,
 }
 
 impl DoppelgangerService {
-    pub fn new(log: Logger) -> Self {
+    pub fn new() -> Self {
         Self {
             doppelganger_states: <_>::default(),
-            log,
         }
     }
 
@@ -291,35 +286,26 @@ impl DoppelgangerService {
         let get_index = move |pubkey| validator_store.validator_index(&pubkey);
 
         // Define the `get_liveness` function as one that queries the beacon node API.
-        let log = service.log.clone();
+
         let get_liveness = move |current_epoch, validator_indices| {
-            beacon_node_liveness(
-                beacon_nodes.clone(),
-                log.clone(),
-                current_epoch,
-                validator_indices,
-            )
+            beacon_node_liveness(beacon_nodes.clone(), current_epoch, validator_indices)
         };
 
         let mut shutdown_sender = context.executor.shutdown_sender();
-        let log = service.log.clone();
+
         let mut shutdown_func = move || {
             if let Err(e) =
                 shutdown_sender.try_send(ShutdownReason::Failure("Doppelganger detected."))
             {
                 crit!(
-                    log,
-                    "Failed to send shutdown signal";
-                    "msg" => "terminate this process immediately",
-                    "error" => ?e
+                    msg = "terminate this process immediately",
+                    error = ?e,
+                    "Failed to send shutdown signal"
                 );
             }
         };
 
-        info!(
-            service.log,
-            "Doppelganger detection service started";
-        );
+        info!("Doppelganger detection service started");
 
         context.executor.spawn(
             async move {
@@ -349,9 +335,8 @@ impl DoppelgangerService {
                             .await
                         {
                             error!(
-                                service.log,
-                                "Error during doppelganger detection";
-                                "error" => ?e
+                                error = ?e,
+                                "Error during doppelganger detection"
                             );
                         }
                     }
@@ -376,10 +361,9 @@ impl DoppelgangerService {
             })
             .unwrap_or_else(|| {
                 crit!(
-                    self.log,
-                    "Validator unknown to doppelganger service";
-                    "msg" => "preventing validator from performing duties",
-                    "pubkey" => ?validator
+                    msg = "preventing validator from performing duties",
+                    pubkey = ?validator,
+                    "Validator unknown to doppelganger service"
                 );
                 DoppelgangerStatus::UnknownToDoppelganger(validator)
             })
@@ -541,11 +525,7 @@ impl DoppelgangerService {
 
             // Resolve the index from the server response back to a public key.
             let Some(pubkey) = indices_map.get(&response.index) else {
-                crit!(
-                    self.log,
-                    "Inconsistent indices map";
-                    "validator_index" => response.index,
-                );
+                crit!(validator_index = response.index, "Inconsistent indices map");
                 // Skip this result if an inconsistency is detected.
                 continue;
             };
@@ -555,9 +535,8 @@ impl DoppelgangerService {
                 state.next_check_epoch
             } else {
                 crit!(
-                    self.log,
-                    "Inconsistent doppelganger state";
-                    "validator_pubkey" => ?pubkey,
+                    validator_pubkey = ?pubkey,
+                    "Inconsistent doppelganger state"
                 );
                 // Skip this result if an inconsistency is detected.
                 continue;
@@ -571,15 +550,14 @@ impl DoppelgangerService {
         let violators_exist = !violators.is_empty();
         if violators_exist {
             crit!(
-                self.log,
-                "Doppelganger(s) detected";
-                "msg" => "A doppelganger occurs when two different validator clients run the \
-                    same public key. This validator client detected another instance of a local \
-                    validator on the network and is shutting down to prevent potential slashable \
-                    offences. Ensure that you are not running a duplicate or overlapping \
-                    validator client",
-                "doppelganger_indices" => ?violators
-            )
+                msg = "A doppelganger occurs when two different validator clients run the \
+                same public key. This validator client detected another instance of a local \
+                validator on the network and is shutting down to prevent potential slashable \
+                offences. Ensure that you are not running a duplicate or overlapping \
+                validator client",
+                doppelganger_indices = ?violators,
+                "Doppelganger(s) detected"
+            );
         }
 
         // The concept of "epoch satisfaction" is that for some epoch `e` we are *satisfied* that
@@ -654,19 +632,17 @@ impl DoppelgangerService {
                 doppelganger_state.complete_detection_in_epoch(previous_epoch);
 
                 info!(
-                    self.log,
-                    "Found no doppelganger";
-                    "further_checks_remaining" => doppelganger_state.remaining_epochs,
-                    "epoch" => response.epoch,
-                    "validator_index" => response.index
+                    further_checks_remaining = doppelganger_state.remaining_epochs,
+                    epoch = %response.epoch,
+                    validator_index = response.index,
+                    "Found no doppelganger"
                 );
 
                 if doppelganger_state.remaining_epochs == 0 {
                     info!(
-                        self.log,
-                        "Doppelganger detection complete";
-                        "msg" => "starting validator",
-                        "validator_index" => response.index
+                        msg = "starting validator",
+                        validator_index = response.index,
+                        "Doppelganger detection complete"
                     );
                 }
             }
@@ -685,7 +661,6 @@ impl DoppelgangerService {
 mod test {
     use super::*;
     use futures::executor::block_on;
-    use logging::test_logger;
     use slot_clock::TestingSlotClock;
     use std::future;
     use std::time::Duration;
@@ -729,13 +704,13 @@ mod test {
         fn build(self) -> TestScenario {
             let mut rng = XorShiftRng::from_seed([42; 16]);
             let slot_clock = TestingSlotClock::new(Slot::new(0), GENESIS_TIME, SLOT_DURATION);
-            let log = test_logger();
+            // let log = test_logger();
 
             TestScenario {
                 validators: (0..self.validator_count)
                     .map(|_| PublicKeyBytes::random_for_test(&mut rng))
                     .collect(),
-                doppelganger: DoppelgangerService::new(log),
+                doppelganger: DoppelgangerService::new(),
                 slot_clock,
             }
         }

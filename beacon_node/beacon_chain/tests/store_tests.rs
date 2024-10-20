@@ -70,7 +70,6 @@ fn get_store_generic(
         |_, _, _| Ok(()),
         config,
         spec.into(),
-        log,
     )
     .expect("disk store should initialize")
 }
@@ -198,10 +197,7 @@ async fn light_client_bootstrap_test() {
         .slot_clock(slot_clock)
         .shutdown_sender(shutdown_tx)
         .chain_config(ChainConfig::default())
-        .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-            log.clone(),
-            1,
-        )))
+        .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
         .execution_layer(Some(mock.el))
         .build()
         .expect("should build");
@@ -341,10 +337,7 @@ async fn light_client_updates_test() {
         .slot_clock(slot_clock)
         .shutdown_sender(shutdown_tx)
         .chain_config(ChainConfig::default())
-        .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-            log.clone(),
-            1,
-        )))
+        .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
         .execution_layer(Some(mock.el))
         .build()
         .expect("should build");
@@ -2766,10 +2759,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .slot_clock(slot_clock)
         .shutdown_sender(shutdown_tx)
         .chain_config(ChainConfig::default())
-        .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-            log.clone(),
-            1,
-        )))
+        .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
         .execution_layer(Some(mock.el))
         .build()
         .expect("should build");

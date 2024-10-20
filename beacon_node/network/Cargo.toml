@@ -5,12 +5,9 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
 [dev-dependencies]
-sloggers = { workspace = true }
 genesis = { workspace = true }
 matches = "0.1.8"
 serde_json = { workspace = true }
-slog-term = { workspace = true }
-slog-async = { workspace = true }
 eth2 = { workspace = true }
 gossipsub = { workspace = true }
 eth2_network_config = { workspace = true }
@@ -26,7 +23,6 @@ store = { workspace = true }
 lighthouse_network = { workspace = true }
 types = { workspace = true }
 slot_clock = { workspace = true }
-slog = { workspace = true }
 hex = { workspace = true }
 ethereum_ssz = { workspace = true }
 ssz_types = { workspace = true }
@@ -41,6 +37,7 @@ alloy-rlp = { workspace = true }
 lighthouse_metrics = { workspace = true }
 logging = { workspace = true }
 task_executor = { workspace = true }
+tracing = {workspace = true}
 igd-next = "0.14"
 itertools = { workspace = true }
 lru_cache = { workspace = true }

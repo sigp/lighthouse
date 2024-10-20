@@ -1,6 +1,6 @@
 use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes, BlockProcessStatus};
 use execution_layer::{ExecutionLayer, ExecutionPayloadBodyV1};
-use slog::{crit, debug, error, Logger};
+use logging::crit;
 use std::collections::HashMap;
 use std::sync::Arc;
 use store::{DatabaseBlock, ExecutionPayloadDeneb};
@@ -9,6 +9,7 @@ use tokio::sync::{
     RwLock,
 };
 use tokio_stream::{wrappers::UnboundedReceiverStream, Stream};
+use tracing::{debug, error};
 use types::{
     ChainSpec, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256, SignedBeaconBlock,
     SignedBlindedBeaconBlock, Slot,
@@ -128,7 +129,6 @@ fn reconstruct_default_header_block<E: EthSpec>(
 fn reconstruct_blocks<E: EthSpec>(
     block_map: &mut HashMap<Hash256, Arc<BlockResult<E>>>,
     block_parts_with_bodies: HashMap<Hash256, BlockParts<E>>,
-    log: &Logger,
 ) {
     for (root, block_parts) in block_parts_with_bodies {
         if let Some(payload_body) = block_parts.body {
@@ -155,7 +155,7 @@ fn reconstruct_blocks<E: EthSpec>(
                             reconstructed_transactions_root: header_from_payload
                                 .transactions_root(),
                         };
-                        debug!(log, "Failed to reconstruct block"; "root" => ?root, "error" => ?error);
+                        debug!(?root, ?error, "Failed to reconstruct block");
                         block_map.insert(root, Arc::new(Err(error)));
                     }
                 }
@@ -231,7 +231,7 @@ impl<E: EthSpec> BodiesByRange<E> {
         }
     }
 
-    async fn execute(&mut self, execution_layer: &ExecutionLayer<E>, log: &Logger) {
+    async fn execute(&mut self, execution_layer: &ExecutionLayer<E>) {
         if let RequestState::UnSent(blocks_parts_ref) = &mut self.state {
             let block_parts_vec = std::mem::take(blocks_parts_ref);
 
@@ -260,12 +260,12 @@ impl<E: EthSpec> BodiesByRange<E> {
                             });
                     }
 
-                    reconstruct_blocks(&mut block_map, with_bodies, log);
+                    reconstruct_blocks(&mut block_map, with_bodies);
                 }
                 Err(e) => {
                     let block_result =
                         Arc::new(Err(Error::BlocksByRangeFailure(Box::new(e)).into()));
-                    debug!(log, "Payload bodies by range failure"; "error" => ?block_result);
+                    debug!(error = ?block_result,"Payload bodies by range failure");
                     for block_parts in block_parts_vec {
                         block_map.insert(block_parts.root(), block_result.clone());
                     }
@@ -279,9 +279,8 @@ impl<E: EthSpec> BodiesByRange<E> {
         &mut self,
         root: &Hash256,
         execution_layer: &ExecutionLayer<E>,
-        log: &Logger,
     ) -> Option<Arc<BlockResult<E>>> {
-        self.execute(execution_layer, log).await;
+        self.execute(execution_layer).await;
         if let RequestState::Sent(map) = &self.state {
             return map.get(root).cloned();
         }
@@ -312,7 +311,7 @@ impl<E: EthSpec> EngineRequest<E> {
         }
     }
 
-    pub async fn push_block_parts(&mut self, block_parts: BlockParts<E>, log: &Logger) {
+    pub async fn push_block_parts(&mut self, block_parts: BlockParts<E>) {
         match self {
             Self::ByRange(bodies_by_range) => {
                 let mut request = bodies_by_range.write().await;
@@ -326,28 +325,21 @@ impl<E: EthSpec> EngineRequest<E> {
             Self::NoRequest(_) => {
                 // this should _never_ happen
                 crit!(
-                    log,
-                    "Please notify the devs";
-                    "beacon_block_streamer" => "push_block_parts called on NoRequest Variant",
+                    beacon_block_streamer = "push_block_parts called on NoRequest Variant",
+                    "Please notify the devs"
                 );
             }
         }
     }
 
-    pub async fn push_block_result(
-        &mut self,
-        root: Hash256,
-        block_result: BlockResult<E>,
-        log: &Logger,
-    ) {
+    pub async fn push_block_result(&mut self, root: Hash256, block_result: BlockResult<E>) {
         // this function will only fail if something is seriously wrong
         match self {
             Self::ByRange(_) => {
                 // this should _never_ happen
                 crit!(
-                    log,
-                    "Please notify the devs";
-                    "beacon_block_streamer" => "push_block_result called on ByRange",
+                    beacon_block_streamer = "push_block_result called on ByRange",
+                    "Please notify the devs"
                 );
             }
             Self::NoRequest(results) => {
@@ -360,24 +352,22 @@ impl<E: EthSpec> EngineRequest<E> {
         &self,
         root: &Hash256,
         execution_layer: &ExecutionLayer<E>,
-        log: &Logger,
     ) -> Arc<BlockResult<E>> {
         match self {
             Self::ByRange(by_range) => {
                 by_range
                     .write()
                     .await
-                    .get_block_result(root, execution_layer, log)
+                    .get_block_result(root, execution_layer)
                     .await
             }
             Self::NoRequest(map) => map.read().await.get(root).cloned(),
         }
         .unwrap_or_else(|| {
             crit!(
-                log,
-                "Please notify the devs";
-                "beacon_block_streamer" => "block_result not found in request",
-                "root" => ?root,
+                beacon_block_streamer = "block_result not found in request",
+                ?root,
+                "Please notify the devs"
             );
             Arc::new(Err(Error::BlockResultNotFound.into()))
         })
@@ -517,9 +507,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
                 }
             };
 
-            no_request
-                .push_block_result(root, block_result, &self.beacon_chain.log)
-                .await;
+            no_request.push_block_result(root, block_result).await;
             requests.insert(root, no_request.clone());
         }
 
@@ -528,9 +516,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         by_range_blocks.sort_by_key(|block_parts| block_parts.slot());
         for block_parts in by_range_blocks {
             let root = block_parts.root();
-            by_range
-                .push_block_parts(block_parts, &self.beacon_chain.log)
-                .await;
+            by_range.push_block_parts(block_parts).await;
             requests.insert(root, by_range.clone());
         }
 
@@ -540,17 +526,12 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
                 result.push((root, request.clone()))
             } else {
                 crit!(
-                    self.beacon_chain.log,
-                    "Please notify the devs";
-                    "beacon_block_streamer" => "request not found",
-                    "root" => ?root,
+                    beacon_block_streamer = "request not found",
+                    ?root,
+                    "Please notify the devs"
                 );
                 no_request
-                    .push_block_result(
-                        root,
-                        Err(Error::RequestNotFound.into()),
-                        &self.beacon_chain.log,
-                    )
+                    .push_block_result(root, Err(Error::RequestNotFound.into()))
                     .await;
                 result.push((root, no_request.clone()));
             }
@@ -565,10 +546,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         block_roots: Vec<Hash256>,
         sender: UnboundedSender<(Hash256, Arc<BlockResult<T::EthSpec>>)>,
     ) {
-        debug!(
-            self.beacon_chain.log,
-            "Using slower fallback method of eth_getBlockByHash()"
-        );
+        debug!("Using slower fallback method of eth_getBlockByHash()");
         for root in block_roots {
             let cached_block = self.check_caches(root);
             let block_result = if cached_block.is_some() {
@@ -600,9 +578,8 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
             Ok(payloads) => payloads,
             Err(e) => {
                 error!(
-                    self.beacon_chain.log,
-                    "BeaconBlockStreamer: Failed to load payloads";
-                    "error" => ?e
+                    error = ?e,
+                    "BeaconBlockStreamer: Failed to load payloads"
                 );
                 return;
             }
@@ -614,9 +591,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
                 engine_requests += 1;
             }
 
-            let result = request
-                .get_block_result(&root, &self.execution_layer, &self.beacon_chain.log)
-                .await;
+            let result = request.get_block_result(&root, &self.execution_layer).await;
 
             let successful = result
                 .as_ref()
@@ -635,13 +610,12 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         }
 
         debug!(
-            self.beacon_chain.log,
-            "BeaconBlockStreamer finished";
-            "requested blocks" => n_roots,
-            "sent" => n_sent,
-            "succeeded" => n_success,
-            "failed" => (n_sent - n_success),
-            "engine requests" => engine_requests,
+            requested_blocks = n_roots,
+            sent = n_sent,
+            succeeded = n_success,
+            failed = (n_sent - n_success),
+            ?engine_requests,
+            "BeaconBlockStreamer finished"
         );
     }
 
@@ -677,9 +651,8 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
     ) -> impl Stream<Item = (Hash256, Arc<BlockResult<T::EthSpec>>)> {
         let (block_tx, block_rx) = mpsc::unbounded_channel();
         debug!(
-            self.beacon_chain.log,
-            "Launching a BeaconBlockStreamer";
-            "blocks" => block_roots.len(),
+            blocks = block_roots.len(),
+            "Launching a BeaconBlockStreamer"
         );
         let executor = self.beacon_chain.task_executor.clone();
         executor.spawn(self.stream(block_roots, block_tx), "get_blocks_sender");
@@ -731,7 +704,6 @@ mod tests {
         let harness = BeaconChainHarness::builder(MinimalEthSpec)
             .spec(spec)
             .keypairs(KEYPAIRS[0..validator_count].to_vec())
-            .logger(logging::test_logger())
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .build();

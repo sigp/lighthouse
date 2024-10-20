@@ -13,13 +13,14 @@ use libp2p::swarm::{
 };
 use libp2p::swarm::{ConnectionClosed, FromSwarm, SubstreamProtocol, THandlerInEvent};
 use libp2p::PeerId;
+use logging::crit;
 use rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr};
-use slog::{crit, debug, o, trace};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
+use tracing::{debug, span, trace, Level};
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::{HandlerErr, HandlerEvent};
@@ -159,8 +160,6 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
     events: Vec<BehaviourAction<Id, E>>,
     fork_context: Arc<ForkContext>,
     enable_light_client_server: bool,
-    /// Slog logger for RPC behaviour.
-    log: slog::Logger,
     /// Networking constant values
     network_params: NetworkParams,
     /// A sequential counter indicating when data gets modified.
@@ -173,20 +172,20 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         enable_light_client_server: bool,
         inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
         outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
-        log: slog::Logger,
         network_params: NetworkParams,
         seq_number: u64,
     ) -> Self {
-        let log = log.new(o!("service" => "libp2p_rpc"));
+        let span = span!(Level::INFO, "RPC",service = "libp2p_rpc");
+        let _enter = span.enter();
 
         let inbound_limiter = inbound_rate_limiter_config.map(|config| {
-            debug!(log, "Using inbound rate limiting params"; "config" => ?config);
+            debug!(?config, "Using inbound rate limiting params");
             RateLimiter::new_with_config(config.0)
                 .expect("Inbound limiter configuration parameters are valid")
         });
 
         let self_limiter = outbound_rate_limiter_config.map(|config| {
-            SelfRateLimiter::new(config, log.clone()).expect("Configuration parameters are valid")
+            SelfRateLimiter::new(config).expect("Configuration parameters are valid")
         });
 
         RPC {
@@ -195,7 +194,6 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             events: Vec::new(),
             fork_context,
             enable_light_client_server,
-            log,
             network_params,
             seq_number,
         }
@@ -260,7 +258,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         let ping = Ping {
             data: self.seq_number,
         };
-        trace!(self.log, "Sending Ping"; "peer_id" => %peer_id);
+        trace!(%peer_id, "Sending Ping");
         self.send_request(peer_id, id, RequestType::Ping(ping));
     }
 }
@@ -290,13 +288,18 @@ where
             },
             (),
         );
-        let log = self
-            .log
-            .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
+        let span = span!(
+            Level::INFO,
+            "RPC",
+            peer_id = %peer_id,
+            connection_id = %connection_id
+        );
+
+        let _enter = span.enter();
+
         let handler = RPCHandler::new(
             protocol,
             self.fork_context.clone(),
-            &log,
             self.network_params.resp_timeout,
         );
 
@@ -322,14 +325,9 @@ where
             (),
         );
 
-        let log = self
-            .log
-            .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
-
         let handler = RPCHandler::new(
             protocol,
             self.fork_context.clone(),
-            &log,
             self.network_params.resp_timeout,
         );
 
@@ -420,10 +418,10 @@ where
                                     | Protocol::BlobsByRoot
                                     | Protocol::DataColumnsByRoot
                             ) {
-                                debug!(self.log, "Request too large to process"; "request" => %r#type, "protocol" => %protocol);
+                                debug!(request = %r#type, %protocol, "Request too large to process");
                             } else {
                                 // Other protocols shouldn't be sending large messages, we should flag the peer kind
-                                crit!(self.log, "Request size too large to ever be processed"; "protocol" => %protocol);
+                                crit!(%protocol, "Request size too large to ever be processed");
                             }
                             // send an error code to the peer.
                             // the handler upon receiving the error code will send it back to the behaviour
@@ -439,8 +437,7 @@ where
                             return;
                         }
                         Err(RateLimitedErr::TooSoon(wait_time)) => {
-                            debug!(self.log, "Request exceeds the rate limit";
-                        "request" => %r#type, "peer_id" => %peer_id, "wait_time_ms" => wait_time.as_millis());
+                            debug!(request = %r#type, %peer_id, wait_time_ms = wait_time.as_millis(), "Request exceeds the rate limit");
                             // send an error code to the peer.
                             // the handler upon receiving the error code will send it back to the behaviour
                             self.send_response(
@@ -461,7 +458,7 @@ where
 
                 // If we received a Ping, we queue a Pong response.
                 if let RequestType::Ping(_) = r#type {
-                    trace!(self.log, "Received Ping, queueing Pong";"connection_id" => %conn_id, "peer_id" => %peer_id);
+                    trace!(connection_id = %conn_id, %peer_id, "Received Ping, queueing Pong");
                     self.send_response(
                         peer_id,
                         (conn_id, substream_id),
@@ -523,55 +520,5 @@ where
         }
 
         Poll::Pending
-    }
-}
-
-impl<Id, E> slog::KV for RPCMessage<Id, E>
-where
-    E: EthSpec,
-    Id: ReqId,
-{
-    fn serialize(
-        &self,
-        _record: &slog::Record,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        serializer.emit_arguments("peer_id", &format_args!("{}", self.peer_id))?;
-        match &self.message {
-            Ok(received) => {
-                let (msg_kind, protocol) = match received {
-                    RPCReceived::Request(Request { r#type, .. }) => {
-                        ("request", r#type.versioned_protocol().protocol())
-                    }
-                    RPCReceived::Response(_, res) => ("response", res.protocol()),
-                    RPCReceived::EndOfStream(_, end) => (
-                        "end_of_stream",
-                        match end {
-                            ResponseTermination::BlocksByRange => Protocol::BlocksByRange,
-                            ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,
-                            ResponseTermination::BlobsByRange => Protocol::BlobsByRange,
-                            ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
-                            ResponseTermination::DataColumnsByRoot => Protocol::DataColumnsByRoot,
-                            ResponseTermination::DataColumnsByRange => Protocol::DataColumnsByRange,
-                            ResponseTermination::LightClientUpdatesByRange => {
-                                Protocol::LightClientUpdatesByRange
-                            }
-                        },
-                    ),
-                };
-                serializer.emit_str("msg_kind", msg_kind)?;
-                serializer.emit_arguments("protocol", &format_args!("{}", protocol))?;
-            }
-            Err(error) => {
-                let (msg_kind, protocol) = match &error {
-                    HandlerErr::Inbound { proto, .. } => ("inbound_err", *proto),
-                    HandlerErr::Outbound { proto, .. } => ("outbound_err", *proto),
-                };
-                serializer.emit_str("msg_kind", msg_kind)?;
-                serializer.emit_arguments("protocol", &format_args!("{}", protocol))?;
-            }
-        };
-
-        slog::Result::Ok(())
     }
 }

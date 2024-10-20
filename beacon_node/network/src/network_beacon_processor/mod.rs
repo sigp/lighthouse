@@ -21,7 +21,6 @@ use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
 };
-use slog::{debug, error, trace, Logger};
 use slot_clock::ManualSlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -30,6 +29,7 @@ use store::MemoryStore;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::{self, error::TrySendError};
+use tracing::{debug, error, trace};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
@@ -64,7 +64,6 @@ pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
     pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     pub invalid_block_storage: InvalidBlockStorage,
     pub executor: TaskExecutor,
-    pub log: Logger,
 }
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
@@ -862,10 +861,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// Creates a log if there is an internal error.
     pub(crate) fn send_sync_message(&self, message: SyncMessage<T::EthSpec>) {
-        self.sync_tx.send(message).unwrap_or_else(|e| {
-            debug!(self.log, "Could not send message to the sync service";
-                   "error" => %e)
-        });
+        self.sync_tx
+            .send(message)
+            .unwrap_or_else(|e| debug!(error = %e, "Could not send message to the sync service"));
     }
 
     /// Send a message to `network_tx`.
@@ -873,8 +871,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Creates a log if there is an internal error.
     fn send_network_message(&self, message: NetworkMessage<T::EthSpec>) {
         self.network_tx.send(message).unwrap_or_else(|e| {
-            debug!(self.log, "Could not send message to the network service. Likely shutdown";
-                "error" => %e)
+            debug!(error = %e, "Could not send message to the network service. Likely shutdown")
         });
     }
 
@@ -907,19 +904,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 match &availability_processing_status {
                     AvailabilityProcessingStatus::Imported(hash) => {
                         debug!(
-                            self.log,
-                            "Block components available via reconstruction";
-                            "result" => "imported block and custody columns",
-                            "block_hash" => %hash,
+                            result = "imported block and custody columns",
+                            block_hash = %hash,
+                            "Block components available via reconstruction"
                         );
                         self.chain.recompute_head_at_current_slot().await;
                     }
                     AvailabilityProcessingStatus::MissingComponents(_, _) => {
                         debug!(
-                            self.log,
-                            "Block components still missing block after reconstruction";
-                            "result" => "imported all custody columns",
-                            "block_hash" => %block_root,
+                            result = "imported all custody columns",
+                            block_hash = %block_root,
+                            "Block components still missing block after reconstruction"
                         );
                     }
                 }
@@ -929,18 +924,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(None) => {
                 // reason is tracked via the `KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL` metric
                 trace!(
-                    self.log,
-                    "Reconstruction not required for block";
-                    "block_hash" => %block_root,
+                    block_hash = %block_root,
+                    "Reconstruction not required for block"
                 );
                 None
             }
             Err(e) => {
                 error!(
-                    self.log,
-                    "Error during data column reconstruction";
-                    "block_root" => %block_root,
-                    "error" => ?e
+                    %block_root,
+                    error = ?e,
+                    "Error during data column reconstruction"
                 );
                 None
             }
@@ -961,7 +954,6 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         sync_tx: UnboundedSender<SyncMessage<E>>,
         chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
         executor: TaskExecutor,
-        log: Logger,
     ) -> (Self, mpsc::Receiver<BeaconWorkEvent<E>>) {
         let BeaconProcessorChannels {
             beacon_processor_tx,
@@ -982,7 +974,6 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
             network_globals,
             invalid_block_storage: InvalidBlockStorage::Disabled,
             executor,
-            log,
         };
 
         (network_beacon_processor, beacon_processor_rx)

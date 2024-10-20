@@ -1,9 +1,9 @@
 use crate::http_metrics;
 use crate::{DutiesService, ProductionValidatorClient};
 use lighthouse_metrics::set_gauge;
-use slog::{debug, error, info, Logger};
 use slot_clock::SlotClock;
 use tokio::time::{sleep, Duration};
+use tracing::{debug, error, info};
 use types::EthSpec;
 
 /// Spawns a notifier service which periodically logs information about the node.
@@ -15,14 +15,12 @@ pub fn spawn_notifier<E: EthSpec>(client: &ProductionValidatorClient<E>) -> Resu
     let slot_duration = Duration::from_secs(context.eth2_config.spec.seconds_per_slot);
 
     let interval_fut = async move {
-        let log = context.log();
-
         loop {
             if let Some(duration_to_next_slot) = duties_service.slot_clock.duration_to_next_slot() {
                 sleep(duration_to_next_slot + slot_duration / 2).await;
-                notify(&duties_service, log).await;
+                notify(&duties_service).await;
             } else {
-                error!(log, "Failed to read slot clock");
+                error!("Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
                 sleep(slot_duration).await;
                 continue;
@@ -35,10 +33,7 @@ pub fn spawn_notifier<E: EthSpec>(client: &ProductionValidatorClient<E>) -> Resu
 }
 
 /// Performs a single notification routine.
-async fn notify<T: SlotClock + 'static, E: EthSpec>(
-    duties_service: &DutiesService<T, E>,
-    log: &Logger,
-) {
+async fn notify<T: SlotClock + 'static, E: EthSpec>(duties_service: &DutiesService<T, E>) {
     let (candidate_info, num_available, num_synced) =
         duties_service.beacon_nodes.get_notifier_info().await;
     let num_total = candidate_info.len();
@@ -62,20 +57,18 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
             .map(|candidate| candidate.endpoint.as_str())
             .unwrap_or("None");
         info!(
-            log,
-            "Connected to beacon node(s)";
-            "primary" => primary,
-            "total" => num_total,
-            "available" => num_available,
-            "synced" => num_synced,
+            primary,
+            total = num_total,
+            available = num_available,
+            synced = num_synced,
+            "Connected to beacon node(s)"
         )
     } else {
         error!(
-            log,
-            "No synced beacon nodes";
-            "total" => num_total,
-            "available" => num_available,
-            "synced" => num_synced,
+            total = num_total,
+            available = num_available,
+            synced = num_synced,
+            "No synced beacon nodes"
         )
     }
     if num_synced_fallback > 0 {
@@ -87,23 +80,21 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
     for info in candidate_info {
         if let Ok(health) = info.health {
             debug!(
-                log,
-                "Beacon node info";
-                "status" => "Connected",
-                "index" => info.index,
-                "endpoint" => info.endpoint,
-                "head_slot" => %health.head,
-                "is_optimistic" => ?health.optimistic_status,
-                "execution_engine_status" => ?health.execution_status,
-                "health_tier" => %health.health_tier,
+                status = "Connected",
+                index = info.index,
+                endpoint = info.endpoint,
+                head_slot = %health.head,
+                is_optimistic = ?health.optimistic_status,
+                execution_engine_status = ?health.execution_status,
+                health_tier = %health.health_tier,
+                "Beacon node info"
             );
         } else {
             debug!(
-                log,
-                "Beacon node info";
-                "status" => "Disconnected",
-                "index" => info.index,
-                "endpoint" => info.endpoint,
+                status = "Disconnected",
+                index = info.index,
+                endpoint = info.endpoint,
+                "Beacon node info"
             );
         }
     }
@@ -117,45 +108,44 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
         let doppelganger_detecting_validators = duties_service.doppelganger_detecting_count();
 
         if doppelganger_detecting_validators > 0 {
-            info!(log, "Listening for doppelgangers"; "doppelganger_detecting_validators" => doppelganger_detecting_validators)
+            info!(
+                doppelganger_detecting_validators,
+                "Listening for doppelgangers"
+            )
         }
 
         if total_validators == 0 {
             info!(
-                log,
-                "No validators present";
-                "msg" => "see `lighthouse vm create --help` or the HTTP API documentation"
+                msg = "see `lighthouse vm create --help` or the HTTP API documentation",
+                "No validators present"
             )
         } else if total_validators == attesting_validators {
             info!(
-                log,
-                "All validators active";
-                "current_epoch_proposers" => proposing_validators,
-                "active_validators" => attesting_validators,
-                "total_validators" => total_validators,
-                "epoch" => format!("{}", epoch),
-                "slot" => format!("{}", slot),
+                current_epoch_proposers = proposing_validators,
+                active_validators = attesting_validators,
+                total_validators = total_validators,
+                %epoch,
+                %slot,
+                "All validators active"
             );
         } else if attesting_validators > 0 {
             info!(
-                log,
-                "Some validators active";
-                "current_epoch_proposers" => proposing_validators,
-                "active_validators" => attesting_validators,
-                "total_validators" => total_validators,
-                "epoch" => format!("{}", epoch),
-                "slot" => format!("{}", slot),
+                current_epoch_proposers = proposing_validators,
+                active_validators = attesting_validators,
+                total_validators = total_validators,
+                %epoch,
+                %slot,
+                "Some validators active"
             );
         } else {
             info!(
-                log,
-                "Awaiting activation";
-                "validators" => total_validators,
-                "epoch" => format!("{}", epoch),
-                "slot" => format!("{}", slot),
+                validators = total_validators,
+                %epoch,
+                %slot,
+                "Awaiting activation"
             );
         }
     } else {
-        error!(log, "Unable to read slot clock");
+        error!("Unable to read slot clock");
     }
 }

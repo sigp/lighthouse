@@ -51,7 +51,7 @@ dependencies = [
  "rpassword",
  "serde",
  "serde_yaml",
- "slog",
+ "tracing",
  "types",
  "validator_dir",
  "zeroize",
@@ -77,12 +77,6 @@ name = "adler2"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
-
-[[package]]
-name = "adler32"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aae1277d39aeec15cb388266ecc24b11c80469deae6067e17a1a7aa9e5c1f234"
 
 [[package]]
 name = "aead"
@@ -811,10 +805,6 @@ dependencies = [
  "serde",
  "serde_json",
  "slasher",
- "slog",
- "slog-async",
- "slog-term",
- "sloggers",
  "slot_clock",
  "smallvec",
  "ssz_types",
@@ -826,6 +816,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
+ "tracing",
  "tree_hash",
  "tree_hash_derive",
  "types",
@@ -855,10 +846,10 @@ dependencies = [
  "sensitive_url",
  "serde_json",
  "slasher",
- "slog",
  "store",
  "strum",
  "task_executor",
+ "tracing",
  "types",
  "unused_port",
 ]
@@ -876,12 +867,12 @@ dependencies = [
  "num_cpus",
  "parking_lot 0.12.3",
  "serde",
- "slog",
  "slot_clock",
  "strum",
  "task_executor",
  "tokio",
  "tokio-util",
+ "tracing",
  "types",
 ]
 
@@ -1071,11 +1062,8 @@ dependencies = [
  "log",
  "logging",
  "serde",
- "slog",
- "slog-async",
- "slog-scope",
- "slog-term",
  "tokio",
+ "tracing",
  "types",
 ]
 
@@ -1411,6 +1399,7 @@ dependencies = [
  "kzg",
  "lighthouse_metrics",
  "lighthouse_network",
+ "logging",
  "monitoring_api",
  "network",
  "operation_pool",
@@ -1420,7 +1409,6 @@ dependencies = [
  "serde_yaml",
  "slasher",
  "slasher_service",
- "slog",
  "slot_clock",
  "state_processing",
  "store",
@@ -1428,6 +1416,8 @@ dependencies = [
  "time",
  "timer",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "types",
 ]
 
@@ -1874,12 +1864,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dary_heap"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7762d17f1241643615821a8455a0b2c3e803784b058693d990b11f2dce25a0ca"
-
-[[package]]
 name = "data-encoding"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1916,9 +1900,9 @@ dependencies = [
  "environment",
  "hex",
  "serde",
- "slog",
  "store",
  "strum",
+ "tracing",
  "types",
 ]
 
@@ -2138,31 +2122,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "dirs-next"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b98cf8ebf19c3d1b223e151f99a4f9f0690dca41414773390fc824184ac833e1"
-dependencies = [
- "cfg-if",
- "dirs-sys-next",
-]
-
-[[package]]
 name = "dirs-sys"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b1d1d91c932ef41c0f2663aa8b0ca0342d444d842c06914aa0a7e352d0bada6"
-dependencies = [
- "libc",
- "redox_users",
- "winapi",
-]
-
-[[package]]
-name = "dirs-sys-next"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ebda144c4fe02d1f7ea1a7d9641b6fc6b580adcfa024ae48797ecdeb6825b4d"
 dependencies = [
  "libc",
  "redox_users",
@@ -2441,13 +2404,12 @@ dependencies = [
  "futures",
  "logging",
  "serde",
- "slog",
- "slog-async",
- "slog-json",
- "slog-term",
- "sloggers",
  "task_executor",
  "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-log",
+ "tracing-subscriber",
  "types",
 ]
 
@@ -2456,15 +2418,6 @@ name = "equivalent"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
-
-[[package]]
-name = "erased-serde"
-version = "0.3.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c138974f9d5e7fe373eb04df7cae98833802ae4b11c24ac7039a21d5af4b26c"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "errno"
@@ -2504,12 +2457,11 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_yaml",
- "slog",
- "sloggers",
  "state_processing",
  "superstruct",
  "task_executor",
  "tokio",
+ "tracing",
  "tree_hash",
  "types",
 ]
@@ -2631,9 +2583,9 @@ dependencies = [
  "sensitive_url",
  "serde_yaml",
  "sha2 0.9.9",
- "slog",
  "tempfile",
  "tokio",
+ "tracing",
  "types",
  "url",
  "zip",
@@ -3009,7 +2961,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.9.9",
- "slog",
  "slot_clock",
  "ssz_types",
  "state_processing",
@@ -3019,6 +2970,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
+ "tracing",
  "tree_hash",
  "tree_hash_derive",
  "triehash",
@@ -3199,11 +3151,12 @@ dependencies = [
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "lighthouse_metrics",
+ "logging",
  "proto_array",
- "slog",
  "state_processing",
  "store",
  "tokio",
+ "tracing",
  "types",
 ]
 
@@ -3410,9 +3363,9 @@ dependencies = [
  "merkle_proof",
  "rayon",
  "sensitive_url",
- "slog",
  "state_processing",
  "tokio",
+ "tracing",
  "tree_hash",
  "types",
 ]
@@ -3863,6 +3816,7 @@ dependencies = [
  "bs58 0.4.0",
  "bytes",
  "directory",
+ "environment",
  "eth1",
  "eth2",
  "ethereum_serde_utils",
@@ -3885,7 +3839,6 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_json",
- "slog",
  "slot_clock",
  "state_processing",
  "store",
@@ -3894,6 +3847,7 @@ dependencies = [
  "task_executor",
  "tokio",
  "tokio-stream",
+ "tracing",
  "tree_hash",
  "types",
  "warp",
@@ -3912,10 +3866,10 @@ dependencies = [
  "malloc_utils",
  "reqwest",
  "serde",
- "slog",
  "slot_clock",
  "store",
  "tokio",
+ "tracing",
  "types",
  "warp",
  "warp_utils",
@@ -4471,10 +4425,10 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "sloggers",
  "snap",
  "state_processing",
  "store",
+ "tracing",
  "tree_hash",
  "types",
  "validator_dir",
@@ -4508,30 +4462,6 @@ name = "libc"
 version = "0.2.158"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8adc4bb1803a324070e64a98ae98f38934d91957a99cfb3a43dcbc01bc56439"
-
-[[package]]
-name = "libflate"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45d9dfdc14ea4ef0900c1cddbc8dcd553fbaacd8a4a282cf4018ae9dd04fb21e"
-dependencies = [
- "adler32",
- "core2",
- "crc32fast",
- "dary_heap",
- "libflate_lz77",
-]
-
-[[package]]
-name = "libflate_lz77"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6e0d73b369f386f1c44abd9c570d5318f55ccde816ff4b562fa452e5182863d"
-dependencies = [
- "core2",
- "hashbrown 0.14.5",
- "rle-decode-fast",
-]
 
 [[package]]
 name = "libloading"
@@ -5046,9 +4976,10 @@ dependencies = [
  "serde_yaml",
  "slasher",
  "slashing_protection",
- "slog",
  "task_executor",
  "tempfile",
+ "tracing",
+ "tracing-subscriber",
  "types",
  "unused_port",
  "validator_client",
@@ -5099,9 +5030,6 @@ dependencies = [
  "regex",
  "serde",
  "sha2 0.9.9",
- "slog",
- "slog-async",
- "slog-term",
  "smallvec",
  "snap",
  "ssz_types",
@@ -5113,6 +5041,7 @@ dependencies = [
  "tokio",
  "tokio-io-timeout",
  "tokio-util",
+ "tracing",
  "types",
  "unsigned-varint 0.8.0",
  "unused_port",
@@ -5197,12 +5126,10 @@ version = "0.2.0"
 dependencies = [
  "chrono",
  "lighthouse_metrics",
+ "once_cell",
  "parking_lot 0.12.3",
  "serde",
  "serde_json",
- "slog",
- "slog-term",
- "sloggers",
  "take_mut",
  "tokio",
  "tracing",
@@ -5482,10 +5409,10 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_json",
- "slog",
  "store",
  "task_executor",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -5666,10 +5593,6 @@ dependencies = [
  "parking_lot 0.12.3",
  "rand",
  "serde_json",
- "slog",
- "slog-async",
- "slog-term",
- "sloggers",
  "slot_clock",
  "smallvec",
  "ssz_types",
@@ -5678,6 +5601,7 @@ dependencies = [
  "task_executor",
  "tokio",
  "tokio-stream",
+ "tracing",
  "types",
 ]
 
@@ -6995,12 +6919,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rle-decode-fast"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3582f63211428f83597b51b2ddb88e2a91a9d52d12831f9d08f5e624e8977422"
-
-[[package]]
 name = "rlp"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7803,10 +7721,10 @@ dependencies = [
  "redb",
  "safe_arith",
  "serde",
- "slog",
  "ssz_types",
  "strum",
  "tempfile",
+ "tracing",
  "tree_hash",
  "tree_hash_derive",
  "types",
@@ -7821,11 +7739,11 @@ dependencies = [
  "lighthouse_network",
  "network",
  "slasher",
- "slog",
  "slot_clock",
  "state_processing",
  "task_executor",
  "tokio",
+ "tracing",
  "types",
 ]
 
@@ -7843,109 +7761,8 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tracing",
  "types",
-]
-
-[[package]]
-name = "slog"
-version = "2.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8347046d4ebd943127157b94d63abb990fcf729dc4e9978927fdf4ac3c998d06"
-dependencies = [
- "erased-serde",
-]
-
-[[package]]
-name = "slog-async"
-version = "2.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72c8038f898a2c79507940990f05386455b3a317d8f18d4caea7cbc3d5096b84"
-dependencies = [
- "crossbeam-channel",
- "slog",
- "take_mut",
- "thread_local",
-]
-
-[[package]]
-name = "slog-json"
-version = "2.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e1e53f61af1e3c8b852eef0a9dee29008f55d6dd63794f3f12cef786cf0f219"
-dependencies = [
- "serde",
- "serde_json",
- "slog",
- "time",
-]
-
-[[package]]
-name = "slog-kvfilter"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae939ed7d169eed9699f4f5cd440f046f5dc5dfc27c19e3cd311619594c175e0"
-dependencies = [
- "regex",
- "slog",
-]
-
-[[package]]
-name = "slog-scope"
-version = "4.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f95a4b4c3274cd2869549da82b57ccc930859bdbf5bcea0424bc5f140b3c786"
-dependencies = [
- "arc-swap",
- "lazy_static",
- "slog",
-]
-
-[[package]]
-name = "slog-stdlog"
-version = "4.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6706b2ace5bbae7291d3f8d2473e2bfab073ccd7d03670946197aec98471fa3e"
-dependencies = [
- "log",
- "slog",
- "slog-scope",
-]
-
-[[package]]
-name = "slog-term"
-version = "2.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6e022d0b998abfe5c3782c1f03551a596269450ccd677ea51c56f8b214610e8"
-dependencies = [
- "is-terminal",
- "slog",
- "term",
- "thread_local",
- "time",
-]
-
-[[package]]
-name = "sloggers"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75062c2738b82cd45ae633623caae3393f43eb00aada1dc2d3ebe88db6b0db9b"
-dependencies = [
- "chrono",
- "libc",
- "libflate",
- "once_cell",
- "regex",
- "serde",
- "slog",
- "slog-async",
- "slog-json",
- "slog-kvfilter",
- "slog-scope",
- "slog-stdlog",
- "slog-term",
- "trackable",
- "winapi",
- "windows-acl",
 ]
 
 [[package]]
@@ -8126,11 +7943,11 @@ dependencies = [
  "parking_lot 0.12.3",
  "safe_arith",
  "serde",
- "slog",
- "sloggers",
  "state_processing",
  "strum",
  "tempfile",
+ "tracing",
+ "tracing-subscriber",
  "types",
 ]
 
@@ -8334,9 +8151,8 @@ dependencies = [
  "futures",
  "lighthouse_metrics",
  "logging",
- "slog",
- "sloggers",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -8350,17 +8166,6 @@ dependencies = [
  "once_cell",
  "rustix 0.38.35",
  "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "term"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c59df8ac95d96ff9bede18eb7300b0fda5e5d8d90960e76f8e14ae765eedbf1f"
-dependencies = [
- "dirs-next",
- "rustversion",
- "winapi",
 ]
 
 [[package]]
@@ -8380,14 +8185,6 @@ checksum = "21bebf2b7c9e0a515f6e0f8c51dc0f8e4696391e6f1ff30379559f8365fb0df7"
 dependencies = [
  "rustix 0.38.35",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "test-test_logger"
-version = "0.1.0"
-dependencies = [
- "logging",
- "slog",
 ]
 
 [[package]]
@@ -8521,10 +8318,10 @@ name = "timer"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
- "slog",
  "slot_clock",
  "task_executor",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -8851,6 +8648,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-serde"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc6b213177105856957181934e4920de57730fc69bf42c37ee5bb664d406d9e1"
+dependencies = [
+ "serde",
+ "tracing-core",
+]
+
+[[package]]
 name = "tracing-subscriber"
 version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8860,31 +8667,15 @@ dependencies = [
  "nu-ansi-term",
  "once_cell",
  "regex",
+ "serde",
+ "serde_json",
  "sharded-slab",
  "smallvec",
  "thread_local",
  "tracing",
  "tracing-core",
  "tracing-log",
-]
-
-[[package]]
-name = "trackable"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b15bd114abb99ef8cee977e517c8f37aee63f184f2d08e3e6ceca092373369ae"
-dependencies = [
- "trackable_derive",
-]
-
-[[package]]
-name = "trackable_derive"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebeb235c5847e2f82cfe0f07eb971d1e5f6804b18dac2ae16349cc604380f82f"
-dependencies = [
- "quote",
- "syn 1.0.109",
+ "tracing-serde",
 ]
 
 [[package]]
@@ -8982,7 +8773,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "slog",
  "smallvec",
  "ssz_types",
  "state_processing",
@@ -9185,7 +8975,6 @@ dependencies = [
  "serde",
  "serde_json",
  "slashing_protection",
- "slog",
  "slot_clock",
  "strum",
  "sysinfo",
@@ -9194,6 +8983,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
+ "tracing",
  "tree_hash",
  "types",
  "url",

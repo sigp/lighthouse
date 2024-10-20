@@ -8,9 +8,9 @@ use reqwest::{IntoUrl, Response};
 pub use reqwest::{StatusCode, Url};
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::{debug, error, info};
 use task_executor::TaskExecutor;
 use tokio::time::{interval_at, Instant};
+use tracing::{debug, error, info};
 use types::*;
 
 pub use types::ProcessType;
@@ -68,11 +68,10 @@ pub struct MonitoringHttpClient {
     freezer_db_path: Option<PathBuf>,
     update_period: Duration,
     monitoring_endpoint: SensitiveUrl,
-    log: slog::Logger,
 }
 
 impl MonitoringHttpClient {
-    pub fn new(config: &Config, log: slog::Logger) -> Result<Self, String> {
+    pub fn new(config: &Config) -> Result<Self, String> {
         Ok(Self {
             client: reqwest::Client::new(),
             db_path: config.db_path.clone(),
@@ -82,7 +81,6 @@ impl MonitoringHttpClient {
             ),
             monitoring_endpoint: SensitiveUrl::parse(&config.monitoring_endpoint)
                 .map_err(|e| format!("Invalid monitoring endpoint: {:?}", e))?,
-            log,
         })
     }
 
@@ -110,10 +108,9 @@ impl MonitoringHttpClient {
         );
 
         info!(
-            self.log,
-            "Starting monitoring API";
-            "endpoint" => %self.monitoring_endpoint,
-            "update_period" => format!("{}s", self.update_period.as_secs()),
+            endpoint = %self.monitoring_endpoint,
+            update_period = format!("{}s", self.update_period.as_secs()),
+            "Starting monitoring API"
         );
 
         let update_future = async move {
@@ -121,10 +118,10 @@ impl MonitoringHttpClient {
                 interval.tick().await;
                 match self.send_metrics(&processes).await {
                     Ok(()) => {
-                        debug!(self.log, "Metrics sent to remote server"; "endpoint" => %self.monitoring_endpoint);
+                        debug!(endpoint = %self.monitoring_endpoint, "Metrics sent to remote server");
                     }
                     Err(e) => {
-                        error!(self.log, "Failed to send metrics to remote endpoint"; "error" => %e)
+                        error!(error = %e, "Failed to send metrics to remote endpoint")
                     }
                 }
             }
@@ -186,18 +183,16 @@ impl MonitoringHttpClient {
         for process in processes {
             match self.get_metrics(process).await {
                 Err(e) => error!(
-                    self.log,
-                    "Failed to get metrics";
-                    "process_type" => ?process,
-                    "error" => %e
+                    process_type = ?process,
+                    error = %e,
+                    "Failed to get metrics"
                 ),
                 Ok(metric) => metrics.push(metric),
             }
         }
         info!(
-            self.log,
-            "Sending metrics to remote endpoint";
-            "endpoint" => %self.monitoring_endpoint
+            endpoint = %self.monitoring_endpoint,
+            "Sending metrics to remote endpoint"
         );
         self.post(self.monitoring_endpoint.full.clone(), &metrics)
             .await

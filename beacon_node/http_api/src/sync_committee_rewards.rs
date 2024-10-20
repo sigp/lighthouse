@@ -2,9 +2,9 @@ use crate::{BlockId, ExecutionOptimistic};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::SyncCommitteeReward;
 use eth2::types::ValidatorId;
-use slog::{debug, Logger};
 use state_processing::BlockReplayer;
 use std::sync::Arc;
+use tracing::debug;
 use types::{BeaconState, SignedBlindedBeaconBlock};
 use warp_utils::reject::{beacon_chain_error, custom_not_found};
 
@@ -12,7 +12,6 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_id: BlockId,
     validators: Vec<ValidatorId>,
-    log: Logger,
 ) -> Result<(Option<Vec<SyncCommitteeReward>>, ExecutionOptimistic, bool), warp::Rejection> {
     let (block, execution_optimistic, finalized) = block_id.blinded_block(&chain)?;
 
@@ -23,7 +22,7 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
         .map_err(beacon_chain_error)?;
 
     let data = if reward_payload.is_empty() {
-        debug!(log, "compute_sync_committee_rewards returned empty");
+        debug!("compute_sync_committee_rewards returned empty");
         None
     } else if validators.is_empty() {
         Some(reward_payload)

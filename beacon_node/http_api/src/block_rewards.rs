@@ -1,10 +1,10 @@
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::lighthouse::{BlockReward, BlockRewardsQuery};
 use lru::LruCache;
-use slog::{debug, warn, Logger};
 use state_processing::BlockReplayer;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use tracing::{debug, warn};
 use types::beacon_block::BlindedBeaconBlock;
 use types::non_zero_usize::new_non_zero_usize;
 use warp_utils::reject::{beacon_chain_error, beacon_state_error, custom_bad_request};
@@ -15,7 +15,6 @@ const STATE_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(2);
 pub fn get_block_rewards<T: BeaconChainTypes>(
     query: BlockRewardsQuery,
     chain: Arc<BeaconChain<T>>,
-    log: Logger,
 ) -> Result<Vec<BlockReward>, warp::Rejection> {
     let start_slot = query.start_slot;
     let end_slot = query.end_slot;
@@ -81,12 +80,7 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
         .map_err(beacon_chain_error)?;
 
     if block_replayer.state_root_miss() {
-        warn!(
-            log,
-            "Block reward state root miss";
-            "start_slot" => start_slot,
-            "end_slot" => end_slot,
-        );
+        warn!(%start_slot, %end_slot, "Block reward state root miss");
     }
 
     drop(block_replayer);
@@ -98,7 +92,6 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
 pub fn compute_block_rewards<T: BeaconChainTypes>(
     blocks: Vec<BlindedBeaconBlock<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
-    log: Logger,
 ) -> Result<Vec<BlockReward>, warp::Rejection> {
     let mut block_rewards = Vec::with_capacity(blocks.len());
     let mut state_cache = LruCache::new(STATE_CACHE_SIZE);
@@ -110,18 +103,16 @@ pub fn compute_block_rewards<T: BeaconChainTypes>(
         // Check LRU cache for a constructed state from a previous iteration.
         let state = if let Some(state) = state_cache.get(&(parent_root, block.slot())) {
             debug!(
-                log,
-                "Re-using cached state for block rewards";
-                "parent_root" => ?parent_root,
-                "slot" => block.slot(),
+                ?parent_root,
+                slot = %block.slot(),
+                "Re-using cached state for block rewards"
             );
             state
         } else {
             debug!(
-                log,
-                "Fetching state for block rewards";
-                "parent_root" => ?parent_root,
-                "slot" => block.slot()
+                ?parent_root,
+                slot = %block.slot(),
+                "Fetching state for block rewards"
             );
             let parent_block = chain
                 .get_blinded_block(&parent_root)
@@ -152,10 +143,9 @@ pub fn compute_block_rewards<T: BeaconChainTypes>(
 
             if block_replayer.state_root_miss() {
                 warn!(
-                    log,
-                    "Block reward state root miss";
-                    "parent_slot" => parent_block.slot(),
-                    "slot" => block.slot(),
+                    parent_slot = %parent_block.slot(),
+                    slot = %block.slot(),
+                    "Block reward state root miss"
                 );
             }
 

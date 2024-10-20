@@ -19,12 +19,12 @@ use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::{Client, Error};
 use sensitive_url::SensitiveUrl;
 use sha2::{Digest, Sha256};
-use slog::{info, warn, Logger};
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
+use tracing::{info, warn};
 use types::{BeaconState, ChainSpec, Config, EthSpec, EthSpecId, Hash256};
 use url::Url;
 
@@ -172,7 +172,6 @@ impl Eth2NetworkConfig {
         &self,
         genesis_state_url: Option<&str>,
         timeout: Duration,
-        log: &Logger,
     ) -> Result<Option<BeaconState<E>>, String> {
         let spec = self.chain_spec::<E>()?;
         match &self.genesis_state_source {
@@ -190,9 +189,9 @@ impl Eth2NetworkConfig {
                     format!("Unable to parse genesis state bytes checksum: {:?}", e)
                 })?;
                 let bytes = if let Some(specified_url) = genesis_state_url {
-                    download_genesis_state(&[specified_url], timeout, checksum, log).await
+                    download_genesis_state(&[specified_url], timeout, checksum).await
                 } else {
-                    download_genesis_state(built_in_urls, timeout, checksum, log).await
+                    download_genesis_state(built_in_urls, timeout, checksum).await
                 }?;
                 let state = BeaconState::from_ssz_bytes(bytes.as_ref(), &spec).map_err(|e| {
                     format!("Downloaded genesis state SSZ bytes are invalid: {:?}", e)
@@ -360,7 +359,6 @@ async fn download_genesis_state(
     urls: &[&str],
     timeout: Duration,
     checksum: Hash256,
-    log: &Logger,
 ) -> Result<Vec<u8>, String> {
     if urls.is_empty() {
         return Err(
@@ -380,11 +378,10 @@ async fn download_genesis_state(
             .unwrap_or_else(|_| "<REDACTED>".to_string());
 
         info!(
-            log,
-            "Downloading genesis state";
-            "server" => &redacted_url,
-            "timeout" => ?timeout,
-            "info" => "this may take some time on testnets with large validator counts"
+            server = &redacted_url,
+            timeout = ?timeout,
+            info = "this may take some time on testnets with large validator counts",
+            "Downloading genesis state"
         );
 
         let client = Client::new();
@@ -397,10 +394,9 @@ async fn download_genesis_state(
                     return Ok(bytes.into());
                 } else {
                     warn!(
-                        log,
-                        "Genesis state download failed";
-                        "server" => &redacted_url,
-                        "timeout" => ?timeout,
+                        server = &redacted_url,
+                        timeout = ?timeout,
+                        "Genesis state download failed"
                     );
                     errors.push(format!(
                         "Response from {} did not match local checksum",
@@ -478,7 +474,7 @@ mod tests {
     async fn mainnet_genesis_state() {
         let config = Eth2NetworkConfig::from_hardcoded_net(&MAINNET).unwrap();
         config
-            .genesis_state::<E>(None, Duration::from_secs(1), &logging::test_logger())
+            .genesis_state::<E>(None, Duration::from_secs(1))
             .await
             .expect("beacon state can decode");
     }

@@ -1,9 +1,9 @@
 use crate::{http_metrics::metrics, BeaconNodeFallback};
 use environment::RuntimeContext;
-use slog::debug;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::time::sleep;
+use tracing::debug;
 use types::EthSpec;
 
 /// The latency service will run 11/12ths of the way through the slot.
@@ -17,8 +17,6 @@ pub fn start_latency_service<T: SlotClock + 'static, E: EthSpec>(
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
 ) {
-    let log = context.log().clone();
-
     let future = async move {
         loop {
             let sleep_time = slot_clock
@@ -39,10 +37,9 @@ pub fn start_latency_service<T: SlotClock + 'static, E: EthSpec>(
             for (i, measurement) in beacon_nodes.measure_latency().await.iter().enumerate() {
                 if let Some(latency) = measurement.latency {
                     debug!(
-                        log,
-                        "Measured BN latency";
-                        "node" => &measurement.beacon_node_id,
-                        "latency" => latency.as_millis(),
+                        node = &measurement.beacon_node_id,
+                        latency = latency.as_millis(),
+                        "Measured BN latency"
                     );
                     metrics::observe_timer_vec(
                         &metrics::VC_BEACON_NODE_LATENCY,

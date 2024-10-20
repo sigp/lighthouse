@@ -1,8 +1,8 @@
 pub use lighthouse_metrics::*;
 use lighthouse_version::VERSION;
-use slog::{error, Logger};
 use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::error;
 
 pub static PROCESS_START_TIME_SECONDS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
@@ -19,13 +19,12 @@ pub static LIGHTHOUSE_VERSION: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| 
     )
 });
 
-pub fn expose_process_start_time(log: &Logger) {
+pub fn expose_process_start_time() {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(duration) => set_gauge(&PROCESS_START_TIME_SECONDS, duration.as_secs() as i64),
         Err(e) => error!(
-            log,
-            "Failed to read system time";
-            "error" => %e
+            error = %e,
+            "Failed to read system time"
         ),
     }
 }

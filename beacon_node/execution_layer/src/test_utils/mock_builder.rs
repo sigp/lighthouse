@@ -235,8 +235,7 @@ impl<E: EthSpec> MockBuilder<E> {
             ..Default::default()
         };
 
-        let el =
-            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone()).unwrap();
+        let el = ExecutionLayer::from_config(config, executor.clone()).unwrap();
 
         let builder = MockBuilder::new(
             el,

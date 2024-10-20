@@ -14,7 +14,6 @@ types = { workspace = true }
 hex = { workspace = true }
 beacon_chain = { workspace = true }
 eth2 = { workspace = true }
-slog = { workspace = true }
 network = { workspace = true }
 lighthouse_network = { workspace = true }
 eth1 = { workspace = true }
@@ -32,6 +31,7 @@ safe_arith = { workspace = true }
 task_executor = { workspace = true }
 lru = { workspace = true }
 tree_hash = { workspace = true }
+tracing = { workspace = true }
 sysinfo = { workspace = true }
 system_health = { path = "../../common/system_health" }
 directory = { workspace = true }
@@ -43,6 +43,8 @@ store = { workspace = true }
 bytes = { workspace = true }
 beacon_processor = { workspace = true }
 rand = { workspace = true }
+serde_json = { workspace = true }
+environment = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

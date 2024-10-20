@@ -1,9 +1,9 @@
 use crate::{BeaconChain, BeaconChainTypes};
-use slog::{debug, error};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
+use tracing::{debug, error};
 use types::{EthSpec, Slot};
 
 /// Don't run the attestation simulator if the head slot is this many epochs
@@ -36,10 +36,7 @@ async fn attestation_simulator_service<T: BeaconChainTypes>(
             Some(duration) => {
                 sleep(duration + additional_delay).await;
 
-                debug!(
-                    chain.log,
-                    "Simulating unagg. attestation production";
-                );
+                debug!("Simulating unagg. attestation production");
 
                 // Run the task in the executor
                 let inner_chain = chain.clone();
@@ -53,7 +50,7 @@ async fn attestation_simulator_service<T: BeaconChainTypes>(
                 );
             }
             None => {
-                error!(chain.log, "Failed to read slot clock");
+                error!("Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
                 sleep(slot_duration).await;
             }
@@ -85,10 +82,9 @@ pub fn produce_unaggregated_attestation<T: BeaconChainTypes>(
             let data = unaggregated_attestation.data();
 
             debug!(
-                chain.log,
-                "Produce unagg. attestation";
-                "attestation_source" => data.source.root.to_string(),
-                "attestation_target" => data.target.root.to_string(),
+                attestation_source = data.source.root.to_string(),
+                attestation_target = data.target.root.to_string(),
+                "Produce unagg. attestation"
             );
 
             chain
@@ -98,9 +94,8 @@ pub fn produce_unaggregated_attestation<T: BeaconChainTypes>(
         }
         Err(e) => {
             debug!(
-                chain.log,
-                "Failed to simulate attestation";
-                "error" => ?e
+                error = ?e,
+                "Failed to simulate attestation"
             );
         }
     }

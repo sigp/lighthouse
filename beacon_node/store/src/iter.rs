@@ -384,7 +384,6 @@ mod test {
     use crate::StoreConfig as Config;
     use beacon_chain::test_utils::BeaconChainHarness;
     use beacon_chain::types::{ChainSpec, MainnetEthSpec};
-    use sloggers::{null::NullLoggerBuilder, Build};
     use std::sync::Arc;
     use types::FixedBytesExtended;
 
@@ -400,10 +399,8 @@ mod test {
 
     #[test]
     fn block_root_iter() {
-        let log = NullLoggerBuilder.build().unwrap();
         let store =
-            HotColdDB::open_ephemeral(Config::default(), Arc::new(ChainSpec::minimal()), log)
-                .unwrap();
+            HotColdDB::open_ephemeral(Config::default(), Arc::new(ChainSpec::minimal())).unwrap();
         let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<MainnetEthSpec> = get_state();
@@ -449,10 +446,8 @@ mod test {
 
     #[test]
     fn state_root_iter() {
-        let log = NullLoggerBuilder.build().unwrap();
         let store =
-            HotColdDB::open_ephemeral(Config::default(), Arc::new(ChainSpec::minimal()), log)
-                .unwrap();
+            HotColdDB::open_ephemeral(Config::default(), Arc::new(ChainSpec::minimal())).unwrap();
         let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<MainnetEthSpec> = get_state();

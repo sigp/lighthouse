@@ -44,10 +44,10 @@ use crate::work_reprocessing_queue::{
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
 use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
+use logging::crit;
 use logging::TimeLatch;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp;
 use std::collections::{HashSet, VecDeque};
@@ -61,6 +61,7 @@ use strum::IntoStaticStr;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
+use tracing::{debug, error, trace, warn};
 use types::{
     Attestation, BeaconState, ChainSpec, Hash256, RelativeEpoch, SignedAggregateAndProof, SubnetId,
 };
@@ -305,14 +306,13 @@ impl<T> FifoQueue<T> {
     /// Add a new item to the queue.
     ///
     /// Drops `item` if the queue is full.
-    pub fn push(&mut self, item: T, item_desc: &str, log: &Logger) {
+    pub fn push(&mut self, item: T, item_desc: &str) {
         if self.queue.len() == self.max_length {
             error!(
-                log,
-                "Work queue is full";
-                "msg" => "the system has insufficient resources for load",
-                "queue_len" => self.max_length,
-                "queue" => item_desc,
+                msg = "the system has insufficient resources for load",
+                queue_len = self.max_length,
+                queue = item_desc,
+                "Work queue is full"
             )
         } else {
             self.queue.push_back(item);
@@ -814,7 +814,6 @@ pub struct BeaconProcessor<E: EthSpec> {
     pub executor: TaskExecutor,
     pub current_workers: usize,
     pub config: BeaconProcessorConfig,
-    pub log: Logger,
 }
 
 impl<E: EthSpec> BeaconProcessor<E> {
@@ -921,7 +920,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
             work_reprocessing_rx,
             &self.executor,
             Arc::new(slot_clock),
-            self.log.clone(),
             maximum_gossip_clock_disparity,
         )?;
 
@@ -952,9 +950,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 {
                                     Err(e) => {
                                         warn!(
-                                            self.log,
-                                            "Unable to queue backfill work event. Will try to process now.";
-                                            "error" => %e
+                                            error = %e,
+                                            "Unable to queue backfill work event. Will try to process now."
                                         );
                                         match e {
                                             TrySendError::Full(reprocess_queue_message)
@@ -965,9 +962,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                     ) => Some(backfill_batch.into()),
                                                     other => {
                                                         crit!(
-                                                            self.log,
-                                                            "Unexpected queue message type";
-                                                            "message_type" => other.as_ref()
+                                                            message_type = other.as_ref(),
+                                                            "Unexpected queue message type"
                                                         );
                                                         // This is an unhandled exception, drop the message.
                                                         continue;
@@ -988,11 +984,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     Some(InboundEvent::WorkEvent(event))
                     | Some(InboundEvent::ReprocessingWork(event)) => Some(event),
                     None => {
-                        debug!(
-                            self.log,
-                            "Gossip processor stopped";
-                            "msg" => "stream ended"
-                        );
+                        debug!(msg = "stream ended", "Gossip processor stopped");
                         break;
                     }
                 };
@@ -1033,227 +1025,223 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     None if can_spawn => {
                         // Check for chain segments first, they're the most efficient way to get
                         // blocks into the system.
-                        let work_event: Option<Work<E>> = if let Some(item) =
-                            chain_segment_queue.pop()
-                        {
-                            Some(item)
-                        // Check sync blocks before gossip blocks, since we've already explicitly
-                        // requested these blocks.
-                        } else if let Some(item) = rpc_block_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = rpc_blob_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = rpc_custody_column_queue.pop() {
-                            Some(item)
-                        // TODO(das): decide proper prioritization for sampling columns
-                        } else if let Some(item) = rpc_custody_column_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = rpc_verify_data_column_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = sampling_result_queue.pop() {
-                            Some(item)
-                        // Check delayed blocks before gossip blocks, the gossip blocks might rely
-                        // on the delayed ones.
-                        } else if let Some(item) = delayed_block_queue.pop() {
-                            Some(item)
-                        // Check gossip blocks before gossip attestations, since a block might be
-                        // required to verify some attestations.
-                        } else if let Some(item) = gossip_block_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = gossip_blob_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = gossip_data_column_queue.pop() {
-                            Some(item)
-                        // Check the priority 0 API requests after blocks and blobs, but before attestations.
-                        } else if let Some(item) = api_request_p0_queue.pop() {
-                            Some(item)
-                        // Check the aggregates, *then* the unaggregates since we assume that
-                        // aggregates are more valuable to local validators and effectively give us
-                        // more information with less signature verification time.
-                        } else if aggregate_queue.len() > 0 {
-                            let batch_size = cmp::min(
-                                aggregate_queue.len(),
-                                self.config.max_gossip_aggregate_batch_size,
-                            );
+                        let work_event: Option<Work<E>> =
+                            if let Some(item) = chain_segment_queue.pop() {
+                                Some(item)
+                            // Check sync blocks before gossip blocks, since we've already explicitly
+                            // requested these blocks.
+                            } else if let Some(item) = rpc_block_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = rpc_blob_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = rpc_custody_column_queue.pop() {
+                                Some(item)
+                            // TODO(das): decide proper prioritization for sampling columns
+                            } else if let Some(item) = rpc_custody_column_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = rpc_verify_data_column_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = sampling_result_queue.pop() {
+                                Some(item)
+                            // Check delayed blocks before gossip blocks, the gossip blocks might rely
+                            // on the delayed ones.
+                            } else if let Some(item) = delayed_block_queue.pop() {
+                                Some(item)
+                            // Check gossip blocks before gossip attestations, since a block might be
+                            // required to verify some attestations.
+                            } else if let Some(item) = gossip_block_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = gossip_blob_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = gossip_data_column_queue.pop() {
+                                Some(item)
+                            // Check the priority 0 API requests after blocks and blobs, but before attestations.
+                            } else if let Some(item) = api_request_p0_queue.pop() {
+                                Some(item)
+                            // Check the aggregates, *then* the unaggregates since we assume that
+                            // aggregates are more valuable to local validators and effectively give us
+                            // more information with less signature verification time.
+                            } else if aggregate_queue.len() > 0 {
+                                let batch_size = cmp::min(
+                                    aggregate_queue.len(),
+                                    self.config.max_gossip_aggregate_batch_size,
+                                );
 
-                            if batch_size < 2 {
-                                // One single aggregate is in the queue, process it individually.
-                                aggregate_queue.pop()
-                            } else {
-                                // Collect two or more aggregates into a batch, so they can take
-                                // advantage of batch signature verification.
-                                //
-                                // Note: this will convert the `Work::GossipAggregate` item into a
-                                // `Work::GossipAggregateBatch` item.
-                                let mut aggregates = Vec::with_capacity(batch_size);
-                                let mut process_batch_opt = None;
-                                for _ in 0..batch_size {
-                                    if let Some(item) = aggregate_queue.pop() {
-                                        match item {
-                                            Work::GossipAggregate {
-                                                aggregate,
-                                                process_individual: _,
-                                                process_batch,
-                                            } => {
-                                                aggregates.push(*aggregate);
-                                                if process_batch_opt.is_none() {
-                                                    process_batch_opt = Some(process_batch);
+                                if batch_size < 2 {
+                                    // One single aggregate is in the queue, process it individually.
+                                    aggregate_queue.pop()
+                                } else {
+                                    // Collect two or more aggregates into a batch, so they can take
+                                    // advantage of batch signature verification.
+                                    //
+                                    // Note: this will convert the `Work::GossipAggregate` item into a
+                                    // `Work::GossipAggregateBatch` item.
+                                    let mut aggregates = Vec::with_capacity(batch_size);
+                                    let mut process_batch_opt = None;
+                                    for _ in 0..batch_size {
+                                        if let Some(item) = aggregate_queue.pop() {
+                                            match item {
+                                                Work::GossipAggregate {
+                                                    aggregate,
+                                                    process_individual: _,
+                                                    process_batch,
+                                                } => {
+                                                    aggregates.push(*aggregate);
+                                                    if process_batch_opt.is_none() {
+                                                        process_batch_opt = Some(process_batch);
+                                                    }
                                                 }
-                                            }
-                                            _ => {
-                                                error!(self.log, "Invalid item in aggregate queue");
+                                                _ => {
+                                                    error!("Invalid item in aggregate queue");
+                                                }
                                             }
                                         }
                                     }
-                                }
 
-                                if let Some(process_batch) = process_batch_opt {
-                                    // Process all aggregates with a single worker.
-                                    Some(Work::GossipAggregateBatch {
-                                        aggregates,
-                                        process_batch,
-                                    })
-                                } else {
-                                    // There is no good reason for this to
-                                    // happen, it is a serious logic error.
-                                    // Since we only form batches when multiple
-                                    // work items exist, we should always have a
-                                    // work closure at this point.
-                                    crit!(self.log, "Missing aggregate work");
-                                    None
-                                }
-                            }
-                        // Check the unaggregated attestation queue.
-                        //
-                        // Potentially use batching.
-                        } else if attestation_queue.len() > 0 {
-                            let batch_size = cmp::min(
-                                attestation_queue.len(),
-                                self.config.max_gossip_attestation_batch_size,
-                            );
-
-                            if batch_size < 2 {
-                                // One single attestation is in the queue, process it individually.
-                                attestation_queue.pop()
-                            } else {
-                                // Collect two or more attestations into a batch, so they can take
-                                // advantage of batch signature verification.
-                                //
-                                // Note: this will convert the `Work::GossipAttestation` item into a
-                                // `Work::GossipAttestationBatch` item.
-                                let mut attestations = Vec::with_capacity(batch_size);
-                                let mut process_batch_opt = None;
-                                for _ in 0..batch_size {
-                                    if let Some(item) = attestation_queue.pop() {
-                                        match item {
-                                            Work::GossipAttestation {
-                                                attestation,
-                                                process_individual: _,
-                                                process_batch,
-                                            } => {
-                                                attestations.push(*attestation);
-                                                if process_batch_opt.is_none() {
-                                                    process_batch_opt = Some(process_batch);
-                                                }
-                                            }
-                                            _ => error!(
-                                                self.log,
-                                                "Invalid item in attestation queue"
-                                            ),
-                                        }
+                                    if let Some(process_batch) = process_batch_opt {
+                                        // Process all aggregates with a single worker.
+                                        Some(Work::GossipAggregateBatch {
+                                            aggregates,
+                                            process_batch,
+                                        })
+                                    } else {
+                                        // There is no good reason for this to
+                                        // happen, it is a serious logic error.
+                                        // Since we only form batches when multiple
+                                        // work items exist, we should always have a
+                                        // work closure at this point.
+                                        crit!("Missing aggregate work");
+                                        None
                                     }
                                 }
+                            // Check the unaggregated attestation queue.
+                            //
+                            // Potentially use batching.
+                            } else if attestation_queue.len() > 0 {
+                                let batch_size = cmp::min(
+                                    attestation_queue.len(),
+                                    self.config.max_gossip_attestation_batch_size,
+                                );
 
-                                if let Some(process_batch) = process_batch_opt {
-                                    // Process all attestations with a single worker.
-                                    Some(Work::GossipAttestationBatch {
-                                        attestations,
-                                        process_batch,
-                                    })
+                                if batch_size < 2 {
+                                    // One single attestation is in the queue, process it individually.
+                                    attestation_queue.pop()
                                 } else {
-                                    // There is no good reason for this to
-                                    // happen, it is a serious logic error.
-                                    // Since we only form batches when multiple
-                                    // work items exist, we should always have a
-                                    // work closure at this point.
-                                    crit!(self.log, "Missing attestations work");
-                                    None
+                                    // Collect two or more attestations into a batch, so they can take
+                                    // advantage of batch signature verification.
+                                    //
+                                    // Note: this will convert the `Work::GossipAttestation` item into a
+                                    // `Work::GossipAttestationBatch` item.
+                                    let mut attestations = Vec::with_capacity(batch_size);
+                                    let mut process_batch_opt = None;
+                                    for _ in 0..batch_size {
+                                        if let Some(item) = attestation_queue.pop() {
+                                            match item {
+                                                Work::GossipAttestation {
+                                                    attestation,
+                                                    process_individual: _,
+                                                    process_batch,
+                                                } => {
+                                                    attestations.push(*attestation);
+                                                    if process_batch_opt.is_none() {
+                                                        process_batch_opt = Some(process_batch);
+                                                    }
+                                                }
+                                                _ => error!("Invalid item in attestation queue"),
+                                            }
+                                        }
+                                    }
+
+                                    if let Some(process_batch) = process_batch_opt {
+                                        // Process all attestations with a single worker.
+                                        Some(Work::GossipAttestationBatch {
+                                            attestations,
+                                            process_batch,
+                                        })
+                                    } else {
+                                        // There is no good reason for this to
+                                        // happen, it is a serious logic error.
+                                        // Since we only form batches when multiple
+                                        // work items exist, we should always have a
+                                        // work closure at this point.
+                                        crit!("Missing attestations work");
+                                        None
+                                    }
                                 }
-                            }
-                        // Check sync committee messages after attestations as their rewards are lesser
-                        // and they don't influence fork choice.
-                        } else if let Some(item) = sync_contribution_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = sync_message_queue.pop() {
-                            Some(item)
-                        // Aggregates and unaggregates queued for re-processing are older and we
-                        // care about fresher ones, so check those first.
-                        } else if let Some(item) = unknown_block_aggregate_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = unknown_block_attestation_queue.pop() {
-                            Some(item)
-                        // Check RPC methods next. Status messages are needed for sync so
-                        // prioritize them over syncing requests from other peers (BlocksByRange
-                        // and BlocksByRoot)
-                        } else if let Some(item) = status_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = bbrange_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = bbroots_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = blbrange_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = blbroots_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = dcbroots_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = dcbrange_queue.pop() {
-                            Some(item)
-                        // Prioritize sampling requests after block syncing requests
-                        } else if let Some(item) = unknown_block_sampling_request_queue.pop() {
-                            Some(item)
-                        // Check slashings after all other consensus messages so we prioritize
-                        // following head.
-                        //
-                        // Check attester slashings before proposer slashings since they have the
-                        // potential to slash multiple validators at once.
-                        } else if let Some(item) = gossip_attester_slashing_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = gossip_proposer_slashing_queue.pop() {
-                            Some(item)
-                        // Check exits and address changes late since our validators don't get
-                        // rewards from them.
-                        } else if let Some(item) = gossip_voluntary_exit_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = gossip_bls_to_execution_change_queue.pop() {
-                            Some(item)
-                        // Check the priority 1 API requests after we've
-                        // processed all the interesting things from the network
-                        // and things required for us to stay in good repute
-                        // with our P2P peers.
-                        } else if let Some(item) = api_request_p1_queue.pop() {
-                            Some(item)
-                        // Handle backfill sync chain segments.
-                        } else if let Some(item) = backfill_chain_segment.pop() {
-                            Some(item)
-                        // Handle light client requests.
-                        } else if let Some(item) = lc_bootstrap_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = lc_optimistic_update_queue.pop() {
-                            Some(item)
-                        } else if let Some(item) = lc_finality_update_queue.pop() {
-                            Some(item)
-                            // This statement should always be the final else statement.
-                        } else {
-                            // Let the journal know that a worker is freed and there's nothing else
-                            // for it to do.
-                            if let Some(work_journal_tx) = &work_journal_tx {
-                                // We don't care if this message was successfully sent, we only use the journal
-                                // during testing.
-                                let _ = work_journal_tx.try_send(NOTHING_TO_DO);
-                            }
-                            None
-                        };
+                            // Check sync committee messages after attestations as their rewards are lesser
+                            // and they don't influence fork choice.
+                            } else if let Some(item) = sync_contribution_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = sync_message_queue.pop() {
+                                Some(item)
+                            // Aggregates and unaggregates queued for re-processing are older and we
+                            // care about fresher ones, so check those first.
+                            } else if let Some(item) = unknown_block_aggregate_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = unknown_block_attestation_queue.pop() {
+                                Some(item)
+                            // Check RPC methods next. Status messages are needed for sync so
+                            // prioritize them over syncing requests from other peers (BlocksByRange
+                            // and BlocksByRoot)
+                            } else if let Some(item) = status_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = bbrange_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = bbroots_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = blbrange_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = blbroots_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = dcbroots_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = dcbrange_queue.pop() {
+                                Some(item)
+                            // Prioritize sampling requests after block syncing requests
+                            } else if let Some(item) = unknown_block_sampling_request_queue.pop() {
+                                Some(item)
+                            // Check slashings after all other consensus messages so we prioritize
+                            // following head.
+                            //
+                            // Check attester slashings before proposer slashings since they have the
+                            // potential to slash multiple validators at once.
+                            } else if let Some(item) = gossip_attester_slashing_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = gossip_proposer_slashing_queue.pop() {
+                                Some(item)
+                            // Check exits and address changes late since our validators don't get
+                            // rewards from them.
+                            } else if let Some(item) = gossip_voluntary_exit_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = gossip_bls_to_execution_change_queue.pop() {
+                                Some(item)
+                            // Check the priority 1 API requests after we've
+                            // processed all the interesting things from the network
+                            // and things required for us to stay in good repute
+                            // with our P2P peers.
+                            } else if let Some(item) = api_request_p1_queue.pop() {
+                                Some(item)
+                            // Handle backfill sync chain segments.
+                            } else if let Some(item) = backfill_chain_segment.pop() {
+                                Some(item)
+                            // Handle light client requests.
+                            } else if let Some(item) = lc_bootstrap_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = lc_optimistic_update_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = lc_finality_update_queue.pop() {
+                                Some(item)
+                                // This statement should always be the final else statement.
+                            } else {
+                                // Let the journal know that a worker is freed and there's nothing else
+                                // for it to do.
+                                if let Some(work_journal_tx) = &work_journal_tx {
+                                    // We don't care if this message was successfully sent, we only use the journal
+                                    // during testing.
+                                    let _ = work_journal_tx.try_send(NOTHING_TO_DO);
+                                }
+                                None
+                            };
 
                         if let Some(work_event) = work_event {
                             let work_type = work_event.to_type();
@@ -1268,9 +1256,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     // I cannot see any good reason why this would happen.
                     None => {
                         warn!(
-                            self.log,
-                            "Unexpected gossip processor condition";
-                            "msg" => "no new work and cannot spawn worker"
+                            msg = "no new work and cannot spawn worker",
+                            "Unexpected gossip processor condition"
                         );
                         None
                     }
@@ -1285,10 +1272,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             &[work_id],
                         );
                         trace!(
-                            self.log,
-                            "Gossip processor skipping work";
-                            "msg" => "chain is syncing",
-                            "work_id" => work_id
+                            msg = "chain is syncing",
+                            work_id = work_id,
+                            "Gossip processor skipping work"
                         );
                         None
                     }
@@ -1304,89 +1290,72 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             // Attestation batches are formed internally within the
                             // `BeaconProcessor`, they are not sent from external services.
                             Work::GossipAttestationBatch { .. } => crit!(
-                                    self.log,
-                                    "Unsupported inbound event";
-                                    "type" => "GossipAttestationBatch"
+                                r#type = "GossipAttestationBatch",
+                                "Unsupported inbound event"
                             ),
                             Work::GossipAggregate { .. } => aggregate_queue.push(work),
                             // Aggregate batches are formed internally within the `BeaconProcessor`,
                             // they are not sent from external services.
-                            Work::GossipAggregateBatch { .. } => crit!(
-                                    self.log,
-                                    "Unsupported inbound event";
-                                    "type" => "GossipAggregateBatch"
-                            ),
-                            Work::GossipBlock { .. } => {
-                                gossip_block_queue.push(work, work_id, &self.log)
+                            Work::GossipAggregateBatch { .. } => {
+                                crit!(r#type = "GossipAggregateBatch", "Unsupported inbound event")
                             }
-                            Work::GossipBlobSidecar { .. } => {
-                                gossip_blob_queue.push(work, work_id, &self.log)
-                            }
+                            Work::GossipBlock { .. } => gossip_block_queue.push(work, work_id),
+                            Work::GossipBlobSidecar { .. } => gossip_blob_queue.push(work, work_id),
                             Work::GossipDataColumnSidecar { .. } => {
-                                gossip_data_column_queue.push(work, work_id, &self.log)
+                                gossip_data_column_queue.push(work, work_id)
                             }
                             Work::DelayedImportBlock { .. } => {
-                                delayed_block_queue.push(work, work_id, &self.log)
+                                delayed_block_queue.push(work, work_id)
                             }
                             Work::GossipVoluntaryExit { .. } => {
-                                gossip_voluntary_exit_queue.push(work, work_id, &self.log)
+                                gossip_voluntary_exit_queue.push(work, work_id)
                             }
                             Work::GossipProposerSlashing { .. } => {
-                                gossip_proposer_slashing_queue.push(work, work_id, &self.log)
+                                gossip_proposer_slashing_queue.push(work, work_id)
                             }
                             Work::GossipAttesterSlashing { .. } => {
-                                gossip_attester_slashing_queue.push(work, work_id, &self.log)
+                                gossip_attester_slashing_queue.push(work, work_id)
                             }
                             Work::GossipSyncSignature { .. } => sync_message_queue.push(work),
                             Work::GossipSyncContribution { .. } => {
                                 sync_contribution_queue.push(work)
                             }
                             Work::GossipLightClientFinalityUpdate { .. } => {
-                                finality_update_queue.push(work, work_id, &self.log)
+                                finality_update_queue.push(work, work_id)
                             }
                             Work::GossipLightClientOptimisticUpdate { .. } => {
-                                optimistic_update_queue.push(work, work_id, &self.log)
+                                optimistic_update_queue.push(work, work_id)
                             }
                             Work::RpcBlock { .. } | Work::IgnoredRpcBlock { .. } => {
-                                rpc_block_queue.push(work, work_id, &self.log)
+                                rpc_block_queue.push(work, work_id)
                             }
-                            Work::RpcBlobs { .. } => rpc_blob_queue.push(work, work_id, &self.log),
+                            Work::RpcBlobs { .. } => rpc_blob_queue.push(work, work_id),
                             Work::RpcCustodyColumn { .. } => {
-                                rpc_custody_column_queue.push(work, work_id, &self.log)
+                                rpc_custody_column_queue.push(work, work_id)
                             }
                             Work::RpcVerifyDataColumn(_) => {
-                                rpc_verify_data_column_queue.push(work, work_id, &self.log)
+                                rpc_verify_data_column_queue.push(work, work_id)
                             }
-                            Work::SamplingResult(_) => {
-                                sampling_result_queue.push(work, work_id, &self.log)
-                            }
-                            Work::ChainSegment { .. } => {
-                                chain_segment_queue.push(work, work_id, &self.log)
-                            }
+                            Work::SamplingResult(_) => sampling_result_queue.push(work, work_id),
+                            Work::ChainSegment { .. } => chain_segment_queue.push(work, work_id),
                             Work::ChainSegmentBackfill { .. } => {
-                                backfill_chain_segment.push(work, work_id, &self.log)
+                                backfill_chain_segment.push(work, work_id)
                             }
-                            Work::Status { .. } => status_queue.push(work, work_id, &self.log),
-                            Work::BlocksByRangeRequest { .. } => {
-                                bbrange_queue.push(work, work_id, &self.log)
-                            }
-                            Work::BlocksByRootsRequest { .. } => {
-                                bbroots_queue.push(work, work_id, &self.log)
-                            }
-                            Work::BlobsByRangeRequest { .. } => {
-                                blbrange_queue.push(work, work_id, &self.log)
-                            }
+                            Work::Status { .. } => status_queue.push(work, work_id),
+                            Work::BlocksByRangeRequest { .. } => bbrange_queue.push(work, work_id),
+                            Work::BlocksByRootsRequest { .. } => bbroots_queue.push(work, work_id),
+                            Work::BlobsByRangeRequest { .. } => blbrange_queue.push(work, work_id),
                             Work::LightClientBootstrapRequest { .. } => {
-                                lc_bootstrap_queue.push(work, work_id, &self.log)
+                                lc_bootstrap_queue.push(work, work_id)
                             }
                             Work::LightClientOptimisticUpdateRequest { .. } => {
-                                lc_optimistic_update_queue.push(work, work_id, &self.log)
+                                lc_optimistic_update_queue.push(work, work_id)
                             }
                             Work::LightClientFinalityUpdateRequest { .. } => {
-                                lc_finality_update_queue.push(work, work_id, &self.log)
+                                lc_finality_update_queue.push(work, work_id)
                             }
                             Work::LightClientUpdatesByRangeRequest { .. } => {
-                                lc_update_range_queue.push(work, work_id, &self.log)
+                                lc_update_range_queue.push(work, work_id)
                             }
                             Work::UnknownBlockAttestation { .. } => {
                                 unknown_block_attestation_queue.push(work)
@@ -1395,29 +1364,23 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 unknown_block_aggregate_queue.push(work)
                             }
                             Work::GossipBlsToExecutionChange { .. } => {
-                                gossip_bls_to_execution_change_queue.push(work, work_id, &self.log)
+                                gossip_bls_to_execution_change_queue.push(work, work_id)
                             }
-                            Work::BlobsByRootsRequest { .. } => {
-                                blbroots_queue.push(work, work_id, &self.log)
-                            }
+                            Work::BlobsByRootsRequest { .. } => blbroots_queue.push(work, work_id),
                             Work::DataColumnsByRootsRequest { .. } => {
-                                dcbroots_queue.push(work, work_id, &self.log)
+                                dcbroots_queue.push(work, work_id)
                             }
                             Work::DataColumnsByRangeRequest { .. } => {
-                                dcbrange_queue.push(work, work_id, &self.log)
+                                dcbrange_queue.push(work, work_id)
                             }
                             Work::UnknownLightClientOptimisticUpdate { .. } => {
-                                unknown_light_client_update_queue.push(work, work_id, &self.log)
+                                unknown_light_client_update_queue.push(work, work_id)
                             }
                             Work::UnknownBlockSamplingRequest { .. } => {
-                                unknown_block_sampling_request_queue.push(work, work_id, &self.log)
+                                unknown_block_sampling_request_queue.push(work, work_id)
                             }
-                            Work::ApiRequestP0 { .. } => {
-                                api_request_p0_queue.push(work, work_id, &self.log)
-                            }
-                            Work::ApiRequestP1 { .. } => {
-                                api_request_p1_queue.push(work, work_id, &self.log)
-                            }
+                            Work::ApiRequestP0 { .. } => api_request_p0_queue.push(work, work_id),
+                            Work::ApiRequestP1 { .. } => api_request_p1_queue.push(work, work_id),
                         };
                         Some(work_type)
                     }
@@ -1492,19 +1455,17 @@ impl<E: EthSpec> BeaconProcessor<E> {
 
                 if aggregate_queue.is_full() && aggregate_debounce.elapsed() {
                     error!(
-                        self.log,
-                        "Aggregate attestation queue full";
-                        "msg" => "the system has insufficient resources for load",
-                        "queue_len" => aggregate_queue.max_length,
+                        msg = "the system has insufficient resources for load",
+                        queue_len = aggregate_queue.max_length,
+                        "Aggregate attestation queue full"
                     )
                 }
 
                 if attestation_queue.is_full() && attestation_debounce.elapsed() {
                     error!(
-                        self.log,
-                        "Attestation queue full";
-                        "msg" => "the system has insufficient resources for load",
-                        "queue_len" => attestation_queue.max_length,
+                        msg = "the system has insufficient resources for load",
+                        queue_len = attestation_queue.max_length,
+                        "Attestation queue full"
                     )
                 }
             }
@@ -1535,7 +1496,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let send_idle_on_drop = SendOnDrop {
             tx: idle_tx,
             _worker_timer: worker_timer,
-            log: self.log.clone(),
         };
 
         let worker_id = self.current_workers;
@@ -1544,10 +1504,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let executor = self.executor.clone();
 
         trace!(
-            self.log,
-            "Spawning beacon processor worker";
-            "work" => work_id,
-            "worker" => worker_id,
+            work = work_id,
+            worker = worker_id,
+            "Spawning beacon processor worker"
         );
 
         let task_spawner = TaskSpawner {
@@ -1693,17 +1652,15 @@ pub struct SendOnDrop {
     tx: mpsc::Sender<()>,
     // The field is unused, but it's here to ensure the timer is dropped once the task has finished.
     _worker_timer: Option<metrics::HistogramTimer>,
-    log: Logger,
 }
 
 impl Drop for SendOnDrop {
     fn drop(&mut self) {
         if let Err(e) = self.tx.try_send(()) {
             warn!(
-                self.log,
-                "Unable to free worker";
-                "msg" => "did not free worker, shutdown may be underway",
-                "error" => %e
+                msg = "did not free worker, shutdown may be underway",
+                error = %e,
+                "Unable to free worker"
             )
         }
     }

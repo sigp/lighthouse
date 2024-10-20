@@ -168,22 +168,6 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
     }
 }
 
-impl slog::Value for RequestId {
-    fn serialize(
-        &self,
-        record: &slog::Record,
-        key: slog::Key,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        match self {
-            RequestId::Internal => slog::Value::serialize("Behaviour", record, key, serializer),
-            RequestId::Application(ref id) => {
-                slog::Value::serialize(&format_args!("{:?}", id), record, key, serializer)
-            }
-        }
-    }
-}
-
 // This custom impl reduces log boilerplate not printing `DataColumnsByRootRequestId` on each id log
 impl std::fmt::Display for DataColumnsByRootRequestId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

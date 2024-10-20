@@ -371,7 +371,6 @@ impl<E: EthSpec> Tester<E> {
         }
 
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
-            .logger(logging::test_logger())
             .spec(spec.clone())
             .keypairs(vec![])
             .chain_config(ChainConfig {

@@ -15,8 +15,6 @@ pub fn new_env() -> Environment<MinimalEthSpec> {
     EnvironmentBuilder::minimal()
         .multi_threaded_tokio_runtime()
         .expect("should start tokio runtime")
-        .test_logger()
-        .expect("should start null logger")
         .build()
         .expect("should build env")
 }
@@ -24,7 +22,6 @@ pub fn new_env() -> Environment<MinimalEthSpec> {
 #[test]
 fn basic() {
     let env = new_env();
-    let log = env.core_context().log().clone();
     let mut spec = (*env.eth2_config().spec).clone();
     spec.min_genesis_time = 0;
     spec.min_genesis_active_validator_count = 8;
@@ -55,7 +52,6 @@ fn basic() {
                 block_cache_truncation: None,
                 ..Eth1Config::default()
             },
-            log,
             spec.clone(),
         )
         .unwrap();
