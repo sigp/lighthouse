@@ -4,7 +4,6 @@ use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::eth1_chain::Error as Eth1ChainError;
-use crate::historical_blocks::HistoricalBlockError;
 use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_aggregates::Error as ObservedAttestationsError;
@@ -123,7 +122,11 @@ pub enum BeaconChainError {
         block_slot: Slot,
         state_slot: Slot,
     },
-    HistoricalBlockError(HistoricalBlockError),
+    /// Block is not available (only returned when fetching historic blocks).
+    HistoricalBlockOutOfRange {
+        slot: Slot,
+        oldest_block_slot: Slot,
+    },
     InvalidStateForShuffling {
         state_epoch: Epoch,
         shuffling_epoch: Epoch,
@@ -245,7 +248,6 @@ easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(PruningError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);
 easy_from_to!(ForkChoiceStoreError, BeaconChainError);
-easy_from_to!(HistoricalBlockError, BeaconChainError);
 easy_from_to!(StateAdvanceError, BeaconChainError);
 easy_from_to!(BlockReplayError, BeaconChainError);
 easy_from_to!(InconsistentFork, BeaconChainError);
