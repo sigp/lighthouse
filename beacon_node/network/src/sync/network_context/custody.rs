@@ -283,6 +283,10 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         block_root: self.block_root,
                         indices: indices.clone(),
                     },
+                    // true = enforce max_requests are returned data_columns_by_root. We only issue requests
+                    // for blocks after we know the block has data, and only request peers after they claim to
+                    // have imported the block+columns and claim to be custodians
+                    true,
                 )
                 .map_err(Error::SendFailed)?;
 

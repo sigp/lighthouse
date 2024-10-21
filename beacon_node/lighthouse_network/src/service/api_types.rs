@@ -3,7 +3,7 @@ use std::sync::Arc;
 use libp2p::swarm::ConnectionId;
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, Hash256, LightClientBootstrap,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, SignedBeaconBlock,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
 };
 
 use crate::rpc::{
@@ -22,11 +22,6 @@ pub struct SingleLookupReqId {
     pub req_id: Id,
 }
 
-/// Request ID for data_columns_by_root requests. Block lookup do not issue this requests directly.
-/// Wrapping this particular req_id, ensures not mixing this requests with a custody req_id.
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct DataColumnsByRootRequestId(pub Id);
-
 /// Id of rpc requests sent by sync to the network.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum SyncRequestId {
@@ -35,9 +30,17 @@ pub enum SyncRequestId {
     /// Request searching for a set of blobs given a hash.
     SingleBlob { id: SingleLookupReqId },
     /// Request searching for a set of data columns given a hash and list of column indices.
-    DataColumnsByRoot(DataColumnsByRootRequestId, DataColumnsByRootRequester),
+    DataColumnsByRoot(DataColumnsByRootRequestId),
     /// Range request that is composed by both a block range request and a blob range request.
     RangeBlockAndBlobs { id: Id },
+}
+
+/// Request ID for data_columns_by_root requests. Block lookups do not issue this request directly.
+/// Wrapping this particular req_id, ensures not mixing this request with a custody req_id.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct DataColumnsByRootRequestId {
+    pub id: Id,
+    pub requester: DataColumnsByRootRequester,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -114,6 +117,8 @@ pub enum Response<E: EthSpec> {
     LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<E>>),
     /// A response to a LightClientFinalityUpdate request.
     LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
+    /// A response to a LightClientUpdatesByRange request.
+    LightClientUpdatesByRange(Option<Arc<LightClientUpdate<E>>>),
 }
 
 impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
@@ -153,6 +158,12 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
             Response::LightClientFinalityUpdate(f) => {
                 RpcResponse::Success(RpcSuccessResponse::LightClientFinalityUpdate(f))
             }
+            Response::LightClientUpdatesByRange(f) => match f {
+                Some(d) => RpcResponse::Success(RpcSuccessResponse::LightClientUpdatesByRange(d)),
+                None => {
+                    RpcResponse::StreamTermination(ResponseTermination::LightClientUpdatesByRange)
+                }
+            },
         }
     }
 }
@@ -173,8 +184,9 @@ impl slog::Value for RequestId {
     }
 }
 
+// This custom impl reduces log boilerplate not printing `DataColumnsByRootRequestId` on each id log
 impl std::fmt::Display for DataColumnsByRootRequestId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{} {:?}", self.id, self.requester)
     }
 }

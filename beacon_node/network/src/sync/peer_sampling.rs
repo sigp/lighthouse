@@ -1,4 +1,6 @@
 use self::request::ActiveColumnSampleRequest;
+#[cfg(test)]
+pub(crate) use self::request::Status;
 use super::network_context::{
     DataColumnsByRootSingleBlockRequest, RpcResponseError, SyncNetworkContext,
 };
@@ -42,6 +44,18 @@ impl<T: BeaconChainTypes> Sampling<T> {
         self.requests.values().map(|r| r.block_root).collect()
     }
 
+    #[cfg(test)]
+    pub fn get_request_status(
+        &self,
+        block_root: Hash256,
+        index: &ColumnIndex,
+    ) -> Option<self::request::Status> {
+        let requester = SamplingRequester::ImportedBlock(block_root);
+        self.requests
+            .get(&requester)
+            .and_then(|req| req.get_request_status(index))
+    }
+
     /// Create a new sampling request for a known block
     ///
     /// ### Returns
@@ -74,7 +88,11 @@ impl<T: BeaconChainTypes> Sampling<T> {
             }
         };
 
-        debug!(self.log, "Created new sample request"; "id" => ?id);
+        debug!(self.log,
+            "Created new sample request";
+            "id" => ?id,
+            "column_selection" => ?request.column_selection()
+        );
 
         // TOOD(das): If a node has very little peers, continue_sampling() will attempt to find enough
         // to sample here, immediately failing the sampling request. There should be some grace
@@ -220,6 +238,20 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
         }
     }
 
+    #[cfg(test)]
+    pub fn get_request_status(&self, index: &ColumnIndex) -> Option<self::request::Status> {
+        self.column_requests.get(index).map(|req| req.status())
+    }
+
+    /// Return the current ordered list of columns that this requests has to sample to succeed
+    pub(crate) fn column_selection(&self) -> Vec<ColumnIndex> {
+        self.column_shuffle
+            .iter()
+            .take(REQUIRED_SUCCESSES[0])
+            .copied()
+            .collect()
+    }
+
     /// Insert a downloaded column into an active sampling request. Then make progress on the
     /// entire request.
     ///
@@ -253,10 +285,14 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
 
         match resp {
             Ok((mut resp_data_columns, seen_timestamp)) => {
+                let resp_column_indexes = resp_data_columns
+                    .iter()
+                    .map(|r| r.index)
+                    .collect::<Vec<_>>();
                 debug!(self.log,
                     "Sample download success";
                     "block_root" => %self.block_root,
-                    "column_indexes" => ?column_indexes,
+                    "column_indexes" => ?resp_column_indexes,
                     "count" => resp_data_columns.len()
                 );
                 metrics::inc_counter_vec(&metrics::SAMPLE_DOWNLOAD_RESULT, &[metrics::SUCCESS]);
@@ -508,6 +544,10 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                     block_root: self.block_root,
                     indices: column_indexes.clone(),
                 },
+                // false = We issue request to custodians who may or may not have received the
+                // samples yet. We don't any signal (like an attestation or status messages that the
+                // custodian has received data).
+                false,
             )
             .map_err(SamplingError::SendFailed)?;
             self.column_indexes_by_sampling_request
@@ -553,8 +593,9 @@ mod request {
         peers_dont_have: HashSet<PeerId>,
     }
 
+    // Exposed only for testing assertions in lookup tests
     #[derive(Debug, Clone)]
-    enum Status {
+    pub(crate) enum Status {
         NoPeers,
         NotStarted,
         Sampling(PeerId),
@@ -596,6 +637,11 @@ mod request {
                 Status::NoPeers | Status::NotStarted => true,
                 Status::Sampling(_) | Status::Verified => false,
             }
+        }
+
+        #[cfg(test)]
+        pub(crate) fn status(&self) -> Status {
+            self.status.clone()
         }
 
         pub(crate) fn choose_peer<T: BeaconChainTypes>(

@@ -91,14 +91,6 @@ Options:
           If this flag is set, Lighthouse will always prefer blocks constructed
           by builders, regardless of payload value. [possible values: true,
           false]
-      --safe-slots-to-import-optimistically <INTEGER>
-          Used to coordinate manual overrides of the
-          SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should only
-          be used if the user has a clear understanding that the broad Ethereum
-          community has elected to override this parameter in the event of an
-          attack at the PoS transition block. Incorrect use of this flag can
-          cause your node to possibly accept an invalid chain or sync more
-          slowly. Be extremely careful with this flag.
       --suggested-fee-recipient <ETH1_ADDRESS>
           All created validators will use this value for the suggested fee
           recipient. Omit this flag to use the default value from the VC.
@@ -106,34 +98,15 @@ Options:
           Path to directory containing eth2_testnet specs. Defaults to a
           hard-coded Lighthouse testnet. Only effective if there is no existing
           database.
-      --terminal-block-hash-epoch-override <EPOCH>
-          Used to coordinate manual overrides to the
-          TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH parameter. This flag should only
-          be used if the user has a clear understanding that the broad Ethereum
-          community has elected to override the terminal PoW block. Incorrect
-          use of this flag will cause your node to experience a consensus
-          failure. Be extremely careful with this flag.
-      --terminal-block-hash-override <TERMINAL_BLOCK_HASH>
-          Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH
-          parameter. This flag should only be used if the user has a clear
-          understanding that the broad Ethereum community has elected to
-          override the terminal PoW block. Incorrect use of this flag will cause
-          your node to experience a consensus failure. Be extremely careful with
-          this flag.
-      --terminal-total-difficulty-override <INTEGER>
-          Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY
-          parameter. Accepts a 256-bit decimal integer (not a hex value). This
-          flag should only be used if the user has a clear understanding that
-          the broad Ethereum community has elected to override the terminal
-          difficulty. Incorrect use of this flag will cause your node to
-          experience a consensus failure. Be extremely careful with this flag.
 
 Flags:
       --disable-deposits
           When provided don't generate the deposits JSON file that is commonly
           used for submitting validator deposits via a web UI. Using this flag
           will save several seconds per validator if the user has an alternate
-          strategy for submitting deposits.
+          strategy for submitting deposits. If used, the
+          --force-bls-withdrawal-credentials is also required to ensure users
+          are aware that an --eth1-withdrawal-address is not set.
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning
