@@ -9,6 +9,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tokio::time::Interval;
+use types::EthSpec;
 
 /// Nanoseconds since a given time.
 // Maintained as u64 to reduce footprint
@@ -261,7 +262,7 @@ pub trait RateLimiterItem {
     fn max_responses(&self) -> u64;
 }
 
-impl RateLimiterItem for super::RequestType {
+impl<E: EthSpec> RateLimiterItem for super::RequestType<E> {
     fn protocol(&self) -> Protocol {
         self.versioned_protocol().protocol()
     }

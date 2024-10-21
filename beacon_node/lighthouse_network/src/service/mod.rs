@@ -80,7 +80,7 @@ pub enum NetworkEvent<E: EthSpec> {
         /// Identifier of the request. All responses to this request must use this id.
         id: PeerRequestId,
         /// Request the peer sent.
-        request: rpc::Request,
+        request: rpc::Request<E>,
     },
     ResponseReceived {
         /// Peer that sent the response.
@@ -966,7 +966,7 @@ impl<E: EthSpec> Network<E> {
         &mut self,
         peer_id: PeerId,
         request_id: AppRequestId,
-        request: RequestType,
+        request: RequestType<E>,
     ) -> Result<(), (AppRequestId, RPCError)> {
         // Check if the peer is connected before sending an RPC request
         if !self.swarm.is_connected(&peer_id) {
@@ -1179,7 +1179,7 @@ impl<E: EthSpec> Network<E> {
     /// Sends a METADATA response to a peer.
     fn send_meta_data_response(
         &mut self,
-        _req: MetadataRequest,
+        _req: MetadataRequest<E>,
         id: PeerRequestId,
         request_id: rpc::RequestId,
         peer_id: PeerId,

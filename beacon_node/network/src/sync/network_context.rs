@@ -401,7 +401,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     request: RequestType::BlobsByRange(BlobsByRangeRequest {
                         start_slot: *request.start_slot(),
                         count: *request.count(),
-                        max_blobs_per_block: T::EthSpec::max_blobs_per_block(),
                     }),
                     request_id: AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id }),
                 })
