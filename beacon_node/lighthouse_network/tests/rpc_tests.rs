@@ -1410,7 +1410,7 @@ fn test_active_requests() {
         )
         .await;
 
-        // Dummy STATUS RPC message.
+        // Dummy STATUS RPC request.
         let rpc_request = RequestType::Status(StatusMessage {
             fork_digest: [0; 4],
             finalized_root: Hash256::from_low_u64_be(0),
@@ -1419,8 +1419,19 @@ fn test_active_requests() {
             head_slot: Slot::new(1),
         });
 
+        // Dummy STATUS RPC response
+        let rpc_response = Response::Status(StatusMessage {
+            fork_digest: [0; 4],
+            finalized_root: Hash256::zero(),
+            finalized_epoch: Epoch::new(1),
+            head_root: Hash256::zero(),
+            head_slot: Slot::new(1),
+        });
+
         // Build the sender future.
         let sender_future = async {
+            let mut response_received = 0;
+            let mut rate_limited = 0;
             loop {
                 match sender.next_event().await {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
@@ -1432,9 +1443,15 @@ fn test_active_requests() {
                         sender
                             .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
                             .unwrap();
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
                     }
-                    NetworkEvent::ResponseReceived { .. } => {
-                        unreachable!();
+                    NetworkEvent::ResponseReceived { response, .. } => {
+                        debug!(log, "Sender received response"; "response" => ?response);
+                        if matches!(response, Response::Status(_)) {
+                            response_received += 1;
+                        }
                     }
                     NetworkEvent::RPCFailed {
                         id: _,
@@ -1442,26 +1459,42 @@ fn test_active_requests() {
                         error,
                     } => {
                         debug!(log, "RPC Failed"; "error" => ?error);
-                        // Verify that the sender received a rate-limited error.
                         assert!(matches!(
                             error,
                             RPCError::ErrorResponse(RpcErrorResponse::RateLimited, ..)
                         ));
-                        // End the test.
-                        return;
+                        rate_limited += 1;
                     }
                     _ => {}
+                }
+
+                // The sender sent 3 requests, and 1 rate-limited error is expected due to the MAX_CONCURRENT_REQUESTS limit.
+                if response_received + rate_limited == 3 {
+                    assert_eq!(1, rate_limited);
+                    return;
                 }
             }
         };
 
         // Build the receiver future.
         let receiver_future = async {
+            let mut received_requests = vec![];
             loop {
-                if let NetworkEvent::RequestReceived { id, .. } = receiver.next_event().await {
-                    debug!(log, "Receiver received request"; "request_id" => ?id);
-                    // Do not send a response to intentionally trigger the RPC error.
-                    continue;
+                tokio::select! {
+                    event = receiver.next_event() => {
+                       if let NetworkEvent::RequestReceived { peer_id, id, request } = event {
+                            debug!(log, "Receiver received request"; "request" => ?request);
+                            if matches!(request.r#type, RequestType::Status(_)) {
+                                received_requests.push((peer_id, id, request.id));
+                            }
+                        }
+                    }
+                    // Introduce a delay in sending responses to trigger a rate-limited error.
+                    _ = sleep(Duration::from_secs(5)) => {
+                        for (peer_id, id, request_id) in received_requests.drain(..) {
+                            receiver.send_response(peer_id, id, request_id, rpc_response.clone());
+                        }
+                    }
                 }
             }
         };

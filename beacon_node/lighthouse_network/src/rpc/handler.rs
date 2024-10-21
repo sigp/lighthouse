@@ -16,6 +16,7 @@ use libp2p::swarm::handler::{
     FullyNegotiatedInbound, FullyNegotiatedOutbound, StreamUpgradeError, SubstreamProtocol,
 };
 use libp2p::swarm::{ConnectionId, Stream};
+use libp2p::PeerId;
 use slog::{crit, debug, trace};
 use smallvec::SmallVec;
 use std::{
@@ -89,6 +90,12 @@ pub struct RPCHandler<Id, E>
 where
     E: EthSpec,
 {
+    /// This `ConnectionId`.
+    connection_id: ConnectionId,
+
+    /// The matching `PeerId` of this connection.
+    peer_id: PeerId,
+
     /// The upgrade for inbound substreams.
     listen_protocol: SubstreamProtocol<RPCProtocol<E>, ()>,
 
@@ -140,9 +147,6 @@ where
 
     /// Timeout that will be used for inbound and outbound responses.
     resp_timeout: Duration,
-
-    /// This `ConnectionId`.
-    connection_id: ConnectionId,
 }
 
 enum HandlerState {
@@ -222,13 +226,16 @@ where
     E: EthSpec,
 {
     pub fn new(
+        connection_id: ConnectionId,
+        peer_id: PeerId,
         listen_protocol: SubstreamProtocol<RPCProtocol<E>, ()>,
         fork_context: Arc<ForkContext>,
         log: &slog::Logger,
         resp_timeout: Duration,
-        connection_id: ConnectionId,
     ) -> Self {
         RPCHandler {
+            connection_id,
+            peer_id,
             listen_protocol,
             events_out: SmallVec::new(),
             dial_queue: SmallVec::new(),
@@ -246,7 +253,6 @@ where
             waker: None,
             log: log.clone(),
             resp_timeout,
-            connection_id,
         }
     }
 
@@ -903,6 +909,7 @@ where
         self.events_out
             .push(HandlerEvent::Ok(RPCReceived::Request(Request {
                 id: RequestId::next(),
+                peer_id: self.peer_id,
                 connection_id: self.connection_id,
                 substream_id: self.current_inbound_substream_id,
                 r#type: req,

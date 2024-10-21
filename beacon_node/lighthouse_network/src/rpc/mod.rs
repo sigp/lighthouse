@@ -30,7 +30,6 @@ pub use protocol::RequestType;
 use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use self::protocol::RPCProtocol;
 use self::self_limiter::SelfRateLimiter;
-use crate::rpc::active_requests_limiter::ActiveRequestsLimiter;
 use crate::rpc::rate_limiter::RateLimiterItem;
 use crate::rpc::response_limiter::ResponseLimiter;
 pub use handler::SubstreamId;
@@ -40,7 +39,6 @@ pub use methods::{
 };
 pub use protocol::{max_rpc_size, Protocol, RPCError};
 
-mod active_requests_limiter;
 pub(crate) mod codec;
 pub mod config;
 mod handler;
@@ -52,6 +50,9 @@ mod response_limiter;
 mod self_limiter;
 
 static NEXT_REQUEST_ID: AtomicUsize = AtomicUsize::new(1);
+
+// Maximum number of concurrent requests per protocol ID that a client may issue.
+const MAX_CONCURRENT_REQUESTS: usize = 2;
 
 /// Composite trait for a request id.
 pub trait ReqId: Send + 'static + std::fmt::Debug + Copy + Clone {}
@@ -118,6 +119,7 @@ impl RequestId {
 #[derive(Debug, Clone)]
 pub struct Request<E: EthSpec> {
     pub id: RequestId,
+    pub peer_id: PeerId,
     pub connection_id: ConnectionId,
     pub substream_id: SubstreamId,
     pub r#type: RequestType<E>,
@@ -159,9 +161,6 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
     response_limiter: Option<ResponseLimiter<E>>,
     /// Rate limiter for our own requests.
     outbound_request_limiter: Option<SelfRateLimiter<Id, E>>,
-    /// Limiter for inbound requests, which restricts more than two requests from running
-    /// simultaneously on the same protocol per peer.
-    active_inbound_requests_limiter: ActiveRequestsLimiter,
     /// Active inbound requests that are awaiting a response.
     active_inbound_requests: HashMap<RequestId, Request<E>>,
     /// Queue of events to be processed.
@@ -200,7 +199,6 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         RPC {
             response_limiter,
             outbound_request_limiter,
-            active_inbound_requests_limiter: ActiveRequestsLimiter::new(),
             active_inbound_requests: HashMap::new(),
             events: Vec::new(),
             fork_context,
@@ -245,12 +243,6 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
                 return;
             }
         }
-
-        self.active_inbound_requests_limiter.remove_request(
-            peer_id,
-            &request.connection_id,
-            &request.substream_id,
-        );
 
         self.events.push(ToSwarm::NotifyHandler {
             peer_id,
@@ -354,11 +346,12 @@ where
             .log
             .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
         let handler = RPCHandler::new(
+            connection_id,
+            peer_id,
             protocol,
             self.fork_context.clone(),
             &log,
             self.network_params.resp_timeout,
-            connection_id,
         );
 
         Ok(handler)
@@ -388,11 +381,12 @@ where
             .new(slog::o!("peer_id" => peer_id.to_string(), "connection_id" => connection_id.to_string()));
 
         let handler = RPCHandler::new(
+            connection_id,
+            peer_id,
             protocol,
             self.fork_context.clone(),
             &log,
             self.network_params.resp_timeout,
-            connection_id,
         );
 
         Ok(handler)
@@ -432,7 +426,8 @@ where
                 }
             }
 
-            self.active_inbound_requests_limiter.remove_peer(&peer_id);
+            self.active_inbound_requests
+                .retain(|_request_id, request| request.peer_id != peer_id);
 
             if let Some(limiter) = self.response_limiter.as_mut() {
                 limiter.peer_disconnected(peer_id);
@@ -470,27 +465,34 @@ where
         match event {
             HandlerEvent::Ok(RPCReceived::Request(Request {
                 id,
+                peer_id,
                 connection_id,
                 substream_id,
                 r#type,
             })) => {
                 let request = Request {
                     id,
+                    peer_id,
                     connection_id,
                     substream_id,
                     r#type,
                 };
 
+                let active_requests = self
+                    .active_inbound_requests
+                    .iter()
+                    .filter(|(_request_id, active_request)| {
+                        active_request.peer_id == peer_id
+                            && active_request.r#type.protocol() == request.r#type.protocol()
+                    })
+                    .count();
+
                 // We need to insert the request regardless of whether it is allowed by the limiter,
                 // since we send an error response (RateLimited) if it is not allowed.
                 self.active_inbound_requests.insert(id, request.clone());
 
-                if !self.active_inbound_requests_limiter.allows(
-                    peer_id,
-                    request.r#type.protocol(),
-                    &conn_id,
-                    &substream_id,
-                ) {
+                // Restricts more than MAX_CONCURRENT_REQUESTS inbound requests from running simultaneously on the same protocol per peer.
+                if active_requests >= MAX_CONCURRENT_REQUESTS {
                     // There is already an active request with the same protocol. Send an error code to the peer.
                     debug!(self.log, "There is an active request with the same protocol"; "peer_id" => peer_id.to_string(), "request" => %request.r#type, "protocol" => %request.r#type.versioned_protocol().protocol());
                     self.send_response(
@@ -570,12 +572,6 @@ where
         if let Some(response_limiter) = self.response_limiter.as_mut() {
             if let Poll::Ready(responses) = response_limiter.poll_ready(cx) {
                 for response in responses {
-                    self.active_inbound_requests_limiter.remove_request(
-                        response.peer_id,
-                        &response.connection_id,
-                        &response.substream_id,
-                    );
-
                     self.events.push(ToSwarm::NotifyHandler {
                         peer_id: response.peer_id,
                         handler: NotifyHandler::One(response.connection_id),
