@@ -18,4 +18,3 @@ fixed_bytes = { workspace = true }
 
 [features]
 arbitrary = ["alloy-primitives/arbitrary"]
-getrandom = ["alloy-primitives/getrandom"]

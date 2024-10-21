@@ -26,7 +26,6 @@ pub enum Domain {
     SyncCommittee,
     ContributionAndProof,
     SyncCommitteeSelectionProof,
-    Consolidation,
     ApplicationMask(ApplicationDomain),
 }
 
@@ -111,7 +110,6 @@ pub struct ChainSpec {
     pub(crate) domain_voluntary_exit: u32,
     pub(crate) domain_selection_proof: u32,
     pub(crate) domain_aggregate_and_proof: u32,
-    pub(crate) domain_consolidation: u32,
 
     /*
      * Fork choice
@@ -479,7 +477,6 @@ impl ChainSpec {
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
             Domain::ApplicationMask(application_domain) => application_domain.get_domain_constant(),
             Domain::BlsToExecutionChange => self.domain_bls_to_execution_change,
-            Domain::Consolidation => self.domain_consolidation,
         }
     }
 
@@ -704,7 +701,6 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
-            domain_consolidation: 0x0B,
 
             /*
              * Fork choice
@@ -1026,7 +1022,6 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
-            domain_consolidation: 0x0B,
 
             /*
              * Fork choice
@@ -1959,7 +1954,6 @@ mod tests {
             &spec,
         );
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
-        test_domain(Domain::Consolidation, spec.domain_consolidation, &spec);
 
         // The builder domain index is zero
         let builder_domain_pre_mask = [0; 4];

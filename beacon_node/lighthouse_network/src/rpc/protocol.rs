@@ -21,7 +21,8 @@ use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, ForkContext, ForkName,
     LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
     LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
-    LightClientOptimisticUpdateAltair, MainnetEthSpec, Signature, SignedBeaconBlock,
+    LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, Signature,
+    SignedBeaconBlock,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -143,6 +144,13 @@ pub static LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|
     LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra)
 });
 
+pub static LIGHT_CLIENT_UPDATES_BY_RANGE_CAPELLA_MAX: LazyLock<usize> =
+    LazyLock::new(|| LightClientUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella));
+pub static LIGHT_CLIENT_UPDATES_BY_RANGE_DENEB_MAX: LazyLock<usize> =
+    LazyLock::new(|| LightClientUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb));
+pub static LIGHT_CLIENT_UPDATES_BY_RANGE_ELECTRA_MAX: LazyLock<usize> =
+    LazyLock::new(|| LightClientUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra));
+
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// The number of seconds to wait for the first bytes of a request once a protocol has been
@@ -187,6 +195,26 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
             *SIGNED_BEACON_BLOCK_ELECTRA_MAX, // Electra block is larger than Deneb block
         ),
+    }
+}
+
+fn rpc_light_client_updates_by_range_limits_by_fork(current_fork: ForkName) -> RpcLimits {
+    let altair_fixed_len = LightClientFinalityUpdateAltair::<MainnetEthSpec>::ssz_fixed_len();
+
+    match &current_fork {
+        ForkName::Base => RpcLimits::new(0, 0),
+        ForkName::Altair | ForkName::Bellatrix => {
+            RpcLimits::new(altair_fixed_len, altair_fixed_len)
+        }
+        ForkName::Capella => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_CAPELLA_MAX)
+        }
+        ForkName::Deneb => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_DENEB_MAX)
+        }
+        ForkName::Electra => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_ELECTRA_MAX)
+        }
     }
 }
 
@@ -286,6 +314,9 @@ pub enum Protocol {
     /// The `LightClientFinalityUpdate` protocol name.
     #[strum(serialize = "light_client_finality_update")]
     LightClientFinalityUpdate,
+    /// The `LightClientUpdatesByRange` protocol name
+    #[strum(serialize = "light_client_updates_by_range")]
+    LightClientUpdatesByRange,
 }
 
 impl Protocol {
@@ -304,6 +335,7 @@ impl Protocol {
             Protocol::LightClientBootstrap => None,
             Protocol::LightClientOptimisticUpdate => None,
             Protocol::LightClientFinalityUpdate => None,
+            Protocol::LightClientUpdatesByRange => None,
         }
     }
 }
@@ -334,6 +366,7 @@ pub enum SupportedProtocol {
     LightClientBootstrapV1,
     LightClientOptimisticUpdateV1,
     LightClientFinalityUpdateV1,
+    LightClientUpdatesByRangeV1,
 }
 
 impl SupportedProtocol {
@@ -356,6 +389,7 @@ impl SupportedProtocol {
             SupportedProtocol::LightClientBootstrapV1 => "1",
             SupportedProtocol::LightClientOptimisticUpdateV1 => "1",
             SupportedProtocol::LightClientFinalityUpdateV1 => "1",
+            SupportedProtocol::LightClientUpdatesByRangeV1 => "1",
         }
     }
 
@@ -380,6 +414,7 @@ impl SupportedProtocol {
                 Protocol::LightClientOptimisticUpdate
             }
             SupportedProtocol::LightClientFinalityUpdateV1 => Protocol::LightClientFinalityUpdate,
+            SupportedProtocol::LightClientUpdatesByRangeV1 => Protocol::LightClientUpdatesByRange,
         }
     }
 
@@ -542,6 +577,10 @@ impl ProtocolId {
             ),
             Protocol::LightClientOptimisticUpdate => RpcLimits::new(0, 0),
             Protocol::LightClientFinalityUpdate => RpcLimits::new(0, 0),
+            Protocol::LightClientUpdatesByRange => RpcLimits::new(
+                LightClientUpdatesByRangeRequest::ssz_min_len(),
+                LightClientUpdatesByRangeRequest::ssz_max_len(),
+            ),
             Protocol::MetaData => RpcLimits::new(0, 0), // Metadata requests are empty
         }
     }
@@ -577,6 +616,9 @@ impl ProtocolId {
             Protocol::LightClientFinalityUpdate => {
                 rpc_light_client_finality_update_limits_by_fork(fork_context.current_fork())
             }
+            Protocol::LightClientUpdatesByRange => {
+                rpc_light_client_updates_by_range_limits_by_fork(fork_context.current_fork())
+            }
         }
     }
 
@@ -592,7 +634,8 @@ impl ProtocolId {
             | SupportedProtocol::DataColumnsByRangeV1
             | SupportedProtocol::LightClientBootstrapV1
             | SupportedProtocol::LightClientOptimisticUpdateV1
-            | SupportedProtocol::LightClientFinalityUpdateV1 => true,
+            | SupportedProtocol::LightClientFinalityUpdateV1
+            | SupportedProtocol::LightClientUpdatesByRangeV1 => true,
             SupportedProtocol::StatusV1
             | SupportedProtocol::BlocksByRootV1
             | SupportedProtocol::BlocksByRangeV1
@@ -643,7 +686,7 @@ pub fn rpc_data_column_limits<E: EthSpec>() -> RpcLimits {
 // The inbound protocol reads the request, decodes it and returns the stream to the protocol
 // handler to respond to once ready.
 
-pub type InboundOutput<TSocket, E> = (RequestType<E>, InboundFramed<TSocket, E>);
+pub type InboundOutput<TSocket, E> = (RequestType, InboundFramed<TSocket, E>);
 pub type InboundFramed<TSocket, E> =
     Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, SSZSnappyInboundCodec<E>>;
 
@@ -711,7 +754,7 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum RequestType<E: EthSpec> {
+pub enum RequestType {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
@@ -723,12 +766,13 @@ pub enum RequestType<E: EthSpec> {
     LightClientBootstrap(LightClientBootstrapRequest),
     LightClientOptimisticUpdate,
     LightClientFinalityUpdate,
+    LightClientUpdatesByRange(LightClientUpdatesByRangeRequest),
     Ping(Ping),
-    MetaData(MetadataRequest<E>),
+    MetaData(MetadataRequest),
 }
 
 /// Implements the encoding per supported protocol for `RPCRequest`.
-impl<E: EthSpec> RequestType<E> {
+impl RequestType {
     /* These functions are used in the handler for stream management */
 
     /// Maximum number of responses expected for this request.
@@ -738,15 +782,16 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::Goodbye(_) => 0,
             RequestType::BlocksByRange(req) => *req.count(),
             RequestType::BlocksByRoot(req) => req.block_roots().len() as u64,
-            RequestType::BlobsByRange(req) => req.max_blobs_requested::<E>(),
+            RequestType::BlobsByRange(req) => req.max_blobs_requested(),
             RequestType::BlobsByRoot(req) => req.blob_ids.len() as u64,
             RequestType::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
-            RequestType::DataColumnsByRange(req) => req.max_requested::<E>(),
+            RequestType::DataColumnsByRange(req) => req.max_requested(),
             RequestType::Ping(_) => 1,
             RequestType::MetaData(_) => 1,
             RequestType::LightClientBootstrap(_) => 1,
             RequestType::LightClientOptimisticUpdate => 1,
             RequestType::LightClientFinalityUpdate => 1,
+            RequestType::LightClientUpdatesByRange(req) => req.max_requested(),
         }
     }
 
@@ -780,6 +825,9 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientFinalityUpdate => {
                 SupportedProtocol::LightClientFinalityUpdateV1
             }
+            RequestType::LightClientUpdatesByRange(_) => {
+                SupportedProtocol::LightClientUpdatesByRangeV1
+            }
         }
     }
 
@@ -802,6 +850,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientBootstrap(_) => unreachable!(),
             RequestType::LightClientFinalityUpdate => unreachable!(),
             RequestType::LightClientOptimisticUpdate => unreachable!(),
+            RequestType::LightClientUpdatesByRange(_) => unreachable!(),
         }
     }
 
@@ -861,6 +910,10 @@ impl<E: EthSpec> RequestType<E> {
                 SupportedProtocol::LightClientFinalityUpdateV1,
                 Encoding::SSZSnappy,
             )],
+            RequestType::LightClientUpdatesByRange(_) => vec![ProtocolId::new(
+                SupportedProtocol::LightClientUpdatesByRangeV1,
+                Encoding::SSZSnappy,
+            )],
         }
     }
 
@@ -879,6 +932,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientBootstrap(_) => true,
             RequestType::LightClientOptimisticUpdate => true,
             RequestType::LightClientFinalityUpdate => true,
+            RequestType::LightClientUpdatesByRange(_) => true,
         }
     }
 }
@@ -973,7 +1027,7 @@ impl std::error::Error for RPCError {
     }
 }
 
-impl<E: EthSpec> std::fmt::Display for RequestType<E> {
+impl std::fmt::Display for RequestType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RequestType::Status(status) => write!(f, "Status Message: {}", status),
@@ -996,6 +1050,9 @@ impl<E: EthSpec> std::fmt::Display for RequestType<E> {
             }
             RequestType::LightClientFinalityUpdate => {
                 write!(f, "Light client finality update request")
+            }
+            RequestType::LightClientUpdatesByRange(_) => {
+                write!(f, "Light client updates by range request")
             }
         }
     }

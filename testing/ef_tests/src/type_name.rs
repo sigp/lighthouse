@@ -80,6 +80,7 @@ type_name_generic!(ExecutionPayloadHeaderBellatrix, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadHeaderCapella, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadHeaderDeneb, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadHeaderElectra, "ExecutionPayloadHeader");
+type_name_generic!(ExecutionRequests);
 type_name_generic!(BlindedPayload, "ExecutionPayloadHeader");
 type_name!(Fork);
 type_name!(ForkData);

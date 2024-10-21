@@ -94,6 +94,15 @@ pub enum SyncMessage<E: EthSpec> {
     /// A useful peer has been discovered.
     AddPeer(PeerId, SyncInfo),
 
+    /// Force trigger range sync for a set of peers given a head they claim to have imported. Used
+    /// by block lookup to trigger range sync if a parent chain grows too large.
+    AddPeersForceRangeSync {
+        peers: Vec<PeerId>,
+        head_root: Hash256,
+        /// Sync lookup may not know the Slot of this head. However this situation is very rare.
+        head_slot: Option<Slot>,
+    },
+
     /// A block has been received from the RPC.
     RpcBlock {
         request_id: SyncRequestId,
@@ -323,6 +332,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     #[cfg(test)]
+    pub(crate) fn get_range_sync_chains(
+        &self,
+    ) -> Result<Option<(RangeSyncType, Slot, Slot)>, &'static str> {
+        self.range_sync.state()
+    }
+
+    #[cfg(test)]
     pub(crate) fn get_failed_chains(&mut self) -> Vec<Hash256> {
         self.block_lookups.get_failed_chains()
     }
@@ -338,14 +354,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     #[cfg(test)]
-    pub(crate) fn assert_sampling_request_status(
+    pub(crate) fn get_sampling_request_status(
         &self,
         block_root: Hash256,
-        ongoing: &Vec<ColumnIndex>,
-        no_peers: &Vec<ColumnIndex>,
-    ) {
-        self.sampling
-            .assert_sampling_request_status(block_root, ongoing, no_peers);
+        index: &ColumnIndex,
+    ) -> Option<super::peer_sampling::Status> {
+        self.sampling.get_request_status(block_root, index)
     }
 
     fn network_globals(&self) -> &NetworkGlobals<T::EthSpec> {
@@ -376,11 +390,30 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         let sync_type = remote_sync_type(&local, &remote, &self.chain);
 
         // update the state of the peer.
-        let should_add = self.update_peer_sync_state(&peer_id, &local, &remote, &sync_type);
-
-        if matches!(sync_type, PeerSyncType::Advanced) && should_add {
-            self.range_sync
-                .add_peer(&mut self.network, local, peer_id, remote);
+        let is_still_connected = self.update_peer_sync_state(&peer_id, &local, &remote, &sync_type);
+        if is_still_connected {
+            match sync_type {
+                PeerSyncType::Behind => {} // Do nothing
+                PeerSyncType::Advanced => {
+                    self.range_sync
+                        .add_peer(&mut self.network, local, peer_id, remote);
+                }
+                PeerSyncType::FullySynced => {
+                    // Sync considers this peer close enough to the head to not trigger range sync.
+                    // Range sync handles well syncing large ranges of blocks, of a least a few blocks.
+                    // However this peer may be in a fork that we should sync but we have not discovered
+                    // yet. If the head of the peer is unknown, attempt block lookup first. If the
+                    // unknown head turns out to be on a longer fork, it will trigger range sync.
+                    //
+                    // A peer should always be considered `Advanced` if its finalized root is
+                    // unknown and ahead of ours, so we don't check for that root here.
+                    //
+                    // TODO: This fork-choice check is potentially duplicated, review code
+                    if !self.chain.block_is_known_to_fork_choice(&remote.head_root) {
+                        self.handle_unknown_block_root(peer_id, remote.head_root);
+                    }
+                }
+            }
         }
 
         self.update_sync_state();
@@ -388,6 +421,44 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // Try to make progress on custody requests that are waiting for peers
         for (id, result) in self.network.continue_custody_by_root_requests() {
             self.on_custody_by_root_result(id, result);
+        }
+    }
+
+    /// Trigger range sync for a set of peers that claim to have imported a head unknown to us.
+    fn add_peers_force_range_sync(
+        &mut self,
+        peers: &[PeerId],
+        head_root: Hash256,
+        head_slot: Option<Slot>,
+    ) {
+        let status = self.chain.status_message();
+        let local = SyncInfo {
+            head_slot: status.head_slot,
+            head_root: status.head_root,
+            finalized_epoch: status.finalized_epoch,
+            finalized_root: status.finalized_root,
+        };
+
+        let head_slot = head_slot.unwrap_or_else(|| {
+            debug!(self.log,
+                "On add peers force range sync assuming local head_slot";
+                "local_head_slot" => local.head_slot,
+                "head_root" => ?head_root
+            );
+            local.head_slot
+        });
+
+        let remote = SyncInfo {
+            head_slot,
+            head_root,
+            // Set finalized to same as local to trigger Head sync
+            finalized_epoch: local.finalized_epoch,
+            finalized_root: local.finalized_root,
+        };
+
+        for peer_id in peers {
+            self.range_sync
+                .add_peer(&mut self.network, local.clone(), *peer_id, remote.clone());
         }
     }
 
@@ -401,13 +472,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::SingleBlob { id } => {
                 self.on_single_blob_response(id, peer_id, RpcEvent::RPCError(error))
             }
-            SyncRequestId::DataColumnsByRoot(req_id, requester) => self
-                .on_data_columns_by_root_response(
-                    req_id,
-                    requester,
-                    peer_id,
-                    RpcEvent::RPCError(error),
-                ),
+            SyncRequestId::DataColumnsByRoot(req_id) => {
+                self.on_data_columns_by_root_response(req_id, peer_id, RpcEvent::RPCError(error))
+            }
             SyncRequestId::RangeBlockAndBlobs { id } => {
                 if let Some(sender_id) = self.network.range_request_failed(id) {
                     match sender_id {
@@ -476,8 +543,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     /// Updates the syncing state of a peer.
-    /// Return whether the peer should be used for range syncing or not, according to its
-    /// connection status.
+    /// Return true if the peer is still connected and known to the peers DB
     fn update_peer_sync_state(
         &mut self,
         peer_id: &PeerId,
@@ -685,6 +751,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         match sync_message {
             SyncMessage::AddPeer(peer_id, info) => {
                 self.add_peer(peer_id, info);
+            }
+            SyncMessage::AddPeersForceRangeSync {
+                peers,
+                head_root,
+                head_slot,
+            } => {
+                self.add_peers_force_range_sync(&peers, head_root, head_slot);
             }
             SyncMessage::RpcBlock {
                 request_id,
@@ -1027,10 +1100,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         seen_timestamp: Duration,
     ) {
         match request_id {
-            SyncRequestId::DataColumnsByRoot(req_id, requester) => {
+            SyncRequestId::DataColumnsByRoot(req_id) => {
                 self.on_data_columns_by_root_response(
                     req_id,
-                    requester,
                     peer_id,
                     match data_column {
                         Some(data_column) => RpcEvent::Response(data_column, seen_timestamp),
@@ -1072,7 +1144,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn on_data_columns_by_root_response(
         &mut self,
         req_id: DataColumnsByRootRequestId,
-        requester: DataColumnsByRootRequester,
         peer_id: PeerId,
         data_column: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
@@ -1080,7 +1151,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.network
                 .on_data_columns_by_root_response(req_id, peer_id, data_column)
         {
-            match requester {
+            match req_id.requester {
                 DataColumnsByRootRequester::Sampling(id) => {
                     if let Some((requester, result)) =
                         self.sampling

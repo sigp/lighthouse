@@ -18,9 +18,9 @@ use tokio_util::codec::{Decoder, Encoder};
 use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, EthSpec, ForkContext, ForkName, Hash256,
     LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockBellatrix, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
-    SignedBeaconBlockElectra,
+    LightClientUpdate, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -28,7 +28,7 @@ const CONTEXT_BYTES_LEN: usize = 4;
 
 /* Inbound Codec */
 
-pub struct SSZSnappyInboundCodec<E: EthSpec> {
+pub struct SSZSnappyInboundCodec<E> {
     protocol: ProtocolId,
     inner: Uvi<usize>,
     len: Option<usize>,
@@ -76,6 +76,7 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
                 RpcSuccessResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::LightClientOptimisticUpdate(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::LightClientFinalityUpdate(res) => res.as_ssz_bytes(),
+                RpcSuccessResponse::LightClientUpdatesByRange(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RpcSuccessResponse::MetaData(res) =>
                 // Encode the correct version of the MetaData response based on the negotiated version.
@@ -142,7 +143,7 @@ impl<E: EthSpec> Encoder<RpcResponse<E>> for SSZSnappyInboundCodec<E> {
 
 // Decoder for inbound streams: Decodes RPC requests from peers
 impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
-    type Item = RequestType<E>;
+    type Item = RequestType;
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -194,7 +195,7 @@ impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
 }
 
 /* Outbound Codec: Codec for initiating RPC requests */
-pub struct SSZSnappyOutboundCodec<E: EthSpec> {
+pub struct SSZSnappyOutboundCodec<E> {
     inner: Uvi<usize>,
     len: Option<usize>,
     protocol: ProtocolId,
@@ -321,10 +322,10 @@ impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
 }
 
 // Encoder for outbound streams: Encodes RPC Requests to peers
-impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
+impl<E: EthSpec> Encoder<RequestType> for SSZSnappyOutboundCodec<E> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: RequestType<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: RequestType, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
             RequestType::Status(req) => req.as_ssz_bytes(),
             RequestType::Goodbye(req) => req.as_ssz_bytes(),
@@ -342,6 +343,7 @@ impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
             RequestType::DataColumnsByRoot(req) => req.data_column_ids.as_ssz_bytes(),
             RequestType::Ping(req) => req.as_ssz_bytes(),
             RequestType::LightClientBootstrap(req) => req.as_ssz_bytes(),
+            RequestType::LightClientUpdatesByRange(req) => req.as_ssz_bytes(),
             // no metadata to encode
             RequestType::MetaData(_)
             | RequestType::LightClientOptimisticUpdate
@@ -503,6 +505,10 @@ fn context_bytes<E: EthSpec>(
                     return lc_finality_update
                         .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
                 }
+                RpcSuccessResponse::LightClientUpdatesByRange(lc_update) => {
+                    return lc_update
+                        .map_with_fork_name(|fork_name| fork_context.to_context_bytes(fork_name));
+                }
                 // These will not pass the has_context_bytes() check
                 RpcSuccessResponse::Status(_)
                 | RpcSuccessResponse::Pong(_)
@@ -543,11 +549,11 @@ fn handle_length(
 /// Decodes an `InboundRequest` from the byte stream.
 /// `decoded_buffer` should be an ssz-encoded bytestream with
 // length = length-prefix received in the beginning of the stream.
-fn handle_rpc_request<E: EthSpec>(
+fn handle_rpc_request(
     versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
     spec: &ChainSpec,
-) -> Result<Option<RequestType<E>>, RPCError> {
+) -> Result<Option<RequestType>, RPCError> {
     match versioned_protocol {
         SupportedProtocol::StatusV1 => Ok(Some(RequestType::Status(
             StatusMessage::from_ssz_bytes(decoded_buffer)?,
@@ -612,6 +618,11 @@ fn handle_rpc_request<E: EthSpec>(
         }
         SupportedProtocol::LightClientFinalityUpdateV1 => {
             Ok(Some(RequestType::LightClientFinalityUpdate))
+        }
+        SupportedProtocol::LightClientUpdatesByRangeV1 => {
+            Ok(Some(RequestType::LightClientUpdatesByRange(
+                LightClientUpdatesByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+            )))
         }
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
@@ -785,6 +796,21 @@ fn handle_rpc_response<E: EthSpec>(
                 Arc::new(LightClientFinalityUpdate::from_ssz_bytes(
                     decoded_buffer,
                     fork_name,
+                )?),
+            ))),
+            None => Err(RPCError::ErrorResponse(
+                RpcErrorResponse::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
+        SupportedProtocol::LightClientUpdatesByRangeV1 => match fork_name {
+            Some(fork_name) => Ok(Some(RpcSuccessResponse::LightClientUpdatesByRange(
+                Arc::new(LightClientUpdate::from_ssz_bytes(
+                    decoded_buffer,
+                    &fork_name,
                 )?),
             ))),
             None => Err(RPCError::ErrorResponse(
@@ -1009,6 +1035,7 @@ mod tests {
         BlobsByRangeRequest {
             start_slot: 0,
             count: 10,
+            max_blobs_per_block: Spec::max_blobs_per_block(),
         }
     }
 
@@ -1154,7 +1181,7 @@ mod tests {
     }
 
     /// Verifies that requests we send are encoded in a way that we would correctly decode too.
-    fn encode_then_decode_request(req: RequestType<Spec>, fork_name: ForkName, spec: &ChainSpec) {
+    fn encode_then_decode_request(req: RequestType, fork_name: ForkName, spec: &ChainSpec) {
         let fork_context = Arc::new(fork_context(fork_name));
         let max_packet_size = max_rpc_size(&fork_context, spec.max_chunk_size as usize);
         let protocol = ProtocolId::new(req.versioned_protocol(), Encoding::SSZSnappy);
@@ -1214,6 +1241,12 @@ mod tests {
                 )
             }
             RequestType::LightClientOptimisticUpdate | RequestType::LightClientFinalityUpdate => {}
+            RequestType::LightClientUpdatesByRange(light_client_updates_by_range) => {
+                assert_eq!(
+                    decoded,
+                    RequestType::LightClientUpdatesByRange(light_client_updates_by_range)
+                )
+            }
         }
     }
 
@@ -1745,7 +1778,7 @@ mod tests {
     fn test_encode_then_decode_request() {
         let chain_spec = Spec::default_spec();
 
-        let requests: &[RequestType<Spec>] = &[
+        let requests: &[RequestType] = &[
             RequestType::Ping(ping_message()),
             RequestType::Status(status_message()),
             RequestType::Goodbye(GoodbyeReason::Fault),

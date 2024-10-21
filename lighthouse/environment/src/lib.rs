@@ -333,7 +333,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         eth2_network_config: Eth2NetworkConfig,
     ) -> Result<Self, String> {
         // Create a new chain spec from the default configuration.
-        self.eth2_config.spec = Arc::new(eth2_network_config.chain_spec::<E>()?);
+        self.eth2_config.spec = eth2_network_config.chain_spec::<E>()?.into();
         self.eth2_network_config = Some(eth2_network_config);
 
         Ok(self)

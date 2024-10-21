@@ -1,5 +1,6 @@
 use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
 use crate::light_client_header::LightClientHeaderElectra;
+use crate::LightClientHeader;
 use crate::{
     beacon_state, test_utils::TestRandom, ChainSpec, Epoch, ForkName, ForkVersionDeserialize,
     LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
@@ -10,7 +11,7 @@ use safe_arith::ArithError;
 use safe_arith::SafeArith;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use ssz::Decode;
+use ssz::{Decode, Encode};
 use ssz_derive::Decode;
 use ssz_derive::Encode;
 use ssz_types::typenum::{U4, U5, U6};
@@ -34,6 +35,10 @@ pub const FINALIZED_ROOT_PROOF_LEN: usize = 6;
 pub const CURRENT_SYNC_COMMITTEE_PROOF_LEN: usize = 5;
 pub const NEXT_SYNC_COMMITTEE_PROOF_LEN: usize = 5;
 pub const EXECUTION_PAYLOAD_PROOF_LEN: usize = 4;
+
+// Max light client updates by range request limits
+// spec: https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/light-client/p2p-interface.md#configuration
+pub const MAX_REQUEST_LIGHT_CLIENT_UPDATES: u64 = 128;
 
 type FinalityBranch = FixedVector<Hash256, FinalizedRootProofLen>;
 type NextSyncCommitteeBranch = FixedVector<Hash256, NextSyncCommitteeProofLen>;
@@ -402,6 +407,32 @@ impl<E: EthSpec> LightClientUpdate<E> {
             }
         }
         true
+    }
+
+    // A `LightClientUpdate` has two `LightClientHeader`s
+    // Spec: https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/light-client/sync-protocol.md#lightclientupdate
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn ssz_max_len_for_fork(fork_name: ForkName) -> usize {
+        let fixed_len = match fork_name {
+            ForkName::Base | ForkName::Bellatrix => 0,
+            ForkName::Altair => <LightClientUpdateAltair<E> as Encode>::ssz_fixed_len(),
+            ForkName::Capella => <LightClientUpdateCapella<E> as Encode>::ssz_fixed_len(),
+            ForkName::Deneb => <LightClientUpdateDeneb<E> as Encode>::ssz_fixed_len(),
+            ForkName::Electra => <LightClientUpdateElectra<E> as Encode>::ssz_fixed_len(),
+        };
+        fixed_len + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+    }
+
+    pub fn map_with_fork_name<F, R>(&self, func: F) -> R
+    where
+        F: Fn(ForkName) -> R,
+    {
+        match self {
+            Self::Altair(_) => func(ForkName::Altair),
+            Self::Capella(_) => func(ForkName::Capella),
+            Self::Deneb(_) => func(ForkName::Deneb),
+            Self::Electra(_) => func(ForkName::Electra),
+        }
     }
 }
 

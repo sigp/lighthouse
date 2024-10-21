@@ -146,7 +146,6 @@ pub struct Config {
     pub listen_port: u16,
     pub allow_origin: Option<String>,
     pub tls_config: Option<TlsConfig>,
-    pub spec_fork_name: Option<ForkName>,
     pub data_dir: PathBuf,
     pub sse_capacity_multiplier: usize,
     pub enable_beacon_processor: bool,
@@ -164,7 +163,6 @@ impl Default for Config {
             listen_port: 5052,
             allow_origin: None,
             tls_config: None,
-            spec_fork_name: None,
             data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
             sse_capacity_multiplier: 1,
             enable_beacon_processor: true,
@@ -2643,7 +2641,6 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // GET config/spec
-    let spec_fork_name = ctx.config.spec_fork_name;
     let get_config_spec = config_path
         .and(warp::path("spec"))
         .and(warp::path::end())
@@ -2653,7 +2650,7 @@ pub fn serve<T: BeaconChainTypes>(
             move |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     let config_and_preset =
-                        ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec, spec_fork_name);
+                        ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec, None);
                     Ok(api_types::GenericResponse::from(config_and_preset))
                 })
             },
