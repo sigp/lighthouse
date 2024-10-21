@@ -189,40 +189,38 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                     let (file_non_blocking_writer, file_guard) =
                         tracing_appender::non_blocking(file_appender);
 
-                    LoggingLayer {
-                        non_blocking_writer: file_non_blocking_writer,
-                        guard: file_guard,
-                        disable_log_timestamp: config.disable_log_timestamp,
-                    }
+                    let file_logging_layer = LoggingLayer::new(
+                        file_non_blocking_writer,
+                        file_guard,
+                        config.disable_log_timestamp,
+                    );
+                    file_logging_layer
                 }
                 Err(e) => {
                     eprintln!("Failed to initialize rolling file appender: {}", e);
                     let (sink_writer, sink_guard) = tracing_appender::non_blocking(std::io::sink());
-                    LoggingLayer {
-                        non_blocking_writer: sink_writer,
-                        guard: sink_guard,
-                        disable_log_timestamp: config.disable_log_timestamp,
-                    }
+                    let file_logging_layer =
+                        LoggingLayer::new(sink_writer, sink_guard, config.disable_log_timestamp);
+                    file_logging_layer
                 }
             }
         } else {
             eprintln!("No path provided. File logging is disabled.");
             let (sink_writer, sink_guard) = tracing_appender::non_blocking(std::io::sink());
-            LoggingLayer {
-                non_blocking_writer: sink_writer,
-                guard: sink_guard,
-                disable_log_timestamp: config.disable_log_timestamp,
-            }
+            let file_logging_layer =
+                LoggingLayer::new(sink_writer, sink_guard, config.disable_log_timestamp);
+
+            file_logging_layer
         };
 
         let (stdout_non_blocking_writer, stdout_guard) =
             tracing_appender::non_blocking(std::io::stdout());
 
-        let stdout_logging_layer = LoggingLayer {
-            non_blocking_writer: stdout_non_blocking_writer,
-            guard: stdout_guard,
-            disable_log_timestamp: config.disable_log_timestamp,
-        };
+        let stdout_logging_layer = LoggingLayer::new(
+            stdout_non_blocking_writer,
+            stdout_guard,
+            config.disable_log_timestamp,
+        );
 
         if config.sse_logging {
             let mut global_sse_logging_component = match SSE_LOGGING_COMPONENTS.lock() {

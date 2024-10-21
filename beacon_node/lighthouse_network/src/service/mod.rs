@@ -172,7 +172,7 @@ impl<E: EthSpec> Network<E> {
         executor: task_executor::TaskExecutor,
         mut ctx: ServiceContext<'_>,
     ) -> error::Result<(Self, Arc<NetworkGlobals<E>>)> {
-        let span = span!(Level::INFO, "Network",service = "libp2p");
+        let span = span!(Level::INFO, "Network", service = "libp2p");
         let _enter = span.enter();
 
         let config = ctx.config.clone();

@@ -45,7 +45,7 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use timer::spawn_timer;
 use tokio::sync::oneshot;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, span, warn, Level};
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, BlobSidecarList, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
@@ -1003,6 +1003,9 @@ where
         blobs_path: &Path,
         config: StoreConfig,
     ) -> Result<Self, String> {
+        let span = span!(Level::INFO, "", service = "freezer_db");
+        let _enter = span.enter();
+
         let context = self
             .runtime_context
             .as_ref()

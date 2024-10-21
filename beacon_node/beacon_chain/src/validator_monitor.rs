@@ -21,7 +21,7 @@ use std::str::Utf8Error;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::AbstractExecPayload;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, span, warn, Level};
 use types::consts::altair::{
     TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX,
 };
@@ -440,6 +440,9 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
     /// Add some validators to `self` for additional monitoring.
     pub fn add_validator_pubkey(&mut self, pubkey: PublicKeyBytes) {
+        let span = span!(Level::INFO, "ValidatorMonitor", service = "val_mon");
+        let _enter = span.enter();
+
         let index_opt = self
             .indices
             .iter()

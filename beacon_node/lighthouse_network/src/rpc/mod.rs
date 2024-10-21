@@ -175,7 +175,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         network_params: NetworkParams,
         seq_number: u64,
     ) -> Self {
-        let span = span!(Level::INFO, "RPC",service = "libp2p_rpc");
+        let span = span!(Level::INFO, "RPC", service = "libp2p_rpc");
         let _enter = span.enter();
 
         let inbound_limiter = inbound_rate_limiter_config.map(|config| {
@@ -255,6 +255,9 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
 
     /// Send a Ping request to the destination `PeerId` via `ConnectionId`.
     pub fn ping(&mut self, peer_id: PeerId, id: Id) {
+        let span = span!(Level::INFO, "RPC", service = "libp2p_rpc");
+        let _enter = span.enter();
+
         let ping = Ping {
             data: self.seq_number,
         };
@@ -397,6 +400,9 @@ where
         conn_id: ConnectionId,
         event: <Self::ConnectionHandler as ConnectionHandler>::ToBehaviour,
     ) {
+        let span = span!(Level::INFO, "RPC", service = "libp2p_rpc");
+        let _enter = span.enter();
+
         match event {
             HandlerEvent::Ok(RPCReceived::Request(Request {
                 id,

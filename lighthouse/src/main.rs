@@ -26,12 +26,12 @@ use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
 use tracing::info;
+use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use tracing_subscriber::prelude::*;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
-use tracing_subscriber::filter::LevelFilter;
 
 pub static SHORT_VERSION: LazyLock<String> = LazyLock::new(|| VERSION.replace("Lighthouse/", ""));
 pub static LONG_VERSION: LazyLock<String> = LazyLock::new(|| {
