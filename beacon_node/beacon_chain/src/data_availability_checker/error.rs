@@ -37,8 +37,6 @@ impl Error {
     pub fn category(&self) -> ErrorCategory {
         match self {
             Error::SszTypes(_)
-            | Error::MissingBlobs
-            | Error::MissingCustodyColumns
             | Error::StoreError(_)
             | Error::DecodeError(_)
             | Error::Unexpected
@@ -49,6 +47,8 @@ impl Error {
             | Error::SlotClockError => ErrorCategory::Internal,
             Error::InvalidBlobs { .. }
             | Error::InvalidColumn { .. }
+            | Error::MissingBlobs
+            | Error::MissingCustodyColumns
             | Error::ReconstructColumnsError { .. }
             | Error::BlobIndexInvalid(_)
             | Error::DataColumnIndexInvalid(_)
