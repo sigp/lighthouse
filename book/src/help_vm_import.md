@@ -66,6 +66,15 @@ Options:
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
           values: mainnet, gnosis, chiado, sepolia, holesky]
+      --password <STRING>
+          Password of the keystore file.
+      --prefer-builder-proposals <prefer-builder-proposals>
+          When provided, the imported validator will always prefer blocks
+          constructed by builders, regardless of payload value. [possible
+          values: true, false]
+      --suggested-fee-recipient <ETH1_ADDRESS>
+          When provided, the imported validator will use the suggested fee
+          recipient. Omit this flag to use the default value from the VC.
   -t, --testnet-dir <DIR>
           Path to directory containing eth2_testnet specs. Defaults to a
           hard-coded Lighthouse testnet. Only effective if there is no existing
