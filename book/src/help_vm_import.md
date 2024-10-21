@@ -66,48 +66,10 @@ Options:
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
           values: mainnet, gnosis, chiado, sepolia, holesky]
-      --password <STRING>
-          Password of the keystore file.
-      --prefer-builder-proposals <prefer-builder-proposals>
-          When provided, the imported validator will always prefer blocks
-          constructed by builders, regardless of payload value. [possible
-          values: true, false]
-      --safe-slots-to-import-optimistically <INTEGER>
-          Used to coordinate manual overrides of the
-          SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should only
-          be used if the user has a clear understanding that the broad Ethereum
-          community has elected to override this parameter in the event of an
-          attack at the PoS transition block. Incorrect use of this flag can
-          cause your node to possibly accept an invalid chain or sync more
-          slowly. Be extremely careful with this flag.
-      --suggested-fee-recipient <ETH1_ADDRESS>
-          When provided, the imported validator will use the suggested fee
-          recipient. Omit this flag to use the default value from the VC.
   -t, --testnet-dir <DIR>
           Path to directory containing eth2_testnet specs. Defaults to a
           hard-coded Lighthouse testnet. Only effective if there is no existing
           database.
-      --terminal-block-hash-epoch-override <EPOCH>
-          Used to coordinate manual overrides to the
-          TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH parameter. This flag should only
-          be used if the user has a clear understanding that the broad Ethereum
-          community has elected to override the terminal PoW block. Incorrect
-          use of this flag will cause your node to experience a consensus
-          failure. Be extremely careful with this flag.
-      --terminal-block-hash-override <TERMINAL_BLOCK_HASH>
-          Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH
-          parameter. This flag should only be used if the user has a clear
-          understanding that the broad Ethereum community has elected to
-          override the terminal PoW block. Incorrect use of this flag will cause
-          your node to experience a consensus failure. Be extremely careful with
-          this flag.
-      --terminal-total-difficulty-override <INTEGER>
-          Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY
-          parameter. Accepts a 256-bit decimal integer (not a hex value). This
-          flag should only be used if the user has a clear understanding that
-          the broad Ethereum community has elected to override the terminal
-          difficulty. Incorrect use of this flag will cause your node to
-          experience a consensus failure. Be extremely careful with this flag.
       --validators-file <PATH_TO_JSON_FILE>
           The path to a JSON file containing a list of validators to be imported
           to the validator client. This file is usually named "validators.json".
