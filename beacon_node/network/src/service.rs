@@ -62,7 +62,7 @@ pub enum NetworkMessage<E: EthSpec> {
     /// Send an RPC request to the libp2p service.
     SendRequest {
         peer_id: PeerId,
-        request: RequestType,
+        request: RequestType<E>,
         request_id: AppRequestId,
     },
     /// Send a successful Response to the libp2p service.
