@@ -3,15 +3,13 @@
 
 mod keystores;
 
-use crate::doppelganger_service::DoppelgangerService;
-use crate::{
-    http_api::{ApiSecret, Config as HttpConfig, Context},
-    initialized_validators::InitializedValidators,
-    Config, ValidatorDefinitions, ValidatorStore,
-};
+use doppelganger_service::DoppelgangerService;
+use initialized_validators::{Config as InitializedValidatorsConfig, InitializedValidators};
+
+use crate::{ApiSecret, Config as HttpConfig, Context};
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
-    random_password_string, ZeroizeString,
+    random_password_string, validator_definitions::ValidatorDefinitions, ZeroizeString,
 };
 use deposit_contract::decode_eth1_tx_data;
 use eth2::{
@@ -28,12 +26,14 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
-use tempfile::{tempdir, TempDir};
+use tempfile::tempdir;
 use types::graffiti::GraffitiString;
+use validator_store::{Config as ValidatorStoreConfig, ValidatorStore};
 
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
@@ -46,43 +46,39 @@ struct ApiTester {
     validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
     url: SensitiveUrl,
     slot_clock: TestingSlotClock,
-    _validator_dir: TempDir,
     _test_runtime: TestRuntime,
 }
 
 impl ApiTester {
     pub async fn new() -> Self {
-        let mut config = Config::default();
+        let mut config = ValidatorStoreConfig::default();
         config.fee_recipient = Some(TEST_DEFAULT_FEE_RECIPIENT);
         Self::new_with_config(config).await
     }
 
-    pub async fn new_with_config(mut config: Config) -> Self {
+    pub async fn new_with_config(config: ValidatorStoreConfig) -> Self {
         let log = test_logger();
 
-        let validator_dir = tempdir().unwrap();
-        let secrets_dir = tempdir().unwrap();
+        let validator_dir: PathBuf = tempdir().unwrap().path().into();
+        let secrets_dir: PathBuf = tempdir().unwrap().path().into();
 
-        let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.path()).unwrap();
+        let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.clone()).unwrap();
 
         let initialized_validators = InitializedValidators::from_definitions(
             validator_defs,
-            validator_dir.path().into(),
-            Config::default(),
+            validator_dir.clone(),
+            InitializedValidatorsConfig::default(),
             log.clone(),
         )
         .await
         .unwrap();
 
-        let api_secret = ApiSecret::create_or_open(validator_dir.path()).unwrap();
+        let api_secret = ApiSecret::create_or_open(validator_dir.clone()).unwrap();
         let api_pubkey = api_secret.api_token();
-
-        config.validator_dir = validator_dir.path().into();
-        config.secrets_dir = secrets_dir.path().into();
 
         let spec = Arc::new(E::default_spec());
 
-        let slashing_db_path = config.validator_dir.join(SLASHING_PROTECTION_FILENAME);
+        let slashing_db_path = validator_dir.join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
 
         let genesis_time: u64 = 0;
@@ -116,8 +112,8 @@ impl ApiTester {
             task_executor: test_runtime.task_executor.clone(),
             api_secret,
             block_service: None,
-            validator_dir: Some(validator_dir.path().into()),
-            secrets_dir: Some(secrets_dir.path().into()),
+            validator_dir: Some(validator_dir),
+            secrets_dir: Some(secrets_dir),
             validator_store: Some(validator_store.clone()),
             graffiti_file: None,
             graffiti_flag: Some(Graffiti::default()),
@@ -156,7 +152,6 @@ impl ApiTester {
             validator_store,
             url,
             slot_clock,
-            _validator_dir: validator_dir,
             _test_runtime: test_runtime,
         }
     }
@@ -1147,11 +1142,11 @@ async fn validator_builder_boost_factor() {
 /// `prefer_builder_proposals` and `builder_boost_factor` values.
 #[tokio::test]
 async fn validator_derived_builder_boost_factor_with_process_defaults() {
-    let config = Config {
+    let config = ValidatorStoreConfig {
         builder_proposals: true,
         prefer_builder_proposals: false,
         builder_boost_factor: Some(80),
-        ..Config::default()
+        ..ValidatorStoreConfig::default()
     };
     ApiTester::new_with_config(config)
         .await
@@ -1181,11 +1176,11 @@ async fn validator_derived_builder_boost_factor_with_process_defaults() {
 
 #[tokio::test]
 async fn validator_builder_boost_factor_global_builder_proposals_true() {
-    let config = Config {
+    let config = ValidatorStoreConfig {
         builder_proposals: true,
         prefer_builder_proposals: false,
         builder_boost_factor: None,
-        ..Config::default()
+        ..ValidatorStoreConfig::default()
     };
     ApiTester::new_with_config(config)
         .await
@@ -1194,11 +1189,11 @@ async fn validator_builder_boost_factor_global_builder_proposals_true() {
 
 #[tokio::test]
 async fn validator_builder_boost_factor_global_builder_proposals_false() {
-    let config = Config {
+    let config = ValidatorStoreConfig {
         builder_proposals: false,
         prefer_builder_proposals: false,
         builder_boost_factor: None,
-        ..Config::default()
+        ..ValidatorStoreConfig::default()
     };
     ApiTester::new_with_config(config)
         .await
@@ -1207,11 +1202,11 @@ async fn validator_builder_boost_factor_global_builder_proposals_false() {
 
 #[tokio::test]
 async fn validator_builder_boost_factor_global_prefer_builder_proposals_true() {
-    let config = Config {
+    let config = ValidatorStoreConfig {
         builder_proposals: true,
         prefer_builder_proposals: true,
         builder_boost_factor: None,
-        ..Config::default()
+        ..ValidatorStoreConfig::default()
     };
     ApiTester::new_with_config(config)
         .await
@@ -1220,11 +1215,11 @@ async fn validator_builder_boost_factor_global_prefer_builder_proposals_true() {
 
 #[tokio::test]
 async fn validator_builder_boost_factor_global_prefer_builder_proposals_true_override() {
-    let config = Config {
+    let config = ValidatorStoreConfig {
         builder_proposals: false,
         prefer_builder_proposals: true,
         builder_boost_factor: None,
-        ..Config::default()
+        ..ValidatorStoreConfig::default()
     };
     ApiTester::new_with_config(config)
         .await

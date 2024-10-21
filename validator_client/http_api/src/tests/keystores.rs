@@ -1,4 +1,3 @@
-use super::super::super::validator_store::DEFAULT_GAS_LIMIT;
 use super::*;
 use account_utils::random_password_string;
 use bls::PublicKeyBytes;
@@ -14,6 +13,7 @@ use slashing_protection::interchange::{Interchange, InterchangeMetadata};
 use std::{collections::HashMap, path::Path};
 use tokio::runtime::Handle;
 use types::{attestation::AttestationBase, Address};
+use validator_store::DEFAULT_GAS_LIMIT;
 
 fn new_keystore(password: ZeroizeString) -> Keystore {
     let keypair = Keypair::random();

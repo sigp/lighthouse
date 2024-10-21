@@ -28,3 +28,6 @@ serde_json = { workspace = true }
 zip = { workspace = true }
 parking_lot = { workspace = true }
 logging = { workspace = true }
+initialized_validators = { workspace = true }
+slashing_protection = { workspace = true }
+validator_store = { workspace = true }

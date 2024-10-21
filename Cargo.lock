@@ -5094,6 +5094,7 @@ dependencies = [
  "account_manager",
  "account_utils",
  "beacon_node",
+ "beacon_node_fallback",
  "beacon_processor",
  "bls",
  "boot_node",
@@ -5107,6 +5108,7 @@ dependencies = [
  "eth2_network_config",
  "ethereum_hashing",
  "futures",
+ "initialized_validators",
  "lighthouse_metrics",
  "lighthouse_network",
  "lighthouse_version",
@@ -9317,8 +9319,10 @@ dependencies = [
  "eth2_keystore",
  "ethereum_serde_utils",
  "filesystem",
+ "futures",
  "graffiti_file",
  "initialized_validators",
+ "itertools 0.10.5",
  "lighthouse_version",
  "logging",
  "parking_lot 0.12.3",
@@ -9383,7 +9387,7 @@ dependencies = [
  "tokio",
  "tree_hash",
  "types",
- "validator_client",
+ "validator_http_api",
 ]
 
 [[package]]
@@ -9711,12 +9715,14 @@ dependencies = [
  "eth2_keystore",
  "eth2_network_config",
  "futures",
+ "initialized_validators",
  "logging",
  "parking_lot 0.12.3",
  "reqwest",
  "serde",
  "serde_json",
  "serde_yaml",
+ "slashing_protection",
  "slot_clock",
  "task_executor",
  "tempfile",
@@ -9724,6 +9730,7 @@ dependencies = [
  "types",
  "url",
  "validator_client",
+ "validator_store",
  "zip",
 ]
 

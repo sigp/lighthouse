@@ -71,6 +71,9 @@ sensitive_url = { workspace = true }
 eth1 = { workspace = true }
 eth2 = { workspace = true }
 beacon_processor = { workspace = true }
+beacon_node_fallback = { workspace = true }
+initialized_validators = { workspace = true }
+
 
 [[test]]
 name = "lighthouse_tests"

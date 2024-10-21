@@ -45,3 +45,6 @@ warp_utils = { workspace = true }
 warp = { workspace = true }
 
 [dev-dependencies]
+itertools = { workspace = true }
+futures = { workspace = true }
+rand = { workspace = true, features = ["small_rng"] }
