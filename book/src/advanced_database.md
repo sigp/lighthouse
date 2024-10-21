@@ -26,7 +26,7 @@ compact database. The essence of the hdiffs is that full states (snapshots) are 
 once per year. To reconstruct a particular state, Lighthouse fetches the last snapshot prior to that
 state, and then applies several _layers_ of diffs. For example, to access a state from November
 2022, we might fetch the yearly snapshot for the start of 2022, then apply a monthly diff to jump to
-November, and then further more granular diffs to reach the particular week, day and epoch desired.
+November, and then more granular diffs to reach the particular week, day and epoch desired.
 Usually for the last stretch between the start of the epoch and the state requested, some blocks
 will be _replayed_.
 
@@ -35,8 +35,6 @@ full snapshot stored every `2^21` slots. In the next layer there are diffs every
 approximately correspond to "monthly" diffs. Following this are more granular diffs every `2^16`
 slots, every `2^13` slots, and so on down to the per-epoch diffs every `2^5` slots.
 
-<-- FIXME(sproul): update this diagram with Lion's sauce -->
-
 ![Tree diagram displaying hierarchical state diffs](./imgs/db-freezer-layout.png)
 
 The number of layers and frequency of diffs is configurable via the `--hierarchy-exponents` flag,
@@ -44,7 +42,7 @@ which has a default value of `5,9,11,13,16,18,21`. The hierarchy exponents must 
 from smallest to largest. The smallest exponent determines the frequency of the "closest" layer
 of diffs, with the default value of 5 corresponding to a diff every `2^5` slots (every epoch).
 The largest number determines the frequency of full snapshots, with the default value of 21
-corresponding to a snapshot every `2^21` slots.
+corresponding to a snapshot every `2^21` slots (every 291 days).
 
 The number of possible `--hierarchy-exponents` configurations is extremely large and our exploration
 of possible configurations is still in its relative infancy. If you experiment with non-default
