@@ -78,7 +78,7 @@ impl TracingEventVisitor {
 
     fn finish(self, metadata: &tracing::Metadata<'_>) -> Value {
         let mut log_entry = serde_json::Map::new();
-        log_entry.insert("time".to_string(), json!(chrono::Local::now().to_rfc3339()));
+        log_entry.insert("time".to_string(), json!(chrono::Local::now().format("%b %d %H:%M:%S%.3f").to_string()));
         log_entry.insert("level".to_string(), json!(metadata.level().to_string()));
         log_entry.insert("target".to_string(), json!(metadata.target()));
         log_entry.insert("fields".to_string(), Value::Object(self.fields));
