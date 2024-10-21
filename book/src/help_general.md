@@ -1,4 +1,4 @@
-# Lighthouse General Commands
+# Lighthouse CLI Reference
 
 ```
 Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon node, a
