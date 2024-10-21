@@ -686,7 +686,7 @@ pub fn rpc_data_column_limits<E: EthSpec>() -> RpcLimits {
 // The inbound protocol reads the request, decodes it and returns the stream to the protocol
 // handler to respond to once ready.
 
-pub type InboundOutput<TSocket, E> = (RequestType, InboundFramed<TSocket, E>);
+pub type InboundOutput<TSocket, E> = (RequestType<E>, InboundFramed<TSocket, E>);
 pub type InboundFramed<TSocket, E> =
     Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, SSZSnappyInboundCodec<E>>;
 
@@ -754,7 +754,7 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum RequestType {
+pub enum RequestType<E: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
@@ -768,11 +768,11 @@ pub enum RequestType {
     LightClientFinalityUpdate,
     LightClientUpdatesByRange(LightClientUpdatesByRangeRequest),
     Ping(Ping),
-    MetaData(MetadataRequest),
+    MetaData(MetadataRequest<E>),
 }
 
 /// Implements the encoding per supported protocol for `RPCRequest`.
-impl RequestType {
+impl<E: EthSpec> RequestType<E> {
     /* These functions are used in the handler for stream management */
 
     /// Maximum number of responses expected for this request.
@@ -782,10 +782,10 @@ impl RequestType {
             RequestType::Goodbye(_) => 0,
             RequestType::BlocksByRange(req) => *req.count(),
             RequestType::BlocksByRoot(req) => req.block_roots().len() as u64,
-            RequestType::BlobsByRange(req) => req.max_blobs_requested(),
+            RequestType::BlobsByRange(req) => req.max_blobs_requested::<E>(),
             RequestType::BlobsByRoot(req) => req.blob_ids.len() as u64,
             RequestType::DataColumnsByRoot(req) => req.data_column_ids.len() as u64,
-            RequestType::DataColumnsByRange(req) => req.max_requested(),
+            RequestType::DataColumnsByRange(req) => req.max_requested::<E>(),
             RequestType::Ping(_) => 1,
             RequestType::MetaData(_) => 1,
             RequestType::LightClientBootstrap(_) => 1,
@@ -1027,7 +1027,7 @@ impl std::error::Error for RPCError {
     }
 }
 
-impl std::fmt::Display for RequestType {
+impl<E: EthSpec> std::fmt::Display for RequestType<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RequestType::Status(status) => write!(f, "Status Message: {}", status),
