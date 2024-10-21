@@ -183,15 +183,9 @@ test-exec-engine:
 # test vectors.
 test: test-release
 
-# Updates the CLI help text pages in the Lighthouse book, building with Docker.
-cli:
-	docker run --rm --user=root \
-	-v ${PWD}:/home/runner/actions-runner/lighthouse sigmaprime/github-runner \
-	bash -c 'cd lighthouse && make && ./scripts/cli.sh'
-
 # Updates the CLI help text pages in the Lighthouse book, building using local
 # `cargo`.
-cli-local:
+cli:
 	make && ./scripts/cli.sh
 
 # Check for markdown files
