@@ -16,12 +16,12 @@ use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
 use lighthouse_network::discovery::ConnectionId;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
-use lighthouse_network::rpc::SubstreamId;
+use lighthouse_network::rpc::{RequestId, SubstreamId};
 use lighthouse_network::{
     discv5::enr::{self, CombinedKey},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
-    Client, MessageId, NetworkGlobals, PeerId, Response,
+    Client, MessageId, NetworkConfig, NetworkGlobals, PeerId, Response,
 };
 use slot_clock::SlotClock;
 use std::iter::Iterator;
@@ -91,6 +91,7 @@ impl TestRig {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
+        let spec = Arc::new(spec);
 
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.clone())
@@ -204,12 +205,14 @@ impl TestRig {
         });
         let enr_key = CombinedKey::generate_secp256k1();
         let enr = enr::Enr::builder().build(&enr_key).unwrap();
+        let network_config = Arc::new(NetworkConfig::default());
         let network_globals = Arc::new(NetworkGlobals::new(
             enr,
             meta_data,
             vec![],
             false,
             &log,
+            network_config,
             spec,
         ));
 
@@ -357,7 +360,9 @@ impl TestRig {
         self.network_beacon_processor
             .send_blobs_by_range_request(
                 PeerId::random(),
-                (ConnectionId::new_unchecked(42), SubstreamId::new(24)),
+                ConnectionId::new_unchecked(42),
+                SubstreamId::new(24),
+                RequestId::new_unchecked(0),
                 BlobsByRangeRequest {
                     start_slot: 0,
                     count,
@@ -467,10 +472,11 @@ impl TestRig {
     ///
     /// Given the described logic, `expected` must not contain `WORKER_FREED` or `NOTHING_TO_DO`
     /// events.
-    pub async fn assert_event_journal_contains_ordered(&mut self, expected: &[&str]) {
-        assert!(expected
+    pub async fn assert_event_journal_contains_ordered(&mut self, expected: &[WorkType]) {
+        let expected = expected
             .iter()
-            .all(|ev| ev != &WORKER_FREED && ev != &NOTHING_TO_DO));
+            .map(|ev| ev.into())
+            .collect::<Vec<&'static str>>();
 
         let mut events = Vec::with_capacity(expected.len());
         let mut worker_freed_remaining = expected.len();
@@ -515,6 +521,18 @@ impl TestRig {
     pub async fn assert_event_journal(&mut self, expected: &[&str]) {
         self.assert_event_journal_with_timeout(expected, STANDARD_TIMEOUT)
             .await
+    }
+
+    pub async fn assert_event_journal_completes(&mut self, expected: &[WorkType]) {
+        self.assert_event_journal(
+            &expected
+                .iter()
+                .map(|ev| Into::<&'static str>::into(ev))
+                .chain(std::iter::once(WORKER_FREED))
+                .chain(std::iter::once(NOTHING_TO_DO))
+                .collect::<Vec<_>>(),
+        )
+        .await
     }
 
     /// Assert that the `BeaconProcessor` event journal is as `expected`.
@@ -587,13 +605,13 @@ async fn import_gossip_block_acceptably_early() {
 
     rig.enqueue_gossip_block();
 
-    rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO])
+    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
         .await;
 
     let num_blobs = rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0);
     for i in 0..num_blobs {
         rig.enqueue_gossip_blob(i);
-        rig.assert_event_journal(&[GOSSIP_BLOBS_SIDECAR, WORKER_FREED, NOTHING_TO_DO])
+        rig.assert_event_journal_completes(&[WorkType::GossipBlobSidecar])
             .await;
     }
 
@@ -611,7 +629,7 @@ async fn import_gossip_block_acceptably_early() {
         "block not yet imported"
     );
 
-    rig.assert_event_journal(&[DELAYED_IMPORT_BLOCK, WORKER_FREED, NOTHING_TO_DO])
+    rig.assert_event_journal_completes(&[WorkType::DelayedImportBlock])
         .await;
 
     assert_eq!(
@@ -644,7 +662,7 @@ async fn import_gossip_block_unacceptably_early() {
 
     rig.enqueue_gossip_block();
 
-    rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO])
+    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
         .await;
 
     // Waiting for 5 seconds is a bit arbitrary, however it *should* be long enough to ensure the
@@ -670,7 +688,7 @@ async fn import_gossip_block_at_current_slot() {
 
     rig.enqueue_gossip_block();
 
-    rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO])
+    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
         .await;
 
     let num_blobs = rig
@@ -682,7 +700,7 @@ async fn import_gossip_block_at_current_slot() {
     for i in 0..num_blobs {
         rig.enqueue_gossip_blob(i);
 
-        rig.assert_event_journal(&[GOSSIP_BLOBS_SIDECAR, WORKER_FREED, NOTHING_TO_DO])
+        rig.assert_event_journal_completes(&[WorkType::GossipBlobSidecar])
             .await;
     }
 
@@ -702,7 +720,7 @@ async fn import_gossip_attestation() {
 
     rig.enqueue_unaggregated_attestation();
 
-    rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO])
+    rig.assert_event_journal_completes(&[WorkType::GossipAttestation])
         .await;
 
     assert_eq!(
@@ -728,7 +746,7 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
 
     rig.enqueue_next_block_unaggregated_attestation();
 
-    rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO])
+    rig.assert_event_journal_completes(&[WorkType::GossipAttestation])
         .await;
 
     assert_eq!(
@@ -747,23 +765,23 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
     match import_method {
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
-            events.push(GOSSIP_BLOCK);
+            events.push(WorkType::GossipBlock);
             for i in 0..num_blobs {
                 rig.enqueue_gossip_blob(i);
-                events.push(GOSSIP_BLOBS_SIDECAR);
+                events.push(WorkType::GossipBlobSidecar);
             }
         }
         BlockImportMethod::Rpc => {
             rig.enqueue_rpc_block();
-            events.push(RPC_BLOCK);
+            events.push(WorkType::RpcBlock);
             if num_blobs > 0 {
                 rig.enqueue_single_lookup_rpc_blobs();
-                events.push(RPC_BLOBS);
+                events.push(WorkType::RpcBlobs);
             }
         }
     };
 
-    events.push(UNKNOWN_BLOCK_ATTESTATION);
+    events.push(WorkType::UnknownBlockAttestation);
 
     rig.assert_event_journal_contains_ordered(&events).await;
 
@@ -809,7 +827,7 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
 
     rig.enqueue_next_block_aggregated_attestation();
 
-    rig.assert_event_journal(&[GOSSIP_AGGREGATE, WORKER_FREED, NOTHING_TO_DO])
+    rig.assert_event_journal_completes(&[WorkType::GossipAggregate])
         .await;
 
     assert_eq!(
@@ -828,23 +846,23 @@ async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod
     match import_method {
         BlockImportMethod::Gossip => {
             rig.enqueue_gossip_block();
-            events.push(GOSSIP_BLOCK);
+            events.push(WorkType::GossipBlock);
             for i in 0..num_blobs {
                 rig.enqueue_gossip_blob(i);
-                events.push(GOSSIP_BLOBS_SIDECAR);
+                events.push(WorkType::GossipBlobSidecar);
             }
         }
         BlockImportMethod::Rpc => {
             rig.enqueue_rpc_block();
-            events.push(RPC_BLOCK);
+            events.push(WorkType::RpcBlock);
             if num_blobs > 0 {
                 rig.enqueue_single_lookup_rpc_blobs();
-                events.push(RPC_BLOBS);
+                events.push(WorkType::RpcBlobs);
             }
         }
     };
 
-    events.push(UNKNOWN_BLOCK_AGGREGATE);
+    events.push(WorkType::UnknownBlockAggregate);
 
     rig.assert_event_journal_contains_ordered(&events).await;
 
@@ -887,7 +905,7 @@ async fn requeue_unknown_block_gossip_attestation_without_import() {
 
     rig.enqueue_next_block_unaggregated_attestation();
 
-    rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO])
+    rig.assert_event_journal_completes(&[WorkType::GossipAttestation])
         .await;
 
     assert_eq!(
@@ -899,7 +917,11 @@ async fn requeue_unknown_block_gossip_attestation_without_import() {
     // Ensure that the attestation is received back but not imported.
 
     rig.assert_event_journal_with_timeout(
-        &[UNKNOWN_BLOCK_ATTESTATION, WORKER_FREED, NOTHING_TO_DO],
+        &[
+            WorkType::UnknownBlockAttestation.into(),
+            WORKER_FREED,
+            NOTHING_TO_DO,
+        ],
         Duration::from_secs(1) + QUEUED_ATTESTATION_DELAY,
     )
     .await;
@@ -923,7 +945,7 @@ async fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
 
     rig.enqueue_next_block_aggregated_attestation();
 
-    rig.assert_event_journal(&[GOSSIP_AGGREGATE, WORKER_FREED, NOTHING_TO_DO])
+    rig.assert_event_journal_completes(&[WorkType::GossipAggregate])
         .await;
 
     assert_eq!(
@@ -935,7 +957,11 @@ async fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
     // Ensure that the attestation is received back but not imported.
 
     rig.assert_event_journal_with_timeout(
-        &[UNKNOWN_BLOCK_AGGREGATE, WORKER_FREED, NOTHING_TO_DO],
+        &[
+            WorkType::UnknownBlockAggregate.into(),
+            WORKER_FREED,
+            NOTHING_TO_DO,
+        ],
         Duration::from_secs(1) + QUEUED_ATTESTATION_DELAY,
     )
     .await;
@@ -961,7 +987,7 @@ async fn import_misc_gossip_ops() {
 
     rig.enqueue_gossip_attester_slashing();
 
-    rig.assert_event_journal(&[GOSSIP_ATTESTER_SLASHING, WORKER_FREED, NOTHING_TO_DO])
+    rig.assert_event_journal_completes(&[WorkType::GossipAttesterSlashing])
         .await;
 
     assert_eq!(
@@ -978,7 +1004,7 @@ async fn import_misc_gossip_ops() {
 
     rig.enqueue_gossip_proposer_slashing();
 
-    rig.assert_event_journal(&[GOSSIP_PROPOSER_SLASHING, WORKER_FREED, NOTHING_TO_DO])
+    rig.assert_event_journal_completes(&[WorkType::GossipProposerSlashing])
         .await;
 
     assert_eq!(
@@ -995,7 +1021,7 @@ async fn import_misc_gossip_ops() {
 
     rig.enqueue_gossip_voluntary_exit();
 
-    rig.assert_event_journal(&[GOSSIP_VOLUNTARY_EXIT, WORKER_FREED, NOTHING_TO_DO])
+    rig.assert_event_journal_completes(&[WorkType::GossipVoluntaryExit])
         .await;
 
     assert_eq!(
@@ -1014,12 +1040,12 @@ async fn test_rpc_block_reprocessing() {
     // Insert the next block into the duplicate cache manually
     let handle = rig.duplicate_cache.check_and_insert(next_block_root);
     rig.enqueue_single_lookup_rpc_block();
-    rig.assert_event_journal(&[RPC_BLOCK, WORKER_FREED, NOTHING_TO_DO])
+    rig.assert_event_journal_completes(&[WorkType::RpcBlock])
         .await;
 
     rig.enqueue_single_lookup_rpc_blobs();
     if rig.next_blobs.as_ref().map(|b| b.len()).unwrap_or(0) > 0 {
-        rig.assert_event_journal(&[RPC_BLOBS, WORKER_FREED, NOTHING_TO_DO])
+        rig.assert_event_journal_completes(&[WorkType::RpcBlobs])
             .await;
     }
 
@@ -1033,7 +1059,7 @@ async fn test_rpc_block_reprocessing() {
     // the specified delay.
     tokio::time::sleep(QUEUED_RPC_BLOCK_DELAY).await;
 
-    rig.assert_event_journal(&[RPC_BLOCK]).await;
+    rig.assert_event_journal(&[WorkType::RpcBlock.into()]).await;
     // Add an extra delay for block processing
     tokio::time::sleep(Duration::from_millis(10)).await;
     // head should update to next block now since the duplicate
@@ -1055,7 +1081,11 @@ async fn test_backfill_sync_processing() {
         rig.assert_no_events_for(Duration::from_millis(100)).await;
         // A new batch should be processed within a slot.
         rig.assert_event_journal_with_timeout(
-            &[CHAIN_SEGMENT_BACKFILL, WORKER_FREED, NOTHING_TO_DO],
+            &[
+                WorkType::ChainSegmentBackfill.into(),
+                WORKER_FREED,
+                NOTHING_TO_DO,
+            ],
             rig.chain.slot_clock.slot_duration(),
         )
         .await;
@@ -1075,9 +1105,9 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
     // ensure all batches are processed
     rig.assert_event_journal_with_timeout(
         &[
-            CHAIN_SEGMENT_BACKFILL,
-            CHAIN_SEGMENT_BACKFILL,
-            CHAIN_SEGMENT_BACKFILL,
+            WorkType::ChainSegmentBackfill.into(),
+            WorkType::ChainSegmentBackfill.into(),
+            WorkType::ChainSegmentBackfill.into(),
         ],
         Duration::from_millis(100),
     )
@@ -1114,6 +1144,7 @@ async fn test_blobs_by_range() {
             peer_id: _,
             response: Response::BlobsByRange(blob),
             id: _,
+            request_id: _,
         } = next
         {
             if blob.is_some() {

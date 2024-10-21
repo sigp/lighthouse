@@ -444,9 +444,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.request_batches(network)?;
                 }
             }
-        } else if !self.good_peers_on_custody_subnets(self.processing_target, network) {
+        } else if !self.good_peers_on_sampling_subnets(self.processing_target, network) {
             // This is to handle the case where no batch was sent for the current processing
-            // target when there is no custody peers available. This is a valid state and should not
+            // target when there is no sampling peers available. This is a valid state and should not
             // return an error.
             return Ok(KeepChain);
         } else {
@@ -1075,10 +1075,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // check if we have the batch for our optimistic start. If not, request it first.
         // We wait for this batch before requesting any other batches.
         if let Some(epoch) = self.optimistic_start {
-            if !self.good_peers_on_custody_subnets(epoch, network) {
+            if !self.good_peers_on_sampling_subnets(epoch, network) {
                 debug!(
                     self.log,
-                    "Waiting for peers to be available on custody column subnets"
+                    "Waiting for peers to be available on sampling column subnets"
                 );
                 return Ok(KeepChain);
             }
@@ -1107,30 +1107,34 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         Ok(KeepChain)
     }
 
-    /// Checks all custody column subnets for peers. Returns `true` if there is at least one peer in
-    /// every custody column subnet.
-    fn good_peers_on_custody_subnets(&self, epoch: Epoch, network: &SyncNetworkContext<T>) -> bool {
+    /// Checks all sampling column subnets for peers. Returns `true` if there is at least one peer in
+    /// every sampling column subnet.
+    fn good_peers_on_sampling_subnets(
+        &self,
+        epoch: Epoch,
+        network: &SyncNetworkContext<T>,
+    ) -> bool {
         if network.chain.spec.is_peer_das_enabled_for_epoch(epoch) {
-            // Require peers on all custody column subnets before sending batches
-            let peers_on_all_custody_subnets =
-                network
-                    .network_globals()
-                    .custody_subnets()
-                    .all(|subnet_id| {
-                        let peer_count = network
-                            .network_globals()
-                            .peers
-                            .read()
-                            .good_custody_subnet_peer(subnet_id)
-                            .count();
+            // Require peers on all sampling column subnets before sending batches
+            let peers_on_all_custody_subnets = network
+                .network_globals()
+                .sampling_subnets
+                .iter()
+                .all(|subnet_id| {
+                    let peer_count = network
+                        .network_globals()
+                        .peers
+                        .read()
+                        .good_custody_subnet_peer(*subnet_id)
+                        .count();
 
-                        set_int_gauge(
-                            &PEERS_PER_COLUMN_SUBNET,
-                            &[&subnet_id.to_string()],
-                            peer_count as i64,
-                        );
-                        peer_count > 0
-                    });
+                    set_int_gauge(
+                        &PEERS_PER_COLUMN_SUBNET,
+                        &[&subnet_id.to_string()],
+                        peer_count as i64,
+                    );
+                    peer_count > 0
+                });
             peers_on_all_custody_subnets
         } else {
             true
@@ -1167,11 +1171,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return None;
         }
 
-        // don't send batch requests until we have peers on custody subnets
+        // don't send batch requests until we have peers on sampling subnets
         // TODO(das): this is a workaround to avoid sending out excessive block requests because
         // block and data column requests are currently coupled. This can be removed once we find a
         // way to decouple the requests and do retries individually, see issue #6258.
-        if !self.good_peers_on_custody_subnets(self.to_be_downloaded, network) {
+        if !self.good_peers_on_sampling_subnets(self.to_be_downloaded, network) {
             debug!(
                 self.log,
                 "Waiting for peers to be available on custody column subnets"

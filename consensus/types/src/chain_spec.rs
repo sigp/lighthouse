@@ -26,7 +26,6 @@ pub enum Domain {
     SyncCommittee,
     ContributionAndProof,
     SyncCommitteeSelectionProof,
-    Consolidation,
     ApplicationMask(ApplicationDomain),
 }
 
@@ -111,12 +110,10 @@ pub struct ChainSpec {
     pub(crate) domain_voluntary_exit: u32,
     pub(crate) domain_selection_proof: u32,
     pub(crate) domain_aggregate_and_proof: u32,
-    pub(crate) domain_consolidation: u32,
 
     /*
      * Fork choice
      */
-    pub safe_slots_to_update_justified: u64,
     pub proposer_score_boost: Option<u64>,
     pub reorg_head_weight_threshold: Option<u64>,
     pub reorg_parent_weight_threshold: Option<u64>,
@@ -159,7 +156,6 @@ pub struct ChainSpec {
     pub terminal_total_difficulty: Uint256,
     pub terminal_block_hash: ExecutionBlockHash,
     pub terminal_block_hash_activation_epoch: Epoch,
-    pub safe_slots_to_import_optimistically: u64,
 
     /*
      * Capella hard fork params
@@ -198,6 +194,7 @@ pub struct ChainSpec {
     pub custody_requirement: u64,
     pub data_column_sidecar_subnet_count: u64,
     pub number_of_columns: usize,
+    pub samples_per_slot: u64,
 
     /*
      * Networking
@@ -479,7 +476,6 @@ impl ChainSpec {
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
             Domain::ApplicationMask(application_domain) => application_domain.get_domain_constant(),
             Domain::BlsToExecutionChange => self.domain_bls_to_execution_change,
-            Domain::Consolidation => self.domain_consolidation,
         }
     }
 
@@ -714,12 +710,10 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
-            domain_consolidation: 0x0B,
 
             /*
              * Fork choice
              */
-            safe_slots_to_update_justified: 8,
             proposer_score_boost: Some(40),
             reorg_head_weight_threshold: Some(20),
             reorg_parent_weight_threshold: Some(160),
@@ -770,7 +764,6 @@ impl ChainSpec {
                 .expect("terminal_total_difficulty is a valid integer"),
             terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
-            safe_slots_to_import_optimistically: 128u64,
 
             /*
              * Capella hard fork params
@@ -822,6 +815,7 @@ impl ChainSpec {
             custody_requirement: 4,
             data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
+            samples_per_slot: 8,
 
             /*
              * Network specific
@@ -900,7 +894,6 @@ impl ChainSpec {
             inactivity_penalty_quotient: u64::checked_pow(2, 25).expect("pow does not overflow"),
             min_slashing_penalty_quotient: 64,
             proportional_slashing_multiplier: 2,
-            safe_slots_to_update_justified: 2,
             // Altair
             epochs_per_sync_committee_period: Epoch::new(8),
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
@@ -1036,12 +1029,10 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
-            domain_consolidation: 0x0B,
 
             /*
              * Fork choice
              */
-            safe_slots_to_update_justified: 8,
             proposer_score_boost: Some(40),
             reorg_head_weight_threshold: Some(20),
             reorg_parent_weight_threshold: Some(160),
@@ -1092,7 +1083,6 @@ impl ChainSpec {
                 .expect("terminal_total_difficulty is a valid integer"),
             terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
-            safe_slots_to_import_optimistically: 128u64,
 
             /*
              * Capella hard fork params
@@ -1144,6 +1134,7 @@ impl ChainSpec {
             custody_requirement: 4,
             data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
+            samples_per_slot: 8,
             /*
              * Network specific
              */
@@ -1227,9 +1218,6 @@ pub struct Config {
     pub terminal_block_hash: ExecutionBlockHash,
     #[serde(default = "default_terminal_block_hash_activation_epoch")]
     pub terminal_block_hash_activation_epoch: Epoch,
-    #[serde(default = "default_safe_slots_to_import_optimistically")]
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub safe_slots_to_import_optimistically: u64,
 
     #[serde(with = "serde_utils::quoted_u64")]
     min_genesis_active_validator_count: u64,
@@ -1398,6 +1386,9 @@ pub struct Config {
     #[serde(default = "default_number_of_columns")]
     #[serde(with = "serde_utils::quoted_u64")]
     number_of_columns: u64,
+    #[serde(default = "default_samples_per_slot")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    samples_per_slot: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1438,10 +1429,6 @@ fn default_terminal_block_hash() -> ExecutionBlockHash {
 
 fn default_terminal_block_hash_activation_epoch() -> Epoch {
     Epoch::new(u64::MAX)
-}
-
-fn default_safe_slots_to_import_optimistically() -> u64 {
-    128u64
 }
 
 fn default_subnets_per_node() -> u8 {
@@ -1543,15 +1530,19 @@ const fn default_maximum_gossip_clock_disparity_millis() -> u64 {
 }
 
 const fn default_custody_requirement() -> u64 {
-    1
+    4
 }
 
 const fn default_data_column_sidecar_subnet_count() -> u64 {
-    32
+    128
 }
 
 const fn default_number_of_columns() -> u64 {
     128
+}
+
+const fn default_samples_per_slot() -> u64 {
+    8
 }
 
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
@@ -1666,7 +1657,6 @@ impl Config {
             terminal_total_difficulty: spec.terminal_total_difficulty,
             terminal_block_hash: spec.terminal_block_hash,
             terminal_block_hash_activation_epoch: spec.terminal_block_hash_activation_epoch,
-            safe_slots_to_import_optimistically: spec.safe_slots_to_import_optimistically,
 
             min_genesis_active_validator_count: spec.min_genesis_active_validator_count,
             min_genesis_time: spec.min_genesis_time,
@@ -1750,6 +1740,7 @@ impl Config {
             custody_requirement: spec.custody_requirement,
             data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
             number_of_columns: spec.number_of_columns as u64,
+            samples_per_slot: spec.samples_per_slot,
         }
     }
 
@@ -1768,7 +1759,6 @@ impl Config {
             terminal_total_difficulty,
             terminal_block_hash,
             terminal_block_hash_activation_epoch,
-            safe_slots_to_import_optimistically,
             min_genesis_active_validator_count,
             min_genesis_time,
             genesis_fork_version,
@@ -1826,6 +1816,7 @@ impl Config {
             custody_requirement,
             data_column_sidecar_subnet_count,
             number_of_columns,
+            samples_per_slot,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -1868,7 +1859,6 @@ impl Config {
             terminal_total_difficulty,
             terminal_block_hash,
             terminal_block_hash_activation_epoch,
-            safe_slots_to_import_optimistically,
             gossip_max_size,
             min_epochs_for_block_requests,
             max_chunk_size,
@@ -1906,6 +1896,7 @@ impl Config {
             custody_requirement,
             data_column_sidecar_subnet_count,
             number_of_columns: number_of_columns as usize,
+            samples_per_slot,
 
             ..chain_spec.clone()
         })
@@ -1971,7 +1962,6 @@ mod tests {
             &spec,
         );
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
-        test_domain(Domain::Consolidation, spec.domain_consolidation, &spec);
 
         // The builder domain index is zero
         let builder_domain_pre_mask = [0; 4];
@@ -2121,7 +2111,6 @@ mod yaml_tests {
         #TERMINAL_TOTAL_DIFFICULTY: 115792089237316195423570985008687907853269984665640564039457584007913129638911
         #TERMINAL_BLOCK_HASH: 0x0000000000000000000000000000000000000000000000000000000000000001
         #TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551614
-        #SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY: 2
         MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 16384
         MIN_GENESIS_TIME: 1606824000
         GENESIS_FORK_VERSION: 0x00000000
@@ -2150,6 +2139,7 @@ mod yaml_tests {
         CUSTODY_REQUIREMENT: 1
         DATA_COLUMN_SIDECAR_SUBNET_COUNT: 128
         NUMBER_OF_COLUMNS: 128
+        SAMPLES_PER_SLOT: 8
         "#;
 
         let chain_spec: Config = serde_yaml::from_str(spec).unwrap();
@@ -2169,7 +2159,6 @@ mod yaml_tests {
         check_default!(terminal_total_difficulty);
         check_default!(terminal_block_hash);
         check_default!(terminal_block_hash_activation_epoch);
-        check_default!(safe_slots_to_import_optimistically);
         check_default!(bellatrix_fork_version);
         check_default!(gossip_max_size);
         check_default!(min_epochs_for_block_requests);

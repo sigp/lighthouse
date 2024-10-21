@@ -129,11 +129,10 @@ impl<E: EthSpec> LightClientHeader<E> {
     }
 
     pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
-        match fork_name {
-            ForkName::Base | ForkName::Altair => 0,
-            ForkName::Bellatrix | ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
-                ExecutionPayloadHeader::<E>::ssz_max_var_len_for_fork(fork_name)
-            }
+        if fork_name.capella_enabled() {
+            ExecutionPayloadHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+        } else {
+            0
         }
     }
 }

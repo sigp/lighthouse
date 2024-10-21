@@ -1812,9 +1812,6 @@ where
         // Calculate the message id on the transformed data.
         let msg_id = self.config.message_id(&message);
 
-        // Broadcast IDONTWANT messages.
-        self.send_idontwant(&raw_message, &msg_id, propagation_source);
-
         // Check the validity of the message
         // Peers get penalized if this message is invalid. We don't add it to the duplicate cache
         // and instead continually penalize peers that repeatedly send this message.
@@ -1830,6 +1827,12 @@ where
             self.mcache.observe_duplicate(&msg_id, propagation_source);
             return;
         }
+
+        // Broadcast IDONTWANT messages
+        if raw_message.raw_protobuf_len() > self.config.idontwant_message_size_threshold() {
+            self.send_idontwant(&raw_message, &msg_id, propagation_source);
+        }
+
         tracing::debug!(
             message=%msg_id,
             "Put message in duplicate_cache and resolve promises"
@@ -2716,7 +2719,7 @@ where
             };
 
             // Only gossipsub 1.2 peers support IDONTWANT.
-            if peer.kind != PeerKind::Gossipsubv1_2_beta {
+            if peer.kind != PeerKind::Gossipsubv1_2 {
                 continue;
             }
 
@@ -3348,6 +3351,8 @@ where
                             };
                             if let Some(metrics) = self.metrics.as_mut() {
                                 metrics.register_idontwant(message_ids.len());
+                                let idontwant_size = message_ids.iter().map(|id| id.0.len()).sum();
+                                metrics.register_idontwant_bytes(idontwant_size);
                             }
                             for message_id in message_ids {
                                 peer.dont_send.insert(message_id, Instant::now());

@@ -49,18 +49,14 @@
 #![allow(clippy::result_large_err)]
 
 use crate::beacon_snapshot::PreProcessingSnapshot;
-use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob, GossipVerifiedBlobList};
-use crate::block_verification_types::{
-    AsBlock, BlockContentsError, BlockImportData, GossipVerifiedBlockContents, RpcBlock,
-};
+use crate::blob_verification::GossipBlobError;
+use crate::block_verification_types::{AsBlock, BlockImportData, RpcBlock};
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
-use crate::data_column_verification::{
-    GossipDataColumnError, GossipVerifiedDataColumn, GossipVerifiedDataColumnList,
-};
+use crate::data_column_verification::GossipDataColumnError;
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
-    is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
-    AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
+    validate_execution_payload_for_gossip, validate_merge_block, AllowOptimisticImport,
+    NotifyExecutionLayer, PayloadNotifier,
 };
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
@@ -71,13 +67,14 @@ use crate::{
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
-use eth2::types::{BlockGossip, EventKind, PublishBlockRequest};
+use eth2::types::{BlockGossip, EventKind};
 use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
+use lighthouse_metrics::TryExt;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
-use slog::{debug, error, warn, Logger};
+use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -96,14 +93,12 @@ use std::io::Write;
 use std::sync::Arc;
 use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
-use types::data_column_sidecar::DataColumnSidecarError;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSubnetId, Epoch,
-    EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs, PublicKey,
-    PublicKeyBytes, RelativeEpoch, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader,
-    Slot,
+    data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
+    BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload,
+    Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot,
 };
-use types::{BlobSidecar, ExecPayload};
 
 pub const POS_PANDA_BANNER: &str = r#"
     ,,,         ,,,                                               ,,,         ,,,
@@ -185,12 +180,18 @@ pub enum BlockError {
     /// It's unclear if this block is valid, but it conflicts with finality and shouldn't be
     /// imported.
     NotFinalizedDescendant { block_parent_root: Hash256 },
-    /// Block is already known, no need to re-import.
+    /// Block is already known and valid, no need to re-import.
     ///
     /// ## Peer scoring
     ///
     /// The block is valid and we have already imported a block with this hash.
-    BlockIsAlreadyKnown(Hash256),
+    DuplicateFullyImported(Hash256),
+    /// Block has already been seen on gossip but has not necessarily finished being imported.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block could be valid, or invalid. We don't know.
+    DuplicateImportStatusUnknown(Hash256),
     /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
     ///
     /// ## Peer scoring
@@ -702,121 +703,57 @@ pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
     pub payload_verification_handle: PayloadVerificationHandle,
 }
 
-pub trait IntoGossipVerifiedBlockContents<T: BeaconChainTypes>: Sized {
+pub trait IntoGossipVerifiedBlock<T: BeaconChainTypes>: Sized {
     fn into_gossip_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError>;
-    fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec>;
+    ) -> Result<GossipVerifiedBlock<T>, BlockError>;
+    fn inner_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>>;
 }
 
-impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for GossipVerifiedBlockContents<T> {
+impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for GossipVerifiedBlock<T> {
     fn into_gossip_verified_block(
         self,
         _chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError> {
+    ) -> Result<GossipVerifiedBlock<T>, BlockError> {
         Ok(self)
     }
-    fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec> {
-        self.0.block.as_block()
+    fn inner_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.block_cloned()
     }
 }
 
-impl<T: BeaconChainTypes> IntoGossipVerifiedBlockContents<T> for PublishBlockRequest<T::EthSpec> {
+impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for Arc<SignedBeaconBlock<T::EthSpec>> {
     fn into_gossip_verified_block(
         self,
         chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlockContents<T>, BlockContentsError> {
-        let (block, blobs) = self.deconstruct();
-        let peer_das_enabled = chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
-
-        let (gossip_verified_blobs, gossip_verified_data_columns) = if peer_das_enabled {
-            let gossip_verified_data_columns =
-                build_gossip_verified_data_columns(chain, &block, blobs.map(|(_, blobs)| blobs))?;
-            (None, gossip_verified_data_columns)
-        } else {
-            let gossip_verified_blobs = build_gossip_verified_blobs(chain, &block, blobs)?;
-            (gossip_verified_blobs, None)
-        };
-
-        let gossip_verified_block = GossipVerifiedBlock::new(block, chain)?;
-
-        Ok((
-            gossip_verified_block,
-            gossip_verified_blobs,
-            gossip_verified_data_columns,
-        ))
+    ) -> Result<GossipVerifiedBlock<T>, BlockError> {
+        GossipVerifiedBlock::new(self, chain)
     }
 
-    fn inner_block(&self) -> &SignedBeaconBlock<T::EthSpec> {
-        self.signed_block()
+    fn inner_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.clone()
     }
 }
 
-#[allow(clippy::type_complexity)]
-fn build_gossip_verified_blobs<T: BeaconChainTypes>(
-    chain: &BeaconChain<T>,
-    block: &Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
-    blobs: Option<(KzgProofs<T::EthSpec>, BlobsList<T::EthSpec>)>,
-) -> Result<Option<GossipVerifiedBlobList<T>>, BlockContentsError> {
-    blobs
-        .map(|(kzg_proofs, blobs)| {
-            let mut gossip_verified_blobs = vec![];
-            for (i, (kzg_proof, blob)) in kzg_proofs.iter().zip(blobs).enumerate() {
-                let _timer =
-                    metrics::start_timer(&metrics::BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION);
-                let blob = BlobSidecar::new(i, blob, block, *kzg_proof)
-                    .map_err(BlockContentsError::BlobSidecarError)?;
-                drop(_timer);
-                let gossip_verified_blob =
-                    GossipVerifiedBlob::new(Arc::new(blob), i as u64, chain)?;
-                gossip_verified_blobs.push(gossip_verified_blob);
-            }
-            let max_len = chain.spec.max_blobs_per_block(block.epoch()) as usize;
-            let gossip_verified_blobs =
-                RuntimeVariableList::from_vec(gossip_verified_blobs, max_len);
-            Ok::<_, BlockContentsError>(gossip_verified_blobs)
-        })
-        .transpose()
-}
-
-fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
+pub fn build_blob_data_column_sidecars<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     block: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
-    blobs: Option<BlobsList<T::EthSpec>>,
-) -> Result<Option<GossipVerifiedDataColumnList<T>>, BlockContentsError> {
-    blobs
-        // Only attempt to build data columns if blobs is non empty to avoid skewing the metrics.
-        .filter(|b| !b.is_empty())
-        .map(|blobs| {
-            // NOTE: we expect KZG to be initialized if the blobs are present
-            let kzg = chain
-                .kzg
-                .as_ref()
-                .ok_or(BlockContentsError::DataColumnError(
-                    GossipDataColumnError::KzgNotInitialized,
-                ))?;
+    blobs: BlobsList<T::EthSpec>,
+) -> Result<DataColumnSidecarList<T::EthSpec>, DataColumnSidecarError> {
+    // Only attempt to build data columns if blobs is non empty to avoid skewing the metrics.
+    if blobs.is_empty() {
+        return Ok(vec![]);
+    }
 
-            let timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_COMPUTATION);
-            let sidecars = blobs_to_data_column_sidecars(&blobs, block, kzg, &chain.spec)?;
-            drop(timer);
-            let mut gossip_verified_data_columns = vec![];
-            for sidecar in sidecars {
-                let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
-                    sidecar.index as usize,
-                    &chain.spec,
-                );
-                let column = GossipVerifiedDataColumn::new(sidecar, subnet.into(), chain)?;
-                gossip_verified_data_columns.push(column);
-            }
-            let gossip_verified_data_columns = RuntimeVariableList::new(
-                gossip_verified_data_columns,
-                chain.spec.number_of_columns,
-            )
-            .map_err(DataColumnSidecarError::SszError)?;
-            Ok::<_, BlockContentsError>(gossip_verified_data_columns)
-        })
-        .transpose()
+    let mut timer = metrics::start_timer_vec(
+        &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
+        &[&blobs.len().to_string()],
+    );
+    let sidecars = blobs_to_data_column_sidecars(&blobs, block, &chain.kzg, &chain.spec)
+        .discard_timer_on_break(&mut timer)?;
+    drop(timer);
+    Ok(sidecars)
 }
 
 /// Implemented on types that can be converted into a `ExecutionPendingBlock`.
@@ -830,12 +767,11 @@ pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<ExecutionPendingBlock<T>, BlockError> {
         self.into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
-            .map(|execution_pending| {
+            .inspect(|execution_pending| {
                 // Supply valid block to slasher.
                 if let Some(slasher) = chain.slasher.as_ref() {
                     slasher.accept_block_header(execution_pending.block.signed_block_header());
                 }
-                execution_pending
             })
             .map_err(|slash_info| process_block_slash_info::<_, BlockError>(chain, slash_info))
     }
@@ -917,7 +853,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // already know this block.
         let fork_choice_read_lock = chain.canonical_head.fork_choice_read_lock();
         if fork_choice_read_lock.contains_block(&block_root) {
-            return Err(BlockError::BlockIsAlreadyKnown(block_root));
+            return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
         // Do not process a block that doesn't descend from the finalized root.
@@ -1051,7 +987,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             SeenBlock::Slashable => {
                 return Err(BlockError::Slashable);
             }
-            SeenBlock::Duplicate => return Err(BlockError::BlockIsAlreadyKnown(block_root)),
+            SeenBlock::Duplicate => {
+                return Err(BlockError::DuplicateImportStatusUnknown(block_root))
+            }
             SeenBlock::UniqueNonSlashable => {}
         };
 
@@ -1449,28 +1387,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 );
             }
             let payload_verification_status = payload_notifier.notify_new_payload().await?;
-
-            // If the payload did not validate or invalidate the block, check to see if this block is
-            // valid for optimistic import.
-            if payload_verification_status.is_optimistic() {
-                let block_hash_opt = block
-                    .message()
-                    .body()
-                    .execution_payload()
-                    .map(|full_payload| full_payload.block_hash());
-
-                // Ensure the block is a candidate for optimistic import.
-                if !is_optimistic_candidate_block(&chain, block.slot(), block.parent_root()).await?
-                {
-                    warn!(
-                        chain.log,
-                        "Rejecting optimistic block";
-                        "block_hash" => ?block_hash_opt,
-                        "msg" => "the execution engine is not synced"
-                    );
-                    return Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into());
-                }
-            }
 
             Ok(PayloadVerificationOutcome {
                 payload_verification_status,
@@ -1899,7 +1815,7 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
         .fork_choice_read_lock()
         .contains_block(&block_root)
     {
-        return Err(BlockError::BlockIsAlreadyKnown(block_root));
+        return Err(BlockError::DuplicateFullyImported(block_root));
     }
 
     Ok(block_root)

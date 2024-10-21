@@ -152,14 +152,6 @@ pub fn get_config<E: EthSpec>(
             client_config.http_api.allow_origin = Some(allow_origin.to_string());
         }
 
-        if cli_args.get_one::<String>("http-spec-fork").is_some() {
-            warn!(
-                log,
-                "Ignoring --http-spec-fork";
-                "info" => "this flag is deprecated and will be removed"
-            );
-        }
-
         if cli_args.get_flag("http-enable-tls") {
             client_config.http_api.tls_config = Some(TlsConfig {
                 cert: cli_args
@@ -173,14 +165,6 @@ pub fn get_config<E: EthSpec>(
                     .parse::<PathBuf>()
                     .map_err(|_| "http-tls-key is not a valid path name.")?,
             });
-        }
-
-        if cli_args.get_flag("http-allow-sync-stalled") {
-            warn!(
-                log,
-                "Ignoring --http-allow-sync-stalled";
-                "info" => "this flag is deprecated and will be removed"
-            );
         }
 
         client_config.http_api.sse_capacity_multiplier =
@@ -362,14 +346,6 @@ pub fn get_config<E: EthSpec>(
                     .map(Duration::from_millis);
         }
 
-        if cli_args.get_flag("always-prefer-builder-payload") {
-            warn!(
-                log,
-                "Ignoring --always-prefer-builder-payload";
-                "info" => "this flag is deprecated and will be removed"
-            );
-        }
-
         // Set config values from parse values.
         el_config.secret_file = Some(secret_file.clone());
         el_config.execution_endpoint = Some(execution_endpoint.clone());
@@ -396,13 +372,15 @@ pub fn get_config<E: EthSpec>(
     }
 
     // 4844 params
-    client_config.trusted_setup = context
+    if let Some(trusted_setup) = context
         .eth2_network_config
         .as_ref()
-        .and_then(|config| config.kzg_trusted_setup.as_ref())
-        .map(|trusted_setup_bytes| serde_json::from_slice(trusted_setup_bytes))
+        .map(|config| serde_json::from_slice(&config.kzg_trusted_setup))
         .transpose()
-        .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
+        .map_err(|e| format!("Unable to read trusted setup file: {}", e))?
+    {
+        client_config.trusted_setup = trusted_setup;
+    };
 
     // Override default trusted setup file if required
     if let Some(trusted_setup_file_path) = cli_args.get_one::<String>("trusted-setup-file-override")
@@ -411,7 +389,7 @@ pub fn get_config<E: EthSpec>(
             .map_err(|e| format!("Failed to open trusted setup file: {}", e))?;
         let trusted_setup: TrustedSetup = serde_json::from_reader(file)
             .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
-        client_config.trusted_setup = Some(trusted_setup);
+        client_config.trusted_setup = trusted_setup;
     }
 
     if let Some(freezer_dir) = cli_args.get_one::<String>("freezer-dir") {
@@ -785,14 +763,6 @@ pub fn get_config<E: EthSpec>(
             .individual_tracking_threshold = count;
     }
 
-    if cli_args.get_flag("disable-lock-timeouts") {
-        warn!(
-            log,
-            "Ignoring --disable-lock-timeouts";
-            "info" => "this flag is deprecated and will be removed"
-        );
-    }
-
     if cli_args.get_flag("disable-proposer-reorgs") {
         client_config.chain.re_org_head_threshold = None;
         client_config.chain.re_org_parent_threshold = None;
@@ -890,14 +860,6 @@ pub fn get_config<E: EthSpec>(
     if let Some(path) = clap_utils::parse_optional(cli_args, "invalid-gossip-verified-blocks-path")?
     {
         client_config.network.invalid_block_storage = Some(path);
-    }
-
-    if cli_args.get_one::<String>("progressive-balances").is_some() {
-        warn!(
-            log,
-            "Progressive balances mode is deprecated";
-            "info" => "please remove --progressive-balances"
-        );
     }
 
     if let Some(max_workers) = clap_utils::parse_optional(cli_args, "beacon-processor-max-workers")?
@@ -1485,6 +1447,20 @@ pub fn set_network_config(
             Some(Default::default())
         }
     };
+
+    if let Some(idontwant_message_size_threshold) =
+        cli_args.get_one::<String>("idontwant-message-size-threshold")
+    {
+        config.idontwant_message_size_threshold = idontwant_message_size_threshold
+            .parse::<usize>()
+            .map_err(|_| {
+                format!(
+                    "Invalid idontwant message size threshold value passed: {}",
+                    idontwant_message_size_threshold
+                )
+            })?;
+    }
+
     Ok(())
 }
 

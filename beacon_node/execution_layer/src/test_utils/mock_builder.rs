@@ -20,9 +20,9 @@ use types::builder_bid::{
 };
 use types::{
     Address, BeaconState, ChainSpec, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeaderRefMut, FixedBytesExtended, ForkName, ForkVersionedResponse, Hash256,
-    PublicKeyBytes, Signature, SignedBlindedBeaconBlock, SignedRoot,
-    SignedValidatorRegistrationData, Slot, Uint256,
+    ExecutionPayloadHeaderRefMut, ExecutionRequests, FixedBytesExtended, ForkName,
+    ForkVersionedResponse, Hash256, PublicKeyBytes, Signature, SignedBlindedBeaconBlock,
+    SignedRoot, SignedValidatorRegistrationData, Slot, Uint256,
 };
 use types::{ExecutionBlockHash, SecretKey};
 use warp::{Filter, Rejection};
@@ -209,7 +209,7 @@ impl<E: EthSpec> BidStuff<E> for BuilderBid<E> {
 pub struct MockBuilder<E: EthSpec> {
     el: ExecutionLayer<E>,
     beacon_client: BeaconNodeHttpClient,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
     val_registration_cache: Arc<RwLock<HashMap<PublicKeyBytes, SignedValidatorRegistrationData>>>,
     builder_sk: SecretKey,
     operations: Arc<RwLock<Vec<Operation>>>,
@@ -220,7 +220,7 @@ impl<E: EthSpec> MockBuilder<E> {
     pub fn new_for_testing(
         mock_el_url: SensitiveUrl,
         beacon_url: SensitiveUrl,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
         executor: TaskExecutor,
     ) -> (Self, (SocketAddr, impl Future<Output = ()>)) {
         let file = NamedTempFile::new().unwrap();
@@ -252,7 +252,7 @@ impl<E: EthSpec> MockBuilder<E> {
     pub fn new(
         el: ExecutionLayer<E>,
         beacon_client: BeaconNodeHttpClient,
-        spec: ChainSpec,
+        spec: Arc<ChainSpec>,
     ) -> Self {
         let sk = SecretKey::random();
         Self {
@@ -479,16 +479,18 @@ pub fn serve<E: EthSpec>(
                 let prev_randao = head_state
                     .get_randao_mix(head_state.current_epoch())
                     .map_err(|_| reject("couldn't get prev randao"))?;
-                let expected_withdrawals = match fork {
-                    ForkName::Base | ForkName::Altair | ForkName::Bellatrix => None,
-                    ForkName::Capella | ForkName::Deneb | ForkName::Electra => Some(
+
+                let expected_withdrawals = if fork.capella_enabled() {
+                    Some(
                         builder
                             .beacon_client
                             .get_expected_withdrawals(&StateId::Head)
                             .await
                             .unwrap()
                             .data,
-                    ),
+                    )
+                } else {
+                    None
                 };
 
                 let payload_attributes = match fork {
@@ -540,10 +542,12 @@ pub fn serve<E: EthSpec>(
 
                 let mut message = match payload_response_type {
                     crate::GetPayloadResponseType::Full(payload_response) => {
-                        let (payload, _block_value, maybe_blobs_bundle): (
+                        #[allow(clippy::type_complexity)]
+                        let (payload, _block_value, maybe_blobs_bundle, _maybe_requests): (
                             ExecutionPayload<E>,
                             Uint256,
                             Option<BlobsBundle<E>>,
+                            Option<ExecutionRequests<E>>,
                         ) = payload_response.into();
 
                         match fork {
@@ -591,10 +595,12 @@ pub fn serve<E: EthSpec>(
                         }
                     }
                     crate::GetPayloadResponseType::Blinded(payload_response) => {
-                        let (payload, _block_value, maybe_blobs_bundle): (
+                        #[allow(clippy::type_complexity)]
+                        let (payload, _block_value, maybe_blobs_bundle, _maybe_requests): (
                             ExecutionPayload<E>,
                             Uint256,
                             Option<BlobsBundle<E>>,
+                            Option<ExecutionRequests<E>>,
                         ) = payload_response.into();
                         match fork {
                             ForkName::Electra => BuilderBid::Electra(BuilderBidElectra {

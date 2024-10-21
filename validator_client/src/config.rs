@@ -1,6 +1,8 @@
 use crate::beacon_node_fallback::ApiTopic;
 use crate::graffiti_file::GraffitiFile;
-use crate::{http_api, http_metrics};
+use crate::{
+    beacon_node_fallback, beacon_node_health::BeaconNodeSyncDistanceTiers, http_api, http_metrics,
+};
 use clap::ArgMatches;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional, parse_required};
 use directory::{
@@ -14,6 +16,7 @@ use slog::{info, warn, Logger};
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
 
@@ -21,7 +24,7 @@ pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 pub const DEFAULT_WEB3SIGNER_KEEP_ALIVE: Option<Duration> = Some(Duration::from_secs(20));
 
 /// Stores the core configuration for this validator instance.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     /// The data directory, which stores all validator databases
     pub validator_dir: PathBuf,
@@ -52,6 +55,8 @@ pub struct Config {
     pub http_api: http_api::Config,
     /// Configuration for the HTTP REST API.
     pub http_metrics: http_metrics::Config,
+    /// Configuration for the Beacon Node fallback.
+    pub beacon_node_fallback: beacon_node_fallback::Config,
     /// Configuration for sending metrics to a remote explorer endpoint.
     pub monitoring_api: Option<monitoring_api::Config>,
     /// If true, enable functionality that monitors the network for attestations or proposals from
@@ -117,6 +122,7 @@ impl Default for Config {
             fee_recipient: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
+            beacon_node_fallback: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
             enable_high_validator_count_metrics: false,
@@ -238,14 +244,6 @@ impl Config {
             config.distributed = true;
         }
 
-        if cli_args.get_flag("disable-run-on-all") {
-            warn!(
-                log,
-                "The --disable-run-on-all flag is deprecated";
-                "msg" => "please use --broadcast instead"
-            );
-            config.broadcast_topics = vec![];
-        }
         if let Some(broadcast_topics) = cli_args.get_one::<String>("broadcast") {
             config.broadcast_topics = broadcast_topics
                 .split(',')
@@ -256,6 +254,16 @@ impl Config {
                         .map_err(|_| format!("Unknown API topic to broadcast: {t}"))
                 })
                 .collect::<Result<_, _>>()?;
+        }
+
+        /*
+         * Beacon node fallback
+         */
+        if let Some(sync_tolerance) = cli_args.get_one::<String>("beacon-nodes-sync-tolerances") {
+            config.beacon_node_fallback.sync_tolerances =
+                BeaconNodeSyncDistanceTiers::from_str(sync_tolerance)?;
+        } else {
+            config.beacon_node_fallback.sync_tolerances = BeaconNodeSyncDistanceTiers::default();
         }
 
         /*
@@ -381,14 +389,6 @@ impl Config {
             config.prefer_builder_proposals = true;
         }
 
-        if cli_args.get_flag("produce-block-v3") {
-            warn!(
-                log,
-                "produce-block-v3 flag";
-                "note" => "deprecated flag has no effect and should be removed"
-            );
-        }
-
         config.gas_limit = cli_args
             .get_one::<String>("gas-limit")
             .map(|gas_limit| {
@@ -412,17 +412,6 @@ impl Config {
 
         config.enable_latency_measurement_service =
             !cli_args.get_flag("disable-latency-measurement-service");
-
-        if cli_args
-            .get_one::<String>("latency-measurement-service")
-            .is_some()
-        {
-            warn!(
-                log,
-                "latency-measurement-service flag";
-                "note" => "deprecated flag has no effect and should be removed"
-            );
-        }
 
         config.validator_registration_batch_size =
             parse_required(cli_args, "validator-registration-batch-size")?;

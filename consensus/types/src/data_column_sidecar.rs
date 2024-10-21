@@ -158,6 +158,7 @@ pub enum DataColumnSidecarError {
     DataColumnIndexOutOfBounds,
     KzgCommitmentInclusionProofOutOfBounds,
     KzgError(KzgError),
+    KzgNotInitialized,
     MissingBlobSidecars,
     PreDeneb,
     SszError(SszError),
