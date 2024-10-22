@@ -21,7 +21,7 @@ use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
 use types::non_zero_usize::new_non_zero_usize;
-use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, Hash256, MainnetEthSpec};
+use types::{Address, Checkpoint, Epoch, Hash256, MainnetEthSpec};
 use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
@@ -742,16 +742,14 @@ fn jwt_optional_flags() {
 fn jwt_optional_alias_flags() {
     run_jwt_optional_flags_test("jwt-secrets", "jwt-id", "jwt-version");
 }
+// DEPRECATED. This flag is deprecated but should not cause a crash.
 #[test]
 fn terminal_total_difficulty_override_flag() {
-    use beacon_node::beacon_chain::types::Uint256;
     CommandLineTest::new()
         .flag("terminal-total-difficulty-override", Some("1337424242"))
-        .run_with_zero_port()
-        .with_spec::<MainnetEthSpec, _>(|spec| {
-            assert_eq!(spec.terminal_total_difficulty, Uint256::from(1337424242))
-        });
+        .run_with_zero_port();
 }
+// DEPRECATED. This flag is deprecated but should not cause a crash.
 #[test]
 fn terminal_block_hash_and_activation_epoch_override_flags() {
     CommandLineTest::new()
@@ -760,43 +758,14 @@ fn terminal_block_hash_and_activation_epoch_override_flags() {
             "terminal-block-hash-override",
             Some("0x4242424242424242424242424242424242424242424242424242424242424242"),
         )
-        .run_with_zero_port()
-        .with_spec::<MainnetEthSpec, _>(|spec| {
-            assert_eq!(
-                spec.terminal_block_hash,
-                ExecutionBlockHash::from_str(
-                    "0x4242424242424242424242424242424242424242424242424242424242424242"
-                )
-                .unwrap()
-            );
-            assert_eq!(spec.terminal_block_hash_activation_epoch, 1337);
-        });
-}
-#[test]
-#[should_panic]
-fn terminal_block_hash_missing_activation_epoch() {
-    CommandLineTest::new()
-        .flag(
-            "terminal-block-hash-override",
-            Some("0x4242424242424242424242424242424242424242424242424242424242424242"),
-        )
         .run_with_zero_port();
 }
-#[test]
-#[should_panic]
-fn epoch_override_missing_terminal_block_hash() {
-    CommandLineTest::new()
-        .flag("terminal-block-hash-epoch-override", Some("1337"))
-        .run_with_zero_port();
-}
+// DEPRECATED. This flag is deprecated but should not cause a crash.
 #[test]
 fn safe_slots_to_import_optimistically_flag() {
     CommandLineTest::new()
         .flag("safe-slots-to-import-optimistically", Some("421337"))
-        .run_with_zero_port()
-        .with_spec::<MainnetEthSpec, _>(|spec| {
-            assert_eq!(spec.safe_slots_to_import_optimistically, 421337)
-        });
+        .run_with_zero_port();
 }
 
 // Tests for Network flags.
