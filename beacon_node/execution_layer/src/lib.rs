@@ -318,6 +318,16 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
     }
 }
 
+// This just groups together a bunch of parameters that commonly
+// get passed around together in calls to get_payload.
+#[derive(Clone, Copy)]
+pub struct PayloadParameters<'a> {
+    pub parent_hash: ExecutionBlockHash,
+    pub payload_attributes: &'a PayloadAttributes,
+    pub forkchoice_update_params: &'a ForkchoiceUpdateParameters,
+    pub current_fork: ForkName,
+}
+
 #[derive(Clone, PartialEq)]
 pub struct ProposerPreparationDataEntry {
     update_epoch: Epoch,
@@ -853,14 +863,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ///
     /// The result will be returned from the first node that returns successfully. No more nodes
     /// will be contacted.
-    #[allow(clippy::too_many_arguments)]
     pub async fn get_payload(
         &self,
-        parent_hash: ExecutionBlockHash,
-        payload_attributes: &PayloadAttributes,
-        forkchoice_update_params: ForkchoiceUpdateParameters,
+        payload_parameters: PayloadParameters<'_>,
         builder_params: BuilderParams,
-        current_fork: ForkName,
         spec: &ChainSpec,
         builder_boost_factor: Option<u64>,
         block_production_version: BlockProductionVersion,
@@ -868,11 +874,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let payload_result_type = match block_production_version {
             BlockProductionVersion::V3 => match self
                 .determine_and_fetch_payload(
-                    parent_hash,
-                    payload_attributes,
-                    forkchoice_update_params,
+                    payload_parameters,
                     builder_params,
-                    current_fork,
                     builder_boost_factor,
                     spec,
                 )
@@ -892,25 +895,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     &metrics::EXECUTION_LAYER_REQUEST_TIMES,
                     &[metrics::GET_BLINDED_PAYLOAD],
                 );
-                self.determine_and_fetch_payload(
-                    parent_hash,
-                    payload_attributes,
-                    forkchoice_update_params,
-                    builder_params,
-                    current_fork,
-                    None,
-                    spec,
-                )
-                .await?
+                self.determine_and_fetch_payload(payload_parameters, builder_params, None, spec)
+                    .await?
             }
             BlockProductionVersion::FullV2 => self
-                .get_full_payload_with(
-                    parent_hash,
-                    payload_attributes,
-                    forkchoice_update_params,
-                    current_fork,
-                    noop,
-                )
+                .get_full_payload_with(payload_parameters, noop)
                 .await
                 .and_then(GetPayloadResponseType::try_into)
                 .map(ProvenancedPayload::Local)?,
@@ -957,17 +946,15 @@ impl<E: EthSpec> ExecutionLayer<E> {
     async fn fetch_builder_and_local_payloads(
         &self,
         builder: &BuilderHttpClient,
-        parent_hash: ExecutionBlockHash,
         builder_params: &BuilderParams,
-        payload_attributes: &PayloadAttributes,
-        forkchoice_update_params: ForkchoiceUpdateParameters,
-        current_fork: ForkName,
+        payload_parameters: PayloadParameters<'_>,
     ) -> (
         Result<Option<ForkVersionedResponse<SignedBuilderBid<E>>>, builder_client::Error>,
         Result<GetPayloadResponse<E>, Error>,
     ) {
         let slot = builder_params.slot;
         let pubkey = &builder_params.pubkey;
+        let parent_hash = payload_parameters.parent_hash;
 
         info!(
             self.log(),
@@ -985,17 +972,12 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     .await
             }),
             timed_future(metrics::GET_BLINDED_PAYLOAD_LOCAL, async {
-                self.get_full_payload_caching(
-                    parent_hash,
-                    payload_attributes,
-                    forkchoice_update_params,
-                    current_fork,
-                )
-                .await
-                .and_then(|local_result_type| match local_result_type {
-                    GetPayloadResponseType::Full(payload) => Ok(payload),
-                    GetPayloadResponseType::Blinded(_) => Err(Error::PayloadTypeMismatch),
-                })
+                self.get_full_payload_caching(payload_parameters)
+                    .await
+                    .and_then(|local_result_type| match local_result_type {
+                        GetPayloadResponseType::Full(payload) => Ok(payload),
+                        GetPayloadResponseType::Blinded(_) => Err(Error::PayloadTypeMismatch),
+                    })
             })
         );
 
@@ -1019,26 +1001,17 @@ impl<E: EthSpec> ExecutionLayer<E> {
         (relay_result, local_result)
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn determine_and_fetch_payload(
         &self,
-        parent_hash: ExecutionBlockHash,
-        payload_attributes: &PayloadAttributes,
-        forkchoice_update_params: ForkchoiceUpdateParameters,
+        payload_parameters: PayloadParameters<'_>,
         builder_params: BuilderParams,
-        current_fork: ForkName,
         builder_boost_factor: Option<u64>,
         spec: &ChainSpec,
     ) -> Result<ProvenancedPayload<BlockProposalContentsType<E>>, Error> {
         let Some(builder) = self.builder() else {
             // no builder.. return local payload
             return self
-                .get_full_payload_caching(
-                    parent_hash,
-                    payload_attributes,
-                    forkchoice_update_params,
-                    current_fork,
-                )
+                .get_full_payload_caching(payload_parameters)
                 .await
                 .and_then(GetPayloadResponseType::try_into)
                 .map(ProvenancedPayload::Local);
@@ -1069,26 +1042,15 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 ),
             }
             return self
-                .get_full_payload_caching(
-                    parent_hash,
-                    payload_attributes,
-                    forkchoice_update_params,
-                    current_fork,
-                )
+                .get_full_payload_caching(payload_parameters)
                 .await
                 .and_then(GetPayloadResponseType::try_into)
                 .map(ProvenancedPayload::Local);
         }
 
+        let parent_hash = payload_parameters.parent_hash;
         let (relay_result, local_result) = self
-            .fetch_builder_and_local_payloads(
-                builder.as_ref(),
-                parent_hash,
-                &builder_params,
-                payload_attributes,
-                forkchoice_update_params,
-                current_fork,
-            )
+            .fetch_builder_and_local_payloads(builder.as_ref(), &builder_params, payload_parameters)
             .await;
 
         match (relay_result, local_result) {
@@ -1153,14 +1115,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 );
 
                 // check relay payload validity
-                if let Err(reason) = verify_builder_bid(
-                    &relay,
-                    parent_hash,
-                    payload_attributes,
-                    Some(local.block_number()),
-                    current_fork,
-                    spec,
-                ) {
+                if let Err(reason) =
+                    verify_builder_bid(&relay, payload_parameters, Some(local.block_number()), spec)
+                {
                     // relay payload invalid -> return local
                     metrics::inc_counter_vec(
                         &metrics::EXECUTION_LAYER_GET_PAYLOAD_BUILDER_REJECTIONS,
@@ -1237,14 +1194,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     "parent_hash" => ?parent_hash,
                 );
 
-                match verify_builder_bid(
-                    &relay,
-                    parent_hash,
-                    payload_attributes,
-                    None,
-                    current_fork,
-                    spec,
-                ) {
+                match verify_builder_bid(&relay, payload_parameters, None, spec) {
                     Ok(()) => Ok(ProvenancedPayload::try_from(relay.data.message)?),
                     Err(reason) => {
                         metrics::inc_counter_vec(
@@ -1269,32 +1219,27 @@ impl<E: EthSpec> ExecutionLayer<E> {
     /// Get a full payload and cache its result in the execution layer's payload cache.
     async fn get_full_payload_caching(
         &self,
-        parent_hash: ExecutionBlockHash,
-        payload_attributes: &PayloadAttributes,
-        forkchoice_update_params: ForkchoiceUpdateParameters,
-        current_fork: ForkName,
+        payload_parameters: PayloadParameters<'_>,
     ) -> Result<GetPayloadResponseType<E>, Error> {
-        self.get_full_payload_with(
-            parent_hash,
-            payload_attributes,
-            forkchoice_update_params,
-            current_fork,
-            Self::cache_payload,
-        )
-        .await
+        self.get_full_payload_with(payload_parameters, Self::cache_payload)
+            .await
     }
 
     async fn get_full_payload_with(
         &self,
-        parent_hash: ExecutionBlockHash,
-        payload_attributes: &PayloadAttributes,
-        forkchoice_update_params: ForkchoiceUpdateParameters,
-        current_fork: ForkName,
+        payload_parameters: PayloadParameters<'_>,
         cache_fn: fn(
             &ExecutionLayer<E>,
             PayloadContentsRefTuple<E>,
         ) -> Option<FullPayloadContents<E>>,
     ) -> Result<GetPayloadResponseType<E>, Error> {
+        let PayloadParameters {
+            parent_hash,
+            payload_attributes,
+            forkchoice_update_params,
+            current_fork,
+        } = payload_parameters;
+
         self.engine()
             .request(move |engine| async move {
                 let payload_id = if let Some(id) = engine
@@ -2047,12 +1992,17 @@ impl fmt::Display for InvalidBuilderPayload {
 /// Perform some cursory, non-exhaustive validation of the bid returned from the builder.
 fn verify_builder_bid<E: EthSpec>(
     bid: &ForkVersionedResponse<SignedBuilderBid<E>>,
-    parent_hash: ExecutionBlockHash,
-    payload_attributes: &PayloadAttributes,
+    payload_parameters: PayloadParameters<'_>,
     block_number: Option<u64>,
-    current_fork: ForkName,
     spec: &ChainSpec,
 ) -> Result<(), Box<InvalidBuilderPayload>> {
+    let PayloadParameters {
+        parent_hash,
+        payload_attributes,
+        current_fork,
+        ..
+    } = payload_parameters;
+
     let is_signature_valid = bid.data.verify_signature(spec);
     let header = &bid.data.message.header();
 

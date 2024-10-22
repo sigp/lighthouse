@@ -1,5 +1,5 @@
 use crate::test_utils::{DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_JWT_SECRET};
-use crate::{Config, ExecutionLayer, PayloadAttributes};
+use crate::{Config, ExecutionLayer, PayloadAttributes, PayloadParameters};
 use eth2::types::{BlobsBundle, BlockId, StateId, ValidatorId};
 use eth2::{BeaconNodeHttpClient, Timeouts, CONSENSUS_VERSION_HEADER};
 use fork_choice::ForkchoiceUpdateParameters;
@@ -529,14 +529,16 @@ pub fn serve<E: EthSpec>(
                     finalized_hash: Some(finalized_execution_hash),
                 };
 
+                let payload_parameters = PayloadParameters {
+                    parent_hash: head_execution_hash,
+                    payload_attributes: &payload_attributes,
+                    forkchoice_update_params: &forkchoice_update_params,
+                    current_fork: fork,
+                };
+
                 let payload_response_type = builder
                     .el
-                    .get_full_payload_caching(
-                        head_execution_hash,
-                        &payload_attributes,
-                        forkchoice_update_params,
-                        fork,
-                    )
+                    .get_full_payload_caching(payload_parameters)
                     .await
                     .map_err(|_| reject("couldn't get payload"))?;
 

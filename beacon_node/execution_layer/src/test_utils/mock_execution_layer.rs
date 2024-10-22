@@ -131,14 +131,18 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         let payload_attributes =
             PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None, None);
 
+        let payload_parameters = PayloadParameters {
+            parent_hash,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: ForkName::Bellatrix,
+        };
+
         let block_proposal_content_type = self
             .el
             .get_payload(
-                parent_hash,
-                &payload_attributes,
-                forkchoice_update_params,
+                payload_parameters,
                 builder_params,
-                ForkName::Bellatrix,
                 &self.spec,
                 None,
                 BlockProductionVersion::FullV2,
@@ -171,14 +175,18 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         let payload_attributes =
             PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None, None);
 
+        let payload_parameters = PayloadParameters {
+            parent_hash,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: ForkName::Bellatrix,
+        };
+
         let block_proposal_content_type = self
             .el
             .get_payload(
-                parent_hash,
-                &payload_attributes,
-                forkchoice_update_params,
+                payload_parameters,
                 builder_params,
-                ForkName::Bellatrix,
                 &self.spec,
                 None,
                 BlockProductionVersion::BlindedV2,

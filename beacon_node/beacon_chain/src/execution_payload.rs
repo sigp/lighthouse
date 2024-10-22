@@ -14,7 +14,7 @@ use crate::{
 };
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, NewPayloadRequest,
-    PayloadAttributes, PayloadStatus,
+    PayloadAttributes, PayloadParameters, PayloadStatus,
 };
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
@@ -526,13 +526,17 @@ where
         parent_beacon_block_root,
     );
 
+    let payload_parameters = PayloadParameters {
+        parent_hash,
+        payload_attributes: &payload_attributes,
+        forkchoice_update_params: &forkchoice_update_params,
+        current_fork: fork,
+    };
+
     let block_contents = execution_layer
         .get_payload(
-            parent_hash,
-            &payload_attributes,
-            forkchoice_update_params,
+            payload_parameters,
             builder_params,
-            fork,
             &chain.spec,
             builder_boost_factor,
             block_production_version,
