@@ -183,7 +183,7 @@ test-exec-engine:
 # test vectors.
 test: test-release
 
-# Updates the CLI help text pages in the Lighthouse book, building with Docker.
+# Updates the CLI help text pages in the Lighthouse book, building with Docker (primarily for Windows users).
 cli:
 	docker run --rm --user=root \
 	-v ${PWD}:/home/runner/actions-runner/lighthouse sigmaprime/github-runner \
