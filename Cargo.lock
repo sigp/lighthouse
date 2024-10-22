@@ -7673,12 +7673,14 @@ dependencies = [
  "execution_layer",
  "futures",
  "kzg",
+ "logging",
  "node_test_rig",
  "parking_lot 0.12.3",
  "rayon",
  "sensitive_url",
  "serde_json",
  "tokio",
+ "tracing-subscriber",
  "types",
 ]
 

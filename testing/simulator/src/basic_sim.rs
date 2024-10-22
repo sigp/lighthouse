@@ -13,6 +13,13 @@ use rayon::prelude::*;
 use std::cmp::max;
 use std::sync::Arc;
 use std::time::Duration;
+
+use logging::{MetricsLayer, SSE_LOGGING_COMPONENTS};
+use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, MinimalEthSpec};
 
@@ -81,21 +88,73 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         })
         .collect::<Vec<_>>();
 
-    let (env_builder, _file_logging_layer, _stdout_logging_layer) = EnvironmentBuilder::minimal()
-        .init_tracing(LoggerConfig {
-            path: None,
-            debug_level: log_level.clone(),
-            logfile_debug_level: log_level.clone(),
-            log_format: None,
-            logfile_format: None,
-            log_color: false,
-            disable_log_timestamp: false,
-            max_log_size: 0,
-            max_log_number: 0,
-            compression: false,
-            is_restricted: true,
-            sse_logging: false,
-        });
+    let logger_config = LoggerConfig {
+        path: None,
+        debug_level: log_level.clone(),
+        logfile_debug_level: log_level.clone(),
+        log_format: None,
+        logfile_format: None,
+        log_color: false,
+        disable_log_timestamp: false,
+        max_log_size: 0,
+        max_log_number: 0,
+        compression: false,
+        is_restricted: true,
+        sse_logging: false,
+    };
+
+    let (env_builder, file_logging_layer, stdout_logging_layer) =
+        EnvironmentBuilder::minimal().init_tracing(logger_config.clone());
+
+    let filter_layer = EnvFilter::try_from_default_env()
+        .or_else(|_| EnvFilter::try_new(log_level.to_lowercase().as_str()))
+        .unwrap();
+
+    let (libp2p_non_blocking_writer, _libp2p_guard, discv5_non_blocking_writer, _discv5_guard) =
+        logging::create_tracing_layer(logger_config.path.clone());
+    let libp2p_layer = tracing_subscriber::fmt::layer()
+        .with_writer(libp2p_non_blocking_writer)
+        .with_line_number(true);
+
+    let discv5_layer = tracing_subscriber::fmt::layer()
+        .with_writer(discv5_non_blocking_writer)
+        .with_line_number(true);
+
+    let sse_logging_layer = match SSE_LOGGING_COMPONENTS.lock() {
+        Ok(guard) => guard.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    };
+
+    let stdout_level = match logger_config.debug_level.to_lowercase().as_str() {
+        "error" => LevelFilter::ERROR,
+        "warn" => LevelFilter::WARN,
+        "info" => LevelFilter::INFO,
+        "debug" => LevelFilter::DEBUG,
+        "trace" => LevelFilter::TRACE,
+        _ => LevelFilter::INFO,
+    };
+
+    let file_level = match logger_config.logfile_debug_level.to_lowercase().as_str() {
+        "error" => LevelFilter::ERROR,
+        "warn" => LevelFilter::WARN,
+        "info" => LevelFilter::INFO,
+        "debug" => LevelFilter::DEBUG,
+        "trace" => LevelFilter::TRACE,
+        _ => LevelFilter::INFO,
+    };
+
+    if let Err(e) = tracing_subscriber::registry()
+        .with(filter_layer)
+        .with(libp2p_layer)
+        .with(discv5_layer)
+        .with(file_logging_layer.with_filter(file_level))
+        .with(stdout_logging_layer.with_filter(stdout_level))
+        .with(sse_logging_layer)
+        .with(MetricsLayer)
+        .try_init()
+    {
+        eprintln!("Failed to initialize dependency logging: {e}");
+    }
 
     let mut env = env_builder.multi_threaded_tokio_runtime()?.build()?;
 
