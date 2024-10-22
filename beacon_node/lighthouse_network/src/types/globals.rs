@@ -82,7 +82,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
             peers: RwLock::new(PeerDB::new(trusted_peers, disable_peer_scoring, log)),
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
             sync_state: RwLock::new(SyncState::Stalled),
-            backfill_state: RwLock::new(BackFillState::NotRequired),
+            backfill_state: RwLock::new(BackFillState::Paused),
             sampling_subnets,
             sampling_columns,
             config,

@@ -658,16 +658,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                 peer_action: None,
                             }
                         }
-                        HistoricalBlockError::NoAnchorInfo => {
-                            warn!(self.log, "Backfill not required");
-
-                            ChainSegmentFailed {
-                                message: String::from("no_anchor_info"),
-                                // There is no need to do a historical sync, this is not a fault of
-                                // the peer.
-                                peer_action: None,
-                            }
-                        }
                         HistoricalBlockError::IndexOutOfBounds => {
                             error!(
                                 self.log,

@@ -1953,6 +1953,7 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     let attestation_stats = beacon_chain.op_pool.attestation_stats();
     let chain_metrics = beacon_chain.metrics();
 
+    // Kept duplicated for backwards compatibility
     set_gauge_by_usize(
         &BLOCK_PROCESSING_SNAPSHOT_CACHE_SIZE,
         beacon_chain.store.state_cache_len(),
@@ -2016,6 +2017,8 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
         .canonical_head
         .fork_choice_read_lock()
         .scrape_for_metrics();
+
+    beacon_chain.store.register_metrics();
 }
 
 /// Scrape the given `state` assuming it's the head state, updating the `DEFAULT_REGISTRY`.

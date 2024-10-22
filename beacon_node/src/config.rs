@@ -400,13 +400,6 @@ pub fn get_config<E: EthSpec>(
         client_config.blobs_db_path = Some(PathBuf::from(blobs_db_dir));
     }
 
-    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(clap_utils::parse_optional(
-        cli_args,
-        "slots-per-restore-point",
-    )?)?;
-    client_config.store.slots_per_restore_point = sprp;
-    client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
-
     if let Some(block_cache_size) = cli_args.get_one::<String>("block-cache-size") {
         client_config.store.block_cache_size = block_cache_size
             .parse()
@@ -419,11 +412,16 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "state-cache-size is not a valid integer".to_string())?;
     }
 
-    if let Some(historic_state_cache_size) = cli_args.get_one::<String>("historic-state-cache-size")
+    if let Some(historic_state_cache_size) =
+        clap_utils::parse_optional(cli_args, "historic-state-cache-size")?
     {
-        client_config.store.historic_state_cache_size = historic_state_cache_size
-            .parse()
-            .map_err(|_| "historic-state-cache-size is not a valid integer".to_string())?;
+        client_config.store.historic_state_cache_size = historic_state_cache_size;
+    }
+
+    if let Some(hdiff_buffer_cache_size) =
+        clap_utils::parse_optional(cli_args, "hdiff-buffer-cache-size")?
+    {
+        client_config.store.hdiff_buffer_cache_size = hdiff_buffer_cache_size;
     }
 
     client_config.store.compact_on_init = cli_args.get_flag("compact-db");
@@ -435,6 +433,10 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(prune_payloads) = clap_utils::parse_optional(cli_args, "prune-payloads")? {
         client_config.store.prune_payloads = prune_payloads;
+    }
+
+    if let Some(hierarchy_config) = clap_utils::parse_optional(cli_args, "hierarchy-exponents")? {
+        client_config.store.hierarchy_config = hierarchy_config;
     }
 
     if let Some(epochs_per_migration) =
@@ -1482,23 +1484,6 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
             })
         })
         .unwrap_or_else(|| PathBuf::from("."))
-}
-
-/// Get the `slots_per_restore_point` value to use for the database.
-///
-/// Return `(sprp, set_explicitly)` where `set_explicitly` is `true` if the user provided the value.
-pub fn get_slots_per_restore_point<E: EthSpec>(
-    slots_per_restore_point: Option<u64>,
-) -> Result<(u64, bool), String> {
-    if let Some(slots_per_restore_point) = slots_per_restore_point {
-        Ok((slots_per_restore_point, true))
-    } else {
-        let default = std::cmp::min(
-            E::slots_per_historical_root() as u64,
-            store::config::DEFAULT_SLOTS_PER_RESTORE_POINT,
-        );
-        Ok((default, false))
-    }
 }
 
 /// Parses the `cli_value` as a comma-separated string of values to be parsed with `parser`.

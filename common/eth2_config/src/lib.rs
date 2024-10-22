@@ -32,6 +32,7 @@ const HOLESKY_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url
     ],
     checksum: "0xd750639607c337bbb192b15c27f447732267bf72d1650180a0e44c2d93a80741",
     genesis_validators_root: "0x9143aa7c615a7f7115e2b6aac319c03529df8242ae705fba9df39b79c59fa8b1",
+    genesis_state_root: "0x0ea3f6f9515823b59c863454675fefcd1d8b4f2dbe454db166206a41fda060a0",
 };
 
 const CHIADO_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url {
@@ -39,6 +40,7 @@ const CHIADO_GENESIS_STATE_SOURCE: GenesisStateSource = GenesisStateSource::Url 
     urls: &[],
     checksum: "0xd4a039454c7429f1dfaa7e11e397ef3d0f50d2d5e4c0e4dc04919d153aa13af1",
     genesis_validators_root: "0x9d642dac73058fbf39c0ae41ab1e34e4d889043cb199851ded7095bc99eb4c1e",
+    genesis_state_root: "0xa48419160f8f146ecaa53d12a5d6e1e6af414a328afdc56b60d5002bb472a077",
 };
 
 /// The core configuration of a Lighthouse beacon node.
@@ -100,6 +102,10 @@ pub enum GenesisStateSource {
         ///
         /// The format should be 0x-prefixed ASCII bytes.
         genesis_validators_root: &'static str,
+        /// The genesis state root.
+        ///
+        /// The format should be 0x-prefixed ASCII bytes.
+        genesis_state_root: &'static str,
     },
 }
 
