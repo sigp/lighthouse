@@ -98,7 +98,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
 
     if num_fetched_blobs == 0 {
         debug!(
-            chain.log,
+           log,
             "No blobs fetched from the EL";
             "num_expected_blobs" => num_expected_blobs,
         );

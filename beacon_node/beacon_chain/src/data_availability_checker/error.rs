@@ -1,5 +1,4 @@
 use kzg::{Error as KzgError, KzgCommitment};
-use types::data_column_sidecar::DataColumnSidecarError;
 use types::{BeaconStateError, ColumnIndex, Hash256};
 
 #[derive(Debug)]
@@ -11,7 +10,6 @@ pub enum Error {
         blob_commitment: KzgCommitment,
         block_commitment: KzgCommitment,
     },
-    UnableToDetermineImportRequirement,
     Unexpected,
     SszTypes(ssz_types::Error),
     MissingBlobs,
@@ -24,7 +22,6 @@ pub enum Error {
     BlockReplayError(state_processing::BlockReplayError),
     RebuildingStateCaches(BeaconStateError),
     SlotClockError,
-    DataColumnSidecarError(DataColumnSidecarError),
 }
 
 #[derive(PartialEq, Eq)]
@@ -46,10 +43,8 @@ impl Error {
             | Error::Unexpected
             | Error::ParentStateMissing(_)
             | Error::BlockReplayError(_)
-            | Error::UnableToDetermineImportRequirement
             | Error::RebuildingStateCaches(_)
-            | Error::SlotClockError
-            | Error::DataColumnSidecarError(_) => ErrorCategory::Internal,
+            | Error::SlotClockError => ErrorCategory::Internal,
             Error::InvalidBlobs { .. }
             | Error::InvalidColumn { .. }
             | Error::ReconstructColumnsError { .. }

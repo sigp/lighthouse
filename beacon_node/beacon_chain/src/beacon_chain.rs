@@ -3899,7 +3899,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // end up with blocks in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
         let (_, signed_block, blobs, data_columns) = signed_block.deconstruct();
-        // TODO(das) we currently store all subnet sampled columns. Tracking issue to exclude non custody columns: https://github.com/sigp/lighthouse/issues/6465
+        // TODO(das) we currently store all subnet sampled columns. Tracking issue to exclude non
+        // custody columns: https://github.com/sigp/lighthouse/issues/6465
         let custody_columns_count = self.data_availability_checker.get_sampling_column_count();
         // if block is made available via blobs, dropped the data columns.
         let data_columns = data_columns.filter(|columns| columns.len() == custody_columns_count);

@@ -93,6 +93,7 @@ pub fn cli_app() -> Command {
                 .help_heading(FLAG_HEADER)
                 .help("Number of batches that supernodes split data columns into during publishing by a non-proposer. For PeerDAS only.")
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("supernode-data-column-publication-batch-interval")
@@ -101,6 +102,7 @@ pub fn cli_app() -> Command {
                 .help_heading(FLAG_HEADER)
                 .help("The delay in milliseconds applied by supernodes between the sending of each data column batch. For PeerDAS only.")
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("subscribe-all-subnets")
