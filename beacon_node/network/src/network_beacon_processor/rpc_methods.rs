@@ -93,20 +93,42 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // current slot. This could be because they are using a different genesis time, or that
             // their or our system's clock is incorrect.
             Some("Different system clocks or genesis time".to_string())
-        } else if remote.finalized_epoch <= local.finalized_epoch
-            && remote.finalized_root != Hash256::zero()
-            && local.finalized_root != Hash256::zero()
-            && self
-                .chain
-                .block_root_at_slot(start_slot(remote.finalized_epoch), WhenSlotSkipped::Prev)
-                .map(|root_opt| root_opt != Some(remote.finalized_root))?
+        } else if (remote.finalized_epoch == local.finalized_epoch
+            && remote.finalized_root == local.finalized_root)
+            || remote.finalized_root.is_zero()
+            || local.finalized_root.is_zero()
+            || remote.finalized_epoch > local.finalized_epoch
         {
-            // The remote's finalized epoch is less than or equal to ours, but the block root is
-            // different to the one in our chain. Therefore, the node is on a different chain and we
-            // should not communicate with them.
-            Some("Different finalized chain".to_string())
-        } else {
+            // Fast path. Remote finalized checkpoint is either identical, or genesis, or we are at
+            // genesis, or they are ahead. In all cases, we should allow this peer to connect to us
+            // so we can sync from them.
             None
+        } else {
+            // Remote finalized epoch is less than ours.
+            let remote_finalized_slot = start_slot(remote.finalized_epoch);
+            if remote_finalized_slot < self.chain.store.get_oldest_block_slot() {
+                // Peer's finalized checkpoint is older than anything in our DB. We are unlikely
+                // to be able to help them sync.
+                Some("Old finality out of range".to_string())
+            } else if remote_finalized_slot < self.chain.store.get_split_slot() {
+                // Peer's finalized slot is in range for a quick block root check in our freezer DB.
+                // If that block root check fails, reject them as they're on a different finalized
+                // chain.
+                if self
+                    .chain
+                    .block_root_at_slot(remote_finalized_slot, WhenSlotSkipped::Prev)
+                    .map(|root_opt| root_opt != Some(remote.finalized_root))?
+                {
+                    Some("Different finalized chain".to_string())
+                } else {
+                    None
+                }
+            } else {
+                // Peer's finality is older than ours, but newer than our split point, making a
+                // block root check infeasible. This case shouldn't happen particularly often so
+                // we give the peer the benefit of the doubt and let them connect to us.
+                None
+            }
         };
 
         Ok(irrelevant_reason)
