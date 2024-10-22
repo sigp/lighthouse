@@ -10,13 +10,14 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
+use methods::LightClientUpdatesByRangeRequest;
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 use types::blob_sidecar::BlobIdentifier;
-use types::{Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, Slot};
+use types::{Epoch, EthSpec, FixedBytesExtended, Hash256, Slot};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
@@ -428,6 +429,105 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         Ok(())
     }
 
+    pub fn handle_light_client_updates_by_range(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
+        substream_id: SubstreamId,
+        request_id: RequestId,
+        request: LightClientUpdatesByRangeRequest,
+    ) {
+        self.terminate_response_stream(
+            peer_id,
+            connection_id,
+            substream_id,
+            request_id,
+            self.clone()
+                .handle_light_client_updates_by_range_request_inner(
+                    peer_id,
+                    connection_id,
+                    substream_id,
+                    request_id,
+                    request,
+                ),
+            Response::LightClientUpdatesByRange,
+        );
+    }
+
+    /// Handle a `LightClientUpdatesByRange` request from the peer.
+    pub fn handle_light_client_updates_by_range_request_inner(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
+        substream_id: SubstreamId,
+        request_id: RequestId,
+        req: LightClientUpdatesByRangeRequest,
+    ) -> Result<(), (RpcErrorResponse, &'static str)> {
+        debug!(self.log, "Received LightClientUpdatesByRange Request";
+            "peer_id" => %peer_id,
+            "count" => req.count,
+            "start_period" => req.start_period,
+        );
+
+        // Should not send more than max light client updates
+        let max_request_size: u64 = req.max_requested();
+        if req.count > max_request_size {
+            return Err((
+                RpcErrorResponse::InvalidRequest,
+                "Request exceeded max size",
+            ));
+        }
+
+        let lc_updates = match self
+            .chain
+            .get_light_client_updates(req.start_period, req.count)
+        {
+            Ok(lc_updates) => lc_updates,
+            Err(e) => {
+                error!(self.log, "Unable to obtain light client updates";
+                    "request" => ?req,
+                    "peer" => %peer_id,
+                    "error" => ?e
+                );
+                return Err((RpcErrorResponse::ServerError, "Database error"));
+            }
+        };
+
+        for lc_update in lc_updates.iter() {
+            self.send_network_message(NetworkMessage::SendResponse {
+                peer_id,
+                response: Response::LightClientUpdatesByRange(Some(Arc::new(lc_update.clone()))),
+                request_id,
+                id: (connection_id, substream_id),
+            });
+        }
+
+        let lc_updates_sent = lc_updates.len();
+
+        if lc_updates_sent < req.count as usize {
+            debug!(
+                self.log,
+                "LightClientUpdatesByRange outgoing response processed";
+                "peer" => %peer_id,
+                "info" => "Failed to return all requested light client updates. The peer may have requested data ahead of whats currently available",
+                "start_period" => req.start_period,
+                "requested" => req.count,
+                "returned" => lc_updates_sent
+            );
+        } else {
+            debug!(
+                self.log,
+                "LightClientUpdatesByRange outgoing response processed";
+                "peer" => %peer_id,
+                "start_period" => req.start_period,
+                "requested" => req.count,
+                "returned" => lc_updates_sent
+            );
+        }
+
+        Ok(())
+    }
+
     /// Handle a `LightClientBootstrap` request from the peer.
     pub fn handle_light_client_bootstrap(
         self: &Arc<Self>,
@@ -564,14 +664,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.chain
                 .epoch()
                 .map_or(self.chain.spec.max_request_blocks, |epoch| {
-                    match self.chain.spec.fork_name_at_epoch(epoch) {
-                        ForkName::Deneb | ForkName::Electra => {
-                            self.chain.spec.max_request_blocks_deneb
-                        }
-                        ForkName::Base
-                        | ForkName::Altair
-                        | ForkName::Bellatrix
-                        | ForkName::Capella => self.chain.spec.max_request_blocks,
+                    if self.chain.spec.fork_name_at_epoch(epoch).deneb_enabled() {
+                        self.chain.spec.max_request_blocks_deneb
+                    } else {
+                        self.chain.spec.max_request_blocks
                     }
                 });
         if *req.count() > max_request_size {

@@ -627,8 +627,8 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // Merge block tests are only enabled for Bellatrix.
-        if self.handler_name == "on_merge_block" && fork_name != ForkName::Bellatrix {
+        // We no longer run on_merge_block tests since removing merge support.
+        if self.handler_name == "on_merge_block" {
             return false;
         }
 
@@ -967,8 +967,8 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // Enabled in Deneb
-        fork_name == ForkName::Deneb
+        // TODO(electra) re-enable for electra once merkle proof issues for electra are resolved
+        fork_name.deneb_enabled() && !fork_name.electra_enabled()
     }
 }
 
@@ -994,7 +994,7 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Enabled in Altair
         // TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
-        fork_name != ForkName::Base && fork_name != ForkName::Electra
+        fork_name.altair_enabled() && fork_name != ForkName::Electra
     }
 }
 

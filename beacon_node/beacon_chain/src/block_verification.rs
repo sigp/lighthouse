@@ -55,8 +55,8 @@ use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlo
 use crate::data_column_verification::GossipDataColumnError;
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
-    is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
-    AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
+    validate_execution_payload_for_gossip, validate_merge_block, AllowOptimisticImport,
+    NotifyExecutionLayer, PayloadNotifier,
 };
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
@@ -74,7 +74,7 @@ use lighthouse_metrics::TryExt;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
-use slog::{debug, error, warn, Logger};
+use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -95,9 +95,9 @@ use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use types::{
     data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
-    BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
-    FullPayload, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload,
+    Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot,
 };
 
 pub const POS_PANDA_BANNER: &str = r#"
@@ -1387,28 +1387,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 );
             }
             let payload_verification_status = payload_notifier.notify_new_payload().await?;
-
-            // If the payload did not validate or invalidate the block, check to see if this block is
-            // valid for optimistic import.
-            if payload_verification_status.is_optimistic() {
-                let block_hash_opt = block
-                    .message()
-                    .body()
-                    .execution_payload()
-                    .map(|full_payload| full_payload.block_hash());
-
-                // Ensure the block is a candidate for optimistic import.
-                if !is_optimistic_candidate_block(&chain, block.slot(), block.parent_root()).await?
-                {
-                    warn!(
-                        chain.log,
-                        "Rejecting optimistic block";
-                        "block_hash" => ?block_hash_opt,
-                        "msg" => "the execution engine is not synced"
-                    );
-                    return Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into());
-                }
-            }
 
             Ok(PayloadVerificationOutcome {
                 payload_verification_status,

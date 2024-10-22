@@ -622,6 +622,9 @@ where
                             ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
                             ResponseTermination::DataColumnsByRoot => Protocol::DataColumnsByRoot,
                             ResponseTermination::DataColumnsByRange => Protocol::DataColumnsByRange,
+                            ResponseTermination::LightClientUpdatesByRange => {
+                                Protocol::LightClientUpdatesByRange
+                            }
                         },
                     ),
                 };
