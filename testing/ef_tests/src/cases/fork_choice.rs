@@ -809,10 +809,13 @@ impl<E: EthSpec> Tester<E> {
             if expected_should_override_fcu.validator_is_connected {
                 el.update_proposer_preparation(
                     next_slot_epoch,
-                    &[ProposerPreparationData {
-                        validator_index: dbg!(proposer_index) as u64,
-                        fee_recipient: Default::default(),
-                    }],
+                    [(
+                        &ProposerPreparationData {
+                            validator_index: dbg!(proposer_index) as u64,
+                            fee_recipient: Default::default(),
+                        },
+                        &None,
+                    )],
                 )
                 .await;
             } else {

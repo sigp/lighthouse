@@ -27,7 +27,7 @@ use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 use std::fmt;
 use std::future::Future;
 use std::io::Write;
@@ -322,6 +322,36 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
 pub struct ProposerPreparationDataEntry {
     update_epoch: Epoch,
     preparation_data: ProposerPreparationData,
+    gas_limit: Option<u64>,
+}
+
+impl ProposerPreparationDataEntry {
+    pub fn update(&mut self, updated: Self) -> bool {
+        let mut changed = false;
+        // Update `gas_limit` if `updated.gas_limit` is `Some` and:
+        // - `self.gas_limit` is `None`, or
+        // - both are `Some` but the values differ.
+        if let Some(updated_gas_limit) = updated.gas_limit {
+            if self.gas_limit != Some(updated_gas_limit) {
+                self.gas_limit = Some(updated_gas_limit);
+                changed = true;
+            }
+        }
+
+        // Update `update_epoch` if it differs
+        if self.update_epoch != updated.update_epoch {
+            self.update_epoch = updated.update_epoch;
+            changed = true;
+        }
+
+        // Update `preparation_data` if it differs
+        if self.preparation_data != updated.preparation_data {
+            self.preparation_data = updated.preparation_data;
+            changed = true;
+        }
+
+        changed
+    }
 }
 
 #[derive(Hash, PartialEq, Eq)]
@@ -710,23 +740,29 @@ impl<E: EthSpec> ExecutionLayer<E> {
     }
 
     /// Updates the proposer preparation data provided by validators
-    pub async fn update_proposer_preparation(
-        &self,
-        update_epoch: Epoch,
-        preparation_data: &[ProposerPreparationData],
-    ) {
+    pub async fn update_proposer_preparation<'a, I>(&self, update_epoch: Epoch, proposer_data: I)
+    where
+        I: IntoIterator<Item = (&'a ProposerPreparationData, &'a Option<u64>)>,
+    {
         let mut proposer_preparation_data = self.proposer_preparation_data().await;
-        for preparation_entry in preparation_data {
+
+        for (preparation_entry, gas_limit) in proposer_data {
             let new = ProposerPreparationDataEntry {
                 update_epoch,
                 preparation_data: preparation_entry.clone(),
+                gas_limit: *gas_limit,
             };
 
-            let existing =
-                proposer_preparation_data.insert(preparation_entry.validator_index, new.clone());
-
-            if existing != Some(new) {
-                metrics::inc_counter(&metrics::EXECUTION_LAYER_PROPOSER_DATA_UPDATED);
+            match proposer_preparation_data.entry(preparation_entry.validator_index) {
+                Entry::Occupied(mut entry) => {
+                    if entry.get_mut().update(new) {
+                        metrics::inc_counter(&metrics::EXECUTION_LAYER_PROPOSER_DATA_UPDATED);
+                    }
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(new);
+                    metrics::inc_counter(&metrics::EXECUTION_LAYER_PROPOSER_DATA_UPDATED);
+                }
             }
         }
     }
