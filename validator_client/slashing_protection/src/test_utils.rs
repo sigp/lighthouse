@@ -1,4 +1,5 @@
 use crate::*;
+use rusqlite::TransactionBehavior;
 use tempfile::{tempdir, TempDir};
 use types::{test_utils::generate_deterministic_keypair, AttestationData, BeaconBlockHeader};
 
@@ -82,15 +83,28 @@ impl StreamTest<AttestationData> {
 
         check_registration_invariants(&slashing_db, &self.registered_validators);
 
+        let mut conn = slashing_db.get_db_connection().unwrap();
+
+        let txn = conn
+            .transaction_with_behavior(TransactionBehavior::Exclusive)
+            .unwrap();
+
         for (i, test) in self.cases.iter().enumerate() {
             assert_eq!(
-                slashing_db.check_and_insert_attestation(&test.pubkey, &test.data, test.domain),
+                slashing_db.check_and_insert_attestation(
+                    &test.pubkey,
+                    &test.data,
+                    test.domain,
+                    &txn
+                ),
                 test.expected,
                 "attestation {} not processed as expected",
                 i
             );
         }
 
+        slashing_db.commit(txn).unwrap();
+        drop(conn);
         roundtrip_database(&dir, &slashing_db, self.registered_validators.is_empty());
     }
 }
@@ -134,7 +148,6 @@ fn roundtrip_database(dir: &TempDir, db: &SlashingDatabase, is_empty: bool) {
     let reexported = new_db
         .export_all_interchange_info(DEFAULT_GENESIS_VALIDATORS_ROOT)
         .unwrap();
-
     assert!(exported
         .minify()
         .unwrap()

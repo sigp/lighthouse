@@ -6,6 +6,7 @@ use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
 use crate::{signing_root_from_row, NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot};
 use filesystem::restrict_file_permissions;
+use r2d2::PooledConnection;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::fs::File;
@@ -599,6 +600,16 @@ impl SlashingDatabase {
         Ok(safe)
     }
 
+    pub fn get_db_connection(&self) -> Result<PooledConnection<SqliteConnectionManager>, NotSafe> {
+        let conn = self.conn_pool.get()?;
+        Ok(conn)
+    }
+
+    pub fn commit(&self, txn: Transaction) -> Result<(), NotSafe> {
+        txn.commit()?;
+        Ok(())
+    }
+
     /// Check an attestation for slash safety, and if it is safe, record it in the database.
     ///
     /// The checking and inserting happen atomically and exclusively. We enforce exclusivity
@@ -610,6 +621,7 @@ impl SlashingDatabase {
         validator_pubkey: &PublicKeyBytes,
         attestation: &AttestationData,
         domain: Hash256,
+        txn: &Transaction,
     ) -> Result<Safe, NotSafe> {
         let attestation_signing_root = attestation.signing_root(domain).into();
         self.check_and_insert_attestation_signing_root(
@@ -617,6 +629,7 @@ impl SlashingDatabase {
             attestation.source.epoch,
             attestation.target.epoch,
             attestation_signing_root,
+            txn,
         )
     }
 
@@ -627,17 +640,15 @@ impl SlashingDatabase {
         att_source_epoch: Epoch,
         att_target_epoch: Epoch,
         att_signing_root: SigningRoot,
+        txn: &Transaction,
     ) -> Result<Safe, NotSafe> {
-        let mut conn = self.conn_pool.get()?;
-        let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
         let safe = self.check_and_insert_attestation_signing_root_txn(
             validator_pubkey,
             att_source_epoch,
             att_target_epoch,
             att_signing_root,
-            &txn,
+            txn,
         )?;
-        txn.commit()?;
         Ok(safe)
     }
 
@@ -806,6 +817,7 @@ impl SlashingDatabase {
     ) -> Result<Interchange, InterchangeError> {
         let mut conn = self.conn_pool.get()?;
         let txn = &conn.transaction()?;
+        println!("hmm..");
         self.export_interchange_info_in_txn(genesis_validators_root, selected_pubkeys, txn)
     }
 

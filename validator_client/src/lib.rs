@@ -1,10 +1,11 @@
+mod attestation_data_service;
 mod attestation_service;
 mod beacon_node_fallback;
 mod beacon_node_health;
 mod block_service;
 mod check_synced;
 mod cli;
-mod duties_service;
+pub mod duties_service;
 mod graffiti_file;
 mod http_metrics;
 mod key_cache;
