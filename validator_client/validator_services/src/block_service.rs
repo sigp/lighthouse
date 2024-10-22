@@ -523,7 +523,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     &[validator_metrics::BEACON_BLOCK_HTTP_POST],
                 );
                 beacon_node
-                    .post_beacon_blocks(signed_block)
+                    .post_beacon_blocks_v2_ssz(signed_block, None)
                     .await
                     .or_else(|e| handle_block_post_error(e, slot, log))?
             }
@@ -533,7 +533,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     &[validator_metrics::BLINDED_BEACON_BLOCK_HTTP_POST],
                 );
                 beacon_node
-                    .post_beacon_blinded_blocks(signed_block)
+                    .post_beacon_blinded_blocks_v2_ssz(signed_block, None)
                     .await
                     .or_else(|e| handle_block_post_error(e, slot, log))?
             }

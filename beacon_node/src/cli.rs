@@ -402,15 +402,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("self-limiter")
-            .long("self-limiter")
-            .help("This flag is deprecated and has no effect.")
-            .hide(true)
-            .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-            .display_order(0)
-        )
-        .arg(
             Arg::new("disable-self-limiter")
                 .long("disable-self-limiter")
                 .help(
@@ -526,16 +517,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("http-spec-fork")
-                .long("http-spec-fork")
-                .requires("enable_http")
-                .value_name("FORK")
-                .help("This flag is deprecated and has no effect.")
-                .hide(true)
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
             Arg::new("http-enable-tls")
                 .long("http-enable-tls")
                 .help("Serves the RESTful HTTP API server over TLS. This feature is currently \
@@ -562,16 +543,6 @@ pub fn cli_app() -> Command {
                 .help("The path of the private key to be used when serving the HTTP API server \
                     over TLS. Must not be password-protected.")
                 .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("http-allow-sync-stalled")
-                .long("http-allow-sync-stalled")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .requires("enable_http")
-                .help("This flag is deprecated and has no effect.")
-                .hide(true)
                 .display_order(0)
         )
         .arg(
@@ -659,7 +630,15 @@ pub fn cli_app() -> Command {
             .action(ArgAction::Set)
             .display_order(0)
         )
-
+        .arg(
+            Arg::new("idontwant-message-size-threshold")
+                .long("idontwant-message-size-threshold")
+                .help("Specifies the minimum message size for which IDONTWANT messages are sent. \
+                This an optimization strategy to not send IDONTWANT messages for smaller messages.")
+                .action(ArgAction::Set)
+                .hide(true)
+                .display_order(0)
+        )
         /*
          * Monitoring metrics
          */
@@ -1284,14 +1263,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("disable-lock-timeouts")
-                .long("disable-lock-timeouts")
-                .help("This flag is deprecated and has no effect.")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
             Arg::new("disable-proposer-reorgs")
                 .long("disable-proposer-reorgs")
                 .help("Do not attempt to reorg late blocks from other validators when proposing.")
@@ -1504,14 +1475,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("always-prefer-builder-payload")
-            .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-            .long("always-prefer-builder-payload")
-            .help("This flag is deprecated and has no effect.")
-            .display_order(0)
-        )
-        .arg(
             Arg::new("invalid-gossip-verified-blocks-path")
             .action(ArgAction::Set)
             .long("invalid-gossip-verified-blocks-path")
@@ -1521,14 +1484,6 @@ pub fn cli_app() -> Command {
                     developers. This directory is not pruned, users should be careful to avoid \
                     filling up their disks.")
             .display_order(0)
-        )
-        .arg(
-            Arg::new("progressive-balances")
-                .long("progressive-balances")
-                .value_name("MODE")
-                .help("Deprecated. This optimisation is now the default and cannot be disabled.")
-                .action(ArgAction::Set)
-                .display_order(0)
         )
         .arg(
             Arg::new("beacon-processor-max-workers")
@@ -1589,14 +1544,6 @@ pub fn cli_app() -> Command {
                 .hide(true)
                 .default_value("64")
                 .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("disable-duplicate-warn-logs")
-                .long("disable-duplicate-warn-logs")
-                .help("This flag is deprecated and has no effect.")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
         .group(ArgGroup::new("enable_http").args(["http", "gui", "staking"]).multiple(true))

@@ -230,14 +230,6 @@ impl Config {
             config.distributed = true;
         }
 
-        if cli_args.get_flag("disable-run-on-all") {
-            warn!(
-                log,
-                "The --disable-run-on-all flag is deprecated";
-                "msg" => "please use --broadcast instead"
-            );
-            config.broadcast_topics = vec![];
-        }
         if let Some(broadcast_topics) = cli_args.get_one::<String>("broadcast") {
             config.broadcast_topics = broadcast_topics
                 .split(',')
@@ -385,14 +377,6 @@ impl Config {
             config.validator_store.prefer_builder_proposals = true;
         }
 
-        if cli_args.get_flag("produce-block-v3") {
-            warn!(
-                log,
-                "produce-block-v3 flag";
-                "note" => "deprecated flag has no effect and should be removed"
-            );
-        }
-
         config.validator_store.gas_limit = cli_args
             .get_one::<String>("gas-limit")
             .map(|gas_limit| {
@@ -417,17 +401,6 @@ impl Config {
 
         config.enable_latency_measurement_service =
             !cli_args.get_flag("disable-latency-measurement-service");
-
-        if cli_args
-            .get_one::<String>("latency-measurement-service")
-            .is_some()
-        {
-            warn!(
-                log,
-                "latency-measurement-service flag";
-                "note" => "deprecated flag has no effect and should be removed"
-            );
-        }
 
         config.validator_registration_batch_size =
             parse_required(cli_args, "validator-registration-batch-size")?;
