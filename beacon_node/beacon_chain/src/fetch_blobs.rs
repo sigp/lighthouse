@@ -240,10 +240,7 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
 
             // Check indices from cache before sending the columns, to make sure we don't
             // publish components already seen on gossip.
-            let is_supernode = chain_cloned
-                .data_availability_checker
-                .get_sampling_column_count()
-                == chain_cloned.spec.number_of_columns;
+            let is_supernode = chain_cloned.data_availability_checker.is_supernode();
 
             // At the moment non supernodes are not required to publish any columns.
             // TODO(das): we could experiment with having full nodes publish their custodied
@@ -302,13 +299,13 @@ fn build_blob_sidecars<E: EthSpec>(
     kzg_commitments_proof: &FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
 ) -> Result<FixedBlobSidecarList<E>, FetchEngineBlobError> {
     let mut fixed_blob_sidecar_list = FixedBlobSidecarList::default();
-    for (i, blob_and_proof) in response
+    for (index, blob_and_proof) in response
         .into_iter()
         .enumerate()
         .filter_map(|(i, opt_blob)| Some((i, opt_blob?)))
     {
         match BlobSidecar::new_with_existing_proof(
-            i,
+            index,
             blob_and_proof.blob,
             block,
             signed_block_header.clone(),
@@ -316,12 +313,12 @@ fn build_blob_sidecars<E: EthSpec>(
             blob_and_proof.proof,
         ) {
             Ok(blob) => {
-                if let Some(blob_mut) = fixed_blob_sidecar_list.get_mut(i) {
+                if let Some(blob_mut) = fixed_blob_sidecar_list.get_mut(index) {
                     *blob_mut = Some(Arc::new(blob));
                 } else {
-                    return Err(FetchEngineBlobError::InternalError(
-                        "Unreachable: Blobs from EL - out of bounds".to_string(),
-                    ));
+                    return Err(FetchEngineBlobError::InternalError(format!(
+                        "Blobs from EL contains blob with invalid index {index}"
+                    )));
                 }
             }
             Err(e) => {

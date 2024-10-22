@@ -146,6 +146,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.availability_cache.sampling_column_count()
     }
 
+    pub(crate) fn is_supernode(&self) -> bool {
+        self.get_sampling_column_count() == self.spec.number_of_columns
+    }
+
     /// Checks if the block root is currenlty in the availability cache awaiting import because
     /// of missing components.
     pub fn get_execution_valid_block(
