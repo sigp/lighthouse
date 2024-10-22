@@ -313,10 +313,13 @@ impl Config {
         config.http_metrics.enabled = validator_client_config.metrics;
         config.enable_high_validator_count_metrics =
             validator_client_config.enable_high_validator_count_metrics;
-        config.http_metrics.listen_addr = validator_client_config
-            .metrics_address
-            .parse::<IpAddr>()
-            .map_err(|_| "metrics-address is not a valid IP address.")?;
+
+        if let Some(metrics_address) = &validator_client_config.metrics_address {
+            config.http_metrics.listen_addr = metrics_address
+                .parse::<IpAddr>()
+                .map_err(|_| "metrics-address is not a valid IP address.")?;
+        }
+
         config.http_metrics.listen_port = validator_client_config.metrics_port;
 
         if let Some(allow_origin) = validator_client_config.metrics_allow_origin.as_ref() {

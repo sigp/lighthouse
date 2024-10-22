@@ -265,7 +265,7 @@ pub struct ValidatorClient {
         help = "Set the listen address for the Prometheus metrics HTTP server.",
         display_order = 0
     )]
-    pub metrics_address: String,
+    pub metrics_address: Option<String>,
 
     #[clap(
         long,
