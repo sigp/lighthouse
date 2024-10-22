@@ -294,6 +294,7 @@ pub enum BlockProductionError {
     InvalidBlockVariant(String),
     KzgError(kzg::Error),
     FailedToBuildBlobSidecars(String),
+    MissingExecutionRequests,
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

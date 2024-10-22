@@ -14,10 +14,11 @@ use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
+use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
     blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
     Epoch, EthSpec, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, RuntimeVariableList, SignedBeaconBlock, Slot,
+    LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock, Slot,
 };
 
 /// Maximum length of error message.
@@ -477,11 +478,39 @@ impl DataColumnsByRootRequest {
     }
 }
 
+/// Request a number of beacon data columns from a peer.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct LightClientUpdatesByRangeRequest {
+    /// The starting period to request light client updates.
+    pub start_period: u64,
+    /// The number of periods from `start_period`.
+    pub count: u64,
+}
+
+impl LightClientUpdatesByRangeRequest {
+    pub fn max_requested(&self) -> u64 {
+        MAX_REQUEST_LIGHT_CLIENT_UPDATES
+    }
+
+    pub fn ssz_min_len() -> usize {
+        LightClientUpdatesByRangeRequest {
+            start_period: 0,
+            count: 0,
+        }
+        .as_ssz_bytes()
+        .len()
+    }
+
+    pub fn ssz_max_len() -> usize {
+        Self::ssz_min_len()
+    }
+}
+
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum RPCResponse<E: EthSpec> {
+pub enum RpcSuccessResponse<E: EthSpec> {
     /// A HELLO message.
     Status(StatusMessage),
 
@@ -503,6 +532,9 @@ pub enum RPCResponse<E: EthSpec> {
 
     /// A response to a get LIGHT_CLIENT_FINALITY_UPDATE request.
     LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<E>>),
+
+    /// A response to a get LIGHT_CLIENT_UPDATES_BY_RANGE request.
+    LightClientUpdatesByRange(Arc<LightClientUpdate<E>>),
 
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Arc<BlobSidecar<E>>),
@@ -540,16 +572,19 @@ pub enum ResponseTermination {
 
     /// Data column sidecars by range stream termination.
     DataColumnsByRange,
+
+    /// Light client updates by range stream termination.
+    LightClientUpdatesByRange,
 }
 
 /// The structured response containing a result/code indicating success or failure
 /// and the contents of the response
 #[derive(Debug, Clone)]
-pub enum RPCCodedResponse<E: EthSpec> {
+pub enum RpcResponse<E: EthSpec> {
     /// The response is a successful.
-    Success(RPCResponse<E>),
+    Success(RpcSuccessResponse<E>),
 
-    Error(RPCResponseErrorCode, ErrorType),
+    Error(RpcErrorResponse, ErrorType),
 
     /// Received a stream termination indicating which response is being terminated.
     StreamTermination(ResponseTermination),
@@ -564,7 +599,7 @@ pub struct LightClientBootstrapRequest {
 /// The code assigned to an erroneous `RPCResponse`.
 #[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
-pub enum RPCResponseErrorCode {
+pub enum RpcErrorResponse {
     RateLimited,
     BlobsNotFoundForBlock,
     InvalidRequest,
@@ -574,13 +609,13 @@ pub enum RPCResponseErrorCode {
     Unknown,
 }
 
-impl<E: EthSpec> RPCCodedResponse<E> {
+impl<E: EthSpec> RpcResponse<E> {
     /// Used to encode the response in the codec.
     pub fn as_u8(&self) -> Option<u8> {
         match self {
-            RPCCodedResponse::Success(_) => Some(0),
-            RPCCodedResponse::Error(code, _) => Some(code.as_u8()),
-            RPCCodedResponse::StreamTermination(_) => None,
+            RpcResponse::Success(_) => Some(0),
+            RpcResponse::Error(code, _) => Some(code.as_u8()),
+            RpcResponse::StreamTermination(_) => None,
         }
     }
 
@@ -592,64 +627,67 @@ impl<E: EthSpec> RPCCodedResponse<E> {
     /// Builds an RPCCodedResponse from a response code and an ErrorMessage
     pub fn from_error(response_code: u8, err: ErrorType) -> Self {
         let code = match response_code {
-            1 => RPCResponseErrorCode::InvalidRequest,
-            2 => RPCResponseErrorCode::ServerError,
-            3 => RPCResponseErrorCode::ResourceUnavailable,
-            139 => RPCResponseErrorCode::RateLimited,
-            140 => RPCResponseErrorCode::BlobsNotFoundForBlock,
-            _ => RPCResponseErrorCode::Unknown,
+            1 => RpcErrorResponse::InvalidRequest,
+            2 => RpcErrorResponse::ServerError,
+            3 => RpcErrorResponse::ResourceUnavailable,
+            139 => RpcErrorResponse::RateLimited,
+            140 => RpcErrorResponse::BlobsNotFoundForBlock,
+            _ => RpcErrorResponse::Unknown,
         };
-        RPCCodedResponse::Error(code, err)
+        RpcResponse::Error(code, err)
     }
 
     /// Returns true if this response always terminates the stream.
     pub fn close_after(&self) -> bool {
-        !matches!(self, RPCCodedResponse::Success(_))
+        !matches!(self, RpcResponse::Success(_))
     }
 }
 
-impl RPCResponseErrorCode {
+impl RpcErrorResponse {
     fn as_u8(&self) -> u8 {
         match self {
-            RPCResponseErrorCode::InvalidRequest => 1,
-            RPCResponseErrorCode::ServerError => 2,
-            RPCResponseErrorCode::ResourceUnavailable => 3,
-            RPCResponseErrorCode::Unknown => 255,
-            RPCResponseErrorCode::RateLimited => 139,
-            RPCResponseErrorCode::BlobsNotFoundForBlock => 140,
+            RpcErrorResponse::InvalidRequest => 1,
+            RpcErrorResponse::ServerError => 2,
+            RpcErrorResponse::ResourceUnavailable => 3,
+            RpcErrorResponse::Unknown => 255,
+            RpcErrorResponse::RateLimited => 139,
+            RpcErrorResponse::BlobsNotFoundForBlock => 140,
         }
     }
 }
 
 use super::Protocol;
-impl<E: EthSpec> RPCResponse<E> {
+impl<E: EthSpec> RpcSuccessResponse<E> {
     pub fn protocol(&self) -> Protocol {
         match self {
-            RPCResponse::Status(_) => Protocol::Status,
-            RPCResponse::BlocksByRange(_) => Protocol::BlocksByRange,
-            RPCResponse::BlocksByRoot(_) => Protocol::BlocksByRoot,
-            RPCResponse::BlobsByRange(_) => Protocol::BlobsByRange,
-            RPCResponse::BlobsByRoot(_) => Protocol::BlobsByRoot,
-            RPCResponse::DataColumnsByRoot(_) => Protocol::DataColumnsByRoot,
-            RPCResponse::DataColumnsByRange(_) => Protocol::DataColumnsByRange,
-            RPCResponse::Pong(_) => Protocol::Ping,
-            RPCResponse::MetaData(_) => Protocol::MetaData,
-            RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
-            RPCResponse::LightClientOptimisticUpdate(_) => Protocol::LightClientOptimisticUpdate,
-            RPCResponse::LightClientFinalityUpdate(_) => Protocol::LightClientFinalityUpdate,
+            RpcSuccessResponse::Status(_) => Protocol::Status,
+            RpcSuccessResponse::BlocksByRange(_) => Protocol::BlocksByRange,
+            RpcSuccessResponse::BlocksByRoot(_) => Protocol::BlocksByRoot,
+            RpcSuccessResponse::BlobsByRange(_) => Protocol::BlobsByRange,
+            RpcSuccessResponse::BlobsByRoot(_) => Protocol::BlobsByRoot,
+            RpcSuccessResponse::DataColumnsByRoot(_) => Protocol::DataColumnsByRoot,
+            RpcSuccessResponse::DataColumnsByRange(_) => Protocol::DataColumnsByRange,
+            RpcSuccessResponse::Pong(_) => Protocol::Ping,
+            RpcSuccessResponse::MetaData(_) => Protocol::MetaData,
+            RpcSuccessResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
+            RpcSuccessResponse::LightClientOptimisticUpdate(_) => {
+                Protocol::LightClientOptimisticUpdate
+            }
+            RpcSuccessResponse::LightClientFinalityUpdate(_) => Protocol::LightClientFinalityUpdate,
+            RpcSuccessResponse::LightClientUpdatesByRange(_) => Protocol::LightClientUpdatesByRange,
         }
     }
 }
 
-impl std::fmt::Display for RPCResponseErrorCode {
+impl std::fmt::Display for RpcErrorResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let repr = match self {
-            RPCResponseErrorCode::InvalidRequest => "The request was invalid",
-            RPCResponseErrorCode::ResourceUnavailable => "Resource unavailable",
-            RPCResponseErrorCode::ServerError => "Server error occurred",
-            RPCResponseErrorCode::Unknown => "Unknown error occurred",
-            RPCResponseErrorCode::RateLimited => "Rate limited",
-            RPCResponseErrorCode::BlobsNotFoundForBlock => "No blobs for the given root",
+            RpcErrorResponse::InvalidRequest => "The request was invalid",
+            RpcErrorResponse::ResourceUnavailable => "Resource unavailable",
+            RpcErrorResponse::ServerError => "Server error occurred",
+            RpcErrorResponse::Unknown => "Unknown error occurred",
+            RpcErrorResponse::RateLimited => "Rate limited",
+            RpcErrorResponse::BlobsNotFoundForBlock => "No blobs for the given root",
         };
         f.write_str(repr)
     }
@@ -661,61 +699,70 @@ impl std::fmt::Display for StatusMessage {
     }
 }
 
-impl<E: EthSpec> std::fmt::Display for RPCResponse<E> {
+impl<E: EthSpec> std::fmt::Display for RpcSuccessResponse<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RPCResponse::Status(status) => write!(f, "{}", status),
-            RPCResponse::BlocksByRange(block) => {
+            RpcSuccessResponse::Status(status) => write!(f, "{}", status),
+            RpcSuccessResponse::BlocksByRange(block) => {
                 write!(f, "BlocksByRange: Block slot: {}", block.slot())
             }
-            RPCResponse::BlocksByRoot(block) => {
+            RpcSuccessResponse::BlocksByRoot(block) => {
                 write!(f, "BlocksByRoot: Block slot: {}", block.slot())
             }
-            RPCResponse::BlobsByRange(blob) => {
+            RpcSuccessResponse::BlobsByRange(blob) => {
                 write!(f, "BlobsByRange: Blob slot: {}", blob.slot())
             }
-            RPCResponse::BlobsByRoot(sidecar) => {
+            RpcSuccessResponse::BlobsByRoot(sidecar) => {
                 write!(f, "BlobsByRoot: Blob slot: {}", sidecar.slot())
             }
-            RPCResponse::DataColumnsByRoot(sidecar) => {
+            RpcSuccessResponse::DataColumnsByRoot(sidecar) => {
                 write!(f, "DataColumnsByRoot: Data column slot: {}", sidecar.slot())
             }
-            RPCResponse::DataColumnsByRange(sidecar) => {
+            RpcSuccessResponse::DataColumnsByRange(sidecar) => {
                 write!(
                     f,
                     "DataColumnsByRange: Data column slot: {}",
                     sidecar.slot()
                 )
             }
-            RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
-            RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
-            RPCResponse::LightClientBootstrap(bootstrap) => {
+            RpcSuccessResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
+            RpcSuccessResponse::MetaData(metadata) => {
+                write!(f, "Metadata: {}", metadata.seq_number())
+            }
+            RpcSuccessResponse::LightClientBootstrap(bootstrap) => {
                 write!(f, "LightClientBootstrap Slot: {}", bootstrap.get_slot())
             }
-            RPCResponse::LightClientOptimisticUpdate(update) => {
+            RpcSuccessResponse::LightClientOptimisticUpdate(update) => {
                 write!(
                     f,
                     "LightClientOptimisticUpdate Slot: {}",
                     update.signature_slot()
                 )
             }
-            RPCResponse::LightClientFinalityUpdate(update) => {
+            RpcSuccessResponse::LightClientFinalityUpdate(update) => {
                 write!(
                     f,
                     "LightClientFinalityUpdate Slot: {}",
                     update.signature_slot()
                 )
             }
+            RpcSuccessResponse::LightClientUpdatesByRange(update) => {
+                write!(
+                    f,
+                    "LightClientUpdatesByRange Slot: {}",
+                    update.signature_slot(),
+                )
+            }
         }
     }
 }
 
-impl<E: EthSpec> std::fmt::Display for RPCCodedResponse<E> {
+impl<E: EthSpec> std::fmt::Display for RpcResponse<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RPCCodedResponse::Success(res) => write!(f, "{}", res),
-            RPCCodedResponse::Error(code, err) => write!(f, "{}: {}", code, err),
-            RPCCodedResponse::StreamTermination(_) => write!(f, "Stream Termination"),
+            RpcResponse::Success(res) => write!(f, "{}", res),
+            RpcResponse::Error(code, err) => write!(f, "{}: {}", code, err),
+            RpcResponse::StreamTermination(_) => write!(f, "Stream Termination"),
         }
     }
 }

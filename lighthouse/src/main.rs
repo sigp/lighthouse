@@ -116,16 +116,6 @@ fn main() {
                 .display_order(0),
         )
         .arg(
-            Arg::new("env_log")
-                .short('l')
-                .help(
-                    "DEPRECATED Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
-                )
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
             Arg::new("logfile")
                 .long("logfile")
                 .value_name("FILE")
@@ -333,57 +323,43 @@ fn main() {
             Arg::new("terminal-total-difficulty-override")
                 .long("terminal-total-difficulty-override")
                 .value_name("INTEGER")
-                .help("Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY parameter. \
-                       Accepts a 256-bit decimal integer (not a hex value). \
-                       This flag should only be used if the user has a clear understanding that \
-                       the broad Ethereum community has elected to override the terminal difficulty. \
-                       Incorrect use of this flag will cause your node to experience a consensus \
-                       failure. Be extremely careful with this flag.")
+                .help("DEPRECATED")
                 .action(ArgAction::Set)
                 .global(true)
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("terminal-block-hash-override")
                 .long("terminal-block-hash-override")
                 .value_name("TERMINAL_BLOCK_HASH")
-                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH parameter. \
-                       This flag should only be used if the user has a clear understanding that \
-                       the broad Ethereum community has elected to override the terminal PoW block. \
-                       Incorrect use of this flag will cause your node to experience a consensus \
-                       failure. Be extremely careful with this flag.")
+                .help("DEPRECATED")
                 .requires("terminal-block-hash-epoch-override")
                 .action(ArgAction::Set)
                 .global(true)
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("terminal-block-hash-epoch-override")
                 .long("terminal-block-hash-epoch-override")
                 .value_name("EPOCH")
-                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH \
-                       parameter. This flag should only be used if the user has a clear understanding \
-                       that the broad Ethereum community has elected to override the terminal PoW block. \
-                       Incorrect use of this flag will cause your node to experience a consensus \
-                       failure. Be extremely careful with this flag.")
+                .help("DEPRECATED")
                 .requires("terminal-block-hash-override")
                 .action(ArgAction::Set)
                 .global(true)
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("safe-slots-to-import-optimistically")
                 .long("safe-slots-to-import-optimistically")
                 .value_name("INTEGER")
-                .help("Used to coordinate manual overrides of the SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY \
-                      parameter. This flag should only be used if the user has a clear understanding \
-                      that the broad Ethereum community has elected to override this parameter in the event \
-                      of an attack at the PoS transition block. Incorrect use of this flag can cause your \
-                      node to possibly accept an invalid chain or sync more slowly. Be extremely careful with \
-                      this flag.")
+                .help("DEPRECATED")
                 .action(ArgAction::Set)
                 .global(true)
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("genesis-state-url")
@@ -626,20 +602,6 @@ fn run<E: EthSpec>(
         }));
     }
 
-    let mut tracing_log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
-
-    if tracing_log_path.is_none() {
-        tracing_log_path = Some(
-            parse_path_or_default(matches, "datadir")?
-                .join(DEFAULT_BEACON_NODE_DIR)
-                .join("logs"),
-        )
-    }
-
-    let path = tracing_log_path.clone().unwrap();
-
-    logging::create_tracing_layer(path);
-
     // Allow Prometheus to export the time at which the process was started.
     metrics::expose_process_start_time(&log);
 
@@ -653,6 +615,20 @@ fn run<E: EthSpec>(
             "CPU seems incompatible with optimized Lighthouse build";
             "advice" => "If you get a SIGILL, please try Lighthouse portable build"
         );
+    }
+
+    // Warn for DEPRECATED global flags. This code should be removed when we finish deleting these
+    // flags.
+    let deprecated_flags = [
+        "terminal-total-difficulty-override",
+        "terminal-block-hash-override",
+        "terminal-block-hash-epoch-override",
+        "safe-slots-to-import-optimistically",
+    ];
+    for flag in deprecated_flags {
+        if matches.get_one::<String>(flag).is_some() {
+            slog::warn!(log, "The {} flag is deprecated and does nothing", flag);
+        }
     }
 
     // Note: the current code technically allows for starting a beacon node _and_ a validator
@@ -723,6 +699,21 @@ fn run<E: EthSpec>(
                 info!(log, "Beacon node immediate shutdown triggered.");
                 return Ok(());
             }
+
+            let mut tracing_log_path: Option<PathBuf> =
+                clap_utils::parse_optional(matches, "logfile")?;
+
+            if tracing_log_path.is_none() {
+                tracing_log_path = Some(
+                    parse_path_or_default(matches, "datadir")?
+                        .join(DEFAULT_BEACON_NODE_DIR)
+                        .join("logs"),
+                )
+            }
+
+            let path = tracing_log_path.clone().unwrap();
+
+            logging::create_tracing_layer(path);
 
             executor.clone().spawn(
                 async move {
