@@ -98,6 +98,8 @@ edition = "2021"
 alloy-primitives = { version = "0.8", features = ["rlp", "getrandom"] }
 alloy-rlp = "0.3.4"
 alloy-consensus = "0.3.0"
+alloy-json-abi = "0.8.0"
+alloy-dyn-abi = "0.8.0"
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 async-channel = "1.9.0"

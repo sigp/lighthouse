@@ -1,82 +1,93 @@
-use ethabi::{Contract, Token};
+use alloy_dyn_abi::{DynSolValue, JsonAbiExt};
+use alloy_json_abi::JsonAbi;
 use ssz::{Decode, DecodeError as SszDecodeError, Encode};
 use tree_hash::TreeHash;
-use types::{DepositData, Hash256, PublicKeyBytes, SignatureBytes};
-
-pub use ethabi::Error;
+use types::{DepositData, Hash256};
 
 #[derive(Debug)]
-pub enum DecodeError {
-    EthabiError(ethabi::Error),
+pub enum Error {
+    SerdeJson(serde_json::Error),
+    Alloy(alloy_dyn_abi::Error),
     SszDecodeError(SszDecodeError),
     MissingField,
     UnableToGetBytes,
-    MissingToken,
+    MissingDynSolValue,
+    MissingDepositFunction,
     InadequateBytes,
 }
 
-impl From<ethabi::Error> for DecodeError {
-    fn from(e: ethabi::Error) -> DecodeError {
-        DecodeError::EthabiError(e)
+impl From<serde_json::Error> for Error {
+    fn from(e: serde_json::Error) -> Self {
+        Self::SerdeJson(e)
+    }
+}
+
+impl From<alloy_dyn_abi::Error> for Error {
+    fn from(e: alloy_dyn_abi::Error) -> Self {
+        Self::Alloy(e)
     }
 }
 
 pub const CONTRACT_DEPLOY_GAS: usize = 4_000_000;
 pub const DEPOSIT_GAS: usize = 400_000;
-pub const ABI: &[u8] = include_bytes!("../contracts/v0.12.1_validator_registration.json");
-pub const BYTECODE: &[u8] = include_bytes!("../contracts/v0.12.1_validator_registration.bytecode");
+pub const ABI: &str = include_str!("../contracts/v0.12.1_validator_registration.json");
+pub const BYTECODE: &str = include_str!("../contracts/v0.12.1_validator_registration.bytecode");
 pub const DEPOSIT_DATA_LEN: usize = 420; // lol
 
 pub mod testnet {
-    pub const ABI: &[u8] =
-        include_bytes!("../contracts/v0.12.1_testnet_validator_registration.json");
-    pub const BYTECODE: &[u8] =
-        include_bytes!("../contracts/v0.12.1_testnet_validator_registration.bytecode");
+    pub const ABI: &str = include_str!("../contracts/v0.12.1_testnet_validator_registration.json");
+    pub const BYTECODE: &str =
+        include_str!("../contracts/v0.12.1_testnet_validator_registration.bytecode");
 }
 
 pub fn encode_eth1_tx_data(deposit_data: &DepositData) -> Result<Vec<u8>, Error> {
     let params = vec![
-        Token::Bytes(deposit_data.pubkey.as_ssz_bytes()),
-        Token::Bytes(deposit_data.withdrawal_credentials.as_ssz_bytes()),
-        Token::Bytes(deposit_data.signature.as_ssz_bytes()),
-        Token::FixedBytes(deposit_data.tree_hash_root().as_ssz_bytes()),
+        DynSolValue::Bytes(deposit_data.pubkey.as_ssz_bytes()),
+        DynSolValue::Bytes(deposit_data.withdrawal_credentials.as_ssz_bytes()),
+        DynSolValue::Bytes(deposit_data.signature.as_ssz_bytes()),
+        DynSolValue::FixedBytes(deposit_data.tree_hash_root(), 32),
     ];
 
     // Here we make an assumption that the `crate::testnet::ABI` has a superset of the features of
     // the crate::ABI`.
-    let abi = Contract::load(ABI)?;
-    let function = abi.function("deposit")?;
-    function.encode_input(&params)
+    let abi: JsonAbi = serde_json::from_str(ABI)?;
+    let function = abi
+        .function("deposit")
+        .and_then(|funcs| funcs.first())
+        .ok_or(Error::MissingDepositFunction)?;
+    function.abi_encode_input(&params).map_err(Into::into)
 }
 
-pub fn decode_eth1_tx_data(
-    bytes: &[u8],
-    amount: u64,
-) -> Result<(DepositData, Hash256), DecodeError> {
-    let abi = Contract::load(ABI)?;
-    let function = abi.function("deposit")?;
-    let mut tokens = function.decode_input(bytes.get(4..).ok_or(DecodeError::InadequateBytes)?)?;
+pub fn decode_eth1_tx_data(bytes: &[u8], amount: u64) -> Result<(DepositData, Hash256), Error> {
+    let abi: JsonAbi = serde_json::from_str(ABI)?;
+    let function = abi
+        .function("deposit")
+        .and_then(|funcs| funcs.first())
+        .ok_or(Error::MissingDepositFunction)?;
+    let validate = true;
+    let mut tokens =
+        function.abi_decode_input(bytes.get(4..).ok_or(Error::InadequateBytes)?, validate)?;
 
-    macro_rules! decode_token {
-        ($type: ty, $to_fn: ident) => {
-            <$type>::from_ssz_bytes(
-                &tokens
-                    .pop()
-                    .ok_or_else(|| DecodeError::MissingToken)?
-                    .$to_fn()
-                    .ok_or_else(|| DecodeError::UnableToGetBytes)?,
-            )
-            .map_err(DecodeError::SszDecodeError)?
-        };
+    println!("{:?}", tokens);
+
+    fn decode_token<T: Decode>(
+        tokens: &mut Vec<DynSolValue>,
+        token_decoder: impl FnOnce(&DynSolValue) -> Option<&[u8]>,
+    ) -> Result<T, Error> {
+        let token = tokens.pop().ok_or_else(|| Error::MissingDynSolValue)?;
+        T::from_ssz_bytes(token_decoder(&token).ok_or_else(|| Error::UnableToGetBytes)?)
+            .map_err(Error::SszDecodeError)
     }
 
-    let root = decode_token!(Hash256, into_fixed_bytes);
+    let root = decode_token(&mut tokens, |token| {
+        token.as_fixed_bytes().map(|(bytes, _length)| bytes)
+    })?;
 
     let deposit_data = DepositData {
         amount,
-        signature: decode_token!(SignatureBytes, into_bytes),
-        withdrawal_credentials: decode_token!(Hash256, into_bytes),
-        pubkey: decode_token!(PublicKeyBytes, into_bytes),
+        signature: decode_token(&mut tokens, DynSolValue::as_bytes)?,
+        withdrawal_credentials: decode_token(&mut tokens, DynSolValue::as_bytes)?,
+        pubkey: decode_token(&mut tokens, DynSolValue::as_bytes)?,
     };
 
     Ok((deposit_data, root))

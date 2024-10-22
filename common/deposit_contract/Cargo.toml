@@ -16,4 +16,6 @@ hex = { workspace = true }
 types = { workspace = true }
 ethereum_ssz = { workspace = true }
 tree_hash = { workspace = true }
-ethabi = "16.0.0"
+alloy-dyn-abi = { workspace = true }
+alloy-json-abi = { workspace = true }
+serde_json = { workspace = true }
