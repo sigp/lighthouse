@@ -1188,22 +1188,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     fn on_sampling_result(&mut self, requester: SamplingRequester, result: SamplingResult) {
-        // TODO(das): How is a consumer of sampling results?
-        // - Fork-choice for trailing DA
-        // - Single lookups to complete import requirements
-        // - Range sync to complete import requirements? Can sampling for syncing lag behind and
-        //   accumulate in fork-choice?
-
         match requester {
             SamplingRequester::ImportedBlock(block_root) => {
                 debug!(self.log, "Sampling result"; "block_root" => %block_root, "result" => ?result);
 
-                // TODO(das): Consider moving SamplingResult to the beacon_chain crate and import
-                // here. No need to add too much enum variants, just whatever the beacon_chain or
-                // fork-choice needs to make a decision. Currently the fork-choice only needs to
-                // be notified of successful samplings, i.e. sampling failures don't trigger pruning
                 match result {
                     Ok(_) => {
+                        // Notify the fork-choice of a successful sampling result to mark the block
+                        // branch as safe.
                         if let Err(e) = self
                             .network
                             .beacon_processor()

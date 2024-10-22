@@ -24,7 +24,6 @@ pub type SamplingResult = Result<(), SamplingError>;
 type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
 pub struct Sampling<T: BeaconChainTypes> {
-    // TODO(das): stalled sampling request are never cleaned up
     requests: HashMap<SamplingRequester, ActiveSamplingRequest<T>>,
     sampling_config: SamplingConfig,
     log: slog::Logger,
@@ -313,8 +312,8 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                         .iter()
                         .position(|data| &data.index == column_index)
                     else {
-                        // Peer does not have the requested data.
-                        // TODO(das) what to do?
+                        // Peer does not have the requested data, mark peer as "dont have" and try
+                        // again with a different peer.
                         debug!(self.log,
                             "Sampling peer claims to not have the data";
                             "block_root" => %self.block_root,
@@ -373,7 +372,9 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                             sampling_request_id,
                         },
                     ) {
-                        // TODO(das): Beacon processor is overloaded, what should we do?
+                        // Beacon processor is overloaded, drop sampling attempt. Failing to sample
+                        // is not a permanent state so we should recover once the node has capacity
+                        // and receives a descendant block.
                         error!(self.log,
                             "Dropping sampling";
                             "block" => %self.block_root,
@@ -391,8 +392,8 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                 );
                 metrics::inc_counter_vec(&metrics::SAMPLE_DOWNLOAD_RESULT, &[metrics::FAILURE]);
 
-                // Error downloading, maybe penalize peer and retry again.
-                // TODO(das) with different peer or different peer?
+                // Error downloading, malicious network errors are already penalized before
+                // reaching this function. Mark the peer as failed and try again with another.
                 for column_index in column_indexes {
                     let Some(request) = self.column_requests.get_mut(column_index) else {
                         warn!(self.log,
@@ -453,7 +454,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                 debug!(self.log, "Sample verification failure"; "block_root" => %self.block_root, "column_indexes" => ?column_indexes, "reason" => ?err);
                 metrics::inc_counter_vec(&metrics::SAMPLE_VERIFY_RESULT, &[metrics::FAILURE]);
 
-                // TODO(das): Peer sent invalid data, penalize and try again from different peer
+                // Peer sent invalid data, penalize and try again from different peer
                 // TODO(das): Count individual failures
                 for column_index in column_indexes {
                     let Some(request) = self.column_requests.get_mut(column_index) else {
