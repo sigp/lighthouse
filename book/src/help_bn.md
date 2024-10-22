@@ -292,9 +292,6 @@ Options:
           which don't improve their payload after the first call, and high
           values are useful for ensuring the EL is given ample notice. Default:
           1/3 of a slot.
-      --progressive-balances <MODE>
-          Deprecated. This optimisation is now the default and cannot be
-          disabled.
       --proposer-reorg-cutoff <MILLISECONDS>
           Maximum delay after the start of the slot at which to propose a
           reorging block. Lower values can prevent failed reorgs by ensuring the
@@ -329,14 +326,6 @@ Options:
       --quic-port6 <PORT>
           The UDP port that quic will listen on over IPv6 if listening over both
           IPv4 and IPv6. Defaults to `port6` + 1
-      --safe-slots-to-import-optimistically <INTEGER>
-          Used to coordinate manual overrides of the
-          SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should only
-          be used if the user has a clear understanding that the broad Ethereum
-          community has elected to override this parameter in the event of an
-          attack at the PoS transition block. Incorrect use of this flag can
-          cause your node to possibly accept an invalid chain or sync more
-          slowly. Be extremely careful with this flag.
       --self-limiter-protocols <self-limiter-protocols>
           Enables the outbound rate limiter (requests made by this node).Rate
           limit quotas per protocol can be set in the form of
@@ -390,27 +379,6 @@ Options:
           database.
       --target-peers <target-peers>
           The target number of peers.
-      --terminal-block-hash-epoch-override <EPOCH>
-          Used to coordinate manual overrides to the
-          TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH parameter. This flag should only
-          be used if the user has a clear understanding that the broad Ethereum
-          community has elected to override the terminal PoW block. Incorrect
-          use of this flag will cause your node to experience a consensus
-          failure. Be extremely careful with this flag.
-      --terminal-block-hash-override <TERMINAL_BLOCK_HASH>
-          Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH
-          parameter. This flag should only be used if the user has a clear
-          understanding that the broad Ethereum community has elected to
-          override the terminal PoW block. Incorrect use of this flag will cause
-          your node to experience a consensus failure. Be extremely careful with
-          this flag.
-      --terminal-total-difficulty-override <INTEGER>
-          Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY
-          parameter. Accepts a 256-bit decimal integer (not a hex value). This
-          flag should only be used if the user has a clear understanding that
-          the broad Ethereum community has elected to override the terminal
-          difficulty. Incorrect use of this flag will cause your node to
-          experience a consensus failure. Be extremely careful with this flag.
       --trusted-peers <TRUSTED_PEERS>
           One or more comma-delimited trusted peer ids which always have the
           highest score according to the peer scoring system.
@@ -445,8 +413,6 @@ Flags:
           incompatible with data availability checks. Checkpoint syncing is the
           preferred method for syncing a node. Only use this flag when testing.
           DO NOT use on mainnet!
-      --always-prefer-builder-payload
-          This flag is deprecated and has no effect.
       --always-prepare-payload
           Send payload attributes with every fork choice update. This is
           intended for use by block builders, relays and developers. You should
@@ -470,8 +436,6 @@ Flags:
           Explicitly disables syncing of deposit logs from the execution node.
           This overrides any previous option that depends on it. Useful if you
           intend to run a non-validating beacon node.
-      --disable-duplicate-warn-logs
-          This flag is deprecated and has no effect.
       --disable-enr-auto-update
           Discovery automatically updates the nodes local ENR with an external
           IP address and port as seen by other peers on the network. This
@@ -479,8 +443,6 @@ Flags:
           boot.
       --disable-inbound-rate-limiter
           Disables the inbound rate limiter (requests received by this node).
-      --disable-lock-timeouts
-          This flag is deprecated and has no effect.
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning

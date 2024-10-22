@@ -1,4 +1,6 @@
 use self::request::ActiveColumnSampleRequest;
+#[cfg(test)]
+pub(crate) use self::request::Status;
 use super::network_context::{
     DataColumnsByRootSingleBlockRequest, RpcResponseError, SyncNetworkContext,
 };
@@ -43,15 +45,15 @@ impl<T: BeaconChainTypes> Sampling<T> {
     }
 
     #[cfg(test)]
-    pub fn assert_sampling_request_status(
+    pub fn get_request_status(
         &self,
         block_root: Hash256,
-        ongoing: &Vec<ColumnIndex>,
-        no_peers: &Vec<ColumnIndex>,
-    ) {
+        index: &ColumnIndex,
+    ) -> Option<self::request::Status> {
         let requester = SamplingRequester::ImportedBlock(block_root);
-        let active_sampling_request = self.requests.get(&requester).unwrap();
-        active_sampling_request.assert_sampling_request_status(ongoing, no_peers);
+        self.requests
+            .get(&requester)
+            .and_then(|req| req.get_request_status(index))
     }
 
     /// Create a new sampling request for a known block
@@ -86,7 +88,11 @@ impl<T: BeaconChainTypes> Sampling<T> {
             }
         };
 
-        debug!(self.log, "Created new sample request"; "id" => ?id);
+        debug!(self.log,
+            "Created new sample request";
+            "id" => ?id,
+            "column_selection" => ?request.column_selection()
+        );
 
         // TOOD(das): If a node has very little peers, continue_sampling() will attempt to find enough
         // to sample here, immediately failing the sampling request. There should be some grace
@@ -233,18 +239,17 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
     }
 
     #[cfg(test)]
-    pub fn assert_sampling_request_status(
-        &self,
-        ongoing: &Vec<ColumnIndex>,
-        no_peers: &Vec<ColumnIndex>,
-    ) {
-        for idx in ongoing {
-            assert!(self.column_requests.get(idx).unwrap().is_ongoing());
-        }
+    pub fn get_request_status(&self, index: &ColumnIndex) -> Option<self::request::Status> {
+        self.column_requests.get(index).map(|req| req.status())
+    }
 
-        for idx in no_peers {
-            assert!(self.column_requests.get(idx).unwrap().is_no_peers());
-        }
+    /// Return the current ordered list of columns that this requests has to sample to succeed
+    pub(crate) fn column_selection(&self) -> Vec<ColumnIndex> {
+        self.column_shuffle
+            .iter()
+            .take(REQUIRED_SUCCESSES[0])
+            .copied()
+            .collect()
     }
 
     /// Insert a downloaded column into an active sampling request. Then make progress on the
@@ -539,6 +544,10 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
                     block_root: self.block_root,
                     indices: column_indexes.clone(),
                 },
+                // false = We issue request to custodians who may or may not have received the
+                // samples yet. We don't any signal (like an attestation or status messages that the
+                // custodian has received data).
+                false,
             )
             .map_err(SamplingError::SendFailed)?;
             self.column_indexes_by_sampling_request
@@ -584,8 +593,9 @@ mod request {
         peers_dont_have: HashSet<PeerId>,
     }
 
+    // Exposed only for testing assertions in lookup tests
     #[derive(Debug, Clone)]
-    enum Status {
+    pub(crate) enum Status {
         NoPeers,
         NotStarted,
         Sampling(PeerId),
@@ -630,8 +640,8 @@ mod request {
         }
 
         #[cfg(test)]
-        pub(crate) fn is_no_peers(&self) -> bool {
-            matches!(self.status, Status::NoPeers)
+        pub(crate) fn status(&self) -> Status {
+            self.status.clone()
         }
 
         pub(crate) fn choose_peer<T: BeaconChainTypes>(

@@ -4,7 +4,6 @@ pub use clap::{Arg, ArgAction, Args, Command, FromArgMatches, Parser};
 use clap_utils::get_color_style;
 use clap_utils::FLAG_HEADER;
 use serde::{Deserialize, Serialize};
-use std::net::IpAddr;
 use std::path::PathBuf;
 use types::Address;
 
@@ -42,20 +41,6 @@ pub struct ValidatorClient {
         display_order = 0
     )]
     pub proposer_nodes: Option<Vec<String>>,
-
-    // TODO remove this flag in a future release
-    #[clap(
-        long,
-        value_name = "DISABLE_RUN_ON_ALL",
-        help = "DEPRECATED. Use --broadcast. \
-                By default, Lighthouse publishes attestation, sync committee subscriptions \
-                and proposer preparation messages to all beacon nodes provided in the \
-                `--beacon-nodes flag`. This option changes that behaviour such that these \
-                api calls only go out to the first available and synced beacon node.",
-        display_order = 0,
-        help_heading = FLAG_HEADER
-    )]
-    pub disable_run_on_all: bool,
 
     #[clap(
         long,
@@ -208,7 +193,7 @@ pub struct ValidatorClient {
                 transport-layer security like a HTTPS reverse-proxy or SSH tunnelling.",
         display_order = 0
     )]
-    pub http_address: Option<IpAddr>,
+    pub http_address: Option<String>,
 
     #[clap(
         long,
@@ -279,9 +264,8 @@ pub struct ValidatorClient {
         default_value_if("metrics", ArgPredicate::IsPresent, "127.0.0.1"),
         help = "Set the listen address for the Prometheus metrics HTTP server.",
         display_order = 0
-
     )]
-    pub metrics_address: IpAddr,
+    pub metrics_address: String,
 
     #[clap(
         long,
@@ -395,15 +379,6 @@ pub struct ValidatorClient {
         help_heading = FLAG_HEADER
     )]
     pub disable_latency_measurement_service: bool,
-
-    #[clap(
-        long,
-        value_name = "BOOLEAN",
-        help = "Disables the service that periodically attempts to measure latency to BNs.",
-        display_order = 0,
-        help_heading = FLAG_HEADER
-    )]
-    pub latency_measurement_service: bool,
 
     #[clap(
         long,

@@ -13,6 +13,7 @@ use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{info, warn, Logger};
 use std::fs;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
@@ -243,15 +244,6 @@ impl Config {
 
         config.distributed = validator_client_config.distributed;
 
-        if validator_client_config.disable_run_on_all {
-            warn!(
-                log,
-                "The --disable-run-on-all flag is deprecated";
-                "msg" => "please use --broadcast instead"
-            );
-            config.broadcast_topics = vec![];
-        }
-
         if let Some(broadcast_topics) = validator_client_config.broadcast.as_ref() {
             config.broadcast_topics = broadcast_topics.clone();
         }
@@ -287,9 +279,11 @@ impl Config {
 
         config.http_api.enabled = validator_client_config.http;
 
-        if let Some(address) = validator_client_config.http_address {
+        if let Some(address) = &validator_client_config.http_address {
             if validator_client_config.unencrypted_http_transport {
-                config.http_api.listen_addr = address;
+                config.http_api.listen_addr = address
+                    .parse::<IpAddr>()
+                    .map_err(|_| "http-address is not a valid IP address.")?;
             } else {
                 return Err(
                     "While using `--http-address`, you must also use `--unencrypted-http-transport`."
@@ -319,7 +313,10 @@ impl Config {
         config.http_metrics.enabled = validator_client_config.metrics;
         config.enable_high_validator_count_metrics =
             validator_client_config.enable_high_validator_count_metrics;
-        config.http_metrics.listen_addr = validator_client_config.metrics_address;
+        config.http_metrics.listen_addr = validator_client_config
+            .metrics_address
+            .parse::<IpAddr>()
+            .map_err(|_| "metrics-address is not a valid IP address.")?;
         config.http_metrics.listen_port = validator_client_config.metrics_port;
 
         if let Some(allow_origin) = validator_client_config.metrics_allow_origin.as_ref() {
@@ -352,15 +349,6 @@ impl Config {
             validator_client_config.enable_doppelganger_protection;
         config.builder_proposals = validator_client_config.builder_proposals;
         config.prefer_builder_proposals = validator_client_config.prefer_builder_proposals;
-
-        if validator_client_config.produce_block_v3 {
-            warn!(
-                log,
-                "produce-block-v3 flag";
-                "note" => "deprecated flag has no effect and should be removed"
-            );
-        }
-
         config.gas_limit = Some(validator_client_config.gas_limit);
 
         config.builder_registration_timestamp_override =
@@ -369,14 +357,6 @@ impl Config {
         config.builder_boost_factor = validator_client_config.builder_boost_factor;
         config.enable_latency_measurement_service =
             !validator_client_config.disable_latency_measurement_service;
-
-        if validator_client_config.latency_measurement_service {
-            warn!(
-                log,
-                "latency-measurement-service flag";
-                "note" => "deprecated flag has no effect and should be removed"
-            );
-        }
 
         config.validator_registration_batch_size =
             validator_client_config.validator_registration_batch_size;
