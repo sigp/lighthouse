@@ -976,7 +976,7 @@ async fn block_gossip_verification() {
 
                 harness
                     .chain
-                    .process_gossip_blob(gossip_verified, || Ok(()))
+                    .process_gossip_blob(gossip_verified)
                     .await
                     .expect("should import valid gossip verified blob");
             }
@@ -1247,7 +1247,7 @@ async fn verify_block_for_gossip_slashing_detection() {
                 .unwrap();
             harness
                 .chain
-                .process_gossip_blob(verified_blob, || Ok(()))
+                .process_gossip_blob(verified_blob)
                 .await
                 .unwrap();
         }
@@ -1726,7 +1726,7 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
         .unwrap()
     {
         ExecutedBlock::Available(block) => chain
-            .import_available_block(Box::from(block))
+            .import_available_block(Box::from(block), None)
             .await
             .map_err(|e| format!("{e:?}")),
         ExecutedBlock::AvailabilityPending(_) => {

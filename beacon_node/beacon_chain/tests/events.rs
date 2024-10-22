@@ -35,7 +35,7 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
 
     let _ = harness
         .chain
-        .process_gossip_blob(gossip_verified_blob, || Ok(()))
+        .process_gossip_blob(gossip_verified_blob)
         .await
         .unwrap();
 

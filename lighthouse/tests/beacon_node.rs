@@ -801,6 +801,34 @@ fn network_enable_sampling_flag() {
         .with_config(|config| assert!(config.chain.enable_sampling));
 }
 #[test]
+fn supernode_data_column_publication_batches() {
+    CommandLineTest::new()
+        .flag("supernode-data-column-publication-batches", Some("3"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.supernode_data_column_publication_batches, 3)
+        });
+}
+
+#[test]
+fn supernode_data_column_publication_batch_interval() {
+    CommandLineTest::new()
+        .flag(
+            "supernode-data-column-publication-batch-interval",
+            Some("300"),
+        )
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config
+                    .chain
+                    .supernode_data_column_publication_batch_interval,
+                Duration::from_millis(300)
+            )
+        });
+}
+
+#[test]
 fn network_enable_sampling_flag_default() {
     CommandLineTest::new()
         .run_with_zero_port()

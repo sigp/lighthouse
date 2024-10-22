@@ -2,6 +2,7 @@ use crate::sync::manager::BlockProcessType;
 use crate::sync::SamplingId;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::fetch_blobs::{fetch_and_process_engine_blobs, BlobsOrDataColumns};
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, AvailabilityProcessingStatus, BeaconChain,
 };
@@ -21,6 +22,7 @@ use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
 };
+use rand::prelude::SliceRandom;
 use slog::{debug, error, trace, Logger};
 use slot_clock::ManualSlotClock;
 use std::path::PathBuf;
@@ -878,6 +880,84 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
+    fn publish_blobs_or_data_column(&self, blobs_or_data_column: BlobsOrDataColumns<T::EthSpec>) {
+        let messages = match blobs_or_data_column {
+            BlobsOrDataColumns::Blobs(blobs) => {
+                debug!(self.log, "Publishing blobs from EL"; "count" => blobs.len());
+                blobs
+                    .into_iter()
+                    .map(|blob| PubsubMessage::BlobSidecar(Box::new((blob.index, blob))))
+                    .collect()
+            }
+            BlobsOrDataColumns::DataColumns(columns) => {
+                debug!(self.log, "Publishing data columns built from EL blobs"; "count" => columns.len());
+                columns.into_iter().map(|column| {
+                    let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
+                        column.index as usize,
+                        &self.chain.spec,
+                    );
+                    PubsubMessage::DataColumnSidecar(Box::new((subnet, column)))
+                })
+            }
+            .collect(),
+        };
+        self.send_network_message(NetworkMessage::Publish { messages })
+    }
+
+    pub async fn fetch_engine_blobs_and_publish(
+        self: &Arc<Self>,
+        block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
+        block_root: Hash256,
+    ) {
+        let self_cloned = self.clone();
+        let publish_fn = move |blobs_or_data_column| {
+            self_cloned.publish_blobs_or_data_column(blobs_or_data_column)
+        };
+
+        match fetch_and_process_engine_blobs(
+            self.chain.clone(),
+            block_root,
+            block.clone(),
+            publish_fn,
+        )
+        .await
+        {
+            Ok(Some(availability)) => match availability {
+                AvailabilityProcessingStatus::Imported(_) => {
+                    debug!(
+                        self.log,
+                        "Block components retrieved from EL";
+                        "result" => "imported block and custody columns",
+                        "block_hash" => %block_root,
+                    );
+                    self.chain.recompute_head_at_current_slot().await;
+                }
+                AvailabilityProcessingStatus::MissingComponents(_, _) => {
+                    debug!(
+                        self.log,
+                        "Still missing blobs after engine blobs processed successfully";
+                        "block_hash" => %block_root,
+                    );
+                }
+            },
+            Ok(None) => {
+                debug!(
+                    self.log,
+                    "Fetch blobs completed without import";
+                    "block_hash" => %block_root,
+                );
+            }
+            Err(e) => {
+                error!(
+                    self.log,
+                    "Error fetching or processing blobs from EL";
+                    "error" => ?e,
+                    "block_hash" => %block_root,
+                );
+            }
+        }
+    }
+
     /// Attempt to reconstruct all data columns if the following conditions satisfies:
     /// - Our custody requirement is all columns
     /// - We have >= 50% of columns, but not all columns
@@ -885,25 +965,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Returns `Some(AvailabilityProcessingStatus)` if reconstruction is successfully performed,
     /// otherwise returns `None`.
     async fn attempt_data_column_reconstruction(
-        &self,
+        self: &Arc<Self>,
         block_root: Hash256,
     ) -> Option<AvailabilityProcessingStatus> {
         let result = self.chain.reconstruct_data_columns(block_root).await;
         match result {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {
-                self.send_network_message(NetworkMessage::Publish {
-                    messages: data_columns_to_publish
-                        .iter()
-                        .map(|d| {
-                            let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
-                                d.index as usize,
-                                &self.chain.spec,
-                            );
-                            PubsubMessage::DataColumnSidecar(Box::new((subnet, d.clone())))
-                        })
-                        .collect(),
-                });
-
+                self.handle_data_columns_to_publish(data_columns_to_publish, block_root);
                 match &availability_processing_status {
                     AvailabilityProcessingStatus::Imported(hash) => {
                         debug!(
@@ -945,6 +1013,71 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 None
             }
         }
+    }
+
+    fn handle_data_columns_to_publish(
+        self: &Arc<Self>,
+        mut data_columns_to_publish: DataColumnSidecarList<T::EthSpec>,
+        block_root: Hash256,
+    ) {
+        let self_clone = self.clone();
+
+        self.executor.spawn(
+            async move {
+                let chain = self_clone.chain.clone();
+                let publish_fn = |columns: DataColumnSidecarList<T::EthSpec>| {
+                    self_clone.send_network_message(NetworkMessage::Publish {
+                        messages: columns
+                            .into_iter()
+                            .map(|d| {
+                                let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
+                                    d.index as usize,
+                                    &chain.spec,
+                                );
+                                PubsubMessage::DataColumnSidecar(Box::new((subnet, d)))
+                            })
+                            .collect(),
+                    });
+                };
+
+                // If this node is a super node, permute the columns and split them into batches.
+                // The hope is that we won't need to publish some columns because we will receive them
+                // on gossip from other supernodes.
+                data_columns_to_publish.shuffle(&mut rand::thread_rng());
+
+                let supernode_data_column_publication_batch_interval = chain
+                    .config
+                    .supernode_data_column_publication_batch_interval;
+                let supernode_data_column_publication_batches =
+                    chain.config.supernode_data_column_publication_batches;
+                let batch_size =
+                    data_columns_to_publish.len() / supernode_data_column_publication_batches;
+
+                for batch in data_columns_to_publish.chunks(batch_size) {
+                    let already_seen = chain
+                        .data_availability_checker
+                        .cached_data_column_indexes(&block_root)
+                        .unwrap_or_default();
+                    let publishable = batch
+                        .iter()
+                        .filter(|col| !already_seen.contains(&col.index))
+                        .cloned()
+                        .collect::<Vec<_>>();
+
+                    if !publishable.is_empty() {
+                        debug!(
+                            self_clone.chain.logger(),
+                            "Publishing data column batch";
+                            "count" => publishable.len()
+                        );
+                        publish_fn(publishable);
+                    }
+
+                    tokio::time::sleep(supernode_data_column_publication_batch_interval).await;
+                }
+            },
+            "handle_data_columns_publish",
+        );
     }
 }
 
