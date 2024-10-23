@@ -1,6 +1,7 @@
 use crate::sync::manager::BlockProcessType;
 use crate::sync::SamplingId;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
+use attestation::SingleAttestation;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, AvailabilityProcessingStatus, BeaconChain,
@@ -72,6 +73,47 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.beacon_processor_send
             .try_send(event)
             .map_err(Into::into)
+    }
+
+    /// Create a new `Work` event for some unaggregated attestation.
+    pub fn send_single_attestation(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        single_attestation: SingleAttestation,
+        subnet_id: SubnetId,
+        should_import: bool,
+        seen_timestamp: Duration,
+    ) -> Result<(), Error<T::EthSpec>> {
+        // Define a closure for processing individual attestations.
+        let Ok(result) = self.chain.with_committee_cache(
+            single_attestation.data.target.root,
+            single_attestation
+                .data
+                .slot
+                .epoch(T::EthSpec::slots_per_epoch()),
+            |committee_cache, _| {
+                let committees =
+                    committee_cache.get_beacon_committees_at_slot(single_attestation.data.slot)?;
+
+                let attestation = single_attestation.to_attestation(&committees)?;
+
+                Ok(self.send_unaggregated_attestation(
+                    message_id.clone(),
+                    peer_id,
+                    attestation,
+                    subnet_id,
+                    should_import,
+                    seen_timestamp,
+                ))
+            },
+        ) else {
+            // TODO(single-attestation) raising a try send error here is problematic...
+            // is logging an error sufficient?
+            todo!()
+        };
+
+        result
     }
 
     /// Create a new `Work` event for some unaggregated attestation.
