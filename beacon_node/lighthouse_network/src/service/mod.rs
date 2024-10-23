@@ -973,8 +973,12 @@ impl<E: EthSpec> Network<E> {
             return Err((request_id, RPCError::Disconnected));
         }
 
-        self.eth2_rpc_mut()
-            .send_request(peer_id, RequestId::Application(request_id), request);
+        self.eth2_rpc_mut().send_request(
+            peer_id,
+            RequestId::Application(request_id),
+            request.clone().into(),
+        );
+        metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS_SENT, &[request.into()]);
         Ok(())
     }
 
@@ -1207,6 +1211,26 @@ impl<E: EthSpec> Network<E> {
                 response,
             }),
             RequestId::Internal => None,
+        }
+    }
+
+    /// Convenience function to propagate a request.
+    #[must_use = "actually return the event"]
+    fn build_request(
+        &mut self,
+        id: PeerRequestId,
+        peer_id: PeerId,
+        request: Request,
+    ) -> NetworkEvent<E> {
+        // Increment metrics
+        metrics::inc_counter_vec(
+            &metrics::TOTAL_RPC_REQUESTS_RECEIVED,
+            &[request.clone().into()],
+        );
+        NetworkEvent::RequestReceived {
+            peer_id,
+            id,
+            request,
         }
     }
 

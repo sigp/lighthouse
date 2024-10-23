@@ -8,6 +8,7 @@ use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, SinkExt};
 use libp2p::core::{OutboundUpgrade, UpgradeInfo};
 use std::sync::Arc;
+use strum::IntoStaticStr;
 use tokio_util::{
     codec::Framed,
     compat::{Compat, FuturesAsyncReadCompatExt},
@@ -23,6 +24,20 @@ pub struct OutboundRequestContainer<E: EthSpec> {
     pub req: RequestType<E>,
     pub fork_context: Arc<ForkContext>,
     pub max_rpc_size: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, IntoStaticStr)]
+pub enum OutboundRequest<E: EthSpec> {
+    Status(StatusMessage),
+    Goodbye(GoodbyeReason),
+    BlocksByRange(OldBlocksByRangeRequest),
+    BlocksByRoot(BlocksByRootRequest),
+    BlobsByRange(BlobsByRangeRequest),
+    BlobsByRoot(BlobsByRootRequest),
+    DataColumnsByRoot(DataColumnsByRootRequest),
+    DataColumnsByRange(DataColumnsByRangeRequest),
+    Ping(Ping),
+    MetaData(MetadataRequest<E>),
 }
 
 impl<E: EthSpec> UpgradeInfo for OutboundRequestContainer<E> {
