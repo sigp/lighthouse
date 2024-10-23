@@ -39,20 +39,6 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::Set)
                 .display_order(0)
         )
-        // TODO remove this flag in a future release
-        .arg(
-            Arg::new("disable-run-on-all")
-                .long("disable-run-on-all")
-                .value_name("DISABLE_RUN_ON_ALL")
-                .help("DEPRECATED. Use --broadcast. \
-                       By default, Lighthouse publishes attestation, sync committee subscriptions \
-                       and proposer preparation messages to all beacon nodes provided in the \
-                       `--beacon-nodes flag`. This option changes that behaviour such that these \
-                       api calls only go out to the first available and synced beacon node")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
         .arg(
             Arg::new("broadcast")
                 .long("broadcast")
@@ -165,14 +151,6 @@ pub fn cli_app() -> Command {
                        configured in the validator definitions it takes priority over this value.")
                 .value_name("FEE-RECIPIENT")
                 .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("produce-block-v3")
-                .long("produce-block-v3")
-                .help("This flag is deprecated and is no longer in use.")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
         .arg(
@@ -404,15 +382,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("latency-measurement-service")
-                .long("latency-measurement-service")
-                .help("DEPRECATED")
-                .action(ArgAction::Set)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
             Arg::new("validator-registration-batch-size")
                 .long("validator-registration-batch-size")
                 .value_name("INTEGER")
@@ -441,6 +410,33 @@ pub fn cli_app() -> Command {
                 .help("If this flag is set, Lighthouse will always prefer blocks \
                     constructed by builders, regardless of payload value.")
                 .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("beacon-nodes-sync-tolerances")
+                .long("beacon-nodes-sync-tolerances")
+                .value_name("SYNC_TOLERANCES")
+                .help("A comma-separated list of 3 values which sets the size of each sync distance range when \
+                    determining the health of each connected beacon node. \
+                    The first value determines the `Synced` range. \
+                    If a connected beacon node is synced to within this number of slots it is considered 'Synced'. \
+                    The second value determines the `Small` sync distance range. \
+                    This range starts immediately after the `Synced` range. \
+                    The third value determines the `Medium` sync distance range. \
+                    This range starts immediately after the `Small` range. \
+                    Any sync distance value beyond that is considered `Large`. \
+                    For example, a value of `8,8,48` would have ranges like the following: \
+                    `Synced`: 0..=8 \
+                    `Small`: 9..=16 \
+                    `Medium`: 17..=64 \
+                    `Large`: 65.. \
+                    These values are used to determine what ordering beacon node fallbacks are used in. \
+                    Generally, `Synced` nodes are preferred over `Small` and so on. \
+                    Nodes in the `Synced` range will tie-break based on their ordering in `--beacon-nodes`. \
+                    This ensures the primary beacon node is prioritised. \
+                    [default: 8,8,48]")
+                .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
