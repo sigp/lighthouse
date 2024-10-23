@@ -9,6 +9,8 @@ edition = { workspace = true }
 [dependencies]
 eth2_wallet = { workspace = true }
 lockfile = { workspace = true }
+serde = { workspace = true }
+clap = { workspace = true, features = ["derive"]}
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -24,6 +24,8 @@ account_utils = { workspace = true }
 slashing_protection = { workspace = true }
 eth2 = { workspace = true }
 safe_arith = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 slot_clock = { workspace = true }
 filesystem = { workspace = true }
 sensitive_url = { workspace = true }
