@@ -720,44 +720,6 @@ fn run<E: EthSpec>(
         "name" => &network_name
     );
 
-    if let Ok(LighthouseSubcommands::ValidatorClient(validator_client_config)) =
-        LighthouseSubcommands::from_arg_matches(matches)
-    {
-        let context = environment.core_context();
-        let log = context.log().clone();
-        let executor = context.executor.clone();
-        let config =
-            validator_client::Config::from_cli(matches, &validator_client_config, context.log())
-                .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
-        // Dump configs if `dump-config` or `dump-chain-config` flags are set
-        clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
-
-        let shutdown_flag = matches.get_flag("immediate-shutdown");
-        if shutdown_flag {
-            info!(log, "Validator client immediate shutdown triggered.");
-            return Ok(());
-        }
-
-        executor.clone().spawn(
-            async move {
-                if let Err(e) = ProductionValidatorClient::new(context, config)
-                    .and_then(|mut vc| async move { vc.start_service().await })
-                    .await
-                {
-                    crit!(log, "Failed to start validator client"; "reason" => e);
-                    // Ignore the error since it always occurs during normal operation when
-                    // shutting down.
-                    let _ = executor
-                        .shutdown_sender()
-                        .try_send(ShutdownReason::Failure("Failed to start validator client"));
-                }
-            },
-            "validator_client",
-        );
-
-        return Ok(());
-    };
-
     match matches.subcommand() {
         Some(("beacon_node", matches)) => {
             let context = environment.core_context();
