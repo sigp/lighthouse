@@ -9,7 +9,6 @@ name = "validator_metrics"
 path = "src/lib.rs"
 
 [dependencies]
-malloc_utils = { workspace = true }
 lighthouse_metrics = { workspace = true }
 
 [dev-dependencies]

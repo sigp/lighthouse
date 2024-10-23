@@ -9396,7 +9396,6 @@ name = "validator_metrics"
 version = "0.1.0"
 dependencies = [
  "lighthouse_metrics",
- "malloc_utils",
 ]
 
 [[package]]
@@ -9730,7 +9729,6 @@ dependencies = [
  "tokio",
  "types",
  "url",
- "validator_client",
  "validator_store",
  "zip",
 ]

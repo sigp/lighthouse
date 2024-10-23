@@ -15,7 +15,6 @@ tempfile = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true }
 url = { workspace = true }
-validator_client = { workspace = true }
 slot_clock = { workspace = true }
 futures = { workspace = true }
 task_executor = { workspace = true }
