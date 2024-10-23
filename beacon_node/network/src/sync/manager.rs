@@ -1232,6 +1232,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .network
             .range_block_and_blob_response(id, block_or_blob)
         {
+            let epoch = resp.sender_id.batch_id();
             match resp.responses {
                 Ok(blocks) => {
                     match resp.sender_id {
@@ -1275,6 +1276,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             resp.expects_custody_columns,
                             None,
                             vec![],
+                            self.chain.spec.max_blobs_per_block(epoch) as usize,
                         ),
                     );
                     // inform range that the request needs to be treated as failed

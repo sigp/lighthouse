@@ -206,7 +206,7 @@ fn update_blob_signed_header<E: EthSpec>(
     signed_block: &SignedBeaconBlock<E>,
     blobs: &mut BlobSidecarList<E>,
 ) {
-    for old_blob_sidecar in blobs.iter_mut() {
+    for old_blob_sidecar in blobs.as_mut_slice().unwrap() {
         let new_blob = Arc::new(BlobSidecar::<E> {
             index: old_blob_sidecar.index,
             blob: old_blob_sidecar.blob.clone(),
@@ -1214,7 +1214,7 @@ async fn verify_block_for_gossip_slashing_detection() {
     let slasher = Arc::new(
         Slasher::open(
             SlasherConfig::new(slasher_dir.path().into()),
-            spec,
+            spec.clone(),
             test_logger(),
         )
         .unwrap(),
@@ -1238,7 +1238,7 @@ async fn verify_block_for_gossip_slashing_detection() {
 
     if let Some((kzg_proofs, blobs)) = blobs1 {
         let sidecars =
-            BlobSidecar::build_sidecars(blobs, verified_block.block(), kzg_proofs).unwrap();
+            BlobSidecar::build_sidecars(blobs, verified_block.block(), kzg_proofs, &spec).unwrap();
         for sidecar in sidecars {
             let blob_index = sidecar.index;
             let verified_blob = harness

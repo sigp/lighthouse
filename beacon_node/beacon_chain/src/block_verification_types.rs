@@ -4,11 +4,10 @@ use crate::data_column_verification::{CustodyDataColumn, CustodyDataColumnList};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::{get_block_root, PayloadVerificationOutcome};
 use derivative::Derivative;
-use ssz_types::VariableList;
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
-use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
+use types::blob_sidecar::BlobIdentifier;
 use types::{
     BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, ChainSpec, Epoch, EthSpec,
     Hash256, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
@@ -174,23 +173,6 @@ impl<E: EthSpec> RpcBlock<E> {
             block_root,
             block: inner,
         })
-    }
-
-    pub fn new_from_fixed(
-        block_root: Hash256,
-        block: Arc<SignedBeaconBlock<E>>,
-        blobs: FixedBlobSidecarList<E>,
-    ) -> Result<Self, AvailabilityCheckError> {
-        let filtered = blobs
-            .into_iter()
-            .filter_map(|b| b.clone())
-            .collect::<Vec<_>>();
-        let blobs = if filtered.is_empty() {
-            None
-        } else {
-            Some(VariableList::from(filtered))
-        };
-        Self::new(Some(block_root), block, blobs)
     }
 
     #[allow(clippy::type_complexity)]

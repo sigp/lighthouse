@@ -4,8 +4,7 @@ use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
 use ssz_types::typenum::{
     bit::B0, UInt, U0, U1, U1024, U1048576, U1073741824, U1099511627776, U128, U131072, U134217728,
-    U16, U16777216, U2, U2048, U256, U262144, U32, U4, U4096, U512, U6, U625, U64, U65536, U8,
-    U8192,
+    U16, U16777216, U2, U2048, U256, U262144, U32, U4, U4096, U512, U625, U64, U65536, U8, U8192,
 };
 use ssz_types::typenum::{U17, U9};
 use std::fmt::{self, Debug};
@@ -109,7 +108,6 @@ pub trait EthSpec:
     /*
      * New in Deneb
      */
-    type MaxBlobsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
     type MaxBlobCommitmentsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq + Unpin;
     type FieldElementsPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type BytesPerFieldElement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -280,11 +278,6 @@ pub trait EthSpec:
         Self::MaxWithdrawalsPerPayload::to_usize()
     }
 
-    /// Returns the `MAX_BLOBS_PER_BLOCK` constant for this specification.
-    fn max_blobs_per_block() -> usize {
-        Self::MaxBlobsPerBlock::to_usize()
-    }
-
     /// Returns the `MAX_BLOB_COMMITMENTS_PER_BLOCK` constant for this specification.
     fn max_blob_commitments_per_block() -> usize {
         Self::MaxBlobCommitmentsPerBlock::to_usize()
@@ -415,7 +408,6 @@ impl EthSpec for MainnetEthSpec {
     type GasLimitDenominator = U1024;
     type MinGasLimit = U5000;
     type MaxExtraDataBytes = U32;
-    type MaxBlobsPerBlock = U6;
     type MaxBlobCommitmentsPerBlock = U4096;
     type BytesPerFieldElement = U32;
     type FieldElementsPerBlob = U4096;
@@ -498,7 +490,6 @@ impl EthSpec for MinimalEthSpec {
         MinGasLimit,
         MaxExtraDataBytes,
         MaxBlsToExecutionChanges,
-        MaxBlobsPerBlock,
         BytesPerFieldElement,
         PendingBalanceDepositsLimit,
         MaxConsolidationRequestsPerPayload,
@@ -551,7 +542,6 @@ impl EthSpec for GnosisEthSpec {
     type SlotsPerEth1VotingPeriod = U1024; // 64 epochs * 16 slots per epoch
     type MaxBlsToExecutionChanges = U16;
     type MaxWithdrawalsPerPayload = U8;
-    type MaxBlobsPerBlock = U6;
     type MaxBlobCommitmentsPerBlock = U4096;
     type FieldElementsPerBlob = U4096;
     type BytesPerFieldElement = U32;

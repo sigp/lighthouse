@@ -213,7 +213,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         // from the same peer for both lookup and range sync.
 
         let verified_blobs = KzgVerifiedBlobList::new(
-            Vec::from(blobs).into_iter().flatten(),
+            blobs.into_vec().into_iter().flatten(),
             &self.kzg,
             seen_timestamp,
         )
@@ -386,14 +386,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<Vec<MaybeAvailableBlock<T::EthSpec>>, AvailabilityCheckError> {
         let mut results = Vec::with_capacity(blocks.len());
-        let all_blobs: BlobSidecarList<T::EthSpec> = blocks
+        let all_blobs = blocks
             .iter()
             .filter(|block| self.blobs_required_for_block(block.as_block()))
             // this clone is cheap as it's cloning an Arc
             .filter_map(|block| block.blobs().cloned())
             .flatten()
-            .collect::<Vec<_>>()
-            .into();
+            .collect::<Vec<_>>();
 
         // verify kzg for all blobs at once
         if !all_blobs.is_empty() {

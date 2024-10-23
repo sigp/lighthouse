@@ -11,7 +11,6 @@ use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::typenum::Unsigned;
 use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
 use std::hash::Hash;
@@ -110,18 +109,16 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         .len()
     }
 
-    pub fn max_size() -> usize {
+    pub fn max_size(max_blobs_per_block: usize) -> usize {
         Self {
             index: 0,
-            column: VariableList::new(vec![Cell::<E>::default(); E::MaxBlobsPerBlock::to_usize()])
-                .unwrap(),
+            column: VariableList::new(vec![Cell::<E>::default(); max_blobs_per_block]).unwrap(),
             kzg_commitments: VariableList::new(vec![
                 KzgCommitment::empty_for_testing();
-                E::MaxBlobsPerBlock::to_usize()
+                max_blobs_per_block
             ])
             .unwrap(),
-            kzg_proofs: VariableList::new(vec![KzgProof::empty(); E::MaxBlobsPerBlock::to_usize()])
-                .unwrap(),
+            kzg_proofs: VariableList::new(vec![KzgProof::empty(); max_blobs_per_block]).unwrap(),
             signed_block_header: SignedBeaconBlockHeader {
                 message: BeaconBlockHeader::empty(),
                 signature: Signature::empty(),

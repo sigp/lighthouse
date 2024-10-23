@@ -2019,7 +2019,7 @@ where
         let (block, blob_items) = block_contents;
 
         let sidecars = blob_items
-            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs))
+            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs, &self.spec))
             .transpose()
             .unwrap();
         let block_hash: SignedBeaconBlockHash = self
@@ -2045,7 +2045,7 @@ where
         let (block, blob_items) = block_contents;
 
         let sidecars = blob_items
-            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs))
+            .map(|(proofs, blobs)| BlobSidecar::build_sidecars(blobs, &block, proofs, &self.spec))
             .transpose()
             .unwrap();
         let block_root = block.canonical_root();
@@ -2830,7 +2830,8 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
             let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.gen_range(1..=E::max_blobs_per_block()),
+                // TODO(pawan): thread the chainspec value here
+                NumBlobs::Random => rng.gen_range(1..=6),
                 NumBlobs::Number(n) => n,
                 NumBlobs::None => 0,
             };
@@ -2850,7 +2851,8 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
             let payload: &mut FullPayloadElectra<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.gen_range(1..=E::max_blobs_per_block()),
+                // TODO(pawan): thread the chainspec value here
+                NumBlobs::Random => rng.gen_range(1..=6),
                 NumBlobs::Number(n) => n,
                 NumBlobs::None => 0,
             };

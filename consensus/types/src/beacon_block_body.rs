@@ -13,8 +13,6 @@ use tree_hash_derive::TreeHash;
 
 pub type KzgCommitments<E> =
     VariableList<KzgCommitment, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
-pub type KzgCommitmentOpts<E> =
-    FixedVector<Option<KzgCommitment>, <E as EthSpec>::MaxBlobsPerBlock>;
 
 /// The number of leaves (including padding) on the `BeaconBlockBody` Merkle tree.
 ///

@@ -2,13 +2,18 @@ use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
 use ssz_types::Error;
-use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::ops::{Deref, Index, IndexMut};
 use std::slice::SliceIndex;
 
 /// Emulates a SSZ `List`.
 ///
 /// An ordered, heap-allocated, variable-length, homogeneous collection of `T`, with no more than
 /// `max_len` values.
+///
+/// In cases where the `max_length` of the container is unknown at time of initialization, we provide
+/// a `Self::empty_uninitialized` constructor that initializes a runtime list without setting the max_len.
+///
+/// To ensure there are no inconsistent states, we do not allow any mutating operation if `max_len` is not set.
 ///
 /// ## Example
 ///
@@ -35,14 +40,26 @@ use std::slice::SliceIndex;
 ///
 /// // Push a value to if it _does_ exceed the maximum.
 /// assert!(long.push(6).is_err());
+///
+/// let mut uninit = RuntimeVariableList::empty_unitialized();
+/// assert!(uninit.push(5).is_err());
+///
+/// // Set max_len to allow mutation.
+/// uninit.set_max_len(5usize);
+///
+/// uninit.push(5).unwrap();
+/// assert_eq!(&uninit[..], &[5]);
+///
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
 #[derivative(PartialEq, Eq, Hash(bound = "T: std::hash::Hash"))]
 #[serde(transparent)]
 pub struct RuntimeVariableList<T> {
     vec: Vec<T>,
+    /// A `None` here indicates an uninitialized `Self`.
+    /// No mutating operation will be allowed until `max_len` is Some
     #[serde(skip)]
-    max_len: usize,
+    max_len: Option<usize>,
 }
 
 impl<T> RuntimeVariableList<T> {
@@ -50,7 +67,10 @@ impl<T> RuntimeVariableList<T> {
     /// `Err(OutOfBounds { .. })`.
     pub fn new(vec: Vec<T>, max_len: usize) -> Result<Self, Error> {
         if vec.len() <= max_len {
-            Ok(Self { vec, max_len })
+            Ok(Self {
+                vec,
+                max_len: Some(max_len),
+            })
         } else {
             Err(Error::OutOfBounds {
                 i: vec.len(),
@@ -62,19 +82,44 @@ impl<T> RuntimeVariableList<T> {
     pub fn from_vec(mut vec: Vec<T>, max_len: usize) -> Self {
         vec.truncate(max_len);
 
-        Self { vec, max_len }
+        Self {
+            vec,
+            max_len: Some(max_len),
+        }
     }
 
-    /// Create an empty list.
+    /// Create an empty list with the given `max_len`.
     pub fn empty(max_len: usize) -> Self {
         Self {
             vec: vec![],
-            max_len,
+            max_len: Some(max_len),
         }
     }
 
     pub fn as_slice(&self) -> &[T] {
         self.vec.as_slice()
+    }
+
+    pub fn as_mut_slice(&mut self) -> Option<&mut [T]> {
+        if self.max_len.is_none() {
+            return None;
+        };
+        Some(self.vec.as_mut_slice())
+    }
+
+    /// Returns an instance of `Self` with max_len = None.
+    ///
+    /// No mutating operation can be performed on an uninitialized instance
+    /// without first setting `max_len`.
+    pub fn empty_uninitialized() -> Self {
+        Self {
+            vec: vec![],
+            max_len: None,
+        }
+    }
+
+    pub fn set_max_len(&mut self, max_len: usize) {
+        self.max_len = Some(max_len);
     }
 
     /// Returns the number of values presently in `self`.
@@ -88,7 +133,9 @@ impl<T> RuntimeVariableList<T> {
     }
 
     /// Returns the type-level maximum length.
-    pub fn max_len(&self) -> usize {
+    ///
+    /// Returns `None` if self is uninitialized with a max_len.
+    pub fn max_len(&self) -> Option<usize> {
         self.max_len
     }
 
@@ -96,13 +143,17 @@ impl<T> RuntimeVariableList<T> {
     ///
     /// Returns `Err(())` when appending `value` would exceed the maximum length.
     pub fn push(&mut self, value: T) -> Result<(), Error> {
-        if self.vec.len() < self.max_len {
+        let Some(max_len) = self.max_len else {
+            // TODO(pawan): set a better error?
+            return Err(Error::MissingLengthInformation);
+        };
+        if self.vec.len() < max_len {
             self.vec.push(value);
             Ok(())
         } else {
             Err(Error::OutOfBounds {
                 i: self.vec.len().saturating_add(1),
-                len: self.max_len,
+                len: max_len,
             })
         }
     }
@@ -135,7 +186,10 @@ impl<T: Decode> RuntimeVariableList<T> {
         } else {
             ssz::decode_list_of_variable_length_items(bytes, Some(max_len))?
         };
-        Ok(Self { vec, max_len })
+        Ok(Self {
+            vec,
+            max_len: Some(max_len),
+        })
     }
 }
 
@@ -166,12 +220,6 @@ impl<T> Deref for RuntimeVariableList<T> {
 
     fn deref(&self) -> &[T] {
         &self.vec[..]
-    }
-}
-
-impl<T> DerefMut for RuntimeVariableList<T> {
-    fn deref_mut(&mut self) -> &mut [T] {
-        &mut self.vec[..]
     }
 }
 
@@ -211,6 +259,85 @@ where
 
     fn ssz_bytes_len(&self) -> usize {
         self.vec.ssz_bytes_len()
+    }
+}
+
+/// Emulates a SSZ `Vector`.
+#[derive(Clone, Debug)]
+pub struct RuntimeFixedList<T> {
+    vec: Vec<T>,
+    len: usize,
+}
+
+impl<T: Clone + Default> RuntimeFixedList<T> {
+    pub fn new(vec: Vec<T>) -> Self {
+        let len = vec.len();
+        Self { vec, len }
+    }
+
+    pub fn to_vec(&self) -> Vec<T> {
+        self.vec.clone()
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        self.vec.as_slice()
+    }
+
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn into_vec(self) -> Vec<T> {
+        self.vec
+    }
+
+    pub fn default(max_len: usize) -> Self {
+        Self {
+            vec: vec![T::default(); max_len],
+            len: max_len,
+        }
+    }
+
+    pub fn take(&mut self) -> Self {
+        let new = std::mem::take(&mut self.vec);
+        *self = Self::new(vec![T::default(); self.len]);
+        Self {
+            vec: new,
+            len: self.len,
+        }
+    }
+}
+
+impl<T> std::ops::Deref for RuntimeFixedList<T> {
+    type Target = [T];
+
+    fn deref(&self) -> &[T] {
+        &self.vec[..]
+    }
+}
+
+impl<T> std::ops::DerefMut for RuntimeFixedList<T> {
+    fn deref_mut(&mut self) -> &mut [T] {
+        &mut self.vec[..]
+    }
+}
+
+impl<T> IntoIterator for RuntimeFixedList<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.vec.into_iter()
+    }
+}
+
+impl<'a, T> IntoIterator for &'a RuntimeFixedList<T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.vec.iter()
     }
 }
 
@@ -283,7 +410,7 @@ mod test {
     }
 
     fn round_trip<T: Encode + Decode + PartialEq + Debug>(item: RuntimeVariableList<T>) {
-        let max_len = item.max_len();
+        let max_len = item.max_len().unwrap();
         let encoded = &item.as_ssz_bytes();
         assert_eq!(item.ssz_bytes_len(), encoded.len());
         assert_eq!(

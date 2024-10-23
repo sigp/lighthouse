@@ -67,6 +67,15 @@ pub enum RangeRequestId {
     },
 }
 
+impl RangeRequestId {
+    pub fn batch_id(&self) -> BatchId {
+        match self {
+            RangeRequestId::RangeSync { batch_id, .. } => *batch_id,
+            RangeRequestId::BackfillSync { batch_id, .. } => *batch_id,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum RpcEvent<T> {
     StreamTermination,
@@ -445,11 +454,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 (None, None)
             };
 
+        // TODO(pawan): this would break if a batch contains multiple epochs
+        let max_blobs_len = self.chain.spec.max_blobs_per_block(epoch);
         let info = RangeBlockComponentsRequest::new(
             expected_blobs,
             expects_columns,
             num_of_column_req,
             requested_peers,
+            max_blobs_len as usize,
         );
         self.range_block_components_requests
             .insert(id, (sender_id, info));
@@ -953,12 +965,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Option<RpcResponseResult<FixedBlobSidecarList<T::EthSpec>>> {
         let response = self.blobs_by_root_requests.on_response(id, rpc_event);
         let response = response.map(|res| {
-            res.and_then(
-                |(blobs, seen_timestamp)| match to_fixed_blob_sidecar_list(blobs) {
+            res.and_then(|(blobs, seen_timestamp)| {
+                let max_len = if let Some(blob) = blobs.first() {
+                    self.chain.spec.max_blobs_per_block(blob.epoch()) as usize
+                } else {
+                    6
+                };
+                match to_fixed_blob_sidecar_list(blobs, max_len) {
                     Ok(blobs) => Ok((blobs, seen_timestamp)),
                     Err(e) => Err(e.into()),
-                },
-            )
+                }
+            })
         });
         if let Some(Err(RpcResponseError::VerifyError(e))) = &response {
             self.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
@@ -1153,8 +1170,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
 fn to_fixed_blob_sidecar_list<E: EthSpec>(
     blobs: Vec<Arc<BlobSidecar<E>>>,
+    max_len: usize,
 ) -> Result<FixedBlobSidecarList<E>, LookupVerifyError> {
-    let mut fixed_list = FixedBlobSidecarList::default();
+    let mut fixed_list = FixedBlobSidecarList::new(vec![None; max_len]);
     for blob in blobs.into_iter() {
         let index = blob.index as usize;
         *fixed_list

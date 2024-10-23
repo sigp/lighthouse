@@ -1827,7 +1827,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .get_bytes(DBColumn::BeaconBlob.into(), block_root.as_slice())?
         {
             Some(ref blobs_bytes) => {
-                let blobs = BlobSidecarList::from_ssz_bytes(blobs_bytes)?;
+                // We insert a VariableList of BlobSidecars into the db, but retrieve
+                // a plain vec since we don't know the length limit of the list without
+                // knowing the slot.
+                // The encoding of a VariableList is same as a regular vec.
+                let blobs: Vec<Arc<BlobSidecar<E>>> = Vec::<_>::from_ssz_bytes(blobs_bytes)?;
+                let blobs = if let Some(max_blobs_per_block) = blobs
+                    .first()
+                    .map(|blob| self.spec.max_blobs_per_block(blob.epoch()))
+                {
+                    BlobSidecarList::from_vec(blobs, max_blobs_per_block as usize)
+                } else {
+                    // This always implies that there were no blobs for this block_root
+                    BlobSidecarList::empty_uninitialized()
+                };
                 self.block_cache
                     .lock()
                     .put_blobs(*block_root, blobs.clone());
