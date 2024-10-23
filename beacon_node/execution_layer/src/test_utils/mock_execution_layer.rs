@@ -90,6 +90,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         };
 
         let parent_hash = latest_execution_block.block_hash();
+        let parent_gas_limit = latest_execution_block.gas_limit();
         let block_number = latest_execution_block.block_number() + 1;
         let timestamp = block_number;
         let prev_randao = Hash256::from_low_u64_be(block_number);
@@ -133,6 +134,8 @@ impl<E: EthSpec> MockExecutionLayer<E> {
 
         let payload_parameters = PayloadParameters {
             parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
             payload_attributes: &payload_attributes,
             forkchoice_update_params: &forkchoice_update_params,
             current_fork: ForkName::Bellatrix,
@@ -177,6 +180,8 @@ impl<E: EthSpec> MockExecutionLayer<E> {
 
         let payload_parameters = PayloadParameters {
             parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
             payload_attributes: &payload_attributes,
             forkchoice_update_params: &forkchoice_update_params,
             current_fork: ForkName::Bellatrix,

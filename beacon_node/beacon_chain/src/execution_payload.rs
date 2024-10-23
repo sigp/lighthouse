@@ -375,8 +375,9 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     let timestamp =
         compute_timestamp_at_slot(state, state.slot(), spec).map_err(BeaconStateError::from)?;
     let random = *state.get_randao_mix(current_epoch)?;
-    let latest_execution_payload_header_block_hash =
-        state.latest_execution_payload_header()?.block_hash();
+    let latest_execution_payload_header = state.latest_execution_payload_header()?;
+    let latest_execution_payload_header_block_hash = latest_execution_payload_header.block_hash();
+    let latest_execution_payload_header_gas_limit = latest_execution_payload_header.gas_limit();
     let withdrawals = match state {
         &BeaconState::Capella(_) | &BeaconState::Deneb(_) | &BeaconState::Electra(_) => {
             Some(get_expected_withdrawals(state, spec)?.0.into())
@@ -406,6 +407,7 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
                     random,
                     proposer_index,
                     latest_execution_payload_header_block_hash,
+                    latest_execution_payload_header_gas_limit,
                     builder_params,
                     withdrawals,
                     parent_beacon_block_root,
@@ -443,6 +445,7 @@ pub async fn prepare_execution_payload<T>(
     random: Hash256,
     proposer_index: u64,
     latest_execution_payload_header_block_hash: ExecutionBlockHash,
+    latest_execution_payload_header_gas_limit: u64,
     builder_params: BuilderParams,
     withdrawals: Option<Vec<Withdrawal>>,
     parent_beacon_block_root: Option<Hash256>,
@@ -526,8 +529,11 @@ where
         parent_beacon_block_root,
     );
 
+    let target_gas_limit = execution_layer.get_proposer_gas_limit(proposer_index).await;
     let payload_parameters = PayloadParameters {
         parent_hash,
+        parent_gas_limit: latest_execution_payload_header_gas_limit,
+        proposer_gas_limit: target_gas_limit,
         payload_attributes: &payload_attributes,
         forkchoice_update_params: &forkchoice_update_params,
         current_fork: fork,

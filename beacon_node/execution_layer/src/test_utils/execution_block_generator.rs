@@ -28,7 +28,7 @@ use super::DEFAULT_TERMINAL_BLOCK;
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
 
-const GAS_LIMIT: u64 = 16384;
+pub const GAS_LIMIT: u64 = 16384;
 const GAS_USED: u64 = GAS_LIMIT - 1;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -64,6 +64,13 @@ impl<E: EthSpec> Block<E> {
         match self {
             Block::PoW(block) => Some(block.total_difficulty),
             Block::PoS(_) => None,
+        }
+    }
+
+    pub fn gas_limit(&self) -> u64 {
+        match self {
+            Block::PoW(_) => GAS_LIMIT,
+            Block::PoS(payload) => payload.gas_limit(),
         }
     }
 

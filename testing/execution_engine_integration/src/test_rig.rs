@@ -3,6 +3,7 @@ use crate::execution_engine::{
 };
 use crate::transactions::transactions;
 use ethers_providers::Middleware;
+use execution_layer::test_utils::GAS_LIMIT;
 use execution_layer::{
     BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes,
     PayloadParameters, PayloadStatus,
@@ -251,6 +252,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
          */
 
         let parent_hash = terminal_pow_block_hash;
+        let parent_gas_limit = GAS_LIMIT;
         let timestamp = timestamp_now();
         let prev_randao = Hash256::zero();
         let head_root = Hash256::zero();
@@ -327,6 +329,8 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
 
         let payload_parameters = PayloadParameters {
             parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
             payload_attributes: &payload_attributes,
             forkchoice_update_params: &forkchoice_update_params,
             current_fork: TEST_FORK,
@@ -484,6 +488,8 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
 
         let payload_parameters = PayloadParameters {
             parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
             payload_attributes: &payload_attributes,
             forkchoice_update_params: &forkchoice_update_params,
             current_fork: TEST_FORK,

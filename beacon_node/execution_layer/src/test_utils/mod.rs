@@ -25,6 +25,7 @@ use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{http::StatusCode, Filter, Rejection};
 
 use crate::EngineCapabilities;
+pub use execution_block_generator::GAS_LIMIT;
 pub use execution_block_generator::{
     generate_blobs, generate_genesis_block, generate_genesis_header, generate_pow_block,
     static_valid_tx, Block, ExecutionBlockGenerator,

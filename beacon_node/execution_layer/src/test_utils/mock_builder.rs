@@ -413,11 +413,12 @@ pub fn serve<E: EthSpec>(
 
                 let block = head.data.message();
                 let head_block_root = block.tree_hash_root();
-                let head_execution_hash = block
+                let head_execution_payload = block
                     .body()
                     .execution_payload()
-                    .map_err(|_| reject("pre-merge block"))?
-                    .block_hash();
+                    .map_err(|_| reject("pre-merge block"))?;
+                let head_execution_hash = head_execution_payload.block_hash();
+                let head_gas_limit = head_execution_payload.gas_limit();
                 if head_execution_hash != parent_hash {
                     return Err(reject("head mismatch"));
                 }
@@ -531,6 +532,8 @@ pub fn serve<E: EthSpec>(
 
                 let payload_parameters = PayloadParameters {
                     parent_hash: head_execution_hash,
+                    parent_gas_limit: head_gas_limit,
+                    proposer_gas_limit: Some(head_gas_limit),
                     payload_attributes: &payload_attributes,
                     forkchoice_update_params: &forkchoice_update_params,
                     current_fork: fork,

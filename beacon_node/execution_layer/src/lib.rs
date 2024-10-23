@@ -323,6 +323,8 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
 #[derive(Clone, Copy)]
 pub struct PayloadParameters<'a> {
     pub parent_hash: ExecutionBlockHash,
+    pub parent_gas_limit: u64,
+    pub proposer_gas_limit: Option<u64>,
     pub payload_attributes: &'a PayloadAttributes,
     pub forkchoice_update_params: &'a ForkchoiceUpdateParameters,
     pub current_fork: ForkName,
@@ -854,6 +856,13 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
     }
 
+    pub async fn get_proposer_gas_limit(&self, proposer_index: u64) -> Option<u64> {
+        self.proposer_preparation_data()
+            .await
+            .get(&proposer_index)
+            .and_then(|entry| entry.gas_limit)
+    }
+
     /// Maps to the `engine_getPayload` JSON-RPC call.
     ///
     /// However, it will attempt to call `self.prepare_payload` if it cannot find an existing
@@ -1238,6 +1247,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             payload_attributes,
             forkchoice_update_params,
             current_fork,
+            ..
         } = payload_parameters;
 
         self.engine()
@@ -1947,6 +1957,10 @@ enum InvalidBuilderPayload {
         payload: Option<Hash256>,
         expected: Option<Hash256>,
     },
+    GasLimitMismatch {
+        payload: u64,
+        expected: u64,
+    },
 }
 
 impl fmt::Display for InvalidBuilderPayload {
@@ -1985,7 +1999,32 @@ impl fmt::Display for InvalidBuilderPayload {
                     opt_string(expected)
                 )
             }
+            InvalidBuilderPayload::GasLimitMismatch { payload, expected } => {
+                write!(f, "payload gas limit was {} not {}", payload, expected)
+            }
         }
+    }
+}
+
+/// Calculate the expected gas limit for a block.
+pub fn expected_gas_limit(
+    parent_gas_limit: u64,
+    target_gas_limit: u64,
+    spec: &ChainSpec,
+) -> Option<u64> {
+    // Calculate the maximum gas limit difference allowed safely
+    let max_gas_limit_difference = parent_gas_limit
+        .checked_div(spec.gas_limit_adjustment_factor)
+        .and_then(|result| result.checked_sub(1))
+        .unwrap_or(0);
+
+    // Adjust the gas limit safely
+    if target_gas_limit > parent_gas_limit {
+        let gas_diff = target_gas_limit.saturating_sub(parent_gas_limit);
+        parent_gas_limit.checked_add(std::cmp::min(gas_diff, max_gas_limit_difference))
+    } else {
+        let gas_diff = parent_gas_limit.saturating_sub(target_gas_limit);
+        parent_gas_limit.checked_sub(std::cmp::min(gas_diff, max_gas_limit_difference))
     }
 }
 
@@ -2000,6 +2039,8 @@ fn verify_builder_bid<E: EthSpec>(
         parent_hash,
         payload_attributes,
         current_fork,
+        parent_gas_limit,
+        proposer_gas_limit,
         ..
     } = payload_parameters;
 
@@ -2018,6 +2059,8 @@ fn verify_builder_bid<E: EthSpec>(
         .cloned()
         .map(|withdrawals| Withdrawals::<E>::from(withdrawals).tree_hash_root());
     let payload_withdrawals_root = header.withdrawals_root().ok();
+    let expected_gas_limit = proposer_gas_limit
+        .and_then(|target_gas_limit| expected_gas_limit(parent_gas_limit, target_gas_limit, spec));
 
     if header.parent_hash() != parent_hash {
         Err(Box::new(InvalidBuilderPayload::ParentHash {
@@ -2053,6 +2096,14 @@ fn verify_builder_bid<E: EthSpec>(
         Err(Box::new(InvalidBuilderPayload::WithdrawalsRoot {
             payload: payload_withdrawals_root,
             expected: expected_withdrawals_root,
+        }))
+    } else if expected_gas_limit
+        .map(|gas_limit| header.gas_limit() != gas_limit)
+        .unwrap_or(false)
+    {
+        Err(Box::new(InvalidBuilderPayload::GasLimitMismatch {
+            payload: header.gas_limit(),
+            expected: expected_gas_limit.unwrap_or(0),
         }))
     } else {
         Ok(())
