@@ -39,6 +39,7 @@ mod committee_cache;
 mod balance;
 mod exit_cache;
 mod iter;
+mod memsize;
 mod progressive_balances_cache;
 mod pubkey_cache;
 mod slashings_cache;
