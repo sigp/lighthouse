@@ -15,7 +15,8 @@ use libp2p::swarm::handler::{
     ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, DialUpgradeError,
     FullyNegotiatedInbound, FullyNegotiatedOutbound, StreamUpgradeError, SubstreamProtocol,
 };
-use libp2p::swarm::Stream;
+use libp2p::swarm::{ConnectionId, Stream};
+use libp2p::PeerId;
 use slog::{crit, debug, trace};
 use smallvec::SmallVec;
 use std::{
@@ -89,6 +90,12 @@ pub struct RPCHandler<Id, E>
 where
     E: EthSpec,
 {
+    /// This `ConnectionId`.
+    connection_id: ConnectionId,
+
+    /// The matching `PeerId` of this connection.
+    peer_id: PeerId,
+
     /// The upgrade for inbound substreams.
     listen_protocol: SubstreamProtocol<RPCProtocol<E>, ()>,
 
@@ -138,7 +145,7 @@ where
     /// Logger for handling RPC streams
     log: slog::Logger,
 
-    /// Timeout that will me used for inbound and outbound responses.
+    /// Timeout that will be used for inbound and outbound responses.
     resp_timeout: Duration,
 }
 
@@ -219,12 +226,16 @@ where
     E: EthSpec,
 {
     pub fn new(
+        connection_id: ConnectionId,
+        peer_id: PeerId,
         listen_protocol: SubstreamProtocol<RPCProtocol<E>, ()>,
         fork_context: Arc<ForkContext>,
         log: &slog::Logger,
         resp_timeout: Duration,
     ) -> Self {
         RPCHandler {
+            connection_id,
+            peer_id,
             listen_protocol,
             events_out: SmallVec::new(),
             dial_queue: SmallVec::new(),
@@ -302,6 +313,7 @@ where
             }
             return;
         };
+
         // If the response we are sending is an error, report back for handling
         if let RpcResponse::Error(ref code, ref reason) = response {
             self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
@@ -314,9 +326,10 @@ where
         if matches!(self.state, HandlerState::Deactivated) {
             // we no longer send responses after the handler is deactivated
             debug!(self.log, "Response not sent. Deactivated handler";
-                "response" => %response, "id" => inbound_id);
+                        "response" => %response, "id" => inbound_id);
             return;
         }
+
         inbound_info.pending_items.push_back(response);
     }
 }
@@ -896,6 +909,8 @@ where
         self.events_out
             .push(HandlerEvent::Ok(RPCReceived::Request(Request {
                 id: RequestId::next(),
+                peer_id: self.peer_id,
+                connection_id: self.connection_id,
                 substream_id: self.current_inbound_substream_id,
                 r#type: req,
             })));

@@ -4,13 +4,13 @@ mod common;
 
 use common::Protocol;
 use lighthouse_network::rpc::{methods::*, RequestType};
-use lighthouse_network::service::api_types::AppRequestId;
-use lighthouse_network::{rpc::max_rpc_size, NetworkEvent, ReportSource, Response};
-use slog::{debug, warn, Level};
+use lighthouse_network::service::api_types::{AppRequestId, SyncRequestId};
+use lighthouse_network::{rpc::max_rpc_size, rpc::RPCError, NetworkEvent, ReportSource, Response};
+use slog::{debug, error, warn, Level};
 use ssz::Encode;
 use ssz_types::VariableList;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
 use types::{
@@ -71,6 +71,8 @@ fn test_tcp_status_rpc() {
             ForkName::Base,
             spec,
             Protocol::Tcp,
+            false,
+            None,
         )
         .await;
 
@@ -173,6 +175,8 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
             ForkName::Bellatrix,
             spec.clone(),
             Protocol::Tcp,
+            false,
+            None,
         )
         .await;
 
@@ -320,6 +324,8 @@ fn test_blobs_by_range_chunked_rpc() {
             ForkName::Deneb,
             spec.clone(),
             Protocol::Tcp,
+            false,
+            None,
         )
         .await;
 
@@ -443,6 +449,8 @@ fn test_tcp_blocks_by_range_over_limit() {
             ForkName::Bellatrix,
             spec.clone(),
             Protocol::Tcp,
+            false,
+            None,
         )
         .await;
 
@@ -550,6 +558,8 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
             ForkName::Base,
             spec.clone(),
             Protocol::Tcp,
+            false,
+            None,
         )
         .await;
 
@@ -683,6 +693,8 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
             ForkName::Base,
             spec.clone(),
             Protocol::Tcp,
+            false,
+            None,
         )
         .await;
 
@@ -806,6 +818,8 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
             ForkName::Bellatrix,
             spec.clone(),
             Protocol::Tcp,
+            false,
+            None,
         )
         .await;
 
@@ -949,6 +963,8 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
             ForkName::Base,
             spec.clone(),
             Protocol::Tcp,
+            false,
+            None,
         )
         .await;
 
@@ -1081,9 +1097,16 @@ fn goodbye_test(log_level: Level, enable_logging: bool, protocol: Protocol) {
 
     // get sender/receiver
     rt.block_on(async {
-        let (mut sender, mut receiver) =
-            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base, spec, protocol)
-                .await;
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Base,
+            spec,
+            protocol,
+            false,
+            None,
+        )
+        .await;
 
         // build the sender future
         let sender_future = async {
@@ -1145,4 +1168,343 @@ fn quic_test_goodbye_rpc() {
     let log_level = Level::Debug;
     let enable_logging = false;
     goodbye_test(log_level, enable_logging, Protocol::Quic);
+}
+
+// Test that the receiver delays the responses during response rate-limiting.
+#[test]
+fn test_delayed_rpc_response() {
+    let rt = Arc::new(Runtime::new().unwrap());
+    let log = logging::test_logger();
+    let spec = Arc::new(E::default_spec());
+
+    rt.block_on(async {
+        // get sender/receiver
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Base,
+            spec,
+            Protocol::Tcp,
+            false,
+            // Configure a quota for STATUS responses of 1 token every 3 seconds.
+            Some("status:1/3".parse().unwrap()),
+        )
+        .await;
+
+        // Dummy STATUS RPC message
+        let rpc_request = RequestType::Status(StatusMessage {
+            fork_digest: [0; 4],
+            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_epoch: Epoch::new(1),
+            head_root: Hash256::from_low_u64_be(0),
+            head_slot: Slot::new(1),
+        });
+
+        // Dummy STATUS RPC message
+        let rpc_response = Response::Status(StatusMessage {
+            fork_digest: [0; 4],
+            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_epoch: Epoch::new(1),
+            head_root: Hash256::from_low_u64_be(0),
+            head_slot: Slot::new(1),
+        });
+
+        // build the sender future
+        let sender_future = async {
+            let mut request_id = 1;
+            let mut request_sent_at = Instant::now();
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        debug!(log, "Sending RPC request"; "request_id" => request_id);
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
+                        request_sent_at = Instant::now();
+                    }
+                    NetworkEvent::ResponseReceived {
+                        peer_id,
+                        id: _,
+                        response,
+                    } => {
+                        debug!(log, "Sender received"; "request_id" => request_id);
+                        assert_eq!(response, rpc_response);
+
+                        match request_id {
+                            1 => {
+                                // The first response is returned instantly.
+                                assert!(request_sent_at.elapsed() < Duration::from_millis(100));
+                            }
+                            2..=5 => {
+                                // The second and subsequent responses are delayed due to the response rate-limiter on the receiver side.
+                                assert!(request_sent_at.elapsed() > Duration::from_secs(3));
+                                if request_id == 5 {
+                                    // End the test
+                                    return;
+                                }
+                            }
+                            _ => unreachable!(),
+                        }
+
+                        request_id += 1;
+                        debug!(log, "Sending RPC request"; "request_id" => request_id);
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
+                        request_sent_at = Instant::now();
+                    }
+                    NetworkEvent::RPCFailed {
+                        id: _,
+                        peer_id: _,
+                        error,
+                    } => {
+                        error!(log, "RPC Failed"; "error" => ?error);
+                        panic!("Rpc failed.");
+                    }
+                    _ => {}
+                }
+            }
+        };
+
+        // build the receiver future
+        let receiver_future = async {
+            loop {
+                if let NetworkEvent::RequestReceived {
+                    peer_id,
+                    id,
+                    request,
+                } = receiver.next_event().await
+                {
+                    assert_eq!(request.r#type, rpc_request);
+                    debug!(log, "Receiver received request");
+                    receiver.send_response(peer_id, id, request.id, rpc_response.clone());
+                }
+            }
+        };
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                panic!("Future timed out");
+            }
+        }
+    })
+}
+
+// Test that the receiver sends an RPC error when the request is too large.
+#[test]
+fn test_request_too_large() {
+    let rt = Arc::new(Runtime::new().unwrap());
+    let log = logging::test_logger();
+    let spec = Arc::new(E::default_spec());
+
+    rt.block_on(async {
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Base,
+            spec.clone(),
+            Protocol::Tcp,
+            // In this test, many RPC errors occur (which are expected). Disabling peer scoring to
+            // avoid banning a peer and to ensure we can test that the receiver sends RPC errors to
+            // the sender.
+            true,
+            None,
+        )
+        .await;
+
+        // RPC requests that triggers RPC error on the receiver side.
+        let max_request_blocks_count = spec.max_request_blocks(ForkName::Base) as u64;
+        let max_request_blobs_count = spec.max_request_blob_sidecars / E::max_blobs_per_block() as u64;
+        let mut rpc_requests = vec![
+            RequestType::BlocksByRange(OldBlocksByRangeRequest::new(
+                0,
+                max_request_blocks_count + 1, // exceeds the max request defined in the spec.
+                1,
+            )),
+            RequestType::BlobsByRange(BlobsByRangeRequest {
+                start_slot: 0,
+                count: max_request_blobs_count + 1, // exceeds the max request defined in the spec.
+            }),
+        ];
+        let requests_to_be_failed = rpc_requests.len();
+        let mut failed_request_ids = vec![];
+
+        // Build the sender future
+        let sender_future = async {
+            let mut request_id = 1;
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        let request = rpc_requests.pop().unwrap();
+                        debug!(log, "Sending RPC request"; "request_id" => request_id, "request" => ?request);
+                        sender.send_request(peer_id, AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id: request_id }), request).unwrap();
+                    }
+                    NetworkEvent::ResponseReceived { id, response, .. } => {
+                        debug!(log, "Received response"; "request_id" => ?id, "response" => ?response);
+                        // Handle the response termination.
+                        match response {
+                            Response::BlocksByRange(None) | Response::BlocksByRoot(None) | Response::BlobsByRange(None) | Response::BlobsByRoot(None) => {},
+                            _ => unreachable!(),
+                        }
+                    }
+                    NetworkEvent::RPCFailed { id, peer_id, error } => {
+                        debug!(log, "RPC Failed"; "error" => ?error, "request_id" => ?id);
+                        // Expect `InvalidRequest` since the request requires responses greater than the number defined in the spec.
+                        assert!(matches!(error, RPCError::ErrorResponse(RpcErrorResponse::InvalidRequest, .. )));
+
+                        failed_request_ids.push(id);
+                        if let Some(request) = rpc_requests.pop() {
+                            request_id += 1;
+                            debug!(log, "Sending RPC request"; "request_id" => request_id, "request" => ?request);
+                            sender.send_request(peer_id, AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs { id: request_id }), request).unwrap();
+                        } else {
+                            assert_eq!(failed_request_ids.len(), requests_to_be_failed);
+                            // End the test.
+                            return
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        };
+
+        // Build the receiver future
+        let receiver_future = async {
+            loop {
+                if let NetworkEvent::RequestReceived { .. } = receiver.next_event().await {
+                    unreachable!();
+                }
+            }
+        };
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                panic!("Future timed out");
+            }
+        }
+    });
+}
+
+// Test whether a request using the same protocol as another active request on the receiver
+// triggers a rate-limited error.
+#[test]
+fn test_active_requests() {
+    let rt = Arc::new(Runtime::new().unwrap());
+    let log = logging::test_logger();
+    let spec = Arc::new(E::default_spec());
+
+    rt.block_on(async {
+        // Get sender/receiver.
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            &log,
+            ForkName::Base,
+            spec,
+            Protocol::Tcp,
+            false,
+            None,
+        )
+        .await;
+
+        // Dummy STATUS RPC request.
+        let rpc_request = RequestType::Status(StatusMessage {
+            fork_digest: [0; 4],
+            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_epoch: Epoch::new(1),
+            head_root: Hash256::from_low_u64_be(0),
+            head_slot: Slot::new(1),
+        });
+
+        // Dummy STATUS RPC response
+        let rpc_response = Response::Status(StatusMessage {
+            fork_digest: [0; 4],
+            finalized_root: Hash256::zero(),
+            finalized_epoch: Epoch::new(1),
+            head_root: Hash256::zero(),
+            head_slot: Slot::new(1),
+        });
+
+        // Build the sender future.
+        let sender_future = async {
+            let mut response_received = 0;
+            let mut rate_limited = 0;
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        debug!(log, "Sending RPC request");
+                        // Send requests in quick succession to intentionally trigger a rate-limited error.
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
+                    }
+                    NetworkEvent::ResponseReceived { response, .. } => {
+                        debug!(log, "Sender received response"; "response" => ?response);
+                        if matches!(response, Response::Status(_)) {
+                            response_received += 1;
+                        }
+                    }
+                    NetworkEvent::RPCFailed {
+                        id: _,
+                        peer_id: _,
+                        error,
+                    } => {
+                        debug!(log, "RPC Failed"; "error" => ?error);
+                        assert!(matches!(
+                            error,
+                            RPCError::ErrorResponse(RpcErrorResponse::RateLimited, ..)
+                        ));
+                        rate_limited += 1;
+                    }
+                    _ => {}
+                }
+
+                // The sender sent 3 requests, and 1 rate-limited error is expected due to the MAX_CONCURRENT_REQUESTS limit.
+                if response_received + rate_limited == 3 {
+                    assert_eq!(1, rate_limited);
+                    return;
+                }
+            }
+        };
+
+        // Build the receiver future.
+        let receiver_future = async {
+            let mut received_requests = vec![];
+            loop {
+                tokio::select! {
+                    event = receiver.next_event() => {
+                       if let NetworkEvent::RequestReceived { peer_id, id, request } = event {
+                            debug!(log, "Receiver received request"; "request" => ?request);
+                            if matches!(request.r#type, RequestType::Status(_)) {
+                                received_requests.push((peer_id, id, request.id));
+                            }
+                        }
+                    }
+                    // Introduce a delay in sending responses to trigger a rate-limited error.
+                    _ = sleep(Duration::from_secs(5)) => {
+                        for (peer_id, id, request_id) in received_requests.drain(..) {
+                            receiver.send_response(peer_id, id, request_id, rpc_response.clone());
+                        }
+                    }
+                }
+            }
+        };
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                panic!("Future timed out");
+            }
+        }
+    })
 }
