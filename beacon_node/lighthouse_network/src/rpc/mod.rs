@@ -38,6 +38,7 @@ pub use methods::{
     ResponseTermination, RpcErrorResponse, StatusMessage,
 };
 pub use protocol::{max_rpc_size, Protocol, RPCError};
+use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 
 pub(crate) mod codec;
 pub mod config;
@@ -313,6 +314,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             Protocol::BlocksByRange => request.max_responses() > self.fork_context.spec.max_request_blocks(self.fork_context.current_fork()) as u64,
             Protocol::BlobsByRange => request.max_responses() > self.fork_context.spec.max_request_blob_sidecars,
             Protocol::DataColumnsByRange => request.max_responses() > self.fork_context.spec.max_request_data_column_sidecars,
+            Protocol::LightClientUpdatesByRange => request.max_responses() > MAX_REQUEST_LIGHT_CLIENT_UPDATES,
         }
     }
 }
