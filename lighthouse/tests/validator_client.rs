@@ -539,7 +539,7 @@ fn broadcast_flag() {
         });
     // Other valid variants
     CommandLineTest::new()
-        .flag("broadcast", Some("blocks, subscriptions"))
+        .flag("broadcast", Some("blocks,subscriptions"))
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -584,7 +584,7 @@ fn beacon_nodes_sync_tolerances_flag() {
 }
 
 #[test]
-#[should_panic(expected = "Unknown API topic")]
+#[should_panic(expected = "invalid value")]
 fn wrong_broadcast_flag() {
     CommandLineTest::new()
         .flag("broadcast", Some("foo, subscriptions"))

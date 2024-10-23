@@ -151,14 +151,6 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
-        help = "This flag is deprecated and is no longer in use.",
-        display_order = 0,
-        help_heading = FLAG_HEADER
-    )]
-    pub produce_block_v3: bool,
-
-    #[clap(
-        long,
         help = "Enables functionality required for running the validator in a distributed validator cluster.",
         display_order = 0,
         help_heading = FLAG_HEADER
@@ -262,7 +254,7 @@ pub struct ValidatorClient {
         long,
         value_name = "ADDRESS",
         default_value_if("metrics", ArgPredicate::IsPresent, "127.0.0.1"),
-        help = "Set the listen address for the Prometheus metrics HTTP server.",
+        help = "Set the listen address for the Prometheus metrics HTTP server. [default: 127.0.0.1]",
         display_order = 0
     )]
     pub metrics_address: Option<String>,
@@ -430,13 +422,14 @@ pub struct ValidatorClient {
                 These values are used to determine what ordering beacon node fallbacks are used in. \
                 Generally, `Synced` nodes are preferred over `Small` and so on. \
                 Nodes in the `Synced` range will tie-break based on their ordering in `--beacon-nodes`. \
-                This ensures the primary beacon node is prioritised. \
-                [default: 8,8,48]",
+                This ensures the primary beacon node is prioritised.",
         display_order = 0,
+        value_delimiter = ',',
+        default_value = "8,8,48",
         help_heading = FLAG_HEADER,
         value_name = "SYNC_TOLERANCES"
     )]
-    pub beacon_nodes_sync_tolerances: Option<Vec<u64>>,
+    pub beacon_nodes_sync_tolerances: Vec<u64>,
 
     #[clap(
         long,

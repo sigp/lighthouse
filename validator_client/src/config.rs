@@ -244,19 +244,17 @@ impl Config {
 
         config.distributed = validator_client_config.distributed;
 
-        if let Some(broadcast_topics) = validator_client_config.broadcast.as_ref() {
-            config.broadcast_topics = broadcast_topics.clone();
+        if let Some(mut broadcast_topics) = validator_client_config.broadcast.clone() {
+            broadcast_topics.retain(|topic| *topic != ApiTopic::None);
+            config.broadcast_topics = broadcast_topics;
         }
 
         /*
          * Beacon node fallback
          */
-        if let Some(sync_tolerance) = &validator_client_config.beacon_nodes_sync_tolerances {
-            config.beacon_node_fallback.sync_tolerances =
-                BeaconNodeSyncDistanceTiers::from_vec(sync_tolerance)?;
-        } else {
-            config.beacon_node_fallback.sync_tolerances = BeaconNodeSyncDistanceTiers::default();
-        }
+        config.beacon_node_fallback.sync_tolerances = BeaconNodeSyncDistanceTiers::from_vec(
+            &validator_client_config.beacon_nodes_sync_tolerances,
+        )?;
 
         /*
          * Web3 signer

@@ -395,6 +395,7 @@ fn main() {
             .action(ArgAction::HelpLong)
             .display_order(0)
             .help_heading(FLAG_HEADER)
+            .global(true)
         )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())

@@ -724,6 +724,7 @@ async fn sort_nodes_by_health<E: EthSpec>(nodes: &mut Vec<CandidateBeaconNode<E>
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, EnumVariantNames, ValueEnum)]
 #[strum(serialize_all = "kebab-case")]
 pub enum ApiTopic {
+    None,
     Attestations,
     Blocks,
     Subscriptions,

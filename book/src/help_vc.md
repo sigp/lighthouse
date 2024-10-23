@@ -20,7 +20,8 @@ Options:
           Comma-separated list of beacon API topics to broadcast to all beacon
           nodes. Possible values are: none, attestations, blocks, subscriptions,
           sync-committee. Default (when flag is omitted) is to broadcast
-          subscriptions only.
+          subscriptions only. [possible values: none, attestations, blocks,
+          subscriptions, sync-committee]
       --builder-boost-factor <UINT64>
           Defines the boost factor, a percentage multiplier to apply to the
           builder's payload value when choosing between a builder payload header
@@ -232,9 +233,6 @@ Flags:
           database will have been initialized when you imported your validator
           keys. If you misplace your database and then run with this flag you
           risk being slashed.
-      --latency-measurement-service
-          Disables the service that periodically attempts to measure latency to
-          BNs.
       --log-color
           Force outputting colors when emitting logs to the terminal.
       --logfile-compress
