@@ -791,7 +791,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientBootstrap(_) => 1,
             RequestType::LightClientOptimisticUpdate => 1,
             RequestType::LightClientFinalityUpdate => 1,
-            RequestType::LightClientUpdatesByRange(req) => req.max_requested(),
+            RequestType::LightClientUpdatesByRange(req) => req.count,
         }
     }
 
