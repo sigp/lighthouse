@@ -5,11 +5,11 @@ use std::process;
 
 pub fn init_logger(log_level: &str) {
     let log_level = match log_level.to_lowercase().as_str() {
-        "error" => LevelFilter::Error,
-        "warn" => LevelFilter::Warn,
-        "info" => LevelFilter::Info,
-        "debug" => LevelFilter::Debug,
         "trace" => LevelFilter::Trace,
+        "debug" => LevelFilter::Debug,
+        "info" => LevelFilter::Info,
+        "warn" => LevelFilter::Warn,
+        "error" => LevelFilter::Error,
         _ => {
             eprintln!("Unsupported log level");
             process::exit(1)
