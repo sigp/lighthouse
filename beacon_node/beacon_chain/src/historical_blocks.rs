@@ -1,5 +1,5 @@
 use crate::data_availability_checker::AvailableBlock;
-use crate::{errors::BeaconChainError as Error, metrics, BeaconChain, BeaconChainTypes};
+use crate::{metrics, BeaconChain, BeaconChainTypes};
 use itertools::Itertools;
 use slog::debug;
 use state_processing::{
@@ -10,7 +10,11 @@ use std::borrow::Cow;
 use std::iter;
 use std::time::Duration;
 use store::metadata::DataColumnInfo;
-use store::{chunked_vector::BlockRoots, AnchorInfo, BlobInfo, ChunkWriter, KeyValueStore};
+use store::{
+    chunked_vector::BlockRoots, AnchorInfo, BlobInfo, ChunkWriter, Error as StoreError,
+    KeyValueStore,
+};
+use strum::IntoStaticStr;
 use types::{FixedBytesExtended, Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
@@ -18,10 +22,8 @@ use types::{FixedBytesExtended, Hash256, Slot};
 /// It's ok if historical sync is stalled due to writes from forwards block processing.
 const PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 pub enum HistoricalBlockError {
-    /// Block is not available (only returned when fetching historic blocks).
-    BlockOutOfRange { slot: Slot, oldest_block_slot: Slot },
     /// Block root mismatch, caller should retry with different blocks.
     MismatchedBlockRoot {
         block_root: Hash256,
@@ -37,6 +39,14 @@ pub enum HistoricalBlockError {
     NoAnchorInfo,
     /// Logic error: should never occur.
     IndexOutOfBounds,
+    /// Internal store error
+    StoreError(StoreError),
+}
+
+impl From<StoreError> for HistoricalBlockError {
+    fn from(e: StoreError) -> Self {
+        Self::StoreError(e)
+    }
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -61,7 +71,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn import_historical_block_batch(
         &self,
         mut blocks: Vec<AvailableBlock<T::EthSpec>>,
-    ) -> Result<usize, Error> {
+    ) -> Result<usize, HistoricalBlockError> {
         let anchor_info = self
             .store
             .get_anchor_info()
@@ -127,8 +137,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Err(HistoricalBlockError::MismatchedBlockRoot {
                     block_root,
                     expected_block_root,
-                }
-                .into());
+                });
             }
 
             let blinded_block = block.clone_as_blinded();
@@ -212,7 +221,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let verify_timer = metrics::start_timer(&metrics::BACKFILL_SIGNATURE_VERIFY_TIMES);
         if !signature_set.verify() {
-            return Err(HistoricalBlockError::InvalidSignature.into());
+            return Err(HistoricalBlockError::InvalidSignature);
         }
         drop(verify_timer);
         drop(sig_timer);

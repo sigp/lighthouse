@@ -34,7 +34,6 @@ use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, Prep
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
 use crate::graffiti_calculator::GraffitiCalculator;
 use crate::head_tracker::{HeadTracker, HeadTrackerReader, SszHeadTracker};
-use crate::historical_blocks::HistoricalBlockError;
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
 };
@@ -755,12 +754,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>> + '_, Error> {
         let oldest_block_slot = self.store.get_oldest_block_slot();
         if start_slot < oldest_block_slot {
-            return Err(Error::HistoricalBlockError(
-                HistoricalBlockError::BlockOutOfRange {
-                    slot: start_slot,
-                    oldest_block_slot,
-                },
-            ));
+            return Err(Error::HistoricalBlockOutOfRange {
+                slot: start_slot,
+                oldest_block_slot,
+            });
         }
 
         let local_head = self.head_snapshot();
@@ -785,12 +782,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>> + '_, Error> {
         let oldest_block_slot = self.store.get_oldest_block_slot();
         if start_slot < oldest_block_slot {
-            return Err(Error::HistoricalBlockError(
-                HistoricalBlockError::BlockOutOfRange {
-                    slot: start_slot,
-                    oldest_block_slot,
-                },
-            ));
+            return Err(Error::HistoricalBlockOutOfRange {
+                slot: start_slot,
+                oldest_block_slot,
+            });
         }
 
         self.with_head(move |head| {
@@ -991,7 +986,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             WhenSlotSkipped::Prev => self.block_root_at_slot_skips_prev(request_slot),
         }
         .or_else(|e| match e {
-            Error::HistoricalBlockError(_) => Ok(None),
+            Error::HistoricalBlockOutOfRange { .. } => Ok(None),
             e => Err(e),
         })
     }
