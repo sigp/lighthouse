@@ -1,6 +1,6 @@
 use crate::*;
 use eth2_interop_keypairs::{keypair, keypairs_from_yaml_file};
-use log::debug;
+use tracing::debug;
 use rayon::prelude::*;
 use std::path::PathBuf;
 

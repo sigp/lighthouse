@@ -19,7 +19,7 @@ eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }
 ethereum_hashing = { workspace = true }
 hex = { workspace = true }
 int_to_bytes = { workspace = true }
-log = { workspace = true }
+tracing = { workspace = true }
 rayon = { workspace = true }
 rand = { workspace = true }
 safe_arith = { workspace = true }

@@ -10,7 +10,7 @@ use axum::{
     Extension, Json, Router,
 };
 use eth2::types::ErrorMessage;
-use log::info;
+use tracing::info;
 use std::future::{Future, IntoFuture};
 use std::net::{SocketAddr, TcpListener};
 

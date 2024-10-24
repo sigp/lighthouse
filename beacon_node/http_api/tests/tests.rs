@@ -23,7 +23,6 @@ use http_api::{
     BlockId, StateId,
 };
 use lighthouse_network::{types::SyncState, Enr, EnrExt, PeerId};
-use logging::test_logger;
 use network::NetworkReceivers;
 use proto_array::ExecutionStatus;
 use sensitive_url::SensitiveUrl;
@@ -130,7 +129,6 @@ impl ApiTester {
                 reconstruct_historic_states: config.retain_historic_states,
                 ..ChainConfig::default()
             })
-            .logger(logging::test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
@@ -251,8 +249,6 @@ impl ApiTester {
             "precondition: justification"
         );
 
-        let log = test_logger();
-
         let ApiServer {
             ctx,
             server,
@@ -260,7 +256,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server(chain.clone(), &harness.runtime, log).await;
+        } = create_api_server(chain.clone(), &harness.runtime).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
 
@@ -349,8 +345,6 @@ impl ApiTester {
 
         let chain = harness.chain.clone();
 
-        let log = test_logger();
-
         let ApiServer {
             ctx,
             server,
@@ -358,7 +352,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server(chain.clone(), &harness.runtime, log).await;
+        } = create_api_server(chain.clone(), &harness.runtime).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
 

@@ -40,7 +40,6 @@ async fn base_altair_bellatrix_capella() {
 
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec.into())
-        .logger(logging::test_logger())
         .deterministic_keypairs(VALIDATOR_COUNT)
         .fresh_ephemeral_store()
         .mock_execution_layer()

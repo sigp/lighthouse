@@ -15,7 +15,6 @@ use beacon_chain::{
     migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
     BlockError, ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
-use logging::test_logger;
 use maplit::hashset;
 use rand::Rng;
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -61,7 +60,6 @@ fn get_store_generic(
     let hot_path = db_path.path().join("hot_db");
     let cold_path = db_path.path().join("cold_db");
     let blobs_path = db_path.path().join("blobs_db");
-    let log = test_logger();
 
     HotColdDB::open(
         &hot_path,
@@ -94,7 +92,6 @@ fn get_harness_generic(
     let harness = TestHarness::builder(MinimalEthSpec)
         .spec(store.get_chain_spec().clone())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
-        .logger(store.logger().clone())
         .fresh_disk_store(store)
         .mock_execution_layer()
         .chain_config(chain_config)
@@ -113,7 +110,6 @@ async fn light_client_bootstrap_test() {
 
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 6);
     let db_path = tempdir().unwrap();
-    let log = test_logger();
 
     let seconds_per_slot = spec.seconds_per_slot;
     let store = get_store_generic(
@@ -183,7 +179,6 @@ async fn light_client_bootstrap_test() {
         .store(store.clone())
         .custom_spec(test_spec::<E>().into())
         .task_executor(harness.chain.task_executor.clone())
-        .logger(log.clone())
         .weak_subjectivity_state(
             wss_state,
             wss_block.clone(),
@@ -246,7 +241,6 @@ async fn light_client_updates_test() {
     let num_final_blocks = E::slots_per_epoch() * 2;
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
     let db_path = tempdir().unwrap();
-    let log = test_logger();
 
     let seconds_per_slot = spec.seconds_per_slot;
     let store = get_store_generic(
@@ -323,7 +317,6 @@ async fn light_client_updates_test() {
         .store(store.clone())
         .custom_spec(test_spec::<E>().into())
         .task_executor(harness.chain.task_executor.clone())
-        .logger(log.clone())
         .weak_subjectivity_state(
             wss_state,
             wss_block.clone(),
@@ -2721,7 +2714,6 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .await;
 
     let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
-    let log = test_logger();
     let temp2 = tempdir().unwrap();
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
@@ -2745,7 +2737,6 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .store(store.clone())
         .custom_spec(test_spec::<E>().into())
         .task_executor(harness.chain.task_executor.clone())
-        .logger(log.clone())
         .weak_subjectivity_state(
             wss_state,
             wss_block.clone(),
@@ -3404,7 +3395,6 @@ async fn schema_downgrade_to_min_version() {
         deposit_contract_deploy_block,
         CURRENT_SCHEMA_VERSION,
         min_version,
-        store.logger().clone(),
         spec,
     )
     .expect("schema downgrade to minimum version should work");
@@ -3415,7 +3405,6 @@ async fn schema_downgrade_to_min_version() {
         deposit_contract_deploy_block,
         min_version,
         CURRENT_SCHEMA_VERSION,
-        store.logger().clone(),
         spec,
     )
     .expect("schema upgrade from minimum version should work");
@@ -3424,7 +3413,6 @@ async fn schema_downgrade_to_min_version() {
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
-        .logger(store.logger().clone())
         .testing_slot_clock(slot_clock)
         .resumed_disk_store(store.clone())
         .mock_execution_layer()
@@ -3442,7 +3430,6 @@ async fn schema_downgrade_to_min_version() {
         deposit_contract_deploy_block,
         CURRENT_SCHEMA_VERSION,
         min_version_sub_1,
-        harness.logger().clone(),
         spec,
     )
     .expect_err("should not downgrade below minimum version");

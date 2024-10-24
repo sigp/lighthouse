@@ -22,7 +22,6 @@ mod tests {
 
     #[test]
     fn test_dht_persistence() {
-        let log = get_logger(false);
 
         let beacon_chain = BeaconChainHarness::builder(MinimalEthSpec)
             .default_spec()
@@ -44,7 +43,6 @@ mod tests {
         let executor = task_executor::TaskExecutor::new(
             Arc::downgrade(&runtime),
             exit,
-            log.clone(),
             shutdown_tx,
         );
 

@@ -50,7 +50,6 @@ async fn merge_with_terminal_block_hash_override() {
 
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec.into())
-        .logger(logging::test_logger())
         .deterministic_keypairs(VALIDATOR_COUNT)
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -107,7 +106,6 @@ async fn base_altair_bellatrix_with_terminal_block_after_fork() {
 
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec.into())
-        .logger(logging::test_logger())
         .deterministic_keypairs(VALIDATOR_COUNT)
         .fresh_ephemeral_store()
         .mock_execution_layer()

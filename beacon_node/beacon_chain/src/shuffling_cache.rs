@@ -290,7 +290,6 @@ impl BlockShufflingIds {
 #[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod test {
-    use task_executor::test_utils::test_logger;
     use types::*;
 
     use crate::test_utils::EphemeralHarnessType;

@@ -16,7 +16,8 @@ path = "src/main.rs"
 [dependencies]
 clap = { workspace = true }
 clap_utils = { workspace = true }
-log = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 env_logger = { workspace = true }
 types = { workspace = true }
 eth2 = { workspace = true }

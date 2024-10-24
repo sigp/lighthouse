@@ -69,8 +69,6 @@ impl ApiTester {
     }
 
     pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
-        // let log = test_logger();
-
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
 
@@ -80,7 +78,6 @@ impl ApiTester {
             validator_defs,
             validator_dir.path().into(),
             Default::default(),
-            // log.clone(),
         )
         .await
         .unwrap();

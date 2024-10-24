@@ -4,7 +4,7 @@ use eth2::{
     types::{BlockId, StateId},
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
-use log::{debug, error, info};
+use tracing::{debug, error, info};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::time::{Duration, Instant};

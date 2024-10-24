@@ -7,7 +7,7 @@ use beacon_chain::{
 };
 use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use http_api::test_utils::{create_api_server, ApiServer};
-use log::error;
+use tracing::error;
 use network::NetworkReceivers;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -127,7 +127,6 @@ impl TesterBuilder {
                 reconstruct_historic_states: true,
                 ..ChainConfig::default()
             })
-            // .logger(test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .build();

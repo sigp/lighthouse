@@ -22,7 +22,6 @@ mod tests {
     };
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
-    use logging::test_logger;
     use parking_lot::Mutex;
     use reqwest::Client;
     use serde::Serialize;
@@ -319,7 +318,6 @@ mod tests {
             using_web3signer: bool,
             spec: Arc<ChainSpec>,
         ) -> Self {
-            let log = test_logger();
             let validator_dir = TempDir::new().unwrap();
 
             let config = validator_client::Config::default();
@@ -328,7 +326,6 @@ mod tests {
                 validator_definitions,
                 validator_dir.path().into(),
                 config.clone(),
-                log.clone(),
             )
             .await
             .unwrap();
@@ -344,7 +341,7 @@ mod tests {
             let (runtime_shutdown, exit) = async_channel::bounded(1);
             let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
             let executor =
-                TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
+                TaskExecutor::new(Arc::downgrade(&runtime), exit, shutdown_tx);
 
             let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
             let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
@@ -368,7 +365,6 @@ mod tests {
                 slot_clock,
                 &config,
                 executor,
-                log.clone(),
             );
 
             Self {

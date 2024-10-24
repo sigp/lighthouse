@@ -11,7 +11,6 @@ use beacon_chain::{
     BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult, IntoExecutionPendingBlock,
     NotifyExecutionLayer,
 };
-use logging::test_logger;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     common::{attesting_indices_base, attesting_indices_electra},
@@ -1215,7 +1214,6 @@ async fn verify_block_for_gossip_slashing_detection() {
         Slasher::open(
             SlasherConfig::new(slasher_dir.path().into()),
             spec,
-            test_logger(),
         )
         .unwrap(),
     );

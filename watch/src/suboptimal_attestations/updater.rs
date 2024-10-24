@@ -4,7 +4,7 @@ use crate::updater::{Error, UpdateHandler};
 use crate::suboptimal_attestations::get_attestation_performances;
 
 use eth2::types::EthSpec;
-use log::{debug, error, warn};
+use tracing::{debug, error, warn};
 
 const MAX_SIZE_SINGLE_REQUEST_ATTESTATIONS: u64 = 50;
 

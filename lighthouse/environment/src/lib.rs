@@ -412,7 +412,6 @@ impl<E: EthSpec> Environment<E> {
         // setup for handling a Ctrl-C
         let (ctrlc_send, ctrlc_oneshot) = oneshot::channel();
         let ctrlc_send_c = RefCell::new(Some(ctrlc_send));
-        let log = self.log.clone();
         ctrlc::set_handler(move || {
             if let Some(ctrlc_send) = ctrlc_send_c.try_borrow_mut().unwrap().take() {
                 if let Err(e) = ctrlc_send.send(()) {

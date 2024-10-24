@@ -16,7 +16,7 @@ use diesel::dsl::max;
 use diesel::prelude::*;
 use diesel::r2d2::{Builder, ConnectionManager, Pool, PooledConnection};
 use diesel::upsert::excluded;
-use log::{debug, info};
+use tracing::{debug, info};
 use std::collections::HashMap;
 use std::time::Instant;
 use types::{EthSpec, SignedBeaconBlock};

@@ -13,6 +13,7 @@ use rayon::prelude::*;
 use std::cmp::max;
 use std::sync::Arc;
 use std::time::Duration;
+use std::process;
 
 use logging::{MetricsLayer, SSE_LOGGING_COMPONENTS};
 use tracing_subscriber::filter::LevelFilter;
@@ -131,7 +132,10 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         "info" => LevelFilter::INFO,
         "debug" => LevelFilter::DEBUG,
         "trace" => LevelFilter::TRACE,
-        _ => LevelFilter::INFO,
+        _ => {
+            eprintln!("Unsupported log level");
+            process::exit(1)
+        }
     };
 
     let file_level = match logger_config.logfile_debug_level.to_lowercase().as_str() {
@@ -140,7 +144,10 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         "info" => LevelFilter::INFO,
         "debug" => LevelFilter::DEBUG,
         "trace" => LevelFilter::TRACE,
-        _ => LevelFilter::INFO,
+        _ => {
+            eprintln!("Unsupported log level");
+            process::exit(1)
+        }
     };
 
     if let Err(e) = tracing_subscriber::registry()

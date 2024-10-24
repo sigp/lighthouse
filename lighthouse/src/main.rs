@@ -24,6 +24,7 @@ use std::backtrace::Backtrace;
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
+use std::process;
 use task_executor::ShutdownReason;
 use tracing::info;
 use tracing_subscriber::filter::LevelFilter;
@@ -600,7 +601,10 @@ fn run<E: EthSpec>(
         "info" => LevelFilter::INFO,
         "debug" => LevelFilter::DEBUG,
         "trace" => LevelFilter::TRACE,
-        _ => LevelFilter::INFO,
+        _ => {
+            eprintln!("Unsupported log level");
+            process::exit(1)
+        }
     };
 
     let file_level = match logger_config.logfile_debug_level.to_lowercase().as_str() {
@@ -609,7 +613,10 @@ fn run<E: EthSpec>(
         "info" => LevelFilter::INFO,
         "debug" => LevelFilter::DEBUG,
         "trace" => LevelFilter::TRACE,
-        _ => LevelFilter::INFO,
+        _ => {
+            eprintln!("Unsupported log level");
+            process::exit(1)
+        }
     };
 
     if let Err(e) = tracing_subscriber::registry()

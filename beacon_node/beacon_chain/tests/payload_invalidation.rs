@@ -18,7 +18,6 @@ use execution_layer::{
     ExecutionLayer, ForkchoiceState, PayloadAttributes,
 };
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
-use logging::test_logger;
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -62,7 +61,6 @@ impl InvalidPayloadRig {
                 reconstruct_historic_states: true,
                 ..ChainConfig::default()
             })
-            .logger(test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .mock_execution_layer()
             .fresh_ephemeral_store()
