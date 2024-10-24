@@ -5348,8 +5348,7 @@ dependencies = [
 [[package]]
 name = "metastruct"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f00a5ba4a0f3453c31c397b214e1675d95b697c33763aa58add57ea833424384"
+source = "git+https://github.com/sigp/metastruct?branch=lifetime-tweaks#1c289a576855f466a5584d4c53ec5103fd53d79a"
 dependencies = [
  "metastruct_macro",
 ]
@@ -5357,8 +5356,7 @@ dependencies = [
 [[package]]
 name = "metastruct_macro"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c3a991d4536c933306e52f0e8ab303757185ec13a09d1f3e1cbde5a0d8410bf"
+source = "git+https://github.com/sigp/metastruct?branch=lifetime-tweaks#1c289a576855f466a5584d4c53ec5103fd53d79a"
 dependencies = [
  "darling 0.13.4",
  "itertools 0.10.5",
