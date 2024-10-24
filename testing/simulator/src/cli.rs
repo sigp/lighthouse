@@ -122,4 +122,54 @@ pub fn cli_app() -> Command {
                         .help("Continue after checks (default false)"),
                 ),
         )
+        .subcommand(
+            Command::new("peering-sim")
+                .about(
+                    "Runs a Beacon Chain simulation with `n` beacon node and validator clients, \
+                    each with `v` validators. \
+                    The simulation runs with a post-Merge Genesis using `mock-el`. \
+                    As the simulation runs, additional nodes are periodically added and \
+                    there are checks made to ensure that the nodes are able to sync to the \
+                    network. If a node fails to sync, the simulation will exit immediately.",
+                )
+                .arg(
+                    Arg::new("nodes")
+                        .short('n')
+                        .long("nodes")
+                        .action(ArgAction::Set)
+                        .default_value("2")
+                        .help("Number of beacon nodes"),
+                )
+                .arg(
+                    Arg::new("validators-per-node")
+                        .short('v')
+                        .long("validators-per-node")
+                        .action(ArgAction::Set)
+                        .default_value("10")
+                        .help("Number of validators"),
+                )
+                .arg(
+                    Arg::new("speed-up-factor")
+                        .short('s')
+                        .long("speed-up-factor")
+                        .action(ArgAction::Set)
+                        .default_value("3")
+                        .help("Speed up factor. Please use a divisor of 12."),
+                )
+                .arg(
+                    Arg::new("debug-level")
+                        .short('d')
+                        .long("debug-level")
+                        .action(ArgAction::Set)
+                        .default_value("debug")
+                        .help("Set the severity level of the logs."),
+                )
+                .arg(
+                    Arg::new("continue-after-checks")
+                        .short('c')
+                        .long("continue_after_checks")
+                        .action(ArgAction::SetTrue)
+                        .help("Continue after checks (default false)"),
+                ),
+        )
 }
