@@ -26,9 +26,9 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
     custody_columns_streams_terminated: usize,
     /// Used to determine if this accumulator should wait for a sidecars stream termination
     expects_blobs: bool,
-    expects_custody_columns: Option<Vec<ColumnIndex>>,
+    expected_column_indices: Option<Vec<ColumnIndex>>,
     /// Used to determine if the number of data columns stream termination this accumulator should
-    /// wait for. This may be less than the number of `expects_custody_columns` due to request batching.
+    /// wait for. This may be less than the number of `expected_column_indices` due to request batching.
     num_custody_column_requests: Option<usize>,
     /// The peers the request was made to.
     pub(crate) peer_ids: Vec<PeerId>,
@@ -37,7 +37,7 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
 impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     pub fn new(
         expects_blobs: bool,
-        expects_custody_columns: Option<Vec<ColumnIndex>>,
+        expected_column_indices: Option<Vec<ColumnIndex>>,
         num_custody_column_requests: Option<usize>,
         peer_ids: Vec<PeerId>,
     ) -> Self {
@@ -49,7 +49,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             is_sidecars_stream_terminated: false,
             custody_columns_streams_terminated: 0,
             expects_blobs,
-            expects_custody_columns,
+            expected_column_indices,
             num_custody_column_requests,
             peer_ids,
         }
@@ -58,7 +58,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     // TODO: This function should be deprecated when simplying the retry mechanism of this range
     // requests.
     pub fn get_requirements(&self) -> (bool, Option<Vec<ColumnIndex>>) {
-        (self.expects_blobs, self.expects_custody_columns.clone())
+        (self.expects_blobs, self.expected_column_indices.clone())
     }
 
     pub fn add_block_response(&mut self, block_opt: Option<Arc<SignedBeaconBlock<E>>>) {
@@ -86,7 +86,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     }
 
     pub fn into_responses(self, spec: &ChainSpec) -> Result<Vec<RpcBlock<E>>, String> {
-        if let Some(expected_column_indices) = self.expects_custody_columns.as_ref() {
+        if let Some(expected_column_indices) = self.expected_column_indices.as_ref() {
             let expected_column_indices = expected_column_indices.clone();
             self.into_responses_with_custody_columns(spec, expected_column_indices)
         } else {
@@ -104,8 +104,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             blobs_by_block.entry(block_root).or_default().push(blob);
         }
 
-        // Now iterate all blocks ensuring that the block roots of each block and data column match,
-        // plus we have columns for our custody requirements
+        // Now iterate all blocks ensuring that the block roots of each block and blob match
         let mut rpc_blocks = Vec::with_capacity(blocks.len());
 
         for block in blocks {
@@ -136,7 +135,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 .entry(column.block_root())
                 .or_default()
                 // Safe to convert to `CustodyDataColumn`: we have asserted that the index of
-                // this column is in the set of `expects_custody_columns` and with the expected
+                // this column is in the set of `expected_column_indices` and with the expected
                 // block root, so for the expected epoch of this batch.
                 .push(CustodyDataColumn::from_asserted_custody(column));
             // Note: no need to check for duplicates `ActiveDataColumnsByRangeRequest` ensures that
@@ -250,11 +249,11 @@ mod tests {
     #[test]
     fn rpc_block_with_custody_columns() {
         let spec = test_spec::<E>();
-        let expects_custody_columns = vec![1, 2, 3, 4];
+        let expected_column_indices = vec![1, 2, 3, 4];
         let mut info = RangeBlockComponentsRequest::<E>::new(
             false,
-            Some(expects_custody_columns.clone()),
-            Some(expects_custody_columns.len()),
+            Some(expected_column_indices.clone()),
+            Some(expected_column_indices.len()),
             vec![PeerId::random()],
         );
         let mut rng = XorShiftRng::from_seed([42; 16]);
@@ -280,17 +279,17 @@ mod tests {
         // Send data columns interleaved
         for block in &blocks {
             for column in &block.1 {
-                if expects_custody_columns.contains(&column.index) {
+                if expected_column_indices.contains(&column.index) {
                     info.add_data_column(Some(column.clone()));
                 }
             }
         }
 
         // Terminate the requests
-        for (i, _column_index) in expects_custody_columns.iter().enumerate() {
+        for (i, _column_index) in expected_column_indices.iter().enumerate() {
             info.add_data_column(None);
 
-            if i < expects_custody_columns.len() - 1 {
+            if i < expected_column_indices.len() - 1 {
                 assert!(
                     !info.is_finished(),
                     "requested should not be finished at loop {i}"
@@ -310,11 +309,11 @@ mod tests {
     #[test]
     fn rpc_block_with_custody_columns_batched() {
         let spec = test_spec::<E>();
-        let expects_custody_columns = vec![1, 2, 3, 4];
+        let expected_column_indices = vec![1, 2, 3, 4];
         let num_of_data_column_requests = 2;
         let mut info = RangeBlockComponentsRequest::<E>::new(
             false,
-            Some(expects_custody_columns.clone()),
+            Some(expected_column_indices.clone()),
             Some(num_of_data_column_requests),
             vec![PeerId::random()],
         );
@@ -341,7 +340,7 @@ mod tests {
         // Send data columns interleaved
         for block in &blocks {
             for column in &block.1 {
-                if expects_custody_columns.contains(&column.index) {
+                if expected_column_indices.contains(&column.index) {
                     info.add_data_column(Some(column.clone()));
                 }
             }

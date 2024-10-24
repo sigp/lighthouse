@@ -5,6 +5,7 @@ use types::{BeaconStateError, ColumnIndex, Hash256};
 pub enum Error {
     InvalidBlobs(KzgError),
     InvalidColumn(ColumnIndex, KzgError),
+    InvalidInclusionProof,
     ReconstructColumnsError(KzgError),
     KzgCommitmentMismatch {
         blob_commitment: KzgCommitment,
@@ -50,6 +51,7 @@ impl Error {
             | Error::SlotClockError => ErrorCategory::Internal,
             Error::InvalidBlobs { .. }
             | Error::InvalidColumn { .. }
+            | Error::InvalidInclusionProof
             | Error::ReconstructColumnsError { .. }
             | Error::BlobIndexInvalid(_)
             | Error::DataColumnIndexInvalid(_)

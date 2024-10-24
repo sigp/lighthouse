@@ -325,8 +325,23 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let (block_root, block, blobs, data_columns) = block.deconstruct();
         if self.blobs_required_for_block(&block) {
             return if let Some(blob_list) = blobs.as_ref() {
+                // Assert no duplicates
                 if block.num_expected_blobs() != blob_list.len() {
                     return Err(AvailabilityCheckError::MissingBlobs);
+                }
+                // Check that there are exactly the expected indexes
+                for i in 0..block.num_expected_blobs() as u64 {
+                    if !blob_list.iter().any(|blob| blob.index == i) {
+                        return Err(AvailabilityCheckError::MissingBlobs);
+                    }
+                }
+
+                // Assume the all the sidecars in the RpcBlock have a matching block root to the
+                // block. So by checking the inclusion proof we assert matching commitments.
+                for blob in blob_list {
+                    if !blob.verify_blob_sidecar_inclusion_proof() {
+                        return Err(AvailabilityCheckError::InvalidInclusionProof);
+                    }
                 }
 
                 verify_kzg_for_blob_list(blob_list.iter(), &self.kzg)
