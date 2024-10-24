@@ -752,8 +752,11 @@ mod tests {
     #[test]
     fn api_topic_all() {
         let all = ApiTopic::all();
-        assert_eq!(all.len(), ApiTopic::VARIANTS.len());
-        assert!(ApiTopic::VARIANTS
+        // ignore NONE variant
+        let mut variants = ApiTopic::VARIANTS.to_vec();
+        variants.retain(|s| *s != "none");
+        assert_eq!(all.len(), variants.len());
+        assert!(variants
             .iter()
             .map(|topic| ApiTopic::from_str(topic, true).unwrap())
             .eq(all.into_iter()));
