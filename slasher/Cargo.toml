@@ -18,7 +18,7 @@ derivative = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 flate2 = { version = "1.0.14", features = ["zlib"], default-features = false }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 filesystem = { workspace = true }
 lru = { workspace = true }
 parking_lot = { workspace = true }

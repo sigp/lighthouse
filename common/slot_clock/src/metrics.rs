@@ -1,5 +1,5 @@
 use crate::SlotClock;
-pub use lighthouse_metrics::*;
+pub use metrics::*;
 use std::sync::LazyLock;
 use types::{EthSpec, Slot};
 

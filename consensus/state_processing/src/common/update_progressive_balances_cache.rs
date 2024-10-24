@@ -4,7 +4,7 @@ use crate::metrics::{
     PARTICIPATION_PREV_EPOCH_TARGET_ATTESTING_GWEI_PROGRESSIVE_TOTAL,
 };
 use crate::{BlockProcessingError, EpochProcessingError};
-use lighthouse_metrics::set_gauge;
+use metrics::set_gauge;
 use types::{
     is_progressive_balances_enabled, BeaconState, BeaconStateError, ChainSpec, Epoch,
     EpochTotalBalances, EthSpec, ParticipationFlags, ProgressiveBalancesCache, Validator,

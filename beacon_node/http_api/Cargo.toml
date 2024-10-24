@@ -20,7 +20,7 @@ lighthouse_network = { workspace = true }
 eth1 = { workspace = true }
 state_processing = { workspace = true }
 lighthouse_version = { workspace = true }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 warp_utils = { workspace = true }
 slot_clock = { workspace = true }
 ethereum_ssz = { workspace = true }

@@ -1,5 +1,5 @@
 /// Handles async task metrics
-pub use lighthouse_metrics::*;
+pub use metrics::*;
 use std::sync::LazyLock;
 
 pub static ASYNC_TASKS_COUNT: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {

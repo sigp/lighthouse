@@ -25,7 +25,7 @@ pub use beacon_node_health::BeaconNodeSyncDistanceTiers;
 pub use cli::cli_app;
 pub use config::Config;
 use initialized_validators::InitializedValidators;
-use lighthouse_metrics::set_gauge;
+use metrics::set_gauge;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use sensitive_url::SensitiveUrl;
 pub use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
