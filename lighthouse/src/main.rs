@@ -395,10 +395,10 @@ fn main() {
             .action(ArgAction::HelpLong)
             .display_order(0)
             .help_heading(FLAG_HEADER)
+            .global(true)
         )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
-        .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
         .subcommand(validator_manager::cli_app());
 
@@ -669,12 +669,49 @@ fn run<E: EthSpec>(
         return Ok(());
     }
 
-    if let Ok(LighthouseSubcommands::DatabaseManager(db_manager_config)) =
-        LighthouseSubcommands::from_arg_matches(matches)
-    {
-        info!(log, "Running database manager for {} network", network_name);
-        database_manager::run(matches, &db_manager_config, environment)?;
-        return Ok(());
+    match LighthouseSubcommands::from_arg_matches(matches) {
+        Ok(LighthouseSubcommands::DatabaseManager(db_manager_config)) => {
+            info!(log, "Running database manager for {} network", network_name);
+            database_manager::run(matches, &db_manager_config, environment)?;
+            return Ok(());
+        }
+        Ok(LighthouseSubcommands::ValidatorClient(validator_client_config)) => {
+            let context = environment.core_context();
+            let log = context.log().clone();
+            let executor = context.executor.clone();
+            let config = validator_client::Config::from_cli(
+                matches,
+                &validator_client_config,
+                context.log(),
+            )
+            .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
+            // Dump configs if `dump-config` or `dump-chain-config` flags are set
+            clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
+
+            let shutdown_flag = matches.get_flag("immediate-shutdown");
+            if shutdown_flag {
+                info!(log, "Validator client immediate shutdown triggered.");
+                return Ok(());
+            }
+
+            executor.clone().spawn(
+                async move {
+                    if let Err(e) = ProductionValidatorClient::new(context, config)
+                        .and_then(|mut vc| async move { vc.start_service().await })
+                        .await
+                    {
+                        crit!(log, "Failed to start validator client"; "reason" => e);
+                        // Ignore the error since it always occurs during normal operation when
+                        // shutting down.
+                        let _ = executor
+                            .shutdown_sender()
+                            .try_send(ShutdownReason::Failure("Failed to start validator client"));
+                    }
+                },
+                "validator_client",
+            );
+        }
+        Err(_) => (),
     };
 
     info!(log, "Lighthouse started"; "version" => VERSION);
@@ -729,38 +766,9 @@ fn run<E: EthSpec>(
                 "beacon_node",
             );
         }
-        Some(("validator_client", matches)) => {
-            let context = environment.core_context();
-            let log = context.log().clone();
-            let executor = context.executor.clone();
-            let config = validator_client::Config::from_cli(matches, context.log())
-                .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
-            // Dump configs if `dump-config` or `dump-chain-config` flags are set
-            clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
-
-            let shutdown_flag = matches.get_flag("immediate-shutdown");
-            if shutdown_flag {
-                info!(log, "Validator client immediate shutdown triggered.");
-                return Ok(());
-            }
-
-            executor.clone().spawn(
-                async move {
-                    if let Err(e) = ProductionValidatorClient::new(context, config)
-                        .and_then(|mut vc| async move { vc.start_service().await })
-                        .await
-                    {
-                        crit!(log, "Failed to start validator client"; "reason" => e);
-                        // Ignore the error since it always occurs during normal operation when
-                        // shutting down.
-                        let _ = executor
-                            .shutdown_sender()
-                            .try_send(ShutdownReason::Failure("Failed to start validator client"));
-                    }
-                },
-                "validator_client",
-            );
-        }
+        // TODO(clap-derive) delete this once we've fully migrated to clap derive.
+        // Qt the moment this needs to exist so that we dont trigger a crit.
+        Some(("validator_client", _)) => (),
         _ => {
             crit!(log, "No subcommand supplied. See --help .");
             return Err("No subcommand supplied.".into());

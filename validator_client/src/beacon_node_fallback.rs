@@ -8,6 +8,7 @@ use crate::beacon_node_health::{
 };
 use crate::check_synced::check_node_health;
 use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
+use clap::ValueEnum;
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
@@ -21,7 +22,8 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use strum::{EnumString, EnumVariantNames};
+use std::vec::Vec;
+use strum::EnumVariantNames;
 use tokio::{sync::RwLock, time::sleep};
 use types::{ChainSpec, Config as ConfigSpec, EthSpec, Slot};
 
@@ -719,9 +721,10 @@ async fn sort_nodes_by_health<E: EthSpec>(nodes: &mut Vec<CandidateBeaconNode<E>
 }
 
 /// Serves as a cue for `BeaconNodeFallback` to tell which requests need to be broadcasted.
-#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, EnumString, EnumVariantNames)]
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, EnumVariantNames, ValueEnum)]
 #[strum(serialize_all = "kebab-case")]
 pub enum ApiTopic {
+    None,
     Attestations,
     Blocks,
     Subscriptions,
@@ -741,7 +744,6 @@ mod tests {
     use crate::beacon_node_health::BeaconNodeHealthTier;
     use crate::SensitiveUrl;
     use eth2::Timeouts;
-    use std::str::FromStr;
     use strum::VariantNames;
     use types::{MainnetEthSpec, Slot};
 
@@ -750,10 +752,13 @@ mod tests {
     #[test]
     fn api_topic_all() {
         let all = ApiTopic::all();
-        assert_eq!(all.len(), ApiTopic::VARIANTS.len());
-        assert!(ApiTopic::VARIANTS
+        // ignore NONE variant
+        let mut variants = ApiTopic::VARIANTS.to_vec();
+        variants.retain(|s| *s != "none");
+        assert_eq!(all.len(), variants.len());
+        assert!(variants
             .iter()
-            .map(|topic| ApiTopic::from_str(topic).unwrap())
+            .map(|topic| ApiTopic::from_str(topic, true).unwrap())
             .eq(all.into_iter()));
     }
 
