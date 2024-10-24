@@ -1,4 +1,4 @@
-use crate::network_beacon_processor::NetworkBeaconProcessor;
+use crate::network_beacon_processor::{LookupSyncProcessingResult, NetworkBeaconProcessor};
 use crate::sync::manager::{BlockProcessType, SyncManager};
 use crate::sync::peer_sampling::SamplingConfig;
 use crate::sync::range_sync::RangeSyncType;
@@ -468,24 +468,21 @@ impl TestRig {
         *parent_chain.last().unwrap()
     }
 
-    fn parent_block_processed(&mut self, chain_hash: Hash256, result: BlockProcessingResult) {
+    fn parent_block_processed(&mut self, chain_hash: Hash256, result: LookupSyncProcessingResult) {
         let id = self.find_single_lookup_for(self.find_oldest_parent_lookup(chain_hash));
         self.single_block_component_processed(id, result);
     }
 
-    fn parent_blob_processed(&mut self, chain_hash: Hash256, result: BlockProcessingResult) {
+    fn parent_blob_processed(&mut self, chain_hash: Hash256, result: LookupSyncProcessingResult) {
         let id = self.find_single_lookup_for(self.find_oldest_parent_lookup(chain_hash));
         self.single_blob_component_processed(id, result);
     }
 
     fn parent_block_processed_imported(&mut self, chain_hash: Hash256) {
-        self.parent_block_processed(
-            chain_hash,
-            BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(chain_hash)),
-        );
+        self.parent_block_processed(chain_hash, LookupSyncProcessingResult::FullyImported);
     }
 
-    fn single_block_component_processed(&mut self, id: Id, result: BlockProcessingResult) {
+    fn single_block_component_processed(&mut self, id: Id, result: LookupSyncProcessingResult) {
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type: BlockProcessType::SingleBlock { id },
             result,
@@ -494,13 +491,10 @@ impl TestRig {
 
     fn single_block_component_processed_imported(&mut self, block_root: Hash256) {
         let id = self.find_single_lookup_for(block_root);
-        self.single_block_component_processed(
-            id,
-            BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
-        )
+        self.single_block_component_processed(id, LookupSyncProcessingResult::FullyImported)
     }
 
-    fn single_blob_component_processed(&mut self, id: Id, result: BlockProcessingResult) {
+    fn single_blob_component_processed(&mut self, id: Id, result: LookupSyncProcessingResult) {
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type: BlockProcessType::SingleBlob { id },
             result,
@@ -588,18 +582,14 @@ impl TestRig {
         blobs: Vec<BlobSidecar<E>>,
         import: bool,
     ) {
-        let block_root = blobs.first().unwrap().block_root();
-        let block_slot = blobs.first().unwrap().slot();
         self.complete_single_lookup_blob_download(id, peer_id, blobs);
         self.expect_block_process(ResponseType::Blob);
         self.single_blob_component_processed(
             id.lookup_id,
             if import {
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root))
+                LookupSyncProcessingResult::FullyImported
             } else {
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
-                    block_slot, block_root,
-                ))
+                LookupSyncProcessingResult::ImportedMissingComponents
             },
         );
     }
@@ -619,12 +609,9 @@ impl TestRig {
         self.single_block_component_processed(
             id,
             if import {
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root))
+                LookupSyncProcessingResult::FullyImported
             } else {
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
-                    Slot::new(0),
-                    block_root,
-                ))
+                LookupSyncProcessingResult::ImportedMissingComponents
             },
         )
     }
@@ -703,8 +690,6 @@ impl TestRig {
     ) {
         // Complete download
         let peer_id = PeerId::random();
-        let slot = block.slot();
-        let block_root = block.canonical_root();
         self.single_lookup_block_response(id, peer_id, Some(block));
         self.single_lookup_block_response(id, peer_id, None);
         // Expect processing and resolve with import
@@ -712,11 +697,9 @@ impl TestRig {
         self.single_block_component_processed(
             id.lookup_id,
             if missing_components {
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
-                    slot, block_root,
-                ))
+                LookupSyncProcessingResult::ImportedMissingComponents
             } else {
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root))
+                LookupSyncProcessingResult::FullyImported
             },
         )
     }
@@ -783,8 +766,6 @@ impl TestRig {
             panic!("not a custody requester")
         };
 
-        let first_column = data_columns.first().cloned().unwrap();
-
         for id in ids {
             self.log(&format!("return valid data column for {id:?}"));
             let indices = &id.1;
@@ -803,14 +784,9 @@ impl TestRig {
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type: BlockProcessType::SingleCustodyColumn(lookup_id),
             result: if missing_components {
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
-                    first_column.slot(),
-                    first_column.block_root(),
-                ))
+                LookupSyncProcessingResult::ImportedMissingComponents
             } else {
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(
-                    first_column.block_root(),
-                ))
+                LookupSyncProcessingResult::FullyImported
             },
         });
     }
@@ -1515,9 +1491,7 @@ fn test_single_block_lookup_becomes_parent_request() {
     // parent request after processing.
     rig.single_block_component_processed(
         id.lookup_id,
-        BlockProcessingResult::Err(BlockError::ParentUnknown {
-            parent_root: block.parent_root(),
-        }),
+        LookupSyncProcessingResult::ParentUnknown(block.parent_root()),
     );
     assert_eq!(rig.active_single_lookups_count(), 2); // 2 = current + parent
     rig.expect_block_parent_request(parent_root);
@@ -1546,10 +1520,7 @@ fn test_parent_lookup_happy_path() {
     // Add peer to child lookup to prevent it being dropped
     rig.trigger_unknown_block_from_attestation(block_root, peer_id);
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    rig.parent_block_processed(
-        block_root,
-        BlockError::DuplicateFullyImported(block_root).into(),
-    );
+    rig.parent_block_processed(block_root, LookupSyncProcessingResult::FullyImported);
     rig.expect_parent_chain_process();
     rig.parent_chain_processed_success(block_root, &[]);
     rig.expect_no_active_lookups_empty_network();
@@ -1708,7 +1679,10 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
         rig.assert_not_failed_chain(block_root);
         // send the right parent but fail processing
         rig.parent_lookup_block_response(id, peer_id, Some(parent.clone().into()));
-        rig.parent_block_processed(block_root, BlockError::InvalidSignature.into());
+        rig.parent_block_processed(
+            block_root,
+            LookupSyncProcessingResult::Error(LookupSyncErrorCategory::malicious_retry()),
+        );
         rig.parent_lookup_block_response(id, peer_id, None);
         rig.expect_penalty(peer_id, "lookup_block_processing_failure");
     }
@@ -1738,9 +1712,7 @@ fn test_parent_lookup_too_deep_grow_ancestor() {
         // the processing result
         rig.parent_block_processed(
             chain_hash,
-            BlockProcessingResult::Err(BlockError::ParentUnknown {
-                parent_root: block.parent_root(),
-            }),
+            LookupSyncProcessingResult::ParentUnknown(block.parent_root()),
         )
     }
 
@@ -1775,10 +1747,7 @@ fn test_parent_lookup_too_deep_grow_tip() {
         rig.expect_block_process(ResponseType::Block);
         rig.single_block_component_processed(
             id.lookup_id,
-            BlockError::ParentUnknown {
-                parent_root: block.parent_root(),
-            }
-            .into(),
+            LookupSyncProcessingResult::ParentUnknown(block.parent_root()),
         );
     }
 
@@ -1883,7 +1852,7 @@ fn test_single_block_lookup_ignored_response() {
     // after processing.
     rig.single_lookup_block_response(id, peer_id, None);
     // Send an Ignored response, the request should be dropped
-    rig.single_block_component_processed(id.lookup_id, BlockProcessingResult::Ignored);
+    rig.single_block_component_processed(id.lookup_id, LookupSyncProcessingResult::Ignored);
     rig.expect_no_active_lookups_empty_network();
 }
 
@@ -1906,7 +1875,7 @@ fn test_parent_lookup_ignored_response() {
     rig.expect_empty_network();
 
     // Return an Ignored result. The request should be dropped
-    rig.parent_block_processed(block_root, BlockProcessingResult::Ignored);
+    rig.parent_block_processed(block_root, LookupSyncProcessingResult::Ignored);
     rig.expect_empty_network();
     rig.expect_no_active_lookups();
 }
@@ -1936,17 +1905,12 @@ fn test_same_chain_race_condition() {
         // the processing result
         if i + 2 == depth {
             rig.log(&format!("Block {i} was removed and is already known"));
-            rig.parent_block_processed(
-                chain_hash,
-                BlockError::DuplicateFullyImported(block.canonical_root()).into(),
-            )
+            rig.parent_block_processed(chain_hash, LookupSyncProcessingResult::FullyImported)
         } else {
             rig.log(&format!("Block {i} ParentUnknown"));
             rig.parent_block_processed(
                 chain_hash,
-                BlockProcessingResult::Err(BlockError::ParentUnknown {
-                    parent_root: block.parent_root(),
-                }),
+                LookupSyncProcessingResult::ParentUnknown(block.parent_root()),
             )
         }
     }
@@ -2219,9 +2183,7 @@ fn custody_lookup_happy_path() {
 
 mod deneb_only {
     use super::*;
-    use beacon_chain::{
-        block_verification_types::RpcBlock, data_availability_checker::AvailabilityCheckError,
-    };
+    use beacon_chain::block_verification_types::RpcBlock;
     use ssz_types::VariableList;
     use std::collections::VecDeque;
 
@@ -2239,7 +2201,6 @@ mod deneb_only {
         parent_block_req_id: Option<SingleLookupReqId>,
         blob_req_id: Option<SingleLookupReqId>,
         parent_blob_req_id: Option<SingleLookupReqId>,
-        slot: Slot,
         block_root: Hash256,
     }
 
@@ -2267,7 +2228,6 @@ mod deneb_only {
             let (block, blobs) = rig.rand_block_and_blobs(NumBlobs::Random);
             let mut block = Arc::new(block);
             let mut blobs = blobs.into_iter().map(Arc::new).collect::<Vec<_>>();
-            let slot = block.slot();
 
             let num_parents = request_trigger.num_parents();
             let mut parent_block_chain = VecDeque::with_capacity(num_parents);
@@ -2343,7 +2303,6 @@ mod deneb_only {
                 parent_block_req_id,
                 blob_req_id,
                 parent_blob_req_id,
-                slot,
                 block_root,
             })
         }
@@ -2501,10 +2460,7 @@ mod deneb_only {
         fn block_missing_components(mut self) -> Self {
             self.rig.single_block_component_processed(
                 self.block_req_id.expect("block request id").lookup_id,
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
-                    self.block.slot(),
-                    self.block_root,
-                )),
+                LookupSyncProcessingResult::ImportedMissingComponents,
             );
             self.rig.expect_empty_network();
             self.rig.assert_single_lookups_count(1);
@@ -2514,7 +2470,7 @@ mod deneb_only {
         fn blob_imported(mut self) -> Self {
             self.rig.single_blob_component_processed(
                 self.blob_req_id.expect("blob request id").lookup_id,
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(self.block_root)),
+                LookupSyncProcessingResult::FullyImported,
             );
             self.rig.expect_empty_network();
             self.rig.assert_single_lookups_count(0);
@@ -2529,7 +2485,7 @@ mod deneb_only {
                     .or(self.blob_req_id)
                     .expect("block request id")
                     .lookup_id,
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(self.block_root)),
+                LookupSyncProcessingResult::FullyImported,
             );
             self.rig.expect_empty_network();
             self.rig.assert_single_lookups_count(0);
@@ -2540,10 +2496,8 @@ mod deneb_only {
             let parent_root = *self.parent_block_roots.first().unwrap();
             self.rig
                 .log(&format!("parent_block_imported {parent_root:?}"));
-            self.rig.parent_block_processed(
-                self.block_root,
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(parent_root)),
-            );
+            self.rig
+                .parent_block_processed(self.block_root, LookupSyncProcessingResult::FullyImported);
             self.rig.expect_no_requests_for(parent_root);
             self.rig.assert_parent_lookups_count(0);
             self
@@ -2555,10 +2509,7 @@ mod deneb_only {
                 .log(&format!("parent_block_missing_components {parent_root:?}"));
             self.rig.parent_block_processed(
                 self.block_root,
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
-                    Slot::new(0),
-                    parent_root,
-                )),
+                LookupSyncProcessingResult::ImportedMissingComponents,
             );
             self.rig.expect_no_requests_for(parent_root);
             self
@@ -2568,10 +2519,8 @@ mod deneb_only {
             let parent_root = *self.parent_block_roots.first().unwrap();
             self.rig
                 .log(&format!("parent_blob_imported {parent_root:?}"));
-            self.rig.parent_blob_processed(
-                self.block_root,
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(parent_root)),
-            );
+            self.rig
+                .parent_blob_processed(self.block_root, LookupSyncProcessingResult::FullyImported);
 
             self.rig.expect_no_requests_for(parent_root);
             self.rig.assert_parent_lookups_count(0);
@@ -2591,9 +2540,7 @@ mod deneb_only {
             .unwrap();
             self.rig.parent_block_processed(
                 self.block_root,
-                BlockProcessingResult::Err(BlockError::ParentUnknown {
-                    parent_root: block.parent_root(),
-                }),
+                LookupSyncProcessingResult::ParentUnknown(block.parent_root()),
             );
             assert_eq!(self.rig.active_parent_lookups_count(), 1);
             self
@@ -2602,7 +2549,7 @@ mod deneb_only {
         fn invalid_parent_processed(mut self) -> Self {
             self.rig.parent_block_processed(
                 self.block_root,
-                BlockProcessingResult::Err(BlockError::ProposalSignatureInvalid),
+                LookupSyncProcessingResult::Error(LookupSyncErrorCategory::malicious_retry()),
             );
             assert_eq!(self.rig.active_parent_lookups_count(), 1);
             self
@@ -2611,7 +2558,7 @@ mod deneb_only {
         fn invalid_block_processed(mut self) -> Self {
             self.rig.single_block_component_processed(
                 self.block_req_id.expect("block request id").lookup_id,
-                BlockProcessingResult::Err(BlockError::ProposalSignatureInvalid),
+                LookupSyncProcessingResult::Error(LookupSyncErrorCategory::malicious_retry()),
             );
             self.rig.assert_single_lookups_count(1);
             self
@@ -2621,9 +2568,7 @@ mod deneb_only {
             self.rig.log("invalid_blob_processed");
             self.rig.single_blob_component_processed(
                 self.blob_req_id.expect("blob request id").lookup_id,
-                BlockProcessingResult::Err(BlockError::AvailabilityCheck(
-                    AvailabilityCheckError::InvalidBlobs(kzg::Error::KzgVerificationFailed),
-                )),
+                LookupSyncProcessingResult::Error(LookupSyncErrorCategory::malicious_retry()),
             );
             self.rig.assert_single_lookups_count(1);
             self
@@ -2632,10 +2577,7 @@ mod deneb_only {
         fn missing_components_from_block_request(mut self) -> Self {
             self.rig.single_block_component_processed(
                 self.block_req_id.expect("block request id").lookup_id,
-                BlockProcessingResult::Ok(AvailabilityProcessingStatus::MissingComponents(
-                    self.slot,
-                    self.block_root,
-                )),
+                LookupSyncProcessingResult::ImportedMissingComponents,
             );
             // Add block to da_checker so blobs request can continue
             self.rig.insert_block_to_da_checker(self.block.clone());

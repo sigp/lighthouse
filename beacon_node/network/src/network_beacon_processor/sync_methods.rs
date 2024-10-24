@@ -9,6 +9,7 @@ use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::MaybeAvailableBlock;
 use beacon_chain::data_column_verification::verify_kzg_for_data_column_list;
+use beacon_chain::ExecutionPayloadError;
 use beacon_chain::{
     validator_monitor::get_slot_delay_ms, AvailabilityProcessingStatus, BeaconChainError,
     BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError, NotifyExecutionLayer,
@@ -42,6 +43,60 @@ struct ChainSegmentFailed {
     message: String,
     /// Used to penalize peers.
     peer_action: Option<PeerAction>,
+}
+
+#[derive(Debug)]
+pub enum LookupSyncProcessingResult {
+    FullyImported,
+    ImportedMissingComponents,
+    Error(ErrorCategory),
+    ParentUnknown(Hash256),
+    Ignored,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ErrorCategory {
+    /// Internal Errors (not caused by peers).
+    ///
+    /// An internal no-retry error is permanent and block processing should not be
+    /// re-attempted.
+    Internal { retry: bool },
+    /// Errors caused by faulty / malicious peers.
+    ///
+    /// No retry errors are deterministic against the block's root. Re-downloading data
+    /// key-ed by block root MUST result in the same no-retry error (i.e. invalid parent,
+    /// invalid state root, etc).
+    ///
+    /// The error also indicates which block component index is malicious if applicable.
+    Malicious { retry: bool, index: usize },
+}
+
+impl From<ErrorCategory> for LookupSyncProcessingResult {
+    fn from(e: ErrorCategory) -> Self {
+        Self::Error(e)
+    }
+}
+
+impl ErrorCategory {
+    // Helper functions for readibility on large match statements
+    pub fn internal_no_retry() -> Self {
+        Self::Internal { retry: false }
+    }
+    pub fn internal_retry() -> Self {
+        Self::Internal { retry: true }
+    }
+    pub fn malicious_no_retry() -> Self {
+        Self::Malicious {
+            retry: false,
+            index: 0,
+        }
+    }
+    pub fn malicious_retry() -> Self {
+        Self::Malicious {
+            retry: true,
+            index: 0,
+        }
+    }
 }
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
@@ -92,7 +147,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // Sync handles these results
             self.send_sync_message(SyncMessage::BlockComponentProcessed {
                 process_type,
-                result: crate::sync::manager::BlockProcessingResult::Ignored,
+                result: LookupSyncProcessingResult::Ignored,
             });
         };
         (process_fn, Box::new(ignore_fn))
@@ -202,7 +257,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
-            result: result.into(),
+            result: self
+                .handle_lookup_sync_processing_result(block_root, result)
+                .await,
         });
 
         // Drop the handle to remove the entry from the cache
@@ -275,48 +332,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let result = self.chain.process_rpc_blobs(slot, block_root, blobs).await;
 
-        match &result {
-            Ok(AvailabilityProcessingStatus::Imported(hash)) => {
-                debug!(
-                    self.log,
-                    "Block components retrieved";
-                    "result" => "imported block and blobs",
-                    "slot" => %slot,
-                    "block_hash" => %hash,
-                );
-                self.chain.recompute_head_at_current_slot().await;
-            }
-            Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
-                debug!(
-                    self.log,
-                    "Missing components over rpc";
-                    "block_hash" => %block_root,
-                    "slot" => %slot,
-                );
-            }
-            Err(BlockError::DuplicateFullyImported(_)) => {
-                debug!(
-                    self.log,
-                    "Blobs have already been imported";
-                    "block_hash" => %block_root,
-                    "slot" => %slot,
-                );
-            }
-            Err(e) => {
-                warn!(
-                    self.log,
-                    "Error when importing rpc blobs";
-                    "error" => ?e,
-                    "block_hash" => %block_root,
-                    "slot" => %slot,
-                );
-            }
-        }
-
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
-            result: result.into(),
+            result: self
+                .handle_lookup_sync_processing_result(block_root, result)
+                .await,
         });
     }
 
@@ -332,53 +353,159 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .process_rpc_custody_columns(custody_columns)
             .await;
 
-        match &result {
-            Ok(availability) => match availability {
-                AvailabilityProcessingStatus::Imported(hash) => {
-                    debug!(
-                        self.log,
-                        "Block components retrieved";
-                        "result" => "imported block and custody columns",
-                        "block_hash" => %hash,
-                    );
-                    self.chain.recompute_head_at_current_slot().await;
-                }
-                AvailabilityProcessingStatus::MissingComponents(_, _) => {
-                    debug!(
-                        self.log,
-                        "Missing components over rpc";
-                        "block_hash" => %block_root,
-                    );
-                    // Attempt reconstruction here before notifying sync, to avoid sending out more requests
-                    // that we may no longer need.
-                    if let Some(availability) =
-                        self.attempt_data_column_reconstruction(block_root).await
-                    {
-                        result = Ok(availability)
-                    }
-                }
-            },
-            Err(BlockError::DuplicateFullyImported(_)) => {
-                debug!(
-                    self.log,
-                    "Custody columns have already been imported";
-                    "block_hash" => %block_root,
-                );
-            }
-            Err(e) => {
-                warn!(
-                    self.log,
-                    "Error when importing rpc custody columns";
-                    "error" => ?e,
-                    "block_hash" => %block_root,
-                );
+        if let &Ok(AvailabilityProcessingStatus::MissingComponents { .. }) = &result {
+            // Attempt reconstruction here before notifying sync, to avoid sending out more requests
+            // that we may no longer need.
+            if let Some(availability) = self.attempt_data_column_reconstruction(block_root).await {
+                result = Ok(availability)
             }
         }
 
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
-            result: result.into(),
+            result: self
+                .handle_lookup_sync_processing_result(block_root, result)
+                .await,
         });
+    }
+
+    async fn handle_lookup_sync_processing_result(
+        &self,
+        block_root: Hash256,
+        result: Result<AvailabilityProcessingStatus, BlockError>,
+    ) -> LookupSyncProcessingResult {
+        match result {
+            Ok(AvailabilityProcessingStatus::Imported { .. }) => {
+                debug!(
+                    self.log,
+                    "Fully imported block components over RPC";
+                    "block_root" => %block_root,
+                );
+                self.chain.recompute_head_at_current_slot().await;
+                LookupSyncProcessingResult::FullyImported
+            }
+            Ok(AvailabilityProcessingStatus::MissingComponents { .. }) => {
+                debug!(
+                    self.log,
+                    "Missing components over RPC";
+                    "block_root" => %block_root,
+                );
+                LookupSyncProcessingResult::ImportedMissingComponents
+            }
+            Err(err) => {
+                debug!(
+                    self.log,
+                    "Error processing block component";
+                    "block_root" => %block_root,
+                    "err" => ?err,
+                );
+                match err {
+                    BlockError::ParentUnknown { parent_root } => {
+                        LookupSyncProcessingResult::ParentUnknown(parent_root)
+                    }
+                    // A peer may craft a block that is at a future slot. It's possible that
+                    // eventually the slot will no longer be in the future. However, since it's
+                    // malicious action to serve an RPC with a future slot we will not retry.
+                    BlockError::FutureSlot { .. } => ErrorCategory::malicious_no_retry().into(),
+                    // All these variants are invalid block errors deterministic on the block root,
+                    // no need to retry
+                    BlockError::StateRootMismatch { .. }
+                    | BlockError::GenesisBlock
+                    | BlockError::WouldRevertFinalizedSlot { .. }
+                    | BlockError::NotFinalizedDescendant { .. }
+                    | BlockError::BlockSlotLimitReached
+                    | BlockError::IncorrectBlockProposer { .. }
+                    | BlockError::UnknownValidator { .. }
+                    | BlockError::BlockIsNotLaterThanParent { .. }
+                    | BlockError::PerBlockProcessingError(_)
+                    | BlockError::InconsistentFork(_)
+                    | BlockError::WeakSubjectivityConflict => {
+                        ErrorCategory::malicious_no_retry().into()
+                    }
+                    BlockError::DuplicateFullyImported { .. } => {
+                        LookupSyncProcessingResult::FullyImported
+                    }
+                    BlockError::DuplicateImportStatusUnknown { .. } => {
+                        // This is unreachable because RPC blocks do not undergo gossip verification, and
+                        // this error can *only* come from gossip verification.
+                        ErrorCategory::internal_no_retry().into()
+                    }
+                    // TODO (InvalidSignature): Labeling as recoverable as it may be the proposer signature. We should check
+                    // Which one is it and label as non recoverable if the proposer signature is correct.
+                    BlockError::ProposalSignatureInvalid | BlockError::InvalidSignature => {
+                        ErrorCategory::malicious_retry().into()
+                    }
+                    BlockError::ExecutionPayloadError(e) => match e {
+                        // The peer has nothing to do with this error, do not penalize them.
+                        ExecutionPayloadError::NoExecutionConnection => {
+                            ErrorCategory::internal_no_retry()
+                        }
+                        // The peer has nothing to do with this error, do not penalize them.
+                        ExecutionPayloadError::RequestFailed(_) => ErrorCategory::internal_retry(),
+                        // Execution payload is invalid
+                        ExecutionPayloadError::RejectedByExecutionEngine { .. }
+                        | ExecutionPayloadError::InvalidPayloadTimestamp { .. }
+                        | ExecutionPayloadError::InvalidTerminalPoWBlock { .. }
+                        | ExecutionPayloadError::InvalidActivationEpoch { .. }
+                        | ExecutionPayloadError::InvalidTerminalBlockHash { .. } => {
+                            ErrorCategory::malicious_no_retry()
+                        }
+                        // Do not penalize the peer since it's not their fault that *we're* optimistic.
+                        ExecutionPayloadError::UnverifiedNonOptimisticCandidate => {
+                            ErrorCategory::internal_retry()
+                        }
+                    }
+                    .into(),
+                    BlockError::ParentExecutionPayloadInvalid { .. } => {
+                        ErrorCategory::malicious_no_retry().into()
+                    }
+                    // TODO: Review AvailabilityCheckError variants
+                    BlockError::AvailabilityCheck(e) => match e {
+                        AvailabilityCheckError::SszTypes(_)
+                        | AvailabilityCheckError::StoreError(_)
+                        | AvailabilityCheckError::Unexpected
+                        | AvailabilityCheckError::ParentStateMissing(_)
+                        | AvailabilityCheckError::BlockReplayError(_)
+                        | AvailabilityCheckError::RebuildingStateCaches(_)
+                        | AvailabilityCheckError::SlotClockError => ErrorCategory::internal_retry(),
+                        AvailabilityCheckError::InvalidColumn(index, _) => {
+                            ErrorCategory::Malicious {
+                                retry: true,
+                                index: index as usize,
+                            }
+                        }
+                        AvailabilityCheckError::InvalidBlobs { .. }
+                        | AvailabilityCheckError::MissingBlobs
+                        | AvailabilityCheckError::MissingCustodyColumns
+                        | AvailabilityCheckError::DecodeError(_)
+                        | AvailabilityCheckError::ReconstructColumnsError { .. }
+                        | AvailabilityCheckError::BlobIndexInvalid(_)
+                        | AvailabilityCheckError::DataColumnIndexInvalid(_)
+                        | AvailabilityCheckError::KzgCommitmentMismatch { .. } => {
+                            ErrorCategory::malicious_retry()
+                        } // Do not use a fallback match, handle all errors explicitly
+                    }
+                    .into(),
+                    // The proposer making a slashable block is not the peer's fault nor ours. Mark
+                    // as internal (don't penalize peer), and no retry (the block will forever be
+                    // slashable).
+                    BlockError::Slashable => ErrorCategory::internal_no_retry().into(),
+                    // TODO: BeaconChainError should be retried?
+                    BlockError::BeaconChainError(_) | BlockError::InternalError(_) => {
+                        ErrorCategory::internal_no_retry().into()
+                    }
+                    // unreachable, this error is only part of gossip
+                    BlockError::BlobNotRequired(_) => ErrorCategory::malicious_retry().into(),
+                    // Unreachable: This variants never happen in lookup sync, only in range sync.
+                    // Does not matter what we set here, just setting `internal_recoverable` to
+                    // put something.
+                    BlockError::NonLinearParentRoots | BlockError::NonLinearSlots => {
+                        ErrorCategory::internal_retry().into()
+                    } //
+                      // Do not use a fallback match, handle all errors explicitly
+                }
+            }
+        }
     }
 
     /// Validate a list of data columns received from RPC requests

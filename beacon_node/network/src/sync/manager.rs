@@ -41,7 +41,9 @@ use super::network_context::{
 use super::peer_sampling::{Sampling, SamplingConfig, SamplingResult};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
-use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
+use crate::network_beacon_processor::{
+    ChainSegmentProcessId, LookupSyncProcessingResult, NetworkBeaconProcessor,
+};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{
@@ -51,9 +53,7 @@ use crate::sync::block_sidecar_coupling::RangeBlockComponentsRequest;
 use crate::sync::network_context::PeerGroup;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::validator_monitor::timestamp_now;
-use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
-};
+use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use futures::StreamExt;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::service::api_types::{
@@ -163,7 +163,7 @@ pub enum SyncMessage<E: EthSpec> {
     /// Block processed
     BlockComponentProcessed {
         process_type: BlockProcessType,
-        result: BlockProcessingResult,
+        result: LookupSyncProcessingResult,
     },
 
     /// Sample data column verified
@@ -192,13 +192,6 @@ impl BlockProcessType {
             | BlockProcessType::SingleCustodyColumn(id) => *id,
         }
     }
-}
-
-#[derive(Debug)]
-pub enum BlockProcessingResult {
-    Ok(AvailabilityProcessingStatus),
-    Err(BlockError),
-    Ignored,
 }
 
 /// The result of processing multiple blocks (a chain segment).
@@ -1296,20 +1289,5 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
         }
-    }
-}
-
-impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingResult {
-    fn from(result: Result<AvailabilityProcessingStatus, BlockError>) -> Self {
-        match result {
-            Ok(status) => BlockProcessingResult::Ok(status),
-            Err(e) => BlockProcessingResult::Err(e),
-        }
-    }
-}
-
-impl From<BlockError> for BlockProcessingResult {
-    fn from(e: BlockError) -> Self {
-        BlockProcessingResult::Err(e)
     }
 }
