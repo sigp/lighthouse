@@ -325,8 +325,28 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         let (block_root, block, blobs, data_columns) = block.deconstruct();
         if self.blobs_required_for_block(&block) {
             return if let Some(blob_list) = blobs.as_ref() {
+                // Assert no duplicates
+                if block.num_expected_blobs() != blob_list.len() {
+                    return Err(AvailabilityCheckError::MissingBlobs);
+                }
+                // Check that there are exactly the expected indexes
+                for i in 0..block.num_expected_blobs() as u64 {
+                    if !blob_list.iter().any(|blob| blob.index == i) {
+                        return Err(AvailabilityCheckError::MissingBlobs);
+                    }
+                }
+
+                // Assume the all the sidecars in the RpcBlock have a matching block root to the
+                // block. So by checking the inclusion proof we assert matching commitments.
+                for blob in blob_list {
+                    if !blob.verify_blob_sidecar_inclusion_proof() {
+                        return Err(AvailabilityCheckError::InvalidInclusionProof);
+                    }
+                }
+
                 verify_kzg_for_blob_list(blob_list.iter(), &self.kzg)
                     .map_err(AvailabilityCheckError::InvalidBlobs)?;
+
                 Ok(MaybeAvailableBlock::Available(AvailableBlock {
                     block_root,
                     block,
@@ -340,7 +360,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             };
         }
         if self.data_columns_required_for_block(&block) {
-            return if let Some(data_column_list) = data_columns.as_ref() {
+            return if let Some((data_column_list, expected_column_indices)) = data_columns.as_ref()
+            {
+                // Check that all expected custody columns are present
+                for index in expected_column_indices {
+                    if !data_column_list.iter().any(|d| d.index() == *index) {
+                        return Err(AvailabilityCheckError::MissingCustodyColumn(*index));
+                    }
+                }
+
                 verify_kzg_for_data_column_list_with_scoring(
                     data_column_list
                         .iter()
@@ -435,14 +463,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     MaybeAvailableBlock::AvailabilityPending { block_root, block }
                 }
             } else if self.data_columns_required_for_block(&block) {
-                if data_columns.is_some() {
+                if let Some((data_columns, _)) = data_columns {
                     MaybeAvailableBlock::Available(AvailableBlock {
                         block_root,
                         block,
                         blobs: None,
-                        data_columns: data_columns.map(|data_columns| {
-                            data_columns.into_iter().map(|d| d.into_inner()).collect()
-                        }),
+                        data_columns: Some(
+                            data_columns.into_iter().map(|d| d.into_inner()).collect(),
+                        ),
                         blobs_available_timestamp: None,
                         spec: self.spec.clone(),
                     })
