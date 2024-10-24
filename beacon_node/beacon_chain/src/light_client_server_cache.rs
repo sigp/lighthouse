@@ -94,6 +94,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         log: &Logger,
         chain_spec: &ChainSpec,
     ) -> Result<(), BeaconChainError> {
+        metrics::inc_counter(&metrics::LIGHT_CLIENT_SERVER_CACHE_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::LIGHT_CLIENT_SERVER_CACHE_RECOMPUTE_UPDATES_TIMES);
 
@@ -214,6 +215,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             *self.latest_light_client_update.write() = Some(new_light_client_update);
         }
 
+        metrics::inc_counter(&metrics::LIGHT_CLIENT_SERVER_CACHE_PROCESSING_SUCCESSES);
         Ok(())
     }
 
@@ -289,6 +291,11 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             let (sync_committee_bytes, light_client_update_bytes) = res?;
             let sync_committee_period = u64::from_ssz_bytes(&sync_committee_bytes)
                 .map_err(store::errors::Error::SszDecodeError)?;
+
+            if sync_committee_period >= start_period + count {
+                break;
+            }
+    
             let epoch = sync_committee_period
                 .safe_mul(chain_spec.epochs_per_sync_committee_period.into())?;
 
@@ -297,12 +304,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             let light_client_update =
                 LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)
                     .map_err(store::errors::Error::SszDecodeError)?;
-
+            
             light_client_updates.push(light_client_update);
-
-            if sync_committee_period >= start_period + count {
-                break;
-            }
         }
         Ok(light_client_updates)
     }
