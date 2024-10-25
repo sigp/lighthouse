@@ -94,7 +94,10 @@ where
                 if i > 0 {
                     formatted_spans.push_str(" ");
                 }
-                formatted_spans.push_str(&format!("{}{}{}={}", bold_start, field_name, bold_end, field_value));
+                formatted_spans.push_str(&format!(
+                    "{}{}{}={}",
+                    bold_start, field_name, bold_end, field_value
+                ));
             }
         }
 

@@ -1,7 +1,7 @@
 use env_logger::Builder;
+use std::process;
 use tracing::info;
 use tracing::log::LevelFilter;
-use std::process;
 
 pub fn init_logger(log_level: &str) {
     let log_level = match log_level.to_lowercase().as_str() {

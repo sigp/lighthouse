@@ -31,7 +31,6 @@ use eth2::lighthouse_vc::{
 use lighthouse_version::version_with_platform;
 use logging::crit;
 use logging::SSELoggingComponents;
-use logging::SSE_LOGGING_COMPONENTS;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
@@ -235,8 +234,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let api_token_path_filter = warp::any().map(move || api_token_path_inner.clone());
 
     // Filter for SEE Logging events
-    // let inner_components = ctx.sse_logging_components.clone();
-    // let sse_component_filter = warp::any().map(move || inner_components.clone());
+    let inner_components = ctx.sse_logging_components.clone();
+    let sse_component_filter = warp::any().map(move || inner_components.clone());
 
     // Create a `warp` filter that provides access to local system information.
     let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
@@ -1226,13 +1225,10 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let get_log_events = warp::path("lighthouse")
         .and(warp::path("logs"))
         .and(warp::path::end())
-        .and_then(|| {
+        .and(sse_component_filter)
+        .and_then(|sse_component: Option<SSELoggingComponents>| {
             warp_utils::task::blocking_task(move || {
-                let logging_components_guard = match SSE_LOGGING_COMPONENTS.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
-                if let Some(logging_components) = logging_components_guard.as_ref() {
+                if let Some(logging_components) = sse_component {
                     // Build a JSON stream
                     let s =
                         BroadcastStream::new(logging_components.sender.subscribe()).map(|msg| {

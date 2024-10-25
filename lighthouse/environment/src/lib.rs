@@ -13,7 +13,6 @@ use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
 use logging::tracing_logging_layer::LoggingLayer;
 use logging::SSELoggingComponents;
-use logging::SSE_LOGGING_COMPONENTS;
 use serde::{Deserialize, Serialize};
 use std::io::{Result as IOResult, Write};
 use std::path::PathBuf;
@@ -100,10 +99,7 @@ impl<E: EthSpec> RuntimeContext<E> {
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: match SSE_LOGGING_COMPONENTS.lock() {
-                Ok(guard) => guard.clone(),
-                Err(poisoned) => poisoned.into_inner().clone(),
-            },
+            sse_logging_components: self.sse_logging_components.clone(),
         }
     }
 
@@ -175,7 +171,15 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
-    pub fn init_tracing(mut self, config: LoggerConfig) -> (Self, LoggingLayer, LoggingLayer) {
+    pub fn init_tracing(
+        mut self,
+        config: LoggerConfig,
+    ) -> (
+        Self,
+        LoggingLayer,
+        LoggingLayer,
+        Option<SSELoggingComponents>,
+    ) {
         let file_logging_layer = if let Some(path) = config.path {
             match RollingFileAppender::builder()
                 .rotation(Rotation::DAILY)
@@ -222,19 +226,20 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             config.disable_log_timestamp,
         );
 
-        if config.sse_logging {
-            let mut global_sse_logging_component = match SSE_LOGGING_COMPONENTS.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => poisoned.into_inner(),
-            };
+        let sse_logging_layer_opt = if config.sse_logging {
+            Some(SSELoggingComponents::new(SSE_LOG_CHANNEL_SIZE))
+        } else {
+            None
+        };
 
-            if global_sse_logging_component.is_none() {
-                *global_sse_logging_component =
-                    Some(SSELoggingComponents::new(SSE_LOG_CHANNEL_SIZE));
-            }
-        }
+        self.sse_logging_components = sse_logging_layer_opt.clone();
 
-        (self, file_logging_layer, stdout_logging_layer)
+        (
+            self,
+            file_logging_layer,
+            stdout_logging_layer,
+            sse_logging_layer_opt,
+        )
     }
 
     /// Adds a network configuration to the environment.
@@ -261,10 +266,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             signal_rx: Some(signal_rx),
             signal: Some(signal),
             exit,
-            sse_logging_components: match SSE_LOGGING_COMPONENTS.lock() {
-                Ok(guard) => guard.clone(),
-                Err(poisoned) => poisoned.into_inner().clone(),
-            },
+            sse_logging_components: self.sse_logging_components,
             eth_spec_instance: self.eth_spec_instance,
             eth2_config: self.eth2_config,
             eth2_network_config: self.eth2_network_config.map(Arc::new),
@@ -308,10 +310,7 @@ impl<E: EthSpec> Environment<E> {
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: match SSE_LOGGING_COMPONENTS.lock() {
-                Ok(guard) => guard.clone(),
-                Err(poisoned) => poisoned.into_inner().clone(),
-            },
+            sse_logging_components: self.sse_logging_components.clone(),
         }
     }
 
@@ -329,10 +328,7 @@ impl<E: EthSpec> Environment<E> {
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
-            sse_logging_components: match SSE_LOGGING_COMPONENTS.lock() {
-                Ok(guard) => guard.clone(),
-                Err(poisoned) => poisoned.into_inner().clone(),
-            },
+            sse_logging_components: self.sse_logging_components.clone(),
         }
     }
 

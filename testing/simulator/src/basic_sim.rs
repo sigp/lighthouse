@@ -11,9 +11,9 @@ use node_test_rig::{
 };
 use rayon::prelude::*;
 use std::cmp::max;
+use std::process;
 use std::sync::Arc;
 use std::time::Duration;
-use std::process;
 
 use logging::MetricsLayer;
 use tracing_subscriber::filter::LevelFilter;
@@ -104,7 +104,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         sse_logging: false,
     };
 
-    let (env_builder, file_logging_layer, stdout_logging_layer) =
+    let (env_builder, file_logging_layer, stdout_logging_layer, _sse_logging_components) =
         EnvironmentBuilder::minimal().init_tracing(logger_config.clone());
 
     let filter_layer = EnvFilter::try_from_default_env()

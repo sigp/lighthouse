@@ -4,10 +4,10 @@ use eth2::{
     types::{BlockId, StateId},
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
-use tracing::{debug, error, info};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::time::{Duration, Instant};
+use tracing::{debug, error, info};
 use types::{BeaconBlockHeader, EthSpec, GnosisEthSpec, MainnetEthSpec, SignedBeaconBlock};
 
 pub use config::Config;

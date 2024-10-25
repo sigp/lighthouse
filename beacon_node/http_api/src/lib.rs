@@ -54,7 +54,7 @@ use eth2::types::{
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
-use logging::{crit, SSELoggingComponents, SSE_LOGGING_COMPONENTS};
+use logging::{crit, SSELoggingComponents};
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
@@ -455,6 +455,9 @@ pub fn serve<T: BeaconChainTypes>(
                     }
                 },
             );
+
+    let inner_components = ctx.sse_logging_components.clone();
+    let sse_component_filter = warp::any().map(move || inner_components.clone());
 
     // Create a `warp` filter that provides access to local system information.
     let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
@@ -4470,43 +4473,47 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("logs"))
         .and(warp::path::end())
         .and(task_spawner_filter)
-        .then(|task_spawner: TaskSpawner<T::EthSpec>| {
-            task_spawner.blocking_response_task(Priority::P1, move || {
-                let logging_components_guard = match SSE_LOGGING_COMPONENTS.lock() {
-                    Ok(guard) => guard,
-                    Err(poisoned) => poisoned.into_inner(),
-                };
-                if let Some(logging_components) = logging_components_guard.as_ref() {
-                    // Build a JSON stream
-                    let s =
-                        BroadcastStream::new(logging_components.sender.subscribe()).map(|msg| {
-                            match msg {
-                                Ok(data) => {
-                                    // Serialize to json
-                                    match serde_json::to_string(&data)
-                                        .map_err(|e| format!("{:?}", e))
-                                    {
-                                        // Send the json as a Server Side Event
-                                        Ok(json) => Ok(Event::default().data(json)),
-                                        Err(e) => Err(warp_utils::reject::server_sent_event_error(
-                                            format!("Unable to serialize to JSON {}", e),
-                                        )),
+        .and(sse_component_filter)
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>, sse_component: Option<SSELoggingComponents>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    if let Some(logging_components) = sse_component {
+                        // Build a JSON stream
+                        let s = BroadcastStream::new(logging_components.sender.subscribe()).map(
+                            |msg| {
+                                match msg {
+                                    Ok(data) => {
+                                        // Serialize to json
+                                        match serde_json::to_string(&data)
+                                            .map_err(|e| format!("{:?}", e))
+                                        {
+                                            // Send the json as a Server Side Event
+                                            Ok(json) => Ok(Event::default().data(json)),
+                                            Err(e) => {
+                                                Err(warp_utils::reject::server_sent_event_error(
+                                                    format!("Unable to serialize to JSON {}", e),
+                                                ))
+                                            }
+                                        }
                                     }
+                                    Err(e) => Err(warp_utils::reject::server_sent_event_error(
+                                        format!("Unable to receive event {}", e),
+                                    )),
                                 }
-                                Err(e) => Err(warp_utils::reject::server_sent_event_error(
-                                    format!("Unable to receive event {}", e),
-                                )),
-                            }
-                        });
+                            },
+                        );
 
-                    Ok::<_, warp::Rejection>(warp::sse::reply(warp::sse::keep_alive().stream(s)))
-                } else {
-                    Err(warp_utils::reject::custom_server_error(
-                        "SSE Logging is not enabled".to_string(),
-                    ))
-                }
-            })
-        });
+                        Ok::<_, warp::Rejection>(warp::sse::reply(
+                            warp::sse::keep_alive().stream(s),
+                        ))
+                    } else {
+                        Err(warp_utils::reject::custom_server_error(
+                            "SSE Logging is not enabled".to_string(),
+                        ))
+                    }
+                })
+            },
+        );
 
     // Define the ultimate set of routes that will be provided to the server.
     // Use `uor` rather than `or` in order to simplify types (see `UnifyingOrFilter`).

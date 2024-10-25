@@ -4,16 +4,16 @@ use clap::ArgMatches;
 
 use crate::retry::with_retry;
 use futures::prelude::*;
-use logging::{MetricsLayer, SSE_LOGGING_COMPONENTS};
+use logging::MetricsLayer;
 use node_test_rig::{
     environment::{EnvironmentBuilder, LoggerConfig},
     testing_validator_config, ValidatorFiles,
 };
 use rayon::prelude::*;
 use std::cmp::max;
+use std::process;
 use std::sync::Arc;
 use std::time::Duration;
-use std::process;
 use tokio::time::sleep;
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::filter::LevelFilter;
@@ -108,7 +108,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
         sse_logging: false,
     };
 
-    let (env_builder, file_logging_layer, stdout_logging_layer) =
+    let (env_builder, file_logging_layer, stdout_logging_layer, _sse_logging_layer_opt) =
         EnvironmentBuilder::minimal().init_tracing(logger_config.clone());
 
     let filter_layer = EnvFilter::try_from_default_env()
@@ -117,7 +117,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let (libp2p_non_blocking_writer, _libp2p_guard, discv5_non_blocking_writer, _discv5_guard) =
         logging::create_tracing_layer(logger_config.path.clone());
-    
+
     let libp2p_layer = tracing_subscriber::fmt::layer()
         .with_writer(libp2p_non_blocking_writer)
         .with_line_number(true);
@@ -125,11 +125,6 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
     let discv5_layer = tracing_subscriber::fmt::layer()
         .with_writer(discv5_non_blocking_writer)
         .with_line_number(true);
-
-    let sse_logging_layer = match SSE_LOGGING_COMPONENTS.lock() {
-        Ok(guard) => guard.clone(),
-        Err(poisoned) => poisoned.into_inner().clone(),
-    };
 
     let stdout_level = match logger_config.debug_level.to_lowercase().as_str() {
         "error" => LevelFilter::ERROR,
@@ -161,7 +156,6 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
         .with(discv5_layer)
         .with(file_logging_layer.with_filter(file_level))
         .with(stdout_logging_layer.with_filter(stdout_level))
-        .with(sse_logging_layer)
         .with(MetricsLayer)
         .try_init()
     {

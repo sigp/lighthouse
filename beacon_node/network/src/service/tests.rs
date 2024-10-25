@@ -22,7 +22,6 @@ mod tests {
 
     #[test]
     fn test_dht_persistence() {
-
         let beacon_chain = BeaconChainHarness::builder(MinimalEthSpec)
             .default_spec()
             .deterministic_keypairs(8)
@@ -40,11 +39,8 @@ mod tests {
 
         let (signal, exit) = async_channel::bounded(1);
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let executor = task_executor::TaskExecutor::new(
-            Arc::downgrade(&runtime),
-            exit,
-            shutdown_tx,
-        );
+        let executor =
+            task_executor::TaskExecutor::new(Arc::downgrade(&runtime), exit, shutdown_tx);
 
         let mut config = NetworkConfig::default();
         config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 21212, 21212, 21213);

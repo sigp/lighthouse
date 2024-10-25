@@ -7,9 +7,9 @@ use eth2::{
     types::{BlockId, SyncingData},
     BeaconNodeHttpClient, SensitiveUrl,
 };
-use tracing::{debug, error, info, warn};
 use std::collections::HashSet;
 use std::marker::PhantomData;
+use tracing::{debug, error, info, warn};
 use types::{BeaconBlockHeader, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 use crate::updater::{get_beacon_block, get_header, get_validators};

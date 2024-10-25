@@ -7,7 +7,6 @@ use beacon_chain::{
 };
 use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use http_api::test_utils::{create_api_server, ApiServer};
-use tracing::error;
 use network::NetworkReceivers;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -17,6 +16,7 @@ use std::time::Duration;
 use testcontainers::{clients::Cli, core::WaitFor, Image, RunnableImage};
 use tokio::{runtime, task::JoinHandle};
 use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls};
+use tracing::error;
 use types::{Hash256, MainnetEthSpec, Slot};
 use unused_port::unused_tcp4_port;
 use url::Url;

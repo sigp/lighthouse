@@ -18,15 +18,14 @@ use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use logging::crit;
 use logging::MetricsLayer;
-use logging::SSE_LOGGING_COMPONENTS;
 use malloc_utils::configure_memory_allocator;
 use std::backtrace::Backtrace;
 use std::path::PathBuf;
+use std::process;
 use std::process::exit;
 use std::sync::LazyLock;
-use std::process;
 use task_executor::ShutdownReason;
-use tracing::{info,warn};
+use tracing::{info, warn};
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
@@ -570,16 +569,12 @@ fn run<E: EthSpec>(
         .with_writer(discv5_non_blocking_writer)
         .with_line_number(true);
 
-    let (builder, file_logging_layer, stdout_logging_layer) =
+    let (builder, file_logging_layer, stdout_logging_layer, sse_logging_layer_opt) =
         environment_builder.init_tracing(logger_config.clone());
 
     let filter_layer = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new(logger_config.debug_level.to_lowercase().as_str()))
         .unwrap();
-    let sse_logging_layer = match SSE_LOGGING_COMPONENTS.lock() {
-        Ok(guard) => guard.clone(),
-        Err(poisoned) => poisoned.into_inner().clone(),
-    };
 
     let stdout_level = match logger_config.debug_level.to_lowercase().as_str() {
         "error" => LevelFilter::ERROR,
@@ -605,16 +600,21 @@ fn run<E: EthSpec>(
         }
     };
 
-    if let Err(e) = tracing_subscriber::registry()
+    let logging = tracing_subscriber::registry()
         .with(filter_layer)
         .with(libp2p_layer)
         .with(discv5_layer)
         .with(file_logging_layer.with_filter(file_level))
         .with(stdout_logging_layer.with_filter(stdout_level))
-        .with(sse_logging_layer)
-        .with(MetricsLayer)
-        .try_init()
-    {
+        .with(MetricsLayer);
+
+    let logging_result = if let Some(sse_logging_layer) = sse_logging_layer_opt {
+        logging.with(sse_logging_layer).try_init()
+    } else {
+        logging.try_init()
+    };
+
+    if let Err(e) = logging_result {
         eprintln!("Failed to initialize dependency logging: {e}");
     }
 

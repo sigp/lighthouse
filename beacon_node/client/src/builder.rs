@@ -32,7 +32,6 @@ use execution_layer::ExecutionLayer;
 use futures::channel::mpsc::Receiver;
 use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
-use logging::SSE_LOGGING_COMPONENTS;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
@@ -542,10 +541,7 @@ where
                         beacon_processor_send: None,
                         beacon_processor_reprocess_send: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
-                        sse_logging_components: match SSE_LOGGING_COMPONENTS.lock() {
-                            Ok(guard) => guard.clone(),
-                            Err(poisoned) => poisoned.into_inner().clone(),
-                        },
+                        sse_logging_components: runtime_context.sse_logging_components.clone(),
                     });
 
                     // Discard the error from the oneshot.
@@ -777,10 +773,7 @@ where
                 beacon_processor_reprocess_send: Some(
                     beacon_processor_channels.work_reprocessing_tx.clone(),
                 ),
-                sse_logging_components: match SSE_LOGGING_COMPONENTS.lock() {
-                    Ok(guard) => guard.clone(),
-                    Err(poisoned) => poisoned.into_inner().clone(),
-                },
+                sse_logging_components: runtime_context.sse_logging_components.clone(),
             });
 
             let exit = runtime_context.executor.exit();

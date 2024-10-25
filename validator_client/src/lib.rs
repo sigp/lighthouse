@@ -44,7 +44,6 @@ use duties_service::{sync::SyncDutiesMap, DutiesService};
 use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, types::Graffiti, BeaconNodeHttpClient, StatusCode, Timeouts};
 use http_api::ApiSecret;
-use logging::SSE_LOGGING_COMPONENTS;
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
 use preparation_service::{PreparationService, PreparationServiceBuilder};
@@ -553,10 +552,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 graffiti_flag: self.config.graffiti,
                 spec: self.context.eth2_config.spec.clone(),
                 config: self.config.http_api.clone(),
-                sse_logging_components: match SSE_LOGGING_COMPONENTS.lock() {
-                    Ok(guard) => guard.clone(),
-                    Err(poisoned) => poisoned.into_inner().clone(),
-                },
+                sse_logging_components: self.context.sse_logging_components.clone(),
                 slot_clock: self.slot_clock.clone(),
                 _phantom: PhantomData,
             });

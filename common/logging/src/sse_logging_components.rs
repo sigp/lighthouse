@@ -17,8 +17,7 @@ use tracing_subscriber::Layer;
 // NOTE: Made this a constant. Debug level seems to be pretty intense. Can make this
 // configurable later if needed.
 const LOG_LEVEL: tracing::Level = tracing::Level::INFO;
-pub static SSE_LOGGING_COMPONENTS: Lazy<Mutex<Option<SSELoggingComponents>>> =
-    Lazy::new(|| Mutex::new(None));
+
 /// The components required in the HTTP API task to receive logged events.
 #[derive(Clone)]
 pub struct SSELoggingComponents {
@@ -78,7 +77,12 @@ impl TracingEventVisitor {
 
     fn finish(self, metadata: &tracing::Metadata<'_>) -> Value {
         let mut log_entry = serde_json::Map::new();
-        log_entry.insert("time".to_string(), json!(chrono::Local::now().format("%b %d %H:%M:%S%.3f").to_string()));
+        log_entry.insert(
+            "time".to_string(),
+            json!(chrono::Local::now()
+                .format("%b %d %H:%M:%S%.3f")
+                .to_string()),
+        );
         log_entry.insert("level".to_string(), json!(metadata.level().to_string()));
         log_entry.insert("target".to_string(), json!(metadata.target()));
         log_entry.insert("fields".to_string(), Value::Object(self.fields));

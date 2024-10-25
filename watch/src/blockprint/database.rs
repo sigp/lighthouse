@@ -8,10 +8,10 @@ use crate::database::{
 use diesel::prelude::*;
 use diesel::sql_types::{Integer, Text};
 use diesel::{Insertable, Queryable};
-use tracing::debug;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Instant;
+use tracing::debug;
 
 type WatchConsensusClient = String;
 pub fn list_consensus_clients() -> Vec<WatchConsensusClient> {
