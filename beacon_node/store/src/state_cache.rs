@@ -1,7 +1,9 @@
 use crate::Error;
 use lru::LruCache;
+use slog::{debug, Logger};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;
+use types::milhouse::mem::MemoryTracker;
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, Slot};
 
 /// Fraction of the LRU cache to leave intact during culling.
@@ -64,11 +66,54 @@ impl<E: EthSpec> StateCache<E> {
         self.states.cap().get()
     }
 
+    fn log_memory_stats(&self, log: &Logger) {
+        let mut mem_tracker = MemoryTracker::default();
+        let mut total_usage = 0;
+        if let Some(finalized_state) = &self.finalized_state {
+            let stats = mem_tracker.track_item(&finalized_state.state);
+            debug!(
+                log,
+                "Memory stats";
+                "slot" => finalized_state.state.slot(),
+                "block_slot" => finalized_state.state.latest_block_header().slot,
+                "total_kb" => stats.total_size / 1024,
+                "diff_kb" => stats.differential_size / 1024,
+            );
+            total_usage += stats.differential_size;
+        }
+        let mut states = self
+            .states
+            .iter()
+            .map(|(_, state)| state)
+            .collect::<Vec<_>>();
+        states.sort_by_key(|s| s.slot());
+
+        for state in states {
+            let stats = mem_tracker.track_item(state);
+            debug!(
+                log,
+                "Memory stats";
+                "slot" => state.slot(),
+                "block_slot" => state.latest_block_header().slot,
+                "total_kb" => stats.total_size / 1024,
+                "diff_kb" => stats.differential_size / 1024,
+            );
+            total_usage += stats.differential_size;
+        }
+        debug!(
+            log,
+            "Total memory stats";
+            "num_states" => self.states.len(),
+            "bytes_kb" => total_usage / 1024,
+        );
+    }
+
     pub fn update_finalized_state(
         &mut self,
         state_root: Hash256,
         block_root: Hash256,
         state: BeaconState<E>,
+        log: &Logger,
     ) -> Result<(), Error> {
         if state.slot() % E::slots_per_epoch() != 0 {
             return Err(Error::FinalizedStateUnaligned);
@@ -84,6 +129,10 @@ impl<E: EthSpec> StateCache<E> {
             return Err(Error::FinalizedStateDecreasingSlot);
         }
 
+        // Log memory states prior to pruning.
+        debug!(log, "Pre-pruning memory stats");
+        self.log_memory_stats(log);
+
         // Add to block map.
         self.block_map.insert(block_root, state.slot(), state_root);
 
@@ -97,6 +146,11 @@ impl<E: EthSpec> StateCache<E> {
 
         // Update finalized state.
         self.finalized_state = Some(FinalizedState { state_root, state });
+
+        // Log memory stats after pruning.
+        debug!(log, "Post-pruning memory stats");
+        self.log_memory_stats(log);
+
         Ok(())
     }
 
@@ -105,16 +159,20 @@ impl<E: EthSpec> StateCache<E> {
     /// This function should only be called on states that are likely not to already share tree
     /// nodes with the finalized state, e.g. states loaded from disk.
     ///
-    /// If the finalized state is not initialized this function is a no-op.
+    /// If the finalized state is not initialized this function is a no-op. Return `true` if the
+    /// state was rebased and `false`.
+    #[must_use]
     pub fn rebase_on_finalized(
         &self,
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         if let Some(finalized_state) = &self.finalized_state {
             state.rebase_on(&finalized_state.state, spec)?;
+            Ok(true)
+        } else {
+            Ok(false)
         }
-        Ok(())
     }
 
     /// Return a status indicating whether the state already existed in the cache.
