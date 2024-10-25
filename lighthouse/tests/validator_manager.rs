@@ -9,7 +9,9 @@ use tempfile::{tempdir, TempDir};
 use types::*;
 use validator_manager::{
     create_validators::CreateConfig,
+    delete_validators::DeleteConfig,
     import_validators::ImportConfig,
+    list_validators::ListConfig,
     move_validators::{MoveConfig, PasswordSource, Validators},
 };
 
@@ -102,6 +104,18 @@ impl CommandLineTest<ImportConfig> {
 impl CommandLineTest<MoveConfig> {
     fn validators_move() -> Self {
         Self::default().flag("move", None)
+    }
+}
+
+impl CommandLineTest<ListConfig> {
+    fn validators_list() -> Self {
+        Self::default().flag("list", None)
+    }
+}
+
+impl CommandLineTest<DeleteConfig> {
+    fn validators_delete() -> Self {
+        Self::default().flag("delete", None)
     }
 }
 
@@ -258,6 +272,13 @@ pub fn validator_import_using_both_file_flags() {
 }
 
 #[test]
+pub fn validator_import_missing_both_file_flags() {
+    CommandLineTest::validators_import()
+        .flag("--vc-token", Some("./token.json"))
+        .assert_failed();
+}
+
+#[test]
 pub fn validator_move_defaults() {
     CommandLineTest::validators_move()
         .flag("--src-vc-url", Some("http://localhost:1"))
@@ -408,6 +429,40 @@ pub fn validator_move_count() {
                 password_source: PasswordSource::Interactive {
                     stdin_inputs: cfg!(windows) || false,
                 },
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_list_defaults() {
+    CommandLineTest::validators_list()
+        .flag("--vc-token", Some("./token.json"))
+        .assert_success(|config| {
+            let expected = ListConfig {
+                vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
+                vc_token_path: PathBuf::from("./token.json"),
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_delete_defaults() {
+    CommandLineTest::validators_delete()
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--vc-token", Some("./token.json"))
+        .assert_success(|config| {
+            let expected = DeleteConfig {
+                vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
+                vc_token_path: PathBuf::from("./token.json"),
+                validators_to_delete: vec![
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap(),
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_1).unwrap(),
+                ],
             };
             assert_eq!(expected, config);
         });

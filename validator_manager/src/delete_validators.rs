@@ -47,6 +47,7 @@ pub fn cli_app() -> Command {
                 .value_name("STRING")
                 .help("Comma-separated list of validators (pubkey) that will be deleted.")
                 .action(ArgAction::Set)
+                .required(true)
                 .display_order(0),
         )
 }

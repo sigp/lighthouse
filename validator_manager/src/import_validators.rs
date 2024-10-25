@@ -44,6 +44,7 @@ pub fn cli_app() -> Command {
                 )
                 .action(ArgAction::Set)
                 .display_order(0)
+                .required_unless_present("keystore-file")
                 .conflicts_with("keystore-file"),
         )
         .arg(
@@ -58,6 +59,7 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::Set)
                 .display_order(0)
                 .conflicts_with("validators-file")
+                .required_unless_present("validators-file")
                 .requires(PASSWORD),
         )
         .arg(
@@ -221,13 +223,6 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
         prefer_builder_proposals,
         enabled,
     } = config;
-
-    // Check that one of the --validators-file or --keystore-file flag is present
-    if validators_file_path.is_none() && keystore_file_path.is_none() {
-        return Err(format!(
-            "One of the flag --{VALIDATORS_FILE_FLAG} or --{KEYSTORE_FILE_FLAG} is required."
-        ));
-    }
 
     let validators: Vec<ValidatorSpecification> =
         if let Some(validators_format_path) = &validators_file_path {
