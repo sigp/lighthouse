@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::process;
 
-use logging::{MetricsLayer, SSE_LOGGING_COMPONENTS};
+use logging::MetricsLayer;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
@@ -111,21 +111,6 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         .or_else(|_| EnvFilter::try_new(log_level.to_lowercase().as_str()))
         .unwrap();
 
-    let (libp2p_non_blocking_writer, _libp2p_guard, discv5_non_blocking_writer, _discv5_guard) =
-        logging::create_tracing_layer(logger_config.path.clone());
-    let libp2p_layer = tracing_subscriber::fmt::layer()
-        .with_writer(libp2p_non_blocking_writer)
-        .with_line_number(true);
-
-    let discv5_layer = tracing_subscriber::fmt::layer()
-        .with_writer(discv5_non_blocking_writer)
-        .with_line_number(true);
-
-    let sse_logging_layer = match SSE_LOGGING_COMPONENTS.lock() {
-        Ok(guard) => guard.clone(),
-        Err(poisoned) => poisoned.into_inner().clone(),
-    };
-
     let stdout_level = match logger_config.debug_level.to_lowercase().as_str() {
         "error" => LevelFilter::ERROR,
         "warn" => LevelFilter::WARN,
@@ -152,11 +137,8 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
 
     if let Err(e) = tracing_subscriber::registry()
         .with(filter_layer)
-        .with(libp2p_layer)
-        .with(discv5_layer)
         .with(file_logging_layer.with_filter(file_level))
         .with(stdout_logging_layer.with_filter(stdout_level))
-        .with(sse_logging_layer)
         .with(MetricsLayer)
         .try_init()
     {
