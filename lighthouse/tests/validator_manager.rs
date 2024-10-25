@@ -268,6 +268,7 @@ pub fn validator_import_using_both_file_flags() {
         .flag("--vc-token", Some("./token.json"))
         .flag("--validators-file", Some("./vals.json"))
         .flag("--keystore-file", Some("./keystore.json"))
+        .flag("--password", Some("abcd"))
         .assert_failed();
 }
 
