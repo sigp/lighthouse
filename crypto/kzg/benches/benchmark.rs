@@ -8,7 +8,7 @@ pub fn bench_init_context(c: &mut Criterion) {
         .map_err(|e| format!("Unable to read trusted setup file: {}", e))
         .expect("should have trusted setup");
 
-    c.bench_function(&format!("Initialize context rust_eth_kzg"), |b| {
+    c.bench_function("Initialize context rust_eth_kzg", |b| {
         b.iter(|| {
             let trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
             DASContext::new(
@@ -19,7 +19,7 @@ pub fn bench_init_context(c: &mut Criterion) {
             )
         })
     });
-    c.bench_function(&format!("Initialize context c-kzg (4844)"), |b| {
+    c.bench_function("Initialize context c-kzg (4844)", |b| {
         b.iter(|| {
             let trusted_setup: TrustedSetup =
                 serde_json::from_reader(get_trusted_setup().as_slice())

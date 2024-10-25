@@ -217,6 +217,19 @@ impl TimeLatch {
 }
 
 pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
+    let mut tracing_log_path = PathBuf::new();
+
+    // Ensure that `tracing_log_path` only contains directories.
+    for p in base_tracing_log_path.iter() {
+        tracing_log_path = tracing_log_path.join(p);
+        if let Ok(metadata) = tracing_log_path.metadata() {
+            if !metadata.is_dir() {
+                tracing_log_path.pop();
+                break;
+            }
+        }
+    }
+
     let filter_layer = match tracing_subscriber::EnvFilter::try_from_default_env()
         .or_else(|_| tracing_subscriber::EnvFilter::try_new("warn"))
     {
@@ -232,7 +245,7 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
         .max_log_files(2)
         .filename_prefix("libp2p")
         .filename_suffix("log")
-        .build(base_tracing_log_path.clone())
+        .build(tracing_log_path.clone())
     else {
         eprintln!("Failed to initialize libp2p rolling file appender");
         return;
@@ -243,7 +256,7 @@ pub fn create_tracing_layer(base_tracing_log_path: PathBuf) {
         .max_log_files(2)
         .filename_prefix("discv5")
         .filename_suffix("log")
-        .build(base_tracing_log_path.clone())
+        .build(tracing_log_path)
     else {
         eprintln!("Failed to initialize discv5 rolling file appender");
         return;

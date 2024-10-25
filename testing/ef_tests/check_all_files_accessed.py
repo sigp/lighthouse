@@ -25,6 +25,8 @@ excluded_paths = [
     # Intentionally omitted, as per https://github.com/sigp/lighthouse/issues/1835
     "tests/.*/.*/ssz_static/Eth1Block/",
     "tests/.*/.*/ssz_static/PowBlock/",
+    # We no longer implement merge logic.
+    "tests/.*/bellatrix/fork_choice/on_merge_block",
     # light_client
     "tests/.*/.*/light_client/single_merkle_proof",
     "tests/.*/.*/light_client/sync",
@@ -46,11 +48,6 @@ excluded_paths = [
     "tests/.*/eip6110",
     "tests/.*/whisk",
     "tests/.*/eip7594",
-    # TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
-    "tests/.*/electra/ssz_static/LightClientUpdate",
-    "tests/.*/electra/ssz_static/LightClientFinalityUpdate",
-    "tests/.*/electra/ssz_static/LightClientBootstrap",
-    "tests/.*/electra/merkle_proof",
 ]
 
 
