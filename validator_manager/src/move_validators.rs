@@ -2,7 +2,6 @@ use super::common::*;
 use crate::DumpConfig;
 use account_utils::{read_password_from_user, ZeroizeString};
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::FLAG_HEADER;
 use eth2::{
     lighthouse_vc::{
         std_types::{
@@ -74,15 +73,6 @@ pub fn cli_app() -> Command {
                 are defined in a JSON file which can be generated using the \"create-validators\" \
                 command. This command only supports validators signing via a keystore on the local \
                 file system (i.e., not Web3Signer validators).",
-        )
-        .arg(
-            Arg::new("help")
-                .long("help")
-                .short('h')
-                .help("Prints help information")
-                .action(ArgAction::HelpLong)
-                .display_order(0)
-                .help_heading(FLAG_HEADER),
         )
         .arg(
             Arg::new(SRC_VC_URL_FLAG)
