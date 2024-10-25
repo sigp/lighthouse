@@ -28,7 +28,7 @@ const CONTEXT_BYTES_LEN: usize = 4;
 
 /* Inbound Codec */
 
-pub struct SSZSnappyInboundCodec<E> {
+pub struct SSZSnappyInboundCodec<E: EthSpec> {
     protocol: ProtocolId,
     inner: Uvi<usize>,
     len: Option<usize>,
@@ -143,7 +143,7 @@ impl<E: EthSpec> Encoder<RpcResponse<E>> for SSZSnappyInboundCodec<E> {
 
 // Decoder for inbound streams: Decodes RPC requests from peers
 impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
-    type Item = RequestType;
+    type Item = RequestType<E>;
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -195,7 +195,7 @@ impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
 }
 
 /* Outbound Codec: Codec for initiating RPC requests */
-pub struct SSZSnappyOutboundCodec<E> {
+pub struct SSZSnappyOutboundCodec<E: EthSpec> {
     inner: Uvi<usize>,
     len: Option<usize>,
     protocol: ProtocolId,
@@ -322,10 +322,10 @@ impl<E: EthSpec> SSZSnappyOutboundCodec<E> {
 }
 
 // Encoder for outbound streams: Encodes RPC Requests to peers
-impl<E: EthSpec> Encoder<RequestType> for SSZSnappyOutboundCodec<E> {
+impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
     type Error = RPCError;
 
-    fn encode(&mut self, item: RequestType, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: RequestType<E>, dst: &mut BytesMut) -> Result<(), Self::Error> {
         let bytes = match item {
             RequestType::Status(req) => req.as_ssz_bytes(),
             RequestType::Goodbye(req) => req.as_ssz_bytes(),
@@ -549,11 +549,11 @@ fn handle_length(
 /// Decodes an `InboundRequest` from the byte stream.
 /// `decoded_buffer` should be an ssz-encoded bytestream with
 // length = length-prefix received in the beginning of the stream.
-fn handle_rpc_request(
+fn handle_rpc_request<E: EthSpec>(
     versioned_protocol: SupportedProtocol,
     decoded_buffer: &[u8],
     spec: &ChainSpec,
-) -> Result<Option<RequestType>, RPCError> {
+) -> Result<Option<RequestType<E>>, RPCError> {
     match versioned_protocol {
         SupportedProtocol::StatusV1 => Ok(Some(RequestType::Status(
             StatusMessage::from_ssz_bytes(decoded_buffer)?,
@@ -1035,7 +1035,6 @@ mod tests {
         BlobsByRangeRequest {
             start_slot: 0,
             count: 10,
-            max_blobs_per_block: Spec::max_blobs_per_block(),
         }
     }
 
@@ -1181,7 +1180,7 @@ mod tests {
     }
 
     /// Verifies that requests we send are encoded in a way that we would correctly decode too.
-    fn encode_then_decode_request(req: RequestType, fork_name: ForkName, spec: &ChainSpec) {
+    fn encode_then_decode_request(req: RequestType<Spec>, fork_name: ForkName, spec: &ChainSpec) {
         let fork_context = Arc::new(fork_context(fork_name));
         let max_packet_size = max_rpc_size(&fork_context, spec.max_chunk_size as usize);
         let protocol = ProtocolId::new(req.versioned_protocol(), Encoding::SSZSnappy);
@@ -1778,7 +1777,7 @@ mod tests {
     fn test_encode_then_decode_request() {
         let chain_spec = Spec::default_spec();
 
-        let requests: &[RequestType] = &[
+        let requests: &[RequestType<Spec>] = &[
             RequestType::Ping(ping_message()),
             RequestType::Status(status_message()),
             RequestType::Goodbye(GoodbyeReason::Fault),
