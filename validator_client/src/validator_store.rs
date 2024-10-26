@@ -102,7 +102,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             doppelganger_service,
             slot_clock,
             fee_recipient_process: config.fee_recipient,
-            gas_limit: config.gas_limit,
+            gas_limit: Some(config.gas_limit),
             builder_proposals: config.builder_proposals,
             enable_web3signer_slashing_protection: config.enable_web3signer_slashing_protection,
             prefer_builder_proposals: config.prefer_builder_proposals,

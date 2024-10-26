@@ -1,6 +1,7 @@
 use crate::beacon_node_fallback::ApiTopic;
 use crate::cli::ValidatorClient;
 use crate::graffiti_file::GraffitiFile;
+use crate::validator_store::DEFAULT_GAS_LIMIT;
 use crate::{beacon_node_fallback, http_api, http_metrics, BeaconNodeSyncDistanceTiers};
 use clap::ArgMatches;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_required};
@@ -70,7 +71,7 @@ pub struct Config {
     /// Overrides the timestamp field in builder api ValidatorRegistrationV1
     pub builder_registration_timestamp_override: Option<u64>,
     /// Fallback gas limit.
-    pub gas_limit: Option<u64>,
+    pub gas_limit: u64,
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
@@ -127,7 +128,7 @@ impl Default for Config {
             beacon_nodes_tls_certs: None,
             builder_proposals: false,
             builder_registration_timestamp_override: None,
-            gas_limit: None,
+            gas_limit: DEFAULT_GAS_LIMIT,
             broadcast_topics: vec![ApiTopic::Subscriptions],
             enable_latency_measurement_service: true,
             validator_registration_batch_size: 500,
@@ -350,7 +351,7 @@ impl Config {
             validator_client_config.enable_doppelganger_protection;
         config.builder_proposals = validator_client_config.builder_proposals;
         config.prefer_builder_proposals = validator_client_config.prefer_builder_proposals;
-        config.gas_limit = Some(validator_client_config.gas_limit);
+        config.gas_limit = validator_client_config.gas_limit;
 
         config.builder_registration_timestamp_override =
             validator_client_config.builder_registration_timestamp_override;
