@@ -174,22 +174,27 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     pub fn init_tracing(
         mut self,
         config: LoggerConfig,
+        logfile_prefix: &str,
     ) -> (
         Self,
         LoggingLayer,
         LoggingLayer,
         Option<SSELoggingComponents>,
     ) {
+        let filename_prefix = match logfile_prefix {
+            "beacon_node" => "beacon",
+            "validator_client" => "validator",
+            _ => logfile_prefix,
+        };
         let file_logging_layer = if let Some(path) = config.path {
             match RollingFileAppender::builder()
                 .rotation(Rotation::DAILY)
                 .max_log_files(config.max_log_number)
-                .filename_prefix("beacon")
+                .filename_prefix(filename_prefix)
                 .filename_suffix("log")
                 .build(path.clone())
             {
                 Ok(file_appender) => {
-                    info!(?path, "Logging to file");
                     let (file_non_blocking_writer, file_guard) =
                         tracing_appender::non_blocking(file_appender);
 

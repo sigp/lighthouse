@@ -1,7 +1,6 @@
 //! This module provides an implementation of `slog::Drain` that optionally writes to a channel if
 //! there are subscribers to a HTTP SSE stream.
 
-use once_cell::sync::Lazy;
 use serde_json;
 use serde_json::json;
 use serde_json::Value;

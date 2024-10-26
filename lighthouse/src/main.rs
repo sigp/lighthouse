@@ -532,7 +532,26 @@ fn run<E: EthSpec>(
     let logfile_restricted = !matches.get_flag("logfile-no-restricted-perms");
 
     // Construct the path to the log file.
-    let log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
+    let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
+    if log_path.is_none() {
+        log_path = match matches.subcommand() {
+            Some(("beacon_node", _)) => Some(
+                parse_path_or_default(matches, "datadir")?
+                    .join(DEFAULT_BEACON_NODE_DIR)
+                    .join("logs"),
+            ),
+            Some(("validator_client", vc_matches)) => {
+                let base_path = if vc_matches.contains_id("validators-dir") {
+                    parse_path_or_default(vc_matches, "validators-dir")?
+                } else {
+                    parse_path_or_default(matches, "datadir")?.join(DEFAULT_VALIDATOR_DIR)
+                };
+
+                Some(base_path.join("logs"))
+            }
+            _ => None,
+        };
+    }
 
     let sse_logging = {
         if let Some(bn_matches) = matches.subcommand_matches("beacon_node") {
@@ -569,8 +588,13 @@ fn run<E: EthSpec>(
         .with_writer(discv5_non_blocking_writer)
         .with_line_number(true);
 
+    let logfile_prefix = match matches.subcommand_name() {
+        Some(subcommand) => subcommand,
+        None => "lighthouse",
+    };
+
     let (builder, file_logging_layer, stdout_logging_layer, sse_logging_layer_opt) =
-        environment_builder.init_tracing(logger_config.clone());
+        environment_builder.init_tracing(logger_config.clone(), logfile_prefix);
 
     let filter_layer = EnvFilter::try_from_default_env()
         .or_else(|_| EnvFilter::try_new(logger_config.debug_level.to_lowercase().as_str()))

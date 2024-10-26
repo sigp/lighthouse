@@ -57,6 +57,7 @@ use store::{iter::StateRootsIterator, KeyValueStoreOp, StoreItem};
 use task_executor::{JoinHandle, ShutdownReason};
 use tracing::{debug, error, info, warn};
 use types::*;
+
 /// Simple wrapper around `RwLock` that uses private visibility to prevent any other modules from
 /// accessing the contained lock without it being explicitly noted in this module.
 pub struct CanonicalHeadRwLock<T>(RwLock<T>);
