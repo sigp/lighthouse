@@ -64,6 +64,7 @@ impl CommandLineTest {
         CommandLineTest { cmd: base_cmd }
     }
 
+    // Required for testing different JWT authentication methods.
     fn new_with_no_execution_endpoint() -> CommandLineTest {
         let base_cmd = base_cmd();
         CommandLineTest { cmd: base_cmd }
