@@ -36,9 +36,9 @@ use lighthouse_network::{
     types::SyncState,
     NetworkConfig, NetworkGlobals, PeerId,
 };
-use tracing::info;
 use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
+use tracing::info;
 use types::{
     data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
