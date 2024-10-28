@@ -208,7 +208,6 @@ mod test {
     async fn subscribe_current_slot_wait_for_unsubscribe() {
         // subscription config
         let committee_index = 1;
-        // Keep a low subscription slot so that there are no additional subnet discovery events.
         let subnets_per_node = MainnetEthSpec::default_spec().subnets_per_node as usize;
 
         // create the attestation service and subscriptions
@@ -298,7 +297,7 @@ mod test {
         let com1 = 1;
         let com2 = 0;
 
-        // create the attestation service and subscriptions
+        // create the subnet service and subscriptions
         let mut subnet_service = get_subnet_service();
         let _events = get_events(&mut subnet_service, None, 0).await;
         let current_slot = subnet_service
@@ -367,7 +366,7 @@ mod test {
             assert_eq!([expected], unsubscribe_event[..]);
         }
 
-        // Should be subscribed 2 long lived subnet after unsubscription.
+        // Should  no longer be subscribed to any short lived subnets after unsubscription.
         assert_eq!(subnet_service.subscriptions().count(), 0);
     }
 

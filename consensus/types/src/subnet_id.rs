@@ -8,6 +8,10 @@ use std::sync::LazyLock;
 
 const MAX_SUBNET_ID: usize = 64;
 
+/// The number of bits in a Discovery `NodeId`. This is used for binary operations on the node-id
+/// data.
+const NODE_ID_BITS: u64 = 256;
+
 static SUBNET_ID_TO_STRING: LazyLock<Vec<String>> = LazyLock::new(|| {
     let mut v = Vec::with_capacity(MAX_SUBNET_ID);
 
@@ -73,8 +77,8 @@ impl SubnetId {
             .into())
     }
 
-    /// Computes the set of subnets the node should be subscribed to during the current epoch,
-    /// along with the first epoch in which these subscriptions are no longer valid.
+    /// Computes the set of subnets the node should be subscribed to. We subscribe to these subnets
+    /// for the duration of the node's runtime.
     #[allow(clippy::arithmetic_side_effects)]
     pub fn compute_attestation_subnets(
         raw_node_id: [u8; 32],
@@ -85,7 +89,9 @@ impl SubnetId {
 
         let node_id = U256::from_be_slice(&raw_node_id);
         // calculate the prefixes used to compute the subnet and shuffling
-        let node_id_prefix = (node_id >> (256 - prefix_bits)).as_le_slice().get_u64_le();
+        let node_id_prefix = (node_id >> (NODE_ID_BITS - prefix_bits))
+            .as_le_slice()
+            .get_u64_le();
 
         // Get the constants we need to avoid holding a reference to the spec
         let &ChainSpec {

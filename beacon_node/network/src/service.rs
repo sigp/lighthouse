@@ -819,7 +819,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
     /// Handle a message sent to the network service.
     async fn on_validator_subscription_msg(&mut self, msg: ValidatorSubscriptionMessage) {
-        if let Err(e) = match msg {
+        match msg {
             ValidatorSubscriptionMessage::AttestationSubscribe { subscriptions } => {
                 let subscriptions = subscriptions.into_iter().map(Subscription::Attestation);
                 self.subnet_service.validator_subscriptions(subscriptions)
@@ -828,8 +828,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 let subscriptions = subscriptions.into_iter().map(Subscription::SyncCommittee);
                 self.subnet_service.validator_subscriptions(subscriptions)
             }
-        } {
-            warn!(self.log, "Validator subscription failed"; "error" => e);
         }
     }
 

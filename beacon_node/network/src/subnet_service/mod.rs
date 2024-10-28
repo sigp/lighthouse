@@ -138,7 +138,8 @@ impl<T: BeaconChainTypes> SubnetService<T> {
                     .insert(Subnet::Attestation(SubnetId::from(index)));
             }
         } else {
-            // Not subscribed to all subnets, so just calculate the required subnets from the
+            // Not subscribed to all subnets, so just calculate the required subnets from the node
+            // id.
             for subnet_id in
                 SubnetId::compute_attestation_subnets(node_id.raw(), &beacon_chain.spec)
             {
@@ -195,7 +196,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
         }
     }
 
-    /// Return count of all currently subscribed subnets (long-lived **and** short-lived).
+    /// Return count of all currently subscribed short-lived subnets.
     #[cfg(test)]
     pub fn subscriptions(&self) -> impl Iterator<Item = &Subnet> {
         self.subscriptions.iter()
@@ -223,13 +224,10 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     ///
     /// This returns a result simply for the ergonomics of using ?. The result can be
     /// safely dropped.
-    pub fn validator_subscriptions(
-        &mut self,
-        subscriptions: impl Iterator<Item = Subscription>,
-    ) -> Result<(), String> {
+    pub fn validator_subscriptions(&mut self, subscriptions: impl Iterator<Item = Subscription>) {
         // If the node is in a proposer-only state, we ignore all subnet subscriptions.
         if self.proposer_only {
-            return Ok(());
+            return;
         }
 
         // Maps each subnet subscription to it's highest slot
@@ -355,7 +353,6 @@ impl<T: BeaconChainTypes> SubnetService<T> {
                 warn!(self.log, "Discovery lookup request error"; "error" => e);
             };
         }
-        Ok(())
     }
 
     /// Checks if we have subscribed aggregate validators for the subnet. If not, checks the gossip
@@ -394,8 +391,6 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     /// request.
     ///
     /// If there is sufficient time, queues a peer discovery request for all the required subnets.
-    /// `subnets_to_discover` takes a (subnet_id, Option<Slot>), where if the slot is not set, we
-    /// send a discovery request immediately.
     // NOTE: Sending early subscriptions results in early searching for peers on subnets.
     fn discover_peers_request(
         &mut self,
@@ -493,7 +488,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
         Ok(())
     }
 
-    /// Adds a subscription event and an associated unsubscription event if required.
+    /// Adds a subscription event to the sync subnet.
     fn subscribe_to_sync_subnet(
         &mut self,
         subnet: Subnet,
