@@ -5266,13 +5266,14 @@ fn sends_idontwant() {
 
     let message = RawMessage {
         source: Some(peers[1]),
-        data: vec![12],
+        data: vec![12u8; 1024],
         sequence_number: Some(0),
         topic: topic_hashes[0].clone(),
         signature: None,
         key: None,
         validated: true,
     };
+
     gs.handle_received_message(message.clone(), &local_id);
     assert_eq!(
         receivers
@@ -5289,6 +5290,48 @@ fn sends_idontwant() {
             }),
         3,
         "IDONTWANT was not sent"
+    );
+}
+
+#[test]
+fn doesnt_sends_idontwant_for_lower_message_size() {
+    let (mut gs, peers, receivers, topic_hashes) = inject_nodes1()
+        .peer_no(5)
+        .topics(vec![String::from("topic1")])
+        .to_subscribe(true)
+        .gs_config(Config::default())
+        .explicit(1)
+        .peer_kind(PeerKind::Gossipsubv1_2)
+        .create_network();
+
+    let local_id = PeerId::random();
+
+    let message = RawMessage {
+        source: Some(peers[1]),
+        data: vec![12],
+        sequence_number: Some(0),
+        topic: topic_hashes[0].clone(),
+        signature: None,
+        key: None,
+        validated: true,
+    };
+
+    gs.handle_received_message(message.clone(), &local_id);
+    assert_eq!(
+        receivers
+            .into_iter()
+            .fold(0, |mut idontwants, (peer_id, c)| {
+                let non_priority = c.non_priority.into_inner();
+                while !non_priority.is_empty() {
+                    if let Ok(RpcOut::IDontWant(_)) = non_priority.try_recv() {
+                        assert_ne!(peer_id, peers[1]);
+                        idontwants += 1;
+                    }
+                }
+                idontwants
+            }),
+        0,
+        "IDONTWANT was sent"
     );
 }
 
@@ -5316,6 +5359,7 @@ fn doesnt_send_idontwant() {
         key: None,
         validated: true,
     };
+
     gs.handle_received_message(message.clone(), &local_id);
     assert_eq!(
         receivers

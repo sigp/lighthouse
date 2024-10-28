@@ -11,12 +11,13 @@ use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
 use futures::StreamExt;
+use lighthouse_network::rpc::{RequestId, RequestType};
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
 use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
-    rpc::{GoodbyeReason, RPCResponseErrorCode},
-    Context, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
+    rpc::{GoodbyeReason, RpcErrorResponse},
+    Context, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Response, Subnet,
 };
 use lighthouse_network::{
     service::api_types::AppRequestId,
@@ -58,19 +59,21 @@ pub enum NetworkMessage<E: EthSpec> {
     /// Send an RPC request to the libp2p service.
     SendRequest {
         peer_id: PeerId,
-        request: Request,
+        request: RequestType<E>,
         request_id: AppRequestId,
     },
     /// Send a successful Response to the libp2p service.
     SendResponse {
         peer_id: PeerId,
+        request_id: RequestId,
         response: Response<E>,
         id: PeerRequestId,
     },
     /// Sends an error response to an RPC request.
     SendErrorResponse {
         peer_id: PeerId,
-        error: RPCResponseErrorCode,
+        request_id: RequestId,
+        error: RpcErrorResponse,
         reason: String,
         id: PeerRequestId,
     },
@@ -200,7 +203,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> NetworkService<T> {
     async fn build(
         beacon_chain: Arc<BeaconChain<T>>,
-        config: &NetworkConfig,
+        config: Arc<NetworkConfig>,
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
@@ -266,10 +269,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // construct the libp2p service context
         let service_context = Context {
-            config,
+            config: config.clone(),
             enr_fork_id,
             fork_context: fork_context.clone(),
-            chain_spec: &beacon_chain.spec,
+            chain_spec: beacon_chain.spec.clone(),
             libp2p_registry,
         };
 
@@ -313,7 +316,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let subnet_service = SubnetService::new(
             beacon_chain.clone(),
             network_globals.local_enr().node_id(),
-            config,
+            &config,
             &network_log,
         );
 
@@ -359,7 +362,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     #[allow(clippy::type_complexity)]
     pub async fn start(
         beacon_chain: Arc<BeaconChain<T>>,
-        config: &NetworkConfig,
+        config: Arc<NetworkConfig>,
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
@@ -612,16 +615,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 peer_id,
                 response,
                 id,
+                request_id,
             } => {
-                self.libp2p.send_response(peer_id, id, response);
+                self.libp2p.send_response(peer_id, id, request_id, response);
             }
             NetworkMessage::SendErrorResponse {
                 peer_id,
                 error,
                 id,
+                request_id,
                 reason,
             } => {
-                self.libp2p.send_error_response(peer_id, id, error, reason);
+                self.libp2p
+                    .send_error_response(peer_id, id, request_id, error, reason);
             }
             NetworkMessage::ValidationResult {
                 propagation_source,
@@ -796,7 +802,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
             }
         } else {
-            for column_subnet in &self.network_globals.custody_subnets {
+            for column_subnet in &self.network_globals.sampling_subnets {
                 for fork_digest in self.required_gossip_fork_digests() {
                     let gossip_kind = Subnet::DataColumn(*column_subnet).into();
                     let topic =

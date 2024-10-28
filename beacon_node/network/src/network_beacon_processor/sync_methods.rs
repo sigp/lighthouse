@@ -294,7 +294,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "slot" => %slot,
                 );
             }
-            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!(
                     self.log,
                     "Blobs have already been imported";
@@ -327,35 +327,38 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         _seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
-        let result = self
+        let mut result = self
             .chain
             .process_rpc_custody_columns(custody_columns)
             .await;
 
         match &result {
-            Ok((availability, data_columns_to_publish)) => {
-                self.handle_data_columns_to_publish(data_columns_to_publish.clone());
-
-                match availability {
-                    AvailabilityProcessingStatus::Imported(hash) => {
-                        debug!(
-                            self.log,
-                            "Block components retrieved";
-                            "result" => "imported block and custody columns",
-                            "block_hash" => %hash,
-                        );
-                        self.chain.recompute_head_at_current_slot().await;
-                    }
-                    AvailabilityProcessingStatus::MissingComponents(_, _) => {
-                        debug!(
-                            self.log,
-                            "Missing components over rpc";
-                            "block_hash" => %block_root,
-                        );
+            Ok(availability) => match availability {
+                AvailabilityProcessingStatus::Imported(hash) => {
+                    debug!(
+                        self.log,
+                        "Block components retrieved";
+                        "result" => "imported block and custody columns",
+                        "block_hash" => %hash,
+                    );
+                    self.chain.recompute_head_at_current_slot().await;
+                }
+                AvailabilityProcessingStatus::MissingComponents(_, _) => {
+                    debug!(
+                        self.log,
+                        "Missing components over rpc";
+                        "block_hash" => %block_root,
+                    );
+                    // Attempt reconstruction here before notifying sync, to avoid sending out more requests
+                    // that we may no longer need.
+                    if let Some(availability) =
+                        self.attempt_data_column_reconstruction(block_root).await
+                    {
+                        result = Ok(availability)
                     }
                 }
-            }
-            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            },
+            Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!(
                     self.log,
                     "Custody columns have already been imported";
@@ -374,7 +377,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type,
-            result: result.map(|(r, _)| r).into(),
+            result: result.into(),
         });
     }
 
@@ -385,8 +388,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         data_columns: Vec<Arc<DataColumnSidecar<T::EthSpec>>>,
         _seen_timestamp: Duration,
     ) -> Result<(), String> {
-        let kzg = self.chain.kzg.as_ref().ok_or("Kzg not initialized")?;
-        verify_kzg_for_data_column_list(data_columns.iter(), kzg).map_err(|err| format!("{err:?}"))
+        verify_kzg_for_data_column_list(data_columns.iter(), &self.chain.kzg)
+            .map_err(|err| format!("{err:?}"))
     }
 
     /// Process a sampling completed event, inserting it into fork-choice
@@ -561,8 +564,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 })
                 .collect::<Vec<_>>(),
             Err(e) => match e {
-                AvailabilityCheckError::StoreError(_)
-                | AvailabilityCheckError::KzgNotInitialized => {
+                AvailabilityCheckError::StoreError(_) => {
                     return (
                         0,
                         Err(ChainSegmentFailed {
@@ -716,7 +718,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_action: Some(PeerAction::LowToleranceError),
                 })
             }
-            BlockError::BlockIsAlreadyKnown(_) => {
+            BlockError::DuplicateFullyImported(_)
+            | BlockError::DuplicateImportStatusUnknown(..) => {
                 // This can happen for many reasons. Head sync's can download multiples and parent
                 // lookups can download blocks before range sync
                 Ok(())

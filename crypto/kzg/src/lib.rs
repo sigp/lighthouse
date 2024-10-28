@@ -1,6 +1,6 @@
 mod kzg_commitment;
 mod kzg_proof;
-mod trusted_setup;
+pub mod trusted_setup;
 
 use rust_eth_kzg::{CellIndex, DASContext};
 use std::fmt::Debug;
@@ -51,18 +51,41 @@ impl From<c_kzg::Error> for Error {
 #[derive(Debug)]
 pub struct Kzg {
     trusted_setup: KzgSettings,
-    context: Option<DASContext>,
+    context: DASContext,
 }
 
 impl Kzg {
-    /// Load the kzg trusted setup parameters from a vec of G1 and G2 points.
-    pub fn new_from_trusted_setup(trusted_setup: TrustedSetup) -> Result<Self, Error> {
+    pub fn new_from_trusted_setup_no_precomp(trusted_setup: TrustedSetup) -> Result<Self, Error> {
+        let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
+
+        let context = DASContext::new(&peerdas_trusted_setup, rust_eth_kzg::UsePrecomp::No);
+
         Ok(Self {
             trusted_setup: KzgSettings::load_trusted_setup(
                 &trusted_setup.g1_points(),
                 &trusted_setup.g2_points(),
             )?,
-            context: None,
+            context,
+        })
+    }
+
+    /// Load the kzg trusted setup parameters from a vec of G1 and G2 points.
+    pub fn new_from_trusted_setup(trusted_setup: TrustedSetup) -> Result<Self, Error> {
+        let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
+
+        let context = DASContext::new(
+            &peerdas_trusted_setup,
+            rust_eth_kzg::UsePrecomp::Yes {
+                width: rust_eth_kzg::constants::RECOMMENDED_PRECOMP_WIDTH,
+            },
+        );
+
+        Ok(Self {
+            trusted_setup: KzgSettings::load_trusted_setup(
+                &trusted_setup.g1_points(),
+                &trusted_setup.g2_points(),
+            )?,
+            context,
         })
     }
 
@@ -88,12 +111,12 @@ impl Kzg {
                 &trusted_setup.g1_points(),
                 &trusted_setup.g2_points(),
             )?,
-            context: Some(context),
+            context,
         })
     }
 
-    fn context(&self) -> Result<&DASContext, Error> {
-        self.context.as_ref().ok_or(Error::DASContextUninitialized)
+    fn context(&self) -> &DASContext {
+        &self.context
     }
 
     /// Compute the kzg proof given a blob and its kzg commitment.
@@ -200,7 +223,7 @@ impl Kzg {
         blob: KzgBlobRef<'_>,
     ) -> Result<CellsAndKzgProofs, Error> {
         let (cells, proofs) = self
-            .context()?
+            .context()
             .compute_cells_and_kzg_proofs(blob)
             .map_err(Error::PeerDASKZG)?;
 
@@ -226,7 +249,7 @@ impl Kzg {
             .iter()
             .map(|commitment| commitment.as_ref())
             .collect();
-        let verification_result = self.context()?.verify_cell_kzg_proof_batch(
+        let verification_result = self.context().verify_cell_kzg_proof_batch(
             commitments.to_vec(),
             columns,
             cells.to_vec(),
@@ -247,7 +270,7 @@ impl Kzg {
         cells: &[CellRef<'_>],
     ) -> Result<CellsAndKzgProofs, Error> {
         let (cells, proofs) = self
-            .context()?
+            .context()
             .recover_cells_and_kzg_proofs(cell_ids.to_vec(), cells.to_vec())
             .map_err(Error::PeerDASKZG)?;
 

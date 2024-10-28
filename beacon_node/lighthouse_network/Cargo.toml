@@ -44,6 +44,7 @@ delay_map = { workspace = true }
 bytes = { workspace = true }
 either = { workspace = true }
 itertools = { workspace = true }
+alloy-rlp = { workspace = true }
 
 # Local dependencies
 void = "1.0.2"
