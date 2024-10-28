@@ -14,7 +14,7 @@ use serde_json::Value;
 use ssz::{Decode, Encode};
 use ssz_derive::Decode;
 use ssz_derive::Encode;
-use ssz_types::typenum::{U4, U5, U6};
+use ssz_types::typenum::{U4, U5, U6, U7};
 use std::sync::Arc;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
@@ -25,23 +25,38 @@ pub const CURRENT_SYNC_COMMITTEE_INDEX: usize = 54;
 pub const NEXT_SYNC_COMMITTEE_INDEX: usize = 55;
 pub const EXECUTION_PAYLOAD_INDEX: usize = 25;
 
+pub const FINALIZED_ROOT_INDEX_ELECTRA: usize = 169;
+pub const CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA: usize = 86;
+pub const NEXT_SYNC_COMMITTEE_INDEX_ELECTRA: usize = 87;
+
 pub type FinalizedRootProofLen = U6;
 pub type CurrentSyncCommitteeProofLen = U5;
 pub type ExecutionPayloadProofLen = U4;
-
 pub type NextSyncCommitteeProofLen = U5;
+
+pub type FinalizedRootProofLenElectra = U7;
+pub type CurrentSyncCommitteeProofLenElectra = U6;
+pub type NextSyncCommitteeProofLenElectra = U6;
 
 pub const FINALIZED_ROOT_PROOF_LEN: usize = 6;
 pub const CURRENT_SYNC_COMMITTEE_PROOF_LEN: usize = 5;
 pub const NEXT_SYNC_COMMITTEE_PROOF_LEN: usize = 5;
 pub const EXECUTION_PAYLOAD_PROOF_LEN: usize = 4;
 
+pub const FINALIZED_ROOT_PROOF_LEN_ELECTRA: usize = 7;
+pub const NEXT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA: usize = 6;
+pub const CURRENT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA: usize = 6;
+
+pub type MerkleProof = Vec<Hash256>;
 // Max light client updates by range request limits
 // spec: https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/light-client/p2p-interface.md#configuration
 pub const MAX_REQUEST_LIGHT_CLIENT_UPDATES: u64 = 128;
 
 type FinalityBranch = FixedVector<Hash256, FinalizedRootProofLen>;
+type FinalityBranchElectra = FixedVector<Hash256, FinalizedRootProofLenElectra>;
 type NextSyncCommitteeBranch = FixedVector<Hash256, NextSyncCommitteeProofLen>;
+
+type NextSyncCommitteeBranchElectra = FixedVector<Hash256, NextSyncCommitteeProofLenElectra>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -124,8 +139,17 @@ pub struct LightClientUpdate<E: EthSpec> {
     pub attested_header: LightClientHeaderElectra<E>,
     /// The `SyncCommittee` used in the next period.
     pub next_sync_committee: Arc<SyncCommittee<E>>,
-    /// Merkle proof for next sync committee
+    // Merkle proof for next sync committee
+    #[superstruct(
+        only(Altair, Capella, Deneb),
+        partial_getter(rename = "next_sync_committee_branch_altair")
+    )]
     pub next_sync_committee_branch: NextSyncCommitteeBranch,
+    #[superstruct(
+        only(Electra),
+        partial_getter(rename = "next_sync_committee_branch_electra")
+    )]
+    pub next_sync_committee_branch: NextSyncCommitteeBranchElectra,
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
     #[superstruct(only(Altair), partial_getter(rename = "finalized_header_altair"))]
     pub finalized_header: LightClientHeaderAltair<E>,
@@ -136,7 +160,13 @@ pub struct LightClientUpdate<E: EthSpec> {
     #[superstruct(only(Electra), partial_getter(rename = "finalized_header_electra"))]
     pub finalized_header: LightClientHeaderElectra<E>,
     /// Merkle proof attesting finalized header.
+    #[superstruct(
+        only(Altair, Capella, Deneb),
+        partial_getter(rename = "finality_branch_altair")
+    )]
     pub finality_branch: FinalityBranch,
+    #[superstruct(only(Electra), partial_getter(rename = "finality_branch_electra"))]
+    pub finality_branch: FinalityBranchElectra,
     /// current sync aggreggate
     pub sync_aggregate: SyncAggregate<E>,
     /// Slot of the sync aggregated signature
@@ -165,8 +195,8 @@ impl<E: EthSpec> LightClientUpdate<E> {
         sync_aggregate: &SyncAggregate<E>,
         block_slot: Slot,
         next_sync_committee: Arc<SyncCommittee<E>>,
-        next_sync_committee_branch: FixedVector<Hash256, NextSyncCommitteeProofLen>,
-        finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
+        next_sync_committee_branch: Vec<Hash256>,
+        finality_branch: Vec<Hash256>,
         attested_block: &SignedBlindedBeaconBlock<E>,
         finalized_block: Option<&SignedBlindedBeaconBlock<E>>,
         chain_spec: &ChainSpec,
@@ -189,9 +219,9 @@ impl<E: EthSpec> LightClientUpdate<E> {
                 Self::Altair(LightClientUpdateAltair {
                     attested_header,
                     next_sync_committee,
-                    next_sync_committee_branch,
+                    next_sync_committee_branch: next_sync_committee_branch.into(),
                     finalized_header,
-                    finality_branch,
+                    finality_branch: finality_branch.into(),
                     sync_aggregate: sync_aggregate.clone(),
                     signature_slot: block_slot,
                 })
@@ -209,9 +239,9 @@ impl<E: EthSpec> LightClientUpdate<E> {
                 Self::Capella(LightClientUpdateCapella {
                     attested_header,
                     next_sync_committee,
-                    next_sync_committee_branch,
+                    next_sync_committee_branch: next_sync_committee_branch.into(),
                     finalized_header,
-                    finality_branch,
+                    finality_branch: finality_branch.into(),
                     sync_aggregate: sync_aggregate.clone(),
                     signature_slot: block_slot,
                 })
@@ -229,9 +259,9 @@ impl<E: EthSpec> LightClientUpdate<E> {
                 Self::Deneb(LightClientUpdateDeneb {
                     attested_header,
                     next_sync_committee,
-                    next_sync_committee_branch,
+                    next_sync_committee_branch: next_sync_committee_branch.into(),
                     finalized_header,
-                    finality_branch,
+                    finality_branch: finality_branch.into(),
                     sync_aggregate: sync_aggregate.clone(),
                     signature_slot: block_slot,
                 })
@@ -249,9 +279,9 @@ impl<E: EthSpec> LightClientUpdate<E> {
                 Self::Electra(LightClientUpdateElectra {
                     attested_header,
                     next_sync_committee,
-                    next_sync_committee_branch,
+                    next_sync_committee_branch: next_sync_committee_branch.into(),
                     finalized_header,
-                    finality_branch,
+                    finality_branch: finality_branch.into(),
                     sync_aggregate: sync_aggregate.clone(),
                     signature_slot: block_slot,
                 })
@@ -391,22 +421,18 @@ impl<E: EthSpec> LightClientUpdate<E> {
         return Ok(new.signature_slot() < self.signature_slot());
     }
 
-    fn is_next_sync_committee_branch_empty(&self) -> bool {
-        for index in self.next_sync_committee_branch().iter() {
-            if *index != Hash256::default() {
-                return false;
-            }
-        }
-        true
+    fn is_next_sync_committee_branch_empty<'a>(&'a self) -> bool {
+        map_light_client_update_ref!(&'a _, self.to_ref(), |update, cons| {
+            cons(update);
+            is_empty_branch(update.next_sync_committee_branch.as_ref())
+        })
     }
 
-    pub fn is_finality_branch_empty(&self) -> bool {
-        for index in self.finality_branch().iter() {
-            if *index != Hash256::default() {
-                return false;
-            }
-        }
-        true
+    pub fn is_finality_branch_empty<'a>(&'a self) -> bool {
+        map_light_client_update_ref!(&'a _, self.to_ref(), |update, cons| {
+            cons(update);
+            is_empty_branch(update.finality_branch.as_ref())
+        })
     }
 
     // A `LightClientUpdate` has two `LightClientHeader`s
@@ -436,6 +462,15 @@ impl<E: EthSpec> LightClientUpdate<E> {
     }
 }
 
+fn is_empty_branch(branch: &[Hash256]) -> bool {
+    for index in branch.iter() {
+        if *index != Hash256::default() {
+            return false;
+        }
+    }
+    true
+}
+
 fn compute_sync_committee_period_at_slot<E: EthSpec>(
     slot: Slot,
     chain_spec: &ChainSpec,
@@ -447,16 +482,53 @@ fn compute_sync_committee_period_at_slot<E: EthSpec>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MainnetEthSpec;
     use ssz_types::typenum::Unsigned;
 
-    ssz_tests!(LightClientUpdateDeneb<MainnetEthSpec>);
+    // `ssz_tests!` can only be defined once per namespace
+    #[cfg(test)]
+    mod altair {
+        use super::*;
+        use crate::MainnetEthSpec;
+        ssz_tests!(LightClientUpdateAltair<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod capella {
+        use super::*;
+        use crate::MainnetEthSpec;
+        ssz_tests!(LightClientUpdateCapella<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod deneb {
+        use super::*;
+        use crate::MainnetEthSpec;
+        ssz_tests!(LightClientUpdateDeneb<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod electra {
+        use super::*;
+        use crate::MainnetEthSpec;
+        ssz_tests!(LightClientUpdateElectra<MainnetEthSpec>);
+    }
 
     #[test]
     fn finalized_root_params() {
         assert!(2usize.pow(FINALIZED_ROOT_PROOF_LEN as u32) <= FINALIZED_ROOT_INDEX);
         assert!(2usize.pow(FINALIZED_ROOT_PROOF_LEN as u32 + 1) > FINALIZED_ROOT_INDEX);
         assert_eq!(FinalizedRootProofLen::to_usize(), FINALIZED_ROOT_PROOF_LEN);
+
+        assert!(
+            2usize.pow(FINALIZED_ROOT_PROOF_LEN_ELECTRA as u32) <= FINALIZED_ROOT_INDEX_ELECTRA
+        );
+        assert!(
+            2usize.pow(FINALIZED_ROOT_PROOF_LEN_ELECTRA as u32 + 1) > FINALIZED_ROOT_INDEX_ELECTRA
+        );
+        assert_eq!(
+            FinalizedRootProofLenElectra::to_usize(),
+            FINALIZED_ROOT_PROOF_LEN_ELECTRA
+        );
     }
 
     #[test]
@@ -471,6 +543,19 @@ mod tests {
             CurrentSyncCommitteeProofLen::to_usize(),
             CURRENT_SYNC_COMMITTEE_PROOF_LEN
         );
+
+        assert!(
+            2usize.pow(CURRENT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA as u32)
+                <= CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
+        );
+        assert!(
+            2usize.pow(CURRENT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA as u32 + 1)
+                > CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
+        );
+        assert_eq!(
+            CurrentSyncCommitteeProofLenElectra::to_usize(),
+            CURRENT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA
+        );
     }
 
     #[test]
@@ -480,6 +565,19 @@ mod tests {
         assert_eq!(
             NextSyncCommitteeProofLen::to_usize(),
             NEXT_SYNC_COMMITTEE_PROOF_LEN
+        );
+
+        assert!(
+            2usize.pow(NEXT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA as u32)
+                <= NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
+        );
+        assert!(
+            2usize.pow(NEXT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA as u32 + 1)
+                > NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
+        );
+        assert_eq!(
+            NextSyncCommitteeProofLenElectra::to_usize(),
+            NEXT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA
         );
     }
 }
