@@ -277,9 +277,7 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
         }
         .into()),
         None => {
-            if allow_optimistic_import == AllowOptimisticImport::Yes
-                && is_optimistic_candidate_block(chain, block.slot(), block.parent_root()).await?
-            {
+            if allow_optimistic_import == AllowOptimisticImport::Yes {
                 debug!(
                     chain.log,
                     "Optimistically importing merge transition block";
@@ -295,36 +293,6 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
             }
         }
     }
-}
-
-/// Check to see if a block with the given parameters is valid to be imported optimistically.
-pub async fn is_optimistic_candidate_block<T: BeaconChainTypes>(
-    chain: &Arc<BeaconChain<T>>,
-    block_slot: Slot,
-    block_parent_root: Hash256,
-) -> Result<bool, BeaconChainError> {
-    let current_slot = chain.slot()?;
-    let inner_chain = chain.clone();
-
-    // Use a blocking task to check if the block is an optimistic candidate. Interacting
-    // with the `fork_choice` lock in an async task can block the core executor.
-    chain
-        .spawn_blocking_handle(
-            move || {
-                inner_chain
-                    .canonical_head
-                    .fork_choice_read_lock()
-                    .is_optimistic_candidate_block(
-                        current_slot,
-                        block_slot,
-                        &block_parent_root,
-                        &inner_chain.spec,
-                    )
-            },
-            "validate_merge_block_optimistic_candidate",
-        )
-        .await?
-        .map_err(BeaconChainError::from)
 }
 
 /// Validate the gossip block's execution_payload according to the checks described here:

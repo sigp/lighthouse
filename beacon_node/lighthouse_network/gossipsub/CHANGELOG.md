@@ -1,4 +1,6 @@
 ## 0.5 Sigma Prime fork
+- Remove the beta tag from the v1.2 upgrade.
+  See [PR 6344](https://github.com/sigp/lighthouse/pull/6344)
 
 - Correct state inconsistencies with the mesh and connected peers due to the fanout mapping.
   See [PR 6244](https://github.com/sigp/lighthouse/pull/6244)

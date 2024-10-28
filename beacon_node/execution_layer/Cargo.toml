@@ -52,3 +52,4 @@ alloy-rlp = { workspace = true }
 alloy-consensus = { workspace = true }
 lighthouse_version = { workspace = true }
 fixed_bytes = { workspace = true }
+sha2 = { workspace = true }

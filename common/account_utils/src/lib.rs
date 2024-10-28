@@ -228,7 +228,7 @@ impl ZeroizeString {
 
     /// Remove any number of newline or carriage returns from the end of a vector of bytes.
     pub fn without_newlines(&self) -> ZeroizeString {
-        let stripped_string = self.0.trim_end_matches(|c| c == '\r' || c == '\n').into();
+        let stripped_string = self.0.trim_end_matches(['\r', '\n']).into();
         Self(stripped_string)
     }
 }

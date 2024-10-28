@@ -78,7 +78,7 @@ fn all_benches(c: &mut Criterion) {
                 || (bytes.clone(), spec.clone()),
                 |(bytes, spec)| {
                     let state: BeaconState<MainnetEthSpec> =
-                        BeaconState::from_ssz_bytes(&bytes, &spec).expect("should decode");
+                        BeaconState::from_ssz_bytes(bytes, spec).expect("should decode");
                     black_box(state)
                 },
                 BatchSize::SmallInput,

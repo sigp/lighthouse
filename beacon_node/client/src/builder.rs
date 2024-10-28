@@ -76,7 +76,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     #[allow(clippy::type_complexity)]
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     runtime_context: Option<RuntimeContext<T::EthSpec>>,
-    chain_spec: Option<ChainSpec>,
+    chain_spec: Option<Arc<ChainSpec>>,
     beacon_chain_builder: Option<BeaconChainBuilder<T>>,
     beacon_chain: Option<Arc<BeaconChain<T>>>,
     eth1_service: Option<Eth1Service>,
@@ -137,7 +137,7 @@ where
     }
 
     /// Specifies the `ChainSpec`.
-    pub fn chain_spec(mut self, spec: ChainSpec) -> Self {
+    pub fn chain_spec(mut self, spec: Arc<ChainSpec>) -> Self {
         self.chain_spec = Some(spec);
         self
     }
@@ -195,7 +195,17 @@ where
             None
         };
 
-        let builder = BeaconChainBuilder::new(eth_spec_instance)
+        let kzg_err_msg = |e| format!("Failed to load trusted setup: {:?}", e);
+        let trusted_setup = config.trusted_setup.clone();
+        let kzg = if spec.is_peer_das_scheduled() {
+            Kzg::new_from_trusted_setup_das_enabled(trusted_setup).map_err(kzg_err_msg)?
+        } else if spec.deneb_fork_epoch.is_some() {
+            Kzg::new_from_trusted_setup(trusted_setup).map_err(kzg_err_msg)?
+        } else {
+            Kzg::new_from_trusted_setup_no_precomp(trusted_setup).map_err(kzg_err_msg)?
+        };
+
+        let builder = BeaconChainBuilder::new(eth_spec_instance, Arc::new(kzg))
             .logger(context.log().clone())
             .store(store)
             .task_executor(context.executor.clone())
@@ -594,10 +604,9 @@ where
                 };
 
                 let genesis_state = genesis_service
-                    .wait_for_genesis_state(
-                        Duration::from_millis(ETH1_GENESIS_UPDATE_INTERVAL_MILLIS),
-                        context.eth2_config().spec.clone(),
-                    )
+                    .wait_for_genesis_state(Duration::from_millis(
+                        ETH1_GENESIS_UPDATE_INTERVAL_MILLIS,
+                    ))
                     .await?;
 
                 let _ = exit_tx.send(());
@@ -623,20 +632,6 @@ where
             ClientGenesis::FromStore => builder.resume_from_db().map(|v| (v, None))?,
         };
 
-        let beacon_chain_builder = if let Some(trusted_setup) = config.trusted_setup {
-            let kzg_err_msg = |e| format!("Failed to load trusted setup: {:?}", e);
-
-            let kzg = if spec.is_peer_das_scheduled() {
-                Kzg::new_from_trusted_setup_das_enabled(trusted_setup).map_err(kzg_err_msg)?
-            } else {
-                Kzg::new_from_trusted_setup(trusted_setup).map_err(kzg_err_msg)?
-            };
-
-            beacon_chain_builder.kzg(Some(Arc::new(kzg)))
-        } else {
-            beacon_chain_builder
-        };
-
         if config.sync_eth1_chain {
             self.eth1_service = eth1_service_option;
         }
@@ -645,7 +640,7 @@ where
     }
 
     /// Starts the networking stack.
-    pub async fn network(mut self, config: &NetworkConfig) -> Result<Self, String> {
+    pub async fn network(mut self, config: Arc<NetworkConfig>) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
             .clone()

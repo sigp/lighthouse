@@ -3,7 +3,6 @@ use super::score::{PeerAction, Score, ScoreState};
 use super::sync_status::SyncStatus;
 use crate::discovery::Eth2Enr;
 use crate::{rpc::MetaData, types::Subnet};
-use discv5::enr::NodeId;
 use discv5::Enr;
 use libp2p::core::multiaddr::{Multiaddr, Protocol};
 use serde::{
@@ -14,7 +13,7 @@ use std::collections::HashSet;
 use std::net::IpAddr;
 use std::time::Instant;
 use strum::AsRefStr;
-use types::{ChainSpec, DataColumnSubnetId, EthSpec};
+use types::{DataColumnSubnetId, EthSpec};
 use PeerConnectionStatus::*;
 
 /// Information about a given connected peer.
@@ -358,31 +357,7 @@ impl<E: EthSpec> PeerInfo<E> {
 
     /// Sets an explicit value for the meta data.
     // VISIBILITY: The peer manager is able to adjust the meta_data
-    pub(in crate::peer_manager) fn set_meta_data(
-        &mut self,
-        meta_data: MetaData<E>,
-        node_id_opt: Option<NodeId>,
-        spec: &ChainSpec,
-    ) {
-        // If we don't have a node id, we cannot compute the custody duties anyway
-        let Some(node_id) = node_id_opt else {
-            self.meta_data = Some(meta_data);
-            return;
-        };
-
-        // Already set by enr if custody_subnets is non empty
-        if self.custody_subnets.is_empty() {
-            if let Ok(custody_subnet_count) = meta_data.custody_subnet_count() {
-                let custody_subnets = DataColumnSubnetId::compute_custody_subnets::<E>(
-                    node_id.raw(),
-                    std::cmp::min(*custody_subnet_count, spec.data_column_sidecar_subnet_count),
-                    spec,
-                )
-                .collect::<HashSet<_>>();
-                self.set_custody_subnets(custody_subnets);
-            }
-        }
-
+    pub(in crate::peer_manager) fn set_meta_data(&mut self, meta_data: MetaData<E>) {
         self.meta_data = Some(meta_data);
     }
 
@@ -391,7 +366,10 @@ impl<E: EthSpec> PeerInfo<E> {
         self.connection_status = connection_status
     }
 
-    pub(super) fn set_custody_subnets(&mut self, custody_subnets: HashSet<DataColumnSubnetId>) {
+    pub(in crate::peer_manager) fn set_custody_subnets(
+        &mut self,
+        custody_subnets: HashSet<DataColumnSubnetId>,
+    ) {
         self.custody_subnets = custody_subnets
     }
 

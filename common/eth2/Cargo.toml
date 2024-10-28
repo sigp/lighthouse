@@ -29,6 +29,7 @@ store = { workspace = true }
 slashing_protection = { workspace = true }
 mediatype = "0.19.13"
 pretty_reqwest_error = { workspace = true }
+derivative = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

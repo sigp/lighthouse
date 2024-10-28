@@ -1,4 +1,5 @@
 use beacon_node::{get_data_dir, set_network_config};
+use bytes::Bytes;
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::discv5::{self, enr::CombinedKey, Enr};
@@ -152,7 +153,7 @@ impl<E: EthSpec> BootNodeConfig<E> {
 
                 // If we know of the ENR field, add it to the initial construction
                 if let Some(enr_fork_bytes) = enr_fork {
-                    builder.add_value("eth2", &enr_fork_bytes);
+                    builder.add_value::<Bytes>("eth2", &enr_fork_bytes.into());
                 }
                 builder
                     .build(&local_key)

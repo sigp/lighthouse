@@ -1647,11 +1647,12 @@ pub static BLOB_SIDECAR_INCLUSION_PROOF_COMPUTATION: LazyLock<Result<Histogram>>
             "Time taken to compute blob sidecar inclusion proof",
         )
     });
-pub static DATA_COLUMN_SIDECAR_COMPUTATION: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram_with_buckets(
+pub static DATA_COLUMN_SIDECAR_COMPUTATION: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
+    try_create_histogram_vec_with_buckets(
         "data_column_sidecar_computation_seconds",
         "Time taken to compute data column sidecar, including cells, proofs and inclusion proof",
-        Ok(vec![0.04, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0]),
+        Ok(vec![0.1, 0.15, 0.25, 0.35, 0.5, 0.7, 1.0, 2.5, 5.0, 10.0]),
+        &["blob_count"],
     )
 });
 pub static DATA_COLUMN_SIDECAR_INCLUSION_PROOF_VERIFICATION: LazyLock<Result<Histogram>> =
@@ -1883,6 +1884,31 @@ pub static DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS: LazyLock<Result<IntCounter>>
         try_create_int_counter(
             "data_availability_reconstructed_columns_total",
             "Total count of reconstructed columns",
+        )
+    });
+
+pub static KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "kzg_data_column_reconstruction_attempts",
+            "Count of times data column reconstruction has been attempted",
+        )
+    });
+
+pub static KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "kzg_data_column_reconstruction_failures",
+            "Count of times data column reconstruction has failed",
+        )
+    });
+
+pub static KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "kzg_data_column_reconstruction_incomplete_total",
+            "Count of times data column reconstruction attempts did not result in an import",
+            &["reason"],
         )
     });
 

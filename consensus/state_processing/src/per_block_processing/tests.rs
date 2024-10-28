@@ -12,7 +12,7 @@ use crate::{
 };
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use ssz_types::Bitfield;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use test_utils::generate_deterministic_keypairs;
 use types::*;
 
@@ -1017,6 +1017,7 @@ async fn fork_spanning_exit() {
     spec.altair_fork_epoch = Some(Epoch::new(2));
     spec.bellatrix_fork_epoch = Some(Epoch::new(4));
     spec.shard_committee_period = 0;
+    let spec = Arc::new(spec);
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .spec(spec.clone())

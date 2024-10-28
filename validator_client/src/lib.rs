@@ -1,5 +1,6 @@
 mod attestation_service;
 mod beacon_node_fallback;
+mod beacon_node_health;
 mod block_service;
 mod check_synced;
 mod cli;
@@ -20,6 +21,7 @@ pub mod initialized_validators;
 pub mod validator_store;
 
 pub use beacon_node_fallback::ApiTopic;
+pub use beacon_node_health::BeaconNodeSyncDistanceTiers;
 pub use cli::cli_app;
 pub use config::Config;
 use initialized_validators::InitializedValidators;
@@ -29,8 +31,7 @@ use sensitive_url::SensitiveUrl;
 pub use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 
 use crate::beacon_node_fallback::{
-    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, OfflineOnFailure,
-    RequireSynced,
+    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode,
 };
 use crate::doppelganger_service::DoppelgangerService;
 use crate::graffiti_file::GraffitiFile;
@@ -364,15 +365,21 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .collect::<Result<Vec<BeaconNodeHttpClient>, String>>()?;
 
         let num_nodes = beacon_nodes.len();
+        // User order of `beacon_nodes` is preserved, so `index` corresponds to the position of
+        // the node in `--beacon_nodes`.
         let candidates = beacon_nodes
             .into_iter()
-            .map(CandidateBeaconNode::new)
+            .enumerate()
+            .map(|(index, node)| CandidateBeaconNode::new(node, index))
             .collect();
 
         let proposer_nodes_num = proposer_nodes.len();
+        // User order of `proposer_nodes` is preserved, so `index` corresponds to the position of
+        // the node in `--proposer_nodes`.
         let proposer_candidates = proposer_nodes
             .into_iter()
-            .map(CandidateBeaconNode::new)
+            .enumerate()
+            .map(|(index, node)| CandidateBeaconNode::new(node, index))
             .collect();
 
         // Set the count for beacon node fallbacks excluding the primary beacon node.
@@ -394,6 +401,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         let mut beacon_nodes: BeaconNodeFallback<_, E> = BeaconNodeFallback::new(
             candidates,
+            config.beacon_node_fallback,
             config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
             log.clone(),
@@ -401,6 +409,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         let mut proposer_nodes: BeaconNodeFallback<_, E> = BeaconNodeFallback::new(
             proposer_candidates,
+            config.beacon_node_fallback,
             config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
             log.clone(),
@@ -563,6 +572,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             let ctx = Arc::new(http_api::Context {
                 task_executor: self.context.executor.clone(),
                 api_secret,
+                block_service: Some(self.block_service.clone()),
                 validator_store: Some(self.validator_store.clone()),
                 validator_dir: Some(self.config.validator_dir.clone()),
                 secrets_dir: Some(self.config.secrets_dir.clone()),
@@ -655,10 +665,10 @@ async fn init_from_beacon_node<E: EthSpec>(
         proposer_nodes.update_all_candidates().await;
 
         let num_available = beacon_nodes.num_available().await;
-        let num_total = beacon_nodes.num_total();
+        let num_total = beacon_nodes.num_total().await;
 
         let proposer_available = proposer_nodes.num_available().await;
-        let proposer_total = proposer_nodes.num_total();
+        let proposer_total = proposer_nodes.num_total().await;
 
         if proposer_total > 0 && proposer_available == 0 {
             warn!(
@@ -704,11 +714,7 @@ async fn init_from_beacon_node<E: EthSpec>(
 
     let genesis = loop {
         match beacon_nodes
-            .first_success(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                |node| async move { node.get_beacon_genesis().await },
-            )
+            .first_success(|node| async move { node.get_beacon_genesis().await })
             .await
         {
             Ok(genesis) => break genesis.data,
@@ -795,11 +801,7 @@ async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
 ) -> Result<(), String> {
     loop {
         match beacon_nodes
-            .first_success(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                |beacon_node| async move { beacon_node.get_lighthouse_staking().await },
-            )
+            .first_success(|beacon_node| async move { beacon_node.get_lighthouse_staking().await })
             .await
         {
             Ok(is_staking) => {

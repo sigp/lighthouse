@@ -301,7 +301,7 @@ pub fn migrate_db<E: EthSpec>(
     runtime_context: &RuntimeContext<E>,
     log: Logger,
 ) -> Result<(), Error> {
-    let spec = &runtime_context.eth2_config.spec;
+    let spec = runtime_context.eth2_config.spec.clone();
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
     let blobs_path = client_config.get_blobs_db_path();
@@ -334,7 +334,7 @@ pub fn migrate_db<E: EthSpec>(
         from,
         to,
         log,
-        spec,
+        &spec,
     )
 }
 

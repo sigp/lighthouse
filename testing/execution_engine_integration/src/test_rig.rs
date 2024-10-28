@@ -649,15 +649,7 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
     ee: &ExecutionPair<E, MainnetEthSpec>,
     payload: &ExecutionPayload<MainnetEthSpec>,
 ) {
-    // check via legacy eth_getBlockByHash
-    let reconstructed = ee
-        .execution_layer
-        .get_payload_by_hash_legacy(payload.block_hash(), payload.fork_name())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(reconstructed, *payload);
-    // also check via payload bodies method
+    // check via payload bodies method
     let capabilities = ee
         .execution_layer
         .get_engine_capabilities(None)

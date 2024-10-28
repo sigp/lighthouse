@@ -31,6 +31,7 @@ impl<E: EthSpec> Case for GetCustodyColumns<E> {
             self.custody_subnet_count,
             &spec,
         )
+        .expect("should compute custody columns")
         .collect::<Vec<_>>();
         let expected = &self.result;
         if computed == *expected {

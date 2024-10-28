@@ -41,9 +41,10 @@ impl DataColumnSubnetId {
         raw_node_id: [u8; 32],
         custody_subnet_count: u64,
         spec: &ChainSpec,
-    ) -> impl Iterator<Item = DataColumnSubnetId> {
-        // TODO(das): we could perform check on `custody_subnet_count` here to ensure that it is a valid
-        // value, but here we assume it is valid.
+    ) -> Result<impl Iterator<Item = DataColumnSubnetId>, Error> {
+        if custody_subnet_count > spec.data_column_sidecar_subnet_count {
+            return Err(Error::InvalidCustodySubnetCount(custody_subnet_count));
+        }
 
         let mut subnets: HashSet<u64> = HashSet::new();
         let mut current_id = U256::from_be_slice(&raw_node_id);
@@ -66,17 +67,26 @@ impl DataColumnSubnetId {
             }
             current_id += U256::from(1u64)
         }
-        subnets.into_iter().map(DataColumnSubnetId::new)
+        Ok(subnets.into_iter().map(DataColumnSubnetId::new))
+    }
+
+    /// Compute the custody subnets for a given node id with the default `custody_requirement`.
+    /// This operation should be infallable, and empty iterator is returned if it fails unexpectedly.
+    pub fn compute_custody_requirement_subnets<E: EthSpec>(
+        node_id: [u8; 32],
+        spec: &ChainSpec,
+    ) -> impl Iterator<Item = DataColumnSubnetId> {
+        Self::compute_custody_subnets::<E>(node_id, spec.custody_requirement, spec)
+            .expect("should compute default custody subnets")
     }
 
     pub fn compute_custody_columns<E: EthSpec>(
         raw_node_id: [u8; 32],
         custody_subnet_count: u64,
         spec: &ChainSpec,
-    ) -> impl Iterator<Item = ColumnIndex> {
+    ) -> Result<impl Iterator<Item = ColumnIndex>, Error> {
         Self::compute_custody_subnets::<E>(raw_node_id, custody_subnet_count, spec)
-            .flat_map(|subnet| subnet.columns::<E>(spec))
-            .sorted()
+            .map(|subnet| subnet.flat_map(|subnet| subnet.columns::<E>(spec)).sorted())
     }
 }
 
@@ -121,6 +131,7 @@ impl From<&DataColumnSubnetId> for u64 {
 #[derive(Debug)]
 pub enum Error {
     ArithError(ArithError),
+    InvalidCustodySubnetCount(u64),
 }
 
 impl From<ArithError> for Error {
@@ -132,9 +143,9 @@ impl From<ArithError> for Error {
 #[cfg(test)]
 mod test {
     use crate::data_column_subnet_id::DataColumnSubnetId;
-    use crate::EthSpec;
     use crate::MainnetEthSpec;
     use crate::Uint256;
+    use crate::{EthSpec, GnosisEthSpec, MinimalEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -163,7 +174,8 @@ mod test {
                 node_id,
                 custody_requirement,
                 &spec,
-            );
+            )
+            .unwrap();
             let computed_subnets: Vec<_> = computed_subnets.collect();
 
             // the number of subnets is equal to the custody requirement
@@ -181,6 +193,21 @@ mod test {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_compute_custody_requirement_subnets_never_panics() {
+        let node_id = [1u8; 32];
+        test_compute_custody_requirement_subnets_with_spec::<MainnetEthSpec>(node_id);
+        test_compute_custody_requirement_subnets_with_spec::<MinimalEthSpec>(node_id);
+        test_compute_custody_requirement_subnets_with_spec::<GnosisEthSpec>(node_id);
+    }
+
+    fn test_compute_custody_requirement_subnets_with_spec<E: EthSpec>(node_id: [u8; 32]) {
+        let _ = DataColumnSubnetId::compute_custody_requirement_subnets::<E>(
+            node_id,
+            &E::default_spec(),
+        );
     }
 
     #[test]

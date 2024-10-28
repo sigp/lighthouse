@@ -4,7 +4,6 @@
 use crate::{BeaconChain, BeaconChainError as Error, BeaconChainTypes};
 use execution_layer::BlockByNumberQuery;
 use serde::{Deserialize, Serialize, Serializer};
-use slog::debug;
 use std::fmt;
 use std::fmt::Write;
 use types::*;
@@ -199,7 +198,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         else {
             return Ok(GenesisExecutionPayloadStatus::Irrelevant);
         };
-        let fork = self.spec.fork_name_at_epoch(Epoch::new(0));
 
         let execution_layer = self
             .execution_layer
@@ -220,49 +218,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 got: execution_block.block_hash,
                 expected: exec_block_hash,
             });
-        }
-
-        // Double-check the block by reconstructing it.
-        let execution_payload = execution_layer
-            .get_payload_by_hash_legacy(exec_block_hash, fork)
-            .await
-            .map_err(|e| Error::ExecutionLayerGetBlockByHashFailed(Box::new(e)))?
-            .ok_or(Error::BlockHashMissingFromExecutionLayer(exec_block_hash))?;
-
-        // Verify payload integrity.
-        let header_from_payload = ExecutionPayloadHeader::from(execution_payload.to_ref());
-
-        let got_transactions_root = header_from_payload.transactions_root();
-        let expected_transactions_root = latest_execution_payload_header.transactions_root();
-        let got_withdrawals_root = header_from_payload.withdrawals_root().ok();
-        let expected_withdrawals_root = latest_execution_payload_header.withdrawals_root().ok();
-
-        if got_transactions_root != expected_transactions_root {
-            return Ok(GenesisExecutionPayloadStatus::TransactionsRootMismatch {
-                got: got_transactions_root,
-                expected: expected_transactions_root,
-            });
-        }
-
-        if let Some(expected) = expected_withdrawals_root {
-            if let Some(got) = got_withdrawals_root {
-                if got != expected {
-                    return Ok(GenesisExecutionPayloadStatus::WithdrawalsRootMismatch {
-                        got,
-                        expected,
-                    });
-                }
-            }
-        }
-
-        if header_from_payload.to_ref() != latest_execution_payload_header {
-            debug!(
-                self.log,
-                "Genesis execution payload reconstruction failure";
-                "consensus_node_header" => ?latest_execution_payload_header,
-                "execution_node_header" => ?header_from_payload
-            );
-            return Ok(GenesisExecutionPayloadStatus::OtherMismatch);
         }
 
         Ok(GenesisExecutionPayloadStatus::Correct(exec_block_hash))

@@ -14,6 +14,7 @@
 use bytes::Bytes;
 use discv5::enr::{CombinedKey, Enr};
 use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};
+use kzg::trusted_setup::get_trusted_setup;
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::{Client, Error};
 use sensitive_url::SensitiveUrl;
@@ -24,7 +25,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
-use types::{BeaconState, ChainSpec, Config, Epoch, EthSpec, EthSpecId, Hash256};
+use types::{BeaconState, ChainSpec, Config, EthSpec, EthSpecId, Hash256};
 use url::Url;
 
 pub use eth2_config::GenesisStateSource;
@@ -42,26 +43,6 @@ pub const BASE_CONFIG_FILE: &str = "config.yaml";
 instantiate_hardcoded_nets!(eth2_config);
 
 pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
-
-/// Contains the bytes from the trusted setup json.
-/// The mainnet trusted setup is also reused in testnets.
-///
-/// This is done to ensure that testnets also inherit the high security and
-/// randomness of the mainnet kzg trusted setup ceremony.
-///
-/// Note: The trusted setup for both mainnet and minimal presets are the same.
-pub const TRUSTED_SETUP_BYTES: &[u8] =
-    include_bytes!("../built_in_network_configs/trusted_setup.json");
-
-/// Returns `Some(TrustedSetup)` if the deneb fork epoch is set and `None` otherwise.
-///
-/// Returns an error if the trusted setup parsing failed.
-fn get_trusted_setup_from_config(config: &Config) -> Option<Vec<u8>> {
-    config
-        .deneb_fork_epoch
-        .filter(|epoch| epoch.value != Epoch::max_value())
-        .map(|_| TRUSTED_SETUP_BYTES.to_vec())
-}
 
 /// A simple slice-or-vec enum to avoid cloning the beacon state bytes in the
 /// binary whilst also supporting loading them from a file at runtime.
@@ -104,7 +85,7 @@ pub struct Eth2NetworkConfig {
     pub genesis_state_source: GenesisStateSource,
     pub genesis_state_bytes: Option<GenesisStateBytes>,
     pub config: Config,
-    pub kzg_trusted_setup: Option<Vec<u8>>,
+    pub kzg_trusted_setup: Vec<u8>,
 }
 
 impl Eth2NetworkConfig {
@@ -122,7 +103,7 @@ impl Eth2NetworkConfig {
     fn from_hardcoded_net(net: &HardcodedNet) -> Result<Self, String> {
         let config: Config = serde_yaml::from_reader(net.config)
             .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?;
-        let kzg_trusted_setup = get_trusted_setup_from_config(&config);
+        let kzg_trusted_setup = get_trusted_setup();
         Ok(Self {
             deposit_contract_deploy_block: serde_yaml::from_reader(net.deploy_block)
                 .map_err(|e| format!("Unable to parse deploy block: {:?}", e))?,
@@ -359,7 +340,7 @@ impl Eth2NetworkConfig {
             (None, GenesisStateSource::Unknown)
         };
 
-        let kzg_trusted_setup = get_trusted_setup_from_config(&config);
+        let kzg_trusted_setup = get_trusted_setup();
 
         Ok(Self {
             deposit_contract_deploy_block,
@@ -577,7 +558,7 @@ mod tests {
             GenesisStateSource::Unknown
         };
         // With Deneb enabled by default we must set a trusted setup here.
-        let kzg_trusted_setup = get_trusted_setup_from_config(&config).unwrap();
+        let kzg_trusted_setup = get_trusted_setup();
 
         let testnet = Eth2NetworkConfig {
             deposit_contract_deploy_block,
@@ -588,7 +569,7 @@ mod tests {
                 .map(Encode::as_ssz_bytes)
                 .map(Into::into),
             config,
-            kzg_trusted_setup: Some(kzg_trusted_setup),
+            kzg_trusted_setup,
         };
 
         testnet

@@ -1,7 +1,7 @@
 use super::*;
 use crate::case_result::compare_result;
 use beacon_chain::kzg_utils::validate_blob;
-use eth2_network_config::TRUSTED_SETUP_BYTES;
+use kzg::trusted_setup::get_trusted_setup;
 use kzg::{Cell, Error as KzgError, Kzg, KzgCommitment, KzgProof, TrustedSetup};
 use serde::Deserialize;
 use std::marker::PhantomData;
@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 use types::Blob;
 
 static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
-    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
         .map_err(|e| Error::InternalError(format!("Failed to initialize trusted setup: {:?}", e)))
         .expect("failed to initialize trusted setup");
     let kzg = Kzg::new_from_trusted_setup_das_enabled(trusted_setup)
