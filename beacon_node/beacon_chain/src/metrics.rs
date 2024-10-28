@@ -1945,7 +1945,7 @@ pub static LIGHT_CLIENT_SERVER_CACHE_PROCESSING_REQUESTS: LazyLock<Result<IntCou
         )
     });
 
-    pub static LIGHT_CLIENT_SERVER_CACHE_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
+pub static LIGHT_CLIENT_SERVER_CACHE_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
             "light_client_server_cache_processing_successes",

@@ -295,7 +295,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             if sync_committee_period >= start_period + count {
                 break;
             }
-    
+
             let epoch = sync_committee_period
                 .safe_mul(chain_spec.epochs_per_sync_committee_period.into())?;
 
@@ -304,7 +304,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             let light_client_update =
                 LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)
                     .map_err(store::errors::Error::SszDecodeError)?;
-            
+
             light_client_updates.push(light_client_update);
         }
         Ok(light_client_updates)
