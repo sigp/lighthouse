@@ -65,14 +65,14 @@ impl<T: BeaconChainTypes> SlasherService<T> {
                 slot_offset,
                 notif_sender,
             )
-            .instrument(tracing::trace_span!("", service = "slasher")),
+            .instrument(tracing::info_span!("", service = "slasher")),
             "slasher_server_notifier",
         );
 
         executor.spawn_blocking(
             || {
                 let _ = Self::run_processor(beacon_chain, slasher, notif_receiver, network_sender)
-                    .instrument(tracing::trace_span!("", service = "slasher"));
+                    .instrument(tracing::info_span!("slasher", service = "slasher"));
             },
             "slasher_server_processor",
         );
