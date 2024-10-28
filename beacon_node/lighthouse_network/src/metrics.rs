@@ -1,4 +1,4 @@
-pub use lighthouse_metrics::*;
+pub use metrics::*;
 use std::sync::LazyLock;
 
 pub static NAT_OPEN: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
