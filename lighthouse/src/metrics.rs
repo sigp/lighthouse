@@ -1,5 +1,5 @@
-pub use lighthouse_metrics::*;
 use lighthouse_version::VERSION;
+pub use metrics::*;
 use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::error;

@@ -170,7 +170,7 @@ impl TaskExecutor {
     /// Spawn a future on the tokio runtime. This function does not wrap the task in an `async-channel::Receiver`
     /// like [spawn](#method.spawn).
     /// The caller of this function is responsible for wrapping up the task with an `async-channel::Receiver` to
-    /// ensure that the task gets canceled appropriately.
+    /// ensure that the task gets cancelled appropriately.
     /// This function generates prometheus metrics on number of tasks and task duration.
     ///
     /// This is useful in cases where the future to be spawned needs to do additional cleanup work when
@@ -210,7 +210,7 @@ impl TaskExecutor {
 
     /// Spawn a future on the tokio runtime wrapped in an `async-channel::Receiver` returning an optional
     /// join handle to the future.
-    /// The task is canceled when the corresponding async-channel is dropped.
+    /// The task is cancelled when the corresponding async-channel is dropped.
     ///
     /// This function generates prometheus metrics on number of tasks and task duration.
     pub fn spawn_handle<R: Send + 'static>(
@@ -276,10 +276,7 @@ impl TaskExecutor {
 
         let future = async move {
             let result = match join_handle.await {
-                Ok(result) => {
-                    trace!(task = name, "Blocking task completed");
-                    Ok(result)
-                }
+                Ok(result) => Ok(result),
                 Err(e) => {
                     debug!(error = %e, "Blocking task ended unexpectedly");
                     Err(e)
@@ -324,13 +321,6 @@ impl TaskExecutor {
                     debug!(
                         name,
                         "Completed block_on task"
-                    );
-                    Some(output)
-                },
-                _ = exit => {
-                    debug!(
-                        name,
-                        "Cancelled block_on task"
                     );
                     None
                 }

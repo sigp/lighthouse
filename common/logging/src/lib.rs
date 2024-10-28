@@ -1,6 +1,4 @@
-use lighthouse_metrics::{
-    inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult,
-};
+use metrics::{inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult};
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
