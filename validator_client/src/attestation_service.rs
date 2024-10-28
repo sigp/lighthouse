@@ -457,14 +457,14 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 head_block = ?attestation_data.beacon_block_root,
                 committee_index = attestation_data.index,
                 slot = attestation_data.slot.as_u64(),
-                r#type = "unaggregated",
+                attestation_type = "unaggregated",
                 "Successfully published attestations"
             ),
             Err(e) => error!(
                 error = %e,
                 committee_index = attestation_data.index,
                 slot = slot.as_u64(),
-                r#type = "unaggregated",
+                attestation_type = "unaggregated",
                 "Unable to publish attestations"
             ),
         }
@@ -622,7 +622,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             head_block = ?attestation.data().beacon_block_root,
                             committee_index = attestation.committee_index(),
                             slot = attestation.data().slot.as_u64(),
-                            r#type = "aggregated",
+                            attestation_type = "aggregated",
                             "Successfully published attestation"
                         );
                     }
@@ -635,7 +635,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                             aggregator = signed_aggregate_and_proof.message().aggregator_index(),
                             committee_index = attestation.committee_index(),
                             slot = attestation.data().slot.as_u64(),
-                            r#type = "aggregated",
+                            attestation_type = "aggregated",
                             "Failed to publish attestation"
                         );
                     }

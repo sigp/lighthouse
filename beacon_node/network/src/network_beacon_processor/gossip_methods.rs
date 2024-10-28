@@ -2066,7 +2066,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 trace!(
                     %peer_id,
                     block = ?beacon_block_root,
-                    r#type = ?attestation_type,
+                    ?attestation_type,
                     "Attestation is not within the last ATTESTATION_PROPAGATION_SLOT_RANGE slots"
                 );
 
@@ -2183,7 +2183,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 trace!(
                     %peer_id,
                     block = ?beacon_block_root,
-                    r#type = ?attestation_type,
+                    ?attestation_type,
                     "Attestation already known"
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
@@ -2199,7 +2199,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 trace!(
                     %peer_id,
                     block = ?beacon_block_root,
-                    r#type = ?attestation_type,
+                    ?attestation_type,
                     "Aggregator already known"
                 );
                 // This is an allowed behaviour.
@@ -2221,7 +2221,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     block = ?beacon_block_root,
                     %epoch,
                     validator_index,
-                    r#type = ?attestation_type,
+                    ?attestation_type,
                     "Prior attestation known"
                 );
 
@@ -2239,7 +2239,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(
                     %peer_id,
                     block = ?beacon_block_root,
-                    r#type = ?attestation_type,
+                    ?attestation_type,
                     "Validation Index too high"
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
@@ -2258,7 +2258,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(
                     %peer_id,
                     block = ?beacon_block_root,
-                    r#type = ?attestation_type,
+                    ?attestation_type,
                     committee_index = index,
                     "Committee index non zero"
                 );
@@ -2548,7 +2548,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     target_root = ?failed_att.attestation().data().target.root,
                     ?beacon_block_root,
                     slot = ?failed_att.attestation().data().slot,
-                    r#type = ?attestation_type,
+                    ?attestation_type,
                     error = ?e,
                     %peer_id,
                     "Dropping attestation"
@@ -2566,7 +2566,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 error!(
                     ?beacon_block_root,
                     slot = ?failed_att.attestation().data().slot,
-                    r#type = ?attestation_type,
+                    ?attestation_type,
                     %peer_id,
                     error = ?e,
                     "Unable to validate attestation"
@@ -2579,7 +2579,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             reason = ?error,
             block = ?beacon_block_root,
             %peer_id,
-            r#type = ?attestation_type,
+            ?attestation_type,
             "Invalid attestation from network"
         );
     }
@@ -2607,7 +2607,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                  */
                 trace!(
                     %peer_id,
-                    r#type = ?message_type,
+                    ?message_type,
                     "Sync committee message is not within the last MAXIMUM_GOSSIP_CLOCK_DISPARITY slots"
                 );
 
@@ -2631,7 +2631,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                  */
                 trace!(
                     %peer_id,
-                    r#type = ?message_type,
+                    ?message_type,
                     "Sync committee message is not within the last MAXIMUM_GOSSIP_CLOCK_DISPARITY slots"
                 );
 
@@ -2723,7 +2723,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                  */
                 trace!(
                     %peer_id,
-                    r#type = ?message_type,
+                    ?message_type,
                     "Sync committee message is already known"
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
@@ -2738,7 +2738,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                  */
                 debug!(
                     %peer_id,
-                    r#type = ?message_type,
+                    ?message_type,
                     "Validation Index too high"
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
@@ -2751,7 +2751,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             SyncCommitteeError::UnknownValidatorPubkey(_) => {
                 debug!(
                     %peer_id,
-                    r#type = ?message_type,
+                    ?message_type,
                     "Validator pubkey is unknown"
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
@@ -2798,7 +2798,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                  */
                 debug!(
                     %peer_id,
-                    r#type = ?message_type,
+                    ?message_type,
                     "Prior sync committee message known"
                 );
 
@@ -2816,7 +2816,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                  */
                 debug!(
                     %peer_id,
-                    r#type = ?message_type,
+                    ?message_type,
                     "Prior sync contribution message known"
                 );
                 // We still penalize the peer slightly. We don't want this to be a recurring
@@ -2927,7 +2927,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         debug!(
             reason = ?error,
             %peer_id,
-            r#type = ?message_type,
+            ?message_type,
             "Invalid sync committee message from network"
         );
     }
