@@ -900,12 +900,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.send_network_message(NetworkMessage::Publish { messages });
             }
             BlobsOrDataColumns::DataColumns(columns) => {
-                debug!(
-                    self.log,
-                    "Publishing data columns built from EL blobs";
-                    "count" => columns.len(),
-                    "block_root" => ?block_root,
-                );
                 self.publish_data_columns_gradually(columns, block_root);
             }
         };
@@ -1038,6 +1032,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.executor.spawn(
             async move {
                 let chain = self_clone.chain.clone();
+                let log = self_clone.chain.logger();
                 let publish_fn = |columns: DataColumnSidecarList<T::EthSpec>| {
                     self_clone.send_network_message(NetworkMessage::Publish {
                         messages: columns
@@ -1065,6 +1060,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     chain.config.supernode_data_column_publication_batches;
                 let batch_size =
                     data_columns_to_publish.len() / supernode_data_column_publication_batches;
+                let mut publish_count = 0usize;
 
                 for batch in data_columns_to_publish.chunks(batch_size) {
                     let already_seen = chain
@@ -1079,18 +1075,29 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                     if !publishable.is_empty() {
                         debug!(
-                            self_clone.chain.logger(),
+                            log,
                             "Publishing data column batch";
-                            "count" => publishable.len(),
+                            "publish_count" => publishable.len(),
                             "block_root" => ?block_root,
                         );
+                        publish_count += publishable.len();
                         publish_fn(publishable);
                     }
 
                     tokio::time::sleep(supernode_data_column_publication_batch_interval).await;
                 }
+
+                debug!(
+                    log,
+                    "Batch data column publishing complete";
+                    "batch_size" => batch_size,
+                    "batch_interval" => supernode_data_column_publication_batch_interval.as_millis(),
+                    "data_columns_to_publish_count" => data_columns_to_publish.len(),
+                    "published_count" => publish_count,
+                    "block_root" => ?block_root,
+                )
             },
-            "publish_data_columns_gradually",
+            "gradual_data_column_publication",
         );
     }
 }
