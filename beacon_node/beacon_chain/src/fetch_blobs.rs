@@ -14,7 +14,6 @@ use execution_layer::json_structures::BlobAndProofV1;
 use execution_layer::Error as ExecutionLayerError;
 use itertools::Either;
 use lighthouse_metrics::{inc_counter, inc_counter_by, TryExt};
-use rand::prelude::SliceRandom;
 use slog::{debug, error, o, Logger};
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
@@ -136,7 +135,6 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
 
         let data_columns_receiver = spawn_compute_and_publish_data_columns_task(
             &chain,
-            block_root,
             block.clone(),
             fixed_blob_sidecar_list.clone(),
             publish_fn,
@@ -194,7 +192,6 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
 /// while maintaining the invariant that block and data columns are persisted atomically.
 fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     blobs: FixedBlobSidecarList<T::EthSpec>,
     publish_fn: impl Fn(BlobsOrDataColumns<T::EthSpec>) + Send + 'static,
@@ -222,7 +219,7 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
             .discard_timer_on_break(&mut timer);
             drop(timer);
 
-            let mut all_data_columns = match data_columns_result {
+            let all_data_columns = match data_columns_result {
                 Ok(d) => d,
                 Err(e) => {
                     error!(
@@ -249,42 +246,7 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
                 return;
             }
 
-            // To reduce bandwidth for supernodes: permute the columns to publish and
-            // publish them in batches. Our hope is that some columns arrive from
-            // other supernodes in the meantime, obviating the need for us to publish
-            // them. If no other publisher exists for a column, it will eventually get
-            // published here.
-            // FIXME(das): deduplicate this wrt to gossip/sync methods
-            all_data_columns.shuffle(&mut rand::thread_rng());
-
-            let supernode_data_column_publication_batches = chain_cloned
-                .config
-                .supernode_data_column_publication_batches;
-            let supernode_data_column_publication_batch_interval = chain_cloned
-                .config
-                .supernode_data_column_publication_batch_interval;
-
-            let batch_size = all_data_columns.len() / supernode_data_column_publication_batches;
-            for batch in all_data_columns.chunks(batch_size) {
-                let already_seen = chain_cloned
-                    .data_availability_checker
-                    .cached_data_column_indexes(&block_root)
-                    .unwrap_or_default();
-                let publishable = batch
-                    .iter()
-                    .filter(|col| !already_seen.contains(&col.index()))
-                    .cloned()
-                    .collect::<Vec<_>>();
-                if !publishable.is_empty() {
-                    debug!(
-                        log,
-                        "Publishing data columns from EL";
-                        "count" => publishable.len()
-                    );
-                    publish_fn(BlobsOrDataColumns::DataColumns(publishable));
-                }
-                std::thread::sleep(supernode_data_column_publication_batch_interval);
-            }
+            publish_fn(BlobsOrDataColumns::DataColumns(all_data_columns));
         },
         "compute_and_publish_data_columns",
     );

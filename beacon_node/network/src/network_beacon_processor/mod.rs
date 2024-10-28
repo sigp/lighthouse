@@ -880,28 +880,35 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
-    fn publish_blobs_or_data_column(&self, blobs_or_data_column: BlobsOrDataColumns<T::EthSpec>) {
-        let messages = match blobs_or_data_column {
+    fn publish_blobs_or_data_column(
+        self: &Arc<Self>,
+        blobs_or_data_column: BlobsOrDataColumns<T::EthSpec>,
+        block_root: Hash256,
+    ) {
+        match blobs_or_data_column {
             BlobsOrDataColumns::Blobs(blobs) => {
-                debug!(self.log, "Publishing blobs from EL"; "count" => blobs.len());
-                blobs
+                debug!(
+                    self.log,
+                    "Publishing blobs from EL";
+                    "count" => blobs.len(),
+                    "block_root" => ?block_root,
+                );
+                let messages = blobs
                     .into_iter()
                     .map(|blob| PubsubMessage::BlobSidecar(Box::new((blob.index, blob))))
-                    .collect()
+                    .collect();
+                self.send_network_message(NetworkMessage::Publish { messages });
             }
             BlobsOrDataColumns::DataColumns(columns) => {
-                debug!(self.log, "Publishing data columns built from EL blobs"; "count" => columns.len());
-                columns.into_iter().map(|column| {
-                    let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
-                        column.index as usize,
-                        &self.chain.spec,
-                    );
-                    PubsubMessage::DataColumnSidecar(Box::new((subnet, column)))
-                })
+                debug!(
+                    self.log,
+                    "Publishing data columns built from EL blobs";
+                    "count" => columns.len(),
+                    "block_root" => ?block_root,
+                );
+                self.publish_data_columns_gradually(columns, block_root);
             }
-            .collect(),
         };
-        self.send_network_message(NetworkMessage::Publish { messages })
     }
 
     pub async fn fetch_engine_blobs_and_publish(
@@ -911,7 +918,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         let self_cloned = self.clone();
         let publish_fn = move |blobs_or_data_column| {
-            self_cloned.publish_blobs_or_data_column(blobs_or_data_column)
+            self_cloned.publish_blobs_or_data_column(blobs_or_data_column, block_root)
         };
 
         match fetch_and_process_engine_blobs(
@@ -971,7 +978,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let result = self.chain.reconstruct_data_columns(block_root).await;
         match result {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {
-                self.handle_data_columns_to_publish(data_columns_to_publish, block_root);
+                self.publish_data_columns_gradually(data_columns_to_publish, block_root);
                 match &availability_processing_status {
                     AvailabilityProcessingStatus::Imported(hash) => {
                         debug!(
@@ -1015,7 +1022,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    fn handle_data_columns_to_publish(
+    /// This function gradually publishes data columns to the network in randomised batches.
+    ///
+    /// This is an optimisation to reduce outbound bandwidth and ensures each column is published
+    /// by some nodes on the network as soon as possible. Our hope is that some columns arrive from
+    /// other supernodes in the meantime, obviating the need for us to publish them. If no other
+    /// publisher exists for a column, it will eventually get published here.
+    fn publish_data_columns_gradually(
         self: &Arc<Self>,
         mut data_columns_to_publish: DataColumnSidecarList<T::EthSpec>,
         block_root: Hash256,
@@ -1068,7 +1081,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         debug!(
                             self_clone.chain.logger(),
                             "Publishing data column batch";
-                            "count" => publishable.len()
+                            "count" => publishable.len(),
+                            "block_root" => ?block_root,
                         );
                         publish_fn(publishable);
                     }
@@ -1076,7 +1090,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     tokio::time::sleep(supernode_data_column_publication_batch_interval).await;
                 }
             },
-            "handle_data_columns_publish",
+            "publish_data_columns_gradually",
         );
     }
 }
