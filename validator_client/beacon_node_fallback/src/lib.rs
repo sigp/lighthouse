@@ -8,8 +8,9 @@ use beacon_node_health::{
     IsOptimistic, SyncDistanceTier,
 };
 use environment::RuntimeContext;
-use eth2::BeaconNodeHttpClient;
+use eth2::{BeaconNodeHttpClient, Timeouts};
 use futures::future;
+use sensitive_url::SensitiveUrl;
 use serde::{ser::SerializeStruct, Deserialize, Serialize, Serializer};
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
@@ -459,6 +460,42 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         }
 
         (candidate_info, num_available, num_synced)
+    }
+
+    /// Update the list of candidates with a new list.
+    /// Returns `Ok(new_list)` if the update was successful.
+    /// Returns `Err(some_err)` if the list is empty.
+    pub async fn replace_candidates(
+        &self,
+        new_list: Vec<SensitiveUrl>,
+        use_long_timeouts: bool,
+    ) -> Result<Vec<SensitiveUrl>, String> {
+        if new_list.is_empty() {
+            return Err("Beacon Node list cannot be empty".to_string());
+        }
+
+        let timeouts: Timeouts = if new_list.len() == 1 || use_long_timeouts {
+            Timeouts::set_all(Duration::from_secs(self.spec.seconds_per_slot))
+        } else {
+            Timeouts::use_optimized_timeouts(Duration::from_secs(self.spec.seconds_per_slot))
+        };
+
+        let new_candidates: Vec<CandidateBeaconNode<E>> = new_list
+            .clone()
+            .into_iter()
+            .enumerate()
+            .map(|(index, url)| {
+                CandidateBeaconNode::<E>::new(
+                    BeaconNodeHttpClient::new(url, timeouts.clone()),
+                    index,
+                )
+            })
+            .collect();
+
+        let mut candidates = self.candidates.write().await;
+        *candidates = new_candidates;
+
+        Ok(new_list)
     }
 
     /// Loop through ALL candidates in `self.candidates` and update their sync status.
