@@ -84,18 +84,8 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         .get_blobs(versioned_hashes)
         .await
         .map_err(FetchEngineBlobError::RequestFailed)?;
-    let num_fetched_blobs = response.iter().filter(|b| b.is_some()).count();
 
-    inc_counter_by(
-        &metrics::BLOBS_FROM_EL_EXPECTED_TOTAL,
-        num_expected_blobs as u64,
-    );
-    inc_counter_by(
-        &metrics::BLOBS_FROM_EL_RECEIVED_TOTAL,
-        num_fetched_blobs as u64,
-    );
-
-    if num_fetched_blobs == 0 {
+    if response.is_empty() {
         debug!(
            log,
             "No blobs fetched from the EL";
@@ -118,11 +108,22 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         &kzg_commitments_proof,
     )?;
 
+    let num_fetched_blobs = fixed_blob_sidecar_list.filter(|b| b.is_some()).count();
+
+    inc_counter_by(
+        &metrics::BLOBS_FROM_EL_EXPECTED_TOTAL,
+        num_expected_blobs as u64,
+    );
+    inc_counter_by(
+        &metrics::BLOBS_FROM_EL_RECEIVED_TOTAL,
+        num_fetched_blobs as u64,
+    );
+
     let peer_das_enabled = chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
 
     let data_columns_receiver_opt = if peer_das_enabled {
         // Partial blobs response isn't useful for PeerDAS, so we don't bother building and publishing data columns.
-        if !num_fetched_blobs == num_expected_blobs {
+        if num_fetched_blobs != num_expected_blobs {
             debug!(
                 log,
                 "Not all blobs fetched from the EL";
