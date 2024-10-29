@@ -120,11 +120,21 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         let post = upgrade_state_to_electra(&mut state, Epoch::new(0), Epoch::new(0), spec)?;
         state = post;
 
-        // TODO(electra): do we need to iterate over an empty pending_deposits list here and increase balance?
-        // in accordance with `initialize_beacon_state_from_eth1` function from the spec
-
         // Remove intermediate Deneb fork from `state.fork`.
         state.fork_mut().previous_version = spec.electra_fork_version;
+
+        // iterate over an empty pending_deposits list here and increase balance
+        let pending_deposits = state.pending_deposits()?.clone();
+        for pending_deposit in pending_deposits.into_iter() {
+            if let Some(validator_index) = state.pubkey_cache().get(&pending_deposit.pubkey) {
+                state
+                    .balances_mut()
+                    .get_mut(validator_index)
+                    .ok_or(Error::UnknownValidator(validator_index))?
+                    .safe_add(pending_deposit.amount)?;
+            }
+        }
+        *state.pending_deposits_mut()? = List::empty();
 
         // TODO(electra): think about this more and determine the best way to
         // do this. The spec tests will expect that the sync committees are
