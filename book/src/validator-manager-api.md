@@ -27,7 +27,7 @@ lighthouse vm import --vc-token <API-TOKEN-PATH> --keystore-file /path/to/json -
 Example:
 
 ```
-lighthouse vm import --vc-token ~/.lighthouse/mainnet/validators/api-token.txt --keystyore-file keystore.json --password keystore_password
+lighthouse vm import --vc-token ~/.lighthouse/mainnet/validators/api-token.txt --keystore-file keystore.json --password keystore_password
 ```
 
 ## List
