@@ -181,17 +181,6 @@ impl Validator {
             .flatten()
     }
 
-    pub fn get_eth1_withdrawal_credential(&self, spec: &ChainSpec) -> Option<Address> {
-        self.has_eth1_withdrawal_credential(spec)
-            .then(|| {
-                self.withdrawal_credentials
-                    .as_slice()
-                    .get(12..)
-                    .map(Address::from_slice)
-            })
-            .flatten()
-    }
-
     /// Changes withdrawal credentials to  the provided eth1 execution address.
     ///
     /// WARNING: this function does NO VALIDATION - it just does it!

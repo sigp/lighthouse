@@ -656,7 +656,19 @@ fn is_valid_switch_to_compounding_request<E: EthSpec>(
         return false;
     };
     // Verify the source withdrawal credentials
-    if let Some(withdrawal_address) = source_validator.get_eth1_withdrawal_credential(spec) {
+    // Note: We need to specifically check for eth1 withdrawal credentials here
+    // If the validator is already compounding, the compounding request is not valid.
+    if let Some(withdrawal_address) = source_validator
+        .has_eth1_withdrawal_credential(spec)
+        .then(|| {
+            source_validator
+                .withdrawal_credentials
+                .as_slice()
+                .get(12..)
+                .map(Address::from_slice)
+        })
+        .flatten()
+    {
         if withdrawal_address != consolidation_request.source_address {
             return false;
         }
