@@ -201,7 +201,7 @@ impl<E: EthSpec> Scheduler<E> {
         let work_id = work.str_id();
 
         let work_type = work.to_type();
-        
+
         match work {
             _ if can_spawn => spawn_worker(&mut self.beacon_processor, idle_tx.clone(), work),
             _ => {

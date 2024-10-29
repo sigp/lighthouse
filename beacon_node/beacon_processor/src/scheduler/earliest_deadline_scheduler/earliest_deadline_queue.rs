@@ -5,7 +5,7 @@ use std::{
 
 use types::EthSpec;
 
-use crate::{WorkEvent, Work};
+use crate::{Work, WorkEvent};
 
 pub struct WorkQueue<E: EthSpec> {
     min_heap: BinaryHeap<Reverse<QueueItem<E>>>,
@@ -16,11 +16,16 @@ pub struct QueueItem<E: EthSpec> {
     pub work_event: WorkEvent<E>,
 }
 
-impl <E: EthSpec> QueueItem<E> {
+impl<E: EthSpec> QueueItem<E> {
     pub fn new(work: Work<E>) -> Self {
+        let work_event = WorkEvent {
+            drop_during_sync: false,
+            work,
+        };
+
         Self {
-            work_event: todo!(),
-            deadline: 0
+            work_event,
+            deadline: 0,
         }
     }
 }
