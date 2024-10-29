@@ -860,8 +860,8 @@ mod tests {
             test_rig.logger.clone(),
         );
 
-        mock_beacon_node_one.mock_post_beacon_blocks_v1(Duration::from_secs(5));
-        mock_beacon_node_two.mock_post_beacon_blocks_v1(Duration::from_secs(0));
+        let mock1 = mock_beacon_node_one.mock_post_beacon_blinded_blocks_v1(Duration::from_secs(5));
+        let mock2 = mock_beacon_node_two.mock_post_beacon_blinded_blocks_v1(Duration::from_secs(0));
 
         let block_service: BlockService<TestingSlotClock, MainnetEthSpec> =
             BlockServiceBuilder::new()
@@ -879,13 +879,15 @@ mod tests {
             BeaconBlockDeneb::empty(&test_rig.spec),
         ));
         let voting_pubkey = first_validator.voting_public_key.clone();
-        let _result = block_service
+        let result = block_service
             .publish_block_for_testing(Slot::new(1), &voting_pubkey.into(), unsigned_block)
-            .await
-            .unwrap();
-        // start with 2 beacon nodes, first BN responds slow (5s delay)
-        // need VC to be set up to connect to the beacon nodes
-        // VC tries to publish attestations to all BNs (broadcast)
-        // Check that the attestation is sent out to all BNs on time
+            .await;
+
+        mock1.expect(1).assert();
+        mock2.expect(1).assert();
+
+        if let Err(e) = result {
+            panic!("Expected block to be broadcasted to BN, but failed with error: {e:?}");
+        }
     }
 }

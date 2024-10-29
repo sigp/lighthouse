@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 use std::str::FromStr;
 use std::time::Duration;
 
-use mockito::{Matcher, Server, ServerGuard};
+use mockito::{Matcher, Mock, Server, ServerGuard};
 use regex::Regex;
 use slog::{info, Logger};
 
@@ -101,14 +101,14 @@ impl<E: EthSpec> MockBeaconNode<E> {
         self
     }
 
-    pub fn mock_post_beacon_blocks_v1(&mut self, delay: Duration) -> &mut Self {
-        let path = "/eth/v1/beacon/blinded_blocks";
+    pub fn mock_post_beacon_blinded_blocks_v1(&mut self, delay: Duration) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/beacon/blinded_blocks$").unwrap();
         let log = self.log.clone();
         let url = self.server.url();
 
         self.server
-            .mock("POST", path)
-            .match_header("Eth-Consensus-Version", "Deneb")
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/json")
             .with_status(200)
             .with_body_from_request(move |_request| {
                 info!(
@@ -124,8 +124,6 @@ impl<E: EthSpec> MockBeaconNode<E> {
                 std::thread::sleep(delay);
                 vec![]
             })
-            .create();
-
-        self
+            .create()
     }
 }
