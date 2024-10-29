@@ -480,21 +480,22 @@ where
                     r#type,
                 };
 
-                let active_requests = self
+                let is_concurrent_request_limit_exceeded = self
                     .active_inbound_requests
                     .iter()
                     .filter(|(_request_id, active_request)| {
                         active_request.peer_id == peer_id
                             && active_request.r#type.protocol() == request.r#type.protocol()
                     })
-                    .count();
+                    .count()
+                    >= MAX_CONCURRENT_REQUESTS;
 
                 // We need to insert the request regardless of whether it is allowed by the limiter,
                 // since we send an error response (RateLimited) if it is not allowed.
                 self.active_inbound_requests.insert(id, request.clone());
 
                 // Restricts more than MAX_CONCURRENT_REQUESTS inbound requests from running simultaneously on the same protocol per peer.
-                if active_requests >= MAX_CONCURRENT_REQUESTS {
+                if is_concurrent_request_limit_exceeded {
                     // There is already an active request with the same protocol. Send an error code to the peer.
                     debug!(self.log, "There is an active request with the same protocol"; "peer_id" => peer_id.to_string(), "request" => %request.r#type, "protocol" => %request.r#type.versioned_protocol().protocol());
                     self.send_response(
