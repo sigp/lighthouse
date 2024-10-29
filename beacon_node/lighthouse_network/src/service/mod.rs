@@ -237,6 +237,7 @@ impl<E: EthSpec> Network<E> {
             gossipsub_config_params,
             ctx.chain_spec.seconds_per_slot,
             E::slots_per_epoch(),
+            config.idontwant_message_size_threshold,
         );
 
         let score_settings = PeerScoreSettings::new(&ctx.chain_spec, gs_config.mesh_n());
@@ -1578,6 +1579,17 @@ impl<E: EthSpec> Network<E> {
                             request,
                         })
                     }
+                    RequestType::LightClientUpdatesByRange(_) => {
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["light_client_updates_by_range"],
+                        );
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            id: (connection_id, request.substream_id),
+                            request,
+                        })
+                    }
                 }
             }
             Ok(RPCReceived::Response(id, resp)) => {
@@ -1631,6 +1643,11 @@ impl<E: EthSpec> Network<E> {
                         peer_id,
                         Response::LightClientFinalityUpdate(update),
                     ),
+                    RpcSuccessResponse::LightClientUpdatesByRange(update) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::LightClientUpdatesByRange(Some(update)),
+                    ),
                 }
             }
             Ok(RPCReceived::EndOfStream(id, termination)) => {
@@ -1641,6 +1658,9 @@ impl<E: EthSpec> Network<E> {
                     ResponseTermination::BlobsByRoot => Response::BlobsByRoot(None),
                     ResponseTermination::DataColumnsByRoot => Response::DataColumnsByRoot(None),
                     ResponseTermination::DataColumnsByRange => Response::DataColumnsByRange(None),
+                    ResponseTermination::LightClientUpdatesByRange => {
+                        Response::LightClientUpdatesByRange(None)
+                    }
                 };
                 self.build_response(id, peer_id, response)
             }

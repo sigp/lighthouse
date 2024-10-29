@@ -420,7 +420,7 @@ jobs:
         channel: stable
         cache-target: release
     - name: Run Makefile to trigger the bash script
-      run: make cli
+      run: make cli-local
   # This job succeeds ONLY IF all others succeed. It is used by the merge queue to determine whether
   # a PR is safe to merge. New jobs should be added here.
   test-suite-success:

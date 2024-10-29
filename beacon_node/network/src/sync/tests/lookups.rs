@@ -1,97 +1,50 @@
 use crate::network_beacon_processor::NetworkBeaconProcessor;
-use crate::sync::manager::{BlockProcessType, SyncManager};
-use crate::sync::peer_sampling::SamplingConfig;
-use crate::sync::range_sync::RangeSyncType;
-use crate::sync::{SamplingId, SyncMessage};
+use crate::sync::block_lookups::{
+    BlockLookupSummary, PARENT_DEPTH_TOLERANCE, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
+};
+use crate::sync::{
+    manager::{BlockProcessType, BlockProcessingResult, SyncManager},
+    peer_sampling::SamplingConfig,
+    SamplingId, SyncMessage,
+};
 use crate::NetworkMessage;
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::*;
 
 use crate::sync::block_lookups::common::ResponseType;
-use beacon_chain::blob_verification::GossipVerifiedBlob;
-use beacon_chain::block_verification_types::BlockImportData;
-use beacon_chain::builder::Witness;
-use beacon_chain::data_availability_checker::Availability;
-use beacon_chain::eth1_chain::CachingEth1Backend;
-use beacon_chain::test_utils::{
-    build_log, generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
-    BeaconChainHarness, EphemeralHarnessType, LoggerType, NumBlobs,
-};
-use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{
-    AvailabilityPendingExecutedBlock, PayloadVerificationOutcome, PayloadVerificationStatus,
+    blob_verification::GossipVerifiedBlob,
+    block_verification_types::{AsBlock, BlockImportData},
+    data_availability_checker::Availability,
+    test_utils::{
+        build_log, generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
+        BeaconChainHarness, EphemeralHarnessType, LoggerType, NumBlobs,
+    },
+    validator_monitor::timestamp_now,
+    AvailabilityPendingExecutedBlock, AvailabilityProcessingStatus, BlockError,
+    PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 use beacon_processor::WorkEvent;
-use lighthouse_network::rpc::{RPCError, RequestType, RpcErrorResponse};
-use lighthouse_network::service::api_types::{
-    AppRequestId, DataColumnsByRootRequester, Id, SamplingRequester, SingleLookupReqId,
-    SyncRequestId,
+use lighthouse_network::{
+    rpc::{RPCError, RequestType, RpcErrorResponse},
+    service::api_types::{
+        AppRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
+        SamplingRequester, SingleLookupReqId, SyncRequestId,
+    },
+    types::SyncState,
+    NetworkConfig, NetworkGlobals, PeerId,
 };
-use lighthouse_network::types::SyncState;
-use lighthouse_network::NetworkConfig;
-use lighthouse_network::NetworkGlobals;
 use slog::info;
-use slot_clock::{ManualSlotClock, SlotClock, TestingSlotClock};
-use store::MemoryStore;
+use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
-use types::data_column_sidecar::ColumnIndex;
-use types::test_utils::TestRandom;
 use types::{
-    test_utils::{SeedableRng, XorShiftRng},
-    BlobSidecar, ForkName, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    data_column_sidecar::ColumnIndex,
+    test_utils::{SeedableRng, TestRandom, XorShiftRng},
+    BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, Epoch, EthSpec, ForkName,
+    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
 };
-use types::{BeaconState, BeaconStateBase};
-use types::{DataColumnSidecar, Epoch};
-
-type T = Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
-
-/// This test utility enables integration testing of Lighthouse sync components.
-///
-/// It covers the following:
-/// 1. Sending `SyncMessage` to `SyncManager` to trigger `RangeSync`, `BackFillSync` and `BlockLookups` behaviours.
-/// 2. Making assertions on `WorkEvent`s received from sync
-/// 3. Making assertion on `NetworkMessage` received from sync (Outgoing RPC requests).
-///
-/// The test utility covers testing the interactions from and to `SyncManager`. In diagram form:
-///                      +-----------------+
-///                      | BeaconProcessor |
-///                      +---------+-------+
-///                             ^  |
-///                             |  |
-///                   WorkEvent |  | SyncMsg
-///                             |  | (Result)
-///                             |  v
-/// +--------+            +-----+-----------+             +----------------+
-/// | Router +----------->|  SyncManager    +------------>| NetworkService |
-/// +--------+  SyncMsg   +-----------------+ NetworkMsg  +----------------+
-///           (RPC resp)  |  - RangeSync    |  (RPC req)
-///                       +-----------------+
-///                       |  - BackFillSync |
-///                       +-----------------+
-///                       |  - BlockLookups |
-///                       +-----------------+
-struct TestRig {
-    /// Receiver for `BeaconProcessor` events (e.g. block processing results).
-    beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
-    beacon_processor_rx_queue: Vec<WorkEvent<E>>,
-    /// Receiver for `NetworkMessage` (e.g. outgoing RPC requests from sync)
-    network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
-    /// Stores all `NetworkMessage`s received from `network_recv`. (e.g. outgoing RPC requests)
-    network_rx_queue: Vec<NetworkMessage<E>>,
-    /// Receiver for `SyncMessage` from the network
-    sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
-    /// To send `SyncMessage`. For sending RPC responses or block processing results to sync.
-    sync_manager: SyncManager<T>,
-    /// To manipulate sync state and peer connection status
-    network_globals: Arc<NetworkGlobals<E>>,
-    /// Beacon chain harness
-    harness: BeaconChainHarness<EphemeralHarnessType<E>>,
-    /// `rng` for generating test blocks and blobs.
-    rng: XorShiftRng,
-    fork_name: ForkName,
-    log: Logger,
-}
 
 const D: Duration = Duration::new(0, 0);
 const PARENT_FAIL_TOLERANCE: u8 = SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS;
@@ -745,10 +698,10 @@ impl TestRig {
         let first_dc = data_columns.first().unwrap();
         let block_root = first_dc.block_root();
         let sampling_request_id = match id.0 {
-            SyncRequestId::DataColumnsByRoot(
-                _,
-                _requester @ DataColumnsByRootRequester::Sampling(sampling_id),
-            ) => sampling_id.sampling_request_id,
+            SyncRequestId::DataColumnsByRoot(DataColumnsByRootRequestId {
+                requester: DataColumnsByRootRequester::Sampling(sampling_id),
+                ..
+            }) => sampling_id.sampling_request_id,
             _ => unreachable!(),
         };
         self.complete_data_columns_by_root_request(id, data_columns);
@@ -773,14 +726,15 @@ impl TestRig {
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
         missing_components: bool,
     ) {
-        let lookup_id =
-            if let SyncRequestId::DataColumnsByRoot(_, DataColumnsByRootRequester::Custody(id)) =
-                ids.first().unwrap().0
-            {
-                id.requester.0.lookup_id
-            } else {
-                panic!("not a custody requester")
-            };
+        let lookup_id = if let SyncRequestId::DataColumnsByRoot(DataColumnsByRootRequestId {
+            requester: DataColumnsByRootRequester::Custody(id),
+            ..
+        }) = ids.first().unwrap().0
+        {
+            id.requester.0.lookup_id
+        } else {
+            panic!("not a custody requester")
+        };
 
         let first_column = data_columns.first().cloned().unwrap();
 
@@ -1189,6 +1143,7 @@ impl TestRig {
             penalty_msg, expect_penalty_msg,
             "Unexpected penalty msg for {peer_id}"
         );
+        self.log(&format!("Found expected penalty {penalty_msg}"));
     }
 
     pub fn expect_single_penalty(&mut self, peer_id: PeerId, expect_penalty_msg: &'static str) {
@@ -1319,14 +1274,44 @@ impl TestRig {
         });
     }
 
-    fn assert_sampling_request_status(
-        &self,
-        block_root: Hash256,
-        ongoing: &Vec<ColumnIndex>,
-        no_peers: &Vec<ColumnIndex>,
-    ) {
-        self.sync_manager
-            .assert_sampling_request_status(block_root, ongoing, no_peers)
+    fn assert_sampling_request_ongoing(&self, block_root: Hash256, indices: &[ColumnIndex]) {
+        for index in indices {
+            let status = self
+                .sync_manager
+                .get_sampling_request_status(block_root, index)
+                .unwrap_or_else(|| panic!("No request state for {index}"));
+            if !matches!(status, crate::sync::peer_sampling::Status::Sampling { .. }) {
+                panic!("expected {block_root} {index} request to be on going: {status:?}");
+            }
+        }
+    }
+
+    fn assert_sampling_request_nopeers(&self, block_root: Hash256, indices: &[ColumnIndex]) {
+        for index in indices {
+            let status = self
+                .sync_manager
+                .get_sampling_request_status(block_root, index)
+                .unwrap_or_else(|| panic!("No request state for {index}"));
+            if !matches!(status, crate::sync::peer_sampling::Status::NoPeers { .. }) {
+                panic!("expected {block_root} {index} request to be no peers: {status:?}");
+            }
+        }
+    }
+
+    fn log_sampling_requests(&self, block_root: Hash256, indices: &[ColumnIndex]) {
+        let statuses = indices
+            .iter()
+            .map(|index| {
+                let status = self
+                    .sync_manager
+                    .get_sampling_request_status(block_root, index)
+                    .unwrap_or_else(|| panic!("No request state for {index}"));
+                (index, status)
+            })
+            .collect::<Vec<_>>();
+        self.log(&format!(
+            "Sampling request status for {block_root}: {statuses:?}"
+        ));
     }
 }
 
@@ -1386,7 +1371,7 @@ fn test_single_block_lookup_empty_response() {
 
     // The peer does not have the block. It should be penalized.
     r.single_lookup_block_response(id, peer_id, None);
-    r.expect_penalty(peer_id, "NoResponseReturned");
+    r.expect_penalty(peer_id, "NotEnoughResponsesReturned");
     // it should be retried
     let id = r.expect_block_lookup_request(block_root);
     // Send the right block this time.
@@ -2099,7 +2084,7 @@ fn sampling_batch_requests() {
         .pop()
         .unwrap();
     assert_eq!(column_indexes.len(), SAMPLING_REQUIRED_SUCCESSES);
-    r.assert_sampling_request_status(block_root, &column_indexes, &vec![]);
+    r.assert_sampling_request_ongoing(block_root, &column_indexes);
 
     // Resolve the request.
     r.complete_valid_sampling_column_requests(
@@ -2127,10 +2112,10 @@ fn sampling_batch_requests_not_enough_responses_returned() {
     assert_eq!(column_indexes.len(), SAMPLING_REQUIRED_SUCCESSES);
 
     // The request status should be set to Sampling.
-    r.assert_sampling_request_status(block_root, &column_indexes, &vec![]);
+    r.assert_sampling_request_ongoing(block_root, &column_indexes);
 
     // Split the indexes to simulate the case where the supernode doesn't have the requested column.
-    let (_column_indexes_supernode_does_not_have, column_indexes_to_complete) =
+    let (column_indexes_supernode_does_not_have, column_indexes_to_complete) =
         column_indexes.split_at(1);
 
     // Complete the requests but only partially, so a NotEnoughResponsesReturned error occurs.
@@ -2145,7 +2130,8 @@ fn sampling_batch_requests_not_enough_responses_returned() {
     );
 
     // The request status should be set to NoPeers since the supernode, the only peer, returned not enough responses.
-    r.assert_sampling_request_status(block_root, &vec![], &column_indexes);
+    r.log_sampling_requests(block_root, &column_indexes);
+    r.assert_sampling_request_nopeers(block_root, column_indexes_supernode_does_not_have);
 
     // The sampling request stalls.
     r.expect_empty_network();
@@ -2690,11 +2676,6 @@ mod deneb_only {
             self.blobs.pop().expect("blobs");
             self
         }
-        fn invalidate_blobs_too_many(mut self) -> Self {
-            let first_blob = self.blobs.first().expect("blob").clone();
-            self.blobs.push(first_blob);
-            self
-        }
         fn expect_block_process(mut self) -> Self {
             self.rig.expect_block_process(ResponseType::Block);
             self
@@ -2783,21 +2764,6 @@ mod deneb_only {
             .expect_no_block_request();
     }
 
-    #[test]
-    fn single_block_response_then_too_many_blobs_response_attestation() {
-        let Some(tester) = DenebTester::new(RequestTrigger::AttestationUnknownBlock) else {
-            return;
-        };
-        tester
-            .block_response_triggering_process()
-            .invalidate_blobs_too_many()
-            .blobs_response()
-            .expect_penalty("TooManyResponses")
-            // Network context returns "download success" because the request has enough blobs + it
-            // downscores the peer for returning too many.
-            .expect_no_block_request();
-    }
-
     // Test peer returning block that has unknown parent, and a new lookup is created
     #[test]
     fn parent_block_unknown_parent() {
@@ -2838,7 +2804,7 @@ mod deneb_only {
         };
         tester
             .empty_block_response()
-            .expect_penalty("NoResponseReturned")
+            .expect_penalty("NotEnoughResponsesReturned")
             .expect_block_request()
             .expect_no_blobs_request()
             .block_response_and_expect_blob_request()
