@@ -131,6 +131,7 @@ pub struct BeaconProcessorQueueLengths {
     lc_bootstrap_queue: usize,
     lc_optimistic_update_queue: usize,
     lc_finality_update_queue: usize,
+    lc_update_range_queue: usize,
     api_request_p0_queue: usize,
     api_request_p1_queue: usize,
 }
@@ -192,6 +193,7 @@ impl BeaconProcessorQueueLengths {
             lc_bootstrap_queue: 1024,
             lc_optimistic_update_queue: 512,
             lc_finality_update_queue: 512,
+            lc_update_range_queue: 512,
             api_request_p0_queue: 1024,
             api_request_p1_queue: 1024,
         })
@@ -236,6 +238,7 @@ pub struct WorkQueues<E: EthSpec> {
     pub lc_bootstrap_queue: FifoQueue<Work<E>>,
     pub lc_optimistic_update_queue: FifoQueue<Work<E>>,
     pub lc_finality_update_queue: FifoQueue<Work<E>>,
+    pub lc_update_range_queue: FifoQueue<Work<E>>,
     pub api_request_p0_queue: FifoQueue<Work<E>>,
     pub api_request_p1_queue: FifoQueue<Work<E>>,
 }
@@ -301,6 +304,8 @@ impl<E: EthSpec> WorkQueues<E> {
         let lc_bootstrap_queue = FifoQueue::new(queue_lengths.lc_bootstrap_queue);
         let lc_optimistic_update_queue = FifoQueue::new(queue_lengths.lc_optimistic_update_queue);
         let lc_finality_update_queue = FifoQueue::new(queue_lengths.lc_finality_update_queue);
+        let lc_update_range_queue: FifoQueue<Work<E>> =
+            FifoQueue::new(queue_lengths.lc_update_range_queue);
 
         let api_request_p0_queue = FifoQueue::new(queue_lengths.api_request_p0_queue);
         let api_request_p1_queue = FifoQueue::new(queue_lengths.api_request_p1_queue);
@@ -343,8 +348,32 @@ impl<E: EthSpec> WorkQueues<E> {
             lc_bootstrap_queue,
             lc_optimistic_update_queue,
             lc_finality_update_queue,
+            lc_update_range_queue,
             api_request_p0_queue,
             api_request_p1_queue,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Minimum size of dynamically sized queues. Due to integer division we don't want 0 length queues
+    /// as the processor won't process that message type. 128 is an arbitrary value value >= 1 that
+    /// seems reasonable.
+    const MIN_QUEUE_LEN: usize = 128;
+
+    use super::*;
+    use types::{BeaconState, ChainSpec, Eth1Data, ForkName, MainnetEthSpec};
+
+    #[test]
+    fn min_queue_len() {
+        // State with no validators.
+        let spec = ForkName::latest().make_genesis_spec(ChainSpec::mainnet());
+        let genesis_time = 0;
+        let state = BeaconState::<MainnetEthSpec>::new(genesis_time, Eth1Data::default(), &spec);
+        assert_eq!(state.validators().len(), 0);
+        let queue_lengths = BeaconProcessorQueueLengths::from_state(&state, &spec).unwrap();
+        assert_eq!(queue_lengths.attestation_queue, MIN_QUEUE_LEN);
+        assert_eq!(queue_lengths.unknown_block_attestation_queue, MIN_QUEUE_LEN);
     }
 }

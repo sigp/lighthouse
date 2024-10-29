@@ -41,6 +41,7 @@ pub struct ConfigAndPreset {
 }
 
 impl ConfigAndPreset {
+    // DEPRECATED: the `fork_name` argument is never used, we should remove it.
     pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec, fork_name: Option<ForkName>) -> Self {
         let config = Config::from_chain_spec::<E>(spec);
         let base_preset = BasePreset::from_chain_spec::<E>(spec);
@@ -126,7 +127,6 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "compounding_withdrawal_prefix".to_uppercase() => u8_hex(spec.compounding_withdrawal_prefix_byte),
         "unset_deposit_requests_start_index".to_uppercase() => spec.unset_deposit_requests_start_index.to_string().into(),
         "full_exit_request_amount".to_uppercase() => spec.full_exit_request_amount.to_string().into(),
-        "domain_consolidation".to_uppercase()=> u32_hex(spec.domain_consolidation),
     }
 }
 

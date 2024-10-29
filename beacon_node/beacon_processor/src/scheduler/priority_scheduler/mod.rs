@@ -8,7 +8,6 @@ mod work_reprocessing_queue;
 
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
-use lighthouse_metrics::HistogramTimer;
 use slog::error;
 use slog::{crit, debug, trace, warn};
 use slot_clock::SlotClock;
@@ -21,10 +20,11 @@ use work_queue::{BeaconProcessorQueueLengths, WorkQueues};
 use work_reprocessing_queue::{spawn_reprocess_scheduler, ReadyWork};
 
 use crate::{
-    metrics, BeaconProcessor, BlockingOrAsync, QueuedBackfillBatch, ReprocessQueueMessage,
-    SendOnDrop, TaskSpawner, Work, WorkEvent, WorkType, MAX_IDLE_QUEUE_LEN, NOTHING_TO_DO,
-    WORKER_FREED,
+    metrics, BeaconProcessor, QueuedBackfillBatch, ReprocessQueueMessage, Work, WorkEvent,
+    WorkType, MAX_IDLE_QUEUE_LEN, NOTHING_TO_DO, WORKER_FREED,
 };
+
+use super::spawn_worker;
 
 /// Unifies all the messages processed by the `BeaconProcessor`.
 enum InboundEvent<E: EthSpec> {
@@ -233,7 +233,7 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                         let work_event = self.priority_scheduler(&work_journal_tx);
                         if let Some(work_event) = work_event {
                             let work_type = work_event.to_type();
-                            self.spawn_worker(idle_tx.clone(), work_event);
+                            spawn_worker(&mut self.beacon_processor, idle_tx.clone(), work_event);
                             Some(work_type)
                         } else {
                             None
@@ -550,7 +550,7 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                     )
                 }
             }
-            _ if can_spawn => self.spawn_worker(idle_tx.clone(), work),
+            _ if can_spawn => spawn_worker(&mut self.beacon_processor, idle_tx.clone(), work),
             Work::GossipAttestation { .. } => self.work_queues.attestation_queue.push(work),
             // Attestation batches are formed internally within the
             // `BeaconProcessor`, they are not sent from external services.
@@ -679,6 +679,10 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                 .work_queues
                 .lc_finality_update_queue
                 .push(work, work_id, &self.beacon_processor.log),
+            Work::LightClientUpdatesByRangeRequest { .. } => self
+                .work_queues
+                .lc_update_range_queue
+                .push(work, work_id, &self.beacon_processor.log),
             Work::UnknownBlockAttestation { .. } => {
                 self.work_queues.unknown_block_attestation_queue.push(work)
             }
@@ -796,6 +800,9 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                 WorkType::LightClientOptimisticUpdateRequest => {
                     self.work_queues.lc_optimistic_update_queue.len()
                 }
+                WorkType::LightClientUpdatesByRangeRequest => {
+                    self.work_queues.lc_update_range_queue.len()
+                }
                 WorkType::LightClientFinalityUpdateRequest => {
                     self.work_queues.lc_finality_update_queue.len()
                 }
@@ -854,7 +861,10 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
     }
 
     // TODO(beacon-processor) this can live outside of this struct in a more general location
-    fn increment_metrics(&self, work_event: &Option<WorkEvent<E>>) -> Option<HistogramTimer> {
+    fn increment_metrics(
+        &self,
+        work_event: &Option<WorkEvent<E>>,
+    ) -> Option<metrics::HistogramTimer> {
         let _event_timer = metrics::start_timer(&metrics::BEACON_PROCESSOR_EVENT_HANDLING_SECONDS);
         if let Some(event) = work_event {
             metrics::inc_counter_vec(
@@ -865,131 +875,5 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
             metrics::inc_counter(&metrics::BEACON_PROCESSOR_IDLE_EVENTS_TOTAL);
         }
         _event_timer
-    }
-
-    // TODO(beacon-processor) should we move spawn_worker outside of self?
-    /// Spawns a blocking worker thread to process some `Work`.
-    ///
-    /// Sends an message on `idle_tx` when the work is complete and the task is stopping.
-    fn spawn_worker(&mut self, idle_tx: Sender<()>, work: Work<E>) {
-        let work_id = work.str_id();
-        let worker_timer =
-            metrics::start_timer_vec(&metrics::BEACON_PROCESSOR_WORKER_TIME, &[work_id]);
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_WORKERS_SPAWNED_TOTAL);
-        metrics::inc_counter_vec(
-            &metrics::BEACON_PROCESSOR_WORK_EVENTS_STARTED_COUNT,
-            &[work.str_id()],
-        );
-
-        // Wrap the `idle_tx` in a struct that will fire the idle message whenever it is dropped.
-        //
-        // This helps ensure that the worker is always freed in the case of an early exit or panic.
-        // As such, this instantiation should happen as early in the function as possible.
-        let send_idle_on_drop = SendOnDrop {
-            tx: idle_tx,
-            _worker_timer: worker_timer,
-            log: self.beacon_processor.log.clone(),
-        };
-
-        let worker_id = self.beacon_processor.current_workers;
-        self.beacon_processor.current_workers =
-            self.beacon_processor.current_workers.saturating_add(1);
-
-        let executor = self.beacon_processor.executor.clone();
-
-        trace!(
-            self.beacon_processor.log,
-            "Spawning beacon processor worker";
-            "work" => work_id,
-            "worker" => worker_id,
-        );
-
-        let task_spawner = TaskSpawner {
-            executor,
-            send_idle_on_drop,
-        };
-
-        match work {
-            Work::GossipAttestation {
-                attestation,
-                process_individual,
-                process_batch: _,
-            } => task_spawner.spawn_blocking(move || {
-                process_individual(*attestation);
-            }),
-            Work::GossipAttestationBatch {
-                attestations,
-                process_batch,
-            } => task_spawner.spawn_blocking(move || {
-                process_batch(attestations);
-            }),
-            Work::GossipAggregate {
-                aggregate,
-                process_individual,
-                process_batch: _,
-            } => task_spawner.spawn_blocking(move || {
-                process_individual(*aggregate);
-            }),
-            Work::GossipAggregateBatch {
-                aggregates,
-                process_batch,
-            } => task_spawner.spawn_blocking(move || {
-                process_batch(aggregates);
-            }),
-            Work::ChainSegment(process_fn) => task_spawner.spawn_async(async move {
-                process_fn.await;
-            }),
-            Work::UnknownBlockAttestation { process_fn }
-            | Work::UnknownBlockAggregate { process_fn }
-            | Work::UnknownLightClientOptimisticUpdate { process_fn, .. }
-            | Work::UnknownBlockSamplingRequest { process_fn } => {
-                task_spawner.spawn_blocking(process_fn)
-            }
-            Work::DelayedImportBlock {
-                beacon_block_slot: _,
-                beacon_block_root: _,
-                process_fn,
-            } => task_spawner.spawn_async(process_fn),
-            Work::RpcBlock { process_fn }
-            | Work::RpcBlobs { process_fn }
-            | Work::RpcCustodyColumn(process_fn)
-            | Work::RpcVerifyDataColumn(process_fn)
-            | Work::SamplingResult(process_fn) => task_spawner.spawn_async(process_fn),
-            Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
-            Work::GossipBlock(work)
-            | Work::GossipBlobSidecar(work)
-            | Work::GossipDataColumnSidecar(work) => task_spawner.spawn_async(async move {
-                work.await;
-            }),
-            Work::BlobsByRangeRequest(process_fn)
-            | Work::BlobsByRootsRequest(process_fn)
-            | Work::DataColumnsByRootsRequest(process_fn)
-            | Work::DataColumnsByRangeRequest(process_fn) => {
-                task_spawner.spawn_blocking(process_fn)
-            }
-            Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {
-                task_spawner.spawn_async(work)
-            }
-            Work::ChainSegmentBackfill(process_fn) => task_spawner.spawn_async(process_fn),
-            Work::ApiRequestP0(process_fn) | Work::ApiRequestP1(process_fn) => match process_fn {
-                BlockingOrAsync::Blocking(process_fn) => task_spawner.spawn_blocking(process_fn),
-                BlockingOrAsync::Async(process_fn) => task_spawner.spawn_async(process_fn),
-            },
-            Work::GossipVoluntaryExit(process_fn)
-            | Work::GossipProposerSlashing(process_fn)
-            | Work::GossipAttesterSlashing(process_fn)
-            | Work::GossipSyncSignature(process_fn)
-            | Work::GossipSyncContribution(process_fn)
-            | Work::GossipLightClientFinalityUpdate(process_fn)
-            | Work::GossipLightClientOptimisticUpdate(process_fn)
-            | Work::Status(process_fn)
-            | Work::GossipBlsToExecutionChange(process_fn)
-            | Work::LightClientBootstrapRequest(process_fn)
-            | Work::LightClientOptimisticUpdateRequest(process_fn)
-            | Work::LightClientFinalityUpdateRequest(process_fn) => {
-                task_spawner.spawn_blocking(process_fn)
-            }
-            Work::Reprocess(_) => (),
-        };
     }
 }

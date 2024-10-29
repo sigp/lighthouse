@@ -48,7 +48,8 @@ use types::builder_bid::BuilderBid;
 use types::non_zero_usize::new_non_zero_usize;
 use types::payload::BlockProductionVersion;
 use types::{
-    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, KzgProofs, SignedBlindedBeaconBlock,
+    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests, KzgProofs,
+    SignedBlindedBeaconBlock,
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
@@ -112,12 +113,15 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
+                requests: None,
             },
             BuilderBid::Electra(builder_bid) => BlockProposalContents::PayloadAndBlobs {
                 payload: ExecutionPayloadHeader::Electra(builder_bid.header).into(),
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
+                // TODO(electra): update this with builder api returning the requests
+                requests: None,
             },
         };
         Ok(ProvenancedPayload::Builder(
@@ -194,6 +198,8 @@ pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
         kzg_commitments: KzgCommitments<E>,
         /// `None` for blinded `PayloadAndBlobs`.
         blobs_and_proofs: Option<(BlobsList<E>, KzgProofs<E>)>,
+        // TODO(electra): this should probably be a separate variant/superstruct
+        requests: Option<ExecutionRequests<E>>,
     },
 }
 
@@ -214,11 +220,13 @@ impl<E: EthSpec> From<BlockProposalContents<E, FullPayload<E>>>
                 block_value,
                 kzg_commitments,
                 blobs_and_proofs: _,
+                requests,
             } => BlockProposalContents::PayloadAndBlobs {
                 payload: payload.execution_payload().into(),
                 block_value,
                 kzg_commitments,
                 blobs_and_proofs: None,
+                requests,
             },
         }
     }
@@ -230,13 +238,14 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<GetPayloadResponse<E>>
     type Error = Error;
 
     fn try_from(response: GetPayloadResponse<E>) -> Result<Self, Error> {
-        let (execution_payload, block_value, maybe_bundle) = response.into();
+        let (execution_payload, block_value, maybe_bundle, maybe_requests) = response.into();
         match maybe_bundle {
             Some(bundle) => Ok(Self::PayloadAndBlobs {
                 payload: execution_payload.into(),
                 block_value,
                 kzg_commitments: bundle.commitments,
                 blobs_and_proofs: Some((bundle.blobs, bundle.proofs)),
+                requests: maybe_requests,
             }),
             None => Ok(Self::Payload {
                 payload: execution_payload.into(),
@@ -265,22 +274,25 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
         Payload,
         Option<KzgCommitments<E>>,
         Option<(BlobsList<E>, KzgProofs<E>)>,
+        Option<ExecutionRequests<E>>,
         Uint256,
     ) {
         match self {
             Self::Payload {
                 payload,
                 block_value,
-            } => (payload, None, None, block_value),
+            } => (payload, None, None, None, block_value),
             Self::PayloadAndBlobs {
                 payload,
                 block_value,
                 kzg_commitments,
                 blobs_and_proofs,
+                requests,
             } => (
                 payload,
                 Some(kzg_commitments),
                 blobs_and_proofs,
+                requests,
                 block_value,
             ),
         }
@@ -1772,10 +1784,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
     pub async fn get_payload_bodies_by_hash(
         &self,
         hashes: Vec<ExecutionBlockHash>,
-    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
         self.engine()
             .request(|engine: &Engine| async move {
-                engine.api.get_payload_bodies_by_hash(hashes).await
+                engine.api.get_payload_bodies_by_hash_v1(hashes).await
             })
             .await
             .map_err(Box::new)
@@ -1786,11 +1798,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         start: u64,
         count: u64,
-    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
         let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE);
         self.engine()
             .request(|engine: &Engine| async move {
-                engine.api.get_payload_bodies_by_range(start, count).await
+                engine
+                    .api
+                    .get_payload_bodies_by_range_v1(start, count)
+                    .await
             })
             .await
             .map_err(Box::new)
@@ -1823,9 +1838,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         // Use efficient payload bodies by range method if supported.
         let capabilities = self.get_engine_capabilities(None).await?;
-        if capabilities.get_payload_bodies_by_range_v1
-            || capabilities.get_payload_bodies_by_range_v2
-        {
+        if capabilities.get_payload_bodies_by_range_v1 {
             let mut payload_bodies = self.get_payload_bodies_by_range(block_number, 1).await?;
 
             if payload_bodies.len() != 1 {

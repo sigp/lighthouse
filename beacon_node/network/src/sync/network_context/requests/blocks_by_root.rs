@@ -1,9 +1,9 @@
 use beacon_chain::get_block_root;
-use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
+use lighthouse_network::rpc::BlocksByRootRequest;
 use std::sync::Arc;
 use types::{ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
 
-use super::LookupVerifyError;
+use super::{ActiveRequestItems, LookupVerifyError};
 
 #[derive(Debug, Copy, Clone)]
 pub struct BlocksByRootSingleRequest(pub Hash256);
@@ -14,47 +14,38 @@ impl BlocksByRootSingleRequest {
     }
 }
 
-pub struct ActiveBlocksByRootRequest {
+pub struct BlocksByRootRequestItems<E: EthSpec> {
     request: BlocksByRootSingleRequest,
-    resolved: bool,
-    pub(crate) peer_id: PeerId,
+    items: Vec<Arc<SignedBeaconBlock<E>>>,
 }
 
-impl ActiveBlocksByRootRequest {
-    pub fn new(request: BlocksByRootSingleRequest, peer_id: PeerId) -> Self {
+impl<E: EthSpec> BlocksByRootRequestItems<E> {
+    pub fn new(request: BlocksByRootSingleRequest) -> Self {
         Self {
             request,
-            resolved: false,
-            peer_id,
+            items: vec![],
         }
     }
+}
+
+impl<E: EthSpec> ActiveRequestItems for BlocksByRootRequestItems<E> {
+    type Item = Arc<SignedBeaconBlock<E>>;
 
     /// Append a response to the single chunk request. If the chunk is valid, the request is
     /// resolved immediately.
     /// The active request SHOULD be dropped after `add_response` returns an error
-    pub fn add_response<E: EthSpec>(
-        &mut self,
-        block: Arc<SignedBeaconBlock<E>>,
-    ) -> Result<Arc<SignedBeaconBlock<E>>, LookupVerifyError> {
-        if self.resolved {
-            return Err(LookupVerifyError::TooManyResponses);
-        }
-
+    fn add(&mut self, block: Self::Item) -> Result<bool, LookupVerifyError> {
         let block_root = get_block_root(&block);
         if self.request.0 != block_root {
             return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
         }
 
-        // Valid data, blocks by root expects a single response
-        self.resolved = true;
-        Ok(block)
+        self.items.push(block);
+        // Always returns true, blocks by root expects a single response
+        Ok(true)
     }
 
-    pub fn terminate(self) -> Result<(), LookupVerifyError> {
-        if self.resolved {
-            Ok(())
-        } else {
-            Err(LookupVerifyError::NoResponseReturned)
-        }
+    fn consume(&mut self) -> Vec<Self::Item> {
+        std::mem::take(&mut self.items)
     }
 }

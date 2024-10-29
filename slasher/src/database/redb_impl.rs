@@ -164,13 +164,9 @@ impl<'env> Cursor<'env> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(&self.db.table_name);
         let table = self.txn.open_table(table_definition)?;
-        let first = table
-            .iter()?
-            .next()
-            .map(|x| x.map(|(key, _)| key.value().to_vec()));
+        let first = table.first()?.map(|(key, _)| key.value().to_vec());
 
         if let Some(owned_key) = first {
-            let owned_key = owned_key?;
             self.current_key = Some(Cow::from(owned_key));
             Ok(self.current_key.clone())
         } else {
@@ -182,13 +178,9 @@ impl<'env> Cursor<'env> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(&self.db.table_name);
         let table = self.txn.open_table(table_definition)?;
-        let last = table
-            .iter()?
-            .next_back()
-            .map(|x| x.map(|(key, _)| key.value().to_vec()));
+        let last = table.last()?.map(|(key, _)| key.value().to_vec());
 
         if let Some(owned_key) = last {
-            let owned_key = owned_key?;
             self.current_key = Some(Cow::from(owned_key));
             return Ok(self.current_key.clone());
         }

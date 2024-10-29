@@ -198,23 +198,44 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientOptimisticUpdate<E> {
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
-        match fork_name {
-            ForkName::Base => Err(serde::de::Error::custom(format!(
-                "LightClientOptimisticUpdate failed to deserialize: unsupported fork '{}'",
-                fork_name
-            ))),
-            _ => Ok(
+        if fork_name.altair_enabled() {
+            Ok(
                 serde_json::from_value::<LightClientOptimisticUpdate<E>>(value)
                     .map_err(serde::de::Error::custom),
-            )?,
+            )?
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "LightClientOptimisticUpdate failed to deserialize: unsupported fork '{}'",
+                fork_name
+            )))
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::MainnetEthSpec;
+    // `ssz_tests!` can only be defined once per namespace
+    #[cfg(test)]
+    mod altair {
+        use crate::{LightClientOptimisticUpdateAltair, MainnetEthSpec};
+        ssz_tests!(LightClientOptimisticUpdateAltair<MainnetEthSpec>);
+    }
 
-    ssz_tests!(LightClientOptimisticUpdateDeneb<MainnetEthSpec>);
+    #[cfg(test)]
+    mod capella {
+        use crate::{LightClientOptimisticUpdateCapella, MainnetEthSpec};
+        ssz_tests!(LightClientOptimisticUpdateCapella<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod deneb {
+        use crate::{LightClientOptimisticUpdateDeneb, MainnetEthSpec};
+        ssz_tests!(LightClientOptimisticUpdateDeneb<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod electra {
+        use crate::{LightClientOptimisticUpdateElectra, MainnetEthSpec};
+        ssz_tests!(LightClientOptimisticUpdateElectra<MainnetEthSpec>);
+    }
 }

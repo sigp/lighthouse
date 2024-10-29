@@ -233,6 +233,7 @@ pub enum WorkType {
     LightClientBootstrapRequest,
     LightClientOptimisticUpdateRequest,
     LightClientFinalityUpdateRequest,
+    LightClientUpdatesByRangeRequest,
     ApiRequestP0,
     ApiRequestP1,
     Reprocess,
@@ -289,6 +290,9 @@ impl<E: EthSpec> Work<E> {
             Work::UnknownBlockSamplingRequest { .. } => WorkType::UnknownBlockSamplingRequest,
             Work::UnknownLightClientOptimisticUpdate { .. } => {
                 WorkType::UnknownLightClientOptimisticUpdate
+            }
+            Work::LightClientUpdatesByRangeRequest { .. } => {
+                WorkType::LightClientUpdatesByRangeRequest
             }
             Work::ApiRequestP0 { .. } => WorkType::ApiRequestP0,
             Work::ApiRequestP1 { .. } => WorkType::ApiRequestP1,
@@ -544,6 +548,7 @@ pub enum Work<E: EthSpec> {
     LightClientBootstrapRequest(BlockingFn),
     LightClientOptimisticUpdateRequest(BlockingFn),
     LightClientFinalityUpdateRequest(BlockingFn),
+    LightClientUpdatesByRangeRequest(BlockingFn),
     ApiRequestP0(BlockingOrAsync),
     ApiRequestP1(BlockingOrAsync),
     Reprocess(ReprocessQueueMessage),

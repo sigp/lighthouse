@@ -50,8 +50,6 @@ pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1: &str = "engine_getPayloadBodiesByHashV1";
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1: &str = "engine_getPayloadBodiesByRangeV1";
-pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2: &str = "engine_getPayloadBodiesByHashV2";
-pub const ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2: &str = "engine_getPayloadBodiesByRangeV2";
 pub const ENGINE_GET_PAYLOAD_BODIES_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub const ENGINE_EXCHANGE_CAPABILITIES: &str = "engine_exchangeCapabilities";
@@ -80,8 +78,6 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1,
-    ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2,
-    ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2,
     ENGINE_GET_CLIENT_VERSION_V1,
 ];
 
@@ -797,6 +793,9 @@ impl HttpJsonRpc {
             JsonExecutionPayload::V4(new_payload_request_electra.execution_payload.clone().into()),
             new_payload_request_electra.versioned_hashes,
             new_payload_request_electra.parent_beacon_block_root,
+            new_payload_request_electra
+                .execution_requests_list
+                .get_execution_requests_list(),
         ]);
 
         let response: JsonPayloadStatusV1 = self
@@ -849,7 +848,9 @@ impl HttpJsonRpc {
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                Ok(JsonGetPayloadResponse::V1(response).into())
+                JsonGetPayloadResponse::V1(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
             }
             ForkName::Capella => {
                 let response: JsonGetPayloadResponseV2<E> = self
@@ -859,7 +860,9 @@ impl HttpJsonRpc {
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                Ok(JsonGetPayloadResponse::V2(response).into())
+                JsonGetPayloadResponse::V2(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
             }
             ForkName::Base | ForkName::Altair | ForkName::Deneb | ForkName::Electra => Err(
                 Error::UnsupportedForkVariant(format!("called get_payload_v2 with {}", fork_name)),
@@ -883,7 +886,9 @@ impl HttpJsonRpc {
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                Ok(JsonGetPayloadResponse::V3(response).into())
+                JsonGetPayloadResponse::V3(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
             }
             ForkName::Base
             | ForkName::Altair
@@ -912,7 +917,9 @@ impl HttpJsonRpc {
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                Ok(JsonGetPayloadResponse::V4(response).into())
+                JsonGetPayloadResponse::V4(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
             }
             ForkName::Base
             | ForkName::Altair
@@ -991,7 +998,7 @@ impl HttpJsonRpc {
     pub async fn get_payload_bodies_by_hash_v1<E: EthSpec>(
         &self,
         block_hashes: Vec<ExecutionBlockHash>,
-    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
         let params = json!([block_hashes]);
 
         let response: Vec<Option<JsonExecutionPayloadBodyV1<E>>> = self
@@ -1004,27 +1011,7 @@ impl HttpJsonRpc {
 
         Ok(response
             .into_iter()
-            .map(|opt_json| opt_json.map(|v1| JsonExecutionPayloadBody::V1(v1).into()))
-            .collect())
-    }
-
-    pub async fn get_payload_bodies_by_hash_v2<E: EthSpec>(
-        &self,
-        block_hashes: Vec<ExecutionBlockHash>,
-    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
-        let params = json!([block_hashes]);
-
-        let response: Vec<Option<JsonExecutionPayloadBodyV2<E>>> = self
-            .rpc_request(
-                ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2,
-                params,
-                ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
-            )
-            .await?;
-
-        Ok(response
-            .into_iter()
-            .map(|opt_json| opt_json.map(|v2| JsonExecutionPayloadBody::V2(v2).into()))
+            .map(|opt_json| opt_json.map(From::from))
             .collect())
     }
 
@@ -1032,7 +1019,7 @@ impl HttpJsonRpc {
         &self,
         start: u64,
         count: u64,
-    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
         #[derive(Serialize)]
         #[serde(transparent)]
         struct Quantity(#[serde(with = "serde_utils::u64_hex_be")] u64);
@@ -1048,31 +1035,7 @@ impl HttpJsonRpc {
 
         Ok(response
             .into_iter()
-            .map(|opt_json| opt_json.map(|v1| JsonExecutionPayloadBody::V1(v1).into()))
-            .collect())
-    }
-
-    pub async fn get_payload_bodies_by_range_v2<E: EthSpec>(
-        &self,
-        start: u64,
-        count: u64,
-    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
-        #[derive(Serialize)]
-        #[serde(transparent)]
-        struct Quantity(#[serde(with = "serde_utils::u64_hex_be")] u64);
-
-        let params = json!([Quantity(start), Quantity(count)]);
-        let response: Vec<Option<JsonExecutionPayloadBodyV2<E>>> = self
-            .rpc_request(
-                ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2,
-                params,
-                ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
-            )
-            .await?;
-
-        Ok(response
-            .into_iter()
-            .map(|opt_json| opt_json.map(|v2| JsonExecutionPayloadBody::V2(v2).into()))
+            .map(|opt_json| opt_json.map(From::from))
             .collect())
     }
 
@@ -1099,10 +1062,6 @@ impl HttpJsonRpc {
                 .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1),
             get_payload_bodies_by_range_v1: capabilities
                 .contains(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1),
-            get_payload_bodies_by_hash_v2: capabilities
-                .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2),
-            get_payload_bodies_by_range_v2: capabilities
-                .contains(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2),
             get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
             get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
             get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
@@ -1275,39 +1234,6 @@ impl HttpJsonRpc {
                 "called get_payload with {}",
                 fork_name
             ))),
-        }
-    }
-
-    pub async fn get_payload_bodies_by_hash<E: EthSpec>(
-        &self,
-        block_hashes: Vec<ExecutionBlockHash>,
-    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
-        let engine_capabilities = self.get_engine_capabilities(None).await?;
-        if engine_capabilities.get_payload_bodies_by_hash_v2 {
-            self.get_payload_bodies_by_hash_v2(block_hashes).await
-        } else if engine_capabilities.get_payload_bodies_by_hash_v1 {
-            self.get_payload_bodies_by_hash_v1(block_hashes).await
-        } else {
-            Err(Error::RequiredMethodUnsupported(
-                "engine_getPayloadBodiesByHash",
-            ))
-        }
-    }
-
-    pub async fn get_payload_bodies_by_range<E: EthSpec>(
-        &self,
-        start: u64,
-        count: u64,
-    ) -> Result<Vec<Option<ExecutionPayloadBody<E>>>, Error> {
-        let engine_capabilities = self.get_engine_capabilities(None).await?;
-        if engine_capabilities.get_payload_bodies_by_range_v2 {
-            self.get_payload_bodies_by_range_v2(start, count).await
-        } else if engine_capabilities.get_payload_bodies_by_range_v1 {
-            self.get_payload_bodies_by_range_v1(start, count).await
-        } else {
-            Err(Error::RequiredMethodUnsupported(
-                "engine_getPayloadBodiesByRange",
-            ))
         }
     }
 
