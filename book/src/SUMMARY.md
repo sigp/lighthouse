@@ -15,6 +15,7 @@
   * [The `validator-manager` Command](./validator-manager.md)
     * [Creating validators](./validator-manager-create.md)
     * [Moving validators](./validator-manager-move.md)
+    * [Managing validators](./validator-manager-api.md)
   * [Slashing Protection](./slashing-protection.md)
   * [Voluntary Exits](./voluntary-exit.md)
   * [Partial Withdrawals](./partial-withdrawal.md)
