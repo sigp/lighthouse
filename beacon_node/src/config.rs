@@ -192,20 +192,13 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.enable_sampling = true;
     }
 
-    if let Some(batches) =
-        clap_utils::parse_optional(cli_args, "supernode-data-column-publication-batches")?
-    {
-        client_config
-            .chain
-            .supernode_data_column_publication_batches = batches;
+    if let Some(batches) = clap_utils::parse_optional(cli_args, "blob-publication-batches")? {
+        client_config.chain.blob_publication_batches = batches;
     }
 
-    if let Some(interval) =
-        clap_utils::parse_optional(cli_args, "supernode-data-column-publication-batch-interval")?
+    if let Some(interval) = clap_utils::parse_optional(cli_args, "blob-publication-batch-interval")?
     {
-        client_config
-            .chain
-            .supernode_data_column_publication_batch_interval = Duration::from_millis(interval);
+        client_config.chain.blob_publication_batch_interval = Duration::from_millis(interval);
     }
 
     /*

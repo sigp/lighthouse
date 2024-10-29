@@ -69,6 +69,9 @@ pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
     pub log: Logger,
 }
 
+// Publish blobs in batches of exponentially increasing size.
+const BLOB_PUBLICATION_EXP_FACTOR: usize = 2;
+
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn try_send(&self, event: BeaconWorkEvent<T::EthSpec>) -> Result<(), Error<T::EthSpec>> {
         self.beacon_processor_send
@@ -887,17 +890,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         match blobs_or_data_column {
             BlobsOrDataColumns::Blobs(blobs) => {
-                debug!(
-                    self.log,
-                    "Publishing blobs from EL";
-                    "count" => blobs.len(),
-                    "block_root" => ?block_root,
-                );
-                let messages = blobs
-                    .into_iter()
-                    .map(|blob| PubsubMessage::BlobSidecar(Box::new((blob.index, blob))))
-                    .collect();
-                self.send_network_message(NetworkMessage::Publish { messages });
+                self.publish_blobs_gradually(blobs, block_root);
             }
             BlobsOrDataColumns::DataColumns(columns) => {
                 self.publish_data_columns_gradually(columns, block_root);
@@ -1016,6 +1009,81 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
+    /// This function gradually publishes blobs to the network in randomised batches.
+    ///
+    /// This is an optimisation to reduce outbound bandwidth and ensures each blob is published
+    /// by some nodes on the network as soon as possible. Our hope is that some blobs arrive from
+    /// other nodes in the meantime, obviating the need for us to publish them. If no other
+    /// publisher exists for a blob, it will eventually get published here.
+    fn publish_blobs_gradually(
+        self: &Arc<Self>,
+        mut blobs: Vec<Arc<BlobSidecar<T::EthSpec>>>,
+        block_root: Hash256,
+    ) {
+        let self_clone = self.clone();
+
+        self.executor.spawn(
+            async move {
+                let chain = self_clone.chain.clone();
+                let log = self_clone.chain.logger();
+                let publish_fn = |blobs: Vec<Arc<BlobSidecar<T::EthSpec>>>| {
+                    self_clone.send_network_message(NetworkMessage::Publish {
+                        messages: blobs
+                            .into_iter()
+                            .map(|blob| PubsubMessage::BlobSidecar(Box::new((blob.index, blob))))
+                            .collect(),
+                    });
+                };
+
+                // Permute the blobs and split them into batches.
+                // The hope is that we won't need to publish some blobs because we will receive them
+                // on gossip from other nodes.
+                blobs.shuffle(&mut rand::thread_rng());
+
+                let blob_publication_batch_interval = chain.config.blob_publication_batch_interval;
+                let mut publish_count = 0usize;
+                let mut blobs_iter = blobs.iter().peekable();
+                let mut batch_size = 1usize;
+
+                while blobs_iter.peek().is_some() {
+                    let batch = blobs_iter.by_ref().take(batch_size);
+                    let already_seen = chain
+                        .data_availability_checker
+                        .cached_blob_indexes(&block_root)
+                        .unwrap_or_default();
+                    let publishable = batch
+                        .filter(|col| !already_seen.contains(&col.index))
+                        .cloned()
+                        .collect::<Vec<_>>();
+
+                    if !publishable.is_empty() {
+                        debug!(
+                            log,
+                            "Publishing blob batch";
+                            "publish_count" => publishable.len(),
+                            "block_root" => ?block_root,
+                        );
+                        publish_count += publishable.len();
+                        publish_fn(publishable);
+                    }
+
+                    tokio::time::sleep(blob_publication_batch_interval).await;
+                    batch_size *= BLOB_PUBLICATION_EXP_FACTOR;
+                }
+
+                debug!(
+                    log,
+                    "Batch blob publication complete";
+                    "batch_interval" => blob_publication_batch_interval.as_millis(),
+                    "blob_count" => blobs.len(),
+                    "published_count" => publish_count,
+                    "block_root" => ?block_root,
+                )
+            },
+            "gradual_blob_publication",
+        );
+    }
+
     /// This function gradually publishes data columns to the network in randomised batches.
     ///
     /// This is an optimisation to reduce outbound bandwidth and ensures each column is published
@@ -1053,13 +1121,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // on gossip from other supernodes.
                 data_columns_to_publish.shuffle(&mut rand::thread_rng());
 
-                let supernode_data_column_publication_batch_interval = chain
-                    .config
-                    .supernode_data_column_publication_batch_interval;
-                let supernode_data_column_publication_batches =
-                    chain.config.supernode_data_column_publication_batches;
-                let batch_size =
-                    data_columns_to_publish.len() / supernode_data_column_publication_batches;
+                let blob_publication_batch_interval = chain.config.blob_publication_batch_interval;
+                let blob_publication_batches = chain.config.blob_publication_batches;
+                let batch_size = chain.spec.number_of_columns / blob_publication_batches;
                 let mut publish_count = 0usize;
 
                 for batch in data_columns_to_publish.chunks(batch_size) {
@@ -1084,14 +1148,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         publish_fn(publishable);
                     }
 
-                    tokio::time::sleep(supernode_data_column_publication_batch_interval).await;
+                    tokio::time::sleep(blob_publication_batch_interval).await;
                 }
 
                 debug!(
                     log,
                     "Batch data column publishing complete";
                     "batch_size" => batch_size,
-                    "batch_interval" => supernode_data_column_publication_batch_interval.as_millis(),
+                    "batch_interval" => blob_publication_batch_interval.as_millis(),
                     "data_columns_to_publish_count" => data_columns_to_publish.len(),
                     "published_count" => publish_count,
                     "block_root" => ?block_root,

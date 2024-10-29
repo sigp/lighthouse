@@ -13,7 +13,7 @@ use crate::{metrics, AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes
 use execution_layer::json_structures::BlobAndProofV1;
 use execution_layer::Error as ExecutionLayerError;
 use itertools::Either;
-use lighthouse_metrics::{inc_counter, inc_counter_by, TryExt};
+use metrics::{inc_counter, inc_counter_by, TryExt};
 use slog::{debug, error, o, Logger};
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
@@ -108,7 +108,10 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         &kzg_commitments_proof,
     )?;
 
-    let num_fetched_blobs = fixed_blob_sidecar_list.filter(|b| b.is_some()).count();
+    let num_fetched_blobs = fixed_blob_sidecar_list
+        .iter()
+        .filter(|b| b.is_some())
+        .count();
 
     inc_counter_by(
         &metrics::BLOBS_FROM_EL_EXPECTED_TOTAL,
