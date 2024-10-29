@@ -7,7 +7,7 @@ edition = { workspace = true }
 [dependencies]
 derivative = { workspace = true }
 itertools = { workspace = true }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 parking_lot = { workspace = true }
 types = { workspace = true }
 state_processing = { workspace = true }
