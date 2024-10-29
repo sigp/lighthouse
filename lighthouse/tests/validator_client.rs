@@ -427,13 +427,6 @@ fn no_doppelganger_protection_flag() {
 }
 
 #[test]
-fn produce_block_v3_flag() {
-    // The flag is DEPRECATED but providing it should not trigger an error.
-    // We can delete this test when deleting the flag entirely.
-    CommandLineTest::new().flag("produce-block-v3", None).run();
-}
-
-#[test]
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
@@ -511,23 +504,6 @@ fn monitoring_endpoint() {
             let api_conf = config.monitoring_api.as_ref().unwrap();
             assert_eq!(api_conf.monitoring_endpoint.as_str(), "http://example:8000");
             assert_eq!(api_conf.update_period_secs, Some(30));
-        });
-}
-#[test]
-fn disable_run_on_all_flag() {
-    CommandLineTest::new()
-        .flag("disable-run-on-all", None)
-        .run()
-        .with_config(|config| {
-            assert_eq!(config.broadcast_topics, vec![]);
-        });
-    // --broadcast flag takes precedence
-    CommandLineTest::new()
-        .flag("disable-run-on-all", None)
-        .flag("broadcast", Some("attestations"))
-        .run()
-        .with_config(|config| {
-            assert_eq!(config.broadcast_topics, vec![ApiTopic::Attestations]);
         });
 }
 
@@ -621,16 +597,6 @@ fn disable_latency_measurement_service() {
         .run()
         .with_config(|config| {
             assert!(!config.enable_latency_measurement_service);
-        });
-}
-#[test]
-fn latency_measurement_service() {
-    // This flag is DEPRECATED so has no effect, but should still be accepted.
-    CommandLineTest::new()
-        .flag("latency-measurement-service", Some("false"))
-        .run()
-        .with_config(|config| {
-            assert!(config.enable_latency_measurement_service);
         });
 }
 

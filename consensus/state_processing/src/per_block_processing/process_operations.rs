@@ -470,59 +470,7 @@ pub fn apply_deposit<E: EthSpec>(
             return Ok(());
         }
 
-        // [Modified in Electra:EIP7251]
-        if state.fork_name_unchecked() >= ForkName::Electra {
-            let amount = 0;
-            // Create a new validator.
-            let mut validator = Validator {
-                pubkey: deposit_data.pubkey,
-                withdrawal_credentials: deposit_data.withdrawal_credentials,
-                activation_eligibility_epoch: spec.far_future_epoch,
-                activation_epoch: spec.far_future_epoch,
-                exit_epoch: spec.far_future_epoch,
-                withdrawable_epoch: spec.far_future_epoch,
-                effective_balance: 0,
-                slashed: false,
-            };
-            let max_effective_balance =
-                validator.get_max_effective_balance(spec, state.fork_name_unchecked());
-            validator.effective_balance = std::cmp::min(
-                amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
-                max_effective_balance,
-            );
-
-            state.validators_mut().push(validator)?;
-            // state balances is set to 0 in electra
-            state.balances_mut().push(0)?;
-        } else {
-            let validator = Validator {
-                pubkey: deposit_data.pubkey,
-                withdrawal_credentials: deposit_data.withdrawal_credentials,
-                activation_eligibility_epoch: spec.far_future_epoch,
-                activation_epoch: spec.far_future_epoch,
-                exit_epoch: spec.far_future_epoch,
-                withdrawable_epoch: spec.far_future_epoch,
-                effective_balance: std::cmp::min(
-                    amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
-                    spec.max_effective_balance,
-                ),
-                slashed: false,
-            };
-            state.validators_mut().push(validator)?;
-            // state balances is set to 0 in electra
-            state.balances_mut().push(amount)?;
-        };
-
-        // Altair or later initializations.
-        if let Ok(previous_epoch_participation) = state.previous_epoch_participation_mut() {
-            previous_epoch_participation.push(ParticipationFlags::default())?;
-        }
-        if let Ok(current_epoch_participation) = state.current_epoch_participation_mut() {
-            current_epoch_participation.push(ParticipationFlags::default())?;
-        }
-        if let Ok(inactivity_scores) = state.inactivity_scores_mut() {
-            inactivity_scores.push(0)?;
-        }
+        state.add_validator_to_registry(&deposit_data, spec)?;
 
         // [New in Electra:EIP7251]
         if let Ok(pending_deposits) = state.pending_deposits_mut() {

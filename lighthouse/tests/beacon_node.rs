@@ -21,7 +21,7 @@ use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
 use types::non_zero_usize::new_non_zero_usize;
-use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, Hash256, MainnetEthSpec};
+use types::{Address, Checkpoint, Epoch, Hash256, MainnetEthSpec};
 use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
@@ -157,13 +157,6 @@ fn max_skip_slots_flag() {
         .flag("max-skip-slots", Some("10"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.chain.import_max_skip_slots, Some(10)));
-}
-
-#[test]
-fn disable_lock_timeouts_flag() {
-    CommandLineTest::new()
-        .flag("disable-lock-timeouts", None)
-        .run_with_zero_port();
 }
 
 #[test]
@@ -749,16 +742,14 @@ fn jwt_optional_flags() {
 fn jwt_optional_alias_flags() {
     run_jwt_optional_flags_test("jwt-secrets", "jwt-id", "jwt-version");
 }
+// DEPRECATED. This flag is deprecated but should not cause a crash.
 #[test]
 fn terminal_total_difficulty_override_flag() {
-    use beacon_node::beacon_chain::types::Uint256;
     CommandLineTest::new()
         .flag("terminal-total-difficulty-override", Some("1337424242"))
-        .run_with_zero_port()
-        .with_spec::<MainnetEthSpec, _>(|spec| {
-            assert_eq!(spec.terminal_total_difficulty, Uint256::from(1337424242))
-        });
+        .run_with_zero_port();
 }
+// DEPRECATED. This flag is deprecated but should not cause a crash.
 #[test]
 fn terminal_block_hash_and_activation_epoch_override_flags() {
     CommandLineTest::new()
@@ -767,43 +758,14 @@ fn terminal_block_hash_and_activation_epoch_override_flags() {
             "terminal-block-hash-override",
             Some("0x4242424242424242424242424242424242424242424242424242424242424242"),
         )
-        .run_with_zero_port()
-        .with_spec::<MainnetEthSpec, _>(|spec| {
-            assert_eq!(
-                spec.terminal_block_hash,
-                ExecutionBlockHash::from_str(
-                    "0x4242424242424242424242424242424242424242424242424242424242424242"
-                )
-                .unwrap()
-            );
-            assert_eq!(spec.terminal_block_hash_activation_epoch, 1337);
-        });
-}
-#[test]
-#[should_panic]
-fn terminal_block_hash_missing_activation_epoch() {
-    CommandLineTest::new()
-        .flag(
-            "terminal-block-hash-override",
-            Some("0x4242424242424242424242424242424242424242424242424242424242424242"),
-        )
         .run_with_zero_port();
 }
-#[test]
-#[should_panic]
-fn epoch_override_missing_terminal_block_hash() {
-    CommandLineTest::new()
-        .flag("terminal-block-hash-epoch-override", Some("1337"))
-        .run_with_zero_port();
-}
+// DEPRECATED. This flag is deprecated but should not cause a crash.
 #[test]
 fn safe_slots_to_import_optimistically_flag() {
     CommandLineTest::new()
         .flag("safe-slots-to-import-optimistically", Some("421337"))
-        .run_with_zero_port()
-        .with_spec::<MainnetEthSpec, _>(|spec| {
-            assert_eq!(spec.safe_slots_to_import_optimistically, 421337)
-        });
+        .run_with_zero_port();
 }
 
 // Tests for Network flags.
@@ -1612,19 +1574,6 @@ fn http_port_flag() {
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_port, port1));
 }
-#[test]
-fn empty_self_limiter_flag() {
-    // Test that empty rate limiter is accepted using the default rate limiting configurations.
-    CommandLineTest::new()
-        .flag("self-limiter", None)
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.network.outbound_rate_limiter_config,
-                Some(lighthouse_network::rpc::config::OutboundRateLimiterConfig::default())
-            )
-        });
-}
 
 #[test]
 fn empty_inbound_rate_limiter_flag() {
@@ -1668,14 +1617,6 @@ fn http_allow_origin_all_flag() {
 }
 
 #[test]
-fn http_allow_sync_stalled_flag() {
-    CommandLineTest::new()
-        .flag("http", None)
-        .flag("http-allow-sync-stalled", None)
-        .run_with_zero_port();
-}
-
-#[test]
 fn http_enable_beacon_processor() {
     CommandLineTest::new()
         .flag("http", None)
@@ -1711,22 +1652,6 @@ fn http_tls_flags() {
             assert_eq!(tls_config.cert, Path::new("tests/tls/cert.pem"));
             assert_eq!(tls_config.key, Path::new("tests/tls/key.rsa"));
         });
-}
-
-#[test]
-fn http_spec_fork_default() {
-    CommandLineTest::new()
-        .flag("http", None)
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.spec_fork_name, None));
-}
-
-#[test]
-fn http_spec_fork_override() {
-    CommandLineTest::new()
-        .flag("http", None)
-        .flag("http-spec-fork", Some("altair"))
-        .run_with_zero_port();
 }
 
 // Tests for Metrics flags.
@@ -2629,14 +2554,6 @@ fn invalid_gossip_verified_blocks_path() {
                 Some(PathBuf::from(path))
             )
         });
-}
-
-#[test]
-fn progressive_balances_checked() {
-    // Flag is deprecated but supplying it should not crash until we remove it completely.
-    CommandLineTest::new()
-        .flag("progressive-balances", Some("checked"))
-        .run_with_zero_port();
 }
 
 #[test]

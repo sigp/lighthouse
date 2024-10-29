@@ -200,7 +200,7 @@ pub use crate::light_client_optimistic_update::{
 };
 pub use crate::light_client_update::{
     Error as LightClientUpdateError, LightClientUpdate, LightClientUpdateAltair,
-    LightClientUpdateCapella, LightClientUpdateDeneb, LightClientUpdateElectra,
+    LightClientUpdateCapella, LightClientUpdateDeneb, LightClientUpdateElectra, MerkleProof,
 };
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::payload::{
