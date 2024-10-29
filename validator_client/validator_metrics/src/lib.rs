@@ -33,7 +33,7 @@ pub const SUBSCRIPTIONS: &str = "subscriptions";
 pub const LOCAL_KEYSTORE: &str = "local_keystore";
 pub const WEB3SIGNER: &str = "web3signer";
 
-pub use lighthouse_metrics::*;
+pub use metrics::*;
 
 pub static GENESIS_DISTANCE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(

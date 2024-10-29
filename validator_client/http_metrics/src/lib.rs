@@ -163,7 +163,6 @@ pub fn gather_prometheus_metrics<E: EthSpec>(
     ctx: &Context<E>,
 ) -> std::result::Result<String, String> {
     use validator_metrics::*;
-
     let mut buffer = vec![];
     let encoder = TextEncoder::new();
 
@@ -209,9 +208,7 @@ pub fn gather_prometheus_metrics<E: EthSpec>(
 
     warp_utils::metrics::scrape_health_metrics();
 
-    encoder
-        .encode(&lighthouse_metrics::gather(), &mut buffer)
-        .unwrap();
+    encoder.encode(&metrics::gather(), &mut buffer).unwrap();
 
     String::from_utf8(buffer).map_err(|e| format!("Failed to encode prometheus info: {:?}", e))
 }

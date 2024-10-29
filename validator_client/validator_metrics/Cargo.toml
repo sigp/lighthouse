@@ -9,6 +9,6 @@ name = "validator_metrics"
 path = "src/lib.rs"
 
 [dependencies]
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 
 [dev-dependencies]

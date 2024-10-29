@@ -24,7 +24,7 @@ environment = { workspace = true }
 graffiti_file = { workspace = true }
 hyper = { workspace = true }
 initialized_validators = { workspace = true }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 monitoring_api = { workspace = true }
 parking_lot = { workspace = true }
 reqwest = { workspace = true }

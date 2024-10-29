@@ -8,7 +8,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 signing_method = { workspace = true }
 account_utils = { workspace = true }
 eth2_keystore = { workspace = true }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 lockfile = { workspace = true }
 parking_lot = { workspace = true }
 reqwest = { workspace = true }

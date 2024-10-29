@@ -7,7 +7,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 [dependencies]
 malloc_utils = { workspace = true }
 slot_clock = { workspace = true }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 slog = { workspace = true }

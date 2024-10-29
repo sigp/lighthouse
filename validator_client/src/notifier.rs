@@ -1,5 +1,5 @@
 use crate::{DutiesService, ProductionValidatorClient};
-use lighthouse_metrics::set_gauge;
+use metrics::set_gauge;
 use slog::{debug, error, info, Logger};
 use slot_clock::SlotClock;
 use tokio::time::{sleep, Duration};

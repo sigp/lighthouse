@@ -49,7 +49,7 @@ clap_utils = { workspace = true }
 eth2_network_config = { workspace = true }
 lighthouse_version = { workspace = true }
 account_utils = { workspace = true }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
