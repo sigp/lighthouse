@@ -881,6 +881,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             SubnetServiceMessage::EnrAdd(subnet) => {
                 self.libp2p.update_enr_subnet(subnet, true);
             }
+            SubnetServiceMessage::EnrRemove(sync_subnet_id) => {
+                self.libp2p
+                    .update_enr_subnet(Subnet::SyncCommittee(sync_subnet_id), false);
+            }
             SubnetServiceMessage::DiscoverPeers(subnets_to_discover) => {
                 self.libp2p.discover_subnet_peers(subnets_to_discover);
             }

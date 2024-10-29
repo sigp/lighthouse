@@ -204,9 +204,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-primitives"
-version = "0.8.9"
+version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c71738eb20c42c5fb149571e76536a0f309d142f3957c28791662b96baf77a3d"
+checksum = "8edae627382349b56cd6a7a2106f4fd69b243a9233e560c55c2e03cabb7e1d3c"
 dependencies = [
  "alloy-rlp",
  "arbitrary",
@@ -794,12 +794,12 @@ dependencies = [
  "int_to_bytes",
  "itertools 0.10.5",
  "kzg",
- "lighthouse_metrics",
  "lighthouse_version",
  "logging",
  "lru",
  "maplit",
  "merkle_proof",
+ "metrics",
  "oneshot_broadcast",
  "operation_pool",
  "parking_lot 0.12.3",
@@ -870,9 +870,9 @@ dependencies = [
  "fnv",
  "futures",
  "itertools 0.10.5",
- "lighthouse_metrics",
  "lighthouse_network",
  "logging",
+ "metrics",
  "num_cpus",
  "parking_lot 0.12.3",
  "serde",
@@ -1409,8 +1409,8 @@ dependencies = [
  "http_api",
  "http_metrics",
  "kzg",
- "lighthouse_metrics",
  "lighthouse_network",
+ "metrics",
  "monitoring_api",
  "network",
  "operation_pool",
@@ -2509,9 +2509,9 @@ dependencies = [
  "ethereum_ssz_derive",
  "execution_layer",
  "futures",
- "lighthouse_metrics",
  "logging",
  "merkle_proof",
+ "metrics",
  "parking_lot 0.12.3",
  "sensitive_url",
  "serde",
@@ -3009,10 +3009,10 @@ dependencies = [
  "jsonwebtoken",
  "keccak-hash",
  "kzg",
- "lighthouse_metrics",
  "lighthouse_version",
  "logging",
  "lru",
+ "metrics",
  "parking_lot 0.12.3",
  "pretty_reqwest_error",
  "rand",
@@ -3216,7 +3216,7 @@ dependencies = [
  "beacon_chain",
  "ethereum_ssz",
  "ethereum_ssz_derive",
- "lighthouse_metrics",
+ "metrics",
  "proto_array",
  "slog",
  "state_processing",
@@ -3343,7 +3343,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f2f12607f92c69b12ed746fabf9ca4f5c482cba46679c1a75b874ed7c26adb"
 dependencies = [
  "futures-io",
- "rustls 0.23.15",
+ "rustls 0.23.16",
  "rustls-pki-types",
 ]
 
@@ -3901,11 +3901,11 @@ dependencies = [
  "futures",
  "genesis",
  "hex",
- "lighthouse_metrics",
  "lighthouse_network",
  "lighthouse_version",
  "logging",
  "lru",
+ "metrics",
  "network",
  "operation_pool",
  "parking_lot 0.12.3",
@@ -3935,11 +3935,11 @@ name = "http_metrics"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
- "lighthouse_metrics",
  "lighthouse_network",
  "lighthouse_version",
  "logging",
  "malloc_utils",
+ "metrics",
  "reqwest",
  "serde",
  "slog",
@@ -4041,9 +4041,9 @@ dependencies = [
 
 [[package]]
 name = "hyper-util"
-version = "0.1.9"
+version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41296eb09f183ac68eec06e03cdbea2e759633d4067b2f6552fc2e009bcad08b"
+checksum = "df2dcfbe0677734ab2f3ffa7fa7bfd4706bfdc1ef393f2ee30184aed67e631b4"
 dependencies = [
  "bytes",
  "futures-util",
@@ -4578,9 +4578,9 @@ dependencies = [
 
 [[package]]
 name = "libm"
-version = "0.2.10"
+version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a00419de735aac21d53b0de5ce2c03bd3627277cf471300f27ebc89f7d828047"
+checksum = "8355be11b20d696c8f18f6cc018c4e372165b1fa8126cef092399c9951984ffa"
 
 [[package]]
 name = "libmdbx"
@@ -4858,7 +4858,7 @@ dependencies = [
  "quinn",
  "rand",
  "ring 0.17.8",
- "rustls 0.23.15",
+ "rustls 0.23.16",
  "socket2 0.5.7",
  "thiserror",
  "tokio",
@@ -4930,7 +4930,7 @@ dependencies = [
  "libp2p-identity",
  "rcgen",
  "ring 0.17.8",
- "rustls 0.23.15",
+ "rustls 0.23.16",
  "rustls-webpki 0.101.7",
  "thiserror",
  "x509-parser",
@@ -5068,11 +5068,11 @@ dependencies = [
  "eth2_network_config",
  "ethereum_hashing",
  "futures",
- "lighthouse_metrics",
  "lighthouse_network",
  "lighthouse_version",
  "logging",
  "malloc_utils",
+ "metrics",
  "sensitive_url",
  "serde",
  "serde_json",
@@ -5087,13 +5087,6 @@ dependencies = [
  "validator_client",
  "validator_dir",
  "validator_manager",
-]
-
-[[package]]
-name = "lighthouse_metrics"
-version = "0.2.0"
-dependencies = [
- "prometheus",
 ]
 
 [[package]]
@@ -5119,11 +5112,11 @@ dependencies = [
  "itertools 0.10.5",
  "libp2p",
  "libp2p-mplex",
- "lighthouse_metrics",
  "lighthouse_version",
  "logging",
  "lru",
  "lru_cache",
+ "metrics",
  "parking_lot 0.12.3",
  "prometheus-client",
  "quickcheck",
@@ -5229,7 +5222,7 @@ name = "logging"
 version = "0.2.0"
 dependencies = [
  "chrono",
- "lighthouse_metrics",
+ "metrics",
  "parking_lot 0.12.3",
  "serde",
  "serde_json",
@@ -5285,7 +5278,7 @@ name = "malloc_utils"
 version = "0.1.0"
 dependencies = [
  "libc",
- "lighthouse_metrics",
+ "metrics",
  "parking_lot 0.12.3",
  "tikv-jemalloc-ctl",
  "tikv-jemallocator",
@@ -5402,6 +5395,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "metrics"
+version = "0.2.0"
+dependencies = [
+ "prometheus",
+]
+
+[[package]]
 name = "migrations_internals"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5499,8 +5499,8 @@ name = "monitoring_api"
 version = "0.1.0"
 dependencies = [
  "eth2",
- "lighthouse_metrics",
  "lighthouse_version",
+ "metrics",
  "regex",
  "reqwest",
  "sensitive_url",
@@ -5681,11 +5681,11 @@ dependencies = [
  "igd-next",
  "itertools 0.10.5",
  "kzg",
- "lighthouse_metrics",
  "lighthouse_network",
  "logging",
  "lru_cache",
  "matches",
+ "metrics",
  "operation_pool",
  "parking_lot 0.12.3",
  "rand",
@@ -5985,8 +5985,8 @@ dependencies = [
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "itertools 0.10.5",
- "lighthouse_metrics",
  "maplit",
+ "metrics",
  "parking_lot 0.12.3",
  "rand",
  "rayon",
@@ -6670,7 +6670,7 @@ dependencies = [
  "quinn-proto",
  "quinn-udp",
  "rustc-hash 2.0.0",
- "rustls 0.23.15",
+ "rustls 0.23.16",
  "socket2 0.5.7",
  "thiserror",
  "tokio",
@@ -6687,7 +6687,7 @@ dependencies = [
  "rand",
  "ring 0.17.8",
  "rustc-hash 2.0.0",
- "rustls 0.23.15",
+ "rustls 0.23.16",
  "slab",
  "thiserror",
  "tinyvec",
@@ -6696,10 +6696,11 @@ dependencies = [
 
 [[package]]
 name = "quinn-udp"
-version = "0.5.5"
+version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fe68c2e9e1a1234e218683dbdf9f9dfcb094113c5ac2b938dfcb9bab4c4140b"
+checksum = "e346e016eacfff12233c243718197ca12f148c84e1e84268a896699b41c71780"
 dependencies = [
+ "cfg_aliases",
  "libc",
  "once_cell",
  "socket2 0.5.7",
@@ -7236,9 +7237,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.15"
+version = "0.23.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fbb44d7acc4e873d613422379f69f237a1b141928c02f6bc6ccfddddc2d7993"
+checksum = "eee87ff5d9b36712a58574e12e9f0ea80f915a5b0ac518d322b24a465617925e"
 dependencies = [
  "once_cell",
  "ring 0.17.8",
@@ -7520,9 +7521,9 @@ dependencies = [
 
 [[package]]
 name = "serde"
-version = "1.0.213"
+version = "1.0.214"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ea7893ff5e2466df8d720bb615088341b295f849602c6956047f8f80f0e9bc1"
+checksum = "f55c3193aca71c12ad7890f1785d2b73e1b9f63a0bbc353c08ef26fe03fc56b5"
 dependencies = [
  "serde_derive",
 ]
@@ -7539,9 +7540,9 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "1.0.213"
+version = "1.0.214"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e85ad2009c50b58e87caa8cd6dac16bdf511bbfb7af6c33df902396aa480fa5"
+checksum = "de523f781f095e28fa605cdce0f8307e451cc0fd14e2eb4cd2e98a355b147766"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7806,12 +7807,12 @@ dependencies = [
  "filesystem",
  "flate2",
  "libmdbx",
- "lighthouse_metrics",
  "lmdb-rkv",
  "lmdb-rkv-sys",
  "logging",
  "lru",
  "maplit",
+ "metrics",
  "parking_lot 0.12.3",
  "rand",
  "rayon",
@@ -7967,7 +7968,7 @@ dependencies = [
 name = "slot_clock"
 version = "0.2.0"
 dependencies = [
- "lighthouse_metrics",
+ "metrics",
  "parking_lot 0.12.3",
  "types",
 ]
@@ -8095,8 +8096,8 @@ dependencies = [
  "int_to_bytes",
  "integer-sqrt",
  "itertools 0.10.5",
- "lighthouse_metrics",
  "merkle_proof",
+ "metrics",
  "rand",
  "rayon",
  "safe_arith",
@@ -8136,8 +8137,8 @@ dependencies = [
  "ethereum_ssz_derive",
  "itertools 0.10.5",
  "leveldb",
- "lighthouse_metrics",
  "lru",
+ "metrics",
  "parking_lot 0.12.3",
  "safe_arith",
  "serde",
@@ -8347,11 +8348,12 @@ version = "0.1.0"
 dependencies = [
  "async-channel",
  "futures",
- "lighthouse_metrics",
  "logging",
+ "metrics",
  "slog",
  "sloggers",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -9182,11 +9184,11 @@ dependencies = [
  "hyper 1.5.0",
  "itertools 0.10.5",
  "libsecp256k1",
- "lighthouse_metrics",
  "lighthouse_version",
  "lockfile",
  "logging",
  "malloc_utils",
+ "metrics",
  "monitoring_api",
  "parking_lot 0.12.3",
  "rand",
@@ -9350,7 +9352,7 @@ dependencies = [
  "bytes",
  "eth2",
  "headers",
- "lighthouse_metrics",
+ "metrics",
  "safe_arith",
  "serde",
  "serde_array_query",

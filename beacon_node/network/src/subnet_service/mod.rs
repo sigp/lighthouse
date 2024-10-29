@@ -32,6 +32,8 @@ pub enum SubnetServiceMessage {
     Unsubscribe(Subnet),
     /// Add the `SubnetId` to the ENR bitfield.
     EnrAdd(Subnet),
+    /// Remove a sync committee subnet from the ENR.
+    EnrRemove(SyncSubnetId),
     /// Discover peers for a list of `SubnetDiscovery`.
     DiscoverPeers(Vec<SubnetDiscovery>),
 }
@@ -522,7 +524,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             self.events
                 .push_back(SubnetServiceMessage::Subscribe(subnet));
 
-            // add the subnet to the ENR bitfield
+            // add the sync subnet to the ENR bitfield
             self.events.push_back(SubnetServiceMessage::EnrAdd(subnet));
         }
     }
@@ -590,9 +592,14 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     // Unsubscribes from a subnet that was removed.
     fn handle_removed_subnet(&mut self, subnet: Subnet) {
         if !self.subscriptions.contains_key(&subnet) {
-            // Subscription no longer exists as short lived or long lived.
+            // Subscription no longer exists as short lived subnet
             debug!(self.log, "Unsubscribing from subnet"; "subnet" => ?subnet);
             self.queue_event(SubnetServiceMessage::Unsubscribe(subnet));
+
+            // If this is a sync subnet, we need to remove it from our ENR.
+            if let Subnet::SyncCommittee(sync_subnet_id) = subnet {
+                self.queue_event(SubnetServiceMessage::EnrRemove(sync_subnet_id));
+            }
         }
     }
 }

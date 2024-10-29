@@ -22,8 +22,8 @@ use types::{
 };
 
 // Set to enable/disable logging
-const TEST_LOG_LEVEL: Option<slog::Level> = Some(slog::Level::Debug);
-// const TEST_LOG_LEVEL: Option<slog::Level> = None;
+// const TEST_LOG_LEVEL: Option<slog::Level> = Some(slog::Level::Debug);
+const TEST_LOG_LEVEL: Option<slog::Level> = None;
 
 const SLOT_DURATION_MILLIS: u64 = 400;
 
@@ -256,9 +256,7 @@ mod test {
         )];
 
         // submit the subscriptions
-        subnet_service
-            .validator_subscriptions(subscriptions.into_iter())
-            .unwrap();
+        subnet_service.validator_subscriptions(subscriptions.into_iter());
 
         // not enough time for peer discovery, just subscribe, unsubscribe
         let expected = [
@@ -341,9 +339,7 @@ mod test {
         assert_eq!(subnet_id1, subnet_id2);
 
         // submit the subscriptions
-        subnet_service
-            .validator_subscriptions(vec![sub1, sub2].into_iter())
-            .unwrap();
+        subnet_service.validator_subscriptions(vec![sub1, sub2].into_iter());
 
         // Unsubscription event should happen at slot 2 (since subnet id's are the same, unsubscription event should be at higher slot + 1)
         let expected = SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id1));
@@ -394,9 +390,7 @@ mod test {
         );
 
         // submit the subscriptions
-        subnet_service
-            .validator_subscriptions(subscriptions.into_iter())
-            .unwrap();
+        subnet_service.validator_subscriptions(subscriptions.into_iter());
 
         let events = get_events(&mut subnet_service, Some(130), 10).await;
         let mut discover_peer_count = 0;
@@ -410,6 +404,7 @@ mod test {
                 SubnetServiceMessage::Subscribe(_any_subnet) => subscription_event_count += 1,
                 SubnetServiceMessage::EnrAdd(_any_subnet) => enr_add_count += 1,
                 SubnetServiceMessage::Unsubscribe(_) => unsubscribe_event_count += 1,
+                SubnetServiceMessage::EnrRemove(_) => {}
             }
         }
 
@@ -464,9 +459,7 @@ mod test {
         );
 
         // submit the subscriptions
-        subnet_service
-            .validator_subscriptions(subscriptions.into_iter())
-            .unwrap();
+        subnet_service.validator_subscriptions(subscriptions.into_iter());
 
         let events = get_events(&mut subnet_service, None, 3).await;
         let mut discover_peer_count = 0;
@@ -560,9 +553,7 @@ mod test {
         assert_eq!(subnet_id1, subnet_id2);
 
         // submit the subscriptions
-        subnet_service
-            .validator_subscriptions(vec![sub1, sub2].into_iter())
-            .unwrap();
+        subnet_service.validator_subscriptions(vec![sub1, sub2].into_iter());
 
         // Unsubscription event should happen at the end of the slot.
         let events = get_events(&mut subnet_service, None, 1).await;
@@ -604,7 +595,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn subscribe_and_unsubscribe() {
+    async fn subscribe_and_unsubscribe_sync_committee() {
         // subscription config
         let validator_index = 1;
         let until_epoch = Epoch::new(1);
@@ -622,9 +613,7 @@ mod test {
             }));
 
         // submit the subscriptions
-        subnet_service
-            .validator_subscriptions(subscriptions)
-            .unwrap();
+        subnet_service.validator_subscriptions(subscriptions);
 
         // Remove permanent subscription events
 
@@ -637,7 +626,7 @@ mod test {
         // Note: the unsubscription event takes 2 epochs (8 * 2 * 0.4 secs = 3.2 secs)
         let events = get_events(
             &mut subnet_service,
-            Some(4),
+            Some(5),
             (MainnetEthSpec::slots_per_epoch() * 3) as u32, // Have some buffer time before getting 5 events
         )
         .await;
@@ -653,6 +642,7 @@ mod test {
             [
                 SubnetServiceMessage::DiscoverPeers(_),
                 SubnetServiceMessage::Unsubscribe(_),
+                SubnetServiceMessage::EnrRemove(_),
             ]
         );
 
@@ -680,9 +670,7 @@ mod test {
             }));
 
         // submit the subscriptions
-        subnet_service
-            .validator_subscriptions(subscriptions)
-            .unwrap();
+        subnet_service.validator_subscriptions(subscriptions);
 
         // Get all immediate events (won't include unsubscriptions)
         let events = get_events(&mut subnet_service, None, 1).await;
@@ -712,9 +700,7 @@ mod test {
         ];
 
         // submit the subscriptions
-        subnet_service
-            .validator_subscriptions(subscriptions.into_iter())
-            .unwrap();
+        subnet_service.validator_subscriptions(subscriptions.into_iter());
 
         // Get all immediate events (won't include unsubscriptions)
         let events = get_events(&mut subnet_service, None, 1).await;
