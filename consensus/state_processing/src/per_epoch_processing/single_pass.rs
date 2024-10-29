@@ -362,47 +362,19 @@ pub fn process_epoch_single_pass<E: EthSpec>(
 
         // Apply the new deposits to the state
         for deposit in ctxt.new_validator_deposits.into_iter() {
-            if is_valid_deposit_signature(
-                &DepositData {
-                    pubkey: deposit.pubkey,
-                    withdrawal_credentials: deposit.withdrawal_credentials,
-                    amount: deposit.amount,
-                    signature: deposit.signature,
-                },
-                spec,
-            )
-            .is_ok()
-            {
-                let mut validator = Validator {
-                    pubkey: deposit.pubkey,
-                    withdrawal_credentials: deposit.withdrawal_credentials,
-                    activation_eligibility_epoch: spec.far_future_epoch,
-                    activation_epoch: spec.far_future_epoch,
-                    exit_epoch: spec.far_future_epoch,
-                    withdrawable_epoch: spec.far_future_epoch,
-                    effective_balance: 0,
-                    slashed: false,
-                };
-                let amount = deposit.amount;
-                let max_effective_balance =
-                    validator.get_max_effective_balance(spec, state.fork_name_unchecked());
-                validator.effective_balance = std::cmp::min(
-                    amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
-                    max_effective_balance,
-                );
-
-                state.validators_mut().push(validator)?;
-                state.balances_mut().push(amount)?;
-                // Altair or later initializations.
-                if let Ok(previous_epoch_participation) = state.previous_epoch_participation_mut() {
-                    previous_epoch_participation.push(ParticipationFlags::default())?;
-                }
-                if let Ok(current_epoch_participation) = state.current_epoch_participation_mut() {
-                    current_epoch_participation.push(ParticipationFlags::default())?;
-                }
-                if let Ok(inactivity_scores) = state.inactivity_scores_mut() {
-                    inactivity_scores.push(0)?;
-                }
+            let deposit_data = DepositData {
+                pubkey: deposit.pubkey,
+                withdrawal_credentials: deposit.withdrawal_credentials,
+                amount: deposit.amount,
+                signature: deposit.signature,
+            };
+            if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
+                state.add_validator_to_registry(
+                    deposit_data.pubkey,
+                    deposit_data.withdrawal_credentials,
+                    deposit_data.amount,
+                    spec,
+                )?;
             }
         }
     }

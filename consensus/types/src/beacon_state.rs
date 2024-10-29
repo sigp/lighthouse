@@ -1550,17 +1550,19 @@ impl<E: EthSpec> BeaconState<E> {
 
     pub fn add_validator_to_registry(
         &mut self,
-        deposit_data: &DepositData,
+        pubkey: PublicKeyBytes,
+        withdrawal_credentials: Hash256,
+        amount: u64,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        let fork = self.fork_name_unchecked();
-        let amount = if fork.electra_enabled() {
-            0
-        } else {
-            deposit_data.amount
-        };
-        self.validators_mut()
-            .push(Validator::from_deposit(deposit_data, amount, fork, spec))?;
+        let fork_name = self.fork_name_unchecked();
+        self.validators_mut().push(Validator::from_deposit(
+            pubkey,
+            withdrawal_credentials,
+            amount,
+            fork_name,
+            spec,
+        ))?;
         self.balances_mut().push(amount)?;
 
         // Altair or later initializations.

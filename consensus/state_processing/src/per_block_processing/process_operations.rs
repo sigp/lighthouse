@@ -470,7 +470,16 @@ pub fn apply_deposit<E: EthSpec>(
             return Ok(());
         }
 
-        state.add_validator_to_registry(&deposit_data, spec)?;
+        state.add_validator_to_registry(
+            deposit_data.pubkey,
+            deposit_data.withdrawal_credentials,
+            if state.fork_name_unchecked() >= ForkName::Electra {
+                0
+            } else {
+                amount
+            },
+            spec,
+        )?;
 
         // [New in Electra:EIP7251]
         if let Ok(pending_deposits) = state.pending_deposits_mut() {
