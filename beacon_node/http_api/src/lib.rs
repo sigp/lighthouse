@@ -146,13 +146,13 @@ pub struct Config {
     pub listen_port: u16,
     pub allow_origin: Option<String>,
     pub tls_config: Option<TlsConfig>,
-    pub spec_fork_name: Option<ForkName>,
     pub data_dir: PathBuf,
     pub sse_capacity_multiplier: usize,
     pub enable_beacon_processor: bool,
     #[serde(with = "eth2::types::serde_status_code")]
     pub duplicate_block_status_code: StatusCode,
     pub enable_light_client_server: bool,
+    pub target_peers: usize,
 }
 
 impl Default for Config {
@@ -163,12 +163,12 @@ impl Default for Config {
             listen_port: 5052,
             allow_origin: None,
             tls_config: None,
-            spec_fork_name: None,
             data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
             sse_capacity_multiplier: 1,
             enable_beacon_processor: true,
             duplicate_block_status_code: StatusCode::ACCEPTED,
             enable_light_client_server: false,
+            target_peers: 100,
         }
     }
 }
@@ -1296,7 +1296,7 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local(block_contents),
+                        ProvenancedBlock::local_from_publish_request(block_contents),
                         chain,
                         &network_tx,
                         log,
@@ -1338,7 +1338,7 @@ pub fn serve<T: BeaconChainTypes>(
                     })?;
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local(block_contents),
+                        ProvenancedBlock::local_from_publish_request(block_contents),
                         chain,
                         &network_tx,
                         log,
@@ -1373,7 +1373,7 @@ pub fn serve<T: BeaconChainTypes>(
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local(block_contents),
+                        ProvenancedBlock::local_from_publish_request(block_contents),
                         chain,
                         &network_tx,
                         log,
@@ -1417,7 +1417,7 @@ pub fn serve<T: BeaconChainTypes>(
                     })?;
                     publish_blocks::publish_block(
                         None,
-                        ProvenancedBlock::local(block_contents),
+                        ProvenancedBlock::local_from_publish_request(block_contents),
                         chain,
                         &network_tx,
                         log,
@@ -2641,7 +2641,6 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // GET config/spec
-    let spec_fork_name = ctx.config.spec_fork_name;
     let get_config_spec = config_path
         .and(warp::path("spec"))
         .and(warp::path::end())
@@ -2651,7 +2650,7 @@ pub fn serve<T: BeaconChainTypes>(
             move |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     let config_and_preset =
-                        ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec, spec_fork_name);
+                        ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec, None);
                     Ok(api_types::GenericResponse::from(config_and_preset))
                 })
             },
@@ -2934,8 +2933,16 @@ pub fn serve<T: BeaconChainTypes>(
 
                             let is_optimistic = head_execution_status.is_optimistic_or_invalid();
 
+                            // When determining sync status, make an exception for single-node
+                            // testnets with 0 peers.
+                            let sync_state = network_globals.sync_state.read();
+                            let is_synced = sync_state.is_synced()
+                                || (sync_state.is_stalled()
+                                    && network_globals.config.target_peers == 0);
+                            drop(sync_state);
+
                             let syncing_data = api_types::SyncingData {
-                                is_syncing: !network_globals.sync_state.read().is_synced(),
+                                is_syncing: !is_synced,
                                 is_optimistic,
                                 el_offline,
                                 head_slot,

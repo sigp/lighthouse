@@ -976,7 +976,7 @@ async fn block_gossip_verification() {
 
                 harness
                     .chain
-                    .process_gossip_blob(gossip_verified)
+                    .process_gossip_blob(gossip_verified, || Ok(()))
                     .await
                     .expect("should import valid gossip verified blob");
             }
@@ -1173,7 +1173,7 @@ async fn block_gossip_verification() {
     assert!(
         matches!(
             unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
-            BlockError::BlockIsAlreadyKnown(_),
+            BlockError::DuplicateImportStatusUnknown(_),
         ),
         "should register any valid signature against the proposer, even if the block failed later verification"
     );
@@ -1201,7 +1201,7 @@ async fn block_gossip_verification() {
                 .verify_block_for_gossip(block.clone())
                 .await
                 .expect_err("should error when processing known block"),
-            BlockError::BlockIsAlreadyKnown(_)
+            BlockError::DuplicateImportStatusUnknown(_)
         ),
         "the second proposal by this validator should be rejected"
     );
@@ -1247,7 +1247,7 @@ async fn verify_block_for_gossip_slashing_detection() {
                 .unwrap();
             harness
                 .chain
-                .process_gossip_blob(verified_blob)
+                .process_gossip_blob(verified_blob, || Ok(()))
                 .await
                 .unwrap();
         }
@@ -1354,7 +1354,7 @@ async fn add_base_block_to_altair_chain() {
     spec.altair_fork_epoch = Some(Epoch::new(1));
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec)
+        .spec(spec.into())
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -1489,7 +1489,7 @@ async fn add_altair_block_to_base_chain() {
     spec.altair_fork_epoch = None;
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec)
+        .spec(spec.into())
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -1622,7 +1622,7 @@ async fn import_duplicate_block_unrealized_justification() {
     let spec = MainnetEthSpec::default_spec();
 
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec)
+        .spec(spec.into())
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()

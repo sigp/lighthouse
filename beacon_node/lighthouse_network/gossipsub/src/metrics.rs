@@ -185,6 +185,9 @@ pub(crate) struct Metrics {
     /// The number of msg_id's we have received in every IDONTWANT control message.
     idontwant_msgs_ids: Counter,
 
+    /// The number of bytes we have received in every IDONTWANT control message.
+    idontwant_bytes: Counter,
+
     /// The size of the priority queue.
     priority_queue_size: Histogram,
     /// The size of the non-priority queue.
@@ -338,6 +341,16 @@ impl Metrics {
             metric
         };
 
+        let idontwant_bytes = {
+            let metric = Counter::default();
+            registry.register(
+                "idontwant_bytes",
+                "The total bytes we have received an IDONTWANT control messages",
+                metric.clone(),
+            );
+            metric
+        };
+
         let memcache_misses = {
             let metric = Counter::default();
             registry.register(
@@ -390,6 +403,7 @@ impl Metrics {
             memcache_misses,
             topic_iwant_msgs,
             idontwant_msgs,
+            idontwant_bytes,
             idontwant_msgs_ids,
             priority_queue_size,
             non_priority_queue_size,
@@ -587,6 +601,11 @@ impl Metrics {
         if self.register_topic(topic).is_ok() {
             self.topic_iwant_msgs.get_or_create(topic).inc();
         }
+    }
+
+    /// Register receiving the total bytes of an IDONTWANT control message.
+    pub(crate) fn register_idontwant_bytes(&mut self, bytes: usize) {
+        self.idontwant_bytes.inc_by(bytes as u64);
     }
 
     /// Register receiving an IDONTWANT msg for this topic.

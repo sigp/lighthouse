@@ -232,7 +232,8 @@ mod test {
 
     fn get_store() -> BeaconStore<T> {
         Arc::new(
-            HotColdDB::open_ephemeral(<_>::default(), E::default_spec(), test_logger()).unwrap(),
+            HotColdDB::open_ephemeral(<_>::default(), Arc::new(E::default_spec()), test_logger())
+                .unwrap(),
         )
     }
 

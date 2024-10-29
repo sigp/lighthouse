@@ -12,4 +12,5 @@ kurtosis enclave dump $ENCLAVE_NAME $LOGS_SUBDIR
 echo "Local testnet logs stored to $LOGS_SUBDIR."
 
 kurtosis enclave rm -f $ENCLAVE_NAME
+kurtosis engine stop
 echo "Local testnet stopped."

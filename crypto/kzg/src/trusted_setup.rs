@@ -5,6 +5,12 @@ use serde::{
     Deserialize, Serialize,
 };
 
+pub const TRUSTED_SETUP_BYTES: &[u8] = include_bytes!("../trusted_setup.json");
+
+pub fn get_trusted_setup() -> Vec<u8> {
+    TRUSTED_SETUP_BYTES.into()
+}
+
 /// Wrapper over a BLS G1 point's byte representation.
 #[derive(Debug, Clone, PartialEq)]
 struct G1Point([u8; BYTES_PER_G1_POINT]);
