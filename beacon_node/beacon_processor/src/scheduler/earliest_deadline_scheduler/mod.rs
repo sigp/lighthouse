@@ -3,6 +3,7 @@ use std::task::Poll;
 use earliest_deadline_queue::{QueueItem, WorkQueue};
 use futures::{Stream, StreamExt};
 use slog::{debug, trace, warn};
+use slot_clock::SlotClock;
 use tokio::sync::mpsc::{self, Sender};
 use types::EthSpec;
 
@@ -14,9 +15,12 @@ use super::spawn_worker;
 
 mod earliest_deadline_queue;
 
-pub struct Scheduler<E: EthSpec> {
+/// The name of the manager tokio task.
+const MANAGER_TASK_NAME: &str = "earliest_deadline_first_scheduler";
+
+pub struct Scheduler<E: EthSpec, S: SlotClock> {
     beacon_processor: BeaconProcessor<E>,
-    work_queue: WorkQueue<E>,
+    work_queue: WorkQueue<E, S>,
 }
 
 struct InboundEvents<E: EthSpec> {
@@ -67,7 +71,7 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
     }
 }
 
-impl<E: EthSpec> Scheduler<E> {
+impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
     pub fn new(beacon_processor: BeaconProcessor<E>) -> Self {
         let work_queue = WorkQueue::new();
         Scheduler {
@@ -80,6 +84,7 @@ impl<E: EthSpec> Scheduler<E> {
         mut self,
         event_rx: mpsc::Receiver<WorkEvent<E>>,
         work_journal_tx: Option<Sender<&'static str>>,
+        slot_clock: S,
     ) -> Result<(), String> {
         let (idle_tx, idle_rx) = mpsc::channel::<()>(MAX_IDLE_QUEUE_LEN);
 
@@ -162,14 +167,38 @@ impl<E: EthSpec> Scheduler<E> {
                     }
                     // There is a new work event and the chain is not syncing. Process it or queue
                     // it.
-                    Some(WorkEvent { work, .. }) => {
-                        self.process_or_queue_work_event(idle_tx.clone(), work, can_spawn)
-                    }
+                    Some(WorkEvent { work, .. }) => self.process_or_queue_work_event(
+                        idle_tx.clone(),
+                        work,
+                        &slot_clock,
+                        can_spawn,
+                    ),
                 };
+
+                self.update_metrics(modified_queue_id);
             }
         };
 
+        // Spawn on the core executor.
+        executor.spawn(manager_future, MANAGER_TASK_NAME);
+
         Ok(())
+    }
+
+    fn update_metrics(&mut self, modified_queue_id: Option<WorkType>) {
+        metrics::set_gauge(
+            &metrics::BEACON_PROCESSOR_WORKERS_ACTIVE_TOTAL,
+            self.beacon_processor.current_workers as i64,
+        );
+
+        if let Some(modified_queue_id) = modified_queue_id {
+            metrics::observe_vec(
+                &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
+                &[modified_queue_id.into()],
+                self.work_queue.len() as f64,
+            );
+        }
+        // TODO check if is_full?
     }
 
     fn earliest_deadline_first_scheduler(
@@ -196,6 +225,7 @@ impl<E: EthSpec> Scheduler<E> {
         &mut self,
         idle_tx: Sender<()>,
         work: Work<E>,
+        slot_clock: &S,
         can_spawn: bool,
     ) -> Option<WorkType> {
         let work_id = work.str_id();
@@ -205,7 +235,10 @@ impl<E: EthSpec> Scheduler<E> {
         match work {
             _ if can_spawn => spawn_worker(&mut self.beacon_processor, idle_tx.clone(), work),
             _ => {
-                self.work_queue.insert(QueueItem::new(work));
+                let Some(queue_item) = QueueItem::new(work, slot_clock) else {
+                    return None;
+                };
+                self.work_queue.insert(queue_item);
             }
         }
 

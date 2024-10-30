@@ -6,7 +6,7 @@ use types::{BeaconState, ChainSpec, EthSpec};
 
 use crate::{BeaconProcessor, WorkEvent};
 
-use super::priority_scheduler;
+use super::{earliest_deadline_scheduler, priority_scheduler};
 
 pub trait Scheduler<E: EthSpec, S: SlotClock> {
     fn new(
@@ -26,9 +26,11 @@ pub trait Scheduler<E: EthSpec, S: SlotClock> {
 
 pub enum SchedulerType<E: EthSpec, S: SlotClock> {
     PriorityScheduler(priority_scheduler::Scheduler<E, S>),
+    EarliestDeadlineScheduler(earliest_deadline_scheduler::Scheduler<E, S>),
 }
 
 impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> for SchedulerType<E, S> {
+    // TODO(beacon-processor) make this config driven
     fn new(
         beacon_processor: BeaconProcessor<E>,
         beacon_state: &BeaconState<E>,
@@ -38,7 +40,7 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> for SchedulerType<E, S>
             priority_scheduler::Scheduler::new(beacon_processor, beacon_state, spec)?,
         )))
     }
-    // TODO(beacon-processor) make this config driven
+
     fn run(
         self,
         event_rx: mpsc::Receiver<WorkEvent<E>>,
@@ -53,6 +55,9 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> for SchedulerType<E, S>
                 slot_clock,
                 maximum_gossip_clock_disparity,
             ),
+            SchedulerType::EarliestDeadlineScheduler(scheduler) => {
+                scheduler.run(event_rx, work_journal_tx, slot_clock)
+            }
         }
     }
 }

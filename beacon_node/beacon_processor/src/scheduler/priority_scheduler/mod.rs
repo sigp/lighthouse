@@ -91,7 +91,7 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
 }
 
 /// The name of the manager tokio task.
-const MANAGER_TASK_NAME: &str = "beacon_processor_manager";
+const MANAGER_TASK_NAME: &str = "priority_scheduler";
 
 // Backend trait inits a channel, a run function
 // A channel trait has send_work, reprocess_work etc.
