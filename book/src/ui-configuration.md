@@ -30,6 +30,7 @@ The common usage is to run Siren at a client computer connecting to a server run
     ```
 
  1. Create a configuration file in the `Siren` directory: `nano .env` and insert the following fields to the `.env` file. The field values are given here as an example, modify the fields as necessary. For example, the `API_TOKEN` can be obtained from [`Validator Authorization`](./api-vc-auth-header.md):
+
     ```
     BEACON_URL=http://localhost:5052
     VALIDATOR_URL=http://localhost:5062
@@ -38,27 +39,33 @@ The common usage is to run Siren at a client computer connecting to a server run
     ```
 
  1. You can now start Siren with:
+
     ```bash
     docker run --rm -ti --name siren -p 4443:443 --env-file $PWD/.env --net host sigp/siren
     ```
     If it fails to start, an error message will be shown. For example, the error
+
     ```
     http://localhost:5062 unreachable, check settings and connection
     ```
+
     means that the validator client is not running, or the `--http` flag is not provided. Another common error is:
+
     ```
     validator api issue, server response: 403
     ```
+
     which means that the API token is incorrect. Check that you have provided the correct token in the field `API_TOKEN` in `.env`.
 
-    When Siren is successfully run, you should see the log `LOG [NestApplication] Nest application successfully started +118ms`, indicating that Siren has started. 
+    When Siren is successfully run, you should see the log `LOG [NestApplication] Nest application successfully started +118ms`, indicating that Siren has started.
 
  1. At the client computer, SSH to the server:
+
     ```bash
     ssh -L 3000:127.0.0.1:3000  username@server_IP
     ```
-    You can now access siren by entering `localhost:3000` to a browser in the client computer. 
 
+    You can now access siren by entering `localhost:3000` to a browser in the client computer.
 
 Advanced users can mount their own certificates, see the `SSL Certificates` section below
 
