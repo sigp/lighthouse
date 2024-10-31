@@ -124,15 +124,11 @@ fn main() {
                 .display_order(0),
         )
         .arg(
-            Arg::new("logfile")
-                .long("logfile")
-                .value_name("FILE")
+            Arg::new("logfile-dir")
+                .long("logfile-dir")
+                .value_name("DIR")
                 .help(
-                    "File path where the log file will be stored. Once it grows to the \
-                    value specified in `--logfile-max-size` a new log file is generated where \
-                    future logs are stored. \
-                    Once the number of log files exceeds the value specified in \
-                    `--logfile-max-number` the oldest log file will be overwritten.")
+                    "Directory path where the log file will be stored")
                 .action(ArgAction::Set)
                 .global(true)
                 .display_order(0)
@@ -533,7 +529,7 @@ fn run<E: EthSpec>(
     let logfile_restricted = !matches.get_flag("logfile-no-restricted-perms");
 
     // Construct the path to the log file.
-    let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
+    let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile-dir")?;
     if log_path.is_none() {
         log_path = match matches.subcommand() {
             Some(("beacon_node", _)) => Some(
