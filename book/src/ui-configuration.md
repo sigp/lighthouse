@@ -43,7 +43,7 @@ The common usage is to run Siren at a client computer connecting to a server run
     ```bash
     docker run --rm -ti --name siren -p 4443:443 --env-file $PWD/.env --net host sigp/siren
     ```
-    
+
     If it fails to start, an error message will be shown. For example, the error
 
     ```
