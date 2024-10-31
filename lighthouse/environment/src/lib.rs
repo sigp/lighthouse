@@ -32,6 +32,8 @@ use {
 #[cfg(not(target_family = "unix"))]
 use {futures::channel::oneshot, std::cell::RefCell};
 
+pub mod tracing_common;
+
 const LOG_CHANNEL_SIZE: usize = 16384;
 pub const SSE_LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.

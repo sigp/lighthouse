@@ -11,6 +11,7 @@ use clap_utils::{
 };
 use cli::LighthouseSubcommands;
 use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
+use environment::tracing_common;
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
@@ -563,74 +564,31 @@ fn run<E: EthSpec>(
         }
     };
 
-    let logger_config = LoggerConfig {
-        path: log_path.clone(),
-        debug_level: String::from(debug_level),
-        logfile_debug_level: String::from(logfile_debug_level),
-        log_format: log_format.map(String::from),
-        logfile_format: logfile_format.map(String::from),
-        log_color,
-        disable_log_timestamp,
-        max_log_size: logfile_max_size * 1_024 * 1_024,
-        max_log_number: logfile_max_number,
-        compression: logfile_compress,
-        is_restricted: logfile_restricted,
-        sse_logging,
-    };
-
-    let (libp2p_non_blocking_writer, _libp2p_guard, discv5_non_blocking_writer, _discv5_guard) =
-        logging::create_tracing_layer(log_path.clone());
-    let libp2p_layer = tracing_subscriber::fmt::layer()
-        .with_writer(libp2p_non_blocking_writer)
-        .with_line_number(true);
-
-    let discv5_layer = tracing_subscriber::fmt::layer()
-        .with_writer(discv5_non_blocking_writer)
-        .with_line_number(true);
-
-    let logfile_prefix = match matches.subcommand_name() {
-        Some(subcommand) => subcommand,
-        None => "lighthouse",
-    };
-
-    let (builder, file_logging_layer, stdout_logging_layer, sse_logging_layer_opt) =
-        environment_builder.init_tracing(logger_config.clone(), logfile_prefix);
-
-    let filter_layer = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new(logger_config.debug_level.to_lowercase().as_str()))
-        .unwrap();
-
-    let stdout_level = match logger_config.debug_level.to_lowercase().as_str() {
-        "error" => LevelFilter::ERROR,
-        "warn" => LevelFilter::WARN,
-        "info" => LevelFilter::INFO,
-        "debug" => LevelFilter::DEBUG,
-        "trace" => LevelFilter::TRACE,
-        _ => {
-            eprintln!("Unsupported log level");
-            process::exit(1)
-        }
-    };
-
-    let file_level = match logger_config.logfile_debug_level.to_lowercase().as_str() {
-        "error" => LevelFilter::ERROR,
-        "warn" => LevelFilter::WARN,
-        "info" => LevelFilter::INFO,
-        "debug" => LevelFilter::DEBUG,
-        "trace" => LevelFilter::TRACE,
-        _ => {
-            eprintln!("Unsupported log level");
-            process::exit(1)
-        }
-    };
+    let (builder, filter_layer, libp2p_discv5_layer, file_logging_layer, stdout_logging_layer, sse_logging_layer_opt, stdout_level, file_level, logger_config) = tracing_common::construct_logger(
+        LoggerConfig {
+            path: log_path.clone(),
+            debug_level: String::from(debug_level),
+            logfile_debug_level: String::from(logfile_debug_level),
+            log_format: log_format.map(String::from),
+            logfile_format: logfile_format.map(String::from),
+            log_color,
+            disable_log_timestamp,
+            max_log_size: logfile_max_size * 1_024 * 1_024,
+            max_log_number: logfile_max_number,
+            compression: logfile_compress,
+            is_restricted: logfile_restricted,
+            sse_logging,
+        },
+        matches,
+        environment_builder,
+    );
 
     let logging = tracing_subscriber::registry()
         .with(filter_layer)
-        .with(libp2p_layer)
-        .with(discv5_layer)
         .with(file_logging_layer.with_filter(file_level))
         .with(stdout_logging_layer.with_filter(stdout_level))
-        .with(MetricsLayer);
+        .with(MetricsLayer)
+        .with(libp2p_discv5_layer);
 
     let logging_result = if let Some(sse_logging_layer) = sse_logging_layer_opt {
         logging.with(sse_logging_layer).try_init()

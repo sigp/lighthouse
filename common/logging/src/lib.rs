@@ -4,7 +4,12 @@ use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::Layer;
+use tracing_subscriber::layer::Context;
+use chrono::Local;
+use tracing::Subscriber;
+use std::io::Write;
+
 pub const MAX_MESSAGE_WIDTH: usize = 40;
 
 pub mod macros;
@@ -46,9 +51,59 @@ impl TimeLatch {
     }
 }
 
-pub fn create_tracing_layer(
+pub struct Libp2pDiscv5TracingLayer {
+    pub libp2p_non_blocking_writer: NonBlocking,
+    pub _libp2p_guard: WorkerGuard,
+    pub discv5_non_blocking_writer: NonBlocking,
+    pub _discv5_guard: WorkerGuard,
+}
+
+impl<S> Layer<S> for Libp2pDiscv5TracingLayer
+where
+    S: Subscriber,
+{
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<S>) {
+        let meta = event.metadata();
+        let log_level = meta.level();
+        let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+        let target = match meta.target().split_once("::") {
+            Some((crate_name, _)) => crate_name,
+            None => "unknown",
+        };
+
+        let mut writer = match target {
+            "gossipsub" => self.libp2p_non_blocking_writer.clone(),
+            "discv5" => self.discv5_non_blocking_writer.clone(),
+            _ => return,
+        };
+
+        let mut visitor = LogMessageExtractor {
+            message: String::default(),
+        };
+
+        event.record(&mut visitor);
+        let message = format!("{} {} {}\n", timestamp, log_level, visitor.message);
+
+        if let Err(e) = writer.write_all(message.as_bytes()) {
+            eprintln!("Failed to write log: {}", e);
+        }
+    }
+}
+
+struct LogMessageExtractor {
+    message: String,
+}
+
+impl tracing_core::field::Visit for LogMessageExtractor {
+    fn record_debug(&mut self, _: &tracing_core::Field, value: &dyn std::fmt::Debug) {
+        self.message = format!("{} {:?}", self.message, value);
+    }
+}
+
+pub fn create_libp2p_discv5_tracing_layer(
     base_tracing_log_path: Option<PathBuf>,
-) -> (NonBlocking, WorkerGuard, NonBlocking, WorkerGuard) {
+) -> Libp2pDiscv5TracingLayer {
     if let Some(mut tracing_log_path) = base_tracing_log_path {
         // Ensure that `tracing_log_path` only contains directories.
         for p in tracing_log_path.clone().iter() {
@@ -85,20 +140,24 @@ pub fn create_tracing_layer(
         let (libp2p_non_blocking_writer, _libp2p_guard) = NonBlocking::new(libp2p_writer);
         let (discv5_non_blocking_writer, _discv5_guard) = NonBlocking::new(discv5_writer);
 
-        (
+        let libp2p_discv5_tracing_layer = Libp2pDiscv5TracingLayer {
             libp2p_non_blocking_writer,
             _libp2p_guard,
             discv5_non_blocking_writer,
             _discv5_guard,
-        )
+        };
+
+        libp2p_discv5_tracing_layer
     } else {
         let (libp2p_non_blocking_writer, _libp2p_guard) = NonBlocking::new(std::io::sink());
         let (discv5_non_blocking_writer, _discv5_guard) = NonBlocking::new(std::io::sink());
-        return (
+        let libp2p_discv5_tracing_layer = Libp2pDiscv5TracingLayer {
             libp2p_non_blocking_writer,
             _libp2p_guard,
             discv5_non_blocking_writer,
             _discv5_guard,
-        );
+        };
+
+        libp2p_discv5_tracing_layer
     }
 }

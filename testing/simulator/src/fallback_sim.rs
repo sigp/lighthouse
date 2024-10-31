@@ -11,16 +11,13 @@ use node_test_rig::{
 };
 use rayon::prelude::*;
 use std::cmp::max;
-use std::process;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
-use tracing_subscriber::filter::EnvFilter;
-use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use types::{Epoch, EthSpec, MinimalEthSpec};
-
+use environment::tracing_common;
 const END_EPOCH: u64 = 16;
 const GENESIS_DELAY: u64 = 32;
 const ALTAIR_FORK_EPOCH: u64 = 0;
@@ -93,67 +90,29 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
             ValidatorFiles::with_keystores(&indices).unwrap()
         })
         .collect::<Vec<_>>();
-    let logger_config = LoggerConfig {
-        path: None,
-        debug_level: log_level.clone(),
-        logfile_debug_level: log_level.clone(),
-        log_format: None,
-        logfile_format: None,
-        log_color: false,
-        disable_log_timestamp: false,
-        max_log_size: 0,
-        max_log_number: 0,
-        compression: false,
-        is_restricted: true,
-        sse_logging: false,
-    };
-
-    let (env_builder, file_logging_layer, stdout_logging_layer, _sse_logging_layer_opt) =
-        EnvironmentBuilder::minimal().init_tracing(logger_config.clone());
-
-    let filter_layer = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new(log_level.to_lowercase().as_str()))
-        .unwrap();
-
-    let (libp2p_non_blocking_writer, _libp2p_guard, discv5_non_blocking_writer, _discv5_guard) =
-        logging::create_tracing_layer(logger_config.path.clone());
-
-    let libp2p_layer = tracing_subscriber::fmt::layer()
-        .with_writer(libp2p_non_blocking_writer)
-        .with_line_number(true);
-
-    let discv5_layer = tracing_subscriber::fmt::layer()
-        .with_writer(discv5_non_blocking_writer)
-        .with_line_number(true);
-
-    let stdout_level = match logger_config.debug_level.to_lowercase().as_str() {
-        "error" => LevelFilter::ERROR,
-        "warn" => LevelFilter::WARN,
-        "info" => LevelFilter::INFO,
-        "debug" => LevelFilter::DEBUG,
-        "trace" => LevelFilter::TRACE,
-        _ => {
-            eprintln!("Unsupported log level");
-            process::exit(1)
-        }
-    };
-
-    let file_level = match logger_config.logfile_debug_level.to_lowercase().as_str() {
-        "error" => LevelFilter::ERROR,
-        "warn" => LevelFilter::WARN,
-        "info" => LevelFilter::INFO,
-        "debug" => LevelFilter::DEBUG,
-        "trace" => LevelFilter::TRACE,
-        _ => {
-            eprintln!("Unsupported log level");
-            process::exit(1)
-        }
-    };
+    
+    let (env_builder, filter_layer, libp2p_discv5_layer, file_logging_layer, stdout_logging_layer, sse_logging_layer_opt, stdout_level, file_level, logger_config) = tracing_common::construct_logger(
+        LoggerConfig {
+            path: None,
+            debug_level: log_level.clone(),
+            logfile_debug_level: log_level.clone(),
+            log_format: None,
+            logfile_format: None,
+            log_color: false,
+            disable_log_timestamp: false,
+            max_log_size: 0,
+            max_log_number: 0,
+            compression: false,
+            is_restricted: true,
+            sse_logging: false,
+        },
+        matches,
+        EnvironmentBuilder::minimal(),
+    );
 
     if let Err(e) = tracing_subscriber::registry()
         .with(filter_layer)
-        .with(libp2p_layer)
-        .with(discv5_layer)
+        .with(libp2p_discv5_layer)
         .with(file_logging_layer.with_filter(file_level))
         .with(stdout_logging_layer.with_filter(stdout_level))
         .with(MetricsLayer)
