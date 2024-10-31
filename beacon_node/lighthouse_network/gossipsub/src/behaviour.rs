@@ -626,11 +626,6 @@ where
             return Err(PublishError::Duplicate);
         }
 
-        // Broadcast IDONTWANT messages
-        if raw_message.raw_protobuf_len() > self.config.idontwant_message_size_threshold() {
-            self.send_idontwant(&raw_message, &msg_id, raw_message.source.as_ref());
-        }
-
         tracing::trace!(message=%msg_id, "Publishing message");
 
         let topic_hash = raw_message.topic.clone();
@@ -779,6 +774,11 @@ where
 
         if publish_failed {
             return Err(PublishError::AllQueuesFull(recipient_peers.len()));
+        }
+
+        // Broadcast IDONTWANT messages
+        if raw_message.raw_protobuf_len() > self.config.idontwant_message_size_threshold() {
+            self.send_idontwant(&raw_message, &msg_id, raw_message.source.as_ref());
         }
 
         tracing::debug!(message=%msg_id, "Published message");
