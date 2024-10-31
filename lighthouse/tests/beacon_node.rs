@@ -7,6 +7,7 @@ use beacon_node::beacon_chain::chain_config::{
 };
 use beacon_node::beacon_chain::graffiti_calculator::GraffitiOrigin;
 use beacon_processor::BeaconProcessorConfig;
+use beacon_processor::BeaconProcessorType;
 use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
 use lighthouse_version;
@@ -2579,7 +2580,8 @@ fn beacon_processor() {
                     max_scheduled_work_queue_len: 3,
                     max_gossip_attestation_batch_size: 4,
                     max_gossip_aggregate_batch_size: 5,
-                    enable_backfill_rate_limiting: false
+                    enable_backfill_rate_limiting: false,
+                    beacon_processor_type: BeaconProcessorType::EarliestDeadline,
                 }
             )
         });

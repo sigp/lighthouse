@@ -104,6 +104,7 @@ pub struct BeaconProcessorConfig {
     pub max_gossip_attestation_batch_size: usize,
     pub max_gossip_aggregate_batch_size: usize,
     pub enable_backfill_rate_limiting: bool,
+    pub beacon_processor_type: BeaconProcessorType,
 }
 
 impl Default for BeaconProcessorConfig {
@@ -115,6 +116,7 @@ impl Default for BeaconProcessorConfig {
             max_gossip_attestation_batch_size: DEFAULT_MAX_GOSSIP_ATTESTATION_BATCH_SIZE,
             max_gossip_aggregate_batch_size: DEFAULT_MAX_GOSSIP_AGGREGATE_BATCH_SIZE,
             enable_backfill_rate_limiting: true,
+            beacon_processor_type: BeaconProcessorType::EarliestDeadline,
         }
     }
 }
@@ -141,6 +143,12 @@ impl<E: EthSpec> Default for BeaconProcessorChannels<E> {
     fn default() -> Self {
         Self::new(&BeaconProcessorConfig::default())
     }
+}
+
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub enum BeaconProcessorType {
+    Priority,
+    EarliestDeadline,
 }
 
 /// A handle that sends a message on the provided channel to a receiver when it gets dropped.

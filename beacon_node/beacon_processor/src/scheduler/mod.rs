@@ -1,13 +1,85 @@
+use std::task::Poll;
+
+use futures::stream::Stream;
 use slog::trace;
+use std::pin::Pin;
+use std::task::Context;
+use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use types::EthSpec;
+use work_reprocessing_queue::ReadyWork;
 
-use crate::metrics;
+use crate::{metrics, WorkEvent, WORKER_FREED};
 use crate::{BeaconProcessor, BlockingOrAsync, SendOnDrop, TaskSpawner, Work};
 
 mod earliest_deadline_scheduler;
 pub mod interface;
 mod priority_scheduler;
+pub mod work_reprocessing_queue;
+
+/// Unifies all the messages processed by the `BeaconProcessor`.
+enum InboundEvent<E: EthSpec> {
+    /// A worker has completed a task and is free.
+    WorkerIdle,
+    /// There is new work to be done.
+    WorkEvent(WorkEvent<E>),
+    /// A work event that was queued for re-processing has become ready.
+    ReprocessingWork(WorkEvent<E>),
+}
+
+/// Combines the various incoming event streams for the `BeaconProcessor` into a single stream.
+///
+/// This struct has a similar purpose to `tokio::select!`, however it allows for more fine-grained
+/// control (specifically in the ordering of event processing).
+struct InboundEvents<E: EthSpec> {
+    /// Used by workers when they finish a task.
+    idle_rx: mpsc::Receiver<()>,
+    /// Used by upstream processes to send new work to the `BeaconProcessor`.
+    event_rx: mpsc::Receiver<WorkEvent<E>>,
+    ready_work_rx: mpsc::Receiver<ReadyWork>,
+}
+
+impl<E: EthSpec> Stream for InboundEvents<E> {
+    type Item = InboundEvent<E>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // Always check for idle workers before anything else. This allows us to ensure that a big
+        // stream of new events doesn't suppress the processing of existing events.
+        match self.idle_rx.poll_recv(cx) {
+            Poll::Ready(Some(())) => {
+                return Poll::Ready(Some(InboundEvent::WorkerIdle));
+            }
+            Poll::Ready(None) => {
+                return Poll::Ready(None);
+            }
+            Poll::Pending => {}
+        }
+
+        // Poll for delayed blocks before polling for new work. It might be the case that a delayed
+        // block is required to successfully process some new work.
+        match self.ready_work_rx.poll_recv(cx) {
+            Poll::Ready(Some(ready_work)) => {
+                return Poll::Ready(Some(InboundEvent::ReprocessingWork(ready_work.into())));
+            }
+            Poll::Ready(None) => {
+                return Poll::Ready(None);
+            }
+            Poll::Pending => {}
+        }
+
+        match self.event_rx.poll_recv(cx) {
+            Poll::Ready(Some(event)) => {
+                return Poll::Ready(Some(InboundEvent::WorkEvent(event)));
+            }
+            Poll::Ready(None) => {
+                return Poll::Ready(None);
+            }
+            Poll::Pending => {}
+        }
+
+        Poll::Pending
+    }
+}
 
 /// Spawns a blocking worker thread to process some `Work`.
 ///
@@ -51,6 +123,8 @@ pub fn spawn_worker<E: EthSpec>(
         executor,
         send_idle_on_drop,
     };
+
+    println!("spawing work {:?}", work);
 
     match work {
         Work::GossipAttestation {
@@ -131,6 +205,24 @@ pub fn spawn_worker<E: EthSpec>(
         | Work::LightClientUpdatesByRangeRequest(process_fn) => {
             task_spawner.spawn_blocking(process_fn)
         }
-        Work::Reprocess(_) => (),
+        Work::Reprocess(_) => {}
     };
+}
+
+pub fn worker_journal<E: EthSpec>(
+    work_event: &Option<WorkEvent<E>>,
+    work_journal_tx: &Option<Sender<&'static str>>,
+) {
+    if let Some(work_journal_tx) = work_journal_tx {
+        let id = work_event
+            .as_ref()
+            .map(|event| event.work.str_id())
+            .unwrap_or(WORKER_FREED);
+
+        // We don't care if this message was successfully sent, we only use the journal
+        // during testing. We also ignore reprocess messages to ensure our test cases can pass.
+        if id != "reprocess" {
+            let _ = work_journal_tx.try_send(id);
+        }
+    }
 }

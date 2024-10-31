@@ -10,6 +10,11 @@ use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
 /// slightly, we don't need to adjust the queues during the lifetime of a process.
 const ACTIVE_VALIDATOR_COUNT_OVERPROVISION_PERCENT: usize = 110;
 
+/// Minimum size of dynamically sized queues. Due to integer division we don't want 0 length queues
+/// as the processor won't process that message type. 128 is an arbitrary value value >= 1 that
+/// seems reasonable.
+const MIN_QUEUE_LEN: usize = 128;
+
 /// A simple first-in-first-out queue with a maximum length.
 pub struct FifoQueue<T> {
     queue: VecDeque<T>,
@@ -153,13 +158,22 @@ impl BeaconProcessorQueueLengths {
             (ACTIVE_VALIDATOR_COUNT_OVERPROVISION_PERCENT * active_validator_count) / 100;
         let slots_per_epoch = E::slots_per_epoch() as usize;
 
+        println!("activate val count {}", active_validator_count);
+        println!("slots per epoch {}", slots_per_epoch);
+
         Ok(Self {
             aggregate_queue: 4096,
             unknown_block_aggregate_queue: 1024,
             // Capacity for a full slot's worth of attestations if subscribed to all subnets
-            attestation_queue: active_validator_count / slots_per_epoch,
+            attestation_queue: std::cmp::max(
+                active_validator_count / slots_per_epoch,
+                MIN_QUEUE_LEN,
+            ),
             // Capacity for a full slot's worth of attestations if subscribed to all subnets
-            unknown_block_attestation_queue: active_validator_count / slots_per_epoch,
+            unknown_block_attestation_queue: std::cmp::max(
+                active_validator_count / slots_per_epoch,
+                MIN_QUEUE_LEN,
+            ),
             sync_message_queue: 2048,
             sync_contribution_queue: 1024,
             gossip_voluntary_exit_queue: 4096,
@@ -357,11 +371,6 @@ impl<E: EthSpec> WorkQueues<E> {
 
 #[cfg(test)]
 mod tests {
-    /// Minimum size of dynamically sized queues. Due to integer division we don't want 0 length queues
-    /// as the processor won't process that message type. 128 is an arbitrary value value >= 1 that
-    /// seems reasonable.
-    const MIN_QUEUE_LEN: usize = 128;
-
     use super::*;
     use types::{BeaconState, ChainSpec, Eth1Data, ForkName, MainnetEthSpec};
 

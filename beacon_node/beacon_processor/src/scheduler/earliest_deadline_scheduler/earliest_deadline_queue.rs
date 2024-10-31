@@ -8,7 +8,7 @@ use std::{
 use slot_clock::SlotClock;
 use types::{EthSpec, Slot};
 
-use crate::{Work, WorkEvent};
+use crate::{ReprocessQueueMessage, Work, WorkEvent};
 
 pub struct WorkQueue<E: EthSpec, S: SlotClock> {
     min_heap: BinaryHeap<Reverse<QueueItem<E, S>>>,
@@ -42,68 +42,30 @@ impl<E: EthSpec, S: SlotClock> QueueItem<E, S> {
         let Some(current_time) = slot_clock.now_duration() else {
             return None;
         };
+        println!("work: {:?}", work);
         let deadline = match work {
             Work::GossipAttestation { attestation, .. } => {
                 let attestation_slot = attestation.attestation.data().slot;
-
-                let Some(start_of_attestation_slot) = slot_clock.start_of(attestation_slot) else {
-                    return None;
-                };
-
-                let arrival_time_with_buffer = current_time.saturating_add(Duration::from_secs(1));
-                let four_seconds_into_slot =
-                    start_of_attestation_slot.saturating_add(Duration::from_secs(4));
-                Some(max(four_seconds_into_slot, arrival_time_with_buffer))
+                Self::calculate_unaggregated_attestation_deadline(attestation_slot, slot_clock)
             }
             Work::GossipAttestationBatch { attestations, .. } => {
                 let Some(attestation) = attestations.first() else {
                     return None;
                 };
-
                 let attestation_slot = attestation.attestation.data().slot;
-
-                let Some(start_of_attestation_slot) = slot_clock.start_of(attestation_slot) else {
-                    return None;
-                };
-
-                let four_seconds_into_slot =
-                    start_of_attestation_slot.saturating_add(Duration::from_secs(4));
-
-                let arrival_time_with_buffer = current_time.saturating_add(Duration::from_secs(1));
-                Some(max(four_seconds_into_slot, arrival_time_with_buffer))
+                Self::calculate_unaggregated_attestation_deadline(attestation_slot, slot_clock)
             }
             Work::GossipAggregate { aggregate, .. } => {
                 let attestation_slot = aggregate.aggregate.message().aggregate().data().slot;
-                let Some(start_of_next_slot) = slot_clock.start_of(attestation_slot + Slot::new(1))
-                else {
-                    return None;
-                };
-                let arrival_time_with_buffer = current_time.saturating_add(Duration::from_secs(1));
-
-                Some(max(start_of_next_slot, arrival_time_with_buffer))
+                Self::calculate_aggregate_attestation_deadline(attestation_slot, slot_clock)
             }
-            Work::UnknownBlockAggregate { .. } => Some(current_time),
             Work::GossipAggregateBatch { aggregates, .. } => {
                 let Some(aggregate) = aggregates.first() else {
                     return None;
                 };
 
                 let attestation_slot = aggregate.aggregate.message().aggregate().data().slot;
-                let Some(start_of_next_slot) = slot_clock.start_of(attestation_slot + Slot::new(1))
-                else {
-                    return None;
-                };
-                let arrival_time_with_buffer = current_time.saturating_add(Duration::from_secs(1));
-
-                Some(max(start_of_next_slot, arrival_time_with_buffer))
-            }
-            Work::GossipBlock(_) => Some(current_time),
-            Work::DelayedImportBlock { .. } => Some(current_time),
-            Work::GossipVoluntaryExit(_) => {
-                Some(current_time.saturating_add(Duration::from_secs(4)))
-            }
-            Work::UnknownLightClientOptimisticUpdate { .. } => {
-                Some(current_time.saturating_add(Duration::from_secs(4)))
+                Self::calculate_aggregate_attestation_deadline(attestation_slot, slot_clock)
             }
             Work::UnknownBlockAttestation { .. }
             | Work::UnknownBlockSamplingRequest { .. }
@@ -115,38 +77,109 @@ impl<E: EthSpec, S: SlotClock> QueueItem<E, S> {
             | Work::GossipSyncContribution(_)
             | Work::RpcBlobs { .. }
             | Work::RpcCustodyColumn { .. }
-            | Work::RpcVerifyDataColumn { .. } => {
+            | Work::RpcVerifyDataColumn { .. }
+            | Work::SamplingResult(_)
+            | Work::BlocksByRangeRequest(_)
+            | Work::BlocksByRootsRequest(_)
+            | Work::BlobsByRangeRequest(_)
+            | Work::BlobsByRootsRequest(_)
+            | Work::DataColumnsByRootsRequest(_)
+            | Work::DataColumnsByRangeRequest(_)
+            | Work::GossipBlsToExecutionChange(_) => {
                 Some(current_time.saturating_add(Duration::from_secs(1)))
             }
-            Work::GossipLightClientFinalityUpdate(..) => {
-                Some(current_time.saturating_add(Duration::from_secs(4)))
+            Work::UnknownLightClientOptimisticUpdate { .. }
+            | Work::GossipVoluntaryExit(_)
+            | Work::GossipLightClientFinalityUpdate(_)
+            | Work::GossipLightClientOptimisticUpdate(_)
+            | Work::Status(_)
+            | Work::LightClientBootstrapRequest(_)
+            | Work::LightClientOptimisticUpdateRequest(_)
+            | Work::LightClientFinalityUpdateRequest(_)
+            | Work::LightClientUpdatesByRangeRequest(_)
+            | Work::ApiRequestP0(_)
+            | Work::ApiRequestP1(_) => Some(current_time.saturating_add(Duration::from_secs(4))),
+            Work::RpcBlock { .. }
+            | Work::IgnoredRpcBlock { .. }
+            | Work::ChainSegment(_)
+            | Work::ChainSegmentBackfill(_)
+            | Work::UnknownBlockAggregate { .. }
+            | Work::GossipBlock(_)
+            | Work::DelayedImportBlock { .. } => Some(current_time),
+            Work::Reprocess(reprocess_queue_message) => {
+                Self::calculate_reprocess_deadline(reprocess_queue_message, slot_clock)
             }
-            Work::GossipLightClientOptimisticUpdate(fn_once) => todo!(),
-            Work::RpcBlock { process_fn } => todo!(),
-            (pin) => todo!(),
-            (pin) => todo!(),
-            Work::SamplingResult(pin) => todo!(),
-            Work::IgnoredRpcBlock { process_fn } => todo!(),
-            Work::ChainSegment(pin) => todo!(),
-            Work::ChainSegmentBackfill(pin) => todo!(),
-            Work::Status(fn_once) => todo!(),
-            Work::BlocksByRangeRequest(pin) => todo!(),
-            Work::BlocksByRootsRequest(pin) => todo!(),
-            Work::BlobsByRangeRequest(fn_once) => todo!(),
-            Work::BlobsByRootsRequest(fn_once) => todo!(),
-            Work::DataColumnsByRootsRequest(fn_once) => todo!(),
-            Work::DataColumnsByRangeRequest(fn_once) => todo!(),
-            Work::GossipBlsToExecutionChange(fn_once) => todo!(),
-            Work::LightClientBootstrapRequest(fn_once) => todo!(),
-            Work::LightClientOptimisticUpdateRequest(fn_once) => todo!(),
-            Work::LightClientFinalityUpdateRequest(fn_once) => todo!(),
-            Work::LightClientUpdatesByRangeRequest(fn_once) => todo!(),
-            Work::ApiRequestP0(blocking_or_async) => todo!(),
-            Work::ApiRequestP1(blocking_or_async) => todo!(),
-            Work::Reprocess(reprocess_queue_message) => todo!(),
         };
 
+        println!("deadline {:?}", deadline);
+
         deadline
+    }
+
+    /// An unaggregated attestation should be scheduled to be processed no later than within four seconds of the start of the current slot
+    /// or within a second of its arrival time if received later than the four second deadline.
+    fn calculate_unaggregated_attestation_deadline(
+        attestation_slot: Slot,
+        slot_clock: &S,
+    ) -> Option<Duration> {
+        let Some(current_time) = slot_clock.now_duration() else {
+            return None;
+        };
+
+        let Some(start_of_attestation_slot) = slot_clock.start_of(attestation_slot) else {
+            return None;
+        };
+
+        let four_seconds_into_slot =
+            start_of_attestation_slot.saturating_add(Duration::from_secs(4));
+
+        let arrival_time_with_buffer = current_time.saturating_add(Duration::from_secs(1));
+        Some(max(four_seconds_into_slot, arrival_time_with_buffer))
+    }
+
+    /// An aggregation attestation should be scheduled to be processed no later than the start of the next slot
+    /// or within a second of its arrival time if received later than the start of the next slot.
+    fn calculate_aggregate_attestation_deadline(
+        attestation_slot: Slot,
+        slot_clock: &S,
+    ) -> Option<Duration> {
+        let Some(current_time) = slot_clock.now_duration() else {
+            return None;
+        };
+
+        let Some(start_of_next_slot) = slot_clock.start_of(attestation_slot + Slot::new(1)) else {
+            return None;
+        };
+        let arrival_time_with_buffer = current_time.saturating_add(Duration::from_secs(1));
+
+        Some(max(start_of_next_slot, arrival_time_with_buffer))
+    }
+
+    fn calculate_reprocess_deadline(
+        reprocess_queue_message: &ReprocessQueueMessage,
+        slot_clock: &S,
+    ) -> Option<Duration> {
+        let Some(current_time) = slot_clock.now_duration() else {
+            return None;
+        };
+
+        println!("reprocessing");
+
+        match reprocess_queue_message {
+            ReprocessQueueMessage::EarlyBlock(_)
+            | ReprocessQueueMessage::RpcBlock(_)
+            | ReprocessQueueMessage::BlockImported { .. }
+            | ReprocessQueueMessage::UnknownBlockUnaggregate(_)
+            | ReprocessQueueMessage::UnknownBlockAggregate(_) => Some(current_time),
+            ReprocessQueueMessage::NewLightClientOptimisticUpdate { .. }
+            | ReprocessQueueMessage::UnknownLightClientOptimisticUpdate(_)
+            | ReprocessQueueMessage::UnknownBlockSamplingRequest(_) => {
+                Some(current_time.saturating_add(Duration::from_secs(1)))
+            }
+            ReprocessQueueMessage::BackfillSync(_) => {
+                Some(current_time.saturating_add(Duration::from_secs(4)))
+            }
+        }
     }
 }
 
@@ -160,7 +193,7 @@ impl<E: EthSpec, S: SlotClock> PartialEq for QueueItem<E, S> {
 
 impl<E: EthSpec, S: SlotClock> PartialOrd for QueueItem<E, S> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.deadline.partial_cmp(&other.deadline)
+        Some(self.cmp(other))
     }
 }
 
@@ -189,7 +222,7 @@ impl<E: EthSpec, S: SlotClock> WorkQueue<E, S> {
         }
     }
 
-    fn peek(&self) -> Option<&Reverse<QueueItem<E, S>>> {
+    fn _peek(&self) -> Option<&Reverse<QueueItem<E, S>>> {
         self.min_heap.peek()
     }
 
@@ -198,7 +231,7 @@ impl<E: EthSpec, S: SlotClock> WorkQueue<E, S> {
     }
 
     // TODO do we want an is_full method? should there be a concept of full?
-    pub fn is_full(&self) -> bool {
+    pub fn _is_full(&self) -> bool {
         todo!()
     }
 }

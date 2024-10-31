@@ -4,91 +4,24 @@
 // 3. A retry queue
 
 mod work_queue;
-mod work_reprocessing_queue;
 
-use futures::stream::{Stream, StreamExt};
-use futures::task::Poll;
+use crate::scheduler::work_reprocessing_queue::{spawn_reprocess_scheduler, ReadyWork};
+use crate::scheduler::InboundEvents;
+use futures::stream::StreamExt;
 use slog::error;
 use slog::{crit, debug, trace, warn};
 use slot_clock::SlotClock;
-use std::pin::Pin;
-use std::task::Context;
 use std::{cmp, marker::PhantomData, sync::Arc, time::Duration};
 use tokio::sync::mpsc::{self, error::TrySendError, Sender};
 use types::{BeaconState, ChainSpec, EthSpec};
 use work_queue::{BeaconProcessorQueueLengths, WorkQueues};
-use work_reprocessing_queue::{spawn_reprocess_scheduler, ReadyWork};
 
 use crate::{
     metrics, BeaconProcessor, QueuedBackfillBatch, ReprocessQueueMessage, Work, WorkEvent,
-    WorkType, MAX_IDLE_QUEUE_LEN, NOTHING_TO_DO, WORKER_FREED,
+    WorkType, MAX_IDLE_QUEUE_LEN, NOTHING_TO_DO,
 };
 
-use super::spawn_worker;
-
-/// Unifies all the messages processed by the `BeaconProcessor`.
-enum InboundEvent<E: EthSpec> {
-    /// A worker has completed a task and is free.
-    WorkerIdle,
-    /// There is new work to be done.
-    WorkEvent(WorkEvent<E>),
-    /// A work event that was queued for re-processing has become ready.
-    ReprocessingWork(WorkEvent<E>),
-}
-
-/// Combines the various incoming event streams for the `BeaconProcessor` into a single stream.
-///
-/// This struct has a similar purpose to `tokio::select!`, however it allows for more fine-grained
-/// control (specifically in the ordering of event processing).
-struct InboundEvents<E: EthSpec> {
-    /// Used by workers when they finish a task.
-    idle_rx: mpsc::Receiver<()>,
-    /// Used by upstream processes to send new work to the `BeaconProcessor`.
-    event_rx: mpsc::Receiver<WorkEvent<E>>,
-    ready_work_rx: mpsc::Receiver<ReadyWork>,
-}
-
-impl<E: EthSpec> Stream for InboundEvents<E> {
-    type Item = InboundEvent<E>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // Always check for idle workers before anything else. This allows us to ensure that a big
-        // stream of new events doesn't suppress the processing of existing events.
-        match self.idle_rx.poll_recv(cx) {
-            Poll::Ready(Some(())) => {
-                return Poll::Ready(Some(InboundEvent::WorkerIdle));
-            }
-            Poll::Ready(None) => {
-                return Poll::Ready(None);
-            }
-            Poll::Pending => {}
-        }
-
-        // Poll for delayed blocks before polling for new work. It might be the case that a delayed
-        // block is required to successfully process some new work.
-        match self.ready_work_rx.poll_recv(cx) {
-            Poll::Ready(Some(ready_work)) => {
-                return Poll::Ready(Some(InboundEvent::ReprocessingWork(ready_work.into())));
-            }
-            Poll::Ready(None) => {
-                return Poll::Ready(None);
-            }
-            Poll::Pending => {}
-        }
-
-        match self.event_rx.poll_recv(cx) {
-            Poll::Ready(Some(event)) => {
-                return Poll::Ready(Some(InboundEvent::WorkEvent(event)));
-            }
-            Poll::Ready(None) => {
-                return Poll::Ready(None);
-            }
-            Poll::Pending => {}
-        }
-
-        Poll::Pending
-    }
-}
+use super::{spawn_worker, worker_journal, InboundEvent};
 
 /// The name of the manager tokio task.
 const MANAGER_TASK_NAME: &str = "priority_scheduler";
@@ -217,7 +150,7 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                 };
 
                 let _event_timer = self.increment_metrics(&work_event);
-                self.worker_journal(&work_event, &work_journal_tx);
+                worker_journal(&work_event, &work_journal_tx);
 
                 let can_spawn = self.beacon_processor.current_workers
                     < self.beacon_processor.config.max_workers;
@@ -837,26 +770,6 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                 "msg" => "the system has insufficient resources for load",
                 "queue_len" => self.work_queues.attestation_queue.max_length,
             )
-        }
-    }
-
-    // TODO(beacon-processor) this can live outside of this struct in a more general location
-    fn worker_journal(
-        &self,
-        work_event: &Option<WorkEvent<E>>,
-        work_journal_tx: &Option<Sender<&'static str>>,
-    ) {
-        if let Some(work_journal_tx) = work_journal_tx {
-            let id = work_event
-                .as_ref()
-                .map(|event| event.work.str_id())
-                .unwrap_or(WORKER_FREED);
-
-            // We don't care if this message was successfully sent, we only use the journal
-            // during testing. We also ignore reprocess messages to ensure our test cases can pass.
-            if id != "reprocess" {
-                let _ = work_journal_tx.try_send(id);
-            }
         }
     }
 

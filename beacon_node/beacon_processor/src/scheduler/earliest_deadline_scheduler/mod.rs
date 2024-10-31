@@ -1,9 +1,11 @@
-use std::task::Poll;
+use std::{sync::Arc, time::Duration};
 
+use crate::{scheduler::InboundEvents, QueuedBackfillBatch, ReprocessQueueMessage};
 use earliest_deadline_queue::{QueueItem, WorkQueue};
-use futures::{Stream, StreamExt};
-use slog::{debug, trace, warn};
+use futures::stream::StreamExt;
+use slog::{crit, debug, error, trace, warn};
 use slot_clock::SlotClock;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{self, Sender};
 use types::EthSpec;
 
@@ -11,7 +13,11 @@ use crate::{
     metrics, BeaconProcessor, Work, WorkEvent, WorkType, MAX_IDLE_QUEUE_LEN, NOTHING_TO_DO,
 };
 
-use super::spawn_worker;
+use super::{
+    spawn_worker,
+    work_reprocessing_queue::{spawn_reprocess_scheduler, ReadyWork},
+    worker_journal, InboundEvent,
+};
 
 mod earliest_deadline_queue;
 
@@ -21,54 +27,6 @@ const MANAGER_TASK_NAME: &str = "earliest_deadline_first_scheduler";
 pub struct Scheduler<E: EthSpec, S: SlotClock> {
     beacon_processor: BeaconProcessor<E>,
     work_queue: WorkQueue<E, S>,
-}
-
-struct InboundEvents<E: EthSpec> {
-    /// Used by workers when they finish a task.
-    idle_rx: mpsc::Receiver<()>,
-    /// Used by upstream processes to send new work to the `BeaconProcessor`.
-    event_rx: mpsc::Receiver<WorkEvent<E>>,
-}
-
-/// Unifies all the messages processed by the `BeaconProcessor`.
-enum InboundEvent<E: EthSpec> {
-    /// A worker has completed a task and is free.
-    WorkerIdle,
-    /// There is new work to be done.
-    WorkEvent(WorkEvent<E>),
-}
-
-impl<E: EthSpec> Stream for InboundEvents<E> {
-    type Item = InboundEvent<E>;
-
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        // Always check for idle workers before anything else. This allows us to ensure that a big
-        // stream of new events doesn't suppress the processing of existing events.
-        match self.idle_rx.poll_recv(cx) {
-            Poll::Ready(Some(())) => {
-                return Poll::Ready(Some(InboundEvent::WorkerIdle));
-            }
-            Poll::Ready(None) => {
-                return Poll::Ready(None);
-            }
-            Poll::Pending => {}
-        }
-
-        match self.event_rx.poll_recv(cx) {
-            Poll::Ready(Some(event)) => {
-                return Poll::Ready(Some(InboundEvent::WorkEvent(event)));
-            }
-            Poll::Ready(None) => {
-                return Poll::Ready(None);
-            }
-            Poll::Pending => {}
-        }
-
-        Poll::Pending
-    }
 }
 
 impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
@@ -85,12 +43,33 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
         event_rx: mpsc::Receiver<WorkEvent<E>>,
         work_journal_tx: Option<Sender<&'static str>>,
         slot_clock: S,
+        maximum_gossip_clock_disparity: Duration,
     ) -> Result<(), String> {
         let (idle_tx, idle_rx) = mpsc::channel::<()>(MAX_IDLE_QUEUE_LEN);
 
+        let (ready_work_tx, ready_work_rx) =
+            mpsc::channel::<ReadyWork>(self.beacon_processor.config.max_scheduled_work_queue_len);
+
+        let (reprocess_work_tx, reprocess_work_rx) = mpsc::channel::<ReprocessQueueMessage>(
+            self.beacon_processor.config.max_scheduled_work_queue_len,
+        );
+
         let executor = self.beacon_processor.executor.clone();
 
-        let mut inbound_events = InboundEvents { event_rx, idle_rx };
+        let mut inbound_events = InboundEvents {
+            idle_rx,
+            event_rx,
+            ready_work_rx,
+        };
+
+        spawn_reprocess_scheduler(
+            ready_work_tx,
+            reprocess_work_rx,
+            &self.beacon_processor.executor,
+            Arc::new(slot_clock.clone()),
+            self.beacon_processor.log.clone(),
+            maximum_gossip_clock_disparity,
+        )?;
 
         let manager_future = async move {
             loop {
@@ -100,7 +79,51 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                             self.beacon_processor.current_workers.saturating_sub(1);
                         None
                     }
-                    Some(InboundEvent::WorkEvent(event)) => Some(event),
+                    Some(InboundEvent::WorkEvent(event))
+                        if self.beacon_processor.config.enable_backfill_rate_limiting =>
+                    {
+                        match QueuedBackfillBatch::try_from(event) {
+                            Ok(backfill_batch) => {
+                                match reprocess_work_tx
+                                    .try_send(ReprocessQueueMessage::BackfillSync(backfill_batch))
+                                {
+                                    Err(e) => {
+                                        warn!(
+                                            self.beacon_processor.log,
+                                            "Unable to queue backfill work event. Will try to process now.";
+                                            "error" => %e
+                                        );
+                                        match e {
+                                            TrySendError::Full(reprocess_queue_message)
+                                            | TrySendError::Closed(reprocess_queue_message) => {
+                                                match reprocess_queue_message {
+                                                    ReprocessQueueMessage::BackfillSync(
+                                                        backfill_batch,
+                                                    ) => Some(backfill_batch.into()),
+                                                    other => {
+                                                        crit!(
+                                                            self.beacon_processor.log,
+                                                            "Unexpected queue message type";
+                                                            "message_type" => other.as_ref()
+                                                        );
+                                                        // This is an unhandled exception, drop the message.
+                                                        continue;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Ok(..) => {
+                                        // backfill work sent to "reprocessing" queue. Process the next event.
+                                        continue;
+                                    }
+                                }
+                            }
+                            Err(event) => Some(event),
+                        }
+                    }
+                    Some(InboundEvent::WorkEvent(event))
+                    | Some(InboundEvent::ReprocessingWork(event)) => Some(event),
                     None => {
                         debug!(
                             self.beacon_processor.log,
@@ -113,6 +136,8 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
 
                 let can_spawn = self.beacon_processor.current_workers
                     < self.beacon_processor.config.max_workers;
+
+                worker_journal(&work_event, &work_journal_tx);
                 let drop_during_sync = work_event
                     .as_ref()
                     .map_or(false, |event| event.drop_during_sync);
@@ -122,12 +147,20 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                     // We don't check the `work.drop_during_sync` here. We assume that if it made
                     // it into the queue at any point then we should process it.
                     None if can_spawn => {
-                        let work_event = self.earliest_deadline_first_scheduler(&work_journal_tx);
+                        let work_event = self.earliest_deadline_first_scheduler();
                         if let Some(work_event) = work_event {
                             let work_type = work_event.to_type();
+                            println!("weve spawned a worker here");
                             spawn_worker(&mut self.beacon_processor, idle_tx.clone(), work_event);
                             Some(work_type)
                         } else {
+                            // Let the journal know that a worker is freed and there's nothing else
+                            // for it to do.
+                            if let Some(work_journal_tx) = &work_journal_tx {
+                                // We don't care if this message was successfully sent, we only use the journal
+                                // during testing.
+                                let _ = work_journal_tx.try_send(NOTHING_TO_DO);
+                            }
                             None
                         }
                     }
@@ -167,12 +200,16 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                     }
                     // There is a new work event and the chain is not syncing. Process it or queue
                     // it.
-                    Some(WorkEvent { work, .. }) => self.process_or_queue_work_event(
-                        idle_tx.clone(),
-                        work,
-                        &slot_clock,
-                        can_spawn,
-                    ),
+                    Some(WorkEvent { work, .. }) => {
+                        println!("work: {:?}", work);
+                        self.process_or_queue_work_event(
+                            &reprocess_work_tx,
+                            idle_tx.clone(),
+                            work,
+                            &slot_clock,
+                            can_spawn,
+                        )
+                    }
                 };
 
                 self.update_metrics(modified_queue_id);
@@ -201,47 +238,49 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
         // TODO check if is_full?
     }
 
-    fn earliest_deadline_first_scheduler(
-        &mut self,
-        work_journal_tx: &Option<Sender<&'static str>>,
-    ) -> Option<Work<E>> {
+    fn earliest_deadline_first_scheduler(&mut self) -> Option<Work<E>> {
         let queue_item = self.work_queue.pop();
 
         if let Some(queue_item) = queue_item {
             Some(queue_item.work_event.work)
         } else {
-            // Let the journal know that a worker is freed and there's nothing else
-            // for it to do.
-            if let Some(work_journal_tx) = &work_journal_tx {
-                // We don't care if this message was successfully sent, we only use the journal
-                // during testing.
-                let _ = work_journal_tx.try_send(NOTHING_TO_DO);
-            }
             None
         }
     }
 
     pub fn process_or_queue_work_event(
         &mut self,
+        reprocess_work_tx: &Sender<ReprocessQueueMessage>,
         idle_tx: Sender<()>,
         work: Work<E>,
         slot_clock: &S,
         can_spawn: bool,
     ) -> Option<WorkType> {
-        let work_id = work.str_id();
-
         let work_type = work.to_type();
 
         match work {
-            _ if can_spawn => spawn_worker(&mut self.beacon_processor, idle_tx.clone(), work),
+            Work::Reprocess(work_event) => {
+                if let Err(e) = reprocess_work_tx.try_send(work_event) {
+                    error!(
+                        self.beacon_processor.log,
+                        "Failed to reprocess work event";
+                        "error" => %e
+                    )
+                }
+            }
+            _ if can_spawn => {
+                println!("spawning");
+                spawn_worker(&mut self.beacon_processor, idle_tx.clone(), work)
+            }
             _ => {
                 let Some(queue_item) = QueueItem::new(work, slot_clock) else {
                     return None;
                 };
+                println!("queue");
                 self.work_queue.insert(queue_item);
             }
         }
 
-        todo!()
+        Some(work_type)
     }
 }

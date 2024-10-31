@@ -36,9 +36,16 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> for SchedulerType<E, S>
         beacon_state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<Box<Self>, String> {
-        Ok(Box::new(SchedulerType::PriorityScheduler(
-            priority_scheduler::Scheduler::new(beacon_processor, beacon_state, spec)?,
-        )))
+        match beacon_processor.config.beacon_processor_type {
+            crate::BeaconProcessorType::Priority => Ok(Box::new(SchedulerType::PriorityScheduler(
+                priority_scheduler::Scheduler::new(beacon_processor, beacon_state, spec)?,
+            ))),
+            crate::BeaconProcessorType::EarliestDeadline => {
+                Ok(Box::new(SchedulerType::EarliestDeadlineScheduler(
+                    earliest_deadline_scheduler::Scheduler::new(beacon_processor),
+                )))
+            }
+        }
     }
 
     fn run(
@@ -55,9 +62,12 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> for SchedulerType<E, S>
                 slot_clock,
                 maximum_gossip_clock_disparity,
             ),
-            SchedulerType::EarliestDeadlineScheduler(scheduler) => {
-                scheduler.run(event_rx, work_journal_tx, slot_clock)
-            }
+            SchedulerType::EarliestDeadlineScheduler(scheduler) => scheduler.run(
+                event_rx,
+                work_journal_tx,
+                slot_clock,
+                maximum_gossip_clock_disparity,
+            ),
         }
     }
 }
