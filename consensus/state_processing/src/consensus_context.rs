@@ -147,6 +147,8 @@ impl<E: EthSpec> ConsensusContext<E> {
         }
     }
 
+    #[allow(unknown_lints)]
+    #[allow(elided_named_lifetimes)]
     pub fn get_indexed_attestation<'a>(
         &'a mut self,
         state: &BeaconState<E>,

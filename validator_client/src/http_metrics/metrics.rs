@@ -38,7 +38,7 @@ pub const SUBSCRIPTIONS: &str = "subscriptions";
 pub const LOCAL_KEYSTORE: &str = "local_keystore";
 pub const WEB3SIGNER: &str = "web3signer";
 
-pub use lighthouse_metrics::*;
+pub use metrics::*;
 
 pub static GENESIS_DISTANCE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
@@ -316,9 +316,7 @@ pub fn gather_prometheus_metrics<E: EthSpec>(
 
     warp_utils::metrics::scrape_health_metrics();
 
-    encoder
-        .encode(&lighthouse_metrics::gather(), &mut buffer)
-        .unwrap();
+    encoder.encode(&metrics::gather(), &mut buffer).unwrap();
 
     String::from_utf8(buffer).map_err(|e| format!("Failed to encode prometheus info: {:?}", e))
 }

@@ -93,7 +93,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     light_client_server_tx: Option<Sender<LightClientProducerEvent<T::EthSpec>>>,
     head_tracker: Option<HeadTracker>,
     validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
-    spec: ChainSpec,
+    spec: Arc<ChainSpec>,
     chain_config: ChainConfig,
     log: Option<Logger>,
     beacon_graffiti: GraffitiOrigin,
@@ -137,7 +137,7 @@ where
             light_client_server_tx: None,
             head_tracker: None,
             validator_pubkey_cache: None,
-            spec: E::default_spec(),
+            spec: Arc::new(E::default_spec()),
             chain_config: ChainConfig::default(),
             log: None,
             beacon_graffiti: GraffitiOrigin::default(),
@@ -154,7 +154,7 @@ where
     ///
     /// This method should generally be called immediately after `Self::new` to ensure components
     /// are started with a consistent spec.
-    pub fn custom_spec(mut self, spec: ChainSpec) -> Self {
+    pub fn custom_spec(mut self, spec: Arc<ChainSpec>) -> Self {
         self.spec = spec;
         self
     }
@@ -984,6 +984,7 @@ where
                     store,
                     self.import_all_data_columns,
                     self.spec,
+                    log.new(o!("service" => "data_availability_checker")),
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
@@ -1183,8 +1184,12 @@ mod test {
             MinimalEthSpec,
             MemoryStore<MinimalEthSpec>,
             MemoryStore<MinimalEthSpec>,
-        > = HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal(), log.clone())
-            .unwrap();
+        > = HotColdDB::open_ephemeral(
+            StoreConfig::default(),
+            ChainSpec::minimal().into(),
+            log.clone(),
+        )
+        .unwrap();
         let spec = MinimalEthSpec::default_spec();
 
         let genesis_state = interop_genesis_state(

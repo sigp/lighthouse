@@ -764,7 +764,7 @@ where
                 }
             } else {
                 tracing::error!(peer_id = %peer_id,
-                "Could not PUBLISH, peer doesn't exist in connected peer list");
+                "Could not send PUBLISH, peer doesn't exist in connected peer list");
             }
         }
 
@@ -1066,7 +1066,7 @@ where
                 });
             } else {
                 tracing::error!(peer = %peer_id,
-                "Could not GRAFT, peer doesn't exist in connected peer list");
+                "Could not send GRAFT, peer doesn't exist in connected peer list");
             }
 
             // If the peer did not previously exist in any mesh, inform the handler
@@ -1165,7 +1165,7 @@ where
                     peer.sender.prune(prune);
                 } else {
                     tracing::error!(peer = %peer_id,
-                        "Could not PRUNE, peer doesn't exist in connected peer list");
+                        "Could not send PRUNE, peer doesn't exist in connected peer list");
                 }
 
                 // If the peer did not previously exist in any mesh, inform the handler
@@ -1344,7 +1344,7 @@ where
                 }
             } else {
                 tracing::error!(peer = %peer_id,
-                "Could not IWANT, peer doesn't exist in connected peer list");
+                "Could not send IWANT, peer doesn't exist in connected peer list");
             }
         }
         tracing::trace!(peer=%peer_id, "Completed IHAVE handling for peer");
@@ -1367,7 +1367,7 @@ where
 
         for id in iwant_msgs {
             // If we have it and the IHAVE count is not above the threshold,
-            // foward the message.
+            // forward the message.
             if let Some((msg, count)) = self
                 .mcache
                 .get_with_iwant_counts(&id, peer_id)
@@ -1407,7 +1407,7 @@ where
                     }
                 } else {
                     tracing::error!(peer = %peer_id,
-                        "Could not IWANT, peer doesn't exist in connected peer list");
+                        "Could not send IWANT, peer doesn't exist in connected peer list");
                 }
             }
         }
@@ -1812,9 +1812,6 @@ where
         // Calculate the message id on the transformed data.
         let msg_id = self.config.message_id(&message);
 
-        // Broadcast IDONTWANT messages.
-        self.send_idontwant(&raw_message, &msg_id, propagation_source);
-
         // Check the validity of the message
         // Peers get penalized if this message is invalid. We don't add it to the duplicate cache
         // and instead continually penalize peers that repeatedly send this message.
@@ -1830,6 +1827,12 @@ where
             self.mcache.observe_duplicate(&msg_id, propagation_source);
             return;
         }
+
+        // Broadcast IDONTWANT messages
+        if raw_message.raw_protobuf_len() > self.config.idontwant_message_size_threshold() {
+            self.send_idontwant(&raw_message, &msg_id, propagation_source);
+        }
+
         tracing::debug!(
             message=%msg_id,
             "Put message in duplicate_cache and resolve promises"
@@ -2047,8 +2050,11 @@ where
             }
         }
 
-        // remove unsubscribed peers from the mesh if it exists
+        // remove unsubscribed peers from the mesh and fanout if they exist there.
         for (peer_id, topic_hash) in unsubscribed_peers {
+            self.fanout
+                .get_mut(&topic_hash)
+                .map(|peers| peers.remove(&peer_id));
             self.remove_peer_from_mesh(&peer_id, &topic_hash, None, false, Churn::Unsub);
         }
 
@@ -2072,7 +2078,7 @@ where
             }
         } else {
             tracing::error!(peer = %propagation_source,
-                "Could not GRAFT, peer doesn't exist in connected peer list");
+                "Could not send GRAFT, peer doesn't exist in connected peer list");
         }
 
         // Notify the application of the subscriptions
@@ -2090,9 +2096,12 @@ where
     fn apply_iwant_penalties(&mut self) {
         if let Some((peer_score, ..)) = &mut self.peer_score {
             for (peer, count) in self.gossip_promises.get_broken_promises() {
-                peer_score.add_penalty(&peer, count);
-                if let Some(metrics) = self.metrics.as_mut() {
-                    metrics.register_score_penalty(Penalty::BrokenPromise);
+                // We do not apply penalties to nodes that have disconnected.
+                if self.connected_peers.contains_key(&peer) {
+                    peer_score.add_penalty(&peer, count);
+                    if let Some(metrics) = self.metrics.as_mut() {
+                        metrics.register_score_penalty(Penalty::BrokenPromise);
+                    }
                 }
             }
         }
@@ -2587,7 +2596,7 @@ where
                     }
                 } else {
                     tracing::error!(peer = %peer_id,
-                        "Could not IHAVE, peer doesn't exist in connected peer list");
+                        "Could not send IHAVE, peer doesn't exist in connected peer list");
                 }
             }
         }
@@ -2673,7 +2682,7 @@ where
                     peer.sender.prune(prune);
                 } else {
                     tracing::error!(peer = %peer_id,
-                        "Could not PRUNE, peer doesn't exist in connected peer list");
+                        "Could not send PRUNE, peer doesn't exist in connected peer list");
                 }
 
                 // inform the handler
@@ -2710,8 +2719,8 @@ where
 
         for peer_id in recipient_peers {
             let Some(peer) = self.connected_peers.get_mut(peer_id) else {
-                tracing::error!(peer = %peer_id,
-                    "Could not IDONTWANT, peer doesn't exist in connected peer list");
+                // It can be the case that promises to disconnected peers appear here. In this case
+                // we simply ignore the peer-id.
                 continue;
             };
 
@@ -2976,7 +2985,7 @@ where
             }
         } else {
             tracing::error!(peer = %peer_id,
-                "Could not SUBSCRIBE, peer doesn't exist in connected peer list");
+                "Could not send SUBSCRIBE, peer doesn't exist in connected peer list");
         }
     }
 
@@ -3348,6 +3357,8 @@ where
                             };
                             if let Some(metrics) = self.metrics.as_mut() {
                                 metrics.register_idontwant(message_ids.len());
+                                let idontwant_size = message_ids.iter().map(|id| id.0.len()).sum();
+                                metrics.register_idontwant_bytes(idontwant_size);
                             }
                             for message_id in message_ids {
                                 peer.dont_send.insert(message_id, Instant::now());

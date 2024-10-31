@@ -2,11 +2,9 @@
 
 use crate::discovery::enr_ext::EnrExt;
 use crate::discovery::peer_id_to_node_id;
-use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
+use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RpcErrorResponse};
 use crate::service::TARGET_SUBNET_PEERS;
-use crate::{error, metrics, Gossipsub};
-use crate::{NetworkGlobals, PeerId};
-use crate::{Subnet, SubnetDiscovery};
+use crate::{error, metrics, Gossipsub, NetworkGlobals, PeerId, Subnet, SubnetDiscovery};
 use delay_map::HashSetDelay;
 use discv5::Enr;
 use libp2p::identify::Info as IdentifyInfo;
@@ -340,15 +338,15 @@ impl<E: EthSpec> PeerManager<E> {
             {
                 // This should be updated with the peer dialing. In fact created once the peer is
                 // dialed
+                let peer_id = enr.peer_id();
                 if let Some(min_ttl) = min_ttl {
                     self.network_globals
                         .peers
                         .write()
-                        .update_min_ttl(&enr.peer_id(), min_ttl);
+                        .update_min_ttl(&peer_id, min_ttl);
                 }
-                let peer_id = enr.peer_id();
                 if self.dial_peer(enr) {
-                    debug!(self.log, "Dialing discovered peer"; "peer_id" => %peer_id);
+                    debug!(self.log, "Added discovered ENR peer to dial queue"; "peer_id" => %peer_id);
                     to_dial_peers += 1;
                 }
             }
@@ -449,18 +447,6 @@ impl<E: EthSpec> PeerManager<E> {
         self.network_globals.peers.read().is_connected(peer_id)
     }
 
-    /// Reports whether the peer limit is reached in which case we stop allowing new incoming
-    /// connections.
-    pub fn peer_limit_reached(&self, count_dialing: bool) -> bool {
-        if count_dialing {
-            // This is an incoming connection so limit by the standard max peers
-            self.network_globals.connected_or_dialing_peers() >= self.max_peers()
-        } else {
-            // We dialed this peer, allow up to max_outbound_dialing_peers
-            self.network_globals.connected_peers() >= self.max_outbound_dialing_peers()
-        }
-    }
-
     /// Updates `PeerInfo` with `identify` information.
     pub fn identify(&mut self, peer_id: &PeerId, info: &IdentifyInfo) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
@@ -528,8 +514,8 @@ impl<E: EthSpec> PeerManager<E> {
                 PeerAction::HighToleranceError
             }
             RPCError::ErrorResponse(code, _) => match code {
-                RPCResponseErrorCode::Unknown => PeerAction::HighToleranceError,
-                RPCResponseErrorCode::ResourceUnavailable => {
+                RpcErrorResponse::Unknown => PeerAction::HighToleranceError,
+                RpcErrorResponse::ResourceUnavailable => {
                     // Don't ban on this because we want to retry with a block by root request.
                     if matches!(
                         protocol,
@@ -560,9 +546,9 @@ impl<E: EthSpec> PeerManager<E> {
                         ConnectionDirection::Incoming => return,
                     }
                 }
-                RPCResponseErrorCode::ServerError => PeerAction::MidToleranceError,
-                RPCResponseErrorCode::InvalidRequest => PeerAction::LowToleranceError,
-                RPCResponseErrorCode::RateLimited => match protocol {
+                RpcErrorResponse::ServerError => PeerAction::MidToleranceError,
+                RpcErrorResponse::InvalidRequest => PeerAction::LowToleranceError,
+                RpcErrorResponse::RateLimited => match protocol {
                     Protocol::Ping => PeerAction::MidToleranceError,
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
@@ -572,6 +558,7 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::LightClientBootstrap => return,
                     Protocol::LightClientOptimisticUpdate => return,
                     Protocol::LightClientFinalityUpdate => return,
+                    Protocol::LightClientUpdatesByRange => return,
                     Protocol::BlobsByRoot => PeerAction::MidToleranceError,
                     Protocol::DataColumnsByRoot => PeerAction::MidToleranceError,
                     Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
@@ -579,7 +566,7 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::MetaData => PeerAction::LowToleranceError,
                     Protocol::Status => PeerAction::LowToleranceError,
                 },
-                RPCResponseErrorCode::BlobsNotFoundForBlock => PeerAction::LowToleranceError,
+                RpcErrorResponse::BlobsNotFoundForBlock => PeerAction::LowToleranceError,
             },
             RPCError::SSZDecodeError(_) => PeerAction::Fatal,
             RPCError::UnsupportedProtocol => {
@@ -599,6 +586,7 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::LightClientBootstrap => return,
                     Protocol::LightClientOptimisticUpdate => return,
                     Protocol::LightClientFinalityUpdate => return,
+                    Protocol::LightClientUpdatesByRange => return,
                     Protocol::MetaData => PeerAction::Fatal,
                     Protocol::Status => PeerAction::Fatal,
                 }
@@ -620,6 +608,7 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::LightClientBootstrap => return,
                     Protocol::LightClientOptimisticUpdate => return,
                     Protocol::LightClientFinalityUpdate => return,
+                    Protocol::LightClientUpdatesByRange => return,
                     Protocol::Goodbye => return,
                     Protocol::MetaData => return,
                     Protocol::Status => return,
@@ -1452,6 +1441,7 @@ enum ConnectingType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::NetworkConfig;
     use slog::{o, Drain};
     use types::MainnetEthSpec as E;
 
@@ -1468,15 +1458,7 @@ mod tests {
     }
 
     async fn build_peer_manager(target_peer_count: usize) -> PeerManager<E> {
-        let config = config::Config {
-            target_peer_count,
-            discovery_enabled: false,
-            ..Default::default()
-        };
-        let log = build_log(slog::Level::Debug, false);
-        let spec = E::default_spec();
-        let globals = NetworkGlobals::new_test_globals(vec![], &log, spec);
-        PeerManager::new(config, Arc::new(globals), &log).unwrap()
+        build_peer_manager_with_trusted_peers(vec![], target_peer_count).await
     }
 
     async fn build_peer_manager_with_trusted_peers(
@@ -1488,9 +1470,13 @@ mod tests {
             discovery_enabled: false,
             ..Default::default()
         };
+        let network_config = Arc::new(NetworkConfig {
+            target_peers: target_peer_count,
+            ..Default::default()
+        });
         let log = build_log(slog::Level::Debug, false);
-        let spec = E::default_spec();
-        let globals = NetworkGlobals::new_test_globals(trusted_peers, &log, spec);
+        let spec = Arc::new(E::default_spec());
+        let globals = NetworkGlobals::new_test_globals(trusted_peers, &log, network_config, spec);
         PeerManager::new(config, Arc::new(globals), &log).unwrap()
     }
 
@@ -2345,16 +2331,6 @@ mod tests {
             gossipsub_score: f64,
         }
 
-        // generate an arbitrary f64 while preventing NaN values
-        fn arbitrary_f64(g: &mut Gen) -> f64 {
-            loop {
-                let val = f64::arbitrary(g);
-                if !val.is_nan() {
-                    return val;
-                }
-            }
-        }
-
         impl Arbitrary for PeerCondition {
             fn arbitrary(g: &mut Gen) -> Self {
                 let attestation_net_bitfield = {
@@ -2380,9 +2356,9 @@ mod tests {
                     outgoing: bool::arbitrary(g),
                     attestation_net_bitfield,
                     sync_committee_net_bitfield,
-                    score: arbitrary_f64(g),
+                    score: f64::arbitrary(g),
                     trusted: bool::arbitrary(g),
-                    gossipsub_score: arbitrary_f64(g),
+                    gossipsub_score: f64::arbitrary(g),
                 }
             }
         }

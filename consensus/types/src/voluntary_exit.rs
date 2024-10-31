@@ -41,12 +41,11 @@ impl VoluntaryExit {
         spec: &ChainSpec,
     ) -> SignedVoluntaryExit {
         let fork_name = spec.fork_name_at_epoch(self.epoch);
-        let fork_version = match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
-                spec.fork_version_for_name(fork_name)
-            }
+        let fork_version = if fork_name.deneb_enabled() {
             // EIP-7044
-            ForkName::Deneb | ForkName::Electra => spec.fork_version_for_name(ForkName::Capella),
+            spec.fork_version_for_name(ForkName::Capella)
+        } else {
+            spec.fork_version_for_name(fork_name)
         };
         let domain =
             spec.compute_domain(Domain::VoluntaryExit, fork_version, genesis_validators_root);

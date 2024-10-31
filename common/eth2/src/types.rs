@@ -1678,27 +1678,23 @@ impl<E: EthSpec> FullBlockContents<E> {
         bytes: &[u8],
         fork_name: ForkName,
     ) -> Result<Self, ssz::DecodeError> {
-        match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
-                BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
-                    .map(|block| FullBlockContents::Block(block))
-            }
-            ForkName::Deneb | ForkName::Electra => {
-                let mut builder = ssz::SszDecoderBuilder::new(bytes);
+        if fork_name.deneb_enabled() {
+            let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
-                builder.register_anonymous_variable_length_item()?;
-                builder.register_type::<KzgProofs<E>>()?;
-                builder.register_type::<BlobsList<E>>()?;
+            builder.register_anonymous_variable_length_item()?;
+            builder.register_type::<KzgProofs<E>>()?;
+            builder.register_type::<BlobsList<E>>()?;
 
-                let mut decoder = builder.build()?;
-                let block = decoder.decode_next_with(|bytes| {
-                    BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
-                })?;
-                let kzg_proofs = decoder.decode_next()?;
-                let blobs = decoder.decode_next()?;
+            let mut decoder = builder.build()?;
+            let block = decoder
+                .decode_next_with(|bytes| BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name))?;
+            let kzg_proofs = decoder.decode_next()?;
+            let blobs = decoder.decode_next()?;
 
-                Ok(FullBlockContents::new(block, Some((kzg_proofs, blobs))))
-            }
+            Ok(FullBlockContents::new(block, Some((kzg_proofs, blobs))))
+        } else {
+            BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+                .map(|block| FullBlockContents::Block(block))
         }
     }
 
@@ -1738,15 +1734,14 @@ impl<E: EthSpec> ForkVersionDeserialize for FullBlockContents<E> {
         value: serde_json::value::Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
-        match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
-                Ok(FullBlockContents::Block(
-                    BeaconBlock::deserialize_by_fork::<'de, D>(value, fork_name)?,
-                ))
-            }
-            ForkName::Deneb | ForkName::Electra => Ok(FullBlockContents::BlockContents(
+        if fork_name.deneb_enabled() {
+            Ok(FullBlockContents::BlockContents(
                 BlockContents::deserialize_by_fork::<'de, D>(value, fork_name)?,
-            )),
+            ))
+        } else {
+            Ok(FullBlockContents::Block(
+                BeaconBlock::deserialize_by_fork::<'de, D>(value, fork_name)?,
+            ))
         }
     }
 }
@@ -1838,28 +1833,25 @@ impl<E: EthSpec> PublishBlockRequest<E> {
 
     /// SSZ decode with fork variant determined by `fork_name`.
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
-        match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => {
-                SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
-                    .map(|block| PublishBlockRequest::Block(Arc::new(block)))
-            }
-            ForkName::Deneb | ForkName::Electra => {
-                let mut builder = ssz::SszDecoderBuilder::new(bytes);
-                builder.register_anonymous_variable_length_item()?;
-                builder.register_type::<KzgProofs<E>>()?;
-                builder.register_type::<BlobsList<E>>()?;
+        if fork_name.deneb_enabled() {
+            let mut builder = ssz::SszDecoderBuilder::new(bytes);
+            builder.register_anonymous_variable_length_item()?;
+            builder.register_type::<KzgProofs<E>>()?;
+            builder.register_type::<BlobsList<E>>()?;
 
-                let mut decoder = builder.build()?;
-                let block = decoder.decode_next_with(|bytes| {
-                    SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
-                })?;
-                let kzg_proofs = decoder.decode_next()?;
-                let blobs = decoder.decode_next()?;
-                Ok(PublishBlockRequest::new(
-                    Arc::new(block),
-                    Some((kzg_proofs, blobs)),
-                ))
-            }
+            let mut decoder = builder.build()?;
+            let block = decoder.decode_next_with(|bytes| {
+                SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+            })?;
+            let kzg_proofs = decoder.decode_next()?;
+            let blobs = decoder.decode_next()?;
+            Ok(PublishBlockRequest::new(
+                Arc::new(block),
+                Some((kzg_proofs, blobs)),
+            ))
+        } else {
+            SignedBeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name)
+                .map(|block| PublishBlockRequest::Block(Arc::new(block)))
         }
     }
 
@@ -1879,42 +1871,6 @@ impl<E: EthSpec> PublishBlockRequest<E> {
                 Some((block_and_sidecars.kzg_proofs, block_and_sidecars.blobs)),
             ),
             PublishBlockRequest::Block(block) => (block, None),
-        }
-    }
-}
-
-/// Converting from a `SignedBlindedBeaconBlock` into a full `SignedBlockContents`.
-pub fn into_full_block_and_blobs<E: EthSpec>(
-    blinded_block: SignedBlindedBeaconBlock<E>,
-    maybe_full_payload_contents: Option<FullPayloadContents<E>>,
-) -> Result<PublishBlockRequest<E>, String> {
-    match maybe_full_payload_contents {
-        None => {
-            let signed_block = blinded_block
-                .try_into_full_block(None)
-                .ok_or("Failed to build full block with payload".to_string())?;
-            Ok(PublishBlockRequest::new(Arc::new(signed_block), None))
-        }
-        // This variant implies a pre-deneb block
-        Some(FullPayloadContents::Payload(execution_payload)) => {
-            let signed_block = blinded_block
-                .try_into_full_block(Some(execution_payload))
-                .ok_or("Failed to build full block with payload".to_string())?;
-            Ok(PublishBlockRequest::new(Arc::new(signed_block), None))
-        }
-        // This variant implies a post-deneb block
-        Some(FullPayloadContents::PayloadAndBlobs(payload_and_blobs)) => {
-            let signed_block = blinded_block
-                .try_into_full_block(Some(payload_and_blobs.execution_payload))
-                .ok_or("Failed to build full block with payload".to_string())?;
-
-            Ok(PublishBlockRequest::new(
-                Arc::new(signed_block),
-                Some((
-                    payload_and_blobs.blobs_bundle.proofs,
-                    payload_and_blobs.blobs_bundle.blobs,
-                )),
-            ))
         }
     }
 }

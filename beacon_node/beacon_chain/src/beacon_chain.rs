@@ -22,7 +22,7 @@ pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
 use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, DataAvailabilityChecker,
-    DataColumnsToPublish,
+    DataColumnReconstructionResult,
 };
 use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use crate::early_attester_cache::EarlyAttesterCache;
@@ -371,7 +371,7 @@ type ReqRespPreImportCache<E> = HashMap<Hash256, Arc<SignedBeaconBlock<E>>>;
 /// Represents the "Beacon Chain" component of Ethereum 2.0. Allows import of blocks and block
 /// operations and chooses a canonical head.
 pub struct BeaconChain<T: BeaconChainTypes> {
-    pub spec: ChainSpec,
+    pub spec: Arc<ChainSpec>,
     /// Configuration for `BeaconChain` runtime behaviour.
     pub config: ChainConfig,
     /// Persistent storage for blocks, states, etc. Typically an on-disk store, such as LevelDB.
@@ -2619,11 +2619,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Check if the current slot is greater than or equal to the Capella fork epoch.
     pub fn current_slot_is_post_capella(&self) -> Result<bool, Error> {
         let current_fork = self.spec.fork_name_at_slot::<T::EthSpec>(self.slot()?);
-        if let ForkName::Base | ForkName::Altair | ForkName::Bellatrix = current_fork {
-            Ok(false)
-        } else {
-            Ok(true)
-        }
+        Ok(current_fork.capella_enabled())
     }
 
     /// Import a BLS to execution change to the op pool.
@@ -2740,7 +2736,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // If the block is relevant, add it to the filtered chain segment.
                 Ok(_) => filtered_chain_segment.push((block_root, block)),
                 // If the block is already known, simply ignore this block.
-                Err(BlockError::BlockIsAlreadyKnown(_)) => continue,
+                //
+                // Note that `check_block_relevancy` is incapable of returning
+                // `DuplicateImportStatusUnknown` so we don't need to handle that case here.
+                Err(BlockError::DuplicateFullyImported(_)) => continue,
                 // If the block is the genesis block, simply ignore this block.
                 Err(BlockError::GenesisBlock) => continue,
                 // If the block is is for a finalized slot, simply ignore this block.
@@ -2886,7 +2885,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             }
                         }
                     }
-                    Err(BlockError::BlockIsAlreadyKnown(block_root)) => {
+                    Err(BlockError::DuplicateFullyImported(block_root)) => {
                         debug!(self.log,
                             "Ignoring already known blocks while processing chain segment";
                             "block_root" => ?block_root);
@@ -2977,6 +2976,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_gossip_blob(
         self: &Arc<Self>,
         blob: GossipVerifiedBlob<T>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let block_root = blob.block_root();
 
@@ -2987,7 +2987,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .contains_block(&block_root)
         {
-            return Err(BlockError::BlockIsAlreadyKnown(blob.block_root()));
+            return Err(BlockError::DuplicateFullyImported(blob.block_root()));
         }
 
         // No need to process and import blobs beyond the PeerDAS epoch.
@@ -3003,7 +3003,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        let r = self.check_gossip_blob_availability_and_import(blob).await;
+        let r = self
+            .check_gossip_blob_availability_and_import(blob, publish_fn)
+            .await;
         self.remove_notified(&block_root, r)
     }
 
@@ -3012,13 +3014,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_gossip_data_columns(
         self: &Arc<Self>,
         data_columns: Vec<GossipVerifiedDataColumn<T>>,
-    ) -> Result<
-        (
-            AvailabilityProcessingStatus,
-            DataColumnsToPublish<T::EthSpec>,
-        ),
-        BlockError,
-    > {
+        publish_fn: impl FnOnce() -> Result<(), BlockError>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let Ok((slot, block_root)) = data_columns
             .iter()
             .map(|c| (c.slot(), c.block_root()))
@@ -3037,13 +3034,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .contains_block(&block_root)
         {
-            return Err(BlockError::BlockIsAlreadyKnown(block_root));
+            return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
         let r = self
-            .check_gossip_data_columns_availability_and_import(slot, block_root, data_columns)
+            .check_gossip_data_columns_availability_and_import(
+                slot,
+                block_root,
+                data_columns,
+                publish_fn,
+            )
             .await;
-        self.remove_notified_custody_columns(&block_root, r)
+        self.remove_notified(&block_root, r)
     }
 
     /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was
@@ -3061,7 +3063,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .contains_block(&block_root)
         {
-            return Err(BlockError::BlockIsAlreadyKnown(block_root));
+            return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
         // Reject RPC blobs referencing unknown parents. Otherwise we allow potentially invalid data
@@ -3102,13 +3104,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_rpc_custody_columns(
         self: &Arc<Self>,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
-    ) -> Result<
-        (
-            AvailabilityProcessingStatus,
-            DataColumnsToPublish<T::EthSpec>,
-        ),
-        BlockError,
-    > {
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let Ok((slot, block_root)) = custody_columns
             .iter()
             .map(|c| (c.slot(), c.block_root()))
@@ -3127,7 +3123,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_read_lock()
             .contains_block(&block_root)
         {
-            return Err(BlockError::BlockIsAlreadyKnown(block_root));
+            return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
         // Reject RPC columns referencing unknown parents. Otherwise we allow potentially invalid data
@@ -3146,7 +3142,67 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let r = self
             .check_rpc_custody_columns_availability_and_import(slot, block_root, custody_columns)
             .await;
-        self.remove_notified_custody_columns(&block_root, r)
+        self.remove_notified(&block_root, r)
+    }
+
+    pub async fn reconstruct_data_columns(
+        self: &Arc<Self>,
+        block_root: Hash256,
+    ) -> Result<
+        Option<(
+            AvailabilityProcessingStatus,
+            DataColumnSidecarList<T::EthSpec>,
+        )>,
+        BlockError,
+    > {
+        // As of now we only reconstruct data columns on supernodes, so if the block is already
+        // available on a supernode, there's no need to reconstruct as the node must already have
+        // all columns.
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            return Ok(None);
+        }
+
+        let data_availability_checker = self.data_availability_checker.clone();
+
+        let result = self
+            .task_executor
+            .spawn_blocking_handle(
+                move || data_availability_checker.reconstruct_data_columns(&block_root),
+                "reconstruct_data_columns",
+            )
+            .ok_or(BeaconChainError::RuntimeShutdown)?
+            .await
+            .map_err(BeaconChainError::TokioJoin)??;
+
+        match result {
+            DataColumnReconstructionResult::Success((availability, data_columns_to_publish)) => {
+                let Some(slot) = data_columns_to_publish.first().map(|d| d.slot()) else {
+                    // This should be unreachable because empty result would return `RecoveredColumnsNotImported` instead of success.
+                    return Ok(None);
+                };
+
+                let r = self
+                    .process_availability(slot, availability, || Ok(()))
+                    .await;
+                self.remove_notified(&block_root, r)
+                    .map(|availability_processing_status| {
+                        Some((availability_processing_status, data_columns_to_publish))
+                    })
+            }
+            DataColumnReconstructionResult::NotStarted(reason)
+            | DataColumnReconstructionResult::RecoveredColumnsNotImported(reason) => {
+                // We use metric here because logging this would be *very* noisy.
+                metrics::inc_counter_vec(
+                    &metrics::KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL,
+                    &[reason],
+                );
+                Ok(None)
+            }
+        }
     }
 
     /// Remove any block components from the *processing cache* if we no longer require them. If the
@@ -3158,23 +3214,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let has_missing_components =
             matches!(r, Ok(AvailabilityProcessingStatus::MissingComponents(_, _)));
-        if !has_missing_components {
-            self.reqresp_pre_import_cache.write().remove(block_root);
-        }
-        r
-    }
-
-    /// Remove any block components from the *processing cache* if we no longer require them. If the
-    /// block was imported full or erred, we no longer require them.
-    fn remove_notified_custody_columns<P>(
-        &self,
-        block_root: &Hash256,
-        r: Result<(AvailabilityProcessingStatus, P), BlockError>,
-    ) -> Result<(AvailabilityProcessingStatus, P), BlockError> {
-        let has_missing_components = matches!(
-            r,
-            Ok((AvailabilityProcessingStatus::MissingComponents(_, _), _))
-        );
         if !has_missing_components {
             self.reqresp_pre_import_cache.write().remove(block_root);
         }
@@ -3225,7 +3264,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         unverified_block: B,
         notify_execution_layer: NotifyExecutionLayer,
         block_source: BlockImportSource,
-        publish_fn: impl FnOnce() -> Result<(), BlockError> + Send + 'static,
+        publish_fn: impl FnOnce() -> Result<(), BlockError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
@@ -3407,7 +3446,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let availability = self
             .data_availability_checker
             .put_pending_executed_block(block)?;
-        self.process_availability(slot, availability).await
+        self.process_availability(slot, availability, || Ok(()))
+            .await
     }
 
     /// Checks if the provided blob can make any cached blocks available, and imports immediately
@@ -3415,6 +3455,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn check_gossip_blob_availability_and_import(
         self: &Arc<Self>,
         blob: GossipVerifiedBlob<T>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let slot = blob.slot();
         if let Some(slasher) = self.slasher.as_ref() {
@@ -3422,7 +3463,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         let availability = self.data_availability_checker.put_gossip_blob(blob)?;
 
-        self.process_availability(slot, availability).await
+        self.process_availability(slot, availability, publish_fn)
+            .await
     }
 
     /// Checks if the provided data column can make any cached blocks available, and imports immediately
@@ -3432,26 +3474,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         block_root: Hash256,
         data_columns: Vec<GossipVerifiedDataColumn<T>>,
-    ) -> Result<
-        (
-            AvailabilityProcessingStatus,
-            DataColumnsToPublish<T::EthSpec>,
-        ),
-        BlockError,
-    > {
+        publish_fn: impl FnOnce() -> Result<(), BlockError>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
         if let Some(slasher) = self.slasher.as_ref() {
             for data_colum in &data_columns {
                 slasher.accept_block_header(data_colum.signed_block_header());
             }
         }
 
-        let (availability, data_columns_to_publish) = self
-            .data_availability_checker
-            .put_gossip_data_columns(slot, block_root, data_columns)?;
+        let availability = self.data_availability_checker.put_gossip_data_columns(
+            slot,
+            block_root,
+            data_columns,
+        )?;
 
-        self.process_availability(slot, availability)
+        self.process_availability(slot, availability, publish_fn)
             .await
-            .map(|result| (result, data_columns_to_publish))
     }
 
     /// Checks if the provided blobs can make any cached blocks available, and imports immediately
@@ -3490,7 +3528,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .data_availability_checker
             .put_rpc_blobs(block_root, epoch, blobs)?;
 
-        self.process_availability(slot, availability).await
+        self.process_availability(slot, availability, || Ok(()))
+            .await
     }
 
     /// Checks if the provided columns can make any cached blocks available, and imports immediately
@@ -3500,13 +3539,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
-    ) -> Result<
-        (
-            AvailabilityProcessingStatus,
-            DataColumnsToPublish<T::EthSpec>,
-        ),
-        BlockError,
-    > {
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
         // Need to scope this to ensure the lock is dropped before calling `process_availability`
         // Even an explicit drop is not enough to convince the borrow checker.
         {
@@ -3531,16 +3564,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // This slot value is purely informative for the consumers of
         // `AvailabilityProcessingStatus::MissingComponents` to log an error with a slot.
-        let (availability, data_columns_to_publish) =
-            self.data_availability_checker.put_rpc_custody_columns(
-                block_root,
-                slot.epoch(T::EthSpec::slots_per_epoch()),
-                custody_columns,
-            )?;
+        let availability = self.data_availability_checker.put_rpc_custody_columns(
+            block_root,
+            slot.epoch(T::EthSpec::slots_per_epoch()),
+            custody_columns,
+        )?;
 
-        self.process_availability(slot, availability)
+        self.process_availability(slot, availability, || Ok(()))
             .await
-            .map(|result| (result, data_columns_to_publish))
     }
 
     /// Imports a fully available block. Otherwise, returns `AvailabilityProcessingStatus::MissingComponents`
@@ -3551,9 +3582,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         slot: Slot,
         availability: Availability<T::EthSpec>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         match availability {
             Availability::Available(block) => {
+                publish_fn()?;
                 // Block is fully available, import into fork choice
                 self.import_available_block(block).await
             }
@@ -3836,6 +3869,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         if let Some(data_columns) = data_columns {
+            // TODO(das): `available_block includes all sampled columns, but we only need to store
+            // custody columns. To be clarified in spec.
             if !data_columns.is_empty() {
                 debug!(
                     self.log, "Writing data_columns to store";
@@ -5536,10 +5571,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             }
             BeaconState::Deneb(_) => {
-                let (payload, kzg_commitments, maybe_blobs_and_proofs, execution_payload_value) =
-                    block_contents
-                        .ok_or(BlockProductionError::MissingExecutionPayload)?
-                        .deconstruct();
+                let (
+                    payload,
+                    kzg_commitments,
+                    maybe_blobs_and_proofs,
+                    _maybe_requests,
+                    execution_payload_value,
+                ) = block_contents
+                    .ok_or(BlockProductionError::MissingExecutionPayload)?
+                    .deconstruct();
 
                 (
                     BeaconBlock::Deneb(BeaconBlockDeneb {
@@ -5574,10 +5614,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             }
             BeaconState::Electra(_) => {
-                let (payload, kzg_commitments, maybe_blobs_and_proofs, execution_payload_value) =
-                    block_contents
-                        .ok_or(BlockProductionError::MissingExecutionPayload)?
-                        .deconstruct();
+                let (
+                    payload,
+                    kzg_commitments,
+                    maybe_blobs_and_proofs,
+                    maybe_requests,
+                    execution_payload_value,
+                ) = block_contents
+                    .ok_or(BlockProductionError::MissingExecutionPayload)?
+                    .deconstruct();
 
                 (
                     BeaconBlock::Electra(BeaconBlockElectra {
@@ -5602,6 +5647,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             bls_to_execution_changes: bls_to_execution_changes.into(),
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
+                            execution_requests: maybe_requests
+                                .ok_or(BlockProductionError::MissingExecutionRequests)?,
                         },
                     }),
                     maybe_blobs_and_proofs,
@@ -5926,26 +5973,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_attributes
         } else {
             let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
-            let withdrawals = match prepare_slot_fork {
-                ForkName::Base | ForkName::Altair | ForkName::Bellatrix => None,
-                ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
-                    let chain = self.clone();
-                    self.spawn_blocking_handle(
-                        move || {
-                            chain.get_expected_withdrawals(&forkchoice_update_params, prepare_slot)
-                        },
-                        "prepare_beacon_proposer_withdrawals",
-                    )
-                    .await?
-                    .map(Some)?
-                }
+
+            let withdrawals = if prepare_slot_fork.capella_enabled() {
+                let chain = self.clone();
+                self.spawn_blocking_handle(
+                    move || chain.get_expected_withdrawals(&forkchoice_update_params, prepare_slot),
+                    "prepare_beacon_proposer_withdrawals",
+                )
+                .await?
+                .map(Some)?
+            } else {
+                None
             };
 
-            let parent_beacon_block_root = match prepare_slot_fork {
-                ForkName::Base | ForkName::Altair | ForkName::Bellatrix | ForkName::Capella => None,
-                ForkName::Deneb | ForkName::Electra => {
-                    Some(pre_payload_attributes.parent_beacon_block_root)
-                }
+            let parent_beacon_block_root = if prepare_slot_fork.deneb_enabled() {
+                Some(pre_payload_attributes.parent_beacon_block_root)
+            } else {
+                None
             };
 
             let payload_attributes = PayloadAttributes::new(
@@ -6091,27 +6135,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // `execution_engine_forkchoice_lock` apart from the one here.
         let forkchoice_lock = execution_layer.execution_engine_forkchoice_lock().await;
 
-        let (head_block_root, head_hash, justified_hash, finalized_hash) = if let Some(head_hash) =
-            params.head_hash
-        {
-            (
-                params.head_root,
-                head_hash,
-                params
-                    .justified_hash
-                    .unwrap_or_else(ExecutionBlockHash::zero),
-                params
-                    .finalized_hash
-                    .unwrap_or_else(ExecutionBlockHash::zero),
-            )
-        } else {
-            // The head block does not have an execution block hash. We must check to see if we
-            // happen to be the proposer of the transition block, in which case we still need to
-            // send forkchoice_updated.
-            match self.spec.fork_name_at_slot::<T::EthSpec>(next_slot) {
-                // We are pre-bellatrix; no need to update the EL.
-                ForkName::Base | ForkName::Altair => return Ok(()),
-                _ => {
+        let (head_block_root, head_hash, justified_hash, finalized_hash) =
+            if let Some(head_hash) = params.head_hash {
+                (
+                    params.head_root,
+                    head_hash,
+                    params
+                        .justified_hash
+                        .unwrap_or_else(ExecutionBlockHash::zero),
+                    params
+                        .finalized_hash
+                        .unwrap_or_else(ExecutionBlockHash::zero),
+                )
+            } else {
+                // The head block does not have an execution block hash. We must check to see if we
+                // happen to be the proposer of the transition block, in which case we still need to
+                // send forkchoice_updated.
+                if self
+                    .spec
+                    .fork_name_at_slot::<T::EthSpec>(next_slot)
+                    .bellatrix_enabled()
+                {
                     // We are post-bellatrix
                     if let Some(payload_attributes) = execution_layer
                         .payload_attributes(next_slot, params.head_root)
@@ -6145,9 +6189,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         // We are not a proposer, no need to update the EL.
                         return Ok(());
                     }
+                } else {
+                    return Ok(());
                 }
-            }
-        };
+            };
 
         let forkchoice_updated_response = execution_layer
             .notify_forkchoice_updated(
@@ -6990,7 +7035,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .finalized_checkpoint()
             .epoch
             .sync_committee_period(&self.spec)?;
-
         self.light_client_server_cache.get_light_client_bootstrap(
             &self.store,
             block_root,

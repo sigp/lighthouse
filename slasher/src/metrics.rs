@@ -1,4 +1,4 @@
-pub use lighthouse_metrics::*;
+pub use metrics::*;
 use std::sync::LazyLock;
 
 pub static SLASHER_DATABASE_SIZE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {

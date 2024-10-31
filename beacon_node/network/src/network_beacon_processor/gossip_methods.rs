@@ -4,6 +4,7 @@ use crate::{
     service::NetworkMessage,
     sync::SyncMessage,
 };
+use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::store::Error;
@@ -18,13 +19,7 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
     GossipVerifiedBlock, NotifyExecutionLayer,
 };
-use beacon_chain::{
-    blob_verification::{GossipBlobError, GossipVerifiedBlob},
-    data_availability_checker::DataColumnsToPublish,
-};
-use lighthouse_network::{
-    Client, MessageAcceptance, MessageId, PeerAction, PeerId, PubsubMessage, ReportSource,
-};
+use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use operation_pool::ReceivedPreCapella;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
@@ -169,26 +164,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             source: ReportSource::Gossipsub,
             msg,
         })
-    }
-
-    pub(crate) fn handle_data_columns_to_publish(
-        &self,
-        data_columns_to_publish: DataColumnsToPublish<T::EthSpec>,
-    ) {
-        if let Some(data_columns_to_publish) = data_columns_to_publish {
-            self.send_network_message(NetworkMessage::Publish {
-                messages: data_columns_to_publish
-                    .iter()
-                    .map(|d| {
-                        let subnet = DataColumnSubnetId::from_column_index::<T::EthSpec>(
-                            d.index as usize,
-                            &self.chain.spec,
-                        );
-                        PubsubMessage::DataColumnSidecar(Box::new((subnet, d.clone())))
-                    })
-                    .collect(),
-            });
-        }
     }
 
     /// Send a message on `message_tx` that the `message_id` sent by `peer_id` should be propagated on
@@ -711,6 +686,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | GossipDataColumnError::InvalidSubnetId { .. }
                     | GossipDataColumnError::InvalidInclusionProof { .. }
                     | GossipDataColumnError::InvalidKzgProof { .. }
+                    | GossipDataColumnError::UnexpectedDataColumn
+                    | GossipDataColumnError::InvalidColumnIndex(_)
+                    | GossipDataColumnError::InconsistentCommitmentsOrProofLength
                     | GossipDataColumnError::NotFinalizedDescendant { .. } => {
                         debug!(
                             self.log,
@@ -936,7 +914,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let blob_slot = verified_blob.slot();
         let blob_index = verified_blob.id().index;
 
-        let result = self.chain.process_gossip_blob(verified_blob).await;
+        let result = self
+            .chain
+            .process_gossip_blob(verified_blob, || Ok(()))
+            .await;
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
@@ -963,7 +944,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "block_root" => %block_root,
                 );
             }
-            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!(
                     self.log,
                     "Ignoring gossip blob already imported";
@@ -1013,12 +994,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match self
             .chain
-            .process_gossip_data_columns(vec![verified_data_column])
+            .process_gossip_data_columns(vec![verified_data_column], || Ok(()))
             .await
         {
-            Ok((availability, data_columns_to_publish)) => {
-                self.handle_data_columns_to_publish(data_columns_to_publish);
-
+            Ok(availability) => {
                 match availability {
                     AvailabilityProcessingStatus::Imported(block_root) => {
                         // Note: Reusing block imported metric here
@@ -1046,11 +1025,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "block_root" => %block_root,
                         );
 
-                        // Potentially trigger reconstruction
+                        self.attempt_data_column_reconstruction(block_root).await;
                     }
                 }
             }
-            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            Err(BlockError::DuplicateFullyImported(_)) => {
                 debug!(
                     self.log,
                     "Ignoring gossip column already imported";
@@ -1242,7 +1221,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
-            Err(BlockError::BlockIsAlreadyKnown(_)) => {
+            Err(
+                BlockError::DuplicateFullyImported(_)
+                | BlockError::DuplicateImportStatusUnknown(..),
+            ) => {
                 debug!(
                     self.log,
                     "Gossip block is already known";
