@@ -43,6 +43,7 @@ The common usage is to run Siren at a client computer connecting to a server run
     ```bash
     docker run --rm -ti --name siren -p 4443:443 --env-file $PWD/.env --net host sigp/siren
     ```
+    
     If it fails to start, an error message will be shown. For example, the error
 
     ```
@@ -59,13 +60,13 @@ The common usage is to run Siren at a client computer connecting to a server run
 
     When Siren is successfully run, you should see the log `LOG [NestApplication] Nest application successfully started +118ms`, indicating that Siren has started.
 
- 1. At the client computer, SSH to the server:
+ 1. On the client computer, SSH to the server:
 
     ```bash
     ssh -L 3000:127.0.0.1:3000  username@server_IP
     ```
 
-    You can now access siren by entering `localhost:3000` to a browser in the client computer.
+    You can now access siren by entering `localhost:3000` in a browser on the client computer.
 
 Advanced users can mount their own certificates, see the `SSL Certificates` section below
 
