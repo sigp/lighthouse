@@ -3,12 +3,14 @@ use crate::sync::SamplingId;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::fetch_blobs::{fetch_and_process_engine_blobs, BlobsOrDataColumns};
+use beacon_chain::fetch_blobs::{
+    fetch_and_process_engine_blobs, BlobsOrDataColumns, FetchEngineBlobError,
+};
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, AvailabilityProcessingStatus, BeaconChain,
+    BeaconChainTypes, BlockError, NotifyExecutionLayer,
 };
-use beacon_chain::{BeaconChainTypes, NotifyExecutionLayer};
 use beacon_processor::{
     work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorChannels, BeaconProcessorSend,
     DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
@@ -916,7 +918,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         self.log,
                         "Block components retrieved from EL";
                         "result" => "imported block and custody columns",
-                        "block_hash" => %block_root,
+                        "block_root" => %block_root,
                     );
                     self.chain.recompute_head_at_current_slot().await;
                 }
@@ -924,7 +926,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     debug!(
                         self.log,
                         "Still missing blobs after engine blobs processed successfully";
-                        "block_hash" => %block_root,
+                        "block_root" => %block_root,
                     );
                 }
             },
@@ -932,7 +934,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 debug!(
                     self.log,
                     "Fetch blobs completed without import";
-                    "block_hash" => %block_root,
+                    "block_root" => %block_root,
+                );
+            }
+            Err(FetchEngineBlobError::BlobProcessingError(BlockError::DuplicateFullyImported(
+                ..,
+            ))) => {
+                debug!(
+                    self.log,
+                    "Fetch blobs duplicate import";
+                    "block_root" => %block_root,
                 );
             }
             Err(e) => {
@@ -940,7 +951,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.log,
                     "Error fetching or processing blobs from EL";
                     "error" => ?e,
-                    "block_hash" => %block_root,
+                    "block_root" => %block_root,
                 );
             }
         }

@@ -55,19 +55,24 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         .log
         .new(o!("service" => "fetch_engine_blobs", "block_root" => block_root_str));
 
-    let versioned_hashes =
-        if let Ok(kzg_commitments) = block.message().body().blob_kzg_commitments() {
-            kzg_commitments
-                .iter()
-                .map(kzg_commitment_to_versioned_hash)
-                .collect::<Vec<_>>()
-        } else {
-            debug!(
-                log,
-                "Fetch blobs not triggered - none required";
-            );
-            return Ok(None);
-        };
+    let versioned_hashes = if let Some(kzg_commitments) = block
+        .message()
+        .body()
+        .blob_kzg_commitments()
+        .ok()
+        .filter(|blobs| !blobs.is_empty())
+    {
+        kzg_commitments
+            .iter()
+            .map(kzg_commitment_to_versioned_hash)
+            .collect::<Vec<_>>()
+    } else {
+        debug!(
+            log,
+            "Fetch blobs not triggered - none required";
+        );
+        return Ok(None);
+    };
 
     let num_expected_blobs = versioned_hashes.len();
 
