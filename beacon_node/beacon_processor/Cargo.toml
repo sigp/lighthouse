@@ -16,7 +16,7 @@ task_executor = { workspace = true }
 slot_clock = { workspace = true }
 lighthouse_network = { workspace = true }
 types = { workspace = true }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 parking_lot = { workspace = true }
 num_cpus = { workspace = true }
 serde = { workspace = true }
