@@ -1,8 +1,10 @@
 use crate::sync::manager::BlockProcessType;
 use crate::sync::SamplingId;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
+use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::fetch_blobs::{fetch_and_process_engine_blobs, BlobsOrDataColumns};
+use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, AvailabilityProcessingStatus, BeaconChain,
 };
@@ -23,7 +25,7 @@ use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
 };
 use rand::prelude::SliceRandom;
-use slog::{debug, error, trace, Logger};
+use slog::{debug, error, trace, warn, Logger};
 use slot_clock::ManualSlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -1009,7 +1011,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// publisher exists for a blob, it will eventually get published here.
     fn publish_blobs_gradually(
         self: &Arc<Self>,
-        mut blobs: Vec<Arc<BlobSidecar<T::EthSpec>>>,
+        mut blobs: Vec<GossipVerifiedBlob<T, DoNotObserve>>,
         block_root: Hash256,
     ) {
         let self_clone = self.clone();
@@ -1034,18 +1036,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 let blob_publication_batch_interval = chain.config.blob_publication_batch_interval;
                 let mut publish_count = 0usize;
-                let mut blobs_iter = blobs.iter().peekable();
+                let blob_count = blobs.len();
+                let mut blobs_iter = blobs.into_iter().peekable();
                 let mut batch_size = 1usize;
 
                 while blobs_iter.peek().is_some() {
                     let batch = blobs_iter.by_ref().take(batch_size);
-                    let already_seen = chain
-                        .data_availability_checker
-                        .cached_blob_indexes(&block_root)
-                        .unwrap_or_default();
                     let publishable = batch
-                        .filter(|col| !already_seen.contains(&col.index))
-                        .cloned()
+                        .filter_map(|unobserved| match unobserved.observe(&chain) {
+                            Ok(observed) => Some(observed.clone_blob()),
+                            Err(GossipBlobError::RepeatBlob { .. }) => None,
+                            Err(e) => {
+                                warn!(
+                                    log,
+                                    "Previously verified blob is invalid";
+                                    "error" => ?e
+                                );
+                                None
+                            }
+                        })
                         .collect::<Vec<_>>();
 
                     if !publishable.is_empty() {
@@ -1067,7 +1076,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     log,
                     "Batch blob publication complete";
                     "batch_interval" => blob_publication_batch_interval.as_millis(),
-                    "blob_count" => blobs.len(),
+                    "blob_count" => blob_count,
                     "published_count" => publish_count,
                     "block_root" => ?block_root,
                 )

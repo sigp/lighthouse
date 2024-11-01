@@ -1,5 +1,6 @@
 use derivative::Derivative;
 use slot_clock::SlotClock;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -8,6 +9,7 @@ use crate::block_verification::{
     BlockSlashInfo,
 };
 use crate::kzg_utils::{validate_blob, validate_blobs};
+use crate::observed_data_sidecars::{DoNotObserve, ObservationStrategy, Observe};
 use crate::{metrics, BeaconChainError};
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
 use slog::debug;
@@ -158,12 +160,13 @@ impl From<BeaconStateError> for GossipBlobError {
 /// A wrapper around a `BlobSidecar` that indicates it has been approved for re-gossiping on
 /// the p2p network.
 #[derive(Debug)]
-pub struct GossipVerifiedBlob<T: BeaconChainTypes> {
+pub struct GossipVerifiedBlob<T: BeaconChainTypes, O: ObservationStrategy = Observe> {
     block_root: Hash256,
     blob: KzgVerifiedBlob<T::EthSpec>,
+    _phantom: PhantomData<O>,
 }
 
-impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
+impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedBlob<T, O> {
     pub fn new(
         blob: Arc<BlobSidecar<T::EthSpec>>,
         subnet_id: u64,
@@ -172,7 +175,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
         let header = blob.signed_block_header.clone();
         // We only process slashing info if the gossip verification failed
         // since we do not process the blob any further in that case.
-        validate_blob_sidecar_for_gossip(blob, subnet_id, chain).map_err(|e| {
+        validate_blob_sidecar_for_gossip::<T, O>(blob, subnet_id, chain).map_err(|e| {
             process_block_slash_info::<_, GossipBlobError>(
                 chain,
                 BlockSlashInfo::from_early_error_blob(header, e),
@@ -189,6 +192,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlob<T> {
                 blob,
                 seen_timestamp: Duration::from_secs(0),
             },
+            _phantom: PhantomData,
         }
     }
     pub fn id(&self) -> BlobIdentifier {
@@ -377,11 +381,11 @@ where
     validate_blobs::<E>(kzg, commitments.as_slice(), blobs, proofs.as_slice())
 }
 
-pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
+pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrategy>(
     blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
     subnet: u64,
     chain: &BeaconChain<T>,
-) -> Result<GossipVerifiedBlob<T>, GossipBlobError> {
+) -> Result<GossipVerifiedBlob<T, O>, GossipBlobError> {
     let blob_slot = blob_sidecar.slot();
     let blob_index = blob_sidecar.index;
     let block_parent_root = blob_sidecar.block_parent_root();
@@ -581,16 +585,45 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         )
         .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?;
 
+    if O::observe() {
+        observe_gossip_blob(&kzg_verified_blob.blob, chain)?;
+    }
+
+    Ok(GossipVerifiedBlob {
+        block_root,
+        blob: kzg_verified_blob,
+        _phantom: PhantomData,
+    })
+}
+
+impl<T: BeaconChainTypes> GossipVerifiedBlob<T, DoNotObserve> {
+    pub fn observe(
+        self,
+        chain: &BeaconChain<T>,
+    ) -> Result<GossipVerifiedBlob<T, Observe>, GossipBlobError> {
+        observe_gossip_blob(&self.blob.blob, chain)?;
+        Ok(GossipVerifiedBlob {
+            block_root: self.block_root,
+            blob: self.blob,
+            _phantom: PhantomData,
+        })
+    }
+}
+
+fn observe_gossip_blob<T: BeaconChainTypes>(
+    blob_sidecar: &BlobSidecar<T::EthSpec>,
+    chain: &BeaconChain<T>,
+) -> Result<(), GossipBlobError> {
     // Now the signature is valid, store the proposal so we don't accept another blob sidecar
-    // with the same `BlobIdentifier`.
-    // It's important to double-check that the proposer still hasn't been observed so we don't
-    // have a race-condition when verifying two blocks simultaneously.
+    // with the same `BlobIdentifier`.  It's important to double-check that the proposer still
+    // hasn't been observed so we don't have a race-condition when verifying two blocks
+    // simultaneously.
     //
-    // Note: If this BlobSidecar goes on to fail full verification, we do not evict it from the seen_cache
-    // as alternate blob_sidecars for the same identifier can still be retrieved
-    // over rpc. Evicting them from this cache would allow faster propagation over gossip. So we allow
-    // retrieval of potentially valid blocks over rpc, but try to punish the proposer for signing
-    // invalid messages. Issue for more background
+    // Note: If this BlobSidecar goes on to fail full verification, we do not evict it from the
+    // seen_cache as alternate blob_sidecars for the same identifier can still be retrieved over
+    // rpc. Evicting them from this cache would allow faster propagation over gossip. So we
+    // allow retrieval of potentially valid blocks over rpc, but try to punish the proposer for
+    // signing invalid messages. Issue for more background
     // https://github.com/ethereum/consensus-specs/issues/3261
     if chain
         .observed_blob_sidecars
@@ -599,16 +632,12 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
         .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?
     {
         return Err(GossipBlobError::RepeatBlob {
-            proposer: proposer_index as u64,
-            slot: blob_slot,
-            index: blob_index,
+            proposer: blob_sidecar.block_proposer_index(),
+            slot: blob_sidecar.slot(),
+            index: blob_sidecar.index,
         });
     }
-
-    Ok(GossipVerifiedBlob {
-        block_root,
-        blob: kzg_verified_blob,
-    })
+    Ok(())
 }
 
 /// Returns the canonical root of the given `blob`.

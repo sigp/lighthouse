@@ -7,12 +7,12 @@
 //! on P2P gossip to the network. From PeerDAS onwards, together with the increase in blob count,
 //! broadcasting blobs requires a much higher bandwidth, and is only done by high capacity
 //! supernodes.
+use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::kzg_utils::blobs_to_data_column_sidecars;
-use crate::observed_data_sidecars::ObservableDataSidecar;
+use crate::observed_data_sidecars::DoNotObserve;
 use crate::{metrics, AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
 use execution_layer::json_structures::BlobAndProofV1;
 use execution_layer::Error as ExecutionLayerError;
-use itertools::Either;
 use metrics::{inc_counter, inc_counter_by, TryExt};
 use slog::{debug, error, o, Logger};
 use ssz_types::FixedVector;
@@ -25,9 +25,9 @@ use types::{
     Hash256, SignedBeaconBlock, SignedBeaconBlockHeader,
 };
 
-pub enum BlobsOrDataColumns<E: EthSpec> {
-    Blobs(Vec<Arc<BlobSidecar<E>>>),
-    DataColumns(DataColumnSidecarList<E>),
+pub enum BlobsOrDataColumns<T: BeaconChainTypes> {
+    Blobs(Vec<GossipVerifiedBlob<T, DoNotObserve>>),
+    DataColumns(DataColumnSidecarList<T::EthSpec>),
 }
 
 #[derive(Debug)]
@@ -37,6 +37,7 @@ pub enum FetchEngineBlobError {
     BlobSidecarError(BlobSidecarError),
     ExecutionLayerMissing,
     InternalError(String),
+    GossipBlob(GossipBlobError),
     RequestFailed(ExecutionLayerError),
     RuntimeShutdown,
 }
@@ -47,7 +48,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
-    publish_fn: impl Fn(BlobsOrDataColumns<T::EthSpec>) + Send + 'static,
+    publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     let block_root_str = format!("{:?}", block_root);
     let log = chain
@@ -147,22 +148,28 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
 
         Some(data_columns_receiver)
     } else {
-        let all_blobs = fixed_blob_sidecar_list.clone();
-        let all_blobs_iter = all_blobs.into_iter().flat_map(|b| b.clone());
+        // Gossip verify blobs before publishing. This prevents blobs with invalid KZG proofs from
+        // the EL making it into the data availability checker. We do not immediately add these
+        // blobs to the observed blobs cache because we want to allow blobs to arrive on gossip
+        // and be accepted (and propagated) while we are waiting to publish. Just before publishing
+        // we will observe the blobs and only proceed with publishing if they are not yet seen.
+        let blobs_to_publish = fixed_blob_sidecar_list
+            .iter()
+            .filter_map(|opt_blob| {
+                let blob = opt_blob.as_ref()?;
+                match GossipVerifiedBlob::<T, DoNotObserve>::new(blob.clone(), blob.index, &chain) {
+                    Ok(verified) => Some(Ok(verified)),
+                    // Ignore already seen blobs.
+                    Err(GossipBlobError::RepeatBlob { .. }) => None,
+                    Err(e) => Some(Err(e)),
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(FetchEngineBlobError::GossipBlob)?;
 
-        let blobs_to_publish = match chain
-            .data_availability_checker
-            .cached_blob_indexes(&block_root)
-        {
-            None => Either::Left(all_blobs_iter),
-            Some(imported_blob_indices) => Either::Right(
-                all_blobs_iter.filter(move |b| !imported_blob_indices.contains(&b.index())),
-            ),
-        };
-
-        publish_fn(BlobsOrDataColumns::Blobs(
-            blobs_to_publish.collect::<Vec<_>>(),
-        ));
+        if !blobs_to_publish.is_empty() {
+            publish_fn(BlobsOrDataColumns::Blobs(blobs_to_publish));
+        }
 
         None
     };
@@ -198,7 +205,7 @@ fn spawn_compute_and_publish_data_columns_task<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     blobs: FixedBlobSidecarList<T::EthSpec>,
-    publish_fn: impl Fn(BlobsOrDataColumns<T::EthSpec>) + Send + 'static,
+    publish_fn: impl Fn(BlobsOrDataColumns<T>) + Send + 'static,
     log: Logger,
 ) -> Receiver<Vec<Arc<DataColumnSidecar<T::EthSpec>>>> {
     let chain_cloned = chain.clone();
@@ -262,7 +269,7 @@ fn build_blob_sidecars<E: EthSpec>(
     block: &Arc<SignedBeaconBlock<E, FullPayload<E>>>,
     response: Vec<Option<BlobAndProofV1<E>>>,
     signed_block_header: SignedBeaconBlockHeader,
-    kzg_commitments_proof: &FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
+    kzg_commitments_inclusion_proof: &FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
 ) -> Result<FixedBlobSidecarList<E>, FetchEngineBlobError> {
     let mut fixed_blob_sidecar_list = FixedBlobSidecarList::default();
     for (index, blob_and_proof) in response
@@ -275,7 +282,7 @@ fn build_blob_sidecars<E: EthSpec>(
             blob_and_proof.blob,
             block,
             signed_block_header.clone(),
-            kzg_commitments_proof,
+            kzg_commitments_inclusion_proof,
             blob_and_proof.proof,
         ) {
             Ok(blob) => {
