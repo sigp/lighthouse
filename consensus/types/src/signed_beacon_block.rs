@@ -1,6 +1,7 @@
-use crate::beacon_block_body::format_kzg_commitments;
+use crate::beacon_block_body::{format_kzg_commitments, BLOB_KZG_COMMITMENTS_INDEX};
 use crate::*;
 use derivative::Derivative;
+use merkle_proof::MerkleTree;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::fmt;
@@ -251,15 +252,23 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         ),
         Error,
     > {
-        let proof = self.message().body().kzg_commitments_merkle_proof()?;
-        let body_root = *proof.last().unwrap();
+        // Create the block body merkle tree
+        let body_leaves = self.message().body().body_merkle_leaves();
+        let beacon_block_body_depth = body_leaves.len().next_power_of_two().ilog2() as usize;
+        let body_merkle_tree = MerkleTree::create(&body_leaves, beacon_block_body_depth);
+
+        // Compute the KZG commitments inclusion proof
+        let (_, proof) = body_merkle_tree
+            .generate_proof(BLOB_KZG_COMMITMENTS_INDEX, beacon_block_body_depth)
+            .map_err(Error::MerkleTreeError)?;
+        let kzg_commitments_inclusion_proof = FixedVector::new(proof)?;
 
         let block_header = BeaconBlockHeader {
             slot: self.slot(),
             proposer_index: self.message().proposer_index(),
             parent_root: self.parent_root(),
             state_root: self.state_root(),
-            body_root,
+            body_root: body_merkle_tree.hash(),
         };
 
         let signed_header = SignedBeaconBlockHeader {
@@ -267,7 +276,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             signature: self.signature().clone(),
         };
 
-        Ok((signed_header, proof))
+        Ok((signed_header, kzg_commitments_inclusion_proof))
     }
 
     /// Convenience accessor for the block's slot.

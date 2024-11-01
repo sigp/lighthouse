@@ -147,7 +147,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         }
     }
 
-    fn body_merkle_leaves(&self) -> Vec<Hash256> {
+    pub(crate) fn body_merkle_leaves(&self) -> Vec<Hash256> {
         let mut leaves = vec![];
         match self {
             Self::Base(body) => {
