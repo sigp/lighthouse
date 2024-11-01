@@ -112,19 +112,8 @@ async fn light_client_bootstrap_test() {
         return;
     };
 
-    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 6);
     let db_path = tempdir().unwrap();
-    let log = test_logger();
-
-    let seconds_per_slot = spec.seconds_per_slot;
-    let store = get_store_generic(
-        &db_path,
-        StoreConfig {
-            slots_per_restore_point: 2 * E::slots_per_epoch(),
-            ..Default::default()
-        },
-        test_spec::<E>(),
-    );
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
     let num_initial_slots = E::slots_per_epoch() * 7;
@@ -142,71 +131,8 @@ async fn light_client_bootstrap_test() {
         )
         .await;
 
-    let wss_block_root = harness
+    let finalized_checkpoint = harness
         .chain
-        .block_root_at_slot(checkpoint_slot, WhenSlotSkipped::Prev)
-        .unwrap()
-        .unwrap();
-    let wss_state_root = harness
-        .chain
-        .state_root_at_slot(checkpoint_slot)
-        .unwrap()
-        .unwrap();
-    let wss_block = harness
-        .chain
-        .store
-        .get_full_block(&wss_block_root)
-        .unwrap()
-        .unwrap();
-    let wss_blobs_opt = harness.chain.store.get_blobs(&wss_block_root).unwrap();
-    let wss_state = store
-        .get_state(&wss_state_root, Some(checkpoint_slot))
-        .unwrap()
-        .unwrap();
-
-    let kzg = get_kzg(&spec);
-
-    let mock =
-        mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
-
-    // Initialise a new beacon chain from the finalized checkpoint.
-    // The slot clock must be set to a time ahead of the checkpoint state.
-    let slot_clock = TestingSlotClock::new(
-        Slot::new(0),
-        Duration::from_secs(harness.chain.genesis_time),
-        Duration::from_secs(seconds_per_slot),
-    );
-    slot_clock.set_slot(harness.get_current_slot().as_u64());
-
-    let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
-
-    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, kzg)
-        .store(store.clone())
-        .custom_spec(test_spec::<E>().into())
-        .task_executor(harness.chain.task_executor.clone())
-        .logger(log.clone())
-        .weak_subjectivity_state(
-            wss_state,
-            wss_block.clone(),
-            wss_blobs_opt.clone(),
-            genesis_state,
-        )
-        .unwrap()
-        .store_migrator_config(MigratorConfig::default().blocking())
-        .dummy_eth1_backend()
-        .expect("should build dummy backend")
-        .slot_clock(slot_clock)
-        .shutdown_sender(shutdown_tx)
-        .chain_config(ChainConfig::default())
-        .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-            log.clone(),
-            1,
-        )))
-        .execution_layer(Some(mock.el))
-        .build()
-        .expect("should build");
-
-    let finalized_checkpoint = beacon_chain
         .canonical_head
         .cached_head()
         .finalized_checkpoint();
@@ -241,19 +167,8 @@ async fn light_client_updates_test() {
     };
 
     let num_final_blocks = E::slots_per_epoch() * 2;
-    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
     let db_path = tempdir().unwrap();
-    let log = test_logger();
-
-    let seconds_per_slot = spec.seconds_per_slot;
-    let store = get_store_generic(
-        &db_path,
-        StoreConfig {
-            slots_per_restore_point: 2 * E::slots_per_epoch(),
-            ..Default::default()
-        },
-        test_spec::<E>(),
-    );
+    let store = get_store_generic(&db_path, StoreConfig::default(), test_spec::<E>());
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
     let num_initial_slots = E::slots_per_epoch() * 10;
@@ -269,33 +184,6 @@ async fn light_client_updates_test() {
         )
         .await;
 
-    let wss_block_root = harness
-        .chain
-        .block_root_at_slot(checkpoint_slot, WhenSlotSkipped::Prev)
-        .unwrap()
-        .unwrap();
-    let wss_state_root = harness
-        .chain
-        .state_root_at_slot(checkpoint_slot)
-        .unwrap()
-        .unwrap();
-    let wss_block = harness
-        .chain
-        .store
-        .get_full_block(&wss_block_root)
-        .unwrap()
-        .unwrap();
-    let wss_blobs_opt = harness.chain.store.get_blobs(&wss_block_root).unwrap();
-    let wss_state = store
-        .get_state(&wss_state_root, Some(checkpoint_slot))
-        .unwrap()
-        .unwrap();
-
-    let kzg = get_kzg(&spec);
-
-    let mock =
-        mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
-
     harness.advance_slot();
     harness
         .extend_chain_with_light_client_data(
@@ -304,45 +192,6 @@ async fn light_client_updates_test() {
             AttestationStrategy::AllValidators,
         )
         .await;
-
-    // Initialise a new beacon chain from the finalized checkpoint.
-    // The slot clock must be set to a time ahead of the checkpoint state.
-    let slot_clock = TestingSlotClock::new(
-        Slot::new(0),
-        Duration::from_secs(harness.chain.genesis_time),
-        Duration::from_secs(seconds_per_slot),
-    );
-    slot_clock.set_slot(harness.get_current_slot().as_u64());
-
-    let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
-
-    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, kzg)
-        .store(store.clone())
-        .custom_spec(test_spec::<E>().into())
-        .task_executor(harness.chain.task_executor.clone())
-        .logger(log.clone())
-        .weak_subjectivity_state(
-            wss_state,
-            wss_block.clone(),
-            wss_blobs_opt.clone(),
-            genesis_state,
-        )
-        .unwrap()
-        .store_migrator_config(MigratorConfig::default().blocking())
-        .dummy_eth1_backend()
-        .expect("should build dummy backend")
-        .slot_clock(slot_clock)
-        .shutdown_sender(shutdown_tx)
-        .chain_config(ChainConfig::default())
-        .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-            log.clone(),
-            1,
-        )))
-        .execution_layer(Some(mock.el))
-        .build()
-        .expect("should build");
-
-    let beacon_chain = Arc::new(beacon_chain);
 
     let current_state = harness.get_current_state();
 
@@ -354,7 +203,8 @@ async fn light_client_updates_test() {
 
     // fetch a range of light client updates. right now there should only be one light client update
     // in the db.
-    let lc_updates = beacon_chain
+    let lc_updates = harness
+        .chain
         .get_light_client_updates(sync_period, 100)
         .unwrap();
 
@@ -374,7 +224,8 @@ async fn light_client_updates_test() {
         .await;
 
     // we should now have two light client updates in the db
-    let lc_updates = beacon_chain
+    let lc_updates = harness
+        .chain
         .get_light_client_updates(sync_period, 100)
         .unwrap();
 
