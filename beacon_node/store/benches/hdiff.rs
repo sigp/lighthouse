@@ -119,8 +119,8 @@ fn bench_against_states(
         })
     });
     c.bench_function(&format!("apply hdiff {id}"), |b| {
-        let mut source = source.clone();
         b.iter(|| {
+            let mut source = source.clone();
             diff.apply(&mut source, &config).unwrap();
         })
     });
