@@ -437,7 +437,7 @@ fn no_doppelganger_protection_flag() {
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
-        .with_config(|config| assert!(config.gas_limit == Some(30_000_000)));
+        .with_config(|config| assert!(config.gas_limit == 30_000_000));
 }
 #[test]
 fn gas_limit_flag() {
@@ -445,7 +445,7 @@ fn gas_limit_flag() {
         .flag("gas-limit", Some("600"))
         .flag("builder-proposals", None)
         .run()
-        .with_config(|config| assert_eq!(config.gas_limit, Some(600)));
+        .with_config(|config| assert_eq!(config.gas_limit, 600));
 }
 #[test]
 fn no_builder_proposals_flag() {
