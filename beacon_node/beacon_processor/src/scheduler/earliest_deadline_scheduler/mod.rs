@@ -1,11 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
-use crate::{scheduler::InboundEvents, QueuedBackfillBatch, ReprocessQueueMessage};
+use crate::{scheduler::InboundEvents, ReprocessQueueMessage};
 use earliest_deadline_queue::{QueueItem, WorkQueue};
-use futures::stream::StreamExt;
-use slog::{crit, debug, error, trace, warn};
+use slog::{error, trace, warn};
 use slot_clock::SlotClock;
-use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{self, Sender};
 use types::EthSpec;
 
@@ -16,7 +14,7 @@ use crate::{
 use super::{
     spawn_worker,
     work_reprocessing_queue::{spawn_reprocess_scheduler, ReadyWork},
-    worker_journal, InboundEvent,
+    worker_journal, NextWorkEvent,
 };
 
 mod earliest_deadline_queue;
@@ -73,65 +71,13 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
 
         let manager_future = async move {
             loop {
-                let work_event = match inbound_events.next().await {
-                    Some(InboundEvent::WorkerIdle) => {
-                        self.beacon_processor.current_workers =
-                            self.beacon_processor.current_workers.saturating_sub(1);
-                        None
-                    }
-                    Some(InboundEvent::WorkEvent(event))
-                        if self.beacon_processor.config.enable_backfill_rate_limiting =>
-                    {
-                        match QueuedBackfillBatch::try_from(event) {
-                            Ok(backfill_batch) => {
-                                match reprocess_work_tx
-                                    .try_send(ReprocessQueueMessage::BackfillSync(backfill_batch))
-                                {
-                                    Err(e) => {
-                                        warn!(
-                                            self.beacon_processor.log,
-                                            "Unable to queue backfill work event. Will try to process now.";
-                                            "error" => %e
-                                        );
-                                        match e {
-                                            TrySendError::Full(reprocess_queue_message)
-                                            | TrySendError::Closed(reprocess_queue_message) => {
-                                                match reprocess_queue_message {
-                                                    ReprocessQueueMessage::BackfillSync(
-                                                        backfill_batch,
-                                                    ) => Some(backfill_batch.into()),
-                                                    other => {
-                                                        crit!(
-                                                            self.beacon_processor.log,
-                                                            "Unexpected queue message type";
-                                                            "message_type" => other.as_ref()
-                                                        );
-                                                        // This is an unhandled exception, drop the message.
-                                                        continue;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    Ok(..) => {
-                                        // backfill work sent to "reprocessing" queue. Process the next event.
-                                        continue;
-                                    }
-                                }
-                            }
-                            Err(event) => Some(event),
-                        }
-                    }
-                    Some(InboundEvent::WorkEvent(event))
-                    | Some(InboundEvent::ReprocessingWork(event)) => Some(event),
-                    None => {
-                        debug!(
-                            self.beacon_processor.log,
-                            "Gossip processor stopped";
-                            "msg" => "stream ended"
-                        );
-                        break;
-                    }
+                let work_event = match inbound_events
+                    .next_work_event(&reprocess_work_tx, &mut self.beacon_processor)
+                    .await
+                {
+                    NextWorkEvent::WorkEvent(work_event) => work_event,
+                    NextWorkEvent::Continue => continue,
+                    NextWorkEvent::Break => break,
                 };
 
                 let can_spawn = self.beacon_processor.current_workers

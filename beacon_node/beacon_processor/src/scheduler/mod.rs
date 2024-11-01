@@ -1,15 +1,17 @@
 use std::task::Poll;
 
 use futures::stream::Stream;
-use slog::trace;
+use futures::StreamExt;
+use slog::{crit, debug, trace, warn};
 use std::pin::Pin;
 use std::task::Context;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::Sender;
 use types::EthSpec;
 use work_reprocessing_queue::ReadyWork;
 
-use crate::{metrics, WorkEvent, WORKER_FREED};
+use crate::{metrics, QueuedBackfillBatch, ReprocessQueueMessage, WorkEvent, WORKER_FREED};
 use crate::{BeaconProcessor, BlockingOrAsync, SendOnDrop, TaskSpawner, Work};
 
 mod earliest_deadline_scheduler;
@@ -78,6 +80,84 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
         }
 
         Poll::Pending
+    }
+}
+
+pub enum NextWorkEvent<E: EthSpec> {
+    WorkEvent(Option<WorkEvent<E>>),
+    Continue,
+    Break,
+}
+
+impl<E: EthSpec> InboundEvents<E> {
+    pub async fn next_work_event(
+        &mut self,
+        reprocess_work_tx: &Sender<ReprocessQueueMessage>,
+        beacon_processor: &mut BeaconProcessor<E>,
+    ) -> NextWorkEvent<E> {
+        match self.next().await {
+            Some(InboundEvent::WorkerIdle) => {
+                beacon_processor.current_workers =
+                    beacon_processor.current_workers.saturating_sub(1);
+                NextWorkEvent::WorkEvent(None)
+            }
+            Some(InboundEvent::WorkEvent(event))
+                if beacon_processor.config.enable_backfill_rate_limiting =>
+            {
+                match QueuedBackfillBatch::try_from(event) {
+                    Ok(backfill_batch) => {
+                        match reprocess_work_tx
+                            .try_send(ReprocessQueueMessage::BackfillSync(backfill_batch))
+                        {
+                            Err(e) => {
+                                warn!(
+                                    beacon_processor.log,
+                                    "Unable to queue backfill work event. Will try to process now.";
+                                    "error" => %e
+                                );
+                                match e {
+                                    TrySendError::Full(reprocess_queue_message)
+                                    | TrySendError::Closed(reprocess_queue_message) => {
+                                        match reprocess_queue_message {
+                                            ReprocessQueueMessage::BackfillSync(backfill_batch) => {
+                                                NextWorkEvent::WorkEvent(Some(
+                                                    backfill_batch.into(),
+                                                ))
+                                            }
+                                            other => {
+                                                crit!(
+                                                    beacon_processor.log,
+                                                    "Unexpected queue message type";
+                                                    "message_type" => other.as_ref()
+                                                );
+                                                // This is an unhandled exception, drop the message.
+                                                NextWorkEvent::Continue
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Ok(..) => {
+                                // backfill work sent to "reprocessing" queue. Process the next event.
+                                NextWorkEvent::Continue
+                            }
+                        }
+                    }
+                    Err(event) => NextWorkEvent::WorkEvent(Some(event)),
+                }
+            }
+            Some(InboundEvent::WorkEvent(event)) | Some(InboundEvent::ReprocessingWork(event)) => {
+                NextWorkEvent::WorkEvent(Some(event))
+            }
+            None => {
+                debug!(
+                    beacon_processor.log,
+                    "Gossip processor stopped";
+                    "msg" => "stream ended"
+                );
+                NextWorkEvent::Break
+            }
+        }
     }
 }
 
