@@ -5,9 +5,11 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use std::cmp::Ordering;
 use std::io::{Read, Write};
 use std::ops::RangeInclusive;
 use std::str::FromStr;
+use types::historical_summary::HistoricalSummary;
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, List, Slot, Validator};
 use zstd::{Decoder, Encoder};
 
@@ -84,6 +86,8 @@ pub struct HDiffBuffer {
     balances: Vec<u64>,
     inactivity_scores: Vec<u64>,
     validators: Vec<Validator>,
+    historical_roots: Vec<Hash256>,
+    historical_summaries: Vec<HistoricalSummary>,
 }
 
 /// Hierarchical state diff.
@@ -104,8 +108,26 @@ pub struct HDiffBuffer {
 pub struct HDiff {
     state_diff: BytesDiff,
     balances_diff: CompressedU64Diff,
+    /// inactivity_scores are small integers that change slowly epoch to epoch. And are 0 for all
+    /// participants unless there's non-finality. Computing the diff and compressing the result is
+    /// much faster than running them through a binary patch algorithm. In the default case where
+    /// all values are 0 it should also result in a tinny output.
     inactivity_scores_diff: CompressedU64Diff,
+    /// The validators array represents the vast majority of data in a BeaconState. Due to its big
+    /// size we have seen the performance of xdelta3 degreade. Comparing each entry of the
+    /// validators array manually significantly speed up the computation of the diff (+10x faster)
+    /// and result in the same minimal diff. As the `Validator` record is unlikely to change,
+    /// mantaining this extra complexity should be okay.
     validators_diff: ValidatorsDiff,
+    /// `historical_roots` is an unbounded forever growing (after Capella it's
+    /// historical_summaries) list of unique roots. This data is pure entropy so there's no point
+    /// in compressing it. As it's an append only list, the optimal diff + compression is just the
+    /// list of new entries. The size of `historical_roots` and `historical_summaries` in
+    /// non-trivial ~10 MB so throwing it to xdelta3 adds CPU cycles. With a bit of extra complexity
+    /// we can save those completely.
+    historical_roots: AppendOnlyDiff<Hash256>,
+    /// See historical_roots
+    historical_summaries: AppendOnlyDiff<HistoricalSummary>,
 }
 
 #[derive(Debug, Encode, Decode)]
@@ -123,6 +145,11 @@ pub struct ValidatorsDiff {
     bytes: Vec<u8>,
 }
 
+#[derive(Debug, Encode, Decode)]
+pub struct AppendOnlyDiff<T: Encode + Decode> {
+    values: Vec<T>,
+}
+
 impl HDiffBuffer {
     pub fn from_state<E: EthSpec>(mut beacon_state: BeaconState<E>) -> Self {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_FROM_STATE_TIME);
@@ -136,6 +163,13 @@ impl HDiffBuffer {
             vec![]
         };
         let validators = std::mem::take(beacon_state.validators_mut()).to_vec();
+        let historical_roots = std::mem::take(beacon_state.historical_roots_mut()).to_vec();
+        let historical_summaries =
+            if let Ok(historical_summaries) = beacon_state.historical_summaries_mut() {
+                std::mem::take(historical_summaries).to_vec()
+            } else {
+                vec![]
+            };
 
         let state = beacon_state.as_ssz_bytes();
         let balances = balances_list.to_vec();
@@ -145,6 +179,8 @@ impl HDiffBuffer {
             balances,
             inactivity_scores,
             validators,
+            historical_roots,
+            historical_summaries,
         }
     }
 
@@ -155,8 +191,21 @@ impl HDiffBuffer {
 
         *state.balances_mut() = List::try_from_iter(self.balances.iter().copied())
             .map_err(|_| Error::InvalidBalancesLength)?;
+
         if let Ok(inactivity_scores) = state.inactivity_scores_mut() {
             *inactivity_scores = List::try_from_iter(self.inactivity_scores.iter().copied())
+                .map_err(|_| Error::InvalidBalancesLength)?;
+        }
+
+        // TODO: Can we remove all this clone / copying?
+        *state.validators_mut() = List::try_from_iter(self.validators.iter().cloned())
+            .map_err(|_| Error::InvalidBalancesLength)?;
+
+        *state.historical_roots_mut() = List::try_from_iter(self.historical_roots.iter().copied())
+            .map_err(|_| Error::InvalidBalancesLength)?;
+
+        if let Ok(historical_summaries) = state.historical_summaries_mut() {
+            *historical_summaries = List::try_from_iter(self.historical_summaries.iter().copied())
                 .map_err(|_| Error::InvalidBalancesLength)?;
         }
 
@@ -187,12 +236,18 @@ impl HDiff {
         )?;
         let validators_diff =
             ValidatorsDiff::compute(&source.validators, &target.validators, config)?;
+        let historical_roots =
+            AppendOnlyDiff::compute(&source.historical_roots, &target.historical_roots)?;
+        let historical_summaries =
+            AppendOnlyDiff::compute(&source.historical_summaries, &target.historical_summaries)?;
 
         Ok(Self {
             state_diff,
             balances_diff,
             inactivity_scores_diff,
             validators_diff,
+            historical_roots,
+            historical_summaries,
         })
     }
 
@@ -203,16 +258,27 @@ impl HDiff {
         self.inactivity_scores_diff
             .apply(&mut source.inactivity_scores, config)?;
         self.validators_diff.apply(&mut source.validators, config)?;
+        self.historical_roots.apply(&mut source.historical_roots);
+        self.historical_summaries
+            .apply(&mut source.historical_summaries);
 
         Ok(())
     }
 
     /// Byte size of this instance
     pub fn size(&self) -> usize {
-        self.state_diff.size()
-            + self.balances_diff.size()
-            + self.inactivity_scores_diff.size()
-            + self.validators_diff.size()
+        self.sizes().iter().sum()
+    }
+
+    pub fn sizes(&self) -> Vec<usize> {
+        vec![
+            self.state_diff.size(),
+            self.balances_diff.size(),
+            self.inactivity_scores_diff.size(),
+            self.validators_diff.size(),
+            self.historical_roots.size(),
+            self.historical_summaries.size(),
+        ]
     }
 }
 
@@ -477,6 +543,28 @@ impl ValidatorsDiff {
 struct ValidatorDiffEntry {
     index: u64,
     validator_diff: Validator,
+}
+
+impl<T: Decode + Encode + Copy> AppendOnlyDiff<T> {
+    pub fn compute(xs: &[T], ys: &[T]) -> Result<Self, Error> {
+        match xs.len().cmp(&ys.len()) {
+            Ordering::Less => Ok(Self {
+                values: ys.iter().skip(xs.len()).copied().collect(),
+            }),
+            // Don't even create an iterator for this common case
+            Ordering::Equal => Ok(Self { values: vec![] }),
+            Ordering::Greater => Err(Error::U64DiffDeletionsNotSupported),
+        }
+    }
+
+    pub fn apply(&self, xs: &mut Vec<T>) {
+        xs.extend(self.values.iter().copied());
+    }
+
+    /// Byte size of this instance
+    pub fn size(&self) -> usize {
+        self.values.len() * size_of::<T>()
+    }
 }
 
 impl Default for HierarchyConfig {

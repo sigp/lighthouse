@@ -2,21 +2,31 @@ use bls::PublicKeyBytes;
 use criterion::{criterion_group, criterion_main, Criterion};
 use rand::Rng;
 use ssz::Decode;
+use std::fs;
 use store::{
     hdiff::{HDiff, HDiffBuffer},
     StoreConfig,
 };
-use types::{BeaconState, Epoch, Eth1Data, EthSpec, ForkName, MainnetEthSpec as E, Validator};
+use types::{BeaconState, ChainSpec, Epoch, Eth1Data, EthSpec, MainnetEthSpec as E, Validator};
 
 pub fn all_benches(c: &mut Criterion) {
-    let fork = ForkName::Base;
-    let spec = fork.make_genesis_spec(E::default_spec());
+    let spec = E::default_spec();
     let genesis_time = 0;
     let eth1_data = Eth1Data::default();
-    let config = StoreConfig::default();
     let mut rng = rand::thread_rng();
     let validator_mutations = 1000;
     let validator_additions = 100;
+
+    // TODO: Temp
+    if std::path::Path::new("/Users/lion/code/sigp/lighthouse/state_10300000.ssz").exists() {
+        bench_against_disk_states(
+            c,
+            "/Users/lion/code/sigp/lighthouse/state_10300000.ssz",
+            "/Users/lion/code/sigp/lighthouse/state_10300064.ssz",
+            &spec,
+        );
+        return;
+    }
 
     for n in [1_000_000, 1_500_000, 2_000_000] {
         let mut source_state = BeaconState::<E>::new(genesis_time, eth1_data.clone(), &spec);
@@ -41,21 +51,56 @@ pub fn all_benches(c: &mut Criterion) {
             append_validator(&mut target_state, &mut rng);
         }
 
-        let source = HDiffBuffer::from_state(source_state);
-        let target = HDiffBuffer::from_state(target_state);
-        let diff = HDiff::compute(&source, &target, &config).unwrap();
-
-        c.bench_function(
-            &format!("apply hdiff n={n} v_mut={validator_mutations} v_add={validator_additions}"),
-            |b| {
-                let mut source = source.clone();
-                b.iter(|| {
-                    diff.apply(&mut source, &config).unwrap();
-                    println!("diff size {}", diff.size());
-                })
-            },
+        bench_against_states(
+            c,
+            source_state,
+            target_state,
+            &format!("n={n} v_mut={validator_mutations} v_add={validator_additions}"),
         );
     }
+}
+
+fn bench_against_disk_states(
+    c: &mut Criterion,
+    source_state_path: &str,
+    target_state_path: &str,
+    spec: &ChainSpec,
+) {
+    let source_state =
+        BeaconState::<E>::from_ssz_bytes(&fs::read(source_state_path).unwrap(), spec).unwrap();
+    let target_state =
+        BeaconState::<E>::from_ssz_bytes(&fs::read(target_state_path).unwrap(), spec).unwrap();
+    bench_against_states(
+        c,
+        source_state,
+        target_state,
+        &format!("{source_state_path} - {target_state_path}"),
+    );
+}
+
+fn bench_against_states(
+    c: &mut Criterion,
+    source_state: BeaconState<E>,
+    target_state: BeaconState<E>,
+    id: &str,
+) {
+    let config = StoreConfig::default();
+    let source = HDiffBuffer::from_state(source_state);
+    let target = HDiffBuffer::from_state(target_state);
+    let diff = HDiff::compute(&source, &target, &config).unwrap();
+    println!("diff size {id} {}", diff.size());
+
+    c.bench_function(&format!("compute hdiff {id}"), |b| {
+        b.iter(|| {
+            HDiff::compute(&source, &target, &config).unwrap();
+        })
+    });
+    c.bench_function(&format!("apply hdiff {id}"), |b| {
+        let mut source = source.clone();
+        b.iter(|| {
+            diff.apply(&mut source, &config).unwrap();
+        })
+    });
 }
 
 fn rand_validator(mut rng: impl Rng) -> Validator {
