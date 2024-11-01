@@ -3,6 +3,7 @@ use crate::sync::SamplingId;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::data_column_verification::{observe_gossip_data_column, GossipDataColumnError};
 use beacon_chain::fetch_blobs::{fetch_and_process_engine_blobs, BlobsOrDataColumns};
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::{
@@ -1128,14 +1129,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 let mut publish_count = 0usize;
 
                 for batch in data_columns_to_publish.chunks(batch_size) {
-                    let already_seen = chain
-                        .data_availability_checker
-                        .cached_data_column_indexes(&block_root)
-                        .unwrap_or_default();
                     let publishable = batch
                         .iter()
-                        .filter(|col| !already_seen.contains(&col.index))
-                        .cloned()
+                        .filter_map(|col| match observe_gossip_data_column(col, &chain) {
+                            Ok(()) => Some(col.clone()),
+                            Err(GossipDataColumnError::PriorKnown { .. }) => None,
+                            Err(e) => {
+                                warn!(
+                                    log,
+                                    "Previously verified data column is invalid";
+                                    "error" => ?e
+                                );
+                                None
+                            }
+                        })
                         .collect::<Vec<_>>();
 
                     if !publishable.is_empty() {

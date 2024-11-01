@@ -123,6 +123,25 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
         num_fetched_blobs as u64,
     );
 
+    // Gossip verify blobs before publishing. This prevents blobs with invalid KZG proofs from
+    // the EL making it into the data availability checker. We do not immediately add these
+    // blobs to the observed blobs/columns cache because we want to allow blobs/columns to arrive on gossip
+    // and be accepted (and propagated) while we are waiting to publish. Just before publishing
+    // we will observe the blobs/columns and only proceed with publishing if they are not yet seen.
+    let blobs_to_import_and_publish = fixed_blob_sidecar_list
+        .iter()
+        .filter_map(|opt_blob| {
+            let blob = opt_blob.as_ref()?;
+            match GossipVerifiedBlob::<T, DoNotObserve>::new(blob.clone(), blob.index, &chain) {
+                Ok(verified) => Some(Ok(verified)),
+                // Ignore already seen blobs.
+                Err(GossipBlobError::RepeatBlob { .. }) => None,
+                Err(e) => Some(Err(e)),
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(FetchEngineBlobError::GossipBlob)?;
+
     let peer_das_enabled = chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
 
     let data_columns_receiver_opt = if peer_das_enabled {
@@ -148,27 +167,8 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
 
         Some(data_columns_receiver)
     } else {
-        // Gossip verify blobs before publishing. This prevents blobs with invalid KZG proofs from
-        // the EL making it into the data availability checker. We do not immediately add these
-        // blobs to the observed blobs cache because we want to allow blobs to arrive on gossip
-        // and be accepted (and propagated) while we are waiting to publish. Just before publishing
-        // we will observe the blobs and only proceed with publishing if they are not yet seen.
-        let blobs_to_publish = fixed_blob_sidecar_list
-            .iter()
-            .filter_map(|opt_blob| {
-                let blob = opt_blob.as_ref()?;
-                match GossipVerifiedBlob::<T, DoNotObserve>::new(blob.clone(), blob.index, &chain) {
-                    Ok(verified) => Some(Ok(verified)),
-                    // Ignore already seen blobs.
-                    Err(GossipBlobError::RepeatBlob { .. }) => None,
-                    Err(e) => Some(Err(e)),
-                }
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(FetchEngineBlobError::GossipBlob)?;
-
-        if !blobs_to_publish.is_empty() {
-            publish_fn(BlobsOrDataColumns::Blobs(blobs_to_publish));
+        if !blobs_to_import_and_publish.is_empty() {
+            publish_fn(BlobsOrDataColumns::Blobs(blobs_to_import_and_publish));
         }
 
         None
