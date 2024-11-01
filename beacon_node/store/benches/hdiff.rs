@@ -25,6 +25,24 @@ pub fn all_benches(c: &mut Criterion) {
             "/Users/lion/code/sigp/lighthouse/state_10300064.ssz",
             &spec,
         );
+        bench_against_disk_states(
+            c,
+            "/Users/lion/code/sigp/lighthouse/state_10268064.ssz",
+            "/Users/lion/code/sigp/lighthouse/state_10300064.ssz",
+            &spec,
+        );
+        bench_against_disk_states(
+            c,
+            "/Users/lion/code/sigp/lighthouse/state_9980064.ssz",
+            "/Users/lion/code/sigp/lighthouse/state_10300064.ssz",
+            &spec,
+        );
+        bench_against_disk_states(
+            c,
+            "/Users/lion/code/sigp/lighthouse/state_7100064.ssz",
+            "/Users/lion/code/sigp/lighthouse/state_10300064.ssz",
+            &spec,
+        );
         return;
     }
 
@@ -70,6 +88,7 @@ fn bench_against_disk_states(
         BeaconState::<E>::from_ssz_bytes(&fs::read(source_state_path).unwrap(), spec).unwrap();
     let target_state =
         BeaconState::<E>::from_ssz_bytes(&fs::read(target_state_path).unwrap(), spec).unwrap();
+
     bench_against_states(
         c,
         source_state,
@@ -84,11 +103,15 @@ fn bench_against_states(
     target_state: BeaconState<E>,
     id: &str,
 ) {
+    let slot_diff = target_state.slot() - source_state.slot();
     let config = StoreConfig::default();
     let source = HDiffBuffer::from_state(source_state);
     let target = HDiffBuffer::from_state(target_state);
     let diff = HDiff::compute(&source, &target, &config).unwrap();
-    println!("diff size {id} {}", diff.size());
+    println!(
+        "state slot diff {slot_diff} - diff size {id} {}",
+        diff.size()
+    );
 
     c.bench_function(&format!("compute hdiff {id}"), |b| {
         b.iter(|| {
