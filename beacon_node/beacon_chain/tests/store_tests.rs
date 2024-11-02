@@ -28,6 +28,7 @@ use std::time::Duration;
 use store::chunked_vector::Chunk;
 use store::database::interface::BeaconNodeBackend;
 use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN};
+use store::KeyValueStore;
 use store::{
     chunked_vector::{chunk_key, Field},
     iter::{BlockRootsIterator, StateRootsIterator},
@@ -2446,7 +2447,7 @@ async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
         .unwrap_err();
 
     assert_eq!(
-        store.iter_temporary_state_roots().count(),
+        store.iter_temporary_state_roots().unwrap().count(),
         block_slot.as_usize() - 1
     );
 
@@ -2465,7 +2466,7 @@ async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
     assert_ne!(store.get_split_slot(), 0);
 
     // Check that temporary states have been pruned.
-    assert_eq!(store.iter_temporary_state_roots().count(), 0);
+    assert_eq!(store.iter_temporary_state_roots().unwrap().count(), 0);
 }
 
 #[tokio::test]
