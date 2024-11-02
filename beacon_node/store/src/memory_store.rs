@@ -1,9 +1,9 @@
 use crate::{
-    get_key_for_col, hot_cold_store::BytesKey, ColumnIter, ColumnKeyIter, DBColumn, Error,
-    ItemStore, Key, KeyValueStore, KeyValueStoreOp,
+    errors::Error as DBError, get_key_for_col, hot_cold_store::BytesKey, ColumnIter, ColumnKeyIter,
+    DBColumn, Error, ItemStore, Key, KeyValueStore, KeyValueStoreOp,
 };
 use parking_lot::{Mutex, MutexGuard, RwLock};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::marker::PhantomData;
 use types::*;
 
@@ -139,6 +139,14 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         Ok(Box::new(
             keys.into_iter().map(move |key| K::from_bytes(&key)),
         ))
+    }
+
+    fn delete_batch(&self, col: &str, ops: HashSet<&[u8]>) -> Result<(), DBError> {
+        for op in ops {
+            let column_key = get_key_for_col(col, op);
+            self.db.write().remove(&BytesKey::from_vec(column_key));
+        }
+        Ok(())
     }
 }
 

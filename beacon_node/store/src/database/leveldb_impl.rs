@@ -14,6 +14,7 @@ use leveldb::{
     options::{Options, ReadOptions},
 };
 use parking_lot::{Mutex, MutexGuard};
+use std::collections::HashSet;
 use std::marker::PhantomData;
 use std::path::Path;
 use types::{EthSpec, FixedBytesExtended, Hash256};
@@ -282,5 +283,15 @@ impl<E: EthSpec> LevelDB<E> {
             metrics::inc_counter_vec(&metrics::DISK_DB_READ_COUNT, &[column.into()]);
             BytesKey::from_vec(key.to_vec()).matches_column(column)
         })
+    }
+
+    pub fn delete_batch(&self, col: &str, ops: HashSet<&[u8]>) -> Result<(), Error> {
+        let mut leveldb_batch = Writebatch::new();
+        for op in ops {
+            let column_key = get_key_for_col(col, op);
+            leveldb_batch.delete(BytesKey::from_vec(column_key));
+        }
+        self.db.write(self.write_options().into(), &leveldb_batch)?;
+        Ok(())
     }
 }

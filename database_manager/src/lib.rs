@@ -17,6 +17,7 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use store::metadata::STATE_UPPER_LIMIT_NO_RETAIN;
+use store::KeyValueStore;
 use store::{
     database::interface::BeaconNodeBackend,
     errors::Error,

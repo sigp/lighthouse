@@ -38,6 +38,7 @@ pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metadata::AnchorInfo;
 pub use metrics::scrape_for_metrics;
 use parking_lot::MutexGuard;
+use std::collections::HashSet;
 use std::sync::Arc;
 use strum::{EnumIter, EnumString, IntoStaticStr};
 pub use types::*;
@@ -119,6 +120,8 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
 
     /// Iterate through all keys in a particular column.
     fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K>;
+
+    fn delete_batch(&self, column: &str, ops: HashSet<&[u8]>) -> Result<(), Error>;
 }
 
 pub trait Key: Sized + 'static {

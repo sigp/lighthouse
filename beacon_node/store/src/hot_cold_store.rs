@@ -1230,6 +1230,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(key_value_batch)
     }
 
+    pub fn delete_batch(&self, col: &str, ops: Vec<Hash256>) -> Result<(), Error> {
+        let new_ops: HashSet<&[u8]> = ops.iter().map(|v| v.as_slice()).collect();
+        self.hot_db.delete_batch(col, new_ops)
+    }
+
     pub fn do_atomically_with_block_and_blobs_cache(
         &self,
         batch: Vec<StoreOp<E>>,

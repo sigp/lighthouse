@@ -2,6 +2,7 @@ use crate::{metrics, ColumnIter, ColumnKeyIter, Key};
 use crate::{DBColumn, Error, KeyValueStoreOp};
 use parking_lot::{Mutex, MutexGuard, RwLock};
 use redb::TableDefinition;
+use std::collections::HashSet;
 use std::{borrow::BorrowMut, marker::PhantomData, path::Path};
 use strum::IntoEnumIterator;
 use types::EthSpec;
@@ -277,5 +278,21 @@ impl<E: EthSpec> Redb<E> {
 
     pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
         self.iter_column_from(column, &vec![0; column.key_size()], |_, _| true)
+    }
+
+    pub fn delete_batch(&self, col: &str, ops: HashSet<&[u8]>) -> Result<(), Error> {
+        let open_db = self.db.read();
+        let mut tx = open_db.begin_write()?;
+
+        tx.set_durability(redb::Durability::None);
+
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col);
+
+        let mut table = tx.open_table(table_definition)?;
+        table.retain(|key, _| !ops.contains(key))?;
+
+        drop(table);
+        tx.commit()?;
+        Ok(())
     }
 }

@@ -4,6 +4,7 @@ use crate::database::leveldb_impl;
 use crate::database::redb_impl;
 use crate::{config::DatabaseBackend, KeyValueStoreOp, StoreConfig};
 use crate::{metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore};
+use std::collections::HashSet;
 use std::path::Path;
 use types::EthSpec;
 
@@ -178,6 +179,15 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::compact(txn),
         }
     }
+
+    fn delete_batch(&self, col: &str, ops: HashSet<&[u8]>) -> Result<(), Error> {
+        match self {
+            #[cfg(feature = "leveldb")]
+            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::delete_batch(txn, col, ops),
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::delete_batch(txn, col, ops),
+        }
+    }
 }
 
 impl<E: EthSpec> BeaconNodeBackend<E> {
@@ -190,79 +200,6 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
             }
             #[cfg(feature = "redb")]
             DatabaseBackend::Redb => redb_impl::Redb::open(path).map(BeaconNodeBackend::Redb),
-        }
-    }
-
-    pub fn put_bytes_with_options(
-        &self,
-        col: &str,
-        key: &[u8],
-        val: &[u8],
-        opts: WriteOptions,
-    ) -> Result<(), Error> {
-        match self {
-            #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => {
-                leveldb_impl::LevelDB::put_bytes_with_options(txn, col, key, val, opts)
-            }
-            #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => {
-                redb_impl::Redb::put_bytes_with_options(txn, col, key, val, opts)
-            }
-        }
-    }
-
-    pub fn get_bytes(&self, col: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
-        match self {
-            #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::get_bytes(txn, col, key),
-            #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::get_bytes(txn, col, key),
-        }
-    }
-
-    pub fn key_delete(&self, col: &str, key: &[u8]) -> Result<(), Error> {
-        match self {
-            #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::key_delete(txn, col, key),
-            #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::key_delete(txn, col, key),
-        }
-    }
-
-    pub fn do_atomically(&self, ops_batch: Vec<KeyValueStoreOp>) -> Result<(), Error> {
-        match self {
-            #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::do_atomically(txn, ops_batch),
-            #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::do_atomically(txn, ops_batch),
-        }
-    }
-
-    pub fn compact(&self) -> Result<(), Error> {
-        match self {
-            #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::compact(txn),
-            #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::compact(txn),
-        }
-    }
-
-    pub fn compact_column(&self, _column: DBColumn) -> Result<(), crate::Error> {
-        match self {
-            #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::compact_column(txn, _column),
-            #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::compact(txn),
-        }
-    }
-
-    pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
-        match self {
-            #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::iter_column(txn, column),
-            #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column(txn, column),
         }
     }
 }
