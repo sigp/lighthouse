@@ -5,7 +5,7 @@ The primary component which connects to the Ethereum 2.0 P2P network and
 downloads, verifies and stores blocks. Provides a HTTP API for querying the
 beacon chain and publishing messages to the network.
 
-Usage: lighthouse beacon_node [OPTIONS]
+Usage: lighthouse beacon_node [OPTIONS] --execution-endpoint <EXECUTION-ENDPOINT>
 
 Options:
       --auto-compact-db <auto-compact-db>

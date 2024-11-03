@@ -24,7 +24,9 @@ use types::non_zero_usize::new_non_zero_usize;
 use types::{Address, Checkpoint, Epoch, Hash256, MainnetEthSpec};
 use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
-const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
+const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
+const DEFAULT_EXECUTION_JWT_SECRET_KEY: &str =
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 // These dummy ports should ONLY be used for `enr-xxx-port` flags that do not bind.
 const DUMMY_ENR_TCP_PORT: u16 = 7777;
@@ -52,6 +54,18 @@ struct CommandLineTest {
 }
 impl CommandLineTest {
     fn new() -> CommandLineTest {
+        let mut base_cmd = base_cmd();
+
+        base_cmd
+            .arg("--execution-endpoint")
+            .arg(DEFAULT_EXECUTION_ENDPOINT)
+            .arg("--execution-jwt-secret-key")
+            .arg(DEFAULT_EXECUTION_JWT_SECRET_KEY);
+        CommandLineTest { cmd: base_cmd }
+    }
+
+    // Required for testing different JWT authentication methods.
+    fn new_with_no_execution_endpoint() -> CommandLineTest {
         let base_cmd = base_cmd();
         CommandLineTest { cmd: base_cmd }
     }
@@ -104,7 +118,7 @@ fn staking_flag() {
             assert!(config.sync_eth1_chain);
             assert_eq!(
                 config.eth1.endpoint.get_endpoint().to_string(),
-                DEFAULT_ETH1_ENDPOINT
+                DEFAULT_EXECUTION_ENDPOINT
             );
         });
 }
@@ -253,7 +267,7 @@ fn always_prepare_payload_default() {
 #[test]
 fn always_prepare_payload_override() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag("always-prepare-payload", None)
         .flag(
             "suggested-fee-recipient",
@@ -459,7 +473,7 @@ fn run_bellatrix_execution_endpoints_flag_test(flag: &str) {
 
     // this is way better but intersperse is still a nightly feature :/
     // let endpoint_arg: String = urls.into_iter().intersperse(",").collect();
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag(flag, Some(&endpoint_arg))
         .flag("execution-jwt", Some(&jwts_arg))
         .run_with_zero_port()
@@ -480,7 +494,7 @@ fn run_bellatrix_execution_endpoints_flag_test(flag: &str) {
 #[test]
 fn run_execution_jwt_secret_key_is_persisted() {
     let jwt_secret_key = "0x3cbc11b0d8fa16f3344eacfd6ff6430b9d30734450e8adcf5400f88d327dcb33";
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag("execution-endpoint", Some("http://localhost:8551/"))
         .flag("execution-jwt-secret-key", Some(jwt_secret_key))
         .run_with_zero_port()
@@ -501,7 +515,7 @@ fn run_execution_jwt_secret_key_is_persisted() {
 #[test]
 fn execution_timeout_multiplier_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag("execution-endpoint", Some("http://meow.cats"))
         .flag(
             "execution-jwt",
@@ -528,7 +542,7 @@ fn bellatrix_jwt_secrets_flag() {
     let mut file = File::create(dir.path().join("jwtsecrets")).expect("Unable to create file");
     file.write_all(b"0x3cbc11b0d8fa16f3344eacfd6ff6430b9d30734450e8adcf5400f88d327dcb33")
         .expect("Unable to write to file");
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag("execution-endpoints", Some("http://localhost:8551/"))
         .flag(
             "jwt-secrets",
@@ -550,7 +564,7 @@ fn bellatrix_jwt_secrets_flag() {
 #[test]
 fn bellatrix_fee_recipient_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag("execution-endpoint", Some("http://meow.cats"))
         .flag(
             "execution-jwt",
@@ -591,7 +605,7 @@ fn run_payload_builder_flag_test_with_config<F: Fn(&Config)>(
     f: F,
 ) {
     let dir = TempDir::new().expect("Unable to create temporary directory");
-    let mut test = CommandLineTest::new();
+    let mut test = CommandLineTest::new_with_no_execution_endpoint();
     test.flag("execution-endpoint", Some("http://meow.cats"))
         .flag(
             "execution-jwt",
@@ -713,7 +727,7 @@ fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_fl
     let jwt_file = "jwt-file";
     let id = "bn-1";
     let version = "Lighthouse-v2.1.3";
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag("execution-endpoint", Some(execution_endpoint))
         .flag(jwt_flag, dir.path().join(jwt_file).as_os_str().to_str())
         .flag(jwt_id_flag, Some(id))
@@ -2430,13 +2444,13 @@ fn logfile_format_flag() {
 fn sync_eth1_chain_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.sync_eth1_chain, false));
+        .with_config(|config| assert_eq!(config.sync_eth1_chain, true));
 }
 
 #[test]
 fn sync_eth1_chain_execution_endpoints_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag("execution-endpoints", Some("http://localhost:8551/"))
         .flag(
             "execution-jwt",
@@ -2449,7 +2463,7 @@ fn sync_eth1_chain_execution_endpoints_flag() {
 #[test]
 fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag("disable-deposit-contract-sync", None)
         .flag("execution-endpoints", Some("http://localhost:8551/"))
         .flag(

@@ -793,6 +793,7 @@ pub fn cli_app() -> Command {
                 .help("Server endpoint for an execution layer JWT-authenticated HTTP \
                        JSON-RPC connection. Uses the same endpoint to populate the \
                        deposit cache.")
+                .required(true)
                 .action(ArgAction::Set)
                 .display_order(0)
         )
