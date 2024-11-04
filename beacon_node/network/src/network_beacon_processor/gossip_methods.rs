@@ -920,7 +920,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
                 // Note: Reusing block imported metric here
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
-                info!(
+                debug!(
                     self.log,
                     "Gossipsub blob processed - imported fully available block";
                     "block_root" => %block_root
