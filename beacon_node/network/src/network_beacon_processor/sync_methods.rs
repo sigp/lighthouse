@@ -193,7 +193,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // Block is valid, we can now attempt fetching blobs from EL using version hashes
                 // derived from kzg commitments from the block, without having to wait for all blobs
                 // to be sent from the peers if we already have them.
-                self.fetch_engine_blobs_and_publish(signed_beacon_block, block_root)
+                let publish_blobs = false;
+                self.fetch_engine_blobs_and_publish(signed_beacon_block, block_root, publish_blobs)
                     .await
             }
             _ => {}

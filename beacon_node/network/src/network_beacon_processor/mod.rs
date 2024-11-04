@@ -892,17 +892,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
         block_root: Hash256,
+        publish_blobs: bool,
     ) {
         let self_cloned = self.clone();
         let publish_fn = move |blobs_or_data_column| {
-            match blobs_or_data_column {
-                BlobsOrDataColumns::Blobs(blobs) => {
-                    self_cloned.publish_blobs_gradually(blobs, block_root);
-                }
-                BlobsOrDataColumns::DataColumns(columns) => {
-                    self_cloned.publish_data_columns_gradually(columns, block_root);
-                }
-            };
+            if publish_blobs {
+                match blobs_or_data_column {
+                    BlobsOrDataColumns::Blobs(blobs) => {
+                        self_cloned.publish_blobs_gradually(blobs, block_root);
+                    }
+                    BlobsOrDataColumns::DataColumns(columns) => {
+                        self_cloned.publish_data_columns_gradually(columns, block_root);
+                    }
+                };
+            }
         };
 
         match fetch_and_process_engine_blobs(
