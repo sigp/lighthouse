@@ -1191,7 +1191,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
                     // Delete the state temporary flag (if any). Temporary flags are commonly
                     // created by the state advance routine.
-                    let temporary_column_name: &str = DBColumn::BeaconStateSummary.into();
+                    let temporary_column_name: &str = DBColumn::BeaconStateTemporary.into();
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
                         temporary_column_name.into(),
                         state_root.as_slice().to_vec(),
@@ -1239,6 +1239,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         batch: Vec<StoreOp<E>>,
     ) -> Result<(), Error> {
+
         let mut blobs_to_delete = Vec::new();
         let mut data_columns_to_delete = Vec::new();
         let (blobs_ops, hot_db_ops): (Vec<StoreOp<E>>, Vec<StoreOp<E>>) =

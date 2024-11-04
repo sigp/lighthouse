@@ -18,14 +18,12 @@ where
     /// Delete the temporary states that were leftover by failed block imports.
     pub fn delete_temp_states(&self) -> Result<(), Error> {
         let mut ops = vec![];
-        let mut delete_states = false;
         self.iter_temporary_state_roots()?.for_each(|state_root| {
             if let Ok(state_root) = state_root {
                 ops.push(state_root);
-                delete_states = true
             }
         });
-        if delete_states {
+        if ops.len() > 0 {
             debug!(
                 self.log,
                 "Garbage collecting {} temporary states",
