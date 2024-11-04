@@ -194,7 +194,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
             );
         }
 
-        let duration_to_genesis = network.duration_to_genesis().await;
+        let duration_to_genesis = network.duration_to_genesis().await?;
         println!("Duration to genesis: {}", duration_to_genesis.as_secs());
         sleep(duration_to_genesis).await;
 
