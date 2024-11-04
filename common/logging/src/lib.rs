@@ -1,14 +1,14 @@
+use chrono::Local;
 use metrics::{inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
+use tracing::Subscriber;
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
-use chrono::Local;
-use tracing::Subscriber;
-use std::io::Write;
+use tracing_subscriber::Layer;
 
 pub const MAX_MESSAGE_WIDTH: usize = 40;
 

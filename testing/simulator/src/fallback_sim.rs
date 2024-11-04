@@ -3,6 +3,7 @@ use crate::{checks, LocalNetwork};
 use clap::ArgMatches;
 
 use crate::retry::with_retry;
+use environment::tracing_common;
 use futures::prelude::*;
 use logging::MetricsLayer;
 use node_test_rig::{
@@ -17,7 +18,6 @@ use tokio::time::sleep;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use types::{Epoch, EthSpec, MinimalEthSpec};
-use environment::tracing_common;
 const END_EPOCH: u64 = 16;
 const GENESIS_DELAY: u64 = 32;
 const ALTAIR_FORK_EPOCH: u64 = 0;
@@ -90,8 +90,18 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
             ValidatorFiles::with_keystores(&indices).unwrap()
         })
         .collect::<Vec<_>>();
-    
-    let (env_builder, filter_layer, libp2p_discv5_layer, file_logging_layer, stdout_logging_layer, sse_logging_layer_opt, stdout_level, file_level, logger_config) = tracing_common::construct_logger(
+
+    let (
+        env_builder,
+        filter_layer,
+        libp2p_discv5_layer,
+        file_logging_layer,
+        stdout_logging_layer,
+        sse_logging_layer_opt,
+        stdout_level,
+        file_level,
+        logger_config,
+    ) = tracing_common::construct_logger(
         LoggerConfig {
             path: None,
             debug_level: log_level.clone(),
@@ -211,7 +221,7 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
             );
         }
 
-        let duration_to_genesis = network.duration_to_genesis().await;
+        let duration_to_genesis = network.duration_to_genesis().await?;
         println!("Duration to genesis: {}", duration_to_genesis.as_secs());
         sleep(duration_to_genesis).await;
 

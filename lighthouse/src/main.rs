@@ -560,7 +560,17 @@ fn run<E: EthSpec>(
         }
     };
 
-    let (builder, filter_layer, libp2p_discv5_layer, file_logging_layer, stdout_logging_layer, sse_logging_layer_opt, stdout_level, file_level, logger_config) = tracing_common::construct_logger(
+    let (
+        builder,
+        filter_layer,
+        libp2p_discv5_layer,
+        file_logging_layer,
+        stdout_logging_layer,
+        sse_logging_layer_opt,
+        stdout_level,
+        file_level,
+        logger_config,
+    ) = tracing_common::construct_logger(
         LoggerConfig {
             path: log_path.clone(),
             debug_level: String::from(debug_level),

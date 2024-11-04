@@ -1,10 +1,10 @@
 use crate::{EnvironmentBuilder, LoggerConfig};
 use clap::ArgMatches;
+use logging::Libp2pDiscv5TracingLayer;
 use logging::{tracing_logging_layer::LoggingLayer, SSELoggingComponents};
 use std::process;
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::filter::LevelFilter;
-use logging::Libp2pDiscv5TracingLayer;
 use types::EthSpec;
 
 pub fn construct_logger<E: EthSpec>(
@@ -21,10 +21,9 @@ pub fn construct_logger<E: EthSpec>(
     LevelFilter,
     LevelFilter,
     LoggerConfig,
-) { 
-
-    let libp2p_discv5_layer = logging::create_libp2p_discv5_tracing_layer(logger_config.path.clone());
-
+) {
+    let libp2p_discv5_layer =
+        logging::create_libp2p_discv5_tracing_layer(logger_config.path.clone());
 
     let logfile_prefix = match matches.subcommand_name() {
         Some(subcommand) => subcommand,
@@ -61,7 +60,7 @@ pub fn construct_logger<E: EthSpec>(
             process::exit(1)
         }
     };
-    (   
+    (
         builder,
         filter_layer,
         libp2p_discv5_layer,

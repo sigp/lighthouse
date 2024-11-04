@@ -74,11 +74,6 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
         )));
     }
 
-    info!(
-        count = request.keystores.len(),
-        "Importing keystores via standard HTTP API"
-    );
-
     // Import slashing protection data before keystores, so that new keystores don't start signing
     // without it. Do not return early on failure, propagate the failure to each key.
     let slashing_protection_status =
@@ -147,6 +142,18 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
             )
         };
         statuses.push(status);
+    }
+
+    let successful_import = statuses
+        .iter()
+        .filter(|status| matches!(status.status, ImportKeystoreStatus::Imported))
+        .count();
+
+    if successful_import > 0 {
+        info!(
+            count = successful_import,
+            "Imported keystores via standard HTTP API"
+        );
     }
 
     Ok(ImportKeystoresResponse { data: statuses })

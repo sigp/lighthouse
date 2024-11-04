@@ -14,9 +14,9 @@ use std::cmp::max;
 use std::sync::Arc;
 use std::time::Duration;
 
+use environment::tracing_common;
 use logging::MetricsLayer;
 use tracing_subscriber::prelude::*;
-use environment::tracing_common;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use tokio::time::sleep;
@@ -87,8 +87,17 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         })
         .collect::<Vec<_>>();
 
-
-    let (env_builder, filter_layer, _libp2p_discv5_layer, file_logging_layer, stdout_logging_layer, _sse_logging_layer_opt, stdout_level, file_level, _logger_config) = tracing_common::construct_logger(
+    let (
+        env_builder,
+        filter_layer,
+        _libp2p_discv5_layer,
+        file_logging_layer,
+        stdout_logging_layer,
+        _sse_logging_layer_opt,
+        stdout_level,
+        file_level,
+        _logger_config,
+    ) = tracing_common::construct_logger(
         LoggerConfig {
             path: None,
             debug_level: log_level.clone(),
@@ -226,7 +235,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
             node.server.all_payloads_valid();
         });
 
-        let duration_to_genesis = network.duration_to_genesis().await;
+        let duration_to_genesis = network.duration_to_genesis().await?;
         println!("Duration to genesis: {}", duration_to_genesis.as_secs());
         sleep(duration_to_genesis).await;
 
