@@ -2669,9 +2669,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     // Forwards iterator from 0 should fail as we lack blocks.
     assert!(matches!(
         beacon_chain.forwards_iter_block_roots(Slot::new(0)),
-        Err(BeaconChainError::HistoricalBlockError(
-            HistoricalBlockError::BlockOutOfRange { .. }
-        ))
+        Err(BeaconChainError::HistoricalBlockOutOfRange { .. })
     ));
 
     // Simulate processing of a `StatusMessage` with an older finalized epoch by calling
@@ -2739,7 +2737,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         beacon_chain
             .import_historical_block_batch(batch_with_invalid_first_block)
             .unwrap_err(),
-        BeaconChainError::HistoricalBlockError(HistoricalBlockError::InvalidSignature)
+        HistoricalBlockError::InvalidSignature
     ));
 
     // Importing the batch with valid signatures should succeed.
