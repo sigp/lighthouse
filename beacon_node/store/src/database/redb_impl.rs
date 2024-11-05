@@ -295,4 +295,28 @@ impl<E: EthSpec> Redb<E> {
         tx.commit()?;
         Ok(())
     }
+
+    pub fn delete_while(
+        &self,
+        column: DBColumn,
+        f: impl Fn(&[u8]) -> Result<bool, Error>,
+    ) -> Result<(), Error> {
+        println!("DID I MAKE IT HERE?");
+        let open_db = self.db.read();
+        let mut tx = open_db.begin_write()?;
+
+        tx.set_durability(redb::Durability::None);
+
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
+            TableDefinition::new(column.into());
+
+        let mut table = tx.open_table(table_definition)?;
+        table.retain(|_, value| !f(value).unwrap_or(false))?;
+
+        // extract_iter.for_each(|_| {
+        //     metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[col]);
+        // });
+
+        Ok(())
+    }
 }

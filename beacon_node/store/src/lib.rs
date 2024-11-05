@@ -122,6 +122,12 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K>;
 
     fn delete_batch(&self, column: &str, ops: HashSet<&[u8]>) -> Result<(), Error>;
+
+    fn delete_while(
+        &self,
+        column: DBColumn,
+        f: impl Fn(&[u8]) -> Result<bool, Error>,
+    ) -> Result<(), Error>;
 }
 
 pub trait Key: Sized + 'static {

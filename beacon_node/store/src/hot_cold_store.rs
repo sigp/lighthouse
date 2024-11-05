@@ -1235,11 +1235,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db.delete_batch(col, new_ops)
     }
 
+    pub fn delete_while(
+        &self,
+        column: DBColumn,
+        f: impl Fn(&[u8]) -> Result<bool, Error>,
+    ) -> Result<(), Error> {
+        self.hot_db.delete_while(column, f)
+    }
+
     pub fn do_atomically_with_block_and_blobs_cache(
         &self,
         batch: Vec<StoreOp<E>>,
     ) -> Result<(), Error> {
-
         let mut blobs_to_delete = Vec::new();
         let mut data_columns_to_delete = Vec::new();
         let (blobs_ops, hot_db_ops): (Vec<StoreOp<E>>, Vec<StoreOp<E>>) =
@@ -2685,82 +2692,58 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "data_availability_boundary" => data_availability_boundary,
         );
 
-        let mut ops = vec![];
-        let mut last_pruned_block_root = None;
+        println!("start epoch {}", start_epoch);
+        println!("end epoch {}", end_epoch);
 
-        for res in self.forwards_block_roots_iterator_until(
-            oldest_blob_slot,
-            end_slot,
-            || {
-                let (_, split_state) = self
-                    .get_advanced_hot_state(split.block_root, split.slot, split.state_root)?
-                    .ok_or(HotColdDBError::MissingSplitState(
-                        split.state_root,
-                        split.slot,
-                    ))?;
-
-                Ok((split_state, split.block_root))
-            },
-            &self.spec,
-        )? {
-            let (block_root, slot) = match res {
-                Ok(tuple) => tuple,
-                Err(e) => {
-                    warn!(
-                        self.log,
-                        "Stopping blob pruning early";
-                        "error" => ?e,
-                    );
-                    break;
-                }
+        let remove_blob_if = |blobs_bytes: &[u8]| {
+            println!("SSZ");
+            let blobs = BlobSidecarList::from_ssz_bytes(blobs_bytes)?;
+            println!("SSZ success");
+            let Some(blob): Option<&Arc<BlobSidecar<E>>> = blobs.first() else {
+                println!("no blobs");
+                return Ok(false);
             };
 
-            if Some(block_root) != last_pruned_block_root {
-                if self
-                    .spec
-                    .is_peer_das_enabled_for_epoch(slot.epoch(E::slots_per_epoch()))
-                {
-                    // data columns
-                    let indices = self.get_data_column_keys(block_root)?;
-                    if !indices.is_empty() {
-                        trace!(
-                            self.log,
-                            "Pruning data columns of block";
-                            "slot" => slot,
-                            "block_root" => ?block_root,
-                        );
-                        last_pruned_block_root = Some(block_root);
-                        ops.push(StoreOp::DeleteDataColumns(block_root, indices));
-                    }
-                } else if self.blobs_exist(&block_root)? {
-                    trace!(
-                        self.log,
-                        "Pruning blobs of block";
-                        "slot" => slot,
-                        "block_root" => ?block_root,
-                    );
-                    last_pruned_block_root = Some(block_root);
-                    ops.push(StoreOp::DeleteBlobs(block_root));
-                }
-            }
+            println!("blob slot {}", blob.slot());
+            println!("end slot {}", end_slot);
 
-            if slot >= end_slot {
-                break;
-            }
+            if blob.slot() < end_slot {
+                return Ok(true);
+            };
+
+            Ok(false)
+        };
+
+        self.blobs_db
+            .delete_while(DBColumn::BeaconBlob.into(), remove_blob_if)?;
+
+        if self.spec.is_peer_das_enabled_for_epoch(start_epoch) {
+            let remove_data_column_if = |blobs_bytes: &[u8]| {
+                let data_column: DataColumnSidecar<E> =
+                    DataColumnSidecar::from_ssz_bytes(blobs_bytes)?;
+
+                if data_column.slot() < end_slot {
+                    return Ok(true);
+                };
+
+                Ok(false)
+            };
+
+            self.blobs_db
+                .delete_while(DBColumn::BeaconDataColumn.into(), remove_data_column_if)?;
         }
-        let blob_lists_pruned = ops.len();
+
         let new_blob_info = BlobInfo {
             oldest_blob_slot: Some(end_slot + 1),
             blobs_db: blob_info.blobs_db,
         };
-        let update_blob_info = self.compare_and_set_blob_info(blob_info, new_blob_info)?;
-        ops.push(StoreOp::KeyValueOp(update_blob_info));
 
-        self.do_atomically_with_block_and_blobs_cache(ops)?;
+        let op = self.compare_and_set_blob_info(blob_info, new_blob_info)?;
+        self.do_atomically_with_block_and_blobs_cache(vec![StoreOp::KeyValueOp(op)])?;
+
         debug!(
             self.log,
             "Blob pruning complete";
-            "blob_lists_pruned" => blob_lists_pruned,
         );
 
         Ok(())

@@ -148,6 +148,21 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         }
         Ok(())
     }
+
+    fn delete_while(
+        &self,
+        column: DBColumn,
+        f: impl Fn(&[u8]) -> Result<bool, Error>,
+    ) -> Result<(), Error> {
+        self.db.write().retain(|key, value| {
+            if key.remove_column_variable(column).is_some() {
+                !f(value).unwrap_or(false)
+            } else {
+                true
+            }
+        });
+        Ok(())
+    }
 }
 
 impl<E: EthSpec> ItemStore<E> for MemoryStore<E> {}
