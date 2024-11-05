@@ -18,8 +18,6 @@ pub fn construct_logger<E: EthSpec>(
     LoggingLayer,
     LoggingLayer,
     Option<SSELoggingComponents>,
-    LevelFilter,
-    LevelFilter,
     LoggerConfig,
 ) {
     let libp2p_discv5_layer =
@@ -34,32 +32,9 @@ pub fn construct_logger<E: EthSpec>(
         environment_builder.init_tracing(logger_config.clone(), logfile_prefix);
 
     let filter_layer = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new(logger_config.debug_level.to_lowercase().as_str()))
+        .or_else(|_| EnvFilter::try_new(&logger_config.debug_level.to_string().to_lowercase()))
         .unwrap();
 
-    let stdout_level = match logger_config.debug_level.to_lowercase().as_str() {
-        "error" => LevelFilter::ERROR,
-        "warn" => LevelFilter::WARN,
-        "info" => LevelFilter::INFO,
-        "debug" => LevelFilter::DEBUG,
-        "trace" => LevelFilter::TRACE,
-        _ => {
-            eprintln!("Unsupported log level");
-            process::exit(1)
-        }
-    };
-
-    let file_level = match logger_config.logfile_debug_level.to_lowercase().as_str() {
-        "error" => LevelFilter::ERROR,
-        "warn" => LevelFilter::WARN,
-        "info" => LevelFilter::INFO,
-        "debug" => LevelFilter::DEBUG,
-        "trace" => LevelFilter::TRACE,
-        _ => {
-            eprintln!("Unsupported log level");
-            process::exit(1)
-        }
-    };
     (
         builder,
         filter_layer,
@@ -67,8 +42,20 @@ pub fn construct_logger<E: EthSpec>(
         file_logging_layer,
         stdout_logging_layer,
         sse_logging_layer_opt,
-        stdout_level,
-        file_level,
         logger_config,
     )
+}
+
+pub fn parse_level(level: &str) -> LevelFilter {
+    match level.to_lowercase().as_str() {
+        "error" => LevelFilter::ERROR,
+        "warn" => LevelFilter::WARN,
+        "info" => LevelFilter::INFO,
+        "debug" => LevelFilter::DEBUG,
+        "trace" => LevelFilter::TRACE,
+        _ => {
+            eprintln!("Unsupported log level");
+            process::exit(1)
+        }
+    }
 }

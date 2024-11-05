@@ -21,6 +21,7 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use tracing::{error, info, span, warn, Level};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::filter::LevelFilter;
 use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 #[cfg(target_family = "unix")]
 use {
@@ -47,8 +48,10 @@ const MAXIMUM_SHUTDOWN_TIME: u64 = 15;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoggerConfig {
     pub path: Option<PathBuf>,
-    pub debug_level: String,
-    pub logfile_debug_level: String,
+    #[serde(skip_serializing, skip_deserializing, default = "default_debug_level")]
+    pub debug_level: LevelFilter,
+    #[serde(skip_serializing, skip_deserializing, default = "default_logfile_debug_level")]
+    pub logfile_debug_level: LevelFilter,
     pub log_format: Option<String>,
     pub logfile_format: Option<String>,
     pub log_color: bool,
@@ -63,8 +66,8 @@ impl Default for LoggerConfig {
     fn default() -> Self {
         LoggerConfig {
             path: None,
-            debug_level: String::from("info"),
-            logfile_debug_level: String::from("debug"),
+            debug_level: LevelFilter::INFO,
+            logfile_debug_level: LevelFilter::DEBUG,
             log_format: None,
             logfile_format: None,
             log_color: false,
@@ -78,6 +81,13 @@ impl Default for LoggerConfig {
     }
 }
 
+fn default_debug_level() -> LevelFilter {
+    LevelFilter::INFO
+}
+
+fn default_logfile_debug_level() -> LevelFilter {
+    LevelFilter::DEBUG
+}
 /// An execution context that can be used by a service.
 ///
 /// Distinct from an `Environment` because a `Context` is not able to give a mutable reference to a

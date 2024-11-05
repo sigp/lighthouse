@@ -567,14 +567,12 @@ fn run<E: EthSpec>(
         file_logging_layer,
         stdout_logging_layer,
         sse_logging_layer_opt,
-        stdout_level,
-        file_level,
         logger_config,
     ) = tracing_common::construct_logger(
         LoggerConfig {
             path: log_path.clone(),
-            debug_level: String::from(debug_level),
-            logfile_debug_level: String::from(logfile_debug_level),
+            debug_level: tracing_common::parse_level(debug_level),
+            logfile_debug_level: tracing_common::parse_level(logfile_debug_level),
             log_format: log_format.map(String::from),
             logfile_format: logfile_format.map(String::from),
             log_color,
@@ -591,8 +589,8 @@ fn run<E: EthSpec>(
 
     let logging = tracing_subscriber::registry()
         .with(filter_layer)
-        .with(file_logging_layer.with_filter(file_level))
-        .with(stdout_logging_layer.with_filter(stdout_level))
+        .with(file_logging_layer.with_filter(logger_config.logfile_debug_level))
+        .with(stdout_logging_layer.with_filter(logger_config.debug_level))
         .with(MetricsLayer)
         .with(libp2p_discv5_layer);
 
