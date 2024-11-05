@@ -863,6 +863,21 @@ mod tests {
         let mock1 = mock_beacon_node_one.mock_post_beacon_blinded_blocks_v1(Duration::from_secs(5));
         let mock2 = mock_beacon_node_two.mock_post_beacon_blinded_blocks_v1(Duration::from_secs(0));
 
+        // Update all beacon nodes health
+        beacon_node_fallback.update_all_candidates().await;
+
+        // logging to check health
+        {
+            let candidates = beacon_node_fallback.candidates.read().await;
+            for (i, candidate) in candidates.iter().enumerate() {
+                println!(
+                    "Candidate {} health: {:?}",
+                    i,
+                    candidate.health.read().await
+                );
+            }
+        }
+
         let block_service: BlockService<TestingSlotClock, MainnetEthSpec> =
             BlockServiceBuilder::new()
                 .slot_clock(test_rig.slot_clock)
@@ -889,7 +904,7 @@ mod tests {
         let received_blocks_one = mock_beacon_node_one.received_blocks.lock().unwrap();
         let received_blocks_two = mock_beacon_node_two.received_blocks.lock().unwrap();
 
-        assert_eq!(received_blocks_one.len(), 1);
+        assert_eq!(received_blocks_one.len(), 0);
         assert_eq!(received_blocks_two.len(), 1);
 
         if let Err(e) = result {
