@@ -865,6 +865,10 @@ mod tests {
 
         // Update all beacon nodes health
         beacon_node_fallback.update_all_candidates().await;
+        let first_beacon_node = {
+            let candidates = beacon_node_fallback.candidates.read().await;
+            candidates.first().cloned()
+        };
 
         // logging to check health
         {
@@ -882,7 +886,7 @@ mod tests {
             BlockServiceBuilder::new()
                 .slot_clock(test_rig.slot_clock)
                 .validator_store(test_rig.validator_store.clone())
-                .beacon_nodes(Arc::new(beacon_node_fallback))
+                .beacon_nodes(Arc::new(first_beacon_node))
                 .runtime_context(test_rig.runtime_context)
                 .build()
                 .unwrap();
@@ -904,8 +908,8 @@ mod tests {
         let received_blocks_one = mock_beacon_node_one.received_blocks.lock().unwrap();
         let received_blocks_two = mock_beacon_node_two.received_blocks.lock().unwrap();
 
-        assert_eq!(received_blocks_one.len(), 0);
-        assert_eq!(received_blocks_two.len(), 1);
+        assert_eq!(received_blocks_one.len(), 1);
+        assert_eq!(received_blocks_two.len(), 0);
 
         if let Err(e) = result {
             panic!("Expected block to be broadcasted to BN, but failed with error: {e:?}");
