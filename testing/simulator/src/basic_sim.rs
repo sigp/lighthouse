@@ -94,14 +94,12 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         file_logging_layer,
         stdout_logging_layer,
         _sse_logging_layer_opt,
-        stdout_level,
-        file_level,
-        _logger_config,
+        logger_config,
     ) = tracing_common::construct_logger(
         LoggerConfig {
             path: None,
-            debug_level: log_level.clone(),
-            logfile_debug_level: log_level.clone(),
+            debug_level: tracing_common::parse_level(&log_level.clone()),
+            logfile_debug_level: tracing_common::parse_level(&log_level.clone()),
             log_format: None,
             logfile_format: None,
             log_color: false,
@@ -118,8 +116,8 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
 
     if let Err(e) = tracing_subscriber::registry()
         .with(filter_layer)
-        .with(file_logging_layer.with_filter(file_level))
-        .with(stdout_logging_layer.with_filter(stdout_level))
+        .with(file_logging_layer.with_filter(logger_config.logfile_debug_level))
+        .with(stdout_logging_layer.with_filter(logger_config.debug_level))
         .with(MetricsLayer)
         .try_init()
     {
