@@ -128,8 +128,9 @@ impl<E: EthSpec> MockBeaconNode<E> {
                 );
 
                 let body: &Vec<u8> = request.body().expect("Failed to get request body");
-                let block: SignedBlindedBeaconBlock<E> =
-                    from_slice(body).expect("Failed to deserialize body as BlindedBeaconBlock");
+                let block: SignedBlindedBeaconBlock<E> = from_slice(body)
+                    .expect("Failed to deserialize body as SignedBlindedBeaconBlock");
+
                 received_blocks.lock().unwrap().push(block);
 
                 std::thread::sleep(delay);
