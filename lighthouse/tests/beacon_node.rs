@@ -396,13 +396,14 @@ fn genesis_backfill_with_historic_flag() {
 }
 
 // Tests for Eth1 flags.
+// DEPRECATED but should not crash
 #[test]
 fn dummy_eth1_flag() {
     CommandLineTest::new()
         .flag("dummy-eth1", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.dummy_eth1_backend));
+        .run_with_zero_port();
 }
+// DEPRECATED but should not crash
 #[test]
 fn eth1_flag() {
     CommandLineTest::new()

@@ -254,18 +254,12 @@ pub fn get_config<E: EthSpec>(
      * Eth1
      */
 
-    // When present, use an eth1 backend that generates deterministic junk.
-    //
-    // Useful for running testnets without the overhead of a deposit contract.
     if cli_args.get_flag("dummy-eth1") {
-        client_config.dummy_eth1_backend = true;
+        warn!(log, "The --dummy-eth1 flag is deprecated");
     }
 
-    // When present, attempt to sync to an eth1 node.
-    //
-    // Required for block production.
     if cli_args.get_flag("eth1") {
-        client_config.sync_eth1_chain = true;
+        warn!(log, "The --eth1 flag is deprecated");
     }
 
     if let Some(val) = cli_args.get_one::<String>("eth1-blocks-per-log-query") {
