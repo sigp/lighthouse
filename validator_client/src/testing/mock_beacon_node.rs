@@ -15,8 +15,8 @@ use eth2::{
 use logging::test_logger;
 use sensitive_url::SensitiveUrl;
 use types::{
-    BeaconBlock, BlindedBeaconBlock, BlobsList, EthSpec, ForkName, ForkVersionedResponse,
-    KzgProofs, Slot, Uint256,
+    BeaconBlock, BlobsList, EthSpec, ForkName, ForkVersionedResponse, KzgProofs,
+    SignedBlindedBeaconBlock, Slot, Uint256,
 };
 
 pub struct MockBeaconNode<E: EthSpec> {
@@ -24,7 +24,7 @@ pub struct MockBeaconNode<E: EthSpec> {
     pub beacon_api_client: BeaconNodeHttpClient,
     log: Logger,
     _phantom: PhantomData<E>,
-    pub received_blocks: Arc<Mutex<Vec<BlindedBeaconBlock<E>>>>,
+    pub received_blocks: Arc<Mutex<Vec<SignedBlindedBeaconBlock<E>>>>,
 }
 
 impl<E: EthSpec> MockBeaconNode<E> {
@@ -127,8 +127,8 @@ impl<E: EthSpec> MockBeaconNode<E> {
                     )
                 );
 
-                let body = request.body().expect("Failed to get request body");
-                let block: BlindedBeaconBlock<E> =
+                let body: &Vec<u8> = request.body().expect("Failed to get request body");
+                let block: SignedBlindedBeaconBlock<E> =
                     from_slice(body).expect("Failed to deserialize body as BlindedBeaconBlock");
                 received_blocks.lock().unwrap().push(block);
 
