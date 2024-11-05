@@ -206,7 +206,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
             node.server.all_payloads_valid();
         });
 
-        let duration_to_genesis = network.duration_to_genesis().await;
+        let duration_to_genesis = network.duration_to_genesis().await?;
         println!("Duration to genesis: {}", duration_to_genesis.as_secs());
         sleep(duration_to_genesis).await;
 

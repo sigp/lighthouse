@@ -284,92 +284,94 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.cache_follow_distance = Some(follow_distance);
     }
 
-    if let Some(endpoints) = cli_args.get_one::<String>("execution-endpoint") {
-        let mut el_config = execution_layer::Config::default();
+    // `--execution-endpoint` is required now.
+    let endpoints: String = clap_utils::parse_required(cli_args, "execution-endpoint")?;
+    let mut el_config = execution_layer::Config::default();
 
-        // Always follow the deposit contract when there is an execution endpoint.
-        //
-        // This is wasteful for non-staking nodes as they have no need to process deposit contract
-        // logs and build an "eth1" cache. The alternative is to explicitly require the `--eth1` or
-        // `--staking` flags, however that poses a risk to stakers since they cannot produce blocks
-        // without "eth1".
-        //
-        // The waste for non-staking nodes is relatively small so we err on the side of safety for
-        // stakers. The merge is already complicated enough.
-        client_config.sync_eth1_chain = true;
+    // Always follow the deposit contract when there is an execution endpoint.
+    //
+    // This is wasteful for non-staking nodes as they have no need to process deposit contract
+    // logs and build an "eth1" cache. The alternative is to explicitly require the `--eth1` or
+    // `--staking` flags, however that poses a risk to stakers since they cannot produce blocks
+    // without "eth1".
+    //
+    // The waste for non-staking nodes is relatively small so we err on the side of safety for
+    // stakers. The merge is already complicated enough.
+    client_config.sync_eth1_chain = true;
 
-        // Parse a single execution endpoint, logging warnings if multiple endpoints are supplied.
-        let execution_endpoint =
-            parse_only_one_value(endpoints, SensitiveUrl::parse, "--execution-endpoint", log)?;
+    // Parse a single execution endpoint, logging warnings if multiple endpoints are supplied.
+    let execution_endpoint = parse_only_one_value(
+        endpoints.as_str(),
+        SensitiveUrl::parse,
+        "--execution-endpoint",
+        log,
+    )?;
 
-        // JWTs are required if `--execution-endpoint` is supplied. They can be either passed via
-        // file_path or directly as string.
+    // JWTs are required if `--execution-endpoint` is supplied. They can be either passed via
+    // file_path or directly as string.
 
-        let secret_file: PathBuf;
-        // Parse a single JWT secret from a given file_path, logging warnings if multiple are supplied.
-        if let Some(secret_files) = cli_args.get_one::<String>("execution-jwt") {
-            secret_file =
-                parse_only_one_value(secret_files, PathBuf::from_str, "--execution-jwt", log)?;
+    let secret_file: PathBuf;
+    // Parse a single JWT secret from a given file_path, logging warnings if multiple are supplied.
+    if let Some(secret_files) = cli_args.get_one::<String>("execution-jwt") {
+        secret_file =
+            parse_only_one_value(secret_files, PathBuf::from_str, "--execution-jwt", log)?;
 
-        // Check if the JWT secret key is passed directly via cli flag and persist it to the default
-        // file location.
-        } else if let Some(jwt_secret_key) = cli_args.get_one::<String>("execution-jwt-secret-key")
-        {
-            use std::fs::File;
-            use std::io::Write;
-            secret_file = client_config.data_dir().join(DEFAULT_JWT_FILE);
-            let mut jwt_secret_key_file = File::create(secret_file.clone())
-                .map_err(|e| format!("Error while creating jwt_secret_key file: {:?}", e))?;
-            jwt_secret_key_file
-                .write_all(jwt_secret_key.as_bytes())
-                .map_err(|e| {
-                    format!(
-                        "Error occurred while writing to jwt_secret_key file: {:?}",
-                        e
-                    )
-                })?;
-        } else {
-            return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
-        }
-
-        // Parse and set the payload builder, if any.
-        if let Some(endpoint) = cli_args.get_one::<String>("builder") {
-            let payload_builder =
-                parse_only_one_value(endpoint, SensitiveUrl::parse, "--builder", log)?;
-            el_config.builder_url = Some(payload_builder);
-
-            el_config.builder_user_agent =
-                clap_utils::parse_optional(cli_args, "builder-user-agent")?;
-
-            el_config.builder_header_timeout =
-                clap_utils::parse_optional(cli_args, "builder-header-timeout")?
-                    .map(Duration::from_millis);
-        }
-
-        // Set config values from parse values.
-        el_config.secret_file = Some(secret_file.clone());
-        el_config.execution_endpoint = Some(execution_endpoint.clone());
-        el_config.suggested_fee_recipient =
-            clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
-        el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
-        el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
-        el_config
-            .default_datadir
-            .clone_from(client_config.data_dir());
-        let execution_timeout_multiplier =
-            clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
-        el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
-
-        client_config.eth1.endpoint = Eth1Endpoint::Auth {
-            endpoint: execution_endpoint,
-            jwt_path: secret_file,
-            jwt_id: el_config.jwt_id.clone(),
-            jwt_version: el_config.jwt_version.clone(),
-        };
-
-        // Store the EL config in the client config.
-        client_config.execution_layer = Some(el_config);
+    // Check if the JWT secret key is passed directly via cli flag and persist it to the default
+    // file location.
+    } else if let Some(jwt_secret_key) = cli_args.get_one::<String>("execution-jwt-secret-key") {
+        use std::fs::File;
+        use std::io::Write;
+        secret_file = client_config.data_dir().join(DEFAULT_JWT_FILE);
+        let mut jwt_secret_key_file = File::create(secret_file.clone())
+            .map_err(|e| format!("Error while creating jwt_secret_key file: {:?}", e))?;
+        jwt_secret_key_file
+            .write_all(jwt_secret_key.as_bytes())
+            .map_err(|e| {
+                format!(
+                    "Error occurred while writing to jwt_secret_key file: {:?}",
+                    e
+                )
+            })?;
+    } else {
+        return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
     }
+
+    // Parse and set the payload builder, if any.
+    if let Some(endpoint) = cli_args.get_one::<String>("builder") {
+        let payload_builder =
+            parse_only_one_value(endpoint, SensitiveUrl::parse, "--builder", log)?;
+        el_config.builder_url = Some(payload_builder);
+
+        el_config.builder_user_agent = clap_utils::parse_optional(cli_args, "builder-user-agent")?;
+
+        el_config.builder_header_timeout =
+            clap_utils::parse_optional(cli_args, "builder-header-timeout")?
+                .map(Duration::from_millis);
+    }
+
+    // Set config values from parse values.
+    el_config.secret_file = Some(secret_file.clone());
+    el_config.execution_endpoint = Some(execution_endpoint.clone());
+    el_config.suggested_fee_recipient =
+        clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
+    el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
+    el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
+    el_config
+        .default_datadir
+        .clone_from(client_config.data_dir());
+    let execution_timeout_multiplier =
+        clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
+    el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
+
+    client_config.eth1.endpoint = Eth1Endpoint::Auth {
+        endpoint: execution_endpoint,
+        jwt_path: secret_file,
+        jwt_id: el_config.jwt_id.clone(),
+        jwt_version: el_config.jwt_version.clone(),
+    };
+
+    // Store the EL config in the client config.
+    client_config.execution_layer = Some(el_config);
 
     // 4844 params
     if let Some(trusted_setup) = context
