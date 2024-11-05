@@ -1,10 +1,11 @@
-use std::marker::PhantomData;
-use std::str::FromStr;
-use std::time::Duration;
-
 use mockito::{Matcher, Mock, Server, ServerGuard};
 use regex::Regex;
+use serde_json::from_slice;
 use slog::{info, Logger};
+use std::marker::PhantomData;
+use std::str::FromStr;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use eth2::types::{FullBlockContents, ProduceBlockV3Metadata};
 use eth2::{
@@ -14,7 +15,8 @@ use eth2::{
 use logging::test_logger;
 use sensitive_url::SensitiveUrl;
 use types::{
-    BeaconBlock, BlobsList, EthSpec, ForkName, ForkVersionedResponse, KzgProofs, Slot, Uint256,
+    BeaconBlock, BlindedBeaconBlock, BlobsList, EthSpec, ForkName, ForkVersionedResponse,
+    KzgProofs, Slot, Uint256,
 };
 
 pub struct MockBeaconNode<E: EthSpec> {
@@ -22,6 +24,7 @@ pub struct MockBeaconNode<E: EthSpec> {
     pub beacon_api_client: BeaconNodeHttpClient,
     log: Logger,
     _phantom: PhantomData<E>,
+    pub received_blocks: Arc<Mutex<Vec<BlindedBeaconBlock<E>>>>,
 }
 
 impl<E: EthSpec> MockBeaconNode<E> {
@@ -39,6 +42,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             beacon_api_client,
             log,
             _phantom: PhantomData,
+            received_blocks: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -49,7 +53,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
     }
 
     /// Mocks the `get_validator_blocks_v3` response with an optional delay.
-    pub fn mock_get_validator_blocks_v3(
+    pub fn _mock_get_validator_blocks_v3(
         &mut self,
         fork: ForkName,
         block: BeaconBlock<E>,
@@ -106,11 +110,13 @@ impl<E: EthSpec> MockBeaconNode<E> {
         let log = self.log.clone();
         let url = self.server.url();
 
+        let received_blocks = Arc::clone(&self.received_blocks);
+
         self.server
             .mock("POST", Matcher::Regex(path_pattern.to_string()))
             .match_header("content-type", "application/json")
             .with_status(200)
-            .with_body_from_request(move |_request| {
+            .with_body_from_request(move |request| {
                 info!(
                     log,
                     "{}",
@@ -120,6 +126,11 @@ impl<E: EthSpec> MockBeaconNode<E> {
                         delay.as_secs(),
                     )
                 );
+
+                let body = request.body().expect("Failed to get request body");
+                let block: BlindedBeaconBlock<E> =
+                    from_slice(body).expect("Failed to deserialize body as BlindedBeaconBlock");
+                received_blocks.lock().unwrap().push(block);
 
                 std::thread::sleep(delay);
                 vec![]
