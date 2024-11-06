@@ -230,7 +230,6 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         if let Some(slot_clock) = slot_clock {
             match check_node_health(&self.beacon_node, log).await {
                 Ok((head, is_optimistic, el_offline)) => {
-                    println!("{}   {}   {}", head, is_optimistic, el_offline);
                     let Some(slot_clock_head) = slot_clock.now() else {
                         let e = match slot_clock.is_prior_to_genesis() {
                             Some(true) => CandidateError::PreGenesis,
@@ -275,7 +274,6 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 Err(e) => {
                     // Set the health as `Err` which is sorted last in the list.
                     *self.health.write().await = Err(e);
-                    println!("{:?}", e);
                     Err(e)
                 }
             }
@@ -703,23 +701,21 @@ impl ApiTopic {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use logging::test_logger;
+    use std::str::FromStr;
     use strum::VariantNames;
+    use types::EmptyBlock;
 
     use eth2::Timeouts;
     use slot_clock::TestingSlotClock;
-    use types::EmptyBlock;
     use types::{BeaconBlockDeneb, BlindedBeaconBlock, MainnetEthSpec, Slot};
 
+    use super::*;
     use crate::beacon_node_health::BeaconNodeHealthTier;
     use crate::block_service::{BlockService, BlockServiceBuilder, UnsignedBlock};
     use crate::testing::mock_beacon_node::MockBeaconNode;
     use crate::testing::validator_test_rig::ValidatorTestRig;
     use crate::SensitiveUrl;
-
-    use super::*;
 
     type E = MainnetEthSpec;
 
@@ -846,6 +842,7 @@ mod tests {
 
     #[tokio::test]
     async fn update_all_candidates_should_update_sync_status() {
+        let spec = Arc::new(MainnetEthSpec::default_spec());
         let mut mock_beacon_node_one = MockBeaconNode::<E>::new().await;
         let mut mock_beacon_node_two = MockBeaconNode::<E>::new().await;
         let mut mock_beacon_node_three = MockBeaconNode::<E>::new().await;
@@ -857,18 +854,29 @@ mod tests {
         let beacon_node_three =
             CandidateBeaconNode::<E>::new(mock_beacon_node_three.beacon_api_client.clone(), 2);
 
-        let beacon_node_fallback: BeaconNodeFallback<TestingSlotClock, E> = BeaconNodeFallback::new(
-            // Put this out of order to be sorted later
-            vec![
-                beacon_node_two.clone(),
-                beacon_node_three.clone(),
-                beacon_node_one.clone(),
-            ],
-            Config::default(),
-            vec![], // to broadcast blocks to both bns
-            Arc::new(MainnetEthSpec::default_spec()),
-            test_logger(),
-        );
+        let mut beacon_node_fallback: BeaconNodeFallback<TestingSlotClock, E> =
+            BeaconNodeFallback::new(
+                // Put this out of order to be sorted later
+                vec![
+                    beacon_node_two.clone(),
+                    beacon_node_three.clone(),
+                    beacon_node_one.clone(),
+                ],
+                Config::default(),
+                vec![], // to broadcast blocks to both bns
+                spec.clone(),
+                test_logger(),
+            );
+
+        beacon_node_fallback.set_slot_clock(TestingSlotClock::new(
+            Slot::new(1),
+            Duration::from_secs(0),
+            Duration::from_secs(12),
+        ));
+
+        mock_beacon_node_one.mock_config_spec(&spec);
+        mock_beacon_node_two.mock_config_spec(&spec);
+        mock_beacon_node_three.mock_config_spec(&spec);
 
         // BeaconNodeHealthTier 1
         mock_beacon_node_one.mock_get_node_syncing(eth2::types::SyncingData {
@@ -897,100 +905,75 @@ mod tests {
 
         beacon_node_fallback.update_all_candidates().await;
 
-        // logging to check health
-        {
-            let candidates = beacon_node_fallback.candidates.read().await;
-            for (i, candidate) in candidates.iter().enumerate() {
-                println!(
-                    "Candidate {} health: {:?}",
-                    i,
-                    candidate.health.read().await
-                );
-            }
-
-            assert_eq!(
-                vec![beacon_node_one, beacon_node_two, beacon_node_three],
-                *candidates
-            );
-        }
+        let candidates = beacon_node_fallback.candidates.read().await;
+        assert_eq!(
+            vec![beacon_node_one, beacon_node_two, beacon_node_three],
+            *candidates
+        );
     }
 
-    // #[tokio::test]
-    // async fn check_fallback_broadcast_with_bn_delay() {
-    //     let test_rig = ValidatorTestRig::new().await;
-    //     let mut mock_beacon_node_one = MockBeaconNode::<E>::new().await;
-    //     let mut mock_beacon_node_two = MockBeaconNode::<E>::new().await;
+    #[tokio::test]
+    async fn broadcast_should_send_to_all_bns() {
+        let test_rig = ValidatorTestRig::new().await;
+        let mut mock_beacon_node_one = MockBeaconNode::<E>::new().await;
+        let mut mock_beacon_node_two = MockBeaconNode::<E>::new().await;
 
-    //     let beacon_node_one =
-    //         CandidateBeaconNode::new(mock_beacon_node_one.beacon_api_client.clone(), 0);
-    //     let beacon_node_two =
-    //         CandidateBeaconNode::new(mock_beacon_node_two.beacon_api_client.clone(), 1);
+        let beacon_node_one =
+            CandidateBeaconNode::new(mock_beacon_node_one.beacon_api_client.clone(), 0);
+        let beacon_node_two =
+            CandidateBeaconNode::new(mock_beacon_node_two.beacon_api_client.clone(), 1);
 
-    //     let beacon_node_fallback = BeaconNodeFallback::new(
-    //         vec![beacon_node_one, beacon_node_two],
-    //         Config::default(),
-    //         vec![ApiTopic::Blocks], // to broadcast blocks to both bns
-    //         test_rig.spec.clone(),
-    //         test_rig.logger.clone(),
-    //     );
+        let mut beacon_node_fallback = BeaconNodeFallback::new(
+            vec![beacon_node_one, beacon_node_two],
+            Config::default(),
+            vec![ApiTopic::Blocks], // to broadcast blocks to both bns
+            test_rig.spec.clone(),
+            test_rig.logger.clone(),
+        );
 
-    //     let mock1 = mock_beacon_node_one.mock_post_beacon_blinded_blocks_v1(Duration::from_secs(0));
-    //     let mock2 = mock_beacon_node_two.mock_post_beacon_blinded_blocks_v1(Duration::from_secs(0));
+        beacon_node_fallback.set_slot_clock(TestingSlotClock::new(
+            Slot::new(1),
+            Duration::from_secs(0),
+            Duration::from_secs(12),
+        ));
 
-    //     // logging to check health
-    //     {
-    //         let candidates = beacon_node_fallback.candidates.read().await;
-    //         for (i, candidate) in candidates.iter().enumerate() {
-    //             println!(
-    //                 "Candidate {} health: {:?}",
-    //                 i,
-    //                 candidate.health.read().await
-    //             );
-    //         }
-    //     }
+        mock_beacon_node_one.mock_config_spec(&test_rig.spec);
+        mock_beacon_node_two.mock_config_spec(&test_rig.spec);
 
-    //     let block_service: BlockService<TestingSlotClock, MainnetEthSpec> =
-    //         BlockServiceBuilder::new()
-    //             .slot_clock(test_rig.slot_clock)
-    //             .validator_store(test_rig.validator_store.clone())
-    //             .beacon_nodes(Arc::new(beacon_node_fallback))
-    //             .runtime_context(test_rig.runtime_context)
-    //             .build()
-    //             .unwrap();
+        let mock1 = mock_beacon_node_one.mock_post_beacon_blinded_blocks_v1(Duration::from_secs(0));
+        let mock2 = mock_beacon_node_two.mock_post_beacon_blinded_blocks_v1(Duration::from_secs(0));
 
-    //     // Update all beacon nodes health
-    //     beacon_node_fallback.update_all_candidates().await;
-    //     let first_beacon_node = {
-    //         let candidates = beacon_node_fallback.candidates.read().await;
-    //         candidates.first().cloned()
-    //     };
+        let beacon_node_fallback = Arc::new(beacon_node_fallback);
+        let block_service: BlockService<TestingSlotClock, MainnetEthSpec> =
+            BlockServiceBuilder::new()
+                .slot_clock(test_rig.slot_clock)
+                .validator_store(test_rig.validator_store.clone())
+                .beacon_nodes(beacon_node_fallback.clone())
+                .runtime_context(test_rig.runtime_context)
+                .build()
+                .unwrap();
 
-    //     let validators = test_rig.validator_store.initialized_validators();
-    //     let validators = validators.read();
-    //     let first_validator = validators.validator_definitions().first().unwrap();
-    //     let unsigned_block = UnsignedBlock::Blinded(BlindedBeaconBlock::Deneb(
-    //         BeaconBlockDeneb::empty(&test_rig.spec),
-    //     ));
-    //     let voting_pubkey = first_validator.voting_public_key.clone();
-    //     let result = block_service
-    //         .publish_block_for_testing(Slot::new(1), &voting_pubkey.into(), unsigned_block)
-    //         .await;
+        beacon_node_fallback.update_all_candidates().await;
 
-    //     mock1.expect(1).assert();
-    //     mock2.expect(1).assert();
+        let validators = test_rig.validator_store.initialized_validators();
+        let validators = validators.read();
+        let first_validator = validators.validator_definitions().first().unwrap();
+        let unsigned_block = UnsignedBlock::Blinded(BlindedBeaconBlock::Deneb(
+            BeaconBlockDeneb::empty(&test_rig.spec),
+        ));
+        let voting_pubkey = first_validator.voting_public_key.clone();
+        let result = block_service
+            .publish_block_for_testing(Slot::new(1), &voting_pubkey.into(), unsigned_block)
+            .await;
+        assert!(result.is_ok());
 
-    //     let received_blocks_one = mock_beacon_node_one.received_blocks.lock().unwrap();
-    //     let received_blocks_two = mock_beacon_node_two.received_blocks.lock().unwrap();
+        mock1.expect(1).assert();
+        mock2.expect(1).assert();
 
-    //     assert_eq!(received_blocks_one.len(), 1);
-    //     assert_eq!(received_blocks_two.len(), 0);
+        let received_blocks_one = mock_beacon_node_one.received_blocks.lock().unwrap();
+        let received_blocks_two = mock_beacon_node_two.received_blocks.lock().unwrap();
 
-    //     //  first success fn
-    //     //  --broadcast
-    //     //  request
-
-    //     if let Err(e) = result {
-    //         panic!("Expected block to be broadcasted to BN, but failed with error: {e:?}");
-    //     }
-    // }
+        assert_eq!(received_blocks_one.len(), 1);
+        assert_eq!(received_blocks_two.len(), 1);
+    }
 }

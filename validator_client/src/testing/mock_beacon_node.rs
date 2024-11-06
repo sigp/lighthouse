@@ -15,8 +15,8 @@ use eth2::{
 use logging::test_logger;
 use sensitive_url::SensitiveUrl;
 use types::{
-    BeaconBlock, BlobsList, EthSpec, ForkName, ForkVersionedResponse, KzgProofs,
-    SignedBlindedBeaconBlock, Slot, Uint256,
+    BeaconBlock, BlobsList, ChainSpec, ConfigAndPreset, EthSpec, ForkName, ForkVersionedResponse,
+    KzgProofs, SignedBlindedBeaconBlock, Slot, Uint256,
 };
 
 pub struct MockBeaconNode<E: EthSpec> {
@@ -103,6 +103,17 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create();
 
         self
+    }
+
+    pub fn mock_config_spec(&mut self, spec: &ChainSpec) {
+        let path_pattern = Regex::new(r"^/eth/v1/config/spec$").unwrap();
+        let config_and_preset = ConfigAndPreset::from_chain_spec::<E>(&spec, None);
+        let data = GenericResponse::from(config_and_preset);
+        self.server
+            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .with_status(200)
+            .with_body(serde_json::to_string(&data).unwrap())
+            .create();
     }
 
     pub fn mock_get_node_syncing(&mut self, response: SyncingData) {
