@@ -1012,10 +1012,10 @@ mod tests {
         mock1.expect(1).assert();
         mock2.expect(1).assert();
 
-        // let received_blocks_one = mock_beacon_node_one.received_blocks.lock().unwrap();
-        // let received_blocks_two = mock_beacon_node_two.received_blocks.lock().unwrap();
+        let received_blocks_one = mock_beacon_node_one.received_blocks.lock().unwrap();
+        let received_blocks_two = mock_beacon_node_two.received_blocks.lock().unwrap();
 
-        // assert_eq!(received_blocks_one.len(), 1);
-        // assert_eq!(received_blocks_two.len(), 1);
+        assert_eq!(received_blocks_one.len(), 1);
+        assert_eq!(received_blocks_two.len(), 1);
     }
 }

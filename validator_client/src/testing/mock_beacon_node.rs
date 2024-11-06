@@ -23,7 +23,7 @@ pub struct MockBeaconNode<E: EthSpec> {
     pub beacon_api_client: BeaconNodeHttpClient,
     log: Logger,
     _phantom: PhantomData<E>,
-    // pub received_blocks: Arc<Mutex<Vec<SignedBlindedBeaconBlock<E>>>>,
+    pub received_blocks: Arc<Mutex<Vec<SignedBlindedBeaconBlock<E>>>>,
 }
 
 impl<E: EthSpec> MockBeaconNode<E> {
@@ -41,7 +41,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             beacon_api_client,
             log,
             _phantom: PhantomData,
-            // received_blocks: Arc::new(Mutex::new(Vec::new())),
+            received_blocks: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -132,7 +132,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
         let log = self.log.clone();
         let url = self.server.url();
 
-        // let received_blocks = Arc::clone(&self.received_blocks);
+        let received_blocks = Arc::clone(&self.received_blocks);
 
         self.server
             .mock("POST", Matcher::Regex(path_pattern.to_string()))
@@ -149,12 +149,12 @@ impl<E: EthSpec> MockBeaconNode<E> {
                     )
                 );
 
-                let _body = request.body().expect("Failed to get request body");
-                // let block: SignedBlindedBeaconBlock<E> =
-                //     SignedBlindedBeaconBlock::from_ssz_bytes(body)
-                //         .expect("Failed to deserialize body as SignedBlindedBeaconBlock");
+                let body = request.body().expect("Failed to get request body");
+                let block: SignedBlindedBeaconBlock<E> =
+                    SignedBlindedBeaconBlock::any_from_ssz_bytes(body)
+                        .expect("Failed to deserialize body as SignedBlindedBeaconBlock");
 
-                // received_blocks.lock().unwrap().push(block);
+                received_blocks.lock().unwrap().push(block);
 
                 std::thread::sleep(delay);
                 vec![]
