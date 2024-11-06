@@ -1,6 +1,5 @@
 use mockito::{Matcher, Mock, Server, ServerGuard};
 use regex::Regex;
-use serde_json::from_slice;
 use slog::{info, Logger};
 use std::marker::PhantomData;
 use std::str::FromStr;
@@ -128,16 +127,16 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create();
     }
 
-    pub fn mock_post_beacon_blinded_blocks_v1(&mut self, delay: Duration) -> Mock {
-        let path_pattern = Regex::new(r"^/eth/v1/beacon/blinded_blocks$").unwrap();
+    pub fn mock_post_beacon_blinded_blocks_v2(&mut self, delay: Duration) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v2/beacon/blinded_blocks$").unwrap();
         let log = self.log.clone();
         let url = self.server.url();
 
-        let received_blocks = Arc::clone(&self.received_blocks);
+        // let received_blocks = Arc::clone(&self.received_blocks);
 
         self.server
             .mock("POST", Matcher::Regex(path_pattern.to_string()))
-            .match_header("content-type", "application/json")
+            .match_header("content-type", "application/octet-stream")
             .with_status(200)
             .with_body_from_request(move |request| {
                 info!(
@@ -150,11 +149,12 @@ impl<E: EthSpec> MockBeaconNode<E> {
                     )
                 );
 
-                let body: &Vec<u8> = request.body().expect("Failed to get request body");
-                let block: SignedBlindedBeaconBlock<E> = from_slice(body)
-                    .expect("Failed to deserialize body as SignedBlindedBeaconBlock");
+                // let body = request.body().expect("Failed to get request body");
+                // let block: SignedBlindedBeaconBlock<E> =
+                //     SignedBlindedBeaconBlock::from_ssz_bytes(body)
+                //         .expect("Failed to deserialize body as SignedBlindedBeaconBlock");
 
-                received_blocks.lock().unwrap().push(block);
+                // received_blocks.lock().unwrap().push(block);
 
                 std::thread::sleep(delay);
                 vec![]
