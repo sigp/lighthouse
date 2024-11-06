@@ -81,6 +81,7 @@ pub mod slot_epoch_macros;
 pub mod activation_queue;
 pub mod config_and_preset;
 pub mod execution_block_header;
+pub mod execution_requests;
 pub mod fork_context;
 pub mod participation_flags;
 pub mod payload;
@@ -169,6 +170,7 @@ pub use crate::execution_payload_header::{
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderRef,
     ExecutionPayloadHeaderRefMut,
 };
+pub use crate::execution_requests::ExecutionRequests;
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
 pub use crate::fork_data::ForkData;
@@ -198,7 +200,7 @@ pub use crate::light_client_optimistic_update::{
 };
 pub use crate::light_client_update::{
     Error as LightClientUpdateError, LightClientUpdate, LightClientUpdateAltair,
-    LightClientUpdateCapella, LightClientUpdateDeneb, LightClientUpdateElectra,
+    LightClientUpdateCapella, LightClientUpdateDeneb, LightClientUpdateElectra, MerkleProof,
 };
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::payload::{

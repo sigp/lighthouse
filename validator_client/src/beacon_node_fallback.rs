@@ -436,7 +436,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         for candidate in candidates.iter() {
             let health = candidate.health().await;
 
-            match candidate.health().await {
+            match health {
                 Ok(health) => {
                     if self
                         .distance_tiers
@@ -467,7 +467,9 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// low quality responses. To route around this it's best to poll all connected beacon nodes.
     /// A previous implementation of this function polled only the unavailable BNs.
     pub async fn update_all_candidates(&self) {
-        let candidates = self.candidates.read().await;
+        // Clone the vec, so we release the read lock immediately.
+        // `candidate.health` is behind an Arc<RwLock>, so this would still allow us to mutate the values.
+        let candidates = self.candidates.read().await.clone();
         let mut futures = Vec::with_capacity(candidates.len());
         let mut nodes = Vec::with_capacity(candidates.len());
 
@@ -510,8 +512,9 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub async fn measure_latency(&self) -> Vec<LatencyMeasurement> {
         let candidates = self.candidates.read().await;
         let futures: Vec<_> = candidates
-            .iter()
-            .map(|candidate| async {
+            .clone()
+            .into_iter()
+            .map(|candidate| async move {
                 let beacon_node_id = candidate.beacon_node.to_string();
                 // The `node/version` endpoint is used since I imagine it would
                 // require the least processing in the BN and therefore measure
@@ -528,6 +531,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                 (beacon_node_id, response_instant)
             })
             .collect();
+        drop(candidates);
 
         let request_instant = Instant::now();
 
@@ -553,12 +557,25 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         R: Future<Output = Result<O, Err>>,
         Err: Debug,
     {
+        let mut errors = vec![];
+
         // First pass: try `func` on all candidates. Candidate order has already been set in
         // `update_all_candidates`. This ensures the most suitable node is always tried first.
         let candidates = self.candidates.read().await;
-        let mut errors = vec![];
+        let mut futures = vec![];
+
+        // Run `func` using a `candidate`, returning the value or capturing errors.
         for candidate in candidates.iter() {
-            match Self::run_on_candidate(candidate, &func, &self.log).await {
+            futures.push(Self::run_on_candidate(
+                candidate.beacon_node.clone(),
+                &func,
+                &self.log,
+            ));
+        }
+        drop(candidates);
+
+        for future in futures {
+            match future.await {
                 Ok(val) => return Ok(val),
                 Err(e) => errors.push(e),
             }
@@ -566,8 +583,21 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
         // Second pass. No candidates returned successfully. Try again with the same order.
         // This will duplicate errors.
+        let candidates = self.candidates.read().await;
+        let mut futures = vec![];
+
+        // Run `func` using a `candidate`, returning the value or capturing errors.
         for candidate in candidates.iter() {
-            match Self::run_on_candidate(candidate, &func, &self.log).await {
+            futures.push(Self::run_on_candidate(
+                candidate.beacon_node.clone(),
+                &func,
+                &self.log,
+            ));
+        }
+        drop(candidates);
+
+        for future in futures {
+            match future.await {
                 Ok(val) => return Ok(val),
                 Err(e) => errors.push(e),
             }
@@ -579,7 +609,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
     /// Run the future `func` on `candidate` while reporting metrics.
     async fn run_on_candidate<F, R, Err, O>(
-        candidate: &CandidateBeaconNode<E>,
+        candidate: BeaconNodeHttpClient,
         func: F,
         log: &Logger,
     ) -> Result<O, (String, Error<Err>)>
@@ -588,21 +618,21 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         R: Future<Output = Result<O, Err>>,
         Err: Debug,
     {
-        inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.beacon_node.as_ref()]);
+        inc_counter_vec(&ENDPOINT_REQUESTS, &[candidate.as_ref()]);
 
         // There exists a race condition where `func` may be called when the candidate is
         // actually not ready. We deem this an acceptable inefficiency.
-        match func(candidate.beacon_node.clone()).await {
+        match func(candidate.clone()).await {
             Ok(val) => Ok(val),
             Err(e) => {
                 debug!(
                     log,
                     "Request to beacon node failed";
-                    "node" => %candidate.beacon_node,
+                    "node" => %candidate,
                     "error" => ?e,
                 );
-                inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.beacon_node.as_ref()]);
-                Err((candidate.beacon_node.to_string(), Error::RequestFailed(e)))
+                inc_counter_vec(&ENDPOINT_ERRORS, &[candidate.as_ref()]);
+                Err((candidate.to_string(), Error::RequestFailed(e)))
             }
         }
     }
@@ -626,8 +656,14 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
         // Run `func` using a `candidate`, returning the value or capturing errors.
         for candidate in candidates.iter() {
-            futures.push(Self::run_on_candidate(candidate, &func, &self.log));
+            futures.push(Self::run_on_candidate(
+                candidate.beacon_node.clone(),
+                &func,
+                &self.log,
+            ));
         }
+        drop(candidates);
+
         let results = future::join_all(futures).await;
 
         let errors: Vec<_> = results.into_iter().filter_map(|res| res.err()).collect();
@@ -701,21 +737,21 @@ impl ApiTopic {
 
 #[cfg(test)]
 mod tests {
+    use crate::beacon_node_health::BeaconNodeHealthTier;
+    use crate::SensitiveUrl;
+    use eth2::Timeouts;
     use logging::test_logger;
     use std::str::FromStr;
     use strum::VariantNames;
     use types::EmptyBlock;
 
-    use eth2::Timeouts;
     use slot_clock::TestingSlotClock;
     use types::{BeaconBlockDeneb, BlindedBeaconBlock, MainnetEthSpec, Slot};
 
     use super::*;
-    use crate::beacon_node_health::BeaconNodeHealthTier;
     use crate::block_service::{BlockService, BlockServiceBuilder, UnsignedBlock};
     use crate::testing::mock_beacon_node::MockBeaconNode;
     use crate::testing::validator_test_rig::ValidatorTestRig;
-    use crate::SensitiveUrl;
 
     type E = MainnetEthSpec;
 

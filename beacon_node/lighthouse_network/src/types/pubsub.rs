@@ -252,28 +252,25 @@ impl<E: EthSpec> PubsubMessage<E> {
                         Ok(PubsubMessage::BeaconBlock(Arc::new(beacon_block)))
                     }
                     GossipKind::BlobSidecar(blob_index) => {
-                        match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                            Some(ForkName::Deneb | ForkName::Electra) => {
+                        if let Some(fork_name) =
+                            fork_context.from_context_bytes(gossip_topic.fork_digest)
+                        {
+                            if fork_name.deneb_enabled() {
                                 let blob_sidecar = Arc::new(
                                     BlobSidecar::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 );
-                                Ok(PubsubMessage::BlobSidecar(Box::new((
+                                return Ok(PubsubMessage::BlobSidecar(Box::new((
                                     *blob_index,
                                     blob_sidecar,
-                                ))))
+                                ))));
                             }
-                            Some(
-                                ForkName::Base
-                                | ForkName::Altair
-                                | ForkName::Bellatrix
-                                | ForkName::Capella,
-                            )
-                            | None => Err(format!(
-                                "beacon_blobs_and_sidecar topic invalid for given fork digest {:?}",
-                                gossip_topic.fork_digest
-                            )),
                         }
+
+                        Err(format!(
+                            "beacon_blobs_and_sidecar topic invalid for given fork digest {:?}",
+                            gossip_topic.fork_digest
+                        ))
                     }
                     GossipKind::DataColumnSidecar(subnet_id) => {
                         match fork_context.from_context_bytes(gossip_topic.fork_digest) {

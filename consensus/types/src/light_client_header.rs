@@ -129,11 +129,10 @@ impl<E: EthSpec> LightClientHeader<E> {
     }
 
     pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
-        match fork_name {
-            ForkName::Base | ForkName::Altair => 0,
-            ForkName::Bellatrix | ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
-                ExecutionPayloadHeader::<E>::ssz_max_var_len_for_fork(fork_name)
-            }
+        if fork_name.capella_enabled() {
+            ExecutionPayloadHeader::<E>::ssz_max_var_len_for_fork(fork_name)
+        } else {
+            0
         }
     }
 }
@@ -306,5 +305,33 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientHeader<E> {
                 "LightClientHeader deserialization for {fork_name} not implemented"
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // `ssz_tests!` can only be defined once per namespace
+    #[cfg(test)]
+    mod altair {
+        use crate::{LightClientHeaderAltair, MainnetEthSpec};
+        ssz_tests!(LightClientHeaderAltair<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod capella {
+        use crate::{LightClientHeaderCapella, MainnetEthSpec};
+        ssz_tests!(LightClientHeaderCapella<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod deneb {
+        use crate::{LightClientHeaderDeneb, MainnetEthSpec};
+        ssz_tests!(LightClientHeaderDeneb<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod electra {
+        use crate::{LightClientHeaderElectra, MainnetEthSpec};
+        ssz_tests!(LightClientHeaderElectra<MainnetEthSpec>);
     }
 }

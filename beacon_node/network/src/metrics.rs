@@ -5,11 +5,11 @@ use beacon_chain::{
     sync_committee_verification::Error as SyncCommitteeError,
 };
 use fnv::FnvHashMap;
-pub use lighthouse_metrics::*;
 use lighthouse_network::{
     peer_manager::peerdb::client::ClientKind, types::GossipKind, GossipTopic, Gossipsub,
     NetworkGlobals,
 };
+pub use metrics::*;
 use std::sync::{Arc, LazyLock};
 use strum::IntoEnumIterator;
 use types::EthSpec;
