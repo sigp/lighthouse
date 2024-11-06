@@ -682,10 +682,15 @@ fn handle_rpc_response<E: EthSpec>(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
         SupportedProtocol::BlobsByRangeV1 => match fork_name {
-            Some(ForkName::Deneb) => Ok(Some(RpcSuccessResponse::BlobsByRange(Arc::new(
-                BlobSidecar::from_ssz_bytes(decoded_buffer)?,
-            )))),
-            Some(_) => Err(RPCError::ErrorResponse(
+            Some(ForkName::Deneb) | Some(ForkName::Electra) => {
+                Ok(Some(RpcSuccessResponse::BlobsByRange(Arc::new(
+                    BlobSidecar::from_ssz_bytes(decoded_buffer)?,
+                ))))
+            }
+            Some(ForkName::Base)
+            | Some(ForkName::Altair)
+            | Some(ForkName::Bellatrix)
+            | Some(ForkName::Capella) => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
                 "Invalid fork name for blobs by range".to_string(),
             )),
@@ -698,10 +703,15 @@ fn handle_rpc_response<E: EthSpec>(
             )),
         },
         SupportedProtocol::BlobsByRootV1 => match fork_name {
-            Some(ForkName::Deneb) => Ok(Some(RpcSuccessResponse::BlobsByRoot(Arc::new(
-                BlobSidecar::from_ssz_bytes(decoded_buffer)?,
-            )))),
-            Some(_) => Err(RPCError::ErrorResponse(
+            Some(ForkName::Deneb) | Some(ForkName::Electra) => {
+                Ok(Some(RpcSuccessResponse::BlobsByRoot(Arc::new(
+                    BlobSidecar::from_ssz_bytes(decoded_buffer)?,
+                ))))
+            }
+            Some(ForkName::Base)
+            | Some(ForkName::Altair)
+            | Some(ForkName::Bellatrix)
+            | Some(ForkName::Capella) => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
                 "Invalid fork name for blobs by root".to_string(),
             )),
@@ -1378,9 +1388,29 @@ mod tests {
 
         assert_eq!(
             encode_then_decode_response(
+                SupportedProtocol::BlobsByRangeV1,
+                RpcResponse::Success(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar())),
+                ForkName::Electra,
+                &chain_spec
+            ),
+            Ok(Some(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar()))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
                 SupportedProtocol::BlobsByRootV1,
                 RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar())),
                 ForkName::Deneb,
+                &chain_spec
+            ),
+            Ok(Some(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar()))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::BlobsByRootV1,
+                RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar())),
+                ForkName::Electra,
                 &chain_spec
             ),
             Ok(Some(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar()))),
@@ -1402,11 +1432,39 @@ mod tests {
 
         assert_eq!(
             encode_then_decode_response(
+                SupportedProtocol::DataColumnsByRangeV1,
+                RpcResponse::Success(RpcSuccessResponse::DataColumnsByRange(
+                    empty_data_column_sidecar()
+                )),
+                ForkName::Electra,
+                &chain_spec
+            ),
+            Ok(Some(RpcSuccessResponse::DataColumnsByRange(
+                empty_data_column_sidecar()
+            ))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
                 SupportedProtocol::DataColumnsByRootV1,
                 RpcResponse::Success(RpcSuccessResponse::DataColumnsByRoot(
                     empty_data_column_sidecar()
                 )),
                 ForkName::Deneb,
+                &chain_spec
+            ),
+            Ok(Some(RpcSuccessResponse::DataColumnsByRoot(
+                empty_data_column_sidecar()
+            ))),
+        );
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::DataColumnsByRootV1,
+                RpcResponse::Success(RpcSuccessResponse::DataColumnsByRoot(
+                    empty_data_column_sidecar()
+                )),
+                ForkName::Electra,
                 &chain_spec
             ),
             Ok(Some(RpcSuccessResponse::DataColumnsByRoot(
