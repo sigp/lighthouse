@@ -7,7 +7,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use eth2::types::{FullBlockContents, ProduceBlockV3Metadata};
+use eth2::types::{FullBlockContents, GenericResponse, ProduceBlockV3Metadata, SyncingData};
 use eth2::{
     BeaconNodeHttpClient, CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER,
     EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER,
@@ -103,6 +103,18 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create();
 
         self
+    }
+
+    pub fn mock_get_node_syncing(&mut self, response: SyncingData) {
+        let path_pattern = Regex::new(r"^/eth/v1/node/syncing$").unwrap();
+
+        let data = GenericResponse::from(response);
+
+        self.server
+            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .with_status(200)
+            .with_body(serde_json::to_string(&data).unwrap())
+            .create();
     }
 
     pub fn mock_post_beacon_blinded_blocks_v1(&mut self, delay: Duration) -> Mock {
