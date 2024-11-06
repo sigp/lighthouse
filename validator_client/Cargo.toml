@@ -66,5 +66,3 @@ logging = { workspace = true }
 strum = { workspace = true }
 itertools = { workspace = true }
 fdlimit = "0.3.0"
-regex = "1.10.6"
-

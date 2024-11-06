@@ -992,14 +992,20 @@ mod tests {
         beacon_node_fallback.update_all_candidates().await;
 
         let validators = test_rig.validator_store.initialized_validators();
-        let validators = validators.read();
-        let first_validator = validators.validator_definitions().first().unwrap();
+        let first_validator_pubkey = {
+            let validators = validators.read();
+            if let Some(first_validator) = validators.validator_definitions().first() {
+                first_validator.voting_public_key.clone()
+            } else {
+                panic!("No validators found");
+            }
+        };
         let unsigned_block = UnsignedBlock::Blinded(BlindedBeaconBlock::Deneb(
             BeaconBlockDeneb::empty(&test_rig.spec),
         ));
-        let voting_pubkey = first_validator.voting_public_key.clone();
+
         let result = block_service
-            .publish_block_for_testing(Slot::new(1), &voting_pubkey.into(), unsigned_block)
+            .publish_block_for_testing(Slot::new(1), &first_validator_pubkey.into(), unsigned_block)
             .await;
         assert!(result.is_ok());
 
