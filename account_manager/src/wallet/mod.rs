@@ -15,16 +15,6 @@ pub fn cli_app() -> Command {
         .about("Manage wallets, from which validator keys can be derived.")
         .display_order(0)
         .arg(
-            Arg::new("help")
-            .long("help")
-            .short('h')
-            .help("Prints help information")
-            .action(ArgAction::HelpLong)
-            .display_order(0)
-            .help_heading(FLAG_HEADER)
-            .global(true)
-        )
-        .arg(
             Arg::new(WALLETS_DIR_FLAG)
                 .long(WALLETS_DIR_FLAG)
                 .value_name("WALLETS_DIRECTORY")

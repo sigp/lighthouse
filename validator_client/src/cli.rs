@@ -47,9 +47,7 @@ pub struct ValidatorClient {
         value_name = "API_TOPICS",
         value_delimiter = ',',
         help = "Comma-separated list of beacon API topics to broadcast to all beacon nodes. \
-                Possible values are: none, attestations, blocks, subscriptions, \
-                sync-committee. Default (when flag is omitted) is to broadcast \
-                subscriptions only.",
+                Default (when flag is omitted) is to broadcast subscriptions only.",
         display_order = 0
     )]
     pub broadcast: Option<Vec<ApiTopic>>,
@@ -253,6 +251,7 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "ADDRESS",
+        requires = "metrics",
         default_value_if("metrics", ArgPredicate::IsPresent, "127.0.0.1"),
         help = "Set the listen address for the Prometheus metrics HTTP server. [default: 127.0.0.1]",
         display_order = 0
@@ -262,6 +261,7 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "PORT",
+        requires = "metrics",
         default_value_t = 5064,
         help = "Set the listen TCP port for the Prometheus metrics HTTP server.",
         display_order = 0
@@ -271,6 +271,7 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "ORIGIN",
+        requires = "metrics",
         help = "Set the value of the Access-Control-Allow-Origin response HTTP header. \
                 Use * to allow any origin (not recommended in production). \
                 If no value is supplied, the CORS allowed origin is set to the listen \
@@ -317,7 +318,7 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
-        value_name = "ENABLE_DOPPELGANGER_PROTECTION",
+        value_name = "BOOLEAN",
         help = "If this flag is set, Lighthouse will delay startup for three epochs and \
                 monitor for messages on the network by any of the validators managed by this \
                 client. This will result in three (possibly four) epochs worth of missed \
@@ -356,6 +357,7 @@ pub struct ValidatorClient {
         long,
         value_name = "INTEGER",
         default_value_t = 30_000_000,
+        requires = "builder_proposals",
         help = "The gas limit to be used in all builder proposals for all validators managed \
                 by this validator client. Note this will not necessarily be used if the gas limit \
                 set here moves too far from the previous block's gas limit.",
@@ -390,6 +392,7 @@ pub struct ValidatorClient {
                 a percentage multiplier to apply to the builder's payload value \
                 when choosing between a builder payload header and payload from \
                 the local execution node.",
+        conflicts_with = "prefer_builder_proposals",
         display_order = 0
     )]
     pub builder_boost_factor: Option<u64>,

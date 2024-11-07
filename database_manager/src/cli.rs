@@ -55,16 +55,6 @@ pub struct DatabaseManager {
     )]
     pub blobs_dir: Option<PathBuf>,
 
-    #[clap(
-        long,
-        global = true,
-        help = "Prints help information",
-        action = clap::ArgAction::HelpLong,
-        display_order = 0,
-        help_heading = FLAG_HEADER
-    )]
-    help: Option<bool>,
-
     #[clap(subcommand)]
     pub subcommand: DatabaseManagerSubcommand,
 }

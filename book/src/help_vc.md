@@ -18,10 +18,9 @@ Options:
           certificate path.
       --broadcast <API_TOPICS>
           Comma-separated list of beacon API topics to broadcast to all beacon
-          nodes. Possible values are: none, attestations, blocks, subscriptions,
-          sync-committee. Default (when flag is omitted) is to broadcast
-          subscriptions only. [possible values: none, attestations, blocks,
-          subscriptions, sync-committee]
+          nodes. Default (when flag is omitted) is to broadcast subscriptions
+          only. [possible values: none, attestations, blocks, subscriptions,
+          sync-committee]
       --builder-boost-factor <UINT64>
           Defines the boost factor, a percentage multiplier to apply to the
           builder's payload value when choosing between a builder payload header
