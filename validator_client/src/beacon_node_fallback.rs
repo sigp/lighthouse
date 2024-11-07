@@ -899,7 +899,7 @@ mod tests {
                     beacon_node_one.clone(),
                 ],
                 Config::default(),
-                vec![], // to broadcast blocks to both bns
+                vec![],
                 spec.clone(),
                 test_logger(),
             );
