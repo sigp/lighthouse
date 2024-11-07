@@ -38,10 +38,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo add-apt-repository ppa:rmescandon/yq
+          # Install yq
+          sudo snap install yq --channel=v3/stable
+          # Install Kurtosis
           echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
           sudo apt update
-          sudo apt install -y kurtosis-cli=1.3.1 yq
+          sudo apt install -y kurtosis-cli=1.3.1
           kurtosis analytics disable
 
       - name: Download Docker image artifact
@@ -85,10 +87,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo add-apt-repository ppa:rmescandon/yq
+          # Install yq
+          sudo snap install yq --channel=v3/stable
+          # Install Kurtosis
           echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
           sudo apt update
-          sudo apt install -y kurtosis-cli=1.3.1 yq
+          sudo apt install -y kurtosis-cli=1.3.1
           kurtosis analytics disable
 
       - name: Download Docker image artifact
@@ -121,10 +125,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo add-apt-repository ppa:rmescandon/yq
+          # Install yq
+          sudo snap install yq --channel=v3/stable
+          # Install Kurtosis
           echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
           sudo apt update
-          sudo apt install -y kurtosis-cli=1.3.1 yq
+          sudo apt install -y kurtosis-cli=1.3.1
           kurtosis analytics disable
 
       - name: Download Docker image artifact
