@@ -208,7 +208,9 @@ pub fn gather_prometheus_metrics<E: EthSpec>(
 
     warp_utils::metrics::scrape_health_metrics();
 
-    encoder.encode(&metrics::gather(), &mut buffer).map_err(|e| format!("{:e?}"))?;
+    encoder
+        .encode(&metrics::gather(), &mut buffer)
+        .map_err(|e| format!("{e:?}"))?;
 
     String::from_utf8(buffer).map_err(|e| format!("Failed to encode prometheus info: {:?}", e))
 }
