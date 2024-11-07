@@ -26,12 +26,11 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr};
-use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
-use tempfile::tempdir;
+use tempfile::{tempdir, TempDir};
 use types::graffiti::GraffitiString;
 use validator_store::{Config as ValidatorStoreConfig, ValidatorStore};
 
@@ -46,6 +45,8 @@ struct ApiTester {
     validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
     url: SensitiveUrl,
     slot_clock: TestingSlotClock,
+    _validator_dir: TempDir,
+    _secrets_dir: TempDir,
     _test_runtime: TestRuntime,
 }
 
@@ -59,26 +60,26 @@ impl ApiTester {
     pub async fn new_with_config(config: ValidatorStoreConfig) -> Self {
         let log = test_logger();
 
-        let validator_dir: PathBuf = tempdir().unwrap().path().into();
-        let secrets_dir: PathBuf = tempdir().unwrap().path().into();
+        let validator_dir = tempdir().unwrap();
+        let secrets_dir = tempdir().unwrap();
 
-        let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.clone()).unwrap();
+        let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.path()).unwrap();
 
         let initialized_validators = InitializedValidators::from_definitions(
             validator_defs,
-            validator_dir.clone(),
+            validator_dir.path().into(),
             InitializedValidatorsConfig::default(),
             log.clone(),
         )
         .await
         .unwrap();
 
-        let api_secret = ApiSecret::create_or_open(validator_dir.clone()).unwrap();
+        let api_secret = ApiSecret::create_or_open(validator_dir.path()).unwrap();
         let api_pubkey = api_secret.api_token();
 
         let spec = Arc::new(E::default_spec());
 
-        let slashing_db_path = validator_dir.join(SLASHING_PROTECTION_FILENAME);
+        let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
 
         let genesis_time: u64 = 0;
@@ -112,8 +113,8 @@ impl ApiTester {
             task_executor: test_runtime.task_executor.clone(),
             api_secret,
             block_service: None,
-            validator_dir: Some(validator_dir),
-            secrets_dir: Some(secrets_dir),
+            validator_dir: Some(validator_dir.path().into()),
+            secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
             graffiti_file: None,
             graffiti_flag: Some(Graffiti::default()),
@@ -152,6 +153,8 @@ impl ApiTester {
             validator_store,
             url,
             slot_clock,
+            _validator_dir: validator_dir,
+            _secrets_dir: secrets_dir,
             _test_runtime: test_runtime,
         }
     }
