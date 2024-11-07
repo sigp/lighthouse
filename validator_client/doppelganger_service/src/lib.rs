@@ -116,7 +116,7 @@ pub const DEFAULT_REMAINING_DETECTION_EPOCHS: u64 = 1;
 /// This crate cannot depend on ValidatorStore as validator_store depends on this crate and
 /// initialises the doppelganger protection. For this reason, we abstract the validator store
 /// functions this service needs through the following trait
-pub trait DoppelGangerValidatorStore {
+pub trait DoppelgangerValidatorStore {
     fn get_validator_index(&self, pubkey: &PublicKeyBytes) -> Option<u64>;
 }
 
@@ -296,7 +296,7 @@ impl DoppelgangerService {
     where
         E: EthSpec,
         T: 'static + SlotClock,
-        V: DoppelGangerValidatorStore + Send + Sync + 'static,
+        V: DoppelgangerValidatorStore + Send + Sync + 'static,
     {
         // Define the `get_index` function as one that uses the validator store.
         let get_index = move |pubkey| validator_store.get_validator_index(&pubkey);

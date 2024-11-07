@@ -1,5 +1,5 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
-use doppelganger_service::{DoppelGangerValidatorStore, DoppelgangerService, DoppelgangerStatus};
+use doppelganger_service::{DoppelgangerValidatorStore, DoppelgangerService, DoppelgangerStatus};
 use initialized_validators::InitializedValidators;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
@@ -95,7 +95,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     _phantom: PhantomData<E>,
 }
 
-impl<T: SlotClock + 'static, E: EthSpec> DoppelGangerValidatorStore for ValidatorStore<T, E> {
+impl<T: SlotClock + 'static, E: EthSpec> DoppelgangerValidatorStore for ValidatorStore<T, E> {
     fn get_validator_index(&self, pubkey: &PublicKeyBytes) -> Option<u64> {
         self.validator_index(pubkey)
     }
