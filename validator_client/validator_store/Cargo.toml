@@ -21,5 +21,3 @@ slot_clock = { workspace = true }
 task_executor = { workspace = true }
 types = { workspace = true }
 validator_metrics = { workspace = true }
-
-[dev-dependencies]
