@@ -44,7 +44,7 @@ impl From<SigningError> for Error {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Fallback fallback address.
+    /// Fallback fee recipient address.
     pub fee_recipient: Option<Address>,
     /// Fallback gas limit.
     pub gas_limit: Option<u64>,
