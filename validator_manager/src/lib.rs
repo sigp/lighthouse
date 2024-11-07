@@ -1,5 +1,5 @@
-use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::{get_color_style, FLAG_HEADER};
+use clap::{ArgMatches, Command};
+use clap_utils::get_color_style;
 use common::write_to_json_file;
 use environment::Environment;
 use serde::Serialize;

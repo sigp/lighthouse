@@ -2,11 +2,8 @@ mod common;
 pub mod validator;
 pub mod wallet;
 
-use clap::Arg;
-use clap::ArgAction;
 use clap::ArgMatches;
 use clap::Command;
-use clap_utils::FLAG_HEADER;
 use environment::Environment;
 use types::EthSpec;
 

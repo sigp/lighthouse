@@ -4,7 +4,6 @@ pub mod recover;
 
 use crate::WALLETS_DIR_FLAG;
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::FLAG_HEADER;
 use directory::{ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_WALLET_DIR};
 use std::path::PathBuf;
 

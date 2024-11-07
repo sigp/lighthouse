@@ -8,7 +8,6 @@ pub mod slashing_protection;
 
 use crate::{VALIDATOR_DIR_FLAG, VALIDATOR_DIR_FLAG_ALIAS};
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::FLAG_HEADER;
 use directory::{parse_path_or_default_with_flag, DEFAULT_VALIDATOR_DIR};
 use environment::Environment;
 use std::path::PathBuf;
