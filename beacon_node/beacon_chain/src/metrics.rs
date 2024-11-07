@@ -1940,7 +1940,7 @@ pub static LIGHT_CLIENT_SERVER_CACHE_PREV_BLOCK_CACHE_MISS: LazyLock<Result<IntC
 pub static LIGHT_CLIENT_SERVER_CACHE_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
-            "light_client_server_cache_processing_requests",
+            "beacon_light_client_server_cache_processing_requests",
             "Count of all requests to recompute and cache updates",
         )
     });
