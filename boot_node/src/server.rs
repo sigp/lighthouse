@@ -145,16 +145,13 @@ pub async fn run<E: EthSpec>(
             Some(event) = event_stream.recv() => {
                 match event {
                     discv5::Event::Discovered(_enr) => {
-                        // An ENR has bee obtained by the server
+                        // An ENR has been obtained by the server
                         // Ignore these events here
                     }
-                    discv5::Event::EnrAdded { .. } => {}     // Ignore
-                    discv5::Event::TalkRequest(_) => {}     // Ignore
-                    discv5::Event::NodeInserted { .. } => {} // Ignore
                     discv5::Event::SocketUpdated(socket_addr) => {
                         info!(log, "Advertised socket address updated"; "socket_addr" => %socket_addr);
                     }
-                    discv5::Event::SessionEstablished{ .. } => {} // Ignore
+                    _ => {} // Ignore
                 }
             }
         }

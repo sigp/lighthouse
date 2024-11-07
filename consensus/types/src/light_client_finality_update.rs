@@ -212,15 +212,14 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientFinalityUpdate<E> {
         value: Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
-        match fork_name {
-            ForkName::Base => Err(serde::de::Error::custom(format!(
+        if fork_name.altair_enabled() {
+            serde_json::from_value::<LightClientFinalityUpdate<E>>(value)
+                .map_err(serde::de::Error::custom)
+        } else {
+            Err(serde::de::Error::custom(format!(
                 "LightClientFinalityUpdate failed to deserialize: unsupported fork '{}'",
                 fork_name
-            ))),
-            _ => Ok(
-                serde_json::from_value::<LightClientFinalityUpdate<E>>(value)
-                    .map_err(serde::de::Error::custom),
-            )?,
+            )))
         }
     }
 }

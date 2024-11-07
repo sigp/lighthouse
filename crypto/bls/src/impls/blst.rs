@@ -68,7 +68,7 @@ pub fn verify_signature_sets<'a>(
         }
 
         // Grab a slice of the message, to satisfy the blst API.
-        msgs_refs.push(set.message.as_bytes());
+        msgs_refs.push(set.message.as_slice());
 
         if let Some(point) = set.signature.point() {
             // Subgroup check the signature
@@ -196,7 +196,7 @@ impl TSignature<blst_core::PublicKey> for blst_core::Signature {
     fn verify(&self, pubkey: &blst_core::PublicKey, msg: Hash256) -> bool {
         // Public keys have already been checked for subgroup and infinity
         // Check Signature inside function for subgroup
-        self.verify(true, msg.as_bytes(), DST, &[], pubkey, false) == BLST_ERROR::BLST_SUCCESS
+        self.verify(true, msg.as_slice(), DST, &[], pubkey, false) == BLST_ERROR::BLST_SUCCESS
     }
 }
 
@@ -256,7 +256,7 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
         let signature = self.0.clone().to_signature();
         // Public keys are already valid due to PoP
         // Check Signature inside function for subgroup
-        signature.fast_aggregate_verify(true, msg.as_bytes(), DST, &pubkeys)
+        signature.fast_aggregate_verify(true, msg.as_slice(), DST, &pubkeys)
             == BLST_ERROR::BLST_SUCCESS
     }
 
@@ -266,7 +266,7 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
         pubkeys: &[&GenericPublicKey<blst_core::PublicKey>],
     ) -> bool {
         let pubkeys = pubkeys.iter().map(|pk| pk.point()).collect::<Vec<_>>();
-        let msgs = msgs.iter().map(|hash| hash.as_bytes()).collect::<Vec<_>>();
+        let msgs = msgs.iter().map(|hash| hash.as_slice()).collect::<Vec<_>>();
         let signature = self.0.clone().to_signature();
         // Public keys have already been checked for subgroup and infinity
         // Check Signature inside function for subgroup
@@ -287,7 +287,7 @@ impl TSecretKey<blst_core::Signature, blst_core::PublicKey> for blst_core::Secre
     }
 
     fn sign(&self, msg: Hash256) -> blst_core::Signature {
-        self.sign(msg.as_bytes(), DST, &[])
+        self.sign(msg.as_slice(), DST, &[])
     }
 
     fn serialize(&self) -> ZeroizeHash {

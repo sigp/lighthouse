@@ -10,7 +10,7 @@ use http_api::test_utils::*;
 use std::collections::HashSet;
 use types::{
     test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
-    Address, ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot,
+    Address, ChainSpec, Epoch, EthSpec, FixedBytesExtended, Hash256, MinimalEthSpec, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -386,6 +386,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
                 .genesis_state_ephemeral_store(genesis_state)
         })),
         None,
+        Default::default(),
     )
     .await;
     let harness = &tester.harness;

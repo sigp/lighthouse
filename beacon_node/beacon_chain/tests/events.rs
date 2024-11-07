@@ -12,7 +12,7 @@ type E = MinimalEthSpec;
 /// Verifies that a blob event is emitted when a gossip verified blob is received via gossip or the publish block API.
 #[tokio::test]
 async fn blob_sidecar_event_on_process_gossip_blob() {
-    let spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
+    let spec = Arc::new(ForkName::Deneb.make_genesis_spec(E::default_spec()));
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec)
         .deterministic_keypairs(8)
@@ -25,7 +25,7 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
     let mut blob_event_receiver = event_handler.subscribe_blob_sidecar();
 
     // build and process a gossip verified blob
-    let kzg = harness.chain.kzg.as_ref().unwrap();
+    let kzg = harness.chain.kzg.as_ref();
     let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
     let sidecar = BlobSidecar::random_valid(&mut rng, kzg)
         .map(Arc::new)
@@ -35,7 +35,7 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
 
     let _ = harness
         .chain
-        .process_gossip_blob(gossip_verified_blob)
+        .process_gossip_blob(gossip_verified_blob, || Ok(()))
         .await
         .unwrap();
 
@@ -46,7 +46,7 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
 /// Verifies that a blob event is emitted when blobs are received via RPC.
 #[tokio::test]
 async fn blob_sidecar_event_on_process_rpc_blobs() {
-    let spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
+    let spec = Arc::new(ForkName::Deneb.make_genesis_spec(E::default_spec()));
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec)
         .deterministic_keypairs(8)
@@ -59,16 +59,20 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
     let mut blob_event_receiver = event_handler.subscribe_blob_sidecar();
 
     // build and process multiple rpc blobs
-    let kzg = harness.chain.kzg.as_ref().unwrap();
+    let kzg = harness.chain.kzg.as_ref();
     let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
 
-    let blob_1 = BlobSidecar::random_valid(&mut rng, kzg)
-        .map(Arc::new)
-        .unwrap();
-    let blob_2 = Arc::new(BlobSidecar {
+    let mut blob_1 = BlobSidecar::random_valid(&mut rng, kzg).unwrap();
+    let mut blob_2 = BlobSidecar {
         index: 1,
         ..BlobSidecar::random_valid(&mut rng, kzg).unwrap()
-    });
+    };
+    let parent_root = harness.chain.head().head_block_root();
+    blob_1.signed_block_header.message.parent_root = parent_root;
+    blob_2.signed_block_header.message.parent_root = parent_root;
+    let blob_1 = Arc::new(blob_1);
+    let blob_2 = Arc::new(blob_2);
+
     let blobs = FixedBlobSidecarList::from(vec![Some(blob_1.clone()), Some(blob_2.clone())]);
     let expected_sse_blobs = vec![
         SseBlobSidecar::from_blob_sidecar(blob_1.as_ref()),

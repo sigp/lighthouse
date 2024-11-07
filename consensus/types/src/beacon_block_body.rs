@@ -114,6 +114,8 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
         VariableList<SignedBlsToExecutionChange, E::MaxBlsToExecutionChanges>,
     #[superstruct(only(Deneb, Electra))]
     pub blob_kzg_commitments: KzgCommitments<E>,
+    #[superstruct(only(Electra))]
+    pub execution_requests: ExecutionRequests<E>,
     #[superstruct(only(Base, Altair))]
     #[metastruct(exclude_from(fields))]
     #[ssz(skip_serializing, skip_deserializing)]
@@ -662,6 +664,7 @@ impl<E: EthSpec> From<BeaconBlockBodyElectra<E, FullPayload<E>>>
             execution_payload: FullPayloadElectra { execution_payload },
             bls_to_execution_changes,
             blob_kzg_commitments,
+            execution_requests,
         } = body;
 
         (
@@ -680,6 +683,7 @@ impl<E: EthSpec> From<BeaconBlockBodyElectra<E, FullPayload<E>>>
                 },
                 bls_to_execution_changes,
                 blob_kzg_commitments: blob_kzg_commitments.clone(),
+                execution_requests,
             },
             Some(execution_payload),
         )
@@ -818,6 +822,7 @@ impl<E: EthSpec> BeaconBlockBodyElectra<E, FullPayload<E>> {
             execution_payload: FullPayloadElectra { execution_payload },
             bls_to_execution_changes,
             blob_kzg_commitments,
+            execution_requests,
         } = self;
 
         BeaconBlockBodyElectra {
@@ -835,6 +840,7 @@ impl<E: EthSpec> BeaconBlockBodyElectra<E, FullPayload<E>> {
             },
             bls_to_execution_changes: bls_to_execution_changes.clone(),
             blob_kzg_commitments: blob_kzg_commitments.clone(),
+            execution_requests: execution_requests.clone(),
         }
     }
 }

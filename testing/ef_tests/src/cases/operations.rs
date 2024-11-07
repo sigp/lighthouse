@@ -270,7 +270,7 @@ impl<E: EthSpec> Operation<E> for SyncAggregate<E> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        fork_name != ForkName::Base
+        fork_name.altair_enabled()
     }
 
     fn decode(path: &Path, _fork_name: ForkName, _spec: &ChainSpec) -> Result<Self, Error> {

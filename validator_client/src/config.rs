@@ -1,9 +1,10 @@
 use crate::beacon_node_fallback::ApiTopic;
 use crate::cli::ValidatorClient;
 use crate::graffiti_file::GraffitiFile;
-use crate::{http_api, http_metrics};
+use crate::validator_store::DEFAULT_GAS_LIMIT;
+use crate::{beacon_node_fallback, http_api, http_metrics, BeaconNodeSyncDistanceTiers};
 use clap::ArgMatches;
-use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional, parse_required};
+use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_required};
 use directory::{
     get_network_dir, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
     DEFAULT_VALIDATOR_DIR,
@@ -13,6 +14,7 @@ use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{info, warn, Logger};
 use std::fs;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
@@ -21,7 +23,7 @@ pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 pub const DEFAULT_WEB3SIGNER_KEEP_ALIVE: Option<Duration> = Some(Duration::from_secs(20));
 
 /// Stores the core configuration for this validator instance.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     /// The data directory, which stores all validator databases
     pub validator_dir: PathBuf,
@@ -52,6 +54,8 @@ pub struct Config {
     pub http_api: http_api::Config,
     /// Configuration for the HTTP REST API.
     pub http_metrics: http_metrics::Config,
+    /// Configuration for the Beacon Node fallback.
+    pub beacon_node_fallback: beacon_node_fallback::Config,
     /// Configuration for sending metrics to a remote explorer endpoint.
     pub monitoring_api: Option<monitoring_api::Config>,
     /// If true, enable functionality that monitors the network for attestations or proposals from
@@ -67,7 +71,7 @@ pub struct Config {
     /// Overrides the timestamp field in builder api ValidatorRegistrationV1
     pub builder_registration_timestamp_override: Option<u64>,
     /// Fallback gas limit.
-    pub gas_limit: Option<u64>,
+    pub gas_limit: u64,
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
@@ -117,13 +121,14 @@ impl Default for Config {
             fee_recipient: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
+            beacon_node_fallback: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
             enable_high_validator_count_metrics: false,
             beacon_nodes_tls_certs: None,
             builder_proposals: false,
             builder_registration_timestamp_override: None,
-            gas_limit: None,
+            gas_limit: DEFAULT_GAS_LIMIT,
             broadcast_topics: vec![ApiTopic::Subscriptions],
             enable_latency_measurement_service: true,
             validator_registration_batch_size: 500,
@@ -185,15 +190,17 @@ impl Config {
         if let Some(beacon_nodes) = validator_client_config.beacon_nodes.as_ref() {
             config.beacon_nodes = beacon_nodes
                 .iter()
-                .map(|s| SensitiveUrl::parse(s).unwrap())
-                .collect::<Vec<_>>();
+                .map(|s| SensitiveUrl::parse(s))
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         }
 
         if let Some(proposer_nodes) = validator_client_config.proposer_nodes.as_ref() {
             config.proposer_nodes = proposer_nodes
                 .iter()
-                .map(|s| SensitiveUrl::parse(s).unwrap())
-                .collect::<Vec<_>>();
+                .map(|s| SensitiveUrl::parse(s))
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("Unable to parse proposer node URL: {:?}", e))?;
         }
 
         config.disable_auto_discover = validator_client_config.disable_auto_discover;
@@ -236,32 +243,19 @@ impl Config {
             config.beacon_nodes_tls_certs = Some(tls_certs.iter().map(PathBuf::from).collect());
         }
 
-        if let Some(tls_certs) = parse_optional::<String>(cli_args, "beacon-nodes-tls-certs")? {
-            config.beacon_nodes_tls_certs = Some(tls_certs.split(',').map(PathBuf::from).collect());
-        }
-
         config.distributed = validator_client_config.distributed;
 
-        if validator_client_config.disable_run_on_all {
-            warn!(
-                log,
-                "The --disable-run-on-all flag is deprecated";
-                "msg" => "please use --broadcast instead"
-            );
-            config.broadcast_topics = vec![];
+        if let Some(mut broadcast_topics) = validator_client_config.broadcast.clone() {
+            broadcast_topics.retain(|topic| *topic != ApiTopic::None);
+            config.broadcast_topics = broadcast_topics;
         }
 
-        if let Some(broadcast_topics) = validator_client_config.broadcast.as_ref() {
-            config.broadcast_topics = broadcast_topics
-                .iter()
-                .filter(|t| *t != "none")
-                .map(|t| {
-                    t.trim()
-                        .parse::<ApiTopic>()
-                        .map_err(|_| format!("Unknown API topic to broadcast: {t}"))
-                })
-                .collect::<Result<_, _>>()?;
-        }
+        /*
+         * Beacon node fallback
+         */
+        config.beacon_node_fallback.sync_tolerances = BeaconNodeSyncDistanceTiers::from_vec(
+            &validator_client_config.beacon_nodes_sync_tolerances,
+        )?;
 
         /*
          * Web3 signer
@@ -284,9 +278,11 @@ impl Config {
 
         config.http_api.enabled = validator_client_config.http;
 
-        if let Some(address) = validator_client_config.http_address {
+        if let Some(address) = &validator_client_config.http_address {
             if validator_client_config.unencrypted_http_transport {
-                config.http_api.listen_addr = address;
+                config.http_api.listen_addr = address
+                    .parse::<IpAddr>()
+                    .map_err(|_| "http-address is not a valid IP address.")?;
             } else {
                 return Err(
                     "While using `--http-address`, you must also use `--unencrypted-http-transport`."
@@ -316,7 +312,13 @@ impl Config {
         config.http_metrics.enabled = validator_client_config.metrics;
         config.enable_high_validator_count_metrics =
             validator_client_config.enable_high_validator_count_metrics;
-        config.http_metrics.listen_addr = validator_client_config.metrics_address;
+
+        if let Some(metrics_address) = &validator_client_config.metrics_address {
+            config.http_metrics.listen_addr = metrics_address
+                .parse::<IpAddr>()
+                .map_err(|_| "metrics-address is not a valid IP address.")?;
+        }
+
         config.http_metrics.listen_port = validator_client_config.metrics_port;
 
         if let Some(allow_origin) = validator_client_config.metrics_allow_origin.as_ref() {
@@ -348,16 +350,8 @@ impl Config {
         config.enable_doppelganger_protection =
             validator_client_config.enable_doppelganger_protection;
         config.builder_proposals = validator_client_config.builder_proposals;
-
-        if validator_client_config.produce_block_v3 {
-            warn!(
-                log,
-                "produce-block-v3 flag";
-                "note" => "deprecated flag has no effect and should be removed"
-            );
-        }
-
-        config.gas_limit = Some(validator_client_config.gas_limit);
+        config.prefer_builder_proposals = validator_client_config.prefer_builder_proposals;
+        config.gas_limit = validator_client_config.gas_limit;
 
         config.builder_registration_timestamp_override =
             validator_client_config.builder_registration_timestamp_override;
@@ -365,14 +359,6 @@ impl Config {
         config.builder_boost_factor = validator_client_config.builder_boost_factor;
         config.enable_latency_measurement_service =
             !validator_client_config.disable_latency_measurement_service;
-
-        if validator_client_config.latency_measurement_service {
-            warn!(
-                log,
-                "latency-measurement-service flag";
-                "note" => "deprecated flag has no effect and should be removed"
-            );
-        }
 
         config.validator_registration_batch_size =
             validator_client_config.validator_registration_batch_size;

@@ -5,7 +5,10 @@ use eth2::types::BlockId as CoreBlockId;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
-use types::{BlobSidecarList, EthSpec, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
+use types::{
+    BlobSidecarList, EthSpec, FixedBytesExtended, Hash256, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, Slot,
+};
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
 /// `BlockId`.
@@ -274,10 +277,27 @@ impl BlockId {
             warp_utils::reject::custom_not_found(format!("beacon block with root {}", root))
         })?;
 
+        // Error if the block is pre-Deneb and lacks blobs.
+        let blob_kzg_commitments = block.message().body().blob_kzg_commitments().map_err(|_| {
+            warp_utils::reject::custom_bad_request(
+                "block is pre-Deneb and has no blobs".to_string(),
+            )
+        })?;
+
         // Return the `BlobSidecarList` identified by `self`.
-        let blob_sidecar_list = chain
-            .get_blobs(&root)
-            .map_err(warp_utils::reject::beacon_chain_error)?;
+        let blob_sidecar_list = if !blob_kzg_commitments.is_empty() {
+            chain
+                .store
+                .get_blobs(&root)
+                .map_err(|e| warp_utils::reject::beacon_chain_error(e.into()))?
+                .ok_or_else(|| {
+                    warp_utils::reject::custom_not_found(format!(
+                        "no blobs stored for block {root}"
+                    ))
+                })?
+        } else {
+            BlobSidecarList::default()
+        };
 
         let blob_sidecar_list_filtered = match indices.indices {
             Some(vec) => {

@@ -8,7 +8,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::{fs, net::Ipv4Addr};
 use std::{fs::File, num::NonZeroU16};
-use types::{ChainSpec, EnrForkId, Epoch, EthSpec, Hash256};
+use types::{ChainSpec, EnrForkId, Epoch, EthSpec, FixedBytesExtended, Hash256};
 
 pub fn run<E: EthSpec>(matches: &ArgMatches, spec: &ChainSpec) -> Result<(), String> {
     let ip: Ipv4Addr = clap_utils::parse_required(matches, "ip")?;

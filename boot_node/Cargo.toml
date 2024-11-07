@@ -21,3 +21,4 @@ slog-scope = "4.3.0"
 hex = { workspace = true }
 serde = { workspace = true }
 eth2_network_config = { workspace = true }
+bytes = { workspace = true }

@@ -1,0 +1,11 @@
+[package]
+name = "fixed_bytes"
+version = "0.1.0"
+authors = ["Eitan Seri-Levi <eitan@sigmaprime.io>"]
+edition = { workspace = true }
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+alloy-primitives = { workspace = true }
+safe_arith = { workspace = true }

@@ -24,6 +24,7 @@ pub struct Withdrawal {
     pub index: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
+    #[serde(with = "serde_utils::address_hex")]
     pub address: Address,
     #[serde(with = "serde_utils::quoted_u64")]
     pub amount: u64,

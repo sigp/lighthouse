@@ -62,7 +62,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         state: &BeaconState<T::EthSpec>,
         notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<Self, BlockError<T::EthSpec>> {
+    ) -> Result<Self, BlockError> {
         let payload_verification_status = if is_execution_enabled(state, block.message().body()) {
             // Perform the initial stages of payload verification.
             //
@@ -110,9 +110,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         })
     }
 
-    pub async fn notify_new_payload(
-        self,
-    ) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
+    pub async fn notify_new_payload(self) -> Result<PayloadVerificationStatus, BlockError> {
         if let Some(precomputed_status) = self.payload_verification_status {
             Ok(precomputed_status)
         } else {
@@ -133,7 +131,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 async fn notify_new_payload<'a, T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block: BeaconBlockRef<'a, T::EthSpec>,
-) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
+) -> Result<PayloadVerificationStatus, BlockError> {
     let execution_layer = chain
         .execution_layer
         .as_ref()
@@ -237,7 +235,7 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block: BeaconBlockRef<'a, T::EthSpec>,
     allow_optimistic_import: AllowOptimisticImport,
-) -> Result<(), BlockError<T::EthSpec>> {
+) -> Result<(), BlockError> {
     let spec = &chain.spec;
     let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
     let execution_payload = block.execution_payload()?;
@@ -279,9 +277,7 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
         }
         .into()),
         None => {
-            if allow_optimistic_import == AllowOptimisticImport::Yes
-                && is_optimistic_candidate_block(chain, block.slot(), block.parent_root()).await?
-            {
+            if allow_optimistic_import == AllowOptimisticImport::Yes {
                 debug!(
                     chain.log,
                     "Optimistically importing merge transition block";
@@ -299,43 +295,13 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
     }
 }
 
-/// Check to see if a block with the given parameters is valid to be imported optimistically.
-pub async fn is_optimistic_candidate_block<T: BeaconChainTypes>(
-    chain: &Arc<BeaconChain<T>>,
-    block_slot: Slot,
-    block_parent_root: Hash256,
-) -> Result<bool, BeaconChainError> {
-    let current_slot = chain.slot()?;
-    let inner_chain = chain.clone();
-
-    // Use a blocking task to check if the block is an optimistic candidate. Interacting
-    // with the `fork_choice` lock in an async task can block the core executor.
-    chain
-        .spawn_blocking_handle(
-            move || {
-                inner_chain
-                    .canonical_head
-                    .fork_choice_read_lock()
-                    .is_optimistic_candidate_block(
-                        current_slot,
-                        block_slot,
-                        &block_parent_root,
-                        &inner_chain.spec,
-                    )
-            },
-            "validate_merge_block_optimistic_candidate",
-        )
-        .await?
-        .map_err(BeaconChainError::from)
-}
-
 /// Validate the gossip block's execution_payload according to the checks described here:
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/p2p-interface.md#beacon_block
 pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
     parent_block: &ProtoBlock,
     block: BeaconBlockRef<'_, T::EthSpec>,
     chain: &BeaconChain<T>,
-) -> Result<(), BlockError<T::EthSpec>> {
+) -> Result<(), BlockError> {
     // Only apply this validation if this is a Bellatrix beacon block.
     if let Ok(execution_payload) = block.body().execution_payload() {
         // This logic should match `is_execution_enabled`. We use only the execution block hash of
@@ -505,7 +471,7 @@ where
             return Ok(BlockProposalContentsType::Full(
                 BlockProposalContents::Payload {
                     payload: FullPayload::default_at_fork(fork)?,
-                    block_value: Uint256::zero(),
+                    block_value: Uint256::ZERO,
                 },
             ));
         }
@@ -523,7 +489,7 @@ where
             return Ok(BlockProposalContentsType::Full(
                 BlockProposalContents::Payload {
                     payload: FullPayload::default_at_fork(fork)?,
-                    block_value: Uint256::zero(),
+                    block_value: Uint256::ZERO,
                 },
             ));
         }

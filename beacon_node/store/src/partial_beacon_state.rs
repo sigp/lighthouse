@@ -323,7 +323,7 @@ impl<E: EthSpec> PartialBeaconState<E> {
 
     /// Prepare the partial state for storage in the KV database.
     pub fn as_kv_store_op(&self, state_root: Hash256) -> KeyValueStoreOp {
-        let db_key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
+        let db_key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_slice());
         KeyValueStoreOp::PutKeyValue(db_key, self.as_ssz_bytes())
     }
 

@@ -62,7 +62,7 @@ pub fn downgrade_from_v21<T: BeaconChainTypes>(
             message: format!("{e:?}"),
         })?;
 
-        let db_key = get_key_for_col(DBColumn::PubkeyCache.into(), key.as_bytes());
+        let db_key = get_key_for_col(DBColumn::PubkeyCache.into(), key.as_slice());
         ops.push(KeyValueStoreOp::PutKeyValue(
             db_key,
             pubkey_bytes.as_ssz_bytes(),

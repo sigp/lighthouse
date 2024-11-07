@@ -8,8 +8,8 @@ use crate::{InvalidationOperation, JustifiedBalances};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use types::{
-    AttestationShufflingId, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    MainnetEthSpec, Slot,
+    AttestationShufflingId, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, FixedBytesExtended,
+    Hash256, MainnetEthSpec, Slot,
 };
 
 pub use execution_status::*;

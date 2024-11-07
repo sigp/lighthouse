@@ -1,9 +1,9 @@
+use crate::ApiTopic;
+use clap::builder::ArgPredicate;
 pub use clap::{Arg, ArgAction, Args, Command, FromArgMatches, Parser};
 use clap_utils::get_color_style;
 use clap_utils::FLAG_HEADER;
 use serde::{Deserialize, Serialize};
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use types::Address;
 
@@ -21,17 +21,6 @@ use types::Address;
     display_order = 0,
 )]
 pub struct ValidatorClient {
-    #[clap(
-        long,
-        short = 'h',
-        global = true,
-        help = "Prints help information",
-        action = clap::ArgAction::HelpLong,
-        display_order = 0,
-        help_heading = FLAG_HEADER
-    )]
-    help: Option<bool>,
-
     #[clap(
         long,
         value_name = "NETWORK_ADDRESSES",
@@ -53,20 +42,6 @@ pub struct ValidatorClient {
     )]
     pub proposer_nodes: Option<Vec<String>>,
 
-    // TODO remove this flag in a future release
-    #[clap(
-        long,
-        value_name = "DISABLE_RUN_ON_ALL",
-        help = "DEPRECATED. Use --broadcast. \
-                By default, Lighthouse publishes attestation, sync committee subscriptions \
-                and proposer preparation messages to all beacon nodes provided in the \
-                `--beacon-nodes flag`. This option changes that behaviour such that these \
-                api calls only go out to the first available and synced beacon node.",
-        display_order = 0,
-        help_heading = FLAG_HEADER
-    )]
-    pub disable_run_on_all: bool,
-
     #[clap(
         long,
         value_name = "API_TOPICS",
@@ -77,10 +52,11 @@ pub struct ValidatorClient {
                 subscriptions only.",
         display_order = 0
     )]
-    pub broadcast: Option<Vec<String>>,
+    pub broadcast: Option<Vec<ApiTopic>>,
 
     #[clap(
         long,
+        alias = "validator-dir",
         value_name = "VALIDATORS_DIR",
         conflicts_with = "datadir",
         help = "The directory which contains the validator keystores, deposit data for \
@@ -175,14 +151,6 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
-        help = "This flag is deprecated and is no longer in use.",
-        display_order = 0,
-        help_heading = FLAG_HEADER
-    )]
-    pub produce_block_v3: bool,
-
-    #[clap(
-        long,
         help = "Enables functionality required for running the validator in a distributed validator cluster.",
         display_order = 0,
         help_heading = FLAG_HEADER
@@ -217,7 +185,7 @@ pub struct ValidatorClient {
                 transport-layer security like a HTTPS reverse-proxy or SSH tunnelling.",
         display_order = 0
     )]
-    pub http_address: Option<IpAddr>,
+    pub http_address: Option<String>,
 
     #[clap(
         long,
@@ -285,12 +253,11 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "ADDRESS",
-        default_value_t = IpAddr::V4(Ipv4Addr::LOCALHOST),
-        help = "Set the listen address for the Prometheus metrics HTTP server.",
+        default_value_if("metrics", ArgPredicate::IsPresent, "127.0.0.1"),
+        help = "Set the listen address for the Prometheus metrics HTTP server. [default: 127.0.0.1]",
         display_order = 0
-
     )]
-    pub metrics_address: IpAddr,
+    pub metrics_address: Option<String>,
 
     #[clap(
         long,
@@ -407,15 +374,6 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
-        value_name = "BOOLEAN",
-        help = "Disables the service that periodically attempts to measure latency to BNs.",
-        display_order = 0,
-        help_heading = FLAG_HEADER
-    )]
-    pub latency_measurement_service: bool,
-
-    #[clap(
-        long,
         value_name = "INTEGER",
         default_value_t = 500,
         help = "Defines the number of validators per \
@@ -444,6 +402,34 @@ pub struct ValidatorClient {
         help_heading = FLAG_HEADER
     )]
     pub prefer_builder_proposals: bool,
+
+    #[clap(
+        long,
+        help = "A comma-separated list of 3 values which sets the size of each sync distance range when \
+                determining the health of each connected beacon node. \
+                The first value determines the `Synced` range. \
+                If a connected beacon node is synced to within this number of slots it is considered 'Synced'. \
+                The second value determines the `Small` sync distance range. \
+                This range starts immediately after the `Synced` range. \
+                The third value determines the `Medium` sync distance range. \
+                This range starts immediately after the `Small` range. \
+                Any sync distance value beyond that is considered `Large`. \
+                For example, a value of `8,8,48` would have ranges like the following: \
+                `Synced`: 0..=8 \
+                `Small`: 9..=16 \
+                `Medium`: 17..=64 \
+                `Large`: 65.. \
+                These values are used to determine what ordering beacon node fallbacks are used in. \
+                Generally, `Synced` nodes are preferred over `Small` and so on. \
+                Nodes in the `Synced` range will tie-break based on their ordering in `--beacon-nodes`. \
+                This ensures the primary beacon node is prioritised.",
+        display_order = 0,
+        value_delimiter = ',',
+        default_value = "8,8,48",
+        help_heading = FLAG_HEADER,
+        value_name = "SYNC_TOLERANCES"
+    )]
+    pub beacon_nodes_sync_tolerances: Vec<u64>,
 
     #[clap(
         long,

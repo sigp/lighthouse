@@ -1,4 +1,6 @@
-use validator_client::{config::DEFAULT_WEB3SIGNER_KEEP_ALIVE, ApiTopic, Config};
+use validator_client::{
+    config::DEFAULT_WEB3SIGNER_KEEP_ALIVE, ApiTopic, BeaconNodeSyncDistanceTiers, Config,
+};
 
 use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
@@ -12,7 +14,7 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
-use types::Address;
+use types::{Address, Slot};
 
 /// Returns the `lighthouse validator_client` command.
 fn base_cmd() -> Command {
@@ -377,6 +379,13 @@ fn metrics_port_flag() {
         .with_config(|config| assert_eq!(config.http_metrics.listen_port, 9090));
 }
 #[test]
+fn metrics_port_flag_default() {
+    CommandLineTest::new()
+        .flag("metrics", None)
+        .run()
+        .with_config(|config| assert_eq!(config.http_metrics.listen_port, 5064));
+}
+#[test]
 fn metrics_allow_origin_flag() {
     CommandLineTest::new()
         .flag("metrics", None)
@@ -425,17 +434,10 @@ fn no_doppelganger_protection_flag() {
 }
 
 #[test]
-fn produce_block_v3_flag() {
-    // The flag is DEPRECATED but providing it should not trigger an error.
-    // We can delete this test when deleting the flag entirely.
-    CommandLineTest::new().flag("produce-block-v3", None).run();
-}
-
-#[test]
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
-        .with_config(|config| assert!(config.gas_limit.is_none()));
+        .with_config(|config| assert!(config.gas_limit == 30_000_000));
 }
 #[test]
 fn gas_limit_flag() {
@@ -443,7 +445,7 @@ fn gas_limit_flag() {
         .flag("gas-limit", Some("600"))
         .flag("builder-proposals", None)
         .run()
-        .with_config(|config| assert_eq!(config.gas_limit, Some(600)));
+        .with_config(|config| assert_eq!(config.gas_limit, 600));
 }
 #[test]
 fn no_builder_proposals_flag() {
@@ -513,24 +515,6 @@ fn monitoring_endpoint() {
 }
 
 #[test]
-fn disable_run_on_all_flag() {
-    CommandLineTest::new()
-        .flag("disable-run-on-all", None)
-        .run()
-        .with_config(|config| {
-            assert_eq!(config.broadcast_topics, vec![]);
-        });
-    // --broadcast flag takes precedence
-    CommandLineTest::new()
-        .flag("disable-run-on-all", None)
-        .flag("broadcast", Some("attestations"))
-        .run()
-        .with_config(|config| {
-            assert_eq!(config.broadcast_topics, vec![ApiTopic::Attestations]);
-        });
-}
-
-#[test]
 fn no_broadcast_flag() {
     CommandLineTest::new().run().with_config(|config| {
         assert_eq!(config.broadcast_topics, vec![ApiTopic::Subscriptions]);
@@ -555,7 +539,7 @@ fn broadcast_flag() {
         });
     // Other valid variants
     CommandLineTest::new()
-        .flag("broadcast", Some("blocks, subscriptions"))
+        .flag("broadcast", Some("blocks,subscriptions"))
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -572,8 +556,35 @@ fn broadcast_flag() {
         });
 }
 
+/// Tests for validator fallback flags.
 #[test]
-#[should_panic(expected = "Unknown API topic")]
+fn beacon_nodes_sync_tolerances_flag_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(
+            config.beacon_node_fallback.sync_tolerances,
+            BeaconNodeSyncDistanceTiers::default()
+        )
+    });
+}
+#[test]
+fn beacon_nodes_sync_tolerances_flag() {
+    CommandLineTest::new()
+        .flag("beacon-nodes-sync-tolerances", Some("4,4,4"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.beacon_node_fallback.sync_tolerances,
+                BeaconNodeSyncDistanceTiers {
+                    synced: Slot::new(4),
+                    small: Slot::new(8),
+                    medium: Slot::new(12),
+                }
+            );
+        });
+}
+
+#[test]
+#[should_panic(expected = "invalid value")]
 fn wrong_broadcast_flag() {
     CommandLineTest::new()
         .flag("broadcast", Some("foo, subscriptions"))
@@ -593,16 +604,6 @@ fn disable_latency_measurement_service() {
         .run()
         .with_config(|config| {
             assert!(!config.enable_latency_measurement_service);
-        });
-}
-#[test]
-fn latency_measurement_service() {
-    // This flag is DEPRECATED so has no effect, but should still be accepted.
-    CommandLineTest::new()
-        .flag("latency-measurement-service", None)
-        .run()
-        .with_config(|config| {
-            assert!(config.enable_latency_measurement_service);
         });
 }
 

@@ -456,11 +456,10 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         Self::verify_slashable(signed_aggregate, chain)
-            .map(|verified_aggregate| {
+            .inspect(|verified_aggregate| {
                 if let Some(slasher) = chain.slasher.as_ref() {
                     slasher.accept_attestation(verified_aggregate.indexed_attestation.clone());
                 }
-                verified_aggregate
             })
             .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
@@ -892,11 +891,10 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, Error> {
         Self::verify_slashable(attestation.to_ref(), subnet_id, chain)
-            .map(|verified_unaggregated| {
+            .inspect(|verified_unaggregated| {
                 if let Some(slasher) = chain.slasher.as_ref() {
                     slasher.accept_attestation(verified_unaggregated.indexed_attestation.clone());
                 }
-                verified_unaggregated
             })
             .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
@@ -1146,13 +1144,14 @@ pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
 
     let current_fork =
         spec.fork_name_at_slot::<E>(slot_clock.now().ok_or(BeaconChainError::UnableToReadSlot)?);
-    let earliest_permissible_slot = if !current_fork.deneb_enabled() {
-        one_epoch_prior
-    // EIP-7045
-    } else {
+
+    let earliest_permissible_slot = if current_fork.deneb_enabled() {
+        // EIP-7045
         one_epoch_prior
             .epoch(E::slots_per_epoch())
             .start_slot(E::slots_per_epoch())
+    } else {
+        one_epoch_prior
     };
 
     if attestation_slot < earliest_permissible_slot {

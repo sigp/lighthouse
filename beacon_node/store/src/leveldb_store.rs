@@ -98,14 +98,13 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
             .get(self.read_options(), BytesKey::from_vec(column_key))
             .map_err(Into::into)
             .map(|opt| {
-                opt.map(|bytes| {
+                opt.inspect(|bytes| {
                     metrics::inc_counter_vec_by(
                         &metrics::DISK_DB_READ_BYTES,
                         &[col],
                         bytes.len() as u64,
                     );
                     metrics::stop_timer(timer);
-                    bytes
                 })
             })
     }

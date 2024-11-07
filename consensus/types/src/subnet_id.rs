@@ -1,5 +1,6 @@
 //! Identifies each shard by an integer identifier.
 use crate::{AttestationRef, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
+use alloy_primitives::{bytes::Buf, U256};
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
@@ -77,7 +78,7 @@ impl SubnetId {
     /// along with the first epoch in which these subscriptions are no longer valid.
     #[allow(clippy::arithmetic_side_effects)]
     pub fn compute_subnets_for_epoch<E: EthSpec>(
-        node_id: ethereum_types::U256,
+        raw_node_id: [u8; 32],
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<(impl Iterator<Item = SubnetId>, Epoch), &'static str> {
@@ -85,10 +86,13 @@ impl SubnetId {
         let subscription_duration = spec.epochs_per_subnet_subscription;
         let prefix_bits = spec.attestation_subnet_prefix_bits as u64;
         let shuffling_prefix_bits = spec.attestation_subnet_shuffling_prefix_bits as u64;
+        let node_id = U256::from_be_slice(&raw_node_id);
 
         // calculate the prefixes used to compute the subnet and shuffling
-        let node_id_prefix = (node_id >> (256 - prefix_bits)).as_u64();
-        let shuffling_prefix = (node_id >> (256 - (prefix_bits + shuffling_prefix_bits))).as_u64();
+        let node_id_prefix = (node_id >> (256 - prefix_bits)).as_le_slice().get_u64_le();
+        let shuffling_prefix = (node_id >> (256 - (prefix_bits + shuffling_prefix_bits)))
+            .as_le_slice()
+            .get_u64_le();
 
         // number of groups the shuffling creates
         let shuffling_groups = 1 << shuffling_prefix_bits;
@@ -170,6 +174,8 @@ impl AsRef<str> for SubnetId {
 
 #[cfg(test)]
 mod tests {
+    use crate::Uint256;
+
     use super::*;
 
     /// A set of tests compared to the python specification
@@ -188,7 +194,7 @@ mod tests {
             "60930578857433095740782970114409273483106482059893286066493409689627770333527",
             "103822458477361691467064888613019442068586830412598673713899771287914656699997",
         ]
-        .map(|v| ethereum_types::U256::from_dec_str(v).unwrap());
+        .map(|v| Uint256::from_str_radix(v, 10).unwrap().to_be_bytes::<32>());
 
         let epochs = [
             54321u64, 1017090249, 1827566880, 846255942, 766597383, 1204990115, 1616209495,
@@ -222,7 +228,7 @@ mod tests {
         for x in 0..node_ids.len() {
             println!("Test: {}", x);
             println!(
-                "NodeId: {}\n Epoch: {}\n, expected_update_time: {}\n, expected_subnets: {:?}",
+                "NodeId: {:?}\n Epoch: {}\n, expected_update_time: {}\n, expected_subnets: {:?}",
                 node_ids[x], epochs[x], expected_valid_time[x], expected_subnets[x]
             );
 

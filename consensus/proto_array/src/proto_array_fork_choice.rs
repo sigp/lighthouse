@@ -15,8 +15,8 @@ use std::{
     fmt,
 };
 use types::{
-    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    Slot,
+    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
+    FixedBytesExtended, Hash256, Slot,
 };
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
@@ -993,7 +993,7 @@ fn compute_deltas(
 #[cfg(test)]
 mod test_compute_deltas {
     use super::*;
-    use types::MainnetEthSpec;
+    use types::{FixedBytesExtended, MainnetEthSpec};
 
     /// Gives a hash that is not the zero hash (unless i is `usize::MAX)`.
     fn hash_from_index(i: usize) -> Hash256 {

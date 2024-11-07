@@ -19,8 +19,8 @@ use types::{
     beacon_state::{
         compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
     },
-    BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, RelativeEpoch,
-    Slot,
+    BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, FixedBytesExtended,
+    Hash256, RelativeEpoch, Slot,
 };
 
 type JustifiedCheckpoint = Checkpoint;

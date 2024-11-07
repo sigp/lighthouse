@@ -45,7 +45,7 @@ impl Buf {
 
     /// Hash the entire buffer.
     fn hash(&self) -> Hash256 {
-        Hash256::from_slice(&hash_fixed(&self.0))
+        Hash256::from(hash_fixed(&self.0))
     }
 }
 

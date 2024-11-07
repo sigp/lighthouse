@@ -3,8 +3,8 @@ use crate::test_utils::*;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::{
     test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateError,
-    ChainSpec, Domain, Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec,
-    RelativeEpoch, Slot, Vector,
+    ChainSpec, Domain, Epoch, EthSpec, FixedBytesExtended, Hash256, Keypair, MainnetEthSpec,
+    MinimalEthSpec, RelativeEpoch, Slot, Vector,
 };
 use ssz::Encode;
 use std::ops::Mul;
