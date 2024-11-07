@@ -18,5 +18,3 @@ validator_services = { workspace = true }
 validator_store = { workspace = true }
 validator_metrics = { workspace = true }
 types = { workspace = true }
-
-[dev-dependencies]
