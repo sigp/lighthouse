@@ -10,5 +10,3 @@ path = "src/lib.rs"
 
 [dependencies]
 metrics = { workspace = true }
-
-[dev-dependencies]
