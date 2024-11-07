@@ -307,3 +307,31 @@ impl<E: EthSpec> ForkVersionDeserialize for LightClientHeader<E> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    // `ssz_tests!` can only be defined once per namespace
+    #[cfg(test)]
+    mod altair {
+        use crate::{LightClientHeaderAltair, MainnetEthSpec};
+        ssz_tests!(LightClientHeaderAltair<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod capella {
+        use crate::{LightClientHeaderCapella, MainnetEthSpec};
+        ssz_tests!(LightClientHeaderCapella<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod deneb {
+        use crate::{LightClientHeaderDeneb, MainnetEthSpec};
+        ssz_tests!(LightClientHeaderDeneb<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod electra {
+        use crate::{LightClientHeaderElectra, MainnetEthSpec};
+        ssz_tests!(LightClientHeaderElectra<MainnetEthSpec>);
+    }
+}
