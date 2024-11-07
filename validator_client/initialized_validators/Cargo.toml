@@ -24,6 +24,3 @@ tokio = { workspace = true }
 bincode = { workspace = true }
 filesystem = { workspace = true }
 validator_metrics = { workspace = true }
-
-
-[dev-dependencies]
