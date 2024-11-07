@@ -52,9 +52,11 @@ pub struct ExecutionBlockHeader {
     pub blob_gas_used: Option<u64>,
     pub excess_blob_gas: Option<u64>,
     pub parent_beacon_block_root: Option<Hash256>,
+    pub requests_root: Option<Hash256>,
 }
 
 impl ExecutionBlockHeader {
+    #[allow(clippy::too_many_arguments)]
     pub fn from_payload<E: EthSpec>(
         payload: ExecutionPayloadRef<E>,
         rlp_empty_list_root: Hash256,
@@ -63,6 +65,7 @@ impl ExecutionBlockHeader {
         rlp_blob_gas_used: Option<u64>,
         rlp_excess_blob_gas: Option<u64>,
         rlp_parent_beacon_block_root: Option<Hash256>,
+        rlp_requests_root: Option<Hash256>,
     ) -> Self {
         // Most of these field mappings are defined in EIP-3675 except for `mixHash`, which is
         // defined in EIP-4399.
@@ -87,6 +90,7 @@ impl ExecutionBlockHeader {
             blob_gas_used: rlp_blob_gas_used,
             excess_blob_gas: rlp_excess_blob_gas,
             parent_beacon_block_root: rlp_parent_beacon_block_root,
+            requests_root: rlp_requests_root,
         }
     }
 }
@@ -114,6 +118,7 @@ pub struct EncodableExecutionBlockHeader<'a> {
     pub blob_gas_used: Option<u64>,
     pub excess_blob_gas: Option<u64>,
     pub parent_beacon_block_root: Option<&'a [u8]>,
+    pub requests_root: Option<&'a [u8]>,
 }
 
 impl<'a> From<&'a ExecutionBlockHeader> for EncodableExecutionBlockHeader<'a> {
@@ -139,12 +144,16 @@ impl<'a> From<&'a ExecutionBlockHeader> for EncodableExecutionBlockHeader<'a> {
             blob_gas_used: header.blob_gas_used,
             excess_blob_gas: header.excess_blob_gas,
             parent_beacon_block_root: None,
+            requests_root: None,
         };
         if let Some(withdrawals_root) = &header.withdrawals_root {
             encodable.withdrawals_root = Some(withdrawals_root.as_slice());
         }
         if let Some(parent_beacon_block_root) = &header.parent_beacon_block_root {
             encodable.parent_beacon_block_root = Some(parent_beacon_block_root.as_slice())
+        }
+        if let Some(requests_root) = &header.requests_root {
+            encodable.requests_root = Some(requests_root.as_slice())
         }
         encodable
     }

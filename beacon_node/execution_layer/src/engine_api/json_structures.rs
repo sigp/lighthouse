@@ -6,7 +6,9 @@ use strum::EnumString;
 use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobsList;
-use types::execution_requests::{ConsolidationRequests, DepositRequests, WithdrawalRequests};
+use types::execution_requests::{
+    ConsolidationRequests, DepositRequests, RequestPrefix, WithdrawalRequests,
+};
 use types::{FixedVector, Unsigned};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -335,25 +337,6 @@ impl<E: EthSpec> From<JsonExecutionPayload<E>> for ExecutionPayload<E> {
             JsonExecutionPayload::V2(payload) => ExecutionPayload::Capella(payload.into()),
             JsonExecutionPayload::V3(payload) => ExecutionPayload::Deneb(payload.into()),
             JsonExecutionPayload::V4(payload) => ExecutionPayload::Electra(payload.into()),
-        }
-    }
-}
-
-/// This is used to index into the `execution_requests` array.
-#[derive(Debug, Copy, Clone)]
-enum RequestPrefix {
-    Deposit,
-    Withdrawal,
-    Consolidation,
-}
-
-impl RequestPrefix {
-    pub fn from_prefix(prefix: u8) -> Option<Self> {
-        match prefix {
-            0 => Some(Self::Deposit),
-            1 => Some(Self::Withdrawal),
-            2 => Some(Self::Consolidation),
-            _ => None,
         }
     }
 }

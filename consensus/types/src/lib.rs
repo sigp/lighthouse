@@ -170,7 +170,7 @@ pub use crate::execution_payload_header::{
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderRef,
     ExecutionPayloadHeaderRefMut,
 };
-pub use crate::execution_requests::ExecutionRequests;
+pub use crate::execution_requests::{ExecutionRequests, RequestPrefix};
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
 pub use crate::fork_data::ForkData;
