@@ -9,6 +9,7 @@ use std::cmp::Ordering;
 use std::io::{Read, Write};
 use std::ops::RangeInclusive;
 use std::str::FromStr;
+use superstruct::superstruct;
 use types::historical_summary::HistoricalSummary;
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, List, Slot, Validator};
 use zstd::{Decoder, Encoder};
@@ -104,7 +105,9 @@ pub struct HDiffBuffer {
 ///   this strategy the HDiff code is easily mantainable across forks, as new fields are covered
 ///   automatically. xdelta3 algorithm showed diff compute and apply times of ~200 ms on a mainnet
 ///   state from Apr 2023 (570k indexes), and a 92kB diff size.
+#[superstruct(variants(V0), variant_attributes(derive(Debug, Encode, Decode)))]
 #[derive(Debug, Encode, Decode)]
+#[ssz(enum_behaviour = "union")]
 pub struct HDiff {
     state_diff: BytesDiff,
     balances_diff: CompressedU64Diff,
@@ -241,25 +244,26 @@ impl HDiff {
         let historical_summaries =
             AppendOnlyDiff::compute(&source.historical_summaries, &target.historical_summaries)?;
 
-        Ok(Self {
+        Ok(HDiff::V0(HDiffV0 {
             state_diff,
             balances_diff,
             inactivity_scores_diff,
             validators_diff,
             historical_roots,
             historical_summaries,
-        })
+        }))
     }
 
     pub fn apply(&self, source: &mut HDiffBuffer, config: &StoreConfig) -> Result<(), Error> {
         let source_state = std::mem::take(&mut source.state);
-        self.state_diff.apply(&source_state, &mut source.state)?;
-        self.balances_diff.apply(&mut source.balances, config)?;
-        self.inactivity_scores_diff
+        self.state_diff().apply(&source_state, &mut source.state)?;
+        self.balances_diff().apply(&mut source.balances, config)?;
+        self.inactivity_scores_diff()
             .apply(&mut source.inactivity_scores, config)?;
-        self.validators_diff.apply(&mut source.validators, config)?;
-        self.historical_roots.apply(&mut source.historical_roots);
-        self.historical_summaries
+        self.validators_diff()
+            .apply(&mut source.validators, config)?;
+        self.historical_roots().apply(&mut source.historical_roots);
+        self.historical_summaries()
             .apply(&mut source.historical_summaries);
 
         Ok(())
@@ -272,12 +276,12 @@ impl HDiff {
 
     pub fn sizes(&self) -> Vec<usize> {
         vec![
-            self.state_diff.size(),
-            self.balances_diff.size(),
-            self.inactivity_scores_diff.size(),
-            self.validators_diff.size(),
-            self.historical_roots.size(),
-            self.historical_summaries.size(),
+            self.state_diff().size(),
+            self.balances_diff().size(),
+            self.inactivity_scores_diff().size(),
+            self.validators_diff().size(),
+            self.historical_roots().size(),
+            self.historical_summaries().size(),
         ]
     }
 }
