@@ -1,5 +1,5 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
-use doppelganger_service::{DoppelgangerValidatorStore, DoppelgangerService, DoppelgangerStatus};
+use doppelganger_service::{DoppelgangerService, DoppelgangerStatus, DoppelgangerValidatorStore};
 use initialized_validators::InitializedValidators;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
