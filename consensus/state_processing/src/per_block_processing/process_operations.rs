@@ -377,7 +377,7 @@ pub fn process_deposits<E: EthSpec>(
     if state.eth1_deposit_index() < eth1_deposit_index_limit {
         let expected_deposit_len = std::cmp::min(
             E::MaxDeposits::to_u64(),
-            state.get_outstanding_deposit_len()?,
+            eth1_deposit_index_limit.safe_sub(state.eth1_deposit_index())?,
         );
         block_verify!(
             deposits.len() as u64 == expected_deposit_len,

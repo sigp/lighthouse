@@ -1783,19 +1783,6 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
-    /// Get the number of outstanding deposits.
-    ///
-    /// Returns `Err` if the state is invalid.
-    pub fn get_outstanding_deposit_len(&self) -> Result<u64, Error> {
-        self.eth1_data()
-            .deposit_count
-            .checked_sub(self.eth1_deposit_index())
-            .ok_or(Error::InvalidDepositState {
-                deposit_count: self.eth1_data().deposit_count,
-                deposit_index: self.eth1_deposit_index(),
-            })
-    }
-
     /// Build all caches (except the tree hash cache), if they need to be built.
     pub fn build_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_all_committee_caches(spec)?;
