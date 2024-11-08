@@ -1,6 +1,6 @@
-use crate::ApiTopic;
+use beacon_node_fallback::ApiTopic;
 use clap::builder::ArgPredicate;
-pub use clap::{Arg, ArgAction, Args, Command, FromArgMatches, Parser};
+pub use clap::{FromArgMatches, Parser};
 use clap_utils::get_color_style;
 use clap_utils::FLAG_HEADER;
 use serde::{Deserialize, Serialize};
