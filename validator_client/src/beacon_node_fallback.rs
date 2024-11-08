@@ -755,6 +755,13 @@ mod tests {
 
     type E = MainnetEthSpec;
 
+    async fn new_mock_beacon_node(index: usize) -> (MockBeaconNode<E>, CandidateBeaconNode<E>) {
+        let mock_beacon_node = MockBeaconNode::<E>::new().await;
+        let beacon_node =
+            CandidateBeaconNode::<E>::new(mock_beacon_node.beacon_api_client.clone(), index);
+        return (mock_beacon_node, beacon_node);
+    }
+
     #[test]
     fn api_topic_all() {
         let all = ApiTopic::all();
@@ -879,24 +886,18 @@ mod tests {
     #[tokio::test]
     async fn update_all_candidates_should_update_sync_status() {
         let spec = Arc::new(MainnetEthSpec::default_spec());
-        let mut mock_beacon_node_one = MockBeaconNode::<E>::new().await;
-        let mut mock_beacon_node_two = MockBeaconNode::<E>::new().await;
-        let mut mock_beacon_node_three = MockBeaconNode::<E>::new().await;
 
-        let beacon_node_one =
-            CandidateBeaconNode::<E>::new(mock_beacon_node_one.beacon_api_client.clone(), 0);
-        let beacon_node_two =
-            CandidateBeaconNode::<E>::new(mock_beacon_node_two.beacon_api_client.clone(), 1);
-        let beacon_node_three =
-            CandidateBeaconNode::<E>::new(mock_beacon_node_three.beacon_api_client.clone(), 2);
+        let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0).await;
+        let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1).await;
+        let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2).await;
 
         let mut beacon_node_fallback: BeaconNodeFallback<TestingSlotClock, E> =
             BeaconNodeFallback::new(
                 // Put this out of order to be sorted later
                 vec![
-                    beacon_node_two.clone(),
-                    beacon_node_three.clone(),
-                    beacon_node_one.clone(),
+                    beacon_node_2.clone(),
+                    beacon_node_3.clone(),
+                    beacon_node_1.clone(),
                 ],
                 Config::default(),
                 vec![],
@@ -910,12 +911,12 @@ mod tests {
             Duration::from_secs(12),
         ));
 
-        mock_beacon_node_one.mock_config_spec(&spec);
-        mock_beacon_node_two.mock_config_spec(&spec);
-        mock_beacon_node_three.mock_config_spec(&spec);
+        mock_beacon_node_1.mock_config_spec(&spec);
+        mock_beacon_node_2.mock_config_spec(&spec);
+        mock_beacon_node_3.mock_config_spec(&spec);
 
         // BeaconNodeHealthTier 1
-        mock_beacon_node_one.mock_get_node_syncing(eth2::types::SyncingData {
+        mock_beacon_node_1.mock_get_node_syncing(eth2::types::SyncingData {
             is_syncing: false,
             is_optimistic: false,
             el_offline: false,
@@ -923,7 +924,7 @@ mod tests {
             sync_distance: Slot::new(0),
         });
         // BeaconNodeHealthTier 3
-        mock_beacon_node_two.mock_get_node_syncing(eth2::types::SyncingData {
+        mock_beacon_node_2.mock_get_node_syncing(eth2::types::SyncingData {
             is_syncing: false,
             is_optimistic: false,
             el_offline: true,
@@ -931,7 +932,7 @@ mod tests {
             sync_distance: Slot::new(0),
         });
         // BeaconNodeHealthTier 5
-        mock_beacon_node_three.mock_get_node_syncing(eth2::types::SyncingData {
+        mock_beacon_node_3.mock_get_node_syncing(eth2::types::SyncingData {
             is_syncing: false,
             is_optimistic: true,
             el_offline: false,
@@ -943,7 +944,7 @@ mod tests {
 
         let candidates = beacon_node_fallback.candidates.read().await;
         assert_eq!(
-            vec![beacon_node_one, beacon_node_two, beacon_node_three],
+            vec![beacon_node_1, beacon_node_2, beacon_node_3],
             *candidates
         );
     }
@@ -951,16 +952,11 @@ mod tests {
     #[tokio::test]
     async fn broadcast_should_send_to_all_bns() {
         let test_rig = ValidatorTestRig::new().await;
-        let mut mock_beacon_node_one = MockBeaconNode::<E>::new().await;
-        let mut mock_beacon_node_two = MockBeaconNode::<E>::new().await;
-
-        let beacon_node_one =
-            CandidateBeaconNode::new(mock_beacon_node_one.beacon_api_client.clone(), 0);
-        let beacon_node_two =
-            CandidateBeaconNode::new(mock_beacon_node_two.beacon_api_client.clone(), 1);
+        let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0).await;
+        let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1).await;
 
         let mut beacon_node_fallback = BeaconNodeFallback::new(
-            vec![beacon_node_one, beacon_node_two],
+            vec![beacon_node_1, beacon_node_2],
             Config::default(),
             vec![ApiTopic::Blocks], // to broadcast blocks to both bns
             test_rig.spec.clone(),
@@ -973,11 +969,11 @@ mod tests {
             Duration::from_secs(12),
         ));
 
-        mock_beacon_node_one.mock_config_spec(&test_rig.spec);
-        mock_beacon_node_two.mock_config_spec(&test_rig.spec);
+        mock_beacon_node_1.mock_config_spec(&test_rig.spec);
+        mock_beacon_node_2.mock_config_spec(&test_rig.spec);
 
-        let mock1 = mock_beacon_node_one.mock_post_beacon_blinded_blocks_v2(Duration::from_secs(0));
-        let mock2 = mock_beacon_node_two.mock_post_beacon_blinded_blocks_v2(Duration::from_secs(0));
+        let mock1 = mock_beacon_node_1.mock_post_beacon_blinded_blocks_v2(Duration::from_secs(0));
+        let mock2 = mock_beacon_node_2.mock_post_beacon_blinded_blocks_v2(Duration::from_secs(0));
 
         let beacon_node_fallback = Arc::new(beacon_node_fallback);
         let block_service: BlockService<TestingSlotClock, MainnetEthSpec> =
@@ -1012,10 +1008,10 @@ mod tests {
         mock1.expect(1).assert();
         mock2.expect(1).assert();
 
-        let received_blocks_one = mock_beacon_node_one.received_blocks.lock().unwrap();
-        let received_blocks_two = mock_beacon_node_two.received_blocks.lock().unwrap();
+        let received_blocks_from_bn_1 = mock_beacon_node_1.received_blocks.lock().unwrap();
+        let received_blocks_from_bn_2 = mock_beacon_node_2.received_blocks.lock().unwrap();
 
-        assert_eq!(received_blocks_one.len(), 1);
-        assert_eq!(received_blocks_two.len(), 1);
+        assert_eq!(received_blocks_from_bn_1.len(), 1);
+        assert_eq!(received_blocks_from_bn_2.len(), 1);
     }
 }
