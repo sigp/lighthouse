@@ -1,7 +1,7 @@
 [package]
 name = "validator_client"
 version = "0.3.5"
-authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>", "Luke Anderson <luke@lukeanderson.com.au>"]
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
 [lib]
@@ -12,52 +12,32 @@ path = "src/lib.rs"
 tokio = { workspace = true }
 
 [dependencies]
-tree_hash = { workspace = true }
-clap = { workspace = true }
-slashing_protection = { workspace = true }
-slot_clock = { workspace = true }
-types = { workspace = true }
-safe_arith = { workspace = true }
-serde = { workspace = true }
-bincode = { workspace = true }
-serde_json = { workspace = true }
-slog = { workspace = true }
-tokio = { workspace = true }
-tokio-stream = { workspace = true }
-futures = { workspace = true }
-dirs = { workspace = true }
-directory = { workspace = true }
-lockfile = { workspace = true }
-environment = { workspace = true }
-parking_lot = { workspace = true }
-filesystem = { workspace = true }
-hex = { workspace = true }
-deposit_contract = { workspace = true }
-bls = { workspace = true }
-eth2 = { workspace = true }
-tempfile = { workspace = true }
-validator_dir = { workspace = true }
-clap_utils = { workspace = true }
-eth2_keystore = { workspace = true }
 account_utils = { workspace = true }
-lighthouse_version = { workspace = true }
-warp_utils = { workspace = true }
-warp = { workspace = true }
+beacon_node_fallback = { workspace = true }
+clap = { workspace = true }
+clap_utils = { workspace = true }
+directory = { workspace = true }
+doppelganger_service = { workspace = true }
+dirs = { workspace = true }
+eth2 = { workspace = true }
+environment = { workspace = true }
+graffiti_file = { workspace = true }
 hyper = { workspace = true }
-ethereum_serde_utils = { workspace = true }
-libsecp256k1 = { workspace = true }
-ring = { workspace = true }
-rand = { workspace = true, features = ["small_rng"] }
+initialized_validators = { workspace = true }
 metrics = { workspace = true }
 monitoring_api = { workspace = true }
+parking_lot = { workspace = true }
+reqwest = { workspace = true }
 sensitive_url = { workspace = true }
-task_executor = { workspace = true }
-reqwest = { workspace = true, features = ["native-tls"] }
-url = { workspace = true }
-malloc_utils = { workspace = true }
-sysinfo = { workspace = true }
-system_health = { path = "../common/system_health" }
-logging = { workspace = true }
-strum = { workspace = true }
-itertools = { workspace = true }
+slashing_protection = { workspace = true }
+serde = { workspace = true }
+slog = { workspace = true }
+slot_clock = { workspace = true }
+types  = { workspace = true }
+validator_http_api = { workspace = true }
+validator_http_metrics = { workspace = true }
+validator_metrics = { workspace = true }
+validator_services = { workspace = true }
+validator_store = { workspace = true }
+tokio = { workspace = true }
 fdlimit = "0.3.0"

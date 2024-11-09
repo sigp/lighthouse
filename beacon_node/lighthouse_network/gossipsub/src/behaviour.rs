@@ -776,6 +776,11 @@ where
             return Err(PublishError::AllQueuesFull(recipient_peers.len()));
         }
 
+        // Broadcast IDONTWANT messages
+        if raw_message.raw_protobuf_len() > self.config.idontwant_message_size_threshold() {
+            self.send_idontwant(&raw_message, &msg_id, raw_message.source.as_ref());
+        }
+
         tracing::debug!(message=%msg_id, "Published message");
 
         if let Some(metrics) = self.metrics.as_mut() {
@@ -1830,7 +1835,7 @@ where
 
         // Broadcast IDONTWANT messages
         if raw_message.raw_protobuf_len() > self.config.idontwant_message_size_threshold() {
-            self.send_idontwant(&raw_message, &msg_id, propagation_source);
+            self.send_idontwant(&raw_message, &msg_id, Some(propagation_source));
         }
 
         tracing::debug!(
@@ -2702,7 +2707,7 @@ where
         &mut self,
         message: &RawMessage,
         msg_id: &MessageId,
-        propagation_source: &PeerId,
+        propagation_source: Option<&PeerId>,
     ) {
         let Some(mesh_peers) = self.mesh.get(&message.topic) else {
             return;
@@ -2713,8 +2718,8 @@ where
         let recipient_peers = mesh_peers
             .iter()
             .chain(iwant_peers.iter())
-            .filter(|peer_id| {
-                *peer_id != propagation_source && Some(*peer_id) != message.source.as_ref()
+            .filter(|&peer_id| {
+                Some(peer_id) != propagation_source && Some(peer_id) != message.source.as_ref()
             });
 
         for peer_id in recipient_peers {
