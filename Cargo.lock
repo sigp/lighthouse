@@ -858,6 +858,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "beacon_node_fallback"
+version = "0.1.0"
+dependencies = [
+ "environment",
+ "eth2",
+ "futures",
+ "itertools 0.10.5",
+ "serde",
+ "slog",
+ "slot_clock",
+ "strum",
+ "tokio",
+ "types",
+ "validator_metrics",
+]
+
+[[package]]
 name = "beacon_processor"
 version = "0.1.0"
 dependencies = [
@@ -2209,6 +2226,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "doppelganger_service"
+version = "0.1.0"
+dependencies = [
+ "beacon_node_fallback",
+ "environment",
+ "eth2",
+ "futures",
+ "logging",
+ "parking_lot 0.12.3",
+ "slog",
+ "slot_clock",
+ "task_executor",
+ "tokio",
+ "types",
+]
+
+[[package]]
 name = "dsl_auto_type"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3499,6 +3533,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "graffiti_file"
+version = "0.1.0"
+dependencies = [
+ "bls",
+ "hex",
+ "serde",
+ "slog",
+ "tempfile",
+ "types",
+]
+
+[[package]]
 name = "group"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4198,6 +4244,31 @@ checksum = "68b900aa2f7301e21c36462b170ee99994de34dff39a4a6a528e80e7376d07e5"
 dependencies = [
  "equivalent",
  "hashbrown 0.14.5",
+]
+
+[[package]]
+name = "initialized_validators"
+version = "0.1.0"
+dependencies = [
+ "account_utils",
+ "bincode",
+ "bls",
+ "eth2_keystore",
+ "filesystem",
+ "lockfile",
+ "metrics",
+ "parking_lot 0.12.3",
+ "rand",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "signing_method",
+ "slog",
+ "tokio",
+ "types",
+ "url",
+ "validator_dir",
+ "validator_metrics",
 ]
 
 [[package]]
@@ -5019,6 +5090,7 @@ dependencies = [
  "account_manager",
  "account_utils",
  "beacon_node",
+ "beacon_node_fallback",
  "beacon_processor",
  "bls",
  "boot_node",
@@ -5032,6 +5104,7 @@ dependencies = [
  "eth2_network_config",
  "ethereum_hashing",
  "futures",
+ "initialized_validators",
  "lighthouse_network",
  "lighthouse_version",
  "logging",
@@ -5697,6 +5770,7 @@ name = "node_test_rig"
 version = "0.2.0"
 dependencies = [
  "beacon_node",
+ "beacon_node_fallback",
  "environment",
  "eth2",
  "execution_layer",
@@ -7713,6 +7787,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "signing_method"
+version = "0.1.0"
+dependencies = [
+ "eth2_keystore",
+ "ethereum_serde_utils",
+ "lockfile",
+ "parking_lot 0.12.3",
+ "reqwest",
+ "serde",
+ "task_executor",
+ "types",
+ "url",
+ "validator_metrics",
+]
+
+[[package]]
 name = "simple_asn1"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9147,54 +9237,34 @@ name = "validator_client"
 version = "0.3.5"
 dependencies = [
  "account_utils",
- "bincode",
- "bls",
+ "beacon_node_fallback",
  "clap",
  "clap_utils",
- "deposit_contract",
  "directory",
  "dirs",
+ "doppelganger_service",
  "environment",
  "eth2",
- "eth2_keystore",
- "ethereum_serde_utils",
  "fdlimit",
- "filesystem",
- "futures",
- "hex",
+ "graffiti_file",
  "hyper 1.4.1",
- "itertools 0.10.5",
- "libsecp256k1",
- "lighthouse_version",
- "lockfile",
- "logging",
- "malloc_utils",
+ "initialized_validators",
  "metrics",
  "monitoring_api",
  "parking_lot 0.12.3",
- "rand",
  "reqwest",
- "ring 0.16.20",
- "safe_arith",
  "sensitive_url",
  "serde",
- "serde_json",
  "slashing_protection",
  "slog",
  "slot_clock",
- "strum",
- "sysinfo",
- "system_health",
- "task_executor",
- "tempfile",
  "tokio",
- "tokio-stream",
- "tree_hash",
  "types",
- "url",
- "validator_dir",
- "warp",
- "warp_utils",
+ "validator_http_api",
+ "validator_http_metrics",
+ "validator_metrics",
+ "validator_services",
+ "validator_store",
 ]
 
 [[package]]
@@ -9213,6 +9283,67 @@ dependencies = [
  "tempfile",
  "tree_hash",
  "types",
+]
+
+[[package]]
+name = "validator_http_api"
+version = "0.1.0"
+dependencies = [
+ "account_utils",
+ "beacon_node_fallback",
+ "bls",
+ "deposit_contract",
+ "doppelganger_service",
+ "eth2",
+ "eth2_keystore",
+ "ethereum_serde_utils",
+ "filesystem",
+ "futures",
+ "graffiti_file",
+ "initialized_validators",
+ "itertools 0.10.5",
+ "lighthouse_version",
+ "logging",
+ "parking_lot 0.12.3",
+ "rand",
+ "sensitive_url",
+ "serde",
+ "signing_method",
+ "slashing_protection",
+ "slog",
+ "slot_clock",
+ "sysinfo",
+ "system_health",
+ "task_executor",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "types",
+ "url",
+ "validator_dir",
+ "validator_services",
+ "validator_store",
+ "warp",
+ "warp_utils",
+]
+
+[[package]]
+name = "validator_http_metrics"
+version = "0.1.0"
+dependencies = [
+ "lighthouse_version",
+ "malloc_utils",
+ "metrics",
+ "parking_lot 0.12.3",
+ "serde",
+ "slog",
+ "slot_clock",
+ "types",
+ "validator_metrics",
+ "validator_services",
+ "validator_store",
+ "warp",
+ "warp_utils",
 ]
 
 [[package]]
@@ -9236,7 +9367,54 @@ dependencies = [
  "tokio",
  "tree_hash",
  "types",
- "validator_client",
+ "validator_http_api",
+]
+
+[[package]]
+name = "validator_metrics"
+version = "0.1.0"
+dependencies = [
+ "metrics",
+]
+
+[[package]]
+name = "validator_services"
+version = "0.1.0"
+dependencies = [
+ "beacon_node_fallback",
+ "bls",
+ "doppelganger_service",
+ "environment",
+ "eth2",
+ "futures",
+ "graffiti_file",
+ "parking_lot 0.12.3",
+ "safe_arith",
+ "slog",
+ "slot_clock",
+ "tokio",
+ "tree_hash",
+ "types",
+ "validator_metrics",
+ "validator_store",
+]
+
+[[package]]
+name = "validator_store"
+version = "0.1.0"
+dependencies = [
+ "account_utils",
+ "doppelganger_service",
+ "initialized_validators",
+ "parking_lot 0.12.3",
+ "serde",
+ "signing_method",
+ "slashing_protection",
+ "slog",
+ "slot_clock",
+ "task_executor",
+ "types",
+ "validator_metrics",
 ]
 
 [[package]]
@@ -9516,19 +9694,21 @@ dependencies = [
  "eth2_keystore",
  "eth2_network_config",
  "futures",
+ "initialized_validators",
  "logging",
  "parking_lot 0.12.3",
  "reqwest",
  "serde",
  "serde_json",
  "serde_yaml",
+ "slashing_protection",
  "slot_clock",
  "task_executor",
  "tempfile",
  "tokio",
  "types",
  "url",
- "validator_client",
+ "validator_store",
  "zip",
 ]
 

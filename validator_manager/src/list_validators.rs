@@ -87,7 +87,7 @@ mod test {
     use crate::{
         common::ValidatorSpecification, import_validators::tests::TestBuilder as ImportTestBuilder,
     };
-    use validator_client::http_api::{test_utils::ApiTester, Config as HttpConfig};
+    use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
 
     struct TestBuilder {
         list_config: Option<ListConfig>,
