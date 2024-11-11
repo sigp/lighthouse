@@ -22,9 +22,11 @@ use crate::InspectTarget;
 pub struct DatabaseManager {
     #[clap(
         long,
+        global = true,
         value_name = "N0,N1,N2,...",
         help = "Specifies the frequency for storing full state snapshots and hierarchical \
                 diffs in the freezer DB.",
+        default_value_t = HierarchyConfig::default(),
         display_order = 0
     )]
     pub hierarchy_exponents: HierarchyConfig,

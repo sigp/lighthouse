@@ -68,6 +68,12 @@ impl FromStr for HierarchyConfig {
     }
 }
 
+impl std::fmt::Display for HierarchyConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.exponents.iter().join(","))
+    }
+}
+
 #[derive(Debug)]
 pub struct HierarchyModuli {
     moduli: Vec<u64>,
