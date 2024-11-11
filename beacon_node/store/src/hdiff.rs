@@ -9,15 +9,18 @@ use std::cmp::Ordering;
 use std::io::{Read, Write};
 use std::ops::RangeInclusive;
 use std::str::FromStr;
+use std::sync::LazyLock;
 use superstruct::superstruct;
 use types::historical_summary::HistoricalSummary;
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, List, Slot, Validator};
 use zstd::{Decoder, Encoder};
 
+static EMPTY_PUBKEY: LazyLock<PublicKeyBytes> = LazyLock::new(PublicKeyBytes::empty);
+
 #[derive(Debug)]
 pub enum Error {
     InvalidHierarchy,
-    U64DiffDeletionsNotSupported,
+    DiffDeletionsNotSupported,
     UnableToComputeDiff,
     UnableToApplyDiff,
     BalancesIncompleteChunk,
@@ -168,7 +171,8 @@ impl HDiffBuffer {
         {
             std::mem::take(inactivity_scores).to_vec()
         } else {
-            // TODO: What to set the diff list before altair?
+            // If this state is pre-altair consider the list empty. If the target state
+            // is post altair, all its items will show up in the diff as is.
             vec![]
         };
         let validators = std::mem::take(beacon_state.validators_mut()).to_vec();
@@ -177,6 +181,9 @@ impl HDiffBuffer {
             if let Ok(historical_summaries) = beacon_state.historical_summaries_mut() {
                 std::mem::take(historical_summaries).to_vec()
             } else {
+                // If this state is pre-capella consider the list empty. The diff will
+                // include all items in the target state. If both states are
+                // pre-capella the diff will be empty.
                 vec![]
             };
 
@@ -206,7 +213,6 @@ impl HDiffBuffer {
                 .map_err(|_| Error::InvalidBalancesLength)?;
         }
 
-        // TODO: Can we remove all this clone / copying?
         *state.validators_mut() = List::try_from_iter(self.validators.iter().cloned())
             .map_err(|_| Error::InvalidBalancesLength)?;
 
@@ -227,6 +233,8 @@ impl HDiffBuffer {
             + self.balances.len() * std::mem::size_of::<u64>()
             + self.inactivity_scores.len() * std::mem::size_of::<u64>()
             + self.validators.len() * std::mem::size_of::<Validator>()
+            + self.historical_roots.len() * std::mem::size_of::<Hash256>()
+            + self.historical_summaries.len() * std::mem::size_of::<HistoricalSummary>()
     }
 }
 
@@ -335,7 +343,7 @@ impl BytesDiff {
 impl CompressedU64Diff {
     pub fn compute(xs: &[u64], ys: &[u64], config: &StoreConfig) -> Result<Self, Error> {
         if xs.len() > ys.len() {
-            return Err(Error::U64DiffDeletionsNotSupported);
+            return Err(Error::DiffDeletionsNotSupported);
         }
 
         let uncompressed_bytes: Vec<u8> = ys
@@ -405,7 +413,7 @@ impl ValidatorsDiff {
         config: &StoreConfig,
     ) -> Result<Self, Error> {
         if xs.len() > ys.len() {
-            return Err(Error::U64DiffDeletionsNotSupported);
+            return Err(Error::DiffDeletionsNotSupported);
         }
 
         let uncompressed_bytes = ys
@@ -413,8 +421,6 @@ impl ValidatorsDiff {
             .enumerate()
             .filter_map(|(i, y)| {
                 let validator_diff = if let Some(x) = xs.get(i) {
-                    // How expensive are comparisions?
-                    // TODO: Is it worth it to optimize the comparision and do them only once here?
                     if y == x {
                         return None;
                     } else {
@@ -505,11 +511,10 @@ impl ValidatorsDiff {
                 .map_err(|_| Error::BalancesIncompleteChunk)?;
 
             if let Some(x) = xs.get_mut(index as usize) {
-                // TODO: Precompute empty
                 // Note: a pubkey change implies index re-use. In that case over-write
                 // withdrawal_credentials and slashed inconditionally as their default values
                 // are valid values.
-                let pubkey_changed = diff.pubkey != PublicKeyBytes::empty();
+                let pubkey_changed = diff.pubkey != *EMPTY_PUBKEY;
                 if pubkey_changed {
                     x.pubkey = diff.pubkey;
                 }
@@ -562,7 +567,7 @@ impl<T: Decode + Encode + Copy> AppendOnlyDiff<T> {
             }),
             // Don't even create an iterator for this common case
             Ordering::Equal => Ok(Self { values: vec![] }),
-            Ordering::Greater => Err(Error::U64DiffDeletionsNotSupported),
+            Ordering::Greater => Err(Error::DiffDeletionsNotSupported),
         }
     }
 
