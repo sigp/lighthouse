@@ -1817,6 +1817,15 @@ where
         // Calculate the message id on the transformed data.
         let msg_id = self.config.message_id(&message);
 
+        if let Some(peer) = self.connected_peers.get_mut(propagation_source) {
+            // Record if we received a message that we already sent a IDONTWANT for
+            if peer.dont_send.contains_key(&msg_id) {
+                if let Some(metrics) = self.metrics.as_mut() {
+                    metrics.register_idontwant_messages_ignored_per_topic(&raw_message.topic);
+                }
+            }
+        }
+
         // Check the validity of the message
         // Peers get penalized if this message is invalid. We don't add it to the duplicate cache
         // and instead continually penalize peers that repeatedly send this message.
@@ -2751,6 +2760,11 @@ where
                     .entry(*peer_id)
                     .or_default()
                     .non_priority += 1;
+            } else {
+                // IDONTWANT sent successfully
+                if let Some(metrics) = self.metrics.as_mut() {
+                    metrics.register_idontwant_messages_sent_per_topic(&message.topic);
+                }
             }
         }
     }
