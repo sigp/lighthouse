@@ -120,13 +120,13 @@ pub struct HDiff {
     /// inactivity_scores are small integers that change slowly epoch to epoch. And are 0 for all
     /// participants unless there's non-finality. Computing the diff and compressing the result is
     /// much faster than running them through a binary patch algorithm. In the default case where
-    /// all values are 0 it should also result in a tinny output.
+    /// all values are 0 it should also result in a tiny output.
     inactivity_scores_diff: CompressedU64Diff,
     /// The validators array represents the vast majority of data in a BeaconState. Due to its big
-    /// size we have seen the performance of xdelta3 degreade. Comparing each entry of the
-    /// validators array manually significantly speed up the computation of the diff (+10x faster)
+    /// size we have seen the performance of xdelta3 degrade. Comparing each entry of the
+    /// validators array manually significantly speeds up the computation of the diff (+10x faster)
     /// and result in the same minimal diff. As the `Validator` record is unlikely to change,
-    /// mantaining this extra complexity should be okay.
+    /// maintaining this extra complexity should be okay.
     validators_diff: ValidatorsDiff,
     /// `historical_roots` is an unbounded forever growing (after Capella it's
     /// historical_summaries) list of unique roots. This data is pure entropy so there's no point
@@ -392,7 +392,6 @@ fn compress_bytes(input: &[u8], config: &StoreConfig) -> Result<Vec<u8>, Error> 
 }
 
 fn uncompress_bytes(input: &[u8], config: &StoreConfig) -> Result<Vec<u8>, Error> {
-    // Decompress balances diff.
     let mut out = Vec::with_capacity(config.estimate_decompressed_size(input.len()));
     let mut decoder = Decoder::new(input).map_err(Error::Compression)?;
     decoder.read_to_end(&mut out).map_err(Error::Compression)?;
