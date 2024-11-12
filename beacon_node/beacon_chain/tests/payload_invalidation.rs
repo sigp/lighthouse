@@ -986,10 +986,13 @@ async fn payload_preparation() {
     // Provide preparation data to the EL for `proposer`.
     el.update_proposer_preparation(
         Epoch::new(1),
-        &[ProposerPreparationData {
-            validator_index: proposer as u64,
-            fee_recipient,
-        }],
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer as u64,
+                fee_recipient,
+            },
+            &None,
+        )],
     )
     .await;
 
@@ -1119,10 +1122,13 @@ async fn payload_preparation_before_transition_block() {
     // Provide preparation data to the EL for `proposer`.
     el.update_proposer_preparation(
         Epoch::new(0),
-        &[ProposerPreparationData {
-            validator_index: proposer as u64,
-            fee_recipient,
-        }],
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer as u64,
+                fee_recipient,
+            },
+            &None,
+        )],
     )
     .await;
 
