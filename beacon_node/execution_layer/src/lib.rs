@@ -2158,6 +2158,27 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_expected_gas_limit() {
+        let spec = ChainSpec::mainnet();
+        assert_eq!(
+            expected_gas_limit(30_000_000, 30_000_000, &spec),
+            Some(30_000_000)
+        );
+        assert_eq!(
+            expected_gas_limit(30_000_000, 40_000_000, &spec),
+            Some(30_029_295)
+        );
+        assert_eq!(
+            expected_gas_limit(30_029_295, 40_000_000, &spec),
+            Some(30_058_619)
+        );
+        assert_eq!(
+            expected_gas_limit(30_058_619, 30_000_000, &spec),
+            Some(30_029_266)
+        );
+    }
+
+    #[tokio::test]
     async fn test_forked_terminal_block() {
         let runtime = TestRuntime::default();
         let (mock, block_hash) = MockExecutionLayer::default_params(runtime.task_executor.clone())
