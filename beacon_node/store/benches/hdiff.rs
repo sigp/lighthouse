@@ -17,35 +17,6 @@ pub fn all_benches(c: &mut Criterion) {
     let validator_mutations = 1000;
     let validator_additions = 100;
 
-    // TODO: Temp
-    if std::path::Path::new("/Users/lion/code/sigp/lighthouse/state_10300000.ssz").exists() {
-        bench_against_disk_states(
-            c,
-            "/Users/lion/code/sigp/lighthouse/state_10300000.ssz",
-            "/Users/lion/code/sigp/lighthouse/state_10300064.ssz",
-            &spec,
-        );
-        bench_against_disk_states(
-            c,
-            "/Users/lion/code/sigp/lighthouse/state_10268064.ssz",
-            "/Users/lion/code/sigp/lighthouse/state_10300064.ssz",
-            &spec,
-        );
-        bench_against_disk_states(
-            c,
-            "/Users/lion/code/sigp/lighthouse/state_9980064.ssz",
-            "/Users/lion/code/sigp/lighthouse/state_10300064.ssz",
-            &spec,
-        );
-        bench_against_disk_states(
-            c,
-            "/Users/lion/code/sigp/lighthouse/state_7100064.ssz",
-            "/Users/lion/code/sigp/lighthouse/state_10300064.ssz",
-            &spec,
-        );
-        return;
-    }
-
     for n in [1_000_000, 1_500_000, 2_000_000] {
         let mut source_state = BeaconState::<E>::new(genesis_time, eth1_data.clone(), &spec);
 
