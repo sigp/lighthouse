@@ -8282,6 +8282,7 @@ version = "0.2.0"
 dependencies = [
  "beacon_chain",
  "bls",
+ "criterion",
  "db-key",
  "directory",
  "ethereum_ssz",
@@ -8292,6 +8293,7 @@ dependencies = [
  "lru",
  "metrics",
  "parking_lot 0.12.3",
+ "rand 0.8.5",
  "safe_arith",
  "serde",
  "slog",

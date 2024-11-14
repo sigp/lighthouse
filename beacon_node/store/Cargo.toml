@@ -7,6 +7,8 @@ edition = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 beacon_chain = { workspace = true }
+criterion = { workspace = true }
+rand = { workspace = true }
 
 [dependencies]
 db-key = "0.0.5"
@@ -31,3 +33,7 @@ zstd = { workspace = true }
 bls = { workspace = true }
 smallvec = { workspace = true }
 logging = { workspace = true }
+
+[[bench]]
+name = "hdiff"
+harness = false

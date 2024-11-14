@@ -1,19 +1,26 @@
 //! Hierarchical diff implementation.
 use crate::{metrics, DBColumn, StoreConfig, StoreItem};
+use bls::PublicKeyBytes;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use std::cmp::Ordering;
 use std::io::{Read, Write};
 use std::ops::RangeInclusive;
 use std::str::FromStr;
-use types::{BeaconState, ChainSpec, EthSpec, List, Slot};
+use std::sync::LazyLock;
+use superstruct::superstruct;
+use types::historical_summary::HistoricalSummary;
+use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, List, Slot, Validator};
 use zstd::{Decoder, Encoder};
+
+static EMPTY_PUBKEY: LazyLock<PublicKeyBytes> = LazyLock::new(PublicKeyBytes::empty);
 
 #[derive(Debug)]
 pub enum Error {
     InvalidHierarchy,
-    U64DiffDeletionsNotSupported,
+    DiffDeletionsNotSupported,
     UnableToComputeDiff,
     UnableToApplyDiff,
     BalancesIncompleteChunk,
@@ -64,6 +71,12 @@ impl FromStr for HierarchyConfig {
     }
 }
 
+impl std::fmt::Display for HierarchyConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.exponents.iter().join(","))
+    }
+}
+
 #[derive(Debug)]
 pub struct HierarchyModuli {
     moduli: Vec<u64>,
@@ -81,6 +94,10 @@ pub enum StorageStrategy {
 pub struct HDiffBuffer {
     state: Vec<u8>,
     balances: Vec<u64>,
+    inactivity_scores: Vec<u64>,
+    validators: Vec<Validator>,
+    historical_roots: Vec<Hash256>,
+    historical_summaries: Vec<HistoricalSummary>,
 }
 
 /// Hierarchical state diff.
@@ -97,10 +114,32 @@ pub struct HDiffBuffer {
 ///   this strategy the HDiff code is easily mantainable across forks, as new fields are covered
 ///   automatically. xdelta3 algorithm showed diff compute and apply times of ~200 ms on a mainnet
 ///   state from Apr 2023 (570k indexes), and a 92kB diff size.
+#[superstruct(variants(V0), variant_attributes(derive(Debug, Encode, Decode)))]
 #[derive(Debug, Encode, Decode)]
+#[ssz(enum_behaviour = "union")]
 pub struct HDiff {
     state_diff: BytesDiff,
     balances_diff: CompressedU64Diff,
+    /// inactivity_scores are small integers that change slowly epoch to epoch. And are 0 for all
+    /// participants unless there's non-finality. Computing the diff and compressing the result is
+    /// much faster than running them through a binary patch algorithm. In the default case where
+    /// all values are 0 it should also result in a tiny output.
+    inactivity_scores_diff: CompressedU64Diff,
+    /// The validators array represents the vast majority of data in a BeaconState. Due to its big
+    /// size we have seen the performance of xdelta3 degrade. Comparing each entry of the
+    /// validators array manually significantly speeds up the computation of the diff (+10x faster)
+    /// and result in the same minimal diff. As the `Validator` record is unlikely to change,
+    /// maintaining this extra complexity should be okay.
+    validators_diff: ValidatorsDiff,
+    /// `historical_roots` is an unbounded forever growing (after Capella it's
+    /// historical_summaries) list of unique roots. This data is pure entropy so there's no point
+    /// in compressing it. As it's an append only list, the optimal diff + compression is just the
+    /// list of new entries. The size of `historical_roots` and `historical_summaries` in
+    /// non-trivial ~10 MB so throwing it to xdelta3 adds CPU cycles. With a bit of extra complexity
+    /// we can save those completely.
+    historical_roots: AppendOnlyDiff<Hash256>,
+    /// See historical_roots
+    historical_summaries: AppendOnlyDiff<HistoricalSummary>,
 }
 
 #[derive(Debug, Encode, Decode)]
@@ -113,30 +152,89 @@ pub struct CompressedU64Diff {
     bytes: Vec<u8>,
 }
 
+#[derive(Debug, Encode, Decode)]
+pub struct ValidatorsDiff {
+    bytes: Vec<u8>,
+}
+
+#[derive(Debug, Encode, Decode)]
+pub struct AppendOnlyDiff<T: Encode + Decode> {
+    values: Vec<T>,
+}
+
 impl HDiffBuffer {
     pub fn from_state<E: EthSpec>(mut beacon_state: BeaconState<E>) -> Self {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_FROM_STATE_TIME);
         // Set state.balances to empty list, and then serialize state as ssz
         let balances_list = std::mem::take(beacon_state.balances_mut());
+        let inactivity_scores = if let Ok(inactivity_scores) = beacon_state.inactivity_scores_mut()
+        {
+            std::mem::take(inactivity_scores).to_vec()
+        } else {
+            // If this state is pre-altair consider the list empty. If the target state
+            // is post altair, all its items will show up in the diff as is.
+            vec![]
+        };
+        let validators = std::mem::take(beacon_state.validators_mut()).to_vec();
+        let historical_roots = std::mem::take(beacon_state.historical_roots_mut()).to_vec();
+        let historical_summaries =
+            if let Ok(historical_summaries) = beacon_state.historical_summaries_mut() {
+                std::mem::take(historical_summaries).to_vec()
+            } else {
+                // If this state is pre-capella consider the list empty. The diff will
+                // include all items in the target state. If both states are
+                // pre-capella the diff will be empty.
+                vec![]
+            };
 
         let state = beacon_state.as_ssz_bytes();
         let balances = balances_list.to_vec();
 
-        HDiffBuffer { state, balances }
+        HDiffBuffer {
+            state,
+            balances,
+            inactivity_scores,
+            validators,
+            historical_roots,
+            historical_summaries,
+        }
     }
 
     pub fn as_state<E: EthSpec>(&self, spec: &ChainSpec) -> Result<BeaconState<E>, Error> {
         let _t = metrics::start_timer(&metrics::STORE_BEACON_HDIFF_BUFFER_INTO_STATE_TIME);
         let mut state =
             BeaconState::from_ssz_bytes(&self.state, spec).map_err(Error::InvalidSszState)?;
+
         *state.balances_mut() = List::try_from_iter(self.balances.iter().copied())
             .map_err(|_| Error::InvalidBalancesLength)?;
+
+        if let Ok(inactivity_scores) = state.inactivity_scores_mut() {
+            *inactivity_scores = List::try_from_iter(self.inactivity_scores.iter().copied())
+                .map_err(|_| Error::InvalidBalancesLength)?;
+        }
+
+        *state.validators_mut() = List::try_from_iter(self.validators.iter().cloned())
+            .map_err(|_| Error::InvalidBalancesLength)?;
+
+        *state.historical_roots_mut() = List::try_from_iter(self.historical_roots.iter().copied())
+            .map_err(|_| Error::InvalidBalancesLength)?;
+
+        if let Ok(historical_summaries) = state.historical_summaries_mut() {
+            *historical_summaries = List::try_from_iter(self.historical_summaries.iter().copied())
+                .map_err(|_| Error::InvalidBalancesLength)?;
+        }
+
         Ok(state)
     }
 
     /// Byte size of this instance
     pub fn size(&self) -> usize {
-        self.state.len() + self.balances.len() * std::mem::size_of::<u64>()
+        self.state.len()
+            + self.balances.len() * std::mem::size_of::<u64>()
+            + self.inactivity_scores.len() * std::mem::size_of::<u64>()
+            + self.validators.len() * std::mem::size_of::<Validator>()
+            + self.historical_roots.len() * std::mem::size_of::<Hash256>()
+            + self.historical_summaries.len() * std::mem::size_of::<HistoricalSummary>()
     }
 }
 
@@ -148,27 +246,57 @@ impl HDiff {
     ) -> Result<Self, Error> {
         let state_diff = BytesDiff::compute(&source.state, &target.state)?;
         let balances_diff = CompressedU64Diff::compute(&source.balances, &target.balances, config)?;
+        let inactivity_scores_diff = CompressedU64Diff::compute(
+            &source.inactivity_scores,
+            &target.inactivity_scores,
+            config,
+        )?;
+        let validators_diff =
+            ValidatorsDiff::compute(&source.validators, &target.validators, config)?;
+        let historical_roots =
+            AppendOnlyDiff::compute(&source.historical_roots, &target.historical_roots)?;
+        let historical_summaries =
+            AppendOnlyDiff::compute(&source.historical_summaries, &target.historical_summaries)?;
 
-        Ok(Self {
+        Ok(HDiff::V0(HDiffV0 {
             state_diff,
             balances_diff,
-        })
+            inactivity_scores_diff,
+            validators_diff,
+            historical_roots,
+            historical_summaries,
+        }))
     }
 
     pub fn apply(&self, source: &mut HDiffBuffer, config: &StoreConfig) -> Result<(), Error> {
         let source_state = std::mem::take(&mut source.state);
-        self.state_diff.apply(&source_state, &mut source.state)?;
+        self.state_diff().apply(&source_state, &mut source.state)?;
+        self.balances_diff().apply(&mut source.balances, config)?;
+        self.inactivity_scores_diff()
+            .apply(&mut source.inactivity_scores, config)?;
+        self.validators_diff()
+            .apply(&mut source.validators, config)?;
+        self.historical_roots().apply(&mut source.historical_roots);
+        self.historical_summaries()
+            .apply(&mut source.historical_summaries);
 
-        self.balances_diff.apply(&mut source.balances, config)?;
         Ok(())
     }
 
-    pub fn state_diff_len(&self) -> usize {
-        self.state_diff.bytes.len()
+    /// Byte size of this instance
+    pub fn size(&self) -> usize {
+        self.sizes().iter().sum()
     }
 
-    pub fn balances_diff_len(&self) -> usize {
-        self.balances_diff.bytes.len()
+    pub fn sizes(&self) -> Vec<usize> {
+        vec![
+            self.state_diff().size(),
+            self.balances_diff().size(),
+            self.inactivity_scores_diff().size(),
+            self.validators_diff().size(),
+            self.historical_roots().size(),
+            self.historical_summaries().size(),
+        ]
     }
 }
 
@@ -205,12 +333,17 @@ impl BytesDiff {
         *target = xdelta3::decode(&self.bytes, source).ok_or(Error::UnableToApplyDiff)?;
         Ok(())
     }
+
+    /// Byte size of this instance
+    pub fn size(&self) -> usize {
+        self.bytes.len()
+    }
 }
 
 impl CompressedU64Diff {
     pub fn compute(xs: &[u64], ys: &[u64], config: &StoreConfig) -> Result<Self, Error> {
         if xs.len() > ys.len() {
-            return Err(Error::U64DiffDeletionsNotSupported);
+            return Err(Error::DiffDeletionsNotSupported);
         }
 
         let uncompressed_bytes: Vec<u8> = ys
@@ -223,29 +356,14 @@ impl CompressedU64Diff {
             })
             .collect();
 
-        let compression_level = config.compression_level;
-        let mut compressed_bytes =
-            Vec::with_capacity(config.estimate_compressed_size(uncompressed_bytes.len()));
-        let mut encoder =
-            Encoder::new(&mut compressed_bytes, compression_level).map_err(Error::Compression)?;
-        encoder
-            .write_all(&uncompressed_bytes)
-            .map_err(Error::Compression)?;
-        encoder.finish().map_err(Error::Compression)?;
-
         Ok(CompressedU64Diff {
-            bytes: compressed_bytes,
+            bytes: compress_bytes(&uncompressed_bytes, config)?,
         })
     }
 
     pub fn apply(&self, xs: &mut Vec<u64>, config: &StoreConfig) -> Result<(), Error> {
         // Decompress balances diff.
-        let mut balances_diff_bytes =
-            Vec::with_capacity(config.estimate_decompressed_size(self.bytes.len()));
-        let mut decoder = Decoder::new(&*self.bytes).map_err(Error::Compression)?;
-        decoder
-            .read_to_end(&mut balances_diff_bytes)
-            .map_err(Error::Compression)?;
+        let balances_diff_bytes = uncompress_bytes(&self.bytes, config)?;
 
         for (i, diff_bytes) in balances_diff_bytes
             .chunks(u64::BITS as usize / 8)
@@ -264,6 +382,202 @@ impl CompressedU64Diff {
         }
 
         Ok(())
+    }
+
+    /// Byte size of this instance
+    pub fn size(&self) -> usize {
+        self.bytes.len()
+    }
+}
+
+fn compress_bytes(input: &[u8], config: &StoreConfig) -> Result<Vec<u8>, Error> {
+    let compression_level = config.compression_level;
+    let mut out = Vec::with_capacity(config.estimate_compressed_size(input.len()));
+    let mut encoder = Encoder::new(&mut out, compression_level).map_err(Error::Compression)?;
+    encoder.write_all(input).map_err(Error::Compression)?;
+    encoder.finish().map_err(Error::Compression)?;
+    Ok(out)
+}
+
+fn uncompress_bytes(input: &[u8], config: &StoreConfig) -> Result<Vec<u8>, Error> {
+    let mut out = Vec::with_capacity(config.estimate_decompressed_size(input.len()));
+    let mut decoder = Decoder::new(input).map_err(Error::Compression)?;
+    decoder.read_to_end(&mut out).map_err(Error::Compression)?;
+    Ok(out)
+}
+
+impl ValidatorsDiff {
+    pub fn compute(
+        xs: &[Validator],
+        ys: &[Validator],
+        config: &StoreConfig,
+    ) -> Result<Self, Error> {
+        if xs.len() > ys.len() {
+            return Err(Error::DiffDeletionsNotSupported);
+        }
+
+        let uncompressed_bytes = ys
+            .iter()
+            .enumerate()
+            .filter_map(|(i, y)| {
+                let validator_diff = if let Some(x) = xs.get(i) {
+                    if y == x {
+                        return None;
+                    } else {
+                        let pubkey_changed = y.pubkey != x.pubkey;
+                        // Note: If researchers attempt to change the Validator container, go quickly to
+                        // All Core Devs and push hard to add another List in the BeaconState instead.
+                        Validator {
+                            // The pubkey can be changed on index re-use
+                            pubkey: if pubkey_changed {
+                                y.pubkey
+                            } else {
+                                PublicKeyBytes::empty()
+                            },
+                            // withdrawal_credentials can be set to zero initially but can never be
+                            // changed INTO zero. On index re-use it can be set to zero, but in that
+                            // case the pubkey will also change.
+                            withdrawal_credentials: if pubkey_changed
+                                || y.withdrawal_credentials != x.withdrawal_credentials
+                            {
+                                y.withdrawal_credentials
+                            } else {
+                                Hash256::ZERO
+                            },
+                            // effective_balance can increase and decrease
+                            effective_balance: y.effective_balance - x.effective_balance,
+                            // slashed can only change from false into true. In an index re-use it can
+                            // switch back to false, but in that case the pubkey will also change.
+                            slashed: y.slashed,
+                            // activation_eligibility_epoch can never be zero under any case. It's
+                            // set to either FAR_FUTURE_EPOCH or get_current_epoch(state) + 1
+                            activation_eligibility_epoch: if y.activation_eligibility_epoch
+                                != x.activation_eligibility_epoch
+                            {
+                                y.activation_eligibility_epoch
+                            } else {
+                                Epoch::new(0)
+                            },
+                            // activation_epoch can never be zero under any case. It's
+                            // set to either FAR_FUTURE_EPOCH or epoch + 1 + MAX_SEED_LOOKAHEAD
+                            activation_epoch: if y.activation_epoch != x.activation_epoch {
+                                y.activation_epoch
+                            } else {
+                                Epoch::new(0)
+                            },
+                            // exit_epoch can never be zero under any case. It's set to either
+                            // FAR_FUTURE_EPOCH or > epoch + 1 + MAX_SEED_LOOKAHEAD
+                            exit_epoch: if y.exit_epoch != x.exit_epoch {
+                                y.exit_epoch
+                            } else {
+                                Epoch::new(0)
+                            },
+                            // withdrawable_epoch can never be zero under any case. It's set to
+                            // either FAR_FUTURE_EPOCH or > epoch + 1 + MAX_SEED_LOOKAHEAD
+                            withdrawable_epoch: if y.withdrawable_epoch != x.withdrawable_epoch {
+                                y.withdrawable_epoch
+                            } else {
+                                Epoch::new(0)
+                            },
+                        }
+                    }
+                } else {
+                    y.clone()
+                };
+
+                Some(ValidatorDiffEntry {
+                    index: i as u64,
+                    validator_diff,
+                })
+            })
+            .flat_map(|v_diff| v_diff.as_ssz_bytes())
+            .collect::<Vec<u8>>();
+
+        Ok(Self {
+            bytes: compress_bytes(&uncompressed_bytes, config)?,
+        })
+    }
+
+    pub fn apply(&self, xs: &mut Vec<Validator>, config: &StoreConfig) -> Result<(), Error> {
+        let validator_diff_bytes = uncompress_bytes(&self.bytes, config)?;
+
+        for diff_bytes in
+            validator_diff_bytes.chunks(<ValidatorDiffEntry as Decode>::ssz_fixed_len())
+        {
+            let ValidatorDiffEntry {
+                index,
+                validator_diff: diff,
+            } = ValidatorDiffEntry::from_ssz_bytes(diff_bytes)
+                .map_err(|_| Error::BalancesIncompleteChunk)?;
+
+            if let Some(x) = xs.get_mut(index as usize) {
+                // Note: a pubkey change implies index re-use. In that case over-write
+                // withdrawal_credentials and slashed inconditionally as their default values
+                // are valid values.
+                let pubkey_changed = diff.pubkey != *EMPTY_PUBKEY;
+                if pubkey_changed {
+                    x.pubkey = diff.pubkey;
+                }
+                if pubkey_changed || diff.withdrawal_credentials != Hash256::ZERO {
+                    x.withdrawal_credentials = diff.withdrawal_credentials;
+                }
+                if diff.effective_balance != 0 {
+                    x.effective_balance = x.effective_balance.wrapping_add(diff.effective_balance);
+                }
+                if pubkey_changed || diff.slashed {
+                    x.slashed = diff.slashed;
+                }
+                if diff.activation_eligibility_epoch != Epoch::new(0) {
+                    x.activation_eligibility_epoch = diff.activation_eligibility_epoch;
+                }
+                if diff.activation_epoch != Epoch::new(0) {
+                    x.activation_epoch = diff.activation_epoch;
+                }
+                if diff.exit_epoch != Epoch::new(0) {
+                    x.exit_epoch = diff.exit_epoch;
+                }
+                if diff.withdrawable_epoch != Epoch::new(0) {
+                    x.withdrawable_epoch = diff.withdrawable_epoch;
+                }
+            } else {
+                xs.push(diff)
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Byte size of this instance
+    pub fn size(&self) -> usize {
+        self.bytes.len()
+    }
+}
+
+#[derive(Debug, Encode, Decode)]
+struct ValidatorDiffEntry {
+    index: u64,
+    validator_diff: Validator,
+}
+
+impl<T: Decode + Encode + Copy> AppendOnlyDiff<T> {
+    pub fn compute(xs: &[T], ys: &[T]) -> Result<Self, Error> {
+        match xs.len().cmp(&ys.len()) {
+            Ordering::Less => Ok(Self {
+                values: ys.iter().skip(xs.len()).copied().collect(),
+            }),
+            // Don't even create an iterator for this common case
+            Ordering::Equal => Ok(Self { values: vec![] }),
+            Ordering::Greater => Err(Error::DiffDeletionsNotSupported),
+        }
+    }
+
+    pub fn apply(&self, xs: &mut Vec<T>) {
+        xs.extend(self.values.iter().copied());
+    }
+
+    /// Byte size of this instance
+    pub fn size(&self) -> usize {
+        self.values.len() * size_of::<T>()
     }
 }
 
@@ -390,6 +704,7 @@ impl StorageStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::{thread_rng, Rng};
 
     #[test]
     fn default_storage_strategy() {
@@ -485,5 +800,41 @@ mod tests {
 
         // U64 diff wins by more than a factor of 3
         assert!(u64_diff.bytes.len() < 3 * bytes_diff.bytes.len());
+    }
+
+    #[test]
+    fn compressed_validators_diff() {
+        assert_eq!(<ValidatorDiffEntry as Decode>::ssz_fixed_len(), 129);
+
+        let mut rng = thread_rng();
+        let config = &StoreConfig::default();
+        let xs = (0..10)
+            .map(|_| rand_validator(&mut rng))
+            .collect::<Vec<_>>();
+        let mut ys = xs.clone();
+        ys[5] = rand_validator(&mut rng);
+        ys.push(rand_validator(&mut rng));
+        let diff = ValidatorsDiff::compute(&xs, &ys, config).unwrap();
+
+        let mut xs_out = xs.clone();
+        diff.apply(&mut xs_out, config).unwrap();
+        assert_eq!(xs_out, ys);
+    }
+
+    fn rand_validator(mut rng: impl Rng) -> Validator {
+        let mut pubkey = [0u8; 48];
+        rng.fill_bytes(&mut pubkey);
+        let withdrawal_credentials: [u8; 32] = rng.gen();
+
+        Validator {
+            pubkey: PublicKeyBytes::from_ssz_bytes(&pubkey).unwrap(),
+            withdrawal_credentials: withdrawal_credentials.into(),
+            slashed: false,
+            effective_balance: 32_000_000_000,
+            activation_eligibility_epoch: Epoch::max_value(),
+            activation_epoch: Epoch::max_value(),
+            exit_epoch: Epoch::max_value(),
+            withdrawable_epoch: Epoch::max_value(),
+        }
     }
 }
