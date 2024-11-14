@@ -49,25 +49,6 @@ pub fn all_benches(c: &mut Criterion) {
     }
 }
 
-fn bench_against_disk_states(
-    c: &mut Criterion,
-    source_state_path: &str,
-    target_state_path: &str,
-    spec: &ChainSpec,
-) {
-    let source_state =
-        BeaconState::<E>::from_ssz_bytes(&fs::read(source_state_path).unwrap(), spec).unwrap();
-    let target_state =
-        BeaconState::<E>::from_ssz_bytes(&fs::read(target_state_path).unwrap(), spec).unwrap();
-
-    bench_against_states(
-        c,
-        source_state,
-        target_state,
-        &format!("{source_state_path} - {target_state_path}"),
-    );
-}
-
 fn bench_against_states(
     c: &mut Criterion,
     source_state: BeaconState<E>,
