@@ -2,12 +2,11 @@ use bls::PublicKeyBytes;
 use criterion::{criterion_group, criterion_main, Criterion};
 use rand::Rng;
 use ssz::Decode;
-use std::fs;
 use store::{
     hdiff::{HDiff, HDiffBuffer},
     StoreConfig,
 };
-use types::{BeaconState, ChainSpec, Epoch, Eth1Data, EthSpec, MainnetEthSpec as E, Validator};
+use types::{BeaconState, Epoch, Eth1Data, EthSpec, MainnetEthSpec as E, Validator};
 
 pub fn all_benches(c: &mut Criterion) {
     let spec = E::default_spec();
