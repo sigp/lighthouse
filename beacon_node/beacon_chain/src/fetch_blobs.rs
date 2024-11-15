@@ -3,7 +3,7 @@
 //! it to arrive on P2P gossip. This PR uses a new JSON-RPC method (`engine_getBlobsV1`) which
 //! allows the CL to load the blobs quickly from the EL's blob pool.
 //!
-//! Once the node fetches the blobs from EL, it then publishes the remaining blobs that hasn't seen
+//! Once the node fetches the blobs from EL, it then publishes the remaining blobs that it hasn't seen
 //! on P2P gossip to the network. From PeerDAS onwards, together with the increase in blob count,
 //! broadcasting blobs requires a much higher bandwidth, and is only done by high capacity
 //! supernodes.
