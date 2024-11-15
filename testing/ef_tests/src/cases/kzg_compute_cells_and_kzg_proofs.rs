@@ -32,7 +32,7 @@ impl<E: EthSpec> Case for KZGComputeCellsAndKZGProofs<E> {
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let cells_and_proofs = parse_blob::<E>(&self.input.blob).and_then(|blob| {
-            let blob = blob.as_ref().try_into().map_err(|e| {
+            let blob = (*blob).try_into().map_err(|e| {
                 Error::InternalError(format!("Failed to convert blob to kzg blob: {e:?}"))
             })?;
             let kzg = get_kzg();

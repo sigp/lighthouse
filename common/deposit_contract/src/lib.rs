@@ -30,14 +30,15 @@ impl From<alloy_dyn_abi::Error> for Error {
 
 pub const CONTRACT_DEPLOY_GAS: usize = 4_000_000;
 pub const DEPOSIT_GAS: usize = 400_000;
-pub const ABI: &str = include_str!("../contracts/v0.12.1_validator_registration.json");
-pub const BYTECODE: &str = include_str!("../contracts/v0.12.1_validator_registration.bytecode");
+pub const ABI: &[u8] = include_bytes!("../contracts/v0.12.1_validator_registration.json");
+pub const BYTECODE: &[u8] = include_bytes!("../contracts/v0.12.1_validator_registration.bytecode");
 pub const DEPOSIT_DATA_LEN: usize = 420; // lol
 
 pub mod testnet {
-    pub const ABI: &str = include_str!("../contracts/v0.12.1_testnet_validator_registration.json");
-    pub const BYTECODE: &str =
-        include_str!("../contracts/v0.12.1_testnet_validator_registration.bytecode");
+    pub const ABI: &[u8] =
+        include_bytes!("../contracts/v0.12.1_testnet_validator_registration.json");
+    pub const BYTECODE: &[u8] =
+        include_bytes!("../contracts/v0.12.1_testnet_validator_registration.bytecode");
 }
 
 pub fn encode_eth1_tx_data(deposit_data: &DepositData) -> Result<Vec<u8>, Error> {
@@ -50,7 +51,7 @@ pub fn encode_eth1_tx_data(deposit_data: &DepositData) -> Result<Vec<u8>, Error>
 
     // Here we make an assumption that the `crate::testnet::ABI` has a superset of the features of
     // the crate::ABI`.
-    let abi: JsonAbi = serde_json::from_str(ABI)?;
+    let abi: JsonAbi = serde_json::from_reader(ABI)?;
     let function = abi
         .function("deposit")
         .and_then(|funcs| funcs.first())
@@ -59,7 +60,7 @@ pub fn encode_eth1_tx_data(deposit_data: &DepositData) -> Result<Vec<u8>, Error>
 }
 
 pub fn decode_eth1_tx_data(bytes: &[u8], amount: u64) -> Result<(DepositData, Hash256), Error> {
-    let abi: JsonAbi = serde_json::from_str(ABI)?;
+    let abi: JsonAbi = serde_json::from_reader(ABI)?;
     let function = abi
         .function("deposit")
         .and_then(|funcs| funcs.first())
