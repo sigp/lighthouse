@@ -22,9 +22,13 @@ mod tests {
     };
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
+    use initialized_validators::{
+        load_pem_certificate, load_pkcs12_identity, InitializedValidators,
+    };
     use parking_lot::Mutex;
     use reqwest::Client;
     use serde::Serialize;
+    use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::env;
     use std::fmt::Debug;
@@ -40,13 +44,7 @@ mod tests {
     use tokio::time::sleep;
     use types::{attestation::AttestationBase, *};
     use url::Url;
-    use validator_client::{
-        initialized_validators::{
-            load_pem_certificate, load_pkcs12_identity, InitializedValidators,
-        },
-        validator_store::{Error as ValidatorStoreError, ValidatorStore},
-        SlashingDatabase, SLASHING_PROTECTION_FILENAME,
-    };
+    use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
     /// If the we are unable to reach the Web3Signer HTTP API within this time out then we will
     /// assume it failed to start.
@@ -320,7 +318,7 @@ mod tests {
         ) -> Self {
             let validator_dir = TempDir::new().unwrap();
 
-            let config = validator_client::Config::default();
+            let config = initialized_validators::Config::default();
             let validator_definitions = ValidatorDefinitions::from(validator_definitions);
             let initialized_validators = InitializedValidators::from_definitions(
                 validator_definitions,
@@ -350,7 +348,7 @@ mod tests {
 
             let slot_clock =
                 TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
-            let config = validator_client::Config {
+            let config = validator_store::Config {
                 enable_web3signer_slashing_protection: slashing_protection_config.local,
                 ..Default::default()
             };
