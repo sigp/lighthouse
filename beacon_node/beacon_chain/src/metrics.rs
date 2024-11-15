@@ -1972,6 +1972,22 @@ pub static LIGHT_CLIENT_SERVER_CACHE_PREV_BLOCK_CACHE_MISS: LazyLock<Result<IntC
         )
     });
 
+pub static LIGHT_CLIENT_SERVER_CACHE_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_light_client_server_cache_processing_requests",
+            "Count of all requests to recompute and cache updates",
+        )
+    });
+
+pub static LIGHT_CLIENT_SERVER_CACHE_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_light_client_server_cache_processing_successes",
+            "Count of all successful requests to recompute and cache updates",
+        )
+    });
+
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
 /// head state info, etc) and update the Prometheus `DEFAULT_REGISTRY`.
 pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
