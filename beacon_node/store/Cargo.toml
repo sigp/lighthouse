@@ -8,7 +8,7 @@ edition = { workspace = true }
 tempfile = { workspace = true }
 beacon_chain = { workspace = true }
 criterion = { workspace = true }
-rand = { workspace = true }
+rand = { workspace = true, features = ["small_rng"] }
 
 [dependencies]
 db-key = "0.0.5"
