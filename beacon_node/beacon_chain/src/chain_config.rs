@@ -88,6 +88,12 @@ pub struct ChainConfig {
     pub malicious_withhold_count: usize,
     /// Enable peer sampling on blocks.
     pub enable_sampling: bool,
+    /// Number of batches that the node splits blobs or data columns into during publication.
+    /// This doesn't apply if the node is the block proposer. For PeerDAS only.
+    pub blob_publication_batches: usize,
+    /// The delay in milliseconds applied by the node between sending each blob or data column batch.
+    /// This doesn't apply if the node is the block proposer.
+    pub blob_publication_batch_interval: Duration,
 }
 
 impl Default for ChainConfig {
@@ -121,6 +127,8 @@ impl Default for ChainConfig {
             enable_light_client_server: false,
             malicious_withhold_count: 0,
             enable_sampling: false,
+            blob_publication_batches: 4,
+            blob_publication_batch_interval: Duration::from_millis(300),
         }
     }
 }

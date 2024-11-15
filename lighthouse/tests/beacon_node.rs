@@ -815,6 +815,27 @@ fn network_enable_sampling_flag() {
         .with_config(|config| assert!(config.chain.enable_sampling));
 }
 #[test]
+fn blob_publication_batches() {
+    CommandLineTest::new()
+        .flag("blob-publication-batches", Some("3"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.blob_publication_batches, 3));
+}
+
+#[test]
+fn blob_publication_batch_interval() {
+    CommandLineTest::new()
+        .flag("blob-publication-batch-interval", Some("400"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.blob_publication_batch_interval,
+                Duration::from_millis(400)
+            )
+        });
+}
+
+#[test]
 fn network_enable_sampling_flag_default() {
     CommandLineTest::new()
         .run_with_zero_port()

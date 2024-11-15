@@ -153,6 +153,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "process_type" => ?process_type,
         );
 
+        let signed_beacon_block = block.block_cloned();
         let result = self
             .chain
             .process_block_with_early_caching(
@@ -166,26 +167,37 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 
         // RPC block imported, regardless of process type
-        if let &Ok(AvailabilityProcessingStatus::Imported(hash)) = &result {
-            info!(self.log, "New RPC block received"; "slot" => slot, "hash" => %hash);
+        match result.as_ref() {
+            Ok(AvailabilityProcessingStatus::Imported(hash)) => {
+                info!(self.log, "New RPC block received"; "slot" => slot, "hash" => %hash);
 
-            // Trigger processing for work referencing this block.
-            let reprocess_msg = ReprocessQueueMessage::BlockImported {
-                block_root: hash,
-                parent_root,
-            };
-            if reprocess_tx.try_send(reprocess_msg).is_err() {
-                error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %hash)
-            };
-            self.chain.block_times_cache.write().set_time_observed(
-                hash,
-                slot,
-                seen_timestamp,
-                None,
-                None,
-            );
+                // Trigger processing for work referencing this block.
+                let reprocess_msg = ReprocessQueueMessage::BlockImported {
+                    block_root: *hash,
+                    parent_root,
+                };
+                if reprocess_tx.try_send(reprocess_msg).is_err() {
+                    error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %hash)
+                };
+                self.chain.block_times_cache.write().set_time_observed(
+                    *hash,
+                    slot,
+                    seen_timestamp,
+                    None,
+                    None,
+                );
 
-            self.chain.recompute_head_at_current_slot().await;
+                self.chain.recompute_head_at_current_slot().await;
+            }
+            Ok(AvailabilityProcessingStatus::MissingComponents(..)) => {
+                // Block is valid, we can now attempt fetching blobs from EL using version hashes
+                // derived from kzg commitments from the block, without having to wait for all blobs
+                // to be sent from the peers if we already have them.
+                let publish_blobs = false;
+                self.fetch_engine_blobs_and_publish(signed_beacon_block, block_root, publish_blobs)
+                    .await
+            }
+            _ => {}
         }
 
         // RPC block imported or execution validated. If the block was already imported by gossip we
