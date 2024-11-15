@@ -2,7 +2,7 @@ use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use bls::FixedBytesExtended;
-pub use lighthouse_metrics::*;
+pub use metrics::*;
 use slot_clock::SlotClock;
 use std::sync::LazyLock;
 use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
@@ -111,6 +111,13 @@ pub static BLOCK_PROCESSING_POST_EXEC_PROCESSING: LazyLock<Result<Histogram>> =
             linear_buckets(5e-3, 5e-3, 10),
         )
     });
+pub static BLOCK_PROCESSING_DATA_COLUMNS_WAIT: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_block_processing_data_columns_wait_seconds",
+        "Time spent waiting for data columns to be computed before starting database write",
+        exponential_buckets(0.01, 2.0, 10),
+    )
+});
 pub static BLOCK_PROCESSING_DB_WRITE: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_block_processing_db_write_seconds",
@@ -1651,7 +1658,7 @@ pub static DATA_COLUMN_SIDECAR_COMPUTATION: LazyLock<Result<HistogramVec>> = Laz
     try_create_histogram_vec_with_buckets(
         "data_column_sidecar_computation_seconds",
         "Time taken to compute data column sidecar, including cells, proofs and inclusion proof",
-        Ok(vec![0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+        Ok(vec![0.1, 0.15, 0.25, 0.35, 0.5, 0.7, 1.0, 2.5, 5.0, 10.0]),
         &["blob_count"],
     )
 });
@@ -1690,6 +1697,34 @@ pub static DATA_COLUMNS_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter
             "Number of data column sidecars verified for gossip",
         )
     });
+
+pub static BLOBS_FROM_EL_HIT_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_blobs_from_el_hit_total",
+        "Number of blob batches fetched from the execution layer",
+    )
+});
+
+pub static BLOBS_FROM_EL_MISS_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_blobs_from_el_miss_total",
+        "Number of blob batches failed to fetch from the execution layer",
+    )
+});
+
+pub static BLOBS_FROM_EL_EXPECTED_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_blobs_from_el_expected_total",
+        "Number of blobs expected from the execution layer",
+    )
+});
+
+pub static BLOBS_FROM_EL_RECEIVED_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_blobs_from_el_received_total",
+        "Number of blobs fetched from the execution layer",
+    )
+});
 
 /*
  * Light server message verification
@@ -1884,6 +1919,31 @@ pub static DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS: LazyLock<Result<IntCounter>>
         try_create_int_counter(
             "data_availability_reconstructed_columns_total",
             "Total count of reconstructed columns",
+        )
+    });
+
+pub static KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "kzg_data_column_reconstruction_attempts",
+            "Count of times data column reconstruction has been attempted",
+        )
+    });
+
+pub static KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "kzg_data_column_reconstruction_failures",
+            "Count of times data column reconstruction has failed",
+        )
+    });
+
+pub static KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "kzg_data_column_reconstruction_incomplete_total",
+            "Count of times data column reconstruction attempts did not result in an import",
+            &["reason"],
         )
     });
 

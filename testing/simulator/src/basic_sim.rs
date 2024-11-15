@@ -11,6 +11,7 @@ use node_test_rig::{
 };
 use rayon::prelude::*;
 use std::cmp::max;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, MinimalEthSpec};
@@ -98,7 +99,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         .multi_threaded_tokio_runtime()?
         .build()?;
 
-    let spec = &mut env.eth2_config.spec;
+    let mut spec = (*env.eth2_config.spec).clone();
 
     let total_validator_count = validators_per_node * node_count;
     let genesis_delay = GENESIS_DELAY;
@@ -117,6 +118,8 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.capella_fork_epoch = Some(Epoch::new(CAPELLA_FORK_EPOCH));
     spec.deneb_fork_epoch = Some(Epoch::new(DENEB_FORK_EPOCH));
     //spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
+    let spec = Arc::new(spec);
+    env.eth2_config.spec = spec.clone();
 
     let slot_duration = Duration::from_secs(spec.seconds_per_slot);
     let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
@@ -172,7 +175,8 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
             executor.spawn(
                 async move {
                     let mut validator_config = testing_validator_config();
-                    validator_config.fee_recipient = Some(SUGGESTED_FEE_RECIPIENT.into());
+                    validator_config.validator_store.fee_recipient =
+                        Some(SUGGESTED_FEE_RECIPIENT.into());
                     println!("Adding validator client {}", i);
 
                     // Enable broadcast on every 4th node.
@@ -203,7 +207,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
             node.server.all_payloads_valid();
         });
 
-        let duration_to_genesis = network.duration_to_genesis().await;
+        let duration_to_genesis = network.duration_to_genesis().await?;
         println!("Duration to genesis: {}", duration_to_genesis.as_secs());
         sleep(duration_to_genesis).await;
 

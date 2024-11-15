@@ -46,15 +46,6 @@ pub fn cli_app() -> Command {
                 deposits in the same format as the \"ethereum/staking-deposit-cli\" tool.",
         )
         .arg(
-            Arg::new("help")
-                .long("help")
-                .short('h')
-                .help("Prints help information")
-                .action(ArgAction::HelpLong)
-                .display_order(0)
-                .help_heading(FLAG_HEADER),
-        )
-        .arg(
             Arg::new(OUTPUT_PATH_FLAG)
                 .long(OUTPUT_PATH_FLAG)
                 .value_name("DIRECTORY")
@@ -112,7 +103,9 @@ pub fn cli_app() -> Command {
                     "When provided don't generate the deposits JSON file that is \
                     commonly used for submitting validator deposits via a web UI. \
                     Using this flag will save several seconds per validator if the \
-                    user has an alternate strategy for submitting deposits.",
+                    user has an alternate strategy for submitting deposits. \
+                    If used, the --force-bls-withdrawal-credentials is also required \
+                    to ensure users are aware that an --eth1-withdrawal-address is not set.",
                 )
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)

@@ -7,8 +7,8 @@ use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
 use types::data_column_sidecar::{Cell, DataColumn, DataColumnSidecarError};
 use types::{
-    Blob, BlobsList, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
-    Hash256, KzgCommitment, KzgProof, KzgProofs, SignedBeaconBlock, SignedBeaconBlockHeader,
+    Blob, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256,
+    KzgCommitment, KzgProof, KzgProofs, SignedBeaconBlock, SignedBeaconBlockHeader,
 };
 
 /// Converts a blob ssz List object to an array to be used with the kzg
@@ -146,7 +146,7 @@ pub fn verify_kzg_proof<E: EthSpec>(
 
 /// Build data column sidecars from a signed beacon block and its blobs.
 pub fn blobs_to_data_column_sidecars<E: EthSpec>(
-    blobs: &BlobsList<E>,
+    blobs: &[&Blob<E>],
     block: &SignedBeaconBlock<E>,
     kzg: &Kzg,
     spec: &ChainSpec,
@@ -154,6 +154,7 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
     if blobs.is_empty() {
         return Ok(vec![]);
     }
+
     let kzg_commitments = block
         .message()
         .body()
@@ -290,8 +291,7 @@ pub fn reconstruct_data_columns<E: EthSpec>(
 mod test {
     use crate::kzg_utils::{blobs_to_data_column_sidecars, reconstruct_data_columns};
     use bls::Signature;
-    use eth2_network_config::TRUSTED_SETUP_BYTES;
-    use kzg::{Kzg, KzgCommitment, TrustedSetup};
+    use kzg::{trusted_setup::get_trusted_setup, Kzg, KzgCommitment, TrustedSetup};
     use types::{
         beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockDeneb, Blob, BlobsList,
         ChainSpec, EmptyBlock, EthSpec, MainnetEthSpec, SignedBeaconBlock,
@@ -313,19 +313,21 @@ mod test {
     #[track_caller]
     fn test_build_data_columns_empty(kzg: &Kzg, spec: &ChainSpec) {
         let num_of_blobs = 0;
-        let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(num_of_blobs, spec);
+        let (signed_block, blobs) = create_test_block_and_blobs::<E>(num_of_blobs, spec);
+        let blob_refs = blobs.iter().collect::<Vec<_>>();
         let column_sidecars =
-            blobs_to_data_column_sidecars(&blob_sidecars, &signed_block, kzg, spec).unwrap();
+            blobs_to_data_column_sidecars(&blob_refs, &signed_block, kzg, spec).unwrap();
         assert!(column_sidecars.is_empty());
     }
 
     #[track_caller]
     fn test_build_data_columns(kzg: &Kzg, spec: &ChainSpec) {
         let num_of_blobs = 6;
-        let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(num_of_blobs, spec);
+        let (signed_block, blobs) = create_test_block_and_blobs::<E>(num_of_blobs, spec);
 
+        let blob_refs = blobs.iter().collect::<Vec<_>>();
         let column_sidecars =
-            blobs_to_data_column_sidecars(&blob_sidecars, &signed_block, kzg, spec).unwrap();
+            blobs_to_data_column_sidecars(&blob_refs, &signed_block, kzg, spec).unwrap();
 
         let block_kzg_commitments = signed_block
             .message()
@@ -359,9 +361,10 @@ mod test {
     #[track_caller]
     fn test_reconstruct_data_columns(kzg: &Kzg, spec: &ChainSpec) {
         let num_of_blobs = 6;
-        let (signed_block, blob_sidecars) = create_test_block_and_blobs::<E>(num_of_blobs, spec);
+        let (signed_block, blobs) = create_test_block_and_blobs::<E>(num_of_blobs, spec);
+        let blob_refs = blobs.iter().collect::<Vec<_>>();
         let column_sidecars =
-            blobs_to_data_column_sidecars(&blob_sidecars, &signed_block, kzg, spec).unwrap();
+            blobs_to_data_column_sidecars(&blob_refs, &signed_block, kzg, spec).unwrap();
 
         // Now reconstruct
         let reconstructed_columns = reconstruct_data_columns(
@@ -377,7 +380,7 @@ mod test {
     }
 
     fn get_kzg() -> Kzg {
-        let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP_BYTES)
+        let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
             .map_err(|e| format!("Unable to read trusted setup file: {}", e))
             .expect("should have trusted setup");
         Kzg::new_from_trusted_setup_das_enabled(trusted_setup).expect("should create kzg")

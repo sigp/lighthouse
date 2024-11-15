@@ -22,10 +22,14 @@ mod tests {
     };
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
+    use initialized_validators::{
+        load_pem_certificate, load_pkcs12_identity, InitializedValidators,
+    };
     use logging::test_logger;
     use parking_lot::Mutex;
     use reqwest::Client;
     use serde::Serialize;
+    use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::env;
     use std::fmt::Debug;
@@ -41,13 +45,7 @@ mod tests {
     use tokio::time::sleep;
     use types::{attestation::AttestationBase, *};
     use url::Url;
-    use validator_client::{
-        initialized_validators::{
-            load_pem_certificate, load_pkcs12_identity, InitializedValidators,
-        },
-        validator_store::{Error as ValidatorStoreError, ValidatorStore},
-        SlashingDatabase, SLASHING_PROTECTION_FILENAME,
-    };
+    use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
     /// If the we are unable to reach the Web3Signer HTTP API within this time out then we will
     /// assume it failed to start.
@@ -317,12 +315,12 @@ mod tests {
             validator_definitions: Vec<ValidatorDefinition>,
             slashing_protection_config: SlashingProtectionConfig,
             using_web3signer: bool,
-            spec: ChainSpec,
+            spec: Arc<ChainSpec>,
         ) -> Self {
             let log = test_logger();
             let validator_dir = TempDir::new().unwrap();
 
-            let config = validator_client::Config::default();
+            let config = initialized_validators::Config::default();
             let validator_definitions = ValidatorDefinitions::from(validator_definitions);
             let initialized_validators = InitializedValidators::from_definitions(
                 validator_definitions,
@@ -354,7 +352,7 @@ mod tests {
 
             let slot_clock =
                 TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
-            let config = validator_client::Config {
+            let config = validator_store::Config {
                 enable_web3signer_slashing_protection: slashing_protection_config.local,
                 ..Default::default()
             };
@@ -408,7 +406,7 @@ mod tests {
         pub async fn new(
             network: &str,
             slashing_protection_config: SlashingProtectionConfig,
-            spec: ChainSpec,
+            spec: Arc<ChainSpec>,
             listen_port: u16,
         ) -> Self {
             let signer_rig =
@@ -575,7 +573,7 @@ mod tests {
     /// Test all the "base" (phase 0) types.
     async fn test_base_types(network: &str, listen_port: u16) {
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
-        let spec = &network_config.chain_spec::<E>().unwrap();
+        let spec = Arc::new(network_config.chain_spec::<E>().unwrap());
 
         TestingRig::new(
             network,
@@ -591,13 +589,16 @@ mod tests {
                 .unwrap()
         })
         .await
-        .assert_signatures_match("beacon_block_base", |pubkey, validator_store| async move {
-            let block = BeaconBlock::Base(BeaconBlockBase::empty(spec));
-            let block_slot = block.slot();
-            validator_store
-                .sign_block(pubkey, block, block_slot)
-                .await
-                .unwrap()
+        .assert_signatures_match("beacon_block_base", |pubkey, validator_store| {
+            let spec = spec.clone();
+            async move {
+                let block = BeaconBlock::Base(BeaconBlockBase::empty(&spec));
+                let block_slot = block.slot();
+                validator_store
+                    .sign_block(pubkey, block, block_slot)
+                    .await
+                    .unwrap()
+            }
         })
         .await
         .assert_signatures_match("attestation", |pubkey, validator_store| async move {
@@ -645,7 +646,7 @@ mod tests {
     /// Test all the Altair types.
     async fn test_altair_types(network: &str, listen_port: u16) {
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
-        let spec = &network_config.chain_spec::<E>().unwrap();
+        let spec = Arc::new(network_config.chain_spec::<E>().unwrap());
         let altair_fork_slot = spec
             .altair_fork_epoch
             .unwrap()
@@ -658,17 +659,17 @@ mod tests {
             listen_port,
         )
         .await
-        .assert_signatures_match(
-            "beacon_block_altair",
-            |pubkey, validator_store| async move {
-                let mut altair_block = BeaconBlockAltair::empty(spec);
+        .assert_signatures_match("beacon_block_altair", |pubkey, validator_store| {
+            let spec = spec.clone();
+            async move {
+                let mut altair_block = BeaconBlockAltair::empty(&spec);
                 altair_block.slot = altair_fork_slot;
                 validator_store
                     .sign_block(pubkey, BeaconBlock::Altair(altair_block), altair_fork_slot)
                     .await
                     .unwrap()
-            },
-        )
+            }
+        })
         .await
         .assert_signatures_match(
             "sync_selection_proof",
@@ -728,7 +729,7 @@ mod tests {
     /// Test all the Bellatrix types.
     async fn test_bellatrix_types(network: &str, listen_port: u16) {
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
-        let spec = &network_config.chain_spec::<E>().unwrap();
+        let spec = Arc::new(network_config.chain_spec::<E>().unwrap());
         let bellatrix_fork_slot = spec
             .bellatrix_fork_epoch
             .unwrap()
@@ -741,10 +742,10 @@ mod tests {
             listen_port,
         )
         .await
-        .assert_signatures_match(
-            "beacon_block_bellatrix",
-            |pubkey, validator_store| async move {
-                let mut bellatrix_block = BeaconBlockBellatrix::empty(spec);
+        .assert_signatures_match("beacon_block_bellatrix", |pubkey, validator_store| {
+            let spec = spec.clone();
+            async move {
+                let mut bellatrix_block = BeaconBlockBellatrix::empty(&spec);
                 bellatrix_block.slot = bellatrix_fork_slot;
                 validator_store
                     .sign_block(
@@ -754,8 +755,8 @@ mod tests {
                     )
                     .await
                     .unwrap()
-            },
-        )
+            }
+        })
         .await;
     }
 
@@ -767,7 +768,7 @@ mod tests {
         let network = "mainnet";
 
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
-        let spec = &network_config.chain_spec::<E>().unwrap();
+        let spec = Arc::new(network_config.chain_spec::<E>().unwrap());
         let bellatrix_fork_slot = spec
             .bellatrix_fork_epoch
             .unwrap()
@@ -805,7 +806,7 @@ mod tests {
         };
 
         let first_block = || {
-            let mut bellatrix_block = BeaconBlockBellatrix::empty(spec);
+            let mut bellatrix_block = BeaconBlockBellatrix::empty(&spec);
             bellatrix_block.slot = bellatrix_fork_slot;
             BeaconBlock::Bellatrix(bellatrix_block)
         };

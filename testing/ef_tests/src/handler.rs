@@ -627,8 +627,8 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // Merge block tests are only enabled for Bellatrix.
-        if self.handler_name == "on_merge_block" && fork_name != ForkName::Bellatrix {
+        // We no longer run on_merge_block tests since removing merge support.
+        if self.handler_name == "on_merge_block" {
             return false;
         }
 
@@ -921,10 +921,10 @@ impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
-pub struct MerkleProofValidityHandler<E>(PhantomData<E>);
+pub struct BeaconStateMerkleProofValidityHandler<E>(PhantomData<E>);
 
-impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
-    type Case = cases::MerkleProofValidity<E>;
+impl<E: EthSpec + TypeName> Handler for BeaconStateMerkleProofValidityHandler<E> {
+    type Case = cases::BeaconStateMerkleProofValidity<E>;
 
     fn config_name() -> &'static str {
         E::name()
@@ -935,15 +935,11 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
     }
 
     fn handler_name(&self) -> String {
-        "single_merkle_proof".into()
+        "single_merkle_proof/BeaconState".into()
     }
 
-    fn is_enabled_for_fork(&self, _fork_name: ForkName) -> bool {
-        // Test is skipped due to some changes in the Capella light client
-        // spec.
-        //
-        // https://github.com/sigp/lighthouse/issues/4022
-        false
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        fork_name.altair_enabled()
     }
 }
 
@@ -968,7 +964,31 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Enabled in Deneb
-        fork_name == ForkName::Deneb
+        fork_name.deneb_enabled()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct BeaconBlockBodyMerkleProofValidityHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for BeaconBlockBodyMerkleProofValidityHandler<E> {
+    type Case = cases::BeaconBlockBodyMerkleProofValidity<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "light_client"
+    }
+
+    fn handler_name(&self) -> String {
+        "single_merkle_proof/BeaconBlockBody".into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        fork_name.capella_enabled()
     }
 }
 
@@ -993,8 +1013,7 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Enabled in Altair
-        // TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
-        fork_name != ForkName::Base && fork_name != ForkName::Electra
+        fork_name.altair_enabled()
     }
 }
 

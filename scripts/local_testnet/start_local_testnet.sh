@@ -7,7 +7,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 ENCLAVE_NAME=local-testnet
 NETWORK_PARAMS_FILE=$SCRIPT_DIR/network_params.yaml
-ETHEREUM_PKG_VERSION=4.2.0
+ETHEREUM_PKG_VERSION=main
 
 BUILD_IMAGE=true
 BUILDER_PROPOSALS=false

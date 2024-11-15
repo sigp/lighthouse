@@ -5,10 +5,10 @@ use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::schema_change::migrate_schema;
-use beacon_chain::test_utils::RelativeSyncCommittee;
+use beacon_chain::test_utils::SyncCommitteeStrategy;
 use beacon_chain::test_utils::{
-    mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
-    BlockStrategy, DiskHarnessType, KZG,
+    get_kzg, mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
+    BlockStrategy, DiskHarnessType,
 };
 use beacon_chain::{
     data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
@@ -69,7 +69,7 @@ fn get_store_generic(
         &blobs_path,
         |_, _, _| Ok(()),
         config,
-        spec,
+        spec.into(),
         log,
     )
     .expect("disk store should initialize")
@@ -105,6 +105,60 @@ fn get_harness_generic(
 }
 
 #[tokio::test]
+async fn light_client_bootstrap_test() {
+    let spec = test_spec::<E>();
+    let Some(_) = spec.altair_fork_epoch else {
+        // No-op prior to Altair.
+        return;
+    };
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
+    let num_initial_slots = E::slots_per_epoch() * 7;
+    let slots: Vec<Slot> = (1..num_initial_slots).map(Slot::new).collect();
+
+    let (genesis_state, genesis_state_root) = harness.get_current_state_and_root();
+    harness
+        .add_attested_blocks_at_slots_with_lc_data(
+            genesis_state.clone(),
+            genesis_state_root,
+            &slots,
+            &all_validators,
+            None,
+            SyncCommitteeStrategy::NoValidators,
+        )
+        .await;
+
+    let finalized_checkpoint = harness
+        .chain
+        .canonical_head
+        .cached_head()
+        .finalized_checkpoint();
+
+    let block_root = finalized_checkpoint.root;
+
+    let (lc_bootstrap, _) = harness
+        .chain
+        .get_light_client_bootstrap(&block_root)
+        .unwrap()
+        .unwrap();
+
+    let bootstrap_slot = match lc_bootstrap {
+        LightClientBootstrap::Altair(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
+        LightClientBootstrap::Capella(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
+        LightClientBootstrap::Deneb(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
+        LightClientBootstrap::Electra(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
+    };
+
+    assert_eq!(
+        bootstrap_slot.epoch(E::slots_per_epoch()),
+        finalized_checkpoint.epoch
+    );
+}
+
+#[tokio::test]
 async fn light_client_updates_test() {
     let spec = test_spec::<E>();
     let Some(_) = spec.altair_fork_epoch else {
@@ -113,19 +167,8 @@ async fn light_client_updates_test() {
     };
 
     let num_final_blocks = E::slots_per_epoch() * 2;
-    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
     let db_path = tempdir().unwrap();
-    let log = test_logger();
-
-    let seconds_per_slot = spec.seconds_per_slot;
-    let store = get_store_generic(
-        &db_path,
-        StoreConfig {
-            slots_per_restore_point: 2 * E::slots_per_epoch(),
-            ..Default::default()
-        },
-        test_spec::<E>(),
-    );
+    let store = get_store_generic(&db_path, StoreConfig::default(), test_spec::<E>());
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
     let num_initial_slots = E::slots_per_epoch() * 10;
@@ -141,135 +184,16 @@ async fn light_client_updates_test() {
         )
         .await;
 
-    let wss_block_root = harness
-        .chain
-        .block_root_at_slot(checkpoint_slot, WhenSlotSkipped::Prev)
-        .unwrap()
-        .unwrap();
-    let wss_state_root = harness
-        .chain
-        .state_root_at_slot(checkpoint_slot)
-        .unwrap()
-        .unwrap();
-    let wss_block = harness
-        .chain
-        .store
-        .get_full_block(&wss_block_root)
-        .unwrap()
-        .unwrap();
-    let wss_blobs_opt = harness.chain.store.get_blobs(&wss_block_root).unwrap();
-    let wss_state = store
-        .get_state(&wss_state_root, Some(checkpoint_slot))
-        .unwrap()
-        .unwrap();
-
-    let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone());
-
-    let mock =
-        mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
-
     harness.advance_slot();
     harness
-        .extend_chain(
+        .extend_chain_with_light_client_data(
             num_final_blocks as usize,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
         .await;
 
-    // Initialise a new beacon chain from the finalized checkpoint.
-    // The slot clock must be set to a time ahead of the checkpoint state.
-    let slot_clock = TestingSlotClock::new(
-        Slot::new(0),
-        Duration::from_secs(harness.chain.genesis_time),
-        Duration::from_secs(seconds_per_slot),
-    );
-    slot_clock.set_slot(harness.get_current_slot().as_u64());
-
-    let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
-
-    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec)
-        .store(store.clone())
-        .custom_spec(test_spec::<E>())
-        .task_executor(harness.chain.task_executor.clone())
-        .logger(log.clone())
-        .weak_subjectivity_state(
-            wss_state,
-            wss_block.clone(),
-            wss_blobs_opt.clone(),
-            genesis_state,
-        )
-        .unwrap()
-        .store_migrator_config(MigratorConfig::default().blocking())
-        .dummy_eth1_backend()
-        .expect("should build dummy backend")
-        .slot_clock(slot_clock)
-        .shutdown_sender(shutdown_tx)
-        .chain_config(ChainConfig::default())
-        .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-            log.clone(),
-            1,
-        )))
-        .execution_layer(Some(mock.el))
-        .kzg(kzg)
-        .build()
-        .expect("should build");
-
-    let beacon_chain = Arc::new(beacon_chain);
-
     let current_state = harness.get_current_state();
-
-    if ForkName::Electra == current_state.fork_name_unchecked() {
-        // TODO(electra) fix beacon state `compute_merkle_proof`
-        return;
-    }
-
-    let block_root = *current_state
-        .get_block_root(current_state.slot() - Slot::new(1))
-        .unwrap();
-
-    let contributions = harness.make_sync_contributions(
-        &current_state,
-        block_root,
-        current_state.slot() - Slot::new(1),
-        RelativeSyncCommittee::Current,
-    );
-
-    // generate sync aggregates
-    for (_, contribution_and_proof) in contributions {
-        let contribution = contribution_and_proof
-            .expect("contribution exists for committee")
-            .message
-            .contribution;
-        beacon_chain
-            .op_pool
-            .insert_sync_contribution(contribution.clone())
-            .unwrap();
-        beacon_chain
-            .op_pool
-            .insert_sync_contribution(contribution)
-            .unwrap();
-    }
-
-    // check that we can fetch the newly generated sync aggregate
-    let sync_aggregate = beacon_chain
-        .op_pool
-        .get_sync_aggregate(&current_state)
-        .unwrap()
-        .unwrap();
-
-    // cache light client data
-    beacon_chain
-        .light_client_server_cache
-        .recompute_and_cache_updates(
-            store.clone(),
-            current_state.slot() - Slot::new(1),
-            &block_root,
-            &sync_aggregate,
-            &log,
-            &spec,
-        )
-        .unwrap();
 
     // calculate the sync period from the previous slot
     let sync_period = (current_state.slot() - Slot::new(1))
@@ -279,7 +203,8 @@ async fn light_client_updates_test() {
 
     // fetch a range of light client updates. right now there should only be one light client update
     // in the db.
-    let lc_updates = beacon_chain
+    let lc_updates = harness
+        .chain
         .get_light_client_updates(sync_period, 100)
         .unwrap();
 
@@ -291,63 +216,16 @@ async fn light_client_updates_test() {
     }
 
     harness
-        .extend_chain(
+        .extend_chain_with_light_client_data(
             num_final_blocks as usize,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
         .await;
 
-    let current_state = harness.get_current_state();
-
-    let block_root = *current_state
-        .get_block_root(current_state.slot() - Slot::new(1))
-        .unwrap();
-
-    let contributions = harness.make_sync_contributions(
-        &current_state,
-        block_root,
-        current_state.slot() - Slot::new(1),
-        RelativeSyncCommittee::Current,
-    );
-
-    // generate new sync aggregates from this new state
-    for (_, contribution_and_proof) in contributions {
-        let contribution = contribution_and_proof
-            .expect("contribution exists for committee")
-            .message
-            .contribution;
-        beacon_chain
-            .op_pool
-            .insert_sync_contribution(contribution.clone())
-            .unwrap();
-        beacon_chain
-            .op_pool
-            .insert_sync_contribution(contribution)
-            .unwrap();
-    }
-
-    let sync_aggregate = beacon_chain
-        .op_pool
-        .get_sync_aggregate(&current_state)
-        .unwrap()
-        .unwrap();
-
-    // cache new light client data
-    beacon_chain
-        .light_client_server_cache
-        .recompute_and_cache_updates(
-            store.clone(),
-            current_state.slot() - Slot::new(1),
-            &block_root,
-            &sync_aggregate,
-            &log,
-            &spec,
-        )
-        .unwrap();
-
     // we should now have two light client updates in the db
-    let lc_updates = beacon_chain
+    let lc_updates = harness
+        .chain
         .get_light_client_updates(sync_period, 100)
         .unwrap();
 
@@ -2475,7 +2353,7 @@ async fn pruning_test(
 }
 
 #[tokio::test]
-async fn garbage_collect_temp_states_from_failed_block() {
+async fn garbage_collect_temp_states_from_failed_block_on_startup() {
     let db_path = tempdir().unwrap();
 
     // Wrap these functions to ensure the variables are dropped before we try to open another
@@ -2529,6 +2407,61 @@ async fn garbage_collect_temp_states_from_failed_block() {
 
     // On startup, the store should garbage collect all the temporary states.
     let store = get_store(&db_path);
+    assert_eq!(store.iter_temporary_state_roots().count(), 0);
+}
+
+#[tokio::test]
+async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
+    let db_path = tempdir().unwrap();
+
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    let slots_per_epoch = E::slots_per_epoch();
+
+    let genesis_state = harness.get_current_state();
+    let block_slot = Slot::new(2 * slots_per_epoch);
+    let ((signed_block, _), state) = harness.make_block(genesis_state, block_slot).await;
+
+    let (mut block, _) = (*signed_block).clone().deconstruct();
+
+    // Mutate the block to make it invalid, and re-sign it.
+    *block.state_root_mut() = Hash256::repeat_byte(0xff);
+    let proposer_index = block.proposer_index() as usize;
+    let block = Arc::new(block.sign(
+        &harness.validator_keypairs[proposer_index].sk,
+        &state.fork(),
+        state.genesis_validators_root(),
+        &harness.spec,
+    ));
+
+    // The block should be rejected, but should store a bunch of temporary states.
+    harness.set_current_slot(block_slot);
+    harness
+        .process_block_result((block, None))
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        store.iter_temporary_state_roots().count(),
+        block_slot.as_usize() - 1
+    );
+
+    // Finalize the chain without the block, which should result in pruning of all temporary states.
+    let blocks_required_to_finalize = 3 * slots_per_epoch;
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            blocks_required_to_finalize as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Check that the finalization migration ran.
+    assert_ne!(store.get_split_slot(), 0);
+
+    // Check that temporary states have been pruned.
     assert_eq!(store.iter_temporary_state_roots().count(), 0);
 }
 
@@ -2639,7 +2572,8 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
     let seconds_per_slot = spec.seconds_per_slot;
-    let kzg = spec.deneb_fork_epoch.map(|_| KZG.clone());
+
+    let kzg = get_kzg(&spec);
 
     let mock =
         mock_execution_layer_from_parts(&harness.spec, harness.runtime.task_executor.clone());
@@ -2653,9 +2587,9 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     );
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
-    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec)
+    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, kzg)
         .store(store.clone())
-        .custom_spec(test_spec::<E>())
+        .custom_spec(test_spec::<E>().into())
         .task_executor(harness.chain.task_executor.clone())
         .logger(log.clone())
         .weak_subjectivity_state(
@@ -2676,7 +2610,6 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             1,
         )))
         .execution_layer(Some(mock.el))
-        .kzg(kzg)
         .build()
         .expect("should build");
 
@@ -2736,9 +2669,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     // Forwards iterator from 0 should fail as we lack blocks.
     assert!(matches!(
         beacon_chain.forwards_iter_block_roots(Slot::new(0)),
-        Err(BeaconChainError::HistoricalBlockError(
-            HistoricalBlockError::BlockOutOfRange { .. }
-        ))
+        Err(BeaconChainError::HistoricalBlockOutOfRange { .. })
     ));
 
     // Simulate processing of a `StatusMessage` with an older finalized epoch by calling
@@ -2806,7 +2737,7 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         beacon_chain
             .import_historical_block_batch(batch_with_invalid_first_block)
             .unwrap_err(),
-        BeaconChainError::HistoricalBlockError(HistoricalBlockError::InvalidSignature)
+        HistoricalBlockError::InvalidSignature
     ));
 
     // Importing the batch with valid signatures should succeed.
@@ -3123,7 +3054,7 @@ async fn revert_minority_fork_on_resume() {
     let db_path1 = tempdir().unwrap();
     let store1 = get_store_generic(&db_path1, StoreConfig::default(), spec1.clone());
     let harness1 = BeaconChainHarness::builder(MinimalEthSpec)
-        .spec(spec1)
+        .spec(spec1.clone().into())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store1)
         .mock_execution_layer()
@@ -3133,7 +3064,7 @@ async fn revert_minority_fork_on_resume() {
     let db_path2 = tempdir().unwrap();
     let store2 = get_store_generic(&db_path2, StoreConfig::default(), spec2.clone());
     let harness2 = BeaconChainHarness::builder(MinimalEthSpec)
-        .spec(spec2.clone())
+        .spec(spec2.clone().into())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store2)
         .mock_execution_layer()
@@ -3229,7 +3160,7 @@ async fn revert_minority_fork_on_resume() {
     let resume_store = get_store_generic(&db_path1, StoreConfig::default(), spec2.clone());
 
     let resumed_harness = TestHarness::builder(MinimalEthSpec)
-        .spec(spec2)
+        .spec(spec2.clone().into())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .resumed_disk_store(resume_store)
         .override_store_mutator(Box::new(move |mut builder| {

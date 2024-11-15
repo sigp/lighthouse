@@ -4,7 +4,6 @@ use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::eth1_chain::Error as Eth1ChainError;
-use crate::historical_blocks::HistoricalBlockError;
 use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_aggregates::Error as ObservedAttestationsError;
@@ -123,7 +122,11 @@ pub enum BeaconChainError {
         block_slot: Slot,
         state_slot: Slot,
     },
-    HistoricalBlockError(HistoricalBlockError),
+    /// Block is not available (only returned when fetching historic blocks).
+    HistoricalBlockOutOfRange {
+        slot: Slot,
+        oldest_block_slot: Slot,
+    },
     InvalidStateForShuffling {
         state_epoch: Epoch,
         shuffling_epoch: Epoch,
@@ -216,7 +219,8 @@ pub enum BeaconChainError {
     UnableToPublish,
     UnableToBuildColumnSidecar(String),
     AvailabilityCheckError(AvailabilityCheckError),
-    LightClientError(LightClientError),
+    LightClientUpdateError(LightClientUpdateError),
+    LightClientBootstrapError(String),
     UnsupportedFork,
     MilhouseError(MilhouseError),
     EmptyRpcCustodyColumns,
@@ -244,13 +248,12 @@ easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(PruningError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);
 easy_from_to!(ForkChoiceStoreError, BeaconChainError);
-easy_from_to!(HistoricalBlockError, BeaconChainError);
 easy_from_to!(StateAdvanceError, BeaconChainError);
 easy_from_to!(BlockReplayError, BeaconChainError);
 easy_from_to!(InconsistentFork, BeaconChainError);
 easy_from_to!(AvailabilityCheckError, BeaconChainError);
 easy_from_to!(EpochCacheError, BeaconChainError);
-easy_from_to!(LightClientError, BeaconChainError);
+easy_from_to!(LightClientUpdateError, BeaconChainError);
 easy_from_to!(MilhouseError, BeaconChainError);
 easy_from_to!(AttestationError, BeaconChainError);
 
@@ -290,10 +293,10 @@ pub enum BlockProductionError {
     TokioJoin(JoinError),
     BeaconChain(BeaconChainError),
     InvalidPayloadFork,
-    TrustedSetupNotInitialized,
     InvalidBlockVariant(String),
     KzgError(kzg::Error),
     FailedToBuildBlobSidecars(String),
+    MissingExecutionRequests,
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

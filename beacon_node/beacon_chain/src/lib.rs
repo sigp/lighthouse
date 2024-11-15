@@ -28,6 +28,7 @@ pub mod eth1_chain;
 mod eth1_finalization_cache;
 pub mod events;
 pub mod execution_payload;
+pub mod fetch_blobs;
 pub mod fork_choice_signal;
 pub mod fork_revert;
 pub mod graffiti_calculator;
@@ -43,7 +44,7 @@ mod naive_aggregation_pool;
 pub mod observed_aggregates;
 mod observed_attesters;
 pub mod observed_block_producers;
-mod observed_data_sidecars;
+pub mod observed_data_sidecars;
 pub mod observed_operations;
 mod observed_slashable;
 pub mod otb_verification_service;
@@ -75,9 +76,9 @@ pub use self::historical_blocks::HistoricalBlockError;
 pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
 pub use block_verification::{
-    get_block_root, BlockError, ExecutionPayloadError, ExecutionPendingBlock, GossipVerifiedBlock,
-    IntoExecutionPendingBlock, IntoGossipVerifiedBlockContents, PayloadVerificationOutcome,
-    PayloadVerificationStatus,
+    build_blob_data_column_sidecars, get_block_root, BlockError, ExecutionPayloadError,
+    ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock, IntoGossipVerifiedBlock,
+    PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 pub use block_verification_types::AvailabilityPendingExecutedBlock;
 pub use block_verification_types::ExecutedBlock;

@@ -1,5 +1,5 @@
 use crate::checks::epoch_delay;
-use eth2_network_config::TRUSTED_SETUP_BYTES;
+use kzg::trusted_setup::get_trusted_setup;
 use node_test_rig::{
     environment::RuntimeContext,
     eth2::{types::StateId, BeaconNodeHttpClient},
@@ -46,8 +46,8 @@ fn default_client_config(network_params: LocalNetworkParams, genesis_time: u64) 
     beacon_config.chain.enable_light_client_server = true;
     beacon_config.http_api.enable_light_client_server = true;
     beacon_config.chain.optimistic_finalized_sync = false;
-    beacon_config.trusted_setup =
-        serde_json::from_reader(TRUSTED_SETUP_BYTES).expect("Trusted setup bytes should be valid");
+    beacon_config.trusted_setup = serde_json::from_reader(get_trusted_setup().as_slice())
+        .expect("Trusted setup bytes should be valid");
 
     let el_config = execution_layer::Config {
         execution_endpoint: Some(
@@ -459,7 +459,7 @@ impl<E: EthSpec> LocalNetwork<E> {
             .map(|body| body.unwrap().data.finalized.epoch)
     }
 
-    pub async fn duration_to_genesis(&self) -> Duration {
+    pub async fn duration_to_genesis(&self) -> Result<Duration, &'static str> {
         let nodes = self.remote_nodes().expect("Failed to get remote nodes");
         let bootnode = nodes.first().expect("Should contain bootnode");
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
@@ -471,6 +471,9 @@ impl<E: EthSpec> LocalNetwork<E> {
                 .data
                 .genesis_time,
         );
-        genesis_time - now
+        genesis_time.checked_sub(now).ok_or(
+            "The genesis time has already passed since all nodes started. The node startup time \
+            may have regressed, and the current `GENESIS_DELAY` is no longer sufficient.",
+        )
     }
 }

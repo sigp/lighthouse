@@ -15,12 +15,10 @@ pub fn compute_beacon_block_rewards<T: BeaconChainTypes>(
 
     let block_ref = block.message();
 
-    let block_root = block.canonical_root();
-
     let mut state = get_state_before_applying_block(chain.clone(), &block)?;
 
     let rewards = chain
-        .compute_beacon_block_reward(block_ref, block_root, &mut state)
+        .compute_beacon_block_reward(block_ref, &mut state)
         .map_err(beacon_chain_error)?;
 
     Ok((rewards, execution_optimistic, finalized))

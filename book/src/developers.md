@@ -20,6 +20,7 @@ Lighthouse currently uses the following ENR fields:
 ### Lighthouse Custom Fields
 
 Lighthouse is currently using the following custom ENR fields.
+
 | Field | Description |
 | ---- | ---- |
 | `quic` | The UDP port on which the QUIC transport is listening on IPv4 |

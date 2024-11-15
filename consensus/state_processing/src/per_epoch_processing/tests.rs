@@ -45,6 +45,7 @@ mod release_tests {
         per_slot_processing::per_slot_processing, EpochProcessingError, SlotProcessingError,
     };
     use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
+    use std::sync::Arc;
     use types::{Epoch, ForkName, InconsistentFork, MainnetEthSpec};
 
     #[tokio::test]
@@ -56,7 +57,7 @@ mod release_tests {
 
         let altair_state = {
             let harness = BeaconChainHarness::builder(MainnetEthSpec)
-                .spec(spec.clone())
+                .spec(Arc::new(spec.clone()))
                 .deterministic_keypairs(8)
                 .fresh_ephemeral_store()
                 .build();
@@ -116,7 +117,7 @@ mod release_tests {
 
         let base_state = {
             let harness = BeaconChainHarness::builder(MainnetEthSpec)
-                .spec(spec.clone())
+                .spec(Arc::new(spec.clone()))
                 .deterministic_keypairs(8)
                 .fresh_ephemeral_store()
                 .build();
