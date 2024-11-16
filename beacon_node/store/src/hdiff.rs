@@ -114,8 +114,11 @@ pub struct HDiffBuffer {
 ///   this strategy the HDiff code is easily mantainable across forks, as new fields are covered
 ///   automatically. xdelta3 algorithm showed diff compute and apply times of ~200 ms on a mainnet
 ///   state from Apr 2023 (570k indexes), and a 92kB diff size.
-#[superstruct(variants(V0), variant_attributes(derive(Debug, Encode, Decode)))]
-#[derive(Debug, Encode, Decode)]
+#[superstruct(
+    variants(V0),
+    variant_attributes(derive(Debug, PartialEq, Encode, Decode))
+)]
+#[derive(Debug, PartialEq, Encode, Decode)]
 #[ssz(enum_behaviour = "union")]
 pub struct HDiff {
     state_diff: BytesDiff,
@@ -142,22 +145,22 @@ pub struct HDiff {
     historical_summaries: AppendOnlyDiff<HistoricalSummary>,
 }
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, PartialEq, Encode, Decode)]
 pub struct BytesDiff {
     bytes: Vec<u8>,
 }
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, PartialEq, Encode, Decode)]
 pub struct CompressedU64Diff {
     bytes: Vec<u8>,
 }
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, PartialEq, Encode, Decode)]
 pub struct ValidatorsDiff {
     bytes: Vec<u8>,
 }
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, PartialEq, Encode, Decode)]
 pub struct AppendOnlyDiff<T: Encode + Decode> {
     values: Vec<T>,
 }
@@ -320,8 +323,9 @@ impl BytesDiff {
     }
 
     pub fn compute_xdelta(source_bytes: &[u8], target_bytes: &[u8]) -> Result<Self, Error> {
-        let bytes =
-            xdelta3::encode(target_bytes, source_bytes).ok_or(Error::UnableToComputeDiff)?;
+        let bytes = xdelta3::encode(target_bytes, source_bytes)
+            .ok_or(Error::UnableToComputeDiff)
+            .unwrap();
         Ok(Self { bytes })
     }
 
@@ -704,7 +708,7 @@ impl StorageStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::{thread_rng, Rng};
+    use rand::{rngs::SmallRng, thread_rng, Rng, SeedableRng};
 
     #[test]
     fn default_storage_strategy() {
@@ -836,5 +840,75 @@ mod tests {
             exit_epoch: Epoch::max_value(),
             withdrawable_epoch: Epoch::max_value(),
         }
+    }
+
+    // This test checks that the hdiff algorithm doesn't accidentally change between releases.
+    // If it does, we need to ensure appropriate backwards compatibility measures are implemented
+    // before this test is updated.
+    #[test]
+    fn hdiff_version_stability() {
+        let mut rng = SmallRng::seed_from_u64(0xffeeccdd00aa);
+
+        let pre_balances = vec![32_000_000_000, 16_000_000_000, 0];
+        let post_balances = vec![31_000_000_000, 17_000_000, 0, 0];
+
+        let pre_inactivity_scores = vec![1, 1, 1];
+        let post_inactivity_scores = vec![0, 0, 0, 1];
+
+        let pre_validators = (0..3).map(|_| rand_validator(&mut rng)).collect::<Vec<_>>();
+        let post_validators = pre_validators.clone();
+
+        let pre_historical_roots = vec![Hash256::repeat_byte(0xff)];
+        let post_historical_roots = vec![Hash256::repeat_byte(0xff), Hash256::repeat_byte(0xee)];
+
+        let pre_historical_summaries = vec![HistoricalSummary::default()];
+        let post_historical_summaries = pre_historical_summaries.clone();
+
+        let pre_buffer = HDiffBuffer {
+            state: vec![0, 1, 2, 3, 3, 2, 1, 0],
+            balances: pre_balances,
+            inactivity_scores: pre_inactivity_scores,
+            validators: pre_validators,
+            historical_roots: pre_historical_roots,
+            historical_summaries: pre_historical_summaries,
+        };
+        let post_buffer = HDiffBuffer {
+            state: vec![0, 1, 3, 2, 2, 3, 1, 1],
+            balances: post_balances,
+            inactivity_scores: post_inactivity_scores,
+            validators: post_validators,
+            historical_roots: post_historical_roots,
+            historical_summaries: post_historical_summaries,
+        };
+
+        let config = StoreConfig::default();
+        let hdiff = HDiff::compute(&pre_buffer, &post_buffer, &config).unwrap();
+        let hdiff_ssz = hdiff.as_ssz_bytes();
+
+        // First byte should match enum version.
+        assert_eq!(hdiff_ssz[0], 0);
+
+        // Should roundtrip.
+        assert_eq!(HDiff::from_ssz_bytes(&hdiff_ssz).unwrap(), hdiff);
+
+        // Should roundtrip as V0 with enum selector stripped.
+        assert_eq!(
+            HDiff::V0(HDiffV0::from_ssz_bytes(&hdiff_ssz[1..]).unwrap()),
+            hdiff
+        );
+
+        assert_eq!(
+            hdiff_ssz,
+            vec![
+                0u8, 24, 0, 0, 0, 49, 0, 0, 0, 85, 0, 0, 0, 114, 0, 0, 0, 127, 0, 0, 0, 163, 0, 0,
+                0, 4, 0, 0, 0, 214, 195, 196, 0, 0, 0, 14, 8, 0, 8, 1, 0, 0, 1, 3, 2, 2, 3, 1, 1,
+                9, 4, 0, 0, 0, 40, 181, 47, 253, 0, 72, 189, 0, 0, 136, 255, 255, 255, 255, 196,
+                101, 54, 0, 255, 255, 255, 252, 71, 86, 198, 64, 0, 1, 0, 59, 176, 4, 4, 0, 0, 0,
+                40, 181, 47, 253, 0, 72, 133, 0, 0, 80, 255, 255, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 10,
+                192, 2, 4, 0, 0, 0, 40, 181, 47, 253, 32, 0, 1, 0, 0, 4, 0, 0, 0, 238, 238, 238,
+                238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238,
+                238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 4, 0, 0, 0
+            ]
+        );
     }
 }
