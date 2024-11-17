@@ -11,12 +11,12 @@ use eth2::lighthouse_vc::{
 use eth2_keystore::Keystore;
 use initialized_validators::{Error, InitializedValidators};
 use signing_method::SigningMethod;
-use tracing::{info, warn};
 use slot_clock::SlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::runtime::Handle;
+use tracing::{info, warn};
 use types::{EthSpec, PublicKeyBytes};
 use validator_dir::{keystore_password_path, Builder as ValidatorDirBuilder};
 use validator_store::ValidatorStore;
@@ -86,10 +86,7 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
                         .iter()
                         .any(|data| data.pubkey == pubkey_bytes)
                     {
-                        warn!(
-                            ?public_key,
-                            "Slashing protection data not provided"
-                        );
+                        warn!(?public_key, "Slashing protection data not provided");
                     }
                 }
             }

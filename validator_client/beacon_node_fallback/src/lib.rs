@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use strum::{EnumString, EnumVariantNames};
 use tokio::{sync::RwLock, time::sleep};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 use types::{ChainSpec, Config as ConfigSpec, EthSpec, Slot};
 use validator_metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
 

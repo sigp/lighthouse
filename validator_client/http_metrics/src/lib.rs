@@ -3,16 +3,16 @@
 //! For other endpoints, see the `http_api` crate.
 
 use lighthouse_version::version_with_platform;
+use logging::crit;
 use malloc_utils::scrape_allocator_metrics;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use tracing::info;
-use logging::crit;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::info;
 use types::EthSpec;
 use validator_services::duties_service::DutiesService;
 use validator_store::ValidatorStore;

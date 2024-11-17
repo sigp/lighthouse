@@ -50,7 +50,11 @@ pub struct LoggerConfig {
     pub path: Option<PathBuf>,
     #[serde(skip_serializing, skip_deserializing, default = "default_debug_level")]
     pub debug_level: LevelFilter,
-    #[serde(skip_serializing, skip_deserializing, default = "default_logfile_debug_level")]
+    #[serde(
+        skip_serializing,
+        skip_deserializing,
+        default = "default_logfile_debug_level"
+    )]
     pub logfile_debug_level: LevelFilter,
     pub log_format: Option<String>,
     pub logfile_format: Option<String>,

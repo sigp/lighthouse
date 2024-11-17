@@ -8,11 +8,11 @@ use eth2::lighthouse_vc::std_types::{
     ListRemotekeysResponse, SingleListRemotekeysResponse, Status,
 };
 use initialized_validators::{Error, InitializedValidators};
-use tracing::{info, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::runtime::Handle;
+use tracing::{info, warn};
 use types::{EthSpec, PublicKeyBytes};
 use url::Url;
 use validator_store::ValidatorStore;

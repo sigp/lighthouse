@@ -2,13 +2,13 @@ use crate::duties_service::{DutiesService, DutyAndProof};
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use environment::RuntimeContext;
 use futures::future::join_all;
-use tracing::{debug, error, info, trace, warn};
 use logging::crit;
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::time::{sleep, sleep_until, Duration, Instant};
+use tracing::{debug, error, info, trace, warn};
 use tree_hash::TreeHash;
 use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
@@ -119,7 +119,6 @@ impl<T, E: EthSpec> Deref for AttestationService<T, E> {
 impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
     /// Starts the service which periodically produces attestations.
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
-
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         let duration_to_next_slot = self
             .slot_clock
@@ -139,10 +138,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     sleep(duration_to_next_slot + slot_duration / 3).await;
 
                     if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
-                        crit!(
-                            error = e,
-                            "Failed to spawn attestation tasks"
-                        )
+                        crit!(error = e, "Failed to spawn attestation tasks")
                     } else {
                         trace!("Spawned attestation tasks");
                     }
@@ -313,7 +309,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         committee_index: CommitteeIndex,
         validator_duties: &[DutyAndProof],
     ) -> Result<Option<AttestationData>, String> {
-
         if validator_duties.is_empty() {
             return Ok(None);
         }
@@ -494,7 +489,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         committee_index: CommitteeIndex,
         validator_duties: &[DutyAndProof],
     ) -> Result<(), String> {
-
         if !validator_duties
             .iter()
             .any(|duty_and_proof| duty_and_proof.selection_proof.is_some())
@@ -570,10 +564,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 Err(ValidatorStoreError::UnknownPubkey(pubkey)) => {
                     // A pubkey can be missing when a validator was recently
                     // removed via the API.
-                    debug!(
-                        ?pubkey,
-                        "Missing pubkey for aggregate"
-                    );
+                    debug!(?pubkey, "Missing pubkey for aggregate");
                     None
                 }
                 Err(e) => {

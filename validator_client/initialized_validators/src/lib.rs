@@ -23,13 +23,13 @@ use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 use reqwest::{Certificate, Client, Error as ReqwestError, Identity};
 use serde::{Deserialize, Serialize};
 use signing_method::SigningMethod;
-use tracing::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::{debug, error, info, warn};
 use types::graffiti::GraffitiString;
 use types::{Address, Graffiti, Keypair, PublicKey, PublicKeyBytes};
 use url::{ParseError, Url};
@@ -1370,10 +1370,7 @@ impl InitializedValidators {
         if has_local_definitions && key_cache.is_modified() {
             tokio::task::spawn_blocking(move || {
                 match key_cache.save(validators_dir) {
-                    Err(e) => warn!(
-                        err = format!("{:?}", e),
-                        "Error during saving of key_cache"
-                    ),
+                    Err(e) => warn!(err = format!("{:?}", e), "Error during saving of key_cache"),
                     Ok(true) => info!("Modified key_cache saved successfully"),
                     _ => {}
                 };

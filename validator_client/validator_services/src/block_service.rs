@@ -12,11 +12,11 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tracing::{debug, error, info, trace, warn};
 use types::{
     BlindedBeaconBlock, BlockType, EthSpec, Graffiti, PublicKeyBytes, SignedBlindedBeaconBlock,
     Slot,
 };
-use tracing::{debug, error, info, trace, warn};
 use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
 #[derive(Debug)]
@@ -220,7 +220,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         self,
         mut notification_rx: mpsc::Receiver<BlockServiceNotification>,
     ) -> Result<(), String> {
-
         info!("Block production service started");
 
         let executor = self.inner.context.executor.clone();
@@ -267,10 +266,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             return Ok(());
         }
 
-        trace!(
-            slot = slot.as_u64(),
-            "Block service update started"
-        );
+        trace!(slot = slot.as_u64(), "Block service update started");
 
         let proposers = notification.block_proposers;
 
@@ -446,10 +442,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             proposer_nodes: self.proposer_nodes.clone(),
         };
 
-        info!(
-            slot = slot.as_u64(),
-            "Requesting unsigned block"
-        );
+        info!(slot = slot.as_u64(), "Requesting unsigned block");
 
         // Request block from first responsive beacon node.
         //
@@ -551,10 +544,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             eth2::types::ProduceBlockV3Response::Blinded(block) => UnsignedBlock::Blinded(block),
         };
 
-        info!(
-            slot = slot.as_u64(),
-            "Received unsigned block"
-        );
+        info!(slot = slot.as_u64(), "Received unsigned block");
         if proposer_index != Some(unsigned_block.proposer_index()) {
             return Err(BlockError::Recoverable(
                 "Proposer index does not match block proposer. Beacon chain re-orged".to_string(),

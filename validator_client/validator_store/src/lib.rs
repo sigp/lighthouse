@@ -1,8 +1,8 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
 use doppelganger_service::{DoppelgangerService, DoppelgangerStatus, DoppelgangerValidatorStore};
 use initialized_validators::InitializedValidators;
-use parking_lot::{Mutex, RwLock};
 use logging::crit;
+use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod};
 use slashing_protection::{
@@ -13,7 +13,7 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tracing::{info, error, warn};
+use tracing::{error, info, warn};
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
     AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
@@ -627,9 +627,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 Ok(SignedBeaconBlock::from_block(block, signature))
             }
             Ok(Safe::SameData) => {
-                warn!(
-                    "Skipping signing of previously signed block"
-                );
+                warn!("Skipping signing of previously signed block");
                 validator_metrics::inc_counter_vec(
                     &validator_metrics::SIGNED_BLOCKS_TOTAL,
                     &[validator_metrics::SAME_DATA],
@@ -649,10 +647,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 Err(Error::Slashable(NotSafe::UnregisteredValidator(pk)))
             }
             Err(e) => {
-                crit!(
-                    error = format!("{:?}", e),
-                    "Not signing slashable block"
-                );
+                crit!(error = format!("{:?}", e), "Not signing slashable block");
                 validator_metrics::inc_counter_vec(
                     &validator_metrics::SIGNED_BLOCKS_TOTAL,
                     &[validator_metrics::SLASHABLE],
@@ -719,9 +714,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 Ok(())
             }
             Ok(Safe::SameData) => {
-                warn!(
-                    "Skipping signing of previously signed attestation"
-                );
+                warn!("Skipping signing of previously signed attestation");
                 validator_metrics::inc_counter_vec(
                     &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
                     &[validator_metrics::SAME_DATA],

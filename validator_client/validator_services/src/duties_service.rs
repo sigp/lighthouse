@@ -468,7 +468,6 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
         &[validator_metrics::UPDATE_INDICES],
     );
 
-
     // Collect *all* pubkeys for resolving indices, even those undergoing doppelganger protection.
     //
     // Since doppelganger protection queries rely on validator indices it is important to ensure we
@@ -561,11 +560,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                             .insert(pubkey, next_poll_slot);
                     }
 
-                    debug!(
-                        ?pubkey,
-                        fee_recipient,
-                        "Validator without index"
-                    )
+                    debug!(?pubkey, fee_recipient, "Validator without index")
                 }
                 // Don't exit early on an error, keep attempting to resolve other indices.
                 Err(e) => {
@@ -1027,7 +1022,6 @@ async fn fill_in_selection_proofs<T: SlotClock + 'static, E: EthSpec>(
     duties: Vec<AttesterData>,
     dependent_root: Hash256,
 ) {
-
     // Sort duties by slot in a BTreeMap.
     let mut duties_by_slot: BTreeMap<Slot, Vec<_>> = BTreeMap::new();
 

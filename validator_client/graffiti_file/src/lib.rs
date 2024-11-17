@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
-use tracing::warn;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
 use std::path::PathBuf;
 use std::str::FromStr;
+use tracing::warn;
 
 use bls::PublicKeyBytes;
 use types::{graffiti::GraffitiString, Graffiti};
