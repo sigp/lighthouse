@@ -12,7 +12,7 @@ path = "src/lib.rs"
 serde = { workspace = true }
 bls = { workspace = true }
 types = { workspace = true }
-slog = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

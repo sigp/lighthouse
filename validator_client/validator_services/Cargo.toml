@@ -15,9 +15,10 @@ eth2 = { workspace = true }
 futures = { workspace = true }
 parking_lot = { workspace = true }
 safe_arith = { workspace = true }
-slog =  { workspace = true }
 slot_clock =  { workspace = true }
 tokio =  { workspace = true }
 types =  { workspace = true }
 tree_hash =  { workspace = true }
+tracing = { workspace = true }
+logging = { workspace = true }
 bls =  { workspace = true }

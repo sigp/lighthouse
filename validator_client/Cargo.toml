@@ -31,7 +31,6 @@ reqwest = { workspace = true }
 sensitive_url = { workspace = true }
 slashing_protection = { workspace = true }
 serde = { workspace = true }
-slog = { workspace = true }
 slot_clock = { workspace = true }
 types  = { workspace = true }
 validator_http_api = { workspace = true }
@@ -40,4 +39,5 @@ validator_metrics = { workspace = true }
 validator_services = { workspace = true }
 validator_store = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
 fdlimit = "0.3.0"

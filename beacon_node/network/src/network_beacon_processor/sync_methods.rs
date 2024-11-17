@@ -610,11 +610,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         expected_block_root,
                     } => {
                         debug!(
-                            self.log,
-                            "Backfill batch processing error";
-                            "error" => "mismatched_block_root",
-                            "block_root" => ?block_root,
-                            "expected_root" => ?expected_block_root
+                            error = "mismatched_block_root",
+                            ?block_root,
+                            expected_root = ?expected_block_root,
+                            "Backfill batch processing error"
                         );
                         // The peer is faulty if they send blocks with bad roots.
                         Some(PeerAction::LowToleranceError)
@@ -622,39 +621,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     HistoricalBlockError::InvalidSignature
                     | HistoricalBlockError::SignatureSet(_) => {
                         warn!(
-                            self.log,
-                            "Backfill batch processing error";
-                            "error" => ?e
+                            error = ?e,
+                            "Backfill batch processing error"
                         );
                         // The peer is faulty if they bad signatures.
                         Some(PeerAction::LowToleranceError)
                     }
                     HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
                         warn!(
-                            self.log,
-                            "Backfill batch processing error";
-                            "error" => "pubkey_cache_timeout"
+                            error = "pubkey_cache_timeout",
+                            "Backfill batch processing error"
                         );
                         // This is an internal error, do not penalize the peer.
                         None
                     }
                     HistoricalBlockError::NoAnchorInfo => {
-                        warn!(self.log, "Backfill not required");
+                        warn!("Backfill not required");
                         // There is no need to do a historical sync, this is not a fault of
                         // the peer.
                         None
                     }
                     HistoricalBlockError::IndexOutOfBounds => {
                         error!(
-                            self.log,
-                            "Backfill batch OOB error";
-                            "error" => ?e,
+                            error = ?e,
+                            "Backfill batch OOB error"
                         );
                         // This should never occur, don't penalize the peer.
                         None
                     }
                     HistoricalBlockError::StoreError(e) => {
-                        warn!(self.log, "Backfill batch processing error"; "error" => ?e);
+                        warn!(error = ?e, "Backfill batch processing error");
                         // This is an internal error, don't penalize the peer.
                         None
                     } //

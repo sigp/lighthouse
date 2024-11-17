@@ -9,12 +9,13 @@ beacon_node_fallback = { workspace = true }
 environment = { workspace = true }
 eth2 = { workspace = true }
 parking_lot = { workspace = true }
-slog = { workspace = true }
 slot_clock = { workspace = true }
 task_executor = { workspace = true }
 tokio = { workspace = true }
 types = { workspace = true }
+tracing = { workspace = true }
+logging = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true }
-logging = {workspace = true }
+
