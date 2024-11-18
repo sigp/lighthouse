@@ -52,7 +52,7 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
     let effective_anchor = if old_anchor == ANCHOR_UNINITIALIZED {
         ANCHOR_FOR_ARCHIVE_NODE
     } else {
-        old_anchor
+        old_anchor.clone()
     };
 
     let split_slot = db.get_split_slot();
