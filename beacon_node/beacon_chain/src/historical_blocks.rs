@@ -10,10 +10,7 @@ use std::borrow::Cow;
 use std::iter;
 use std::time::Duration;
 use store::metadata::DataColumnInfo;
-use store::{
-    AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore,
-    KeyValueStoreOp,
-};
+use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
 use types::{FixedBytesExtended, Hash256, Slot};
 

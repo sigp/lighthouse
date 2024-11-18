@@ -1,7 +1,4 @@
-use crate::config::{
-    OnDiskStoreConfig, StoreConfig
-};
-use itertools::Itertools;
+use crate::config::{OnDiskStoreConfig, StoreConfig};
 use crate::database::interface::BeaconNodeBackend;
 use crate::forwards_iter::{HybridForwardsBlockRootsIterator, HybridForwardsStateRootsIterator};
 use crate::hdiff::{HDiff, HDiffBuffer, HierarchyModuli, StorageStrategy};
@@ -17,12 +14,10 @@ use crate::metadata::{
 };
 use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{get_data_column_key, metrics, parse_data_column_key, KeyValueStore};
-use crate::{
-    DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp,
-    StoreItem, StoreOp,
-};
+use crate::{DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp, StoreItem, StoreOp};
 use db_key::Key;
 use itertools::process_results;
+use itertools::Itertools;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
@@ -1727,7 +1722,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         };
 
         let column: &str = DBColumn::BeaconStateSnapshot.into();
-        ops.push(KeyValueStoreOp::PutKeyValue(column.to_owned(), state.slot().as_u64().to_be_bytes().to_vec(), compressed_value));
+        ops.push(KeyValueStoreOp::PutKeyValue(
+            column.to_owned(),
+            state.slot().as_u64().to_be_bytes().to_vec(),
+            compressed_value,
+        ));
         Ok(())
     }
 
@@ -1777,7 +1776,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let diff_bytes = diff.as_ssz_bytes();
 
         let column: &str = DBColumn::BeaconStateDiff.into();
-        ops.push(KeyValueStoreOp::PutKeyValue(column.to_owned(), state.slot().as_u64().to_be_bytes().to_vec(), diff_bytes));
+        ops.push(KeyValueStoreOp::PutKeyValue(
+            column.to_owned(),
+            state.slot().as_u64().to_be_bytes().to_vec(),
+            diff_bytes,
+        ));
         Ok(())
     }
 
@@ -2808,7 +2811,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "end_epoch" => end_epoch,
             "data_availability_boundary" => data_availability_boundary,
         );
-        
+
         let remove_blob_if = |blobs_bytes: &[u8]| {
             let blobs = BlobSidecarList::from_ssz_bytes(blobs_bytes)?;
             let Some(blob): Option<&Arc<BlobSidecar<E>>> = blobs.first() else {

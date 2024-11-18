@@ -1,9 +1,9 @@
 use crate::hdiff::HierarchyConfig;
+use crate::superstruct;
 use crate::{AnchorInfo, DBColumn, Error, Split, StoreItem};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use crate::superstruct;
 use std::io::Write;
 use std::num::NonZeroUsize;
 use strum::{Display, EnumString, EnumVariantNames};

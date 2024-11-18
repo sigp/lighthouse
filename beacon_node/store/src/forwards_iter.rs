@@ -2,9 +2,9 @@ use crate::errors::{Error, Result};
 use crate::iter::{BlockRootsIterator, StateRootsIterator};
 use crate::{ColumnIter, DBColumn, HotColdDB, ItemStore};
 use itertools::process_results;
+use ssz::Decode;
 use std::marker::PhantomData;
 use types::{BeaconState, EthSpec, Hash256, Slot};
-use ssz::Decode;
 pub type HybridForwardsBlockRootsIterator<'a, E, Hot, Cold> =
     HybridForwardsIterator<'a, E, Hot, Cold>;
 pub type HybridForwardsStateRootsIterator<'a, E, Hot, Cold> =
@@ -140,15 +140,17 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
         }
         let start = start_slot.as_u64().to_be_bytes();
         Ok(Self {
-            inner: store.cold_db.iter_column_from(column, &start,move |_, slot| {
-                let Ok(current_slot) = Slot::from_ssz_bytes(slot) else {
-                    return false
-                };
-                if end_slot <= current_slot {
-                    return true
-                }
-                false
-            }),
+            inner: store
+                .cold_db
+                .iter_column_from(column, &start, move |_, slot| {
+                    let Ok(current_slot) = Slot::from_ssz_bytes(slot) else {
+                        return false;
+                    };
+                    if end_slot <= current_slot {
+                        return true;
+                    }
+                    false
+                }),
             column,
             next_slot: start_slot,
             end_slot,
@@ -167,7 +169,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
             return None;
         }
         let Ok(inner) = self.inner.as_mut() else {
-            return None
+            return None;
         };
 
         inner

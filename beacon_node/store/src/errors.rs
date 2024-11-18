@@ -1,9 +1,9 @@
 use crate::chunked_vector::ChunkError;
 use crate::config::StoreConfigError;
 use crate::hot_cold_store::HotColdDBError;
+use crate::{hdiff, DBColumn};
 #[cfg(feature = "leveldb")]
 use leveldb::error::Error as LevelDBError;
-use crate::{hdiff, DBColumn};
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
 use types::{milhouse, BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};

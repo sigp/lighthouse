@@ -133,10 +133,7 @@ pub fn delete_old_schema_freezer_data<T: BeaconChainTypes>(
     for column in columns {
         for res in db.cold_db.iter_column_keys::<Vec<u8>>(column)? {
             let key = res?;
-            cold_ops.push(KeyValueStoreOp::DeleteKey(
-                column.as_str().to_owned(),
-                key,
-            ));
+            cold_ops.push(KeyValueStoreOp::DeleteKey(column.as_str().to_owned(), key));
         }
     }
     let delete_ops = cold_ops.len();
