@@ -2769,8 +2769,12 @@ where
                     .non_priority += 1;
             } else {
                 // IDONTWANT sent successfully.
-                peer.dont_send_sent.insert(msg_id.clone(), Instant::now());
                 if let Some(metrics) = self.metrics.as_mut() {
+                    peer.dont_send_sent.insert(msg_id.clone(), Instant::now());
+                    // Don't exceed capacity.
+                    if peer.dont_send_sent.len() > IDONTWANT_CAP {
+                        peer.dont_send_sent.pop_front();
+                    }
                     metrics.register_idontwant_messages_sent_per_topic(&message.topic);
                 }
             }
