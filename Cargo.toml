@@ -263,6 +263,8 @@ validator_http_metrics = { path = "validator_client/http_metrics" }
 validator_metrics = { path = "validator_client/validator_metrics" }
 validator_store= { path = "validator_client/validator_store" }
 warp_utils = { path = "common/warp_utils" }
+xdelta3 = { git = "http://github.com/sigp/xdelta3-rs", rev = "50d63cdf1878e5cf3538e9aae5eed34a22c64e4a" }
+zstd = "0.13"
 
 [profile.maxperf]
 inherits = "release"
