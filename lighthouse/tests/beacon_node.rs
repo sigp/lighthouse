@@ -1819,6 +1819,7 @@ fn validator_monitor_metrics_threshold_custom() {
 }
 
 // Tests for Store flags.
+// DEPRECATED but should still be accepted.
 #[test]
 fn slots_per_restore_point_flag() {
     CommandLineTest::new()
