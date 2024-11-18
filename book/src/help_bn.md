@@ -480,9 +480,6 @@ Flags:
       --disable-upnp
           Disables UPnP support. Setting this will prevent Lighthouse from
           attempting to automatically establish external port mappings.
-      --dummy-eth1
-          If present, uses an eth1 backend that generates static dummy
-          data.Identical to the method used at the 2019 Canada interop.
   -e, --enr-match
           Sets the local ENR IP address and port to match those set for
           lighthouse. Specifically, the IP address will be the value of
@@ -490,10 +487,6 @@ Flags:
       --enable-private-discovery
           Lighthouse by default does not discover private IP addresses. Set this
           flag to enable connection attempts to local addresses.
-      --eth1
-          If present the node will connect to an eth1 node. This is required for
-          block production, you must use this flag if you wish to serve a
-          validator.
       --eth1-purge-cache
           Purges the eth1 block and deposit caches
       --genesis-backfill
@@ -561,8 +554,7 @@ Flags:
       --staking
           Standard option for a staking beacon node. This will enable the HTTP
           server on localhost:5052 and import deposit logs from the execution
-          node. This is equivalent to `--http` on merge-ready networks, or
-          `--http --eth1` pre-merge
+          node.
       --stdin-inputs
           If present, read all user inputs from stdin instead of tty.
       --subscribe-all-subnets

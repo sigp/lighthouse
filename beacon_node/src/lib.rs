@@ -140,7 +140,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let builder = builder
             .beacon_chain_builder(client_genesis, client_config.clone())
             .await?;
-        let builder = if client_config.sync_eth1_chain && !client_config.dummy_eth1_backend {
+        let builder = if client_config.sync_eth1_chain {
             info!(
                 log,
                 "Block production enabled";
@@ -150,13 +150,6 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             builder
                 .caching_eth1_backend(client_config.eth1.clone())
                 .await?
-        } else if client_config.dummy_eth1_backend {
-            warn!(
-                log,
-                "Block production impaired";
-                "reason" => "dummy eth1 backend is enabled"
-            );
-            builder.dummy_eth1_backend()?
         } else {
             info!(
                 log,

@@ -121,7 +121,6 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.get_flag("staking") {
         client_config.http_api.enabled = true;
-        client_config.sync_eth1_chain = true;
     }
 
     /*
@@ -263,18 +262,12 @@ pub fn get_config<E: EthSpec>(
      * Eth1
      */
 
-    // When present, use an eth1 backend that generates deterministic junk.
-    //
-    // Useful for running testnets without the overhead of a deposit contract.
     if cli_args.get_flag("dummy-eth1") {
-        client_config.dummy_eth1_backend = true;
+        warn!(log, "The --dummy-eth1 flag is deprecated");
     }
 
-    // When present, attempt to sync to an eth1 node.
-    //
-    // Required for block production.
     if cli_args.get_flag("eth1") {
-        client_config.sync_eth1_chain = true;
+        warn!(log, "The --eth1 flag is deprecated");
     }
 
     if let Some(val) = cli_args.get_one::<String>("eth1-blocks-per-log-query") {
@@ -296,17 +289,6 @@ pub fn get_config<E: EthSpec>(
     // `--execution-endpoint` is required now.
     let endpoints: String = clap_utils::parse_required(cli_args, "execution-endpoint")?;
     let mut el_config = execution_layer::Config::default();
-
-    // Always follow the deposit contract when there is an execution endpoint.
-    //
-    // This is wasteful for non-staking nodes as they have no need to process deposit contract
-    // logs and build an "eth1" cache. The alternative is to explicitly require the `--eth1` or
-    // `--staking` flags, however that poses a risk to stakers since they cannot produce blocks
-    // without "eth1".
-    //
-    // The waste for non-staking nodes is relatively small so we err on the side of safety for
-    // stakers. The merge is already complicated enough.
-    client_config.sync_eth1_chain = true;
 
     // Parse a single execution endpoint, logging warnings if multiple endpoints are supplied.
     let execution_endpoint = parse_only_one_value(

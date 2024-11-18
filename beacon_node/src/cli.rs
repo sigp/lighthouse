@@ -693,8 +693,7 @@ pub fn cli_app() -> Command {
             Arg::new("staking")
                 .long("staking")
                 .help("Standard option for a staking beacon node. This will enable the HTTP server \
-                       on localhost:5052 and import deposit logs from the execution node. This is \
-                       equivalent to `--http` on merge-ready networks, or `--http --eth1` pre-merge")
+                       on localhost:5052 and import deposit logs from the execution node.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
@@ -706,21 +705,21 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("eth1")
                 .long("eth1")
-                .help("If present the node will connect to an eth1 node. This is required for \
-                       block production, you must use this flag if you wish to serve a validator.")
+                .help("DEPRECATED")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("dummy-eth1")
                 .long("dummy-eth1")
+                .help("DEPRECATED")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .conflicts_with("eth1")
-                .help("If present, uses an eth1 backend that generates static dummy data.\
-                      Identical to the method used at the 2019 Canada interop.")
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("eth1-purge-cache")
@@ -1489,6 +1488,7 @@ pub fn cli_app() -> Command {
                       Useful if you intend to run a non-validating beacon node.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
+                .conflicts_with("staking")
                 .display_order(0)
         )
         .arg(
