@@ -3,9 +3,10 @@ use crate::config::StoreConfigError;
 use crate::hot_cold_store::HotColdDBError;
 #[cfg(feature = "leveldb")]
 use leveldb::error::Error as LevelDBError;
+use crate::{hdiff, DBColumn};
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
-use types::{BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};
+use types::{milhouse, BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -40,12 +41,14 @@ pub enum Error {
     /// State reconstruction failed because it didn't reach the upper limit slot.
     ///
     /// This should never happen (it's a logic error).
-    StateReconstructionDidNotComplete,
+    StateReconstructionLogicError,
     StateReconstructionRootMismatch {
         slot: Slot,
         expected: Hash256,
         computed: Hash256,
     },
+    MissingGenesisState,
+    MissingSnapshot(Slot),
     BlockReplayError(BlockReplayError),
     AddPayloadLogicError,
     SlotClockUnavailableForMigration,
@@ -59,12 +62,20 @@ pub enum Error {
     RedbError(redb::Error),
     CacheBuildError(EpochCacheError),
     RandaoMixOutOfBounds,
+    MilhouseError(milhouse::Error),
+    Compression(std::io::Error),
     FinalizedStateDecreasingSlot,
     FinalizedStateUnaligned,
     StateForCacheHasPendingUpdates {
         state_root: Hash256,
         slot: Slot,
     },
+    Hdiff(hdiff::Error),
+    ForwardsIterInvalidColumn(DBColumn),
+    ForwardsIterGap(DBColumn, Slot, Slot),
+    StateShouldNotBeRequired(Slot),
+    MissingBlock(Hash256),
+    GenesisStateUnknown,
     ArithError(safe_arith::ArithError),
 }
 
@@ -115,6 +126,18 @@ impl From<DBError> for Error {
 impl From<StoreConfigError> for Error {
     fn from(e: StoreConfigError) -> Error {
         Error::ConfigError(e)
+    }
+}
+
+impl From<milhouse::Error> for Error {
+    fn from(e: milhouse::Error) -> Self {
+        Self::MilhouseError(e)
+    }
+}
+
+impl From<hdiff::Error> for Error {
+    fn from(e: hdiff::Error) -> Self {
+        Self::Hdiff(e)
     }
 }
 
