@@ -2476,6 +2476,21 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
 }
 
 #[test]
+#[should_panic]
+fn disable_deposit_contract_sync_conflicts_with_staking() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new_with_no_execution_endpoint()
+        .flag("disable-deposit-contract-sync", None)
+        .flag("staking", None)
+        .flag("execution-endpoints", Some("http://localhost:8551/"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .run_with_zero_port();
+}
+
+#[test]
 fn light_client_server_default() {
     CommandLineTest::new()
         .run_with_zero_port()

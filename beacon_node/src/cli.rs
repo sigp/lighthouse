@@ -1444,6 +1444,7 @@ pub fn cli_app() -> Command {
                       Useful if you intend to run a non-validating beacon node.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
+                .conflicts_with("staking")
                 .display_order(0)
         )
         .arg(
