@@ -239,6 +239,7 @@ where
             connections: vec![connection_id],
             topics: Default::default(),
             dont_send_received: LinkedHashMap::new(),
+            dont_send_sent: LinkedHashMap::new(),
             sender,
         },
     );
@@ -627,6 +628,7 @@ fn test_join() {
                 connections: vec![connection_id],
                 topics: Default::default(),
                 dont_send_received: LinkedHashMap::new(),
+                dont_send_sent: LinkedHashMap::new(),
                 sender,
             },
         );
@@ -1023,6 +1025,7 @@ fn test_get_random_peers() {
                 connections: vec![ConnectionId::new_unchecked(0)],
                 topics: topics.clone(),
                 sender: RpcSender::new(gs.config.connection_handler_queue_len()),
+                dont_send_sent: LinkedHashMap::new(),
                 dont_send_received: LinkedHashMap::new(),
             },
         );
