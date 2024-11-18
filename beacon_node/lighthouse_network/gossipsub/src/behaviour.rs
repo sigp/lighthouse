@@ -1385,7 +1385,7 @@ where
                         "IWANT: Peer has asked for message too many times; ignoring request"
                     );
                 } else if let Some(peer) = &mut self.connected_peers.get_mut(peer_id) {
-                    if peer.dont_send.get(&id).is_some() {
+                    if peer.dont_send_received.get(&id).is_some() {
                         tracing::debug!(%peer_id, message=%id, "Peer already sent IDONTWANT for this message");
                         continue;
                     }
@@ -1817,10 +1817,10 @@ where
         // Calculate the message id on the transformed data.
         let msg_id = self.config.message_id(&message);
 
-        if let Some(peer) = self.connected_peers.get_mut(propagation_source) {
-            // Record if we received a message that we already sent a IDONTWANT for
-            if peer.dont_send.contains_key(&msg_id) {
-                if let Some(metrics) = self.metrics.as_mut() {
+        if let Some(metrics) = self.metrics.as_mut() {
+            if let Some(peer) = self.connected_peers.get_mut(propagation_source) {
+                // Record if we received a message that we already sent a IDONTWANT for to the peer
+                if peer.dont_send_sent.contains_key(&msg_id) {
                     metrics.register_idontwant_messages_ignored_per_topic(&raw_message.topic);
                 }
             }
@@ -2521,11 +2521,18 @@ where
 
         // Flush stale IDONTWANTs.
         for peer in self.connected_peers.values_mut() {
-            while let Some((_front, instant)) = peer.dont_send.front() {
+            while let Some((_front, instant)) = peer.dont_send_received.front() {
                 if (*instant + IDONTWANT_TIMEOUT) >= Instant::now() {
                     break;
                 } else {
-                    peer.dont_send.pop_front();
+                    peer.dont_send_received.pop_front();
+                }
+            }
+            while let Some((_front, instant)) = peer.dont_send_sent.front() {
+                if (*instant + IDONTWANT_TIMEOUT) >= Instant::now() {
+                    break;
+                } else {
+                    peer.dont_send_sent.pop_front();
                 }
             }
         }
@@ -2761,7 +2768,8 @@ where
                     .or_default()
                     .non_priority += 1;
             } else {
-                // IDONTWANT sent successfully
+                // IDONTWANT sent successfully.
+                peer.dont_send_sent.insert(msg_id.clone(), Instant::now());
                 if let Some(metrics) = self.metrics.as_mut() {
                     metrics.register_idontwant_messages_sent_per_topic(&message.topic);
                 }
@@ -2822,7 +2830,7 @@ where
         if !recipient_peers.is_empty() {
             for peer_id in recipient_peers.iter() {
                 if let Some(peer) = self.connected_peers.get_mut(peer_id) {
-                    if peer.dont_send.get(msg_id).is_some() {
+                    if peer.dont_send_received.get(msg_id).is_some() {
                         tracing::debug!(%peer_id, message=%msg_id, "Peer doesn't want message");
                         continue;
                     }
@@ -3176,7 +3184,8 @@ where
                 connections: vec![],
                 sender: RpcSender::new(self.config.connection_handler_queue_len()),
                 topics: Default::default(),
-                dont_send: LinkedHashMap::new(),
+                dont_send_received: LinkedHashMap::new(),
+                dont_send_sent: LinkedHashMap::new(),
             });
         // Add the new connection
         connected_peer.connections.push(connection_id);
@@ -3208,7 +3217,8 @@ where
                 connections: vec![],
                 sender: RpcSender::new(self.config.connection_handler_queue_len()),
                 topics: Default::default(),
-                dont_send: LinkedHashMap::new(),
+                dont_send_received: LinkedHashMap::new(),
+                dont_send_sent: LinkedHashMap::new(),
             });
         // Add the new connection
         connected_peer.connections.push(connection_id);
@@ -3380,10 +3390,10 @@ where
                                 metrics.register_idontwant_bytes(idontwant_size);
                             }
                             for message_id in message_ids {
-                                peer.dont_send.insert(message_id, Instant::now());
+                                peer.dont_send_received.insert(message_id, Instant::now());
                                 // Don't exceed capacity.
-                                if peer.dont_send.len() > IDONTWANT_CAP {
-                                    peer.dont_send.pop_front();
+                                if peer.dont_send_received.len() > IDONTWANT_CAP {
+                                    peer.dont_send_received.pop_front();
                                 }
                             }
                         }

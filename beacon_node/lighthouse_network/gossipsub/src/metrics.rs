@@ -188,10 +188,10 @@ pub(crate) struct Metrics {
     /// The number of bytes we have received in every IDONTWANT control message.
     idontwant_bytes: Counter,
 
-    /// Number of IDONTWANT messages sent per topic
+    /// Number of IDONTWANT messages sent per topic.
     idontwant_messages_sent_per_topic: Family<TopicHash, Counter>,
 
-    /// Number of full messages we received that we previously sent a IDONTWANT for
+    /// Number of full messages we received that we previously sent a IDONTWANT for.
     idontwant_messages_ignored_per_topic: Family<TopicHash, Counter>,
 
     /// The size of the priority queue.
@@ -347,13 +347,13 @@ impl Metrics {
             metric
         };
 
-        // idontwant messages sent per topic
+        // IDONTWANT messages sent per topic
         let idontwant_messages_sent_per_topic = register_family!(
             "idonttwant_messages_sent_per_topic",
             "Number of IDONTWANT messages sent per topic"
         );
 
-        // idontwant messages sent but message received per topic
+        // IDONTWANT messages sent but message received per topic
         let idontwant_messages_ignored_per_topic = register_family!(
             "idontwant_messages_ignored_per_topic",
             "IDONTWANT messages that were sent but we received the full message regardless"
