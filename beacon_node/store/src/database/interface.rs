@@ -196,7 +196,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
     ) -> Result<(), Error> {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(level_db) => todo!(),
+            BeaconNodeBackend::LevelDb(_txn) => todo!(),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::delete_while(txn, column, f),
         }

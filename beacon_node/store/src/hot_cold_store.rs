@@ -2715,7 +2715,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         };
 
         self.blobs_db
-            .delete_while(DBColumn::BeaconBlob.into(), remove_blob_if)?;
+            .delete_while(DBColumn::BeaconBlob, remove_blob_if)?;
 
         if self.spec.is_peer_das_enabled_for_epoch(start_epoch) {
             let remove_data_column_if = |blobs_bytes: &[u8]| {
@@ -2730,7 +2730,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             };
 
             self.blobs_db
-                .delete_while(DBColumn::BeaconDataColumn.into(), remove_data_column_if)?;
+                .delete_while(DBColumn::BeaconDataColumn, remove_data_column_if)?;
         }
 
         let new_blob_info = BlobInfo {

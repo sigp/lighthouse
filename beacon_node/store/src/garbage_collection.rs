@@ -23,7 +23,7 @@ where
                 ops.push(state_root);
             }
         });
-        if ops.len() > 0 {
+        if !ops.is_empty() {
             debug!(
                 self.log,
                 "Garbage collecting {} temporary states",
