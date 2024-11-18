@@ -19,7 +19,7 @@ To enable the HTTP API for the beacon node, utilize the `--gui` CLI flag. This a
 
 ## Running the Docker container (Recommended)
 
-The common usage is to run Siren at a client computer connecting to a server running the node. The following guide is to setup Siren at a client computer and connect it to the server via SSH, so that Siren can be accessed and viewed from the client computer's browser.
+The common usage is to use a client computer to connect to a server running the node and Siren. The following guide is for this and to connect to the server via SSH, so that Siren can be accessed and viewed from the client computer's browser.
 
  1. Create a directory to run Siren:
 
