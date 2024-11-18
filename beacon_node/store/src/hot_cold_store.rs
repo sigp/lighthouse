@@ -2691,21 +2691,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "end_epoch" => end_epoch,
             "data_availability_boundary" => data_availability_boundary,
         );
-
-        println!("start epoch {}", start_epoch);
-        println!("end epoch {}", end_epoch);
-
+        
         let remove_blob_if = |blobs_bytes: &[u8]| {
-            println!("SSZ");
             let blobs = BlobSidecarList::from_ssz_bytes(blobs_bytes)?;
-            println!("SSZ success");
             let Some(blob): Option<&Arc<BlobSidecar<E>>> = blobs.first() else {
-                println!("no blobs");
                 return Ok(false);
             };
-
-            println!("blob slot {}", blob.slot());
-            println!("end slot {}", end_slot);
 
             if blob.slot() < end_slot {
                 return Ok(true);
