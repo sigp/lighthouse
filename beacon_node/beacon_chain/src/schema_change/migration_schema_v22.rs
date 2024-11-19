@@ -45,13 +45,15 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
 ) -> Result<(), Error> {
     info!(log, "Upgrading from v21 to v22");
 
-    let mut old_anchor = db.get_anchor_info();
+    let old_anchor = db.get_anchor_info();
 
     // If the anchor was uninitialized in the old schema (`None`), this represents a full archive
     // node.
-    if old_anchor == ANCHOR_UNINITIALIZED {
-        old_anchor = ANCHOR_FOR_ARCHIVE_NODE;
-    }
+    let effective_anchor = if old_anchor == ANCHOR_UNINITIALIZED {
+        ANCHOR_FOR_ARCHIVE_NODE
+    } else {
+        old_anchor.clone()
+    };
 
     let split_slot = db.get_split_slot();
     let genesis_state_root = genesis_state_root.ok_or(Error::GenesisStateUnknown)?;
@@ -79,7 +81,7 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
 
     // Write the block roots in the new format in a new column. Similar to above, we do this
     // separately from deleting the old format block roots so that this is crash safe.
-    let oldest_block_slot = old_anchor.oldest_block_slot;
+    let oldest_block_slot = effective_anchor.oldest_block_slot;
     write_new_schema_block_roots::<T>(
         &db,
         genesis_block_root,
@@ -100,7 +102,7 @@ pub fn upgrade_to_v22<T: BeaconChainTypes>(
     let new_anchor = AnchorInfo {
         state_upper_limit: STATE_UPPER_LIMIT_NO_RETAIN,
         state_lower_limit: Slot::new(0),
-        ..old_anchor.clone()
+        ..effective_anchor.clone()
     };
     let hot_ops = vec![db.compare_and_set_anchor_info(old_anchor, new_anchor)?];
     db.store_schema_version_atomically(SchemaVersion(22), hot_ops)?;
