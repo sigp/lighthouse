@@ -353,7 +353,7 @@ impl Metrics {
             "Number of IDONTWANT messages sent per topic"
         );
 
-        // IDONTWANT messages sent but message received per topic
+        // IDONTWANTs which were ignored, and we still received the message per topic
         let idontwant_messages_ignored_per_topic = register_family!(
             "idontwant_messages_ignored_per_topic",
             "IDONTWANT messages that were sent but we received the full message regardless"
@@ -628,7 +628,7 @@ impl Metrics {
         self.idontwant_bytes.inc_by(bytes as u64);
     }
 
-    /// Register receiving the total bytes of an IDONTWANT control message.
+    /// Register receiving an IDONTWANT control message for a given topic.
     pub(crate) fn register_idontwant_messages_sent_per_topic(&mut self, topic: &TopicHash) {
         self.idontwant_messages_sent_per_topic
             .get_or_create(topic)
