@@ -18,11 +18,11 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockElectra,
-    BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, ForkContext, ForkName,
-    LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
+    BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, EthSpecId, ForkContext,
+    ForkName, LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
     LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
-    LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, Signature,
-    SignedBeaconBlock,
+    LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, MinimalEthSpec,
+    Signature, SignedBeaconBlock,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -105,8 +105,11 @@ pub static SIGNED_BEACON_BLOCK_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|| {
     + ssz::BYTES_PER_LENGTH_OFFSET
 }); // Length offset for the blob commitments field.
 
-pub static BLOB_SIDECAR_MAX: LazyLock<usize> =
+pub static BLOB_SIDECAR_SIZE: LazyLock<usize> =
     LazyLock::new(BlobSidecar::<MainnetEthSpec>::max_size);
+
+pub static BLOB_SIDECAR_SIZE_MINIMAL: LazyLock<usize> =
+    LazyLock::new(BlobSidecar::<MinimalEthSpec>::max_size);
 
 pub static DATA_COLUMNS_SIDECAR_MIN: LazyLock<usize> = LazyLock::new(|| {
     DataColumnSidecar::<MainnetEthSpec>::empty()
@@ -606,8 +609,8 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
-            Protocol::BlobsByRange => rpc_blob_limits(),
-            Protocol::BlobsByRoot => rpc_blob_limits(),
+            Protocol::BlobsByRange => rpc_blob_limits::<E>(),
+            Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
             Protocol::DataColumnsByRoot => rpc_data_column_limits(),
             Protocol::DataColumnsByRange => rpc_data_column_limits(),
             Protocol::Ping => RpcLimits::new(
@@ -678,8 +681,15 @@ impl ProtocolId {
     }
 }
 
-pub fn rpc_blob_limits() -> RpcLimits {
-    RpcLimits::new(*BLOB_SIDECAR_MAX, *BLOB_SIDECAR_MAX)
+pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
+    match E::spec_name() {
+        EthSpecId::Minimal => {
+            RpcLimits::new(*BLOB_SIDECAR_SIZE_MINIMAL, *BLOB_SIDECAR_SIZE_MINIMAL)
+        }
+        EthSpecId::Mainnet | EthSpecId::Gnosis => {
+            RpcLimits::new(*BLOB_SIDECAR_SIZE, *BLOB_SIDECAR_SIZE)
+        }
+    }
 }
 
 pub fn rpc_data_column_limits() -> RpcLimits {
