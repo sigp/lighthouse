@@ -24,6 +24,10 @@ const MAX_COMPACTION_PERIOD_SECONDS: u64 = 604800;
 const MIN_COMPACTION_PERIOD_SECONDS: u64 = 7200;
 /// Compact after a large finality gap, if we respect `MIN_COMPACTION_PERIOD_SECONDS`.
 const COMPACTION_FINALITY_DISTANCE: u64 = 1024;
+/// Maximum number of blocks applied in each reconstruction burst.
+///
+/// This limits the amount of time that the finalization migration is paused for.
+const BLOCKS_PER_RECONSTRUCTION: usize = 8192 * 4;
 
 /// Default number of epochs to wait between finalization migrations.
 pub const DEFAULT_EPOCHS_PER_MIGRATION: u64 = 1;
@@ -188,7 +192,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         if let Some(Notification::Reconstruction) =
             self.send_background_notification(Notification::Reconstruction)
         {
-            Self::run_reconstruction(self.db.clone(), &self.log);
+            // If we are running in foreground mode (as in tests), then this will just run a single
+            // batch. We may need to tweak this in future.
+            Self::run_reconstruction(self.db.clone(), None, &self.log);
         }
     }
 
@@ -200,13 +206,34 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         }
     }
 
-    pub fn run_reconstruction(db: Arc<HotColdDB<E, Hot, Cold>>, log: &Logger) {
-        if let Err(e) = db.reconstruct_historic_states() {
-            error!(
-                log,
-                "State reconstruction failed";
-                "error" => ?e,
-            );
+    pub fn run_reconstruction(
+        db: Arc<HotColdDB<E, Hot, Cold>>,
+        opt_tx: Option<mpsc::Sender<Notification>>,
+        log: &Logger,
+    ) {
+        match db.reconstruct_historic_states(Some(BLOCKS_PER_RECONSTRUCTION)) {
+            Ok(()) => {
+                // Schedule another reconstruction batch if required and we have access to the
+                // channel for requeueing.
+                if let Some(tx) = opt_tx {
+                    if !db.get_anchor_info().all_historic_states_stored() {
+                        if let Err(e) = tx.send(Notification::Reconstruction) {
+                            error!(
+                                log,
+                                "Unable to requeue reconstruction notification";
+                                "error" => ?e
+                            );
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                error!(
+                    log,
+                    "State reconstruction failed";
+                    "error" => ?e,
+                );
+            }
         }
     }
 
@@ -388,6 +415,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         log: Logger,
     ) -> (mpsc::Sender<Notification>, thread::JoinHandle<()>) {
         let (tx, rx) = mpsc::channel();
+        let inner_tx = tx.clone();
         let thread = thread::spawn(move || {
             while let Ok(notif) = rx.recv() {
                 let mut reconstruction_notif = None;
@@ -418,16 +446,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                         }
                     }
                 }
-                // If reconstruction is on-going, ignore finalization migration and blob pruning.
+                // Run finalization and blob pruning migrations first, then a reconstruction batch.
+                // This prevents finalization from being starved while reconstruciton runs (a
+                // problem in previous LH versions).
+                if let Some(fin) = finalization_notif {
+                    Self::run_migration(db.clone(), fin, &log);
+                }
+                if let Some(dab) = prune_blobs_notif {
+                    Self::run_prune_blobs(db.clone(), dab, &log);
+                }
                 if reconstruction_notif.is_some() {
-                    Self::run_reconstruction(db.clone(), &log);
-                } else {
-                    if let Some(fin) = finalization_notif {
-                        Self::run_migration(db.clone(), fin, &log);
-                    }
-                    if let Some(dab) = prune_blobs_notif {
-                        Self::run_prune_blobs(db.clone(), dab, &log);
-                    }
+                    Self::run_reconstruction(db.clone(), Some(inner_tx.clone()), &log);
                 }
             }
         });

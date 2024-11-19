@@ -1,10 +1,10 @@
 /// A collection of all functions that mutates the `ProgressiveBalancesCache`.
 use crate::metrics::{
-    PARTICIPATION_CURR_EPOCH_TARGET_ATTESTING_GWEI_PROGRESSIVE_TOTAL,
+    self, PARTICIPATION_CURR_EPOCH_TARGET_ATTESTING_GWEI_PROGRESSIVE_TOTAL,
     PARTICIPATION_PREV_EPOCH_TARGET_ATTESTING_GWEI_PROGRESSIVE_TOTAL,
 };
 use crate::{BlockProcessingError, EpochProcessingError};
-use lighthouse_metrics::set_gauge;
+use metrics::set_gauge;
 use types::{
     is_progressive_balances_enabled, BeaconState, BeaconStateError, ChainSpec, Epoch,
     EpochTotalBalances, EthSpec, ParticipationFlags, ProgressiveBalancesCache, Validator,
@@ -20,6 +20,8 @@ pub fn initialize_progressive_balances_cache<E: EthSpec>(
     {
         return Ok(());
     }
+
+    let _timer = metrics::start_timer(&metrics::BUILD_PROGRESSIVE_BALANCES_CACHE_TIME);
 
     // Calculate the total flag balances for previous & current epoch in a single iteration.
     // This calculates `get_total_balance(unslashed_participating_indices(..))` for each flag in

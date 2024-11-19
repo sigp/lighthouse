@@ -4,6 +4,7 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
+use crate::json_structures::BlobAndProofV1;
 use crate::payload_cache::PayloadCache;
 use arc_swap::ArcSwapOption;
 use auth::{strip_prefix, Auth, JwtKey};
@@ -65,7 +66,7 @@ mod metrics;
 pub mod payload_cache;
 mod payload_status;
 pub mod test_utils;
-mod versioned_hashes;
+pub mod versioned_hashes;
 
 /// Indicates the default jwt authenticated execution endpoint.
 pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
@@ -1854,6 +1855,23 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 .transpose()
         } else {
             Err(Error::PayloadBodiesByRangeNotSupported)
+        }
+    }
+
+    pub async fn get_blobs(
+        &self,
+        query: Vec<Hash256>,
+    ) -> Result<Vec<Option<BlobAndProofV1<E>>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+
+        if capabilities.get_blobs_v1 {
+            self.engine()
+                .request(|engine| async move { engine.api.get_blobs(query).await })
+                .await
+                .map_err(Box::new)
+                .map_err(Error::EngineError)
+        } else {
+            Ok(vec![None; query.len()])
         }
     }
 

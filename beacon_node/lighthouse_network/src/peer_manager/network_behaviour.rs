@@ -7,10 +7,12 @@ use futures::StreamExt;
 use libp2p::core::transport::PortUse;
 use libp2p::core::ConnectedPoint;
 use libp2p::identity::PeerId;
+use libp2p::multiaddr::Protocol;
 use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::dummy::ConnectionHandler;
 use libp2p::swarm::{ConnectionDenied, ConnectionId, NetworkBehaviour, ToSwarm};
+pub use metrics::{set_gauge_vec, NAT_OPEN};
 use slog::{debug, error, trace};
 use types::EthSpec;
 
@@ -160,8 +162,8 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
     ) -> Result<(), ConnectionDenied> {
         // get the IP address to verify it's not banned.
         let ip = match remote_addr.iter().next() {
-            Some(libp2p::multiaddr::Protocol::Ip6(ip)) => IpAddr::V6(ip),
-            Some(libp2p::multiaddr::Protocol::Ip4(ip)) => IpAddr::V4(ip),
+            Some(Protocol::Ip6(ip)) => IpAddr::V6(ip),
+            Some(Protocol::Ip4(ip)) => IpAddr::V4(ip),
             _ => {
                 return Err(ConnectionDenied::new(format!(
                     "Connection to peer rejected: invalid multiaddr: {remote_addr}"
@@ -205,6 +207,14 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
             return Err(ConnectionDenied::new(
                 "Connection to peer rejected: too many connections",
             ));
+        }
+
+        // We have an inbound connection, this is indicative of having our libp2p NAT ports open. We
+        // distinguish between ipv4 and ipv6 here:
+        match remote_addr.iter().next() {
+            Some(Protocol::Ip4(_)) => set_gauge_vec(&NAT_OPEN, &["libp2p_ipv4"], 1),
+            Some(Protocol::Ip6(_)) => set_gauge_vec(&NAT_OPEN, &["libp2p_ipv6"], 1),
+            _ => {}
         }
 
         Ok(ConnectionHandler)

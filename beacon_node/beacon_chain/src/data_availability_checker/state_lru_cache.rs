@@ -57,6 +57,11 @@ impl<E: EthSpec> DietAvailabilityPendingExecutedBlock<E> {
             .cloned()
             .unwrap_or_default()
     }
+
+    /// Returns the epoch corresponding to `self.slot()`.
+    pub fn epoch(&self) -> Epoch {
+        self.block.slot().epoch(E::slots_per_epoch())
+    }
 }
 
 /// This LRU cache holds BeaconStates used for block import. If the cache overflows,
