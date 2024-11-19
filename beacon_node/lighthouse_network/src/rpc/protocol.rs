@@ -105,6 +105,14 @@ pub static SIGNED_BEACON_BLOCK_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|| {
     + ssz::BYTES_PER_LENGTH_OFFSET
 }); // Length offset for the blob commitments field.
 
+pub static BLOB_SIDECAR_MAX: LazyLock<usize> =
+    LazyLock::new(BlobSidecar::<MainnetEthSpec>::max_size);
+
+pub static DATA_COLUMNS_SIDECAR_MIN: LazyLock<usize> =
+    LazyLock::new(DataColumnSidecar::<MainnetEthSpec>::min_size);
+pub static DATA_COLUMNS_SIDECAR_MAX: LazyLock<usize> =
+    LazyLock::new(DataColumnSidecar::<MainnetEthSpec>::max_size);
+
 pub static ERROR_TYPE_MIN: LazyLock<usize> = LazyLock::new(|| {
     VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
         .as_ssz_bytes()
@@ -595,10 +603,10 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
-            Protocol::BlobsByRange => rpc_blob_limits::<E>(),
-            Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
-            Protocol::DataColumnsByRoot => rpc_data_column_limits::<E>(),
-            Protocol::DataColumnsByRange => rpc_data_column_limits::<E>(),
+            Protocol::BlobsByRange => rpc_blob_limits(),
+            Protocol::BlobsByRoot => rpc_blob_limits(),
+            Protocol::DataColumnsByRoot => rpc_data_column_limits(),
+            Protocol::DataColumnsByRange => rpc_data_column_limits(),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -667,18 +675,12 @@ impl ProtocolId {
     }
 }
 
-pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
-    RpcLimits::new(
-        BlobSidecar::<E>::empty().as_ssz_bytes().len(),
-        BlobSidecar::<E>::max_size(),
-    )
+pub fn rpc_blob_limits() -> RpcLimits {
+    RpcLimits::new(*BLOB_SIDECAR_MAX, *BLOB_SIDECAR_MAX)
 }
 
-pub fn rpc_data_column_limits<E: EthSpec>() -> RpcLimits {
-    RpcLimits::new(
-        DataColumnSidecar::<E>::empty().as_ssz_bytes().len(),
-        DataColumnSidecar::<E>::max_size(),
-    )
+pub fn rpc_data_column_limits() -> RpcLimits {
+    RpcLimits::new(*DATA_COLUMNS_SIDECAR_MIN, *DATA_COLUMNS_SIDECAR_MAX)
 }
 
 /* Inbound upgrade */
