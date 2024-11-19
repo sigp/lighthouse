@@ -108,8 +108,11 @@ pub static SIGNED_BEACON_BLOCK_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|| {
 pub static BLOB_SIDECAR_MAX: LazyLock<usize> =
     LazyLock::new(BlobSidecar::<MainnetEthSpec>::max_size);
 
-pub static DATA_COLUMNS_SIDECAR_MIN: LazyLock<usize> =
-    LazyLock::new(DataColumnSidecar::<MainnetEthSpec>::min_size);
+pub static DATA_COLUMNS_SIDECAR_MIN: LazyLock<usize> = LazyLock::new(|| {
+    DataColumnSidecar::<MainnetEthSpec>::empty()
+        .as_ssz_bytes()
+        .len()
+});
 pub static DATA_COLUMNS_SIDECAR_MAX: LazyLock<usize> =
     LazyLock::new(DataColumnSidecar::<MainnetEthSpec>::max_size);
 
