@@ -2767,16 +2767,16 @@ where
                     .entry(*peer_id)
                     .or_default()
                     .non_priority += 1;
-            } else {
-                // IDONTWANT sent successfully.
-                if let Some(metrics) = self.metrics.as_mut() {
-                    peer.dont_send_sent.insert(msg_id.clone(), Instant::now());
-                    // Don't exceed capacity.
-                    if peer.dont_send_sent.len() > IDONTWANT_CAP {
-                        peer.dont_send_sent.pop_front();
-                    }
-                    metrics.register_idontwant_messages_sent_per_topic(&message.topic);
+                return;
+            }
+            // IDONTWANT sent successfully.
+            if let Some(metrics) = self.metrics.as_mut() {
+                peer.dont_send_sent.insert(msg_id.clone(), Instant::now());
+                // Don't exceed capacity.
+                if peer.dont_send_sent.len() > IDONTWANT_CAP {
+                    peer.dont_send_sent.pop_front();
                 }
+                metrics.register_idontwant_messages_sent_per_topic(&message.topic);
             }
         }
     }
