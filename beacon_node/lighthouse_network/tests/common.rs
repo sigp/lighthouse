@@ -10,10 +10,10 @@ use std::sync::Weak;
 use tokio::runtime::Runtime;
 use types::{
     ChainSpec, EnrForkId, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256,
-    MinimalEthSpec, Slot,
+    MainnetEthSpec, Slot,
 };
 
-type E = MinimalEthSpec;
+type E = MainnetEthSpec;
 
 use tempfile::Builder as TempBuilder;
 

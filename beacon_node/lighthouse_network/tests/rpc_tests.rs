@@ -15,11 +15,11 @@ use tokio::runtime::Runtime;
 use tokio::time::sleep;
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BlobSidecar, ChainSpec,
-    EmptyBlock, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256, MinimalEthSpec,
+    EmptyBlock, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256, MainnetEthSpec,
     Signature, SignedBeaconBlock, Slot,
 };
 
-type E = MinimalEthSpec;
+type E = MainnetEthSpec;
 
 /// Bellatrix block with length < max_rpc_size.
 fn bellatrix_block_small(fork_context: &ForkContext, spec: &ChainSpec) -> BeaconBlock<E> {
