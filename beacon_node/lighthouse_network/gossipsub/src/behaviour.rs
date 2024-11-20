@@ -2528,6 +2528,7 @@ where
                     peer.dont_send_received.pop_front();
                 }
             }
+            // If metrics are not enabled, this queue would be empty.
             while let Some((_front, instant)) = peer.dont_send_sent.front() {
                 if (*instant + IDONTWANT_TIMEOUT) >= Instant::now() {
                     break;
