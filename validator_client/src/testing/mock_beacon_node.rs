@@ -1,18 +1,17 @@
+use eth2::types::{FullBlockContents, GenericResponse, ProduceBlockV3Metadata, SyncingData};
+use eth2::{
+    BeaconNodeHttpClient, StatusCode, CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER,
+    EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER,
+};
+use logging::test_logger;
 use mockito::{Matcher, Mock, Server, ServerGuard};
 use regex::Regex;
+use sensitive_url::SensitiveUrl;
 use slog::{info, Logger};
 use std::marker::PhantomData;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
-use eth2::types::{FullBlockContents, GenericResponse, ProduceBlockV3Metadata, SyncingData};
-use eth2::{
-    BeaconNodeHttpClient, CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER,
-    EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER,
-};
-use logging::test_logger;
-use sensitive_url::SensitiveUrl;
 use types::{
     BeaconBlock, BlobsList, ChainSpec, ConfigAndPreset, EthSpec, ForkName, ForkVersionedResponse,
     KzgProofs, SignedBlindedBeaconBlock, Slot, Uint256,
@@ -159,6 +158,34 @@ impl<E: EthSpec> MockBeaconNode<E> {
                 std::thread::sleep(delay);
                 vec![]
             })
+            .create()
+    }
+
+    pub fn mock_offline_node(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/node/version$").unwrap();
+
+        self.server
+            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .with_status(StatusCode::INTERNAL_SERVER_ERROR.as_u16() as usize)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"message":"Internal Server Error"}"#)
+            .create()
+    }
+
+    pub fn mock_online_node(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/node/version$").unwrap();
+
+        self.server
+            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{
+                "data": {
+                    "version": "lighthouse-mock"
+                }
+            }"#,
+            )
             .create()
     }
 }

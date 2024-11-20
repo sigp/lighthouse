@@ -506,6 +506,7 @@ fn monitoring_endpoint() {
             assert_eq!(api_conf.update_period_secs, Some(30));
         });
 }
+
 #[test]
 fn no_broadcast_flag() {
     CommandLineTest::new().run().with_config(|config| {

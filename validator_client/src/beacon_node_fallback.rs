@@ -1014,4 +1014,51 @@ mod tests {
         assert_eq!(received_blocks_from_bn_1.len(), 1);
         assert_eq!(received_blocks_from_bn_2.len(), 1);
     }
+
+    #[tokio::test]
+    async fn first_success_should_try_nodes_in_order() {
+        let spec = Arc::new(MainnetEthSpec::default_spec());
+
+        let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0).await;
+        let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1).await;
+        let (mut mock_beacon_node_3, beacon_node_3) = new_mock_beacon_node(2).await;
+
+        let mut beacon_node_fallback: BeaconNodeFallback<TestingSlotClock, E> =
+            BeaconNodeFallback::new(
+                vec![beacon_node_1, beacon_node_2, beacon_node_3],
+                Config::default(),
+                vec![],
+                spec.clone(),
+                test_logger(),
+            );
+
+        beacon_node_fallback.set_slot_clock(TestingSlotClock::new(
+            Slot::new(1),
+            Duration::from_secs(0),
+            Duration::from_secs(12),
+        ));
+
+        mock_beacon_node_1.mock_config_spec(&spec);
+        mock_beacon_node_2.mock_config_spec(&spec);
+        mock_beacon_node_3.mock_config_spec(&spec);
+
+        let _mock1 = mock_beacon_node_1.mock_offline_node();
+        let _mock2 = mock_beacon_node_2.mock_offline_node();
+        let mock3 = mock_beacon_node_3.mock_online_node();
+
+        let result_success = beacon_node_fallback
+            .first_success(|client| async move { client.get_node_version().await })
+            .await;
+
+        assert!(result_success.is_ok());
+
+        // make all beacon node offline and the result should error
+        let _mock3 = mock_beacon_node_3.mock_offline_node();
+
+        let result_failure = beacon_node_fallback
+            .first_success(|client| async move { client.get_node_version().await })
+            .await;
+
+        assert!(result_failure.is_err());
+    }
 }
