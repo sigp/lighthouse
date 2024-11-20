@@ -59,10 +59,6 @@ pub struct Config {
     /// Path where the blobs database will be located if blobs should be in a separate database.
     pub blobs_db_path: Option<PathBuf>,
     pub log_file: PathBuf,
-    /// If true, the node will use co-ordinated junk for eth1 values.
-    ///
-    /// This is the method used for the 2019 client interop in Canada.
-    pub dummy_eth1_backend: bool,
     pub sync_eth1_chain: bool,
     /// Graffiti to be inserted everytime we create a block if the validator doesn't specify.
     pub beacon_graffiti: GraffitiOrigin,
@@ -103,8 +99,7 @@ impl Default for Config {
             store: <_>::default(),
             network: NetworkConfig::default(),
             chain: <_>::default(),
-            dummy_eth1_backend: false,
-            sync_eth1_chain: false,
+            sync_eth1_chain: true,
             eth1: <_>::default(),
             execution_layer: None,
             trusted_setup,

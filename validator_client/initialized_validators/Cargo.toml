@@ -1,0 +1,26 @@
+[package]
+name = "initialized_validators"
+version = "0.1.0"
+edition = { workspace = true }
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+
+[dependencies]
+signing_method = { workspace = true }
+account_utils = { workspace = true }
+eth2_keystore = { workspace = true }
+metrics = { workspace = true }
+lockfile = { workspace = true }
+parking_lot = { workspace = true }
+reqwest = { workspace = true }
+slog = { workspace = true }
+types = { workspace = true }
+url = { workspace = true }
+validator_dir = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bls = { workspace = true }
+tokio = { workspace = true }
+bincode = { workspace = true }
+filesystem = { workspace = true }
+validator_metrics = { workspace = true }

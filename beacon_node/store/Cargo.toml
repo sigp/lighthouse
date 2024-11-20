@@ -7,6 +7,8 @@ edition = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 beacon_chain = { workspace = true }
+criterion = { workspace = true }
+rand = { workspace = true, features = ["small_rng"] }
 
 [dependencies]
 db-key = "0.0.5"
@@ -15,6 +17,7 @@ parking_lot = { workspace = true }
 itertools = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
+superstruct = { workspace = true }
 types = { workspace = true }
 safe_arith = { workspace = true }
 state_processing = { workspace = true }
@@ -25,3 +28,12 @@ lru = { workspace = true }
 sloggers = { workspace = true }
 directory = { workspace = true }
 strum = { workspace = true }
+xdelta3 = { workspace = true }
+zstd = { workspace = true }
+bls = { workspace = true }
+smallvec = { workspace = true }
+logging = { workspace = true }
+
+[[bench]]
+name = "hdiff"
+harness = false

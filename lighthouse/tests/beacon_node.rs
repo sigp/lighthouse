@@ -396,13 +396,14 @@ fn genesis_backfill_with_historic_flag() {
 }
 
 // Tests for Eth1 flags.
+// DEPRECATED but should not crash
 #[test]
 fn dummy_eth1_flag() {
     CommandLineTest::new()
         .flag("dummy-eth1", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.dummy_eth1_backend));
+        .run_with_zero_port();
 }
+// DEPRECATED but should not crash
 #[test]
 fn eth1_flag() {
     CommandLineTest::new()
@@ -814,6 +815,27 @@ fn network_enable_sampling_flag() {
         .run_with_zero_port()
         .with_config(|config| assert!(config.chain.enable_sampling));
 }
+#[test]
+fn blob_publication_batches() {
+    CommandLineTest::new()
+        .flag("blob-publication-batches", Some("3"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.blob_publication_batches, 3));
+}
+
+#[test]
+fn blob_publication_batch_interval() {
+    CommandLineTest::new()
+        .flag("blob-publication-batch-interval", Some("400"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.blob_publication_batch_interval,
+                Duration::from_millis(400)
+            )
+        });
+}
+
 #[test]
 fn network_enable_sampling_flag_default() {
     CommandLineTest::new()
@@ -1798,45 +1820,12 @@ fn validator_monitor_metrics_threshold_custom() {
 }
 
 // Tests for Store flags.
+// DEPRECATED but should still be accepted.
 #[test]
 fn slots_per_restore_point_flag() {
     CommandLineTest::new()
         .flag("slots-per-restore-point", Some("64"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.slots_per_restore_point, 64));
-}
-#[test]
-fn slots_per_restore_point_update_prev_default() {
-    use beacon_node::beacon_chain::store::config::{
-        DEFAULT_SLOTS_PER_RESTORE_POINT, PREV_DEFAULT_SLOTS_PER_RESTORE_POINT,
-    };
-
-    CommandLineTest::new()
-        .flag("slots-per-restore-point", Some("2048"))
-        .run_with_zero_port()
-        .with_config_and_dir(|config, dir| {
-            // Check that 2048 is the previous default.
-            assert_eq!(
-                config.store.slots_per_restore_point,
-                PREV_DEFAULT_SLOTS_PER_RESTORE_POINT
-            );
-
-            // Restart the BN with the same datadir and the new default SPRP. It should
-            // allow this.
-            CommandLineTest::new()
-                .flag("datadir", Some(&dir.path().display().to_string()))
-                .flag("zero-ports", None)
-                .run_with_no_datadir()
-                .with_config(|config| {
-                    // The dumped config will have the new default 8192 value, but the fact that
-                    // the BN started and ran (with the same datadir) means that the override
-                    // was successful.
-                    assert_eq!(
-                        config.store.slots_per_restore_point,
-                        DEFAULT_SLOTS_PER_RESTORE_POINT
-                    );
-                });
-        })
+        .run_with_zero_port();
 }
 
 #[test]
@@ -1880,6 +1869,27 @@ fn historic_state_cache_size_default() {
             assert_eq!(
                 config.store.historic_state_cache_size,
                 DEFAULT_HISTORIC_STATE_CACHE_SIZE
+            );
+        });
+}
+#[test]
+fn hdiff_buffer_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("hdiff-buffer-cache-size", Some("1"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.hdiff_buffer_cache_size.get(), 1);
+        });
+}
+#[test]
+fn hdiff_buffer_cache_size_default() {
+    use beacon_node::beacon_chain::store::config::DEFAULT_HDIFF_BUFFER_CACHE_SIZE;
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.store.hdiff_buffer_cache_size,
+                DEFAULT_HDIFF_BUFFER_CACHE_SIZE
             );
         });
 }
@@ -2472,6 +2482,21 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
         )
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.sync_eth1_chain, false));
+}
+
+#[test]
+#[should_panic]
+fn disable_deposit_contract_sync_conflicts_with_staking() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new_with_no_execution_endpoint()
+        .flag("disable-deposit-contract-sync", None)
+        .flag("staking", None)
+        .flag("execution-endpoints", Some("http://localhost:8551/"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .run_with_zero_port();
 }
 
 #[test]
