@@ -93,12 +93,13 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                     // We don't check the `work.drop_during_sync` here. We assume that if it made
                     // it into the queue at any point then we should process it.
                     None if can_spawn => {
-                        let work_event = self.earliest_deadline_first_scheduler();
-                        if let Some(work_event) = work_event {
-                            let work_type = work_event.to_type();
-                            println!("weve spawned a worker here");
-                            spawn_worker(&mut self.beacon_processor, idle_tx.clone(), work_event);
-                            Some(work_type)
+                        if let Some(queue_item) = self.work_queue.pop() {
+                            self.process_or_queue_item(
+                                &reprocess_work_tx,
+                                &idle_tx,
+                                queue_item,
+                                can_spawn,
+                            )
                         } else {
                             // Let the journal know that a worker is freed and there's nothing else
                             // for it to do.
@@ -146,15 +147,17 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                     }
                     // There is a new work event and the chain is not syncing. Process it or queue
                     // it.
-                    Some(WorkEvent { work, .. }) => {
-                        println!("work: {:?}", work);
-                        self.process_or_queue_work_event(
-                            &reprocess_work_tx,
-                            idle_tx.clone(),
-                            work,
-                            &slot_clock,
-                            can_spawn,
-                        )
+                    Some(work_event) => {
+                        if let Some(queue_item) = QueueItem::new(work_event, &slot_clock) {
+                            self.process_or_queue_item(
+                                &reprocess_work_tx,
+                                &idle_tx,
+                                queue_item,
+                                can_spawn,
+                            )
+                        } else {
+                            None
+                        }
                     }
                 };
 
@@ -184,27 +187,19 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
         // TODO check if is_full?
     }
 
-    fn earliest_deadline_first_scheduler(&mut self) -> Option<Work<E>> {
-        let queue_item = self.work_queue.pop();
-
-        if let Some(queue_item) = queue_item {
-            Some(queue_item.work_event.work)
-        } else {
-            None
-        }
-    }
-
-    pub fn process_or_queue_work_event(
+    pub fn process_or_queue_item(
         &mut self,
         reprocess_work_tx: &Sender<ReprocessQueueMessage>,
-        idle_tx: Sender<()>,
-        work: Work<E>,
-        slot_clock: &S,
+        idle_tx: &Sender<()>,
+        queue_item: QueueItem<E, S>,
         can_spawn: bool,
     ) -> Option<WorkType> {
-        let work_type = work.to_type();
+        let work_type = queue_item.work_event.work_type();
 
-        match work {
+        let workers_available =
+            self.beacon_processor.config.max_workers - self.beacon_processor.current_workers;
+
+        match queue_item.work_event.work {
             Work::Reprocess(work_event) => {
                 if let Err(e) = reprocess_work_tx.try_send(work_event) {
                     error!(
@@ -215,14 +210,17 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                 }
             }
             _ if can_spawn => {
-                println!("spawning");
-                spawn_worker(&mut self.beacon_processor, idle_tx.clone(), work)
+                if queue_item.work_event.work.is_priority_work() || workers_available > 1 {
+                    spawn_worker(
+                        &mut self.beacon_processor,
+                        idle_tx.clone(),
+                        queue_item.work_event.work,
+                    )
+                } else {
+                    self.work_queue.insert(queue_item);
+                }
             }
             _ => {
-                let Some(queue_item) = QueueItem::new(work, slot_clock) else {
-                    return None;
-                };
-                println!("queue");
                 self.work_queue.insert(queue_item);
             }
         }

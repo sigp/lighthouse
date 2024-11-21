@@ -21,14 +21,9 @@ pub struct QueueItem<E: EthSpec, S: SlotClock> {
 }
 
 impl<E: EthSpec, S: SlotClock> QueueItem<E, S> {
-    pub fn new(work: Work<E>, slot_clock: &S) -> Option<Self> {
-        let Some(deadline) = QueueItem::calculate_deadline(&work, slot_clock) else {
+    pub fn new(work_event: WorkEvent<E>, slot_clock: &S) -> Option<Self> {
+        let Some(deadline) = QueueItem::calculate_deadline(&work_event.work, slot_clock) else {
             return None;
-        };
-
-        let work_event = WorkEvent {
-            drop_during_sync: false,
-            work,
         };
 
         Some(Self {
@@ -108,6 +103,9 @@ impl<E: EthSpec, S: SlotClock> QueueItem<E, S> {
             | Work::DelayedImportBlock { .. } => Some(current_time),
             Work::Reprocess(reprocess_queue_message) => {
                 Self::calculate_reprocess_deadline(reprocess_queue_message, slot_clock)
+            }
+            Work::GossipCanonicalBlock(_) | Work::RpcCanonicalBlock { .. } => {
+                Some(Duration::from_secs(0))
             }
         };
 

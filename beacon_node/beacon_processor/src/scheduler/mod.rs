@@ -248,12 +248,14 @@ pub fn spawn_worker<E: EthSpec>(
             process_fn,
         } => task_spawner.spawn_async(process_fn),
         Work::RpcBlock { process_fn }
+        | Work::RpcCanonicalBlock { process_fn }
         | Work::RpcBlobs { process_fn }
         | Work::RpcCustodyColumn(process_fn)
         | Work::RpcVerifyDataColumn(process_fn)
         | Work::SamplingResult(process_fn) => task_spawner.spawn_async(process_fn),
         Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
         Work::GossipBlock(work)
+        | Work::GossipCanonicalBlock(work)
         | Work::GossipBlobSidecar(work)
         | Work::GossipDataColumnSidecar(work) => task_spawner.spawn_async(async move {
             work.await;

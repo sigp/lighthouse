@@ -447,11 +447,10 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                     "Unsupported inbound event";
                     "type" => "GossipAggregateBatch"
             ),
-            Work::GossipBlock { .. } => {
-                self.work_queues
-                    .gossip_block_queue
-                    .push(work, work_id, &self.beacon_processor.log)
-            }
+            Work::GossipBlock { .. } | Work::GossipCanonicalBlock { .. } => self
+                .work_queues
+                .gossip_block_queue
+                .push(work, work_id, &self.beacon_processor.log),
             Work::GossipBlobSidecar { .. } => {
                 self.work_queues
                     .gossip_blob_queue
@@ -492,10 +491,13 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                 .work_queues
                 .optimistic_update_queue
                 .push(work, work_id, &self.beacon_processor.log),
-            Work::RpcBlock { .. } | Work::IgnoredRpcBlock { .. } => self
-                .work_queues
-                .rpc_block_queue
-                .push(work, work_id, &self.beacon_processor.log),
+            Work::RpcBlock { .. }
+            | Work::IgnoredRpcBlock { .. }
+            | Work::RpcCanonicalBlock { .. } => {
+                self.work_queues
+                    .rpc_block_queue
+                    .push(work, work_id, &self.beacon_processor.log)
+            }
             Work::RpcBlobs { .. } => {
                 self.work_queues
                     .rpc_blob_queue
@@ -634,7 +636,9 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                     self.work_queues.unknown_block_sampling_request_queue.len()
                 }
                 WorkType::GossipAggregateBatch => 0, // No queue
-                WorkType::GossipBlock => self.work_queues.gossip_block_queue.len(),
+                WorkType::GossipBlock | WorkType::GossipCanonicalBlock => {
+                    self.work_queues.gossip_block_queue.len()
+                }
                 WorkType::GossipBlobSidecar => self.work_queues.gossip_blob_queue.len(),
                 WorkType::GossipDataColumnSidecar => {
                     self.work_queues.gossip_data_column_queue.len()
@@ -655,7 +659,9 @@ impl<E: EthSpec, S: SlotClock + 'static> Scheduler<E, S> {
                 WorkType::GossipLightClientOptimisticUpdate => {
                     self.work_queues.optimistic_update_queue.len()
                 }
-                WorkType::RpcBlock => self.work_queues.rpc_block_queue.len(),
+                WorkType::RpcBlock | WorkType::RpcCanonicalBlock => {
+                    self.work_queues.rpc_block_queue.len()
+                }
                 WorkType::RpcBlobs | WorkType::IgnoredRpcBlock => {
                     self.work_queues.rpc_blob_queue.len()
                 }

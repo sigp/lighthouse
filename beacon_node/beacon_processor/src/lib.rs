@@ -245,6 +245,8 @@ pub enum WorkType {
     ApiRequestP0,
     ApiRequestP1,
     Reprocess,
+    GossipCanonicalBlock,
+    RpcCanonicalBlock,
 }
 
 impl<E: EthSpec> Work<E> {
@@ -305,6 +307,8 @@ impl<E: EthSpec> Work<E> {
             Work::ApiRequestP0 { .. } => WorkType::ApiRequestP0,
             Work::ApiRequestP1 { .. } => WorkType::ApiRequestP1,
             Work::Reprocess { .. } => WorkType::Reprocess,
+            Work::RpcCanonicalBlock { .. } => WorkType::RpcCanonicalBlock,
+            Work::GossipCanonicalBlock(_) => WorkType::GossipCanonicalBlock,
         }
     }
 }
@@ -560,11 +564,24 @@ pub enum Work<E: EthSpec> {
     ApiRequestP0(BlockingOrAsync),
     ApiRequestP1(BlockingOrAsync),
     Reprocess(ReprocessQueueMessage),
+    GossipCanonicalBlock(AsyncFn),
+    RpcCanonicalBlock {
+        process_fn: AsyncFn,
+    },
 }
 
 impl<E: EthSpec> fmt::Debug for Work<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", Into::<&'static str>::into(self.to_type()))
+    }
+}
+
+impl<E: EthSpec> Work<E> {
+    pub fn is_priority_work(&self) -> bool {
+        matches!(
+            self,
+            Work::GossipCanonicalBlock(..) | Work::RpcCanonicalBlock { .. }
+        )
     }
 }
 

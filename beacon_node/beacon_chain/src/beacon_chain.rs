@@ -7048,6 +7048,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             reqresp_pre_import_cache_len: self.reqresp_pre_import_cache.read().len(),
         }
     }
+
+    /// Returns true if `parent_root` is equal to either the cached head snapshot's block root
+    /// or, in the case of a one slot re-org, is equal to the cached head snapshot's parent
+    /// block root.
+    pub fn is_canonical(&self, parent_root: Hash256) -> bool {
+        let head_snapshot = self.canonical_head.cached_head().snapshot;
+
+        head_snapshot.beacon_block_root == parent_root
+            || head_snapshot.beacon_block.parent_root() == parent_root
+    }
 }
 
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {

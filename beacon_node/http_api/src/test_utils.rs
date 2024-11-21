@@ -194,8 +194,12 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         // The number of workers must be greater than one. Tests which use the
         // builder workflow sometimes require an internal HTTP request in order
         // to fulfill an already in-flight HTTP request, therefore having only
-        // one worker will result in a deadlock.
-        max_workers: 2,
+        // one worker will result in a deadlock. Since the introduction of the
+        // earliest deadline priority queue, the beacon processor now requires more
+        // than one worker to be available for "non-priority" work events. Keeping the
+        // number of workers to a value greater than two prevents test failures due to
+        // timeouts
+        max_workers: 3,
         ..BeaconProcessorConfig::default()
     };
     let BeaconProcessorChannels {
