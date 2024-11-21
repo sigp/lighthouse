@@ -19,7 +19,7 @@ To enable the HTTP API for the beacon node, utilize the `--gui` CLI flag. This a
 
 ## Running the Docker container (Recommended)
 
-We recommend running Siren's container next to your beacon node (on the same server), as it's essentially a webapp that you can access with any browser. 
+We recommend running Siren's container next to your beacon node (on the same server), as it's essentially a webapp that you can access with any browser.
 
  1. Create a directory to run Siren:
 
@@ -31,7 +31,7 @@ We recommend running Siren's container next to your beacon node (on the same ser
 
  1. Create a configuration file in the `Siren` directory: `nano .env` and insert the following fields to the `.env` file. The field values are given here as an example, modify the fields as necessary. For example, the `API_TOKEN` can be obtained from [`Validator Authorization`](./api-vc-auth-header.md)
 
- A full example with all possible configuration options can be found [here](https://github.com/sigp/siren/blob/stable/.env.example).  
+    A full example with all possible configuration options can be found [here](https://github.com/sigp/siren/blob/stable/.env.example).  
 
     ```
     BEACON_URL=http://localhost:5052
@@ -45,6 +45,7 @@ We recommend running Siren's container next to your beacon node (on the same ser
     ```bash
     docker run --rm -ti --name siren --env-file $PWD/.env --net host sigp/siren
     ```
+
     Note that, due to the `--net=host` flag, this will expose Siren on ports 3000, 80, and 443. Preferrably, only the latter should be accessible. Adjust your firewall and/or skip the flag wherever possible.  
 
     If it fails to start, an error message will be shown. For example, the error
@@ -63,8 +64,8 @@ We recommend running Siren's container next to your beacon node (on the same ser
 
     When Siren has successfully started, you should see the log `LOG [NestApplication] Nest application successfully started +118ms`, indicating that Siren has started.
 
-4. Siren is now accessible at `https://<the-servers-ip>` (when used with `--net=host`. Power users can choose not to do that and expose Siren on any other port; internally it will be running on port 80 (plain, behind nginx), port 3000 (plain, direct) and port 443 (with SSL, behind nginx)).  
-You will get a warning about an invalid certificate, this can be safely ignored. 
+ 1. Siren is now accessible at `https://<the-servers-ip>` (when used with `--net=host`. Power users can choose not to do that and expose Siren on any other port; internally it will be running on port 80 (plain, behind nginx), port 3000 (plain, direct) and port 443 (with SSL, behind nginx)).  
+You will get a warning about an invalid certificate, this can be safely ignored.
 
 Advanced users can mount their own certificates or disable SSL altogether, see the `SSL Certificates` section below.
 
