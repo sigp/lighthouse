@@ -299,9 +299,8 @@ impl<E: EthSpec> Redb<E> {
     pub fn delete_while(
         &self,
         column: DBColumn,
-        f: impl Fn(&[u8]) -> Result<bool, Error>,
+        mut f: impl FnMut(&[u8]) -> Result<bool, Error>,
     ) -> Result<(), Error> {
-        println!("DID I MAKE IT HERE?");
         let open_db = self.db.read();
         let mut tx = open_db.begin_write()?;
 
@@ -316,7 +315,8 @@ impl<E: EthSpec> Redb<E> {
         // extract_iter.for_each(|_| {
         //     metrics::inc_counter_vec(&metrics::DISK_DB_DELETE_COUNT, &[col]);
         // });
-
+        drop(table);
+        tx.commit()?;
         Ok(())
     }
 }

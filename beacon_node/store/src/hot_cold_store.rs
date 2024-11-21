@@ -2812,28 +2812,34 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "data_availability_boundary" => data_availability_boundary,
         );
 
+        let mut guard = self.block_cache.lock();
+
         let remove_blob_if = |blobs_bytes: &[u8]| {
             let blobs = BlobSidecarList::from_ssz_bytes(blobs_bytes)?;
             let Some(blob): Option<&Arc<BlobSidecar<E>>> = blobs.first() else {
                 return Ok(false);
             };
 
-            if blob.slot() < end_slot {
+            if blob.slot() <= end_slot {
+                // Delete from the cache
+                guard.delete_blobs(&blob.block_root());
+                // Delete from the on-disk db
                 return Ok(true);
             };
-
             Ok(false)
         };
 
         self.blobs_db
             .delete_while(DBColumn::BeaconBlob, remove_blob_if)?;
 
+        drop(guard);
+
         if self.spec.is_peer_das_enabled_for_epoch(start_epoch) {
             let remove_data_column_if = |blobs_bytes: &[u8]| {
                 let data_column: DataColumnSidecar<E> =
                     DataColumnSidecar::from_ssz_bytes(blobs_bytes)?;
 
-                if data_column.slot() < end_slot {
+                if data_column.slot() <= end_slot {
                     return Ok(true);
                 };
 

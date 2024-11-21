@@ -13,7 +13,7 @@ Options:
           finalization. [default: true]
       --beacon-node-backend <DATABASE>
           Set the database backend to be used by the beacon node backend.
-          [possible values: leveldb]
+          [possible values: leveldb, redb]
       --blob-prune-margin-epochs <EPOCHS>
           The margin for blob pruning in epochs. The oldest blobs are pruned up
           until data_availability_boundary - blob_prune_margin_epochs. [default:
