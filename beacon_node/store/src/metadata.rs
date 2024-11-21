@@ -4,7 +4,7 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use types::{Checkpoint, Hash256, Slot};
 
-pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(21);
+pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(22);
 
 // All the keys that get stored under the `BeaconMeta` column.
 //
@@ -20,6 +20,27 @@ pub const DATA_COLUMN_INFO_KEY: Hash256 = Hash256::repeat_byte(7);
 
 /// State upper limit value used to indicate that a node is not storing historic states.
 pub const STATE_UPPER_LIMIT_NO_RETAIN: Slot = Slot::new(u64::MAX);
+
+/// The `AnchorInfo` encoding full availability of all historic blocks & states.
+pub const ANCHOR_FOR_ARCHIVE_NODE: AnchorInfo = AnchorInfo {
+    anchor_slot: Slot::new(0),
+    oldest_block_slot: Slot::new(0),
+    oldest_block_parent: Hash256::ZERO,
+    state_upper_limit: Slot::new(0),
+    state_lower_limit: Slot::new(0),
+};
+
+/// The `AnchorInfo` encoding an uninitialized anchor.
+///
+/// This value should never exist except on initial start-up prior to the anchor being initialised
+/// by `init_anchor_info`.
+pub const ANCHOR_UNINITIALIZED: AnchorInfo = AnchorInfo {
+    anchor_slot: Slot::new(u64::MAX),
+    oldest_block_slot: Slot::new(u64::MAX),
+    oldest_block_parent: Hash256::ZERO,
+    state_upper_limit: Slot::new(u64::MAX),
+    state_lower_limit: Slot::new(0),
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SchemaVersion(pub u64);
@@ -88,17 +109,47 @@ impl StoreItem for CompactionTimestamp {
 /// Database parameters relevant to weak subjectivity sync.
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize)]
 pub struct AnchorInfo {
-    /// The slot at which the anchor state is present and which we cannot revert.
+    /// The slot at which the anchor state is present and which we cannot revert. Values on start:
+    /// - Genesis start: 0
+    /// - Checkpoint sync: Slot of the finalized checkpoint block
+    ///
+    /// Immutable
     pub anchor_slot: Slot,
-    /// The slot from which historical blocks are available (>=).
+    /// All blocks with slots greater than or equal to this value are available in the database.
+    /// Additionally, the genesis block is always available.
+    ///
+    /// Values on start:
+    /// - Genesis start: 0
+    /// - Checkpoint sync: Slot of the finalized checkpoint block
+    ///
+    /// Progressively decreases during backfill sync until reaching 0.
     pub oldest_block_slot: Slot,
     /// The block root of the next block that needs to be added to fill in the history.
     ///
     /// Zero if we know all blocks back to genesis.
     pub oldest_block_parent: Hash256,
-    /// The slot from which historical states are available (>=).
+    /// All states with slots _greater than or equal to_ `min(split.slot, state_upper_limit)` are
+    /// available in the database. If `state_upper_limit` is higher than `split.slot`, states are
+    /// not being written to the freezer database.
+    ///
+    /// Values on start if state reconstruction is enabled:
+    /// - Genesis start: 0
+    /// - Checkpoint sync: Slot of the next scheduled snapshot
+    ///
+    /// Value on start if state reconstruction is disabled:
+    /// - 2^64 - 1 representing no historic state storage.
+    ///
+    /// Immutable until state reconstruction completes.
     pub state_upper_limit: Slot,
-    /// The slot before which historical states are available (<=).
+    /// All states with slots _less than or equal to_ this value are available in the database.
+    /// The minimum value is 0, indicating that the genesis state is always available.
+    ///
+    /// Values on start:
+    /// - Genesis start: 0
+    /// - Checkpoint sync: 0
+    ///
+    /// When full block backfill completes (`oldest_block_slot == 0`) state reconstruction starts and
+    /// this value will progressively increase until reaching `state_upper_limit`.
     pub state_lower_limit: Slot,
 }
 
@@ -108,6 +159,21 @@ impl AnchorInfo {
     /// likely to be the closest WSP).
     pub fn block_backfill_complete(&self, target_slot: Slot) -> bool {
         self.oldest_block_slot <= target_slot
+    }
+
+    /// Return true if all historic states are stored, i.e. if state reconstruction is complete.
+    pub fn all_historic_states_stored(&self) -> bool {
+        self.state_lower_limit == self.state_upper_limit
+    }
+
+    /// Return true if no historic states other than genesis are stored in the database.
+    pub fn no_historic_states_stored(&self, split_slot: Slot) -> bool {
+        self.state_lower_limit == 0 && self.state_upper_limit >= split_slot
+    }
+
+    /// Return true if no historic states other than genesis *will ever be stored*.
+    pub fn full_state_pruning_enabled(&self) -> bool {
+        self.state_lower_limit == 0 && self.state_upper_limit == STATE_UPPER_LIMIT_NO_RETAIN
     }
 }
 

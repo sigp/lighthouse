@@ -166,9 +166,23 @@ Options:
       --graffiti <GRAFFITI>
           Specify your custom graffiti to be included in blocks. Defaults to the
           current version and commit, truncated to fit in 32 bytes.
+      --hdiff-buffer-cache-size <SIZE>
+          Number of hierarchical diff (hdiff) buffers to cache in memory. Each
+          buffer is around the size of a BeaconState so you should be cautious
+          about setting this value too high. This flag is irrelevant for most
+          nodes, which run with state pruning enabled. [default: 16]
+      --hierarchy-exponents <EXPONENTS>
+          Specifies the frequency for storing full state snapshots and
+          hierarchical diffs in the freezer DB. Accepts a comma-separated list
+          of ascending exponents. Each exponent defines an interval for storing
+          diffs to the layer above. The last exponent defines the interval for
+          full snapshots. For example, a config of '4,8,12' would store a full
+          snapshot every 4096 (2^12) slots, first-level diffs every 256 (2^8)
+          slots, and second-level diffs every 16 (2^4) slots. Cannot be changed
+          after initialization. [default: 5,9,11,13,16,18,21]
       --historic-state-cache-size <SIZE>
-          Specifies how many states from the freezer database should cache in
-          memory [default: 1]
+          Specifies how many states from the freezer database should be cached
+          in memory [default: 1]
       --http-address <ADDRESS>
           Set the listen address for the RESTful HTTP API server.
       --http-allow-origin <ORIGIN>
@@ -364,9 +378,7 @@ Options:
       --slasher-validator-chunk-size <NUM_VALIDATORS>
           Number of validators per chunk stored on disk.
       --slots-per-restore-point <SLOT_COUNT>
-          Specifies how often a freezer DB restore point should be stored.
-          Cannot be changed after initialization. [default: 8192 (mainnet) or 64
-          (minimal)]
+          DEPRECATED. This flag has no effect.
       --state-cache-size <STATE_CACHE_SIZE>
           Specifies the size of the state cache [default: 128]
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
@@ -468,9 +480,6 @@ Flags:
       --disable-upnp
           Disables UPnP support. Setting this will prevent Lighthouse from
           attempting to automatically establish external port mappings.
-      --dummy-eth1
-          If present, uses an eth1 backend that generates static dummy
-          data.Identical to the method used at the 2019 Canada interop.
   -e, --enr-match
           Sets the local ENR IP address and port to match those set for
           lighthouse. Specifically, the IP address will be the value of
@@ -478,10 +487,6 @@ Flags:
       --enable-private-discovery
           Lighthouse by default does not discover private IP addresses. Set this
           flag to enable connection attempts to local addresses.
-      --eth1
-          If present the node will connect to an eth1 node. This is required for
-          block production, you must use this flag if you wish to serve a
-          validator.
       --eth1-purge-cache
           Purges the eth1 block and deposit caches
       --genesis-backfill
@@ -549,8 +554,7 @@ Flags:
       --staking
           Standard option for a staking beacon node. This will enable the HTTP
           server on localhost:5052 and import deposit logs from the execution
-          node. This is equivalent to `--http` on merge-ready networks, or
-          `--http --eth1` pre-merge
+          node.
       --stdin-inputs
           If present, read all user inputs from stdin instead of tty.
       --subscribe-all-subnets

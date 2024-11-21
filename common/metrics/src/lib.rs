@@ -283,6 +283,14 @@ pub fn stop_timer(timer: Option<HistogramTimer>) {
     }
 }
 
+/// Stops a timer created with `start_timer(..)`.
+///
+/// Return the duration that the timer was running for, or 0.0 if it was `None` due to incorrect
+/// initialisation.
+pub fn stop_timer_with_duration(timer: Option<HistogramTimer>) -> Duration {
+    Duration::from_secs_f64(timer.map_or(0.0, |t| t.stop_and_record()))
+}
+
 pub fn observe_vec(vec: &Result<HistogramVec>, name: &[&str], value: f64) {
     if let Some(h) = get_histogram(vec, name) {
         h.observe(value)

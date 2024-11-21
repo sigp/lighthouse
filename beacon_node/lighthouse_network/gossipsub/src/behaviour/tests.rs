@@ -238,7 +238,8 @@ where
             kind: kind.clone().unwrap_or(PeerKind::Floodsub),
             connections: vec![connection_id],
             topics: Default::default(),
-            dont_send: LinkedHashMap::new(),
+            dont_send_received: LinkedHashMap::new(),
+            dont_send_sent: LinkedHashMap::new(),
             sender,
         },
     );
@@ -626,7 +627,8 @@ fn test_join() {
                 kind: PeerKind::Floodsub,
                 connections: vec![connection_id],
                 topics: Default::default(),
-                dont_send: LinkedHashMap::new(),
+                dont_send_received: LinkedHashMap::new(),
+                dont_send_sent: LinkedHashMap::new(),
                 sender,
             },
         );
@@ -1023,7 +1025,8 @@ fn test_get_random_peers() {
                 connections: vec![ConnectionId::new_unchecked(0)],
                 topics: topics.clone(),
                 sender: RpcSender::new(gs.config.connection_handler_queue_len()),
-                dont_send: LinkedHashMap::new(),
+                dont_send_sent: LinkedHashMap::new(),
+                dont_send_received: LinkedHashMap::new(),
             },
         );
     }
@@ -5408,7 +5411,7 @@ fn doesnt_forward_idontwant() {
         .unwrap();
     let message_id = gs.config.message_id(&message);
     let peer = gs.connected_peers.get_mut(&peers[2]).unwrap();
-    peer.dont_send.insert(message_id, Instant::now());
+    peer.dont_send_received.insert(message_id, Instant::now());
 
     gs.handle_received_message(raw_message.clone(), &local_id);
     assert_eq!(
@@ -5457,7 +5460,7 @@ fn parses_idontwant() {
         },
     );
     let peer = gs.connected_peers.get_mut(&peers[1]).unwrap();
-    assert!(peer.dont_send.get(&message_id).is_some());
+    assert!(peer.dont_send_received.get(&message_id).is_some());
 }
 
 /// Test that a node clears stale IDONTWANT messages.
@@ -5473,10 +5476,10 @@ fn clear_stale_idontwant() {
         .create_network();
 
     let peer = gs.connected_peers.get_mut(&peers[2]).unwrap();
-    peer.dont_send
+    peer.dont_send_received
         .insert(MessageId::new(&[1, 2, 3, 4]), Instant::now());
     std::thread::sleep(Duration::from_secs(3));
     gs.heartbeat();
     let peer = gs.connected_peers.get_mut(&peers[2]).unwrap();
-    assert!(peer.dont_send.is_empty());
+    assert!(peer.dont_send_received.is_empty());
 }
