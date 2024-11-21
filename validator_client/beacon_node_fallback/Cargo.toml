@@ -20,3 +20,9 @@ strum = { workspace = true }
 tokio = { workspace = true }
 types = { workspace = true }
 validator_metrics = { workspace = true }
+
+[dev-dependencies]
+env_logger = { workspace = true }
+eth2_config = { workspace = true }
+node_test_rig = { workspace = true }
+mockito = { workspace = true }

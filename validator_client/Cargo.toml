@@ -46,3 +46,4 @@ validator_services = { workspace = true }
 validator_store = { workspace = true }
 tokio = { workspace = true }
 fdlimit = "0.3.0"
+env_logger = { workspace = true }

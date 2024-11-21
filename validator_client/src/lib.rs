@@ -3,20 +3,11 @@ pub mod config;
 mod latency;
 mod notifier;
 
-mod preparation_service;
-mod signing_method;
-mod sync_committee_service;
-
-pub mod config;
-mod doppelganger_service;
-pub mod http_api;
-pub mod initialized_validators;
 #[cfg(test)]
 mod testing;
-pub mod validator_store;
 
+pub use beacon_node_fallback::beacon_node_health::BeaconNodeSyncDistanceTiers;
 pub use beacon_node_fallback::ApiTopic;
-pub use beacon_node_health::BeaconNodeSyncDistanceTiers;
 pub use cli::cli_app;
 pub use config::Config;
 use initialized_validators::InitializedValidators;
@@ -33,7 +24,9 @@ use account_utils::validator_definitions::ValidatorDefinitions;
 use clap::ArgMatches;
 use doppelganger_service::DoppelgangerService;
 use environment::RuntimeContext;
+use eth2::types::Graffiti;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
+use graffiti_file::GraffitiFile;
 use initialized_validators::Error::UnableToOpenVotingKeystore;
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
@@ -52,7 +45,7 @@ use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
 };
-use types::{EthSpec, Hash256};
+use types::{EthSpec, Hash256, PublicKeyBytes};
 use validator_http_api::ApiSecret;
 use validator_services::{
     attestation_service::{AttestationService, AttestationServiceBuilder},

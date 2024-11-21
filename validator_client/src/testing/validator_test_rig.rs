@@ -18,8 +18,8 @@ use task_executor::test_utils::TestRuntime;
 use types::EthSpec;
 use types::{ChainSpec, Hash256, MainnetEthSpec, Slot};
 
-use crate::initialized_validators::InitializedValidators;
-use crate::validator_store::ValidatorStore;
+use initialized_validators::InitializedValidators;
+use validator_store::ValidatorStore;
 
 type S = TestingSlotClock;
 type E = MainnetEthSpec;

@@ -877,10 +877,14 @@ dependencies = [
 name = "beacon_node_fallback"
 version = "0.1.0"
 dependencies = [
+ "env_logger 0.9.3",
  "environment",
  "eth2",
+ "eth2_config",
  "futures",
  "itertools 0.10.5",
+ "mockito",
+ "node_test_rig",
  "serde",
  "slog",
  "slot_clock",
@@ -7906,6 +7910,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "similar"
+version = "2.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1de1d4f81173b03af4c0cbed3c898f6bff5b870e4a7f5d6f4057d62a7a4b686e"
+
+[[package]]
 name = "simple_asn1"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9357,8 +9367,10 @@ dependencies = [
  "directory",
  "dirs",
  "doppelganger_service",
+ "env_logger 0.9.3",
  "environment",
  "eth2",
+ "eth2_config",
  "fdlimit",
  "graffiti_file",
  "hyper 1.4.1",
@@ -9368,6 +9380,7 @@ dependencies = [
  "monitoring_api",
  "node_test_rig",
  "parking_lot 0.12.3",
+ "regex",
  "reqwest",
  "sensitive_url",
  "serde",
