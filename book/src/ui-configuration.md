@@ -43,8 +43,9 @@ We recommend running Siren's container next to your beacon node (on the same ser
  1. You can now start Siren with:
 
     ```bash
-    docker run --rm -ti --name siren -p 4443:443 --env-file $PWD/.env --net host sigp/siren
+    docker run --rm -ti --name siren --env-file $PWD/.env --net host sigp/siren
     ```
+    Note that, due to the `--net=host` flag, this will expose Siren on ports 3000, 80, and 443. Preferrably, only the latter should be accessible. Adjust your firewall and/or skip the flag wherever possible.  
 
     If it fails to start, an error message will be shown. For example, the error
 
@@ -62,7 +63,7 @@ We recommend running Siren's container next to your beacon node (on the same ser
 
     When Siren has successfully started, you should see the log `LOG [NestApplication] Nest application successfully started +118ms`, indicating that Siren has started.
 
-4. Siren is now accessible at `https://<the-servers-ip>:4443` (if you used the above mentioned docker run command and exposed the container's port `443` on the host's port `4443`).  
+4. Siren is now accessible at `https://<the-servers-ip>` (when used with `--net=host`. Power users can choose not to do that and expose Siren on any other port; internally it will be running on port 80 (plain, behind nginx), port 3000 (plain, direct) and port 443 (with SSL, behind nginx)).  
 You will get a warning about an invalid certificate, this can be safely ignored. 
 
 Advanced users can mount their own certificates or disable SSL altogether, see the `SSL Certificates` section below.
