@@ -19,7 +19,7 @@ To enable the HTTP API for the beacon node, utilize the `--gui` CLI flag. This a
 
 ## Running the Docker container (Recommended)
 
-The common usage is to use a client computer to connect to a server running the node and Siren. The following guide is for this and to connect to the server via SSH, so that Siren can be accessed and viewed from the client computer's browser.
+We recommend running Siren's container next to your beacon node (on the same server), as it's essentially a webapp that you can access with any browser. 
 
  1. Create a directory to run Siren:
 
@@ -29,7 +29,9 @@ The common usage is to use a client computer to connect to a server running the 
     cd Siren
     ```
 
- 1. Create a configuration file in the `Siren` directory: `nano .env` and insert the following fields to the `.env` file. The field values are given here as an example, modify the fields as necessary. For example, the `API_TOKEN` can be obtained from [`Validator Authorization`](./api-vc-auth-header.md):
+ 1. Create a configuration file in the `Siren` directory: `nano .env` and insert the following fields to the `.env` file. The field values are given here as an example, modify the fields as necessary. For example, the `API_TOKEN` can be obtained from [`Validator Authorization`](./api-vc-auth-header.md)
+
+ A full example with all possible configuration options can be found [here](https://github.com/sigp/siren/blob/stable/.env.example).  
 
     ```
     BEACON_URL=http://localhost:5052
@@ -50,7 +52,7 @@ The common usage is to use a client computer to connect to a server running the 
     http://localhost:5062 unreachable, check settings and connection
     ```
 
-    means that the validator client is not running, or the `--http` flag is not provided. Another common error is:
+    means that the validator client is not running, or the `--http` flag is not provided, or otherwise unaccessible from within the container. Another common error is:
 
     ```
     validator api issue, server response: 403
@@ -58,17 +60,12 @@ The common usage is to use a client computer to connect to a server running the 
 
     which means that the API token is incorrect. Check that you have provided the correct token in the field `API_TOKEN` in `.env`.
 
-    When Siren is successfully run, you should see the log `LOG [NestApplication] Nest application successfully started +118ms`, indicating that Siren has started.
+    When Siren has successfully started, you should see the log `LOG [NestApplication] Nest application successfully started +118ms`, indicating that Siren has started.
 
- 1. On the client computer, SSH to the server:
+4. Siren is now accessible at `https://<the-servers-ip>:4443` (if you used the above mentioned docker run command and exposed the container's port `443` on the host's port `4443`).  
+You will get a warning about an invalid certificate, this can be safely ignored. 
 
-    ```bash
-    ssh -L 3000:127.0.0.1:3000  username@server_IP
-    ```
-
-    You can now access siren by entering `localhost:3000` in a browser on the client computer.
-
-Advanced users can mount their own certificates, see the `SSL Certificates` section below
+Advanced users can mount their own certificates or disable SSL altogether, see the `SSL Certificates` section below.
 
 ## Building From Source
 
@@ -103,7 +100,8 @@ We recommend to only disable SSL if you would access Siren over a local LAN or o
 
 [mkcert](https://github.com/FiloSottile/mkcert) is a tool that makes it super easy to generate a self-signed certificate that is trusted by your browser.
 
-To use it for `siren`, install it following the instructions. Then, run `mkdir certs; mkcert -cert-file certs/cert.pem -key-file certs/key.pem 127.0.0.1 localhost` (add or replace any IP or hostname that you would use to access it at the end of this command)
+To use it for `siren`, install it following the instructions. Then, run `mkdir certs; mkcert -cert-file certs/cert.pem -key-file certs/key.pem 127.0.0.1 localhost` (add or replace any IP or hostname that you would use to access it at the end of this command).  
+To use these generated certificates, add this to to your `docker run` command: `-v $PWD/certs:/certs`
 
 The nginx SSL config inside Siren's container expects 3 files: `/certs/cert.pem` `/certs/key.pem` `/certs/key.pass`. If `/certs/cert.pem` does not exist, it will generate a self-signed certificate as mentioned above. If `/certs/cert.pem` does exist, it will attempt to use your provided or persisted certificates.
 
