@@ -93,6 +93,11 @@ const DEFAULT_MAX_SCHEDULED_WORK_QUEUE_LEN: usize = 3 * DEFAULT_MAX_WORK_EVENT_Q
 /// slightly, we don't need to adjust the queues during the lifetime of a process.
 const ACTIVE_VALIDATOR_COUNT_OVERPROVISION_PERCENT: usize = 110;
 
+/// Minimum size of dynamically sized queues. Due to integer division we don't want 0 length queues
+/// as the processor won't process that message type. 128 is an arbitrary value value >= 1 that
+/// seems reasonable.
+const MIN_QUEUE_LEN: usize = 128;
+
 /// Maximum number of queued items that will be stored before dropping them
 pub struct BeaconProcessorQueueLengths {
     aggregate_queue: usize,
@@ -130,6 +135,7 @@ pub struct BeaconProcessorQueueLengths {
     lc_bootstrap_queue: usize,
     lc_optimistic_update_queue: usize,
     lc_finality_update_queue: usize,
+    lc_update_range_queue: usize,
     api_request_p0_queue: usize,
     api_request_p1_queue: usize,
 }
@@ -155,9 +161,15 @@ impl BeaconProcessorQueueLengths {
             aggregate_queue: 4096,
             unknown_block_aggregate_queue: 1024,
             // Capacity for a full slot's worth of attestations if subscribed to all subnets
-            attestation_queue: active_validator_count / slots_per_epoch,
+            attestation_queue: std::cmp::max(
+                active_validator_count / slots_per_epoch,
+                MIN_QUEUE_LEN,
+            ),
             // Capacity for a full slot's worth of attestations if subscribed to all subnets
-            unknown_block_attestation_queue: active_validator_count / slots_per_epoch,
+            unknown_block_attestation_queue: std::cmp::max(
+                active_validator_count / slots_per_epoch,
+                MIN_QUEUE_LEN,
+            ),
             sync_message_queue: 2048,
             sync_contribution_queue: 1024,
             gossip_voluntary_exit_queue: 4096,
@@ -191,6 +203,7 @@ impl BeaconProcessorQueueLengths {
             lc_bootstrap_queue: 1024,
             lc_optimistic_update_queue: 512,
             lc_finality_update_queue: 512,
+            lc_update_range_queue: 512,
             api_request_p0_queue: 1024,
             api_request_p1_queue: 1024,
         })
@@ -611,6 +624,7 @@ pub enum Work<E: EthSpec> {
     LightClientBootstrapRequest(BlockingFn),
     LightClientOptimisticUpdateRequest(BlockingFn),
     LightClientFinalityUpdateRequest(BlockingFn),
+    LightClientUpdatesByRangeRequest(BlockingFn),
     ApiRequestP0(BlockingOrAsync),
     ApiRequestP1(BlockingOrAsync),
 }
@@ -662,6 +676,7 @@ pub enum WorkType {
     LightClientBootstrapRequest,
     LightClientOptimisticUpdateRequest,
     LightClientFinalityUpdateRequest,
+    LightClientUpdatesByRangeRequest,
     ApiRequestP0,
     ApiRequestP1,
 }
@@ -712,6 +727,7 @@ impl<E: EthSpec> Work<E> {
                 WorkType::LightClientOptimisticUpdateRequest
             }
             Work::LightClientFinalityUpdateRequest(_) => WorkType::LightClientFinalityUpdateRequest,
+            Work::LightClientUpdatesByRangeRequest(_) => WorkType::LightClientUpdatesByRangeRequest,
             Work::UnknownBlockAttestation { .. } => WorkType::UnknownBlockAttestation,
             Work::UnknownBlockAggregate { .. } => WorkType::UnknownBlockAggregate,
             Work::UnknownBlockSamplingRequest { .. } => WorkType::UnknownBlockSamplingRequest,
@@ -891,6 +907,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut lc_optimistic_update_queue =
             FifoQueue::new(queue_lengths.lc_optimistic_update_queue);
         let mut lc_finality_update_queue = FifoQueue::new(queue_lengths.lc_finality_update_queue);
+        let mut lc_update_range_queue = FifoQueue::new(queue_lengths.lc_update_range_queue);
 
         let mut api_request_p0_queue = FifoQueue::new(queue_lengths.api_request_p0_queue);
         let mut api_request_p1_queue = FifoQueue::new(queue_lengths.api_request_p1_queue);
@@ -1368,6 +1385,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::LightClientFinalityUpdateRequest { .. } => {
                                 lc_finality_update_queue.push(work, work_id, &self.log)
                             }
+                            Work::LightClientUpdatesByRangeRequest { .. } => {
+                                lc_update_range_queue.push(work, work_id, &self.log)
+                            }
                             Work::UnknownBlockAttestation { .. } => {
                                 unknown_block_attestation_queue.push(work)
                             }
@@ -1459,6 +1479,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::LightClientFinalityUpdateRequest => {
                             lc_finality_update_queue.len()
                         }
+                        WorkType::LightClientUpdatesByRangeRequest => lc_update_range_queue.len(),
                         WorkType::ApiRequestP0 => api_request_p0_queue.len(),
                         WorkType::ApiRequestP1 => api_request_p1_queue.len(),
                     };
@@ -1611,7 +1632,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::GossipBlsToExecutionChange(process_fn)
             | Work::LightClientBootstrapRequest(process_fn)
             | Work::LightClientOptimisticUpdateRequest(process_fn)
-            | Work::LightClientFinalityUpdateRequest(process_fn) => {
+            | Work::LightClientFinalityUpdateRequest(process_fn)
+            | Work::LightClientUpdatesByRangeRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
         };
@@ -1684,5 +1706,23 @@ impl Drop for SendOnDrop {
                 "error" => %e
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::{BeaconState, ChainSpec, Eth1Data, ForkName, MainnetEthSpec};
+
+    #[test]
+    fn min_queue_len() {
+        // State with no validators.
+        let spec = ForkName::latest().make_genesis_spec(ChainSpec::mainnet());
+        let genesis_time = 0;
+        let state = BeaconState::<MainnetEthSpec>::new(genesis_time, Eth1Data::default(), &spec);
+        assert_eq!(state.validators().len(), 0);
+        let queue_lengths = BeaconProcessorQueueLengths::from_state(&state, &spec).unwrap();
+        assert_eq!(queue_lengths.attestation_queue, MIN_QUEUE_LEN);
+        assert_eq!(queue_lengths.unknown_block_attestation_queue, MIN_QUEUE_LEN);
     }
 }

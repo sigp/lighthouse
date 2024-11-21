@@ -23,11 +23,15 @@ mod tests {
     use eth2::types::AttesterData;
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
+    use initialized_validators::{
+        load_pem_certificate, load_pkcs12_identity, InitializedValidators,
+    };
     use logging::test_logger;
     use parking_lot::Mutex;
     use reqwest::Client;
     use serde::Serialize;
     use slashing_protection::NotSafe;
+    use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::env;
     use std::fmt::Debug;
@@ -43,14 +47,7 @@ mod tests {
     use tokio::time::sleep;
     use types::{attestation::AttestationBase, *};
     use url::Url;
-    use validator_client::duties_service::DutyAndProof;
-    use validator_client::{
-        initialized_validators::{
-            load_pem_certificate, load_pkcs12_identity, InitializedValidators,
-        },
-        validator_store::{Error as ValidatorStoreError, ValidatorStore},
-        SlashingDatabase, SLASHING_PROTECTION_FILENAME,
-    };
+    use validator_store::{Error as ValidatorStoreError, ValidatorStore};
 
     /// If the we are unable to reach the Web3Signer HTTP API within this time out then we will
     /// assume it failed to start.
@@ -325,7 +322,7 @@ mod tests {
             let log = test_logger();
             let validator_dir = TempDir::new().unwrap();
 
-            let config = validator_client::Config::default();
+            let config = initialized_validators::Config::default();
             let validator_definitions = ValidatorDefinitions::from(validator_definitions);
             let initialized_validators = InitializedValidators::from_definitions(
                 validator_definitions,
@@ -357,7 +354,7 @@ mod tests {
 
             let slot_clock =
                 TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
-            let config = validator_client::Config {
+            let config = validator_store::Config {
                 enable_web3signer_slashing_protection: slashing_protection_config.local,
                 ..Default::default()
             };
@@ -844,18 +841,6 @@ mod tests {
             "double_vote_attestation",
             move |pubkey, validator_store| async move {
                 let mut attestation = double_vote_attestation();
-                let validator_duty = DutyAndProof::new_without_selection_proof(
-                    AttesterData {
-                        pubkey: pubkey,
-                        validator_index: 0,
-                        committees_at_slot: 0,
-                        committee_index: 0,
-                        committee_length: 0,
-                        validator_committee_index: 0,
-                        slot: attestation.data().slot,
-                    },
-                    attestation.data().slot,
-                );
 
                 validator_store
                     .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
@@ -863,7 +848,7 @@ mod tests {
                     .unwrap();
 
                 let safe_attestations = validator_store
-                    .check_and_insert_attestations(vec![(attestation, validator_duty)])
+                    .check_and_insert_attestations(vec![(attestation, pubkey)])
                     .unwrap();
 
                 if !slashable_message_should_sign && safe_attestations.len() > 0 {
@@ -887,25 +872,14 @@ mod tests {
             "surrounding_attestation",
             move |pubkey, validator_store| async move {
                 let mut attestation = surrounding_attestation();
-                let validator_duty = DutyAndProof::new_without_selection_proof(
-                    AttesterData {
-                        pubkey: pubkey,
-                        validator_index: 0,
-                        committees_at_slot: 0,
-                        committee_index: 0,
-                        committee_length: 0,
-                        validator_committee_index: 0,
-                        slot: attestation.data().slot,
-                    },
-                    attestation.data().slot,
-                );
+
                 validator_store
                     .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
                     .await
                     .unwrap();
 
                 let safe_attestations = validator_store
-                    .check_and_insert_attestations(vec![(attestation, validator_duty)])
+                    .check_and_insert_attestations(vec![(attestation, pubkey)])
                     .unwrap();
 
                 if !slashable_message_should_sign && safe_attestations.len() > 0 {
@@ -929,25 +903,14 @@ mod tests {
             "surrounded_attestation",
             move |pubkey, validator_store| async move {
                 let mut attestation = surrounded_attestation();
-                let validator_duty = DutyAndProof::new_without_selection_proof(
-                    AttesterData {
-                        pubkey: pubkey,
-                        validator_index: 0,
-                        committees_at_slot: 0,
-                        committee_index: 0,
-                        committee_length: 0,
-                        validator_committee_index: 0,
-                        slot: attestation.data().slot,
-                    },
-                    attestation.data().slot,
-                );
+
                 validator_store
                     .sign_attestation(pubkey, 0, &mut attestation, current_epoch)
                     .await
                     .unwrap();
 
                 let safe_attestations = validator_store
-                    .check_and_insert_attestations(vec![(attestation, validator_duty)])
+                    .check_and_insert_attestations(vec![(attestation, pubkey)])
                     .unwrap();
 
                 if !slashable_message_should_sign && safe_attestations.len() > 0 {

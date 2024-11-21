@@ -1,4 +1,3 @@
-use self::behaviour::Behaviour;
 use self::gossip_cache::GossipCache;
 use crate::config::{gossipsub_config, GossipsubConfigParams, NetworkLoad};
 use crate::discovery::{
@@ -14,8 +13,6 @@ use crate::rpc::{
     self, GoodbyeReason, HandlerErr, NetworkParams, Protocol, RPCError, RPCMessage, RPCReceived,
     RequestType, ResponseTermination, RpcErrorResponse, RpcResponse, RpcSuccessResponse, RPC,
 };
-use crate::service::behaviour::BehaviourEvent;
-pub use crate::service::behaviour::Gossipsub;
 use crate::types::{
     attestation_sync_committee_topics, fork_core_topics, subnet_from_topic_hash, GossipEncoding,
     GossipKind, GossipTopic, SnappyTransform, Subnet, SubnetDiscovery, ALTAIR_CORE_TOPICS,
@@ -33,24 +30,21 @@ use gossipsub::{
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
 use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::behaviour::toggle::Toggle;
-use libp2p::swarm::{Swarm, SwarmEvent};
+use libp2p::swarm::{NetworkBehaviour, Swarm, SwarmEvent};
+use libp2p::upnp::tokio::Behaviour as Upnp;
 use libp2p::{identify, PeerId, SwarmBuilder};
 use slog::{crit, debug, info, o, trace, warn};
 use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::{
-    sync::Arc,
-    task::{Context, Poll},
-};
+use std::sync::Arc;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
 use types::{ChainSpec, ForkName};
-use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
+use utils::{build_transport, strip_peer_id, Context as ServiceContext};
 
 pub mod api_types;
-mod behaviour;
 mod gossip_cache;
 pub mod gossipsub_scoring_parameters;
 pub mod utils;
@@ -107,6 +101,41 @@ pub enum NetworkEvent<E: EthSpec> {
     StatusPeer(PeerId),
     NewListenAddr(Multiaddr),
     ZeroListeners,
+}
+
+pub type Gossipsub = gossipsub::Behaviour<SnappyTransform, SubscriptionFilter>;
+pub type SubscriptionFilter =
+    gossipsub::MaxCountSubscriptionFilter<gossipsub::WhitelistSubscriptionFilter>;
+
+#[derive(NetworkBehaviour)]
+pub(crate) struct Behaviour<E>
+where
+    E: EthSpec,
+{
+    // NOTE: The order of the following list of behaviours has meaning,
+    // `NetworkBehaviour::handle_{pending, established}_{inbound, outbound}` methods
+    // are called sequentially for each behaviour and they are fallible,
+    // therefore we want `connection_limits` and `peer_manager` running first,
+    // which are the behaviours that may reject a connection, so that
+    // when the subsequent behaviours are called they are certain the connection won't be rejected.
+
+    //
+    /// Keep track of active and pending connections to enforce hard limits.
+    pub connection_limits: libp2p::connection_limits::Behaviour,
+    /// The peer manager that keeps track of peer's reputation and status.
+    pub peer_manager: PeerManager<E>,
+    /// The Eth2 RPC specified in the wire-0 protocol.
+    pub eth2_rpc: RPC<RequestId, E>,
+    /// Discv5 Discovery protocol.
+    pub discovery: Discovery<E>,
+    /// Keep regular connection to peers and disconnect if absent.
+    // NOTE: The id protocol is used for initial interop. This will be removed by mainnet.
+    /// Provides IP addresses and peer information.
+    pub identify: identify::Behaviour,
+    /// Libp2p UPnP port mapping.
+    pub upnp: Toggle<Upnp>,
+    /// The routing pub-sub mechanism for eth2.
+    pub gossipsub: Gossipsub,
 }
 
 /// Builds the network behaviour that manages the core protocols of eth2.
@@ -205,6 +234,7 @@ impl<E: EthSpec> Network<E> {
             gossipsub_config_params,
             ctx.chain_spec.seconds_per_slot,
             E::slots_per_epoch(),
+            config.idontwant_message_size_threshold,
         );
 
         let score_settings = PeerScoreSettings::new(&ctx.chain_spec, gs_config.mesh_n());
@@ -396,7 +426,7 @@ impl<E: EthSpec> Network<E> {
                     (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS))
                         .ceil() as u32,
                 ))
-                .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
+                .with_max_established_per_peer(Some(1));
 
             libp2p::connection_limits::Behaviour::new(limits)
         };
@@ -1198,7 +1228,7 @@ impl<E: EthSpec> Network<E> {
             self.discovery_mut().remove_cached_enr(&enr.peer_id());
             let peer_id = enr.peer_id();
             if self.peer_manager_mut().dial_peer(enr) {
-                debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
+                debug!(self.log, "Added cached ENR peer to dial queue"; "peer_id" => %peer_id);
             }
         }
     }
@@ -1546,6 +1576,17 @@ impl<E: EthSpec> Network<E> {
                             request,
                         })
                     }
+                    RequestType::LightClientUpdatesByRange(_) => {
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["light_client_updates_by_range"],
+                        );
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            id: (connection_id, request.substream_id),
+                            request,
+                        })
+                    }
                 }
             }
             Ok(RPCReceived::Response(id, resp)) => {
@@ -1599,6 +1640,11 @@ impl<E: EthSpec> Network<E> {
                         peer_id,
                         Response::LightClientFinalityUpdate(update),
                     ),
+                    RpcSuccessResponse::LightClientUpdatesByRange(update) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::LightClientUpdatesByRange(Some(update)),
+                    ),
                 }
             }
             Ok(RPCReceived::EndOfStream(id, termination)) => {
@@ -1609,6 +1655,9 @@ impl<E: EthSpec> Network<E> {
                     ResponseTermination::BlobsByRoot => Response::BlobsByRoot(None),
                     ResponseTermination::DataColumnsByRoot => Response::DataColumnsByRoot(None),
                     ResponseTermination::DataColumnsByRange => Response::DataColumnsByRange(None),
+                    ResponseTermination::LightClientUpdatesByRange => {
+                        Response::LightClientUpdatesByRange(None)
+                    }
                 };
                 self.build_response(id, peer_id, response)
             }
@@ -1742,157 +1791,148 @@ impl<E: EthSpec> Network<E> {
 
     /* Networking polling */
 
-    /// Poll the p2p networking stack.
-    ///
-    /// This will poll the swarm and do maintenance routines.
-    pub fn poll_network(&mut self, cx: &mut Context) -> Poll<NetworkEvent<E>> {
-        while let Poll::Ready(Some(swarm_event)) = self.swarm.poll_next_unpin(cx) {
-            let maybe_event = match swarm_event {
-                SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
-                    // Handle sub-behaviour events.
-                    BehaviourEvent::Gossipsub(ge) => self.inject_gs_event(ge),
-                    BehaviourEvent::Eth2Rpc(re) => self.inject_rpc_event(re),
-                    // Inform the peer manager about discovered peers.
-                    //
-                    // The peer manager will subsequently decide which peers need to be dialed and then dial
-                    // them.
-                    BehaviourEvent::Discovery(DiscoveredPeers { peers }) => {
-                        self.peer_manager_mut().peers_discovered(peers);
-                        None
+    pub async fn next_event(&mut self) -> NetworkEvent<E> {
+        loop {
+            tokio::select! {
+                // Poll the libp2p `Swarm`.
+                // This will poll the swarm and do maintenance routines.
+                Some(event) = self.swarm.next() => {
+                    if let Some(event) = self.parse_swarm_event(event) {
+                        return event;
                     }
-                    BehaviourEvent::Identify(ie) => self.inject_identify_event(ie),
-                    BehaviourEvent::PeerManager(pe) => self.inject_pm_event(pe),
-                    BehaviourEvent::Upnp(e) => {
-                        self.inject_upnp_event(e);
-                        None
-                    }
-                    #[allow(unreachable_patterns)]
-                    BehaviourEvent::ConnectionLimits(le) => void::unreachable(le),
                 },
-                SwarmEvent::ConnectionEstablished { .. } => None,
-                SwarmEvent::ConnectionClosed { .. } => None,
-                SwarmEvent::IncomingConnection {
-                    local_addr,
-                    send_back_addr,
-                    connection_id: _,
-                } => {
-                    trace!(self.log, "Incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr);
-                    None
+
+                // perform gossipsub score updates when necessary
+                _ = self.update_gossipsub_scores.tick() => {
+                    let this = self.swarm.behaviour_mut();
+                    this.peer_manager.update_gossipsub_scores(&this.gossipsub);
                 }
-                SwarmEvent::IncomingConnectionError {
-                    local_addr,
-                    send_back_addr,
-                    error,
-                    connection_id: _,
-                } => {
-                    let error_repr = match error {
-                        libp2p::swarm::ListenError::Aborted => {
-                            "Incoming connection aborted".to_string()
+                // poll the gossipsub cache to clear expired messages
+                Some(result) = self.gossip_cache.next() => {
+                    match result {
+                        Err(e) => warn!(self.log, "Gossip cache error"; "error" => e),
+                        Ok(expired_topic) => {
+                            if let Some(v) = metrics::get_int_counter(
+                                &metrics::GOSSIP_EXPIRED_LATE_PUBLISH_PER_TOPIC_KIND,
+                                &[expired_topic.kind().as_ref()],
+                            ) {
+                                v.inc()
+                            };
                         }
-                        libp2p::swarm::ListenError::WrongPeerId { obtained, endpoint } => {
-                            format!("Wrong peer id, obtained {obtained}, endpoint {endpoint:?}")
-                        }
-                        libp2p::swarm::ListenError::LocalPeerId { endpoint } => {
-                            format!("Dialing local peer id {endpoint:?}")
-                        }
-                        libp2p::swarm::ListenError::Denied { cause } => {
-                            format!("Connection was denied with cause: {cause:?}")
-                        }
-                        libp2p::swarm::ListenError::Transport(t) => match t {
-                            libp2p::TransportError::MultiaddrNotSupported(m) => {
-                                format!("Transport error: Multiaddr not supported: {m}")
-                            }
-                            libp2p::TransportError::Other(e) => {
-                                format!("Transport error: other: {e}")
-                            }
-                        },
-                    };
-                    debug!(self.log, "Failed incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr, "error" => error_repr);
-                    None
-                }
-                SwarmEvent::OutgoingConnectionError {
-                    peer_id: _,
-                    error: _,
-                    connection_id: _,
-                } => {
-                    // The Behaviour event is more general than the swarm event here. It includes
-                    // connection failures. So we use that log for now, in the peer manager
-                    // behaviour implementation.
-                    None
-                }
-                SwarmEvent::NewListenAddr { address, .. } => {
-                    Some(NetworkEvent::NewListenAddr(address))
-                }
-                SwarmEvent::ExpiredListenAddr { address, .. } => {
-                    debug!(self.log, "Listen address expired"; "address" => %address);
-                    None
-                }
-                SwarmEvent::ListenerClosed {
-                    addresses, reason, ..
-                } => {
-                    match reason {
-                        Ok(_) => {
-                            debug!(self.log, "Listener gracefully closed"; "addresses" => ?addresses)
-                        }
-                        Err(reason) => {
-                            crit!(self.log, "Listener abruptly closed"; "addresses" => ?addresses, "reason" => ?reason)
-                        }
-                    };
-                    if Swarm::listeners(&self.swarm).count() == 0 {
-                        Some(NetworkEvent::ZeroListeners)
-                    } else {
-                        None
                     }
-                }
-                SwarmEvent::ListenerError { error, .. } => {
-                    // Ignore quic accept and close errors.
-                    if let Some(error) = error
-                        .get_ref()
-                        .and_then(|err| err.downcast_ref::<libp2p::quic::Error>())
-                        .filter(|err| matches!(err, libp2p::quic::Error::Connection(_)))
-                    {
-                        debug!(self.log, "Listener closed quic connection"; "reason" => ?error);
-                    } else {
-                        warn!(self.log, "Listener error"; "error" => ?error);
-                    }
-                    None
-                }
-                _ => {
-                    // NOTE: SwarmEvent is a non exhaustive enum so updates should be based on
-                    // release notes more than compiler feedback
-                    None
-                }
-            };
-
-            if let Some(ev) = maybe_event {
-                return Poll::Ready(ev);
-            }
-        }
-
-        // perform gossipsub score updates when necessary
-        while self.update_gossipsub_scores.poll_tick(cx).is_ready() {
-            let this = self.swarm.behaviour_mut();
-            this.peer_manager.update_gossipsub_scores(&this.gossipsub);
-        }
-
-        // poll the gossipsub cache to clear expired messages
-        while let Poll::Ready(Some(result)) = self.gossip_cache.poll_next_unpin(cx) {
-            match result {
-                Err(e) => warn!(self.log, "Gossip cache error"; "error" => e),
-                Ok(expired_topic) => {
-                    if let Some(v) = metrics::get_int_counter(
-                        &metrics::GOSSIP_EXPIRED_LATE_PUBLISH_PER_TOPIC_KIND,
-                        &[expired_topic.kind().as_ref()],
-                    ) {
-                        v.inc()
-                    };
                 }
             }
         }
-        Poll::Pending
     }
 
-    pub async fn next_event(&mut self) -> NetworkEvent<E> {
-        futures::future::poll_fn(|cx| self.poll_network(cx)).await
+    fn parse_swarm_event(
+        &mut self,
+        event: SwarmEvent<BehaviourEvent<E>>,
+    ) -> Option<NetworkEvent<E>> {
+        match event {
+            SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
+                // Handle sub-behaviour events.
+                BehaviourEvent::Gossipsub(ge) => self.inject_gs_event(ge),
+                BehaviourEvent::Eth2Rpc(re) => self.inject_rpc_event(re),
+                // Inform the peer manager about discovered peers.
+                //
+                // The peer manager will subsequently decide which peers need to be dialed and then dial
+                // them.
+                BehaviourEvent::Discovery(DiscoveredPeers { peers }) => {
+                    self.peer_manager_mut().peers_discovered(peers);
+                    None
+                }
+                BehaviourEvent::Identify(ie) => self.inject_identify_event(ie),
+                BehaviourEvent::PeerManager(pe) => self.inject_pm_event(pe),
+                BehaviourEvent::Upnp(e) => {
+                    self.inject_upnp_event(e);
+                    None
+                }
+                #[allow(unreachable_patterns)]
+                BehaviourEvent::ConnectionLimits(le) => void::unreachable(le),
+            },
+            SwarmEvent::ConnectionEstablished { .. } => None,
+            SwarmEvent::ConnectionClosed { .. } => None,
+            SwarmEvent::IncomingConnection {
+                local_addr,
+                send_back_addr,
+                connection_id: _,
+            } => {
+                trace!(self.log, "Incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr);
+                None
+            }
+            SwarmEvent::IncomingConnectionError {
+                local_addr,
+                send_back_addr,
+                error,
+                connection_id: _,
+            } => {
+                let error_repr = match error {
+                    libp2p::swarm::ListenError::Aborted => {
+                        "Incoming connection aborted".to_string()
+                    }
+                    libp2p::swarm::ListenError::WrongPeerId { obtained, endpoint } => {
+                        format!("Wrong peer id, obtained {obtained}, endpoint {endpoint:?}")
+                    }
+                    libp2p::swarm::ListenError::LocalPeerId { endpoint } => {
+                        format!("Dialing local peer id {endpoint:?}")
+                    }
+                    libp2p::swarm::ListenError::Denied { cause } => {
+                        format!("Connection was denied with cause: {cause:?}")
+                    }
+                    libp2p::swarm::ListenError::Transport(t) => match t {
+                        libp2p::TransportError::MultiaddrNotSupported(m) => {
+                            format!("Transport error: Multiaddr not supported: {m}")
+                        }
+                        libp2p::TransportError::Other(e) => {
+                            format!("Transport error: other: {e}")
+                        }
+                    },
+                };
+                debug!(self.log, "Failed incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr, "error" => error_repr);
+                None
+            }
+            SwarmEvent::OutgoingConnectionError {
+                peer_id: _,
+                error: _,
+                connection_id: _,
+            } => {
+                // The Behaviour event is more general than the swarm event here. It includes
+                // connection failures. So we use that log for now, in the peer manager
+                // behaviour implementation.
+                None
+            }
+            SwarmEvent::NewListenAddr { address, .. } => Some(NetworkEvent::NewListenAddr(address)),
+            SwarmEvent::ExpiredListenAddr { address, .. } => {
+                debug!(self.log, "Listen address expired"; "address" => %address);
+                None
+            }
+            SwarmEvent::ListenerClosed {
+                addresses, reason, ..
+            } => {
+                match reason {
+                    Ok(_) => {
+                        debug!(self.log, "Listener gracefully closed"; "addresses" => ?addresses)
+                    }
+                    Err(reason) => {
+                        crit!(self.log, "Listener abruptly closed"; "addresses" => ?addresses, "reason" => ?reason)
+                    }
+                };
+                if Swarm::listeners(&self.swarm).count() == 0 {
+                    Some(NetworkEvent::ZeroListeners)
+                } else {
+                    None
+                }
+            }
+            SwarmEvent::ListenerError { error, .. } => {
+                debug!(self.log, "Listener closed connection attempt"; "reason" => ?error);
+                None
+            }
+            _ => {
+                // NOTE: SwarmEvent is a non exhaustive enum so updates should be based on
+                // release notes more than compiler feedback
+                None
+            }
+        }
     }
 }

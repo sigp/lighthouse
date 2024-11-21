@@ -47,14 +47,13 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     forkchoice_updated_v2: true,
     forkchoice_updated_v3: true,
     get_payload_bodies_by_hash_v1: true,
-    get_payload_bodies_by_hash_v2: true,
     get_payload_bodies_by_range_v1: true,
-    get_payload_bodies_by_range_v2: true,
     get_payload_v1: true,
     get_payload_v2: true,
     get_payload_v3: true,
     get_payload_v4: true,
     get_client_version_v1: true,
+    get_blobs_v1: true,
 };
 
 pub static DEFAULT_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =

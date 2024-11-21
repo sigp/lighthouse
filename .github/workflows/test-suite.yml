@@ -54,6 +54,20 @@ jobs:
          done
          echo "skip_ci=$SKIP_CI" >> $GITHUB_OUTPUT
 
+  lockbud:
+    name: lockbud
+    runs-on: ubuntu-latest
+    container:
+      image: sigmaprime/lockbud:latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Install dependencies
+        run: apt update && apt install -y cmake libclang-dev
+      - name: Check for deadlocks
+        run: |
+          cargo lockbud -k deadlock -b -l tokio_util
+
   target-branch-check:
     name: target-branch-check
     runs-on: ubuntu-latest
@@ -406,7 +420,7 @@ jobs:
         channel: stable
         cache-target: release
     - name: Run Makefile to trigger the bash script
-      run: make cli
+      run: make cli-local
   # This job succeeds ONLY IF all others succeed. It is used by the merge queue to determine whether
   # a PR is safe to merge. New jobs should be added here.
   test-suite-success:
@@ -433,6 +447,7 @@ jobs:
       'cargo-udeps',
       'compile-with-beta-compiler',
       'cli-check',
+      'lockbud',
     ]
     steps:
       - uses: actions/checkout@v4

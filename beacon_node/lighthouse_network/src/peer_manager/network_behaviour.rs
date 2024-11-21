@@ -7,15 +7,16 @@ use futures::StreamExt;
 use libp2p::core::transport::PortUse;
 use libp2p::core::ConnectedPoint;
 use libp2p::identity::PeerId;
+use libp2p::multiaddr::Protocol;
 use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::dummy::ConnectionHandler;
 use libp2p::swarm::{ConnectionDenied, ConnectionId, NetworkBehaviour, ToSwarm};
+pub use metrics::{set_gauge_vec, NAT_OPEN};
 use slog::{debug, error, trace};
 use types::EthSpec;
 
 use crate::discovery::enr_ext::EnrExt;
-use crate::rpc::GoodbyeReason;
 use crate::types::SyncState;
 use crate::{metrics, ClearDialError};
 
@@ -94,26 +95,20 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
         }
 
         if let Some(enr) = self.peers_to_dial.pop() {
-            let peer_id = enr.peer_id();
-            self.inject_peer_connection(&peer_id, ConnectingType::Dialing, Some(enr.clone()));
-
-            let quic_multiaddrs = if self.quic_enabled {
-                let quic_multiaddrs = enr.multiaddr_quic();
-                if !quic_multiaddrs.is_empty() {
-                    debug!(self.log, "Dialing QUIC supported peer"; "peer_id"=> %peer_id, "quic_multiaddrs" => ?quic_multiaddrs);
-                }
-                quic_multiaddrs
-            } else {
-                Vec::new()
-            };
+            self.inject_peer_connection(&enr.peer_id(), ConnectingType::Dialing, Some(enr.clone()));
 
             // Prioritize Quic connections over Tcp ones.
-            let multiaddrs = quic_multiaddrs
-                .into_iter()
-                .chain(enr.multiaddr_tcp())
-                .collect();
+            let multiaddrs = [
+                self.quic_enabled
+                    .then_some(enr.multiaddr_quic())
+                    .unwrap_or_default(),
+                enr.multiaddr_tcp(),
+            ]
+            .concat();
+
+            debug!(self.log, "Dialing peer"; "peer_id"=> %enr.peer_id(), "multiaddrs" => ?multiaddrs);
             return Poll::Ready(ToSwarm::Dial {
-                opts: DialOpts::peer_id(peer_id)
+                opts: DialOpts::peer_id(enr.peer_id())
                     .condition(PeerCondition::Disconnected)
                     .addresses(multiaddrs)
                     .build(),
@@ -130,14 +125,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
                 endpoint,
                 other_established,
                 ..
-            }) => {
-                // NOTE: We still need to handle the [`ConnectionEstablished`] because the
-                // [`NetworkBehaviour::handle_established_inbound_connection`] and
-                // [`NetworkBehaviour::handle_established_outbound_connection`] are fallible. This
-                // means another behaviour can kill the connection early, and we can't assume a
-                // peer as connected until this event is received.
-                self.on_connection_established(peer_id, endpoint, other_established)
-            }
+            }) => self.on_connection_established(peer_id, endpoint, other_established),
             FromSwarm::ConnectionClosed(ConnectionClosed {
                 peer_id,
                 endpoint,
@@ -174,8 +162,8 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
     ) -> Result<(), ConnectionDenied> {
         // get the IP address to verify it's not banned.
         let ip = match remote_addr.iter().next() {
-            Some(libp2p::multiaddr::Protocol::Ip6(ip)) => IpAddr::V6(ip),
-            Some(libp2p::multiaddr::Protocol::Ip4(ip)) => IpAddr::V4(ip),
+            Some(Protocol::Ip6(ip)) => IpAddr::V6(ip),
+            Some(Protocol::Ip4(ip)) => IpAddr::V4(ip),
             _ => {
                 return Err(ConnectionDenied::new(format!(
                     "Connection to peer rejected: invalid multiaddr: {remote_addr}"
@@ -206,6 +194,29 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
                 "Connection to peer rejected: peer has a bad score",
             ));
         }
+
+        // Check the connection limits
+        if self.network_globals.connected_or_dialing_peers() >= self.max_peers()
+            && self
+                .network_globals
+                .peers
+                .read()
+                .peer_info(&peer_id)
+                .map_or(true, |peer| !peer.has_future_duty())
+        {
+            return Err(ConnectionDenied::new(
+                "Connection to peer rejected: too many connections",
+            ));
+        }
+
+        // We have an inbound connection, this is indicative of having our libp2p NAT ports open. We
+        // distinguish between ipv4 and ipv6 here:
+        match remote_addr.iter().next() {
+            Some(Protocol::Ip4(_)) => set_gauge_vec(&NAT_OPEN, &["libp2p_ipv4"], 1),
+            Some(Protocol::Ip6(_)) => set_gauge_vec(&NAT_OPEN, &["libp2p_ipv6"], 1),
+            _ => {}
+        }
+
         Ok(ConnectionHandler)
     }
 
@@ -218,13 +229,26 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
         _port_use: PortUse,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
         trace!(self.log, "Outbound connection"; "peer_id" => %peer_id, "multiaddr" => %addr);
-        match self.ban_status(&peer_id) {
-            Some(cause) => {
-                error!(self.log, "Connected a banned peer. Rejecting connection"; "peer_id" => %peer_id);
-                Err(ConnectionDenied::new(cause))
-            }
-            None => Ok(ConnectionHandler),
+        if let Some(cause) = self.ban_status(&peer_id) {
+            error!(self.log, "Connected a banned peer. Rejecting connection"; "peer_id" => %peer_id);
+            return Err(ConnectionDenied::new(cause));
         }
+
+        // Check the connection limits
+        if self.network_globals.connected_peers() >= self.max_outbound_dialing_peers()
+            && self
+                .network_globals
+                .peers
+                .read()
+                .peer_info(&peer_id)
+                .map_or(true, |peer| !peer.has_future_duty())
+        {
+            return Err(ConnectionDenied::new(
+                "Connection to peer rejected: too many connections",
+            ));
+        }
+
+        Ok(ConnectionHandler)
     }
 }
 
@@ -233,7 +257,7 @@ impl<E: EthSpec> PeerManager<E> {
         &mut self,
         peer_id: PeerId,
         endpoint: &ConnectedPoint,
-        other_established: usize,
+        _other_established: usize,
     ) {
         debug!(self.log, "Connection established"; "peer_id" => %peer_id,
             "multiaddr" => %endpoint.get_remote_address(),
@@ -245,26 +269,6 @@ impl<E: EthSpec> PeerManager<E> {
             metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
 
             self.update_peer_count_metrics();
-        }
-
-        // Count dialing peers in the limit if the peer dialed us.
-        let count_dialing = endpoint.is_listener();
-        // Check the connection limits
-        if self.peer_limit_reached(count_dialing)
-            && self
-                .network_globals
-                .peers
-                .read()
-                .peer_info(&peer_id)
-                .map_or(true, |peer| !peer.has_future_duty())
-        {
-            // Gracefully disconnect the peer.
-            self.disconnect_peer(peer_id, GoodbyeReason::TooManyPeers);
-            return;
-        }
-
-        if other_established == 0 {
-            self.events.push(PeerManagerEvent::MetaData(peer_id));
         }
 
         // NOTE: We don't register peers that we are disconnecting immediately. The network service

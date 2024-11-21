@@ -25,7 +25,7 @@ logging = { workspace = true }
 superstruct = { workspace = true }
 tokio = { workspace = true }
 state_processing = { workspace = true }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 task_executor = { workspace = true }
 eth2 = { workspace = true }
 sensitive_url = { workspace = true }

@@ -39,20 +39,6 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::Set)
                 .display_order(0)
         )
-        // TODO remove this flag in a future release
-        .arg(
-            Arg::new("disable-run-on-all")
-                .long("disable-run-on-all")
-                .value_name("DISABLE_RUN_ON_ALL")
-                .help("DEPRECATED. Use --broadcast. \
-                       By default, Lighthouse publishes attestation, sync committee subscriptions \
-                       and proposer preparation messages to all beacon nodes provided in the \
-                       `--beacon-nodes flag`. This option changes that behaviour such that these \
-                       api calls only go out to the first available and synced beacon node")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
         .arg(
             Arg::new("broadcast")
                 .long("broadcast")
@@ -165,14 +151,6 @@ pub fn cli_app() -> Command {
                        configured in the validator definitions it takes priority over this value.")
                 .value_name("FEE-RECIPIENT")
                 .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("produce-block-v3")
-                .long("produce-block-v3")
-                .help("This flag is deprecated and is no longer in use.")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
         .arg(
@@ -402,15 +380,6 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
-        )
-        .arg(
-            Arg::new("latency-measurement-service")
-                .long("latency-measurement-service")
-                .help("DEPRECATED")
-                .action(ArgAction::Set)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-                .hide(true)
         )
         .arg(
             Arg::new("validator-registration-batch-size")

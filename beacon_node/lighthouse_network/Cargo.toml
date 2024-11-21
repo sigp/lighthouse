@@ -21,7 +21,7 @@ futures = { workspace = true }
 error-chain = { workspace = true }
 dirs = { workspace = true }
 fnv = { workspace = true }
-lighthouse_metrics = { workspace = true }
+metrics = { workspace = true }
 smallvec = { workspace = true }
 tokio-io-timeout = "1"
 lru = { workspace = true }
