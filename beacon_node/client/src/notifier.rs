@@ -45,10 +45,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     let mut current_sync_state = network.sync_state();
 
     // Store info if we are required to do a backfill sync.
-    let original_anchor_slot = beacon_chain
-        .store
-        .get_anchor_info()
-        .map(|ai| ai.oldest_block_slot);
+    let original_oldest_block_slot = beacon_chain.store.get_anchor_info().oldest_block_slot;
 
     let interval_future = async move {
         // Perform pre-genesis logging.
@@ -136,22 +133,17 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             match current_sync_state {
                 SyncState::BackFillSyncing { .. } => {
                     // Observe backfilling sync info.
-                    if let Some(oldest_slot) = original_anchor_slot {
-                        if let Some(current_anchor_slot) = beacon_chain
-                            .store
-                            .get_anchor_info()
-                            .map(|ai| ai.oldest_block_slot)
-                        {
-                            sync_distance = current_anchor_slot
-                                .saturating_sub(beacon_chain.genesis_backfill_slot);
-                            speedo
-                                // For backfill sync use a fake slot which is the distance we've progressed from the starting `oldest_block_slot`.
-                                .observe(
-                                    oldest_slot.saturating_sub(current_anchor_slot),
-                                    Instant::now(),
-                                );
-                        }
-                    }
+                    let current_oldest_block_slot =
+                        beacon_chain.store.get_anchor_info().oldest_block_slot;
+                    sync_distance = current_oldest_block_slot
+                        .saturating_sub(beacon_chain.genesis_backfill_slot);
+                    speedo
+                        // For backfill sync use a fake slot which is the distance we've progressed
+                        // from the starting `original_oldest_block_slot`.
+                        .observe(
+                            original_oldest_block_slot.saturating_sub(current_oldest_block_slot),
+                            Instant::now(),
+                        );
                 }
                 SyncState::SyncingFinalized { .. }
                 | SyncState::SyncingHead { .. }
@@ -210,8 +202,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         speed = sync_speed_pretty(speed),
                         est_time = estimated_time_pretty(
                             speedo.estimated_time_till_slot(
-                                original_anchor_slot
-                                    .unwrap_or(current_slot)
+                                original_oldest_block_slot
                                     .saturating_sub(beacon_chain.genesis_backfill_slot)
                             )
                         ),
@@ -222,8 +213,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         distance,
                         est_time = estimated_time_pretty(
                             speedo.estimated_time_till_slot(
-                                original_anchor_slot
-                                    .unwrap_or(current_slot)
+                                original_oldest_block_slot
                                     .saturating_sub(beacon_chain.genesis_backfill_slot)
                             )
                         ),

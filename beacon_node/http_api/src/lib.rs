@@ -2632,13 +2632,23 @@ pub fn serve<T: BeaconChainTypes>(
                         // We can ignore the optimistic status for the "fork" since it's a
                         // specification constant that doesn't change across competing heads of the
                         // beacon chain.
+                        let t = std::time::Instant::now();
                         let (state, _execution_optimistic, _finalized) = state_id.state(&chain)?;
                         let fork_name = state
                             .fork_name(&chain.spec)
                             .map_err(inconsistent_fork_rejection)?;
+                        let timer = metrics::start_timer(&metrics::HTTP_API_STATE_SSZ_ENCODE_TIMES);
+                        let response_bytes = state.as_ssz_bytes();
+                        drop(timer);
+                        debug!(
+                            total_time_ms = t.elapsed().as_millis(),
+                            target_slot = %state.slot(),
+                            "HTTP state load"
+                        );
+
                         Response::builder()
                             .status(200)
-                            .body(state.as_ssz_bytes().into())
+                            .body(response_bytes.into())
                             .map(|res: Response<Body>| add_ssz_content_type_header(res))
                             .map(|resp: warp::reply::Response| {
                                 add_consensus_version_header(resp, fork_name)

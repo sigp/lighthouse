@@ -305,12 +305,12 @@ impl Default for Config {
         let discv5_config = discv5::ConfigBuilder::new(discv5_listen_config)
             .enable_packet_filter()
             .session_cache_capacity(5000)
-            .request_timeout(Duration::from_secs(1))
+            .request_timeout(Duration::from_secs(2))
             .query_peer_timeout(Duration::from_secs(2))
             .query_timeout(Duration::from_secs(30))
             .request_retries(1)
             .enr_peer_update_min(10)
-            .query_parallelism(5)
+            .query_parallelism(8)
             .disable_report_discovered_peers()
             .ip_limit() // limits /24 IP's in buckets.
             .incoming_bucket_limit(8) // half the bucket size
