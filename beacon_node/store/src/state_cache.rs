@@ -161,7 +161,6 @@ impl<E: EthSpec> StateCache<E> {
     ///
     /// If the finalized state is not initialized this function is a no-op. Return `true` if the
     /// state was rebased and `false`.
-    #[must_use]
     pub fn rebase_on_finalized(
         &self,
         state: &mut BeaconState<E>,

@@ -403,21 +403,6 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             info!(db.log, "Foreground compaction complete");
         }
 
-        // Load the split state on startup.
-        let split = db.get_split_info();
-        let state =
-            db.get_hot_state(&split.state_root)?
-                .ok_or(HotColdDBError::MissingSplitState(
-                    split.state_root,
-                    split.slot,
-                ))?;
-        db.state_cache.lock().update_finalized_state(
-            split.state_root,
-            split.block_root,
-            state,
-            &db.log,
-        )?;
-
         Ok(db)
     }
 
@@ -1556,46 +1541,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             epoch_boundary_state_root,
         }) = self.load_hot_state_summary(state_root)?
         {
-            let max_replay = 72;
-            let split = self.get_split_info();
-            let mut boundary_state = if slot < split.slot + max_replay && slot != split.slot {
-                info!(
-                    self.log,
-                    "Replaying blocks atop split state";
-                    "state_slot" => slot,
-                    "split_slot" => split.slot,
-                );
-                self.load_hot_state(&split.state_root)?
-                    .ok_or(HotColdDBError::MissingSplitState(
-                        split.state_root,
-                        split.slot,
-                    ))?
-                    .0
-            } else {
+            let mut boundary_state =
                 get_full_state(&self.hot_db, &epoch_boundary_state_root, &self.spec)?.ok_or(
                     HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root),
-                )?
-            };
+                )?;
 
             // Immediately rebase the state from disk on the finalized state so that we can reuse
             // parts of the tree for state root calculation in `replay_blocks`.
-            let rebased_successfully = self
-                .state_cache
+            self.state_cache
                 .lock()
                 .rebase_on_finalized(&mut boundary_state, &self.spec)?;
-            if !rebased_successfully && epoch_boundary_state_root != split.state_root {
-                warn!(
-                    self.log,
-                    "Memory fragmentation caused by uinitialized finalized state";
-                    "boundary_state_slot" => boundary_state.slot(),
-                    "state_slot" => slot,
-                    "split_slot" => split.slot
-                );
-            }
 
-            // Optimization to avoid even *thinking* about replaying blocks if we've already loaded
-            // the correct state.
-            let mut state = if slot == boundary_state.slot() {
+            // Optimization to avoid even *thinking* about replaying blocks if we're already
+            // on an epoch boundary.
+            let mut state = if slot % E::slots_per_epoch() == 0 {
                 boundary_state
             } else {
                 // Cache ALL intermediate states that are reached during block replay. We may want

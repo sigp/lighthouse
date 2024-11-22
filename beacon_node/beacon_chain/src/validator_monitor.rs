@@ -486,11 +486,6 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         state: &BeaconState<E>,
         spec: &ChainSpec,
     ) {
-        // If the validator monitor is disabled, don't waste memory filling up `self.indices`.
-        if self.validators.is_empty() && !self.auto_register {
-            return;
-        }
-
         // Add any new validator indices.
         state
             .validators()

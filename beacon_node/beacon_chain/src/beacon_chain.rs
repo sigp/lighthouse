@@ -1550,13 +1550,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         validator_index: usize,
     ) -> Result<Option<PublicKeyBytes>, Error> {
-        let head = self.canonical_head.cached_head();
-        Ok(head
-            .snapshot
-            .beacon_state
-            .get_validator(validator_index)
-            .ok()
-            .map(|v| v.pubkey))
+        let pubkey_cache = self.validator_pubkey_cache.read();
+
+        Ok(pubkey_cache.get_pubkey_bytes(validator_index).copied())
     }
 
     /// As per `Self::validator_pubkey_bytes` but will resolve multiple indices at once to avoid
@@ -1568,12 +1564,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         validator_indices: &[usize],
     ) -> Result<HashMap<usize, PublicKeyBytes>, Error> {
-        let head = self.canonical_head.cached_head();
+        let pubkey_cache = self.validator_pubkey_cache.read();
 
         let mut map = HashMap::with_capacity(validator_indices.len());
         for &validator_index in validator_indices {
-            if let Ok(validator) = head.snapshot.beacon_state.get_validator(validator_index) {
-                map.insert(validator_index, validator.pubkey);
+            if let Some(pubkey) = pubkey_cache.get_pubkey_bytes(validator_index) {
+                map.insert(validator_index, *pubkey);
             }
         }
         Ok(map)

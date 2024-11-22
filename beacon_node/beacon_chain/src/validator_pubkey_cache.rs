@@ -20,6 +20,7 @@ use types::{BeaconState, FixedBytesExtended, Hash256, PublicKey, PublicKeyBytes}
 pub struct ValidatorPubkeyCache<T: BeaconChainTypes> {
     pubkeys: Vec<PublicKey>,
     indices: HashMap<PublicKeyBytes, usize>,
+    pubkey_bytes: Vec<PublicKeyBytes>,
     _phantom: PhantomData<T>,
 }
 
@@ -34,6 +35,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         let mut cache = Self {
             pubkeys: vec![],
             indices: HashMap::new(),
+            pubkey_bytes: vec![],
             _phantom: PhantomData,
         };
 
@@ -47,6 +49,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     pub fn load_from_store(store: BeaconStore<T>) -> Result<Self, BeaconChainError> {
         let mut pubkeys = vec![];
         let mut indices = HashMap::new();
+        let mut pubkey_bytes = vec![];
 
         for validator_index in 0.. {
             if let Some(db_pubkey) =
@@ -55,6 +58,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
                 let (pk, pk_bytes) = DatabasePubkey::as_pubkey(&db_pubkey)?;
                 pubkeys.push(pk);
                 indices.insert(pk_bytes, validator_index);
+                pubkey_bytes.push(pk_bytes);
             } else {
                 break;
             }
@@ -63,6 +67,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         Ok(ValidatorPubkeyCache {
             pubkeys,
             indices,
+            pubkey_bytes,
             _phantom: PhantomData,
         })
     }
@@ -96,6 +101,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     where
         I: Iterator<Item = PublicKeyBytes> + ExactSizeIterator,
     {
+        self.pubkey_bytes.reserve(validator_keys.len());
         self.pubkeys.reserve(validator_keys.len());
         self.indices.reserve(validator_keys.len());
 
@@ -121,6 +127,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             ));
 
             self.pubkeys.push(pubkey);
+            self.pubkey_bytes.push(pubkey_bytes);
             self.indices.insert(pubkey_bytes, i);
         }
 
@@ -135,6 +142,11 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     /// Get the `PublicKey` for a validator with `PublicKeyBytes`.
     pub fn get_pubkey_from_pubkey_bytes(&self, pubkey: &PublicKeyBytes) -> Option<&PublicKey> {
         self.get_index(pubkey).and_then(|index| self.get(index))
+    }
+
+    /// Get the public key (in bytes form) for a validator with index `i`.
+    pub fn get_pubkey_bytes(&self, i: usize) -> Option<&PublicKeyBytes> {
+        self.pubkey_bytes.get(i)
     }
 
     /// Get the index of a validator with `pubkey`.

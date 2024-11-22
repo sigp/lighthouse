@@ -275,4 +275,4 @@ incremental = false
 
 [patch.crates-io]
 quick-protobuf = { git = "https://github.com/sigp/quick-protobuf.git", rev = "681f413312404ab6e51f0b46f39b0075c6f4ebfd" }
-metastruct = { git = "https://github.com/sigp/metastruct", branch = "lifetime-tweaks" }
+# metastruct = { git = "https://github.com/sigp/metastruct", rev = "v0.1.3" }
