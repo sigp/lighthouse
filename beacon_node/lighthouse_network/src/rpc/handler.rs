@@ -20,7 +20,6 @@ use logging::crit;
 use smallvec::SmallVec;
 use std::{
     collections::{hash_map::Entry, VecDeque},
-    fmt,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},

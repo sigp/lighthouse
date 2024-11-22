@@ -225,8 +225,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let inner_graffiti_flag = ctx.graffiti_flag;
     let graffiti_flag_filter = warp::any().map(move || inner_graffiti_flag);
 
-    let inner_ctx = ctx.clone();
-
     let inner_slot_clock = ctx.slot_clock.clone();
     let slot_clock_filter = warp::any().map(move || inner_slot_clock.clone());
 

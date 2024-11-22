@@ -36,5 +36,3 @@ tracing = { workspace = true }
 [[bench]]
 name = "hdiff"
 harness = false
-tracing-subscriber = { workspace = true }
-tracing = { workspace = true }

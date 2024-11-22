@@ -322,6 +322,13 @@ impl TaskExecutor {
                         name,
                         "Completed block_on task"
                     );
+                    Some(output)
+                }
+                _ = exit => {
+                    debug!(
+                        name,
+                        "Cancelled block_on task"
+                    );
                     None
                 }
             };

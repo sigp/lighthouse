@@ -5,7 +5,6 @@ use serde_json;
 use serde_json::json;
 use serde_json::Value;
 use std::sync::Arc;
-use std::sync::Mutex;
 use tokio::sync::broadcast::Sender;
 use tracing::field::{Field, Visit};
 use tracing::{Event, Subscriber};
