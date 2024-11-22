@@ -748,9 +748,9 @@ mod tests {
     use types::{BeaconBlockDeneb, BlindedBeaconBlock, MainnetEthSpec, Slot};
 
     use super::*;
-    use crate::block_service::{BlockService, BlockServiceBuilder, UnsignedBlock};
-    use validator_client::testing::mock_beacon_node::MockBeaconNode;
-    use validator_client::testing::validator_test_rig::ValidatorTestRig;
+    use testing::mock_beacon_node::MockBeaconNode;
+    use testing::validator_test_rig::ValidatorTestRig;
+    use validator_services::block_service::{BlockService, BlockServiceBuilder, UnsignedBlock};
 
     type E = MainnetEthSpec;
 

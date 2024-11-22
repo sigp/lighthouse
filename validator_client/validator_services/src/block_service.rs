@@ -324,7 +324,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     }
 
     #[cfg(test)]
-    pub(crate) async fn publish_block_for_testing(
+    pub async fn publish_block_for_testing(
         &self,
         slot: Slot,
         validator_pubkey: &PublicKeyBytes,
