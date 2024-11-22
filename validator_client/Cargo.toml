@@ -29,6 +29,7 @@ environment = { workspace = true }
 graffiti_file = { workspace = true }
 hyper = { workspace = true }
 initialized_validators = { workspace = true }
+logging = { workspace = true }
 metrics = { workspace = true }
 monitoring_api = { workspace = true }
 parking_lot = { workspace = true }
@@ -36,8 +37,11 @@ reqwest = { workspace = true }
 sensitive_url = { workspace = true }
 slashing_protection = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 slog = { workspace = true }
 slot_clock = { workspace = true }
+task_executor = { workspace = true }
+tempfile = { workspace = true }
 types  = { workspace = true }
 validator_http_api = { workspace = true }
 validator_http_metrics = { workspace = true }

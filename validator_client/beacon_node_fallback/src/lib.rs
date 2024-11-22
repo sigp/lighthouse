@@ -740,7 +740,6 @@ mod tests {
     use crate::beacon_node_health::BeaconNodeHealthTier;
     use eth2::SensitiveUrl;
     use eth2::Timeouts;
-    use logging::test_logger;
     use std::str::FromStr;
     use strum::VariantNames;
     use types::EmptyBlock;
@@ -750,8 +749,8 @@ mod tests {
 
     use super::*;
     use crate::block_service::{BlockService, BlockServiceBuilder, UnsignedBlock};
-    use crate::testing::mock_beacon_node::MockBeaconNode;
-    use crate::testing::validator_test_rig::ValidatorTestRig;
+    use validator_client::testing::mock_beacon_node::MockBeaconNode;
+    use validator_client::testing::validator_test_rig::ValidatorTestRig;
 
     type E = MainnetEthSpec;
 

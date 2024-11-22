@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,8 +16,8 @@ use task_executor::test_utils::TestRuntime;
 use types::EthSpec;
 use types::{ChainSpec, Hash256, MainnetEthSpec, Slot};
 
-use initialized_validators::InitializedValidators;
-use validator_store::ValidatorStore;
+use initialized_validators::{Config as InitializedValidatorConfig, InitializedValidators};
+use validator_store::{Config as ValidatorStoreConfig, ValidatorStore};
 
 type S = TestingSlotClock;
 type E = MainnetEthSpec;
@@ -41,7 +39,7 @@ impl ValidatorTestRig {
             Duration::from_secs(12),
         );
         let spec = Arc::new(E::default_spec());
-        let validator_store = crate::config::Config::default();
+        let validator_store = ValidatorStoreConfig::default();
         let test_runtime = TestRuntime::default();
         let runtime_context = RuntimeContext {
             executor: test_runtime.task_executor.clone(),
@@ -66,7 +64,7 @@ impl ValidatorTestRig {
         let validators = InitializedValidators::from_definitions(
             validator_definitions,
             validator_dir.into(),
-            crate::config::Config::default(),
+            InitializedValidatorConfig::default(),
             logger.clone(),
         )
         .await

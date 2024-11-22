@@ -4,7 +4,7 @@ mod latency;
 mod notifier;
 
 #[cfg(test)]
-mod testing;
+pub mod testing;
 
 pub use beacon_node_fallback::beacon_node_health::BeaconNodeSyncDistanceTiers;
 pub use beacon_node_fallback::ApiTopic;
