@@ -1,4 +1,4 @@
-pub use lighthouse_metrics::*;
+pub use metrics::*;
 use std::sync::LazyLock;
 
 pub static HTTP_API_PATHS_TOTAL: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
@@ -37,5 +37,17 @@ pub static HTTP_API_BLOCK_GOSSIP_TIMES: LazyLock<Result<HistogramVec>> = LazyLoc
         "Time between receiving the block on HTTP and publishing it on gossip",
         decimal_buckets(-2, 2),
         &["provenance"],
+    )
+});
+pub static HTTP_API_STATE_SSZ_ENCODE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "http_api_state_ssz_encode_times",
+        "Time to SSZ encode a BeaconState for a response",
+    )
+});
+pub static HTTP_API_STATE_ROOT_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "http_api_state_root_times",
+        "Time to load a state root for a request",
     )
 });

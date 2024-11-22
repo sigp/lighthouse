@@ -63,8 +63,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
       - name: Install dependencies
-        run: apt update && apt install -y cmake
-      - name: Generate code coverage
+        run: apt update && apt install -y cmake libclang-dev
+      - name: Check for deadlocks
         run: |
           cargo lockbud -k deadlock -b -l tokio_util
 
