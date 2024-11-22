@@ -10,8 +10,6 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 tokio = { workspace = true }
-eth2_config = { workspace = true }
-node_test_rig = { workspace = true }
 mockito = { workspace = true }
 regex = { workspace = true }
 env_logger = { workspace = true }
@@ -51,3 +49,6 @@ validator_store = { workspace = true }
 tokio = { workspace = true }
 fdlimit = "0.3.0"
 env_logger = { workspace = true }
+mockito = { workspace = true }
+regex = { workspace = true }
+eth2_config = { workspace = true }
