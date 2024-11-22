@@ -20,7 +20,6 @@ mod tests {
     use account_utils::validator_definitions::{
         SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
     };
-    use eth2::types::AttesterData;
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
     use initialized_validators::{
