@@ -59,6 +59,7 @@ pub enum Error {
     UnknownValidator(usize),
     UnableToDetermineProducer,
     InvalidBitfield,
+    EmptyCommittee,
     ValidatorIsWithdrawable,
     ValidatorIsInactive {
         val_index: usize,
