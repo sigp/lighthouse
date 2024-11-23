@@ -991,6 +991,7 @@ mod tests {
 
     #[tokio::test]
     async fn slashing_protection_disabled_locally() {
+        
         test_lighthouse_slashing_protection(SlashingProtectionConfig { local: false }, 4253).await
     }
 
