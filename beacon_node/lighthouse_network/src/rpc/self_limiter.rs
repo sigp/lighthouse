@@ -34,7 +34,7 @@ pub(crate) struct SelfRateLimiter<Id: ReqId, E: EthSpec> {
     /// The delay required to allow a peer's outbound request per protocol.
     next_peer_request: DelayQueue<(PeerId, Protocol)>,
     /// Rate limiter for our own requests.
-    limiter: RateLimiter,
+    rate_limiter: Option<RateLimiter>,
     /// Requests that are ready to be sent.
     ready_requests: SmallVec<[BehaviourAction<Id, E>; 3]>,
     /// Slog logger.
@@ -52,15 +52,22 @@ pub enum Error {
 
 impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
     /// Creates a new [`SelfRateLimiter`] based on configuration values.
-    pub fn new(config: OutboundRateLimiterConfig, log: Logger) -> Result<Self, &'static str> {
+    pub fn new(
+        config: Option<OutboundRateLimiterConfig>,
+        log: Logger,
+    ) -> Result<Self, &'static str> {
         debug!(log, "Using self rate limiting params"; "config" => ?config);
-        let limiter = RateLimiter::new_with_config(config.0)?;
+        let rate_limiter = if let Some(c) = config {
+            Some(RateLimiter::new_with_config(c.0)?)
+        } else {
+            None
+        };
 
         Ok(SelfRateLimiter {
             active_requests: Default::default(),
             delayed_requests: Default::default(),
             next_peer_request: Default::default(),
-            limiter,
+            rate_limiter,
             ready_requests: Default::default(),
             log,
         })
@@ -84,7 +91,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         }
         match Self::try_send_request(
             &mut self.active_requests,
-            &mut self.limiter,
+            &mut self.rate_limiter,
             peer_id,
             request_id,
             req,
@@ -109,7 +116,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
     /// should be delayed, it's returned with the duration to wait.
     fn try_send_request(
         active_requests: &mut HashMap<PeerId, HashMap<Protocol, usize>>,
-        limiter: &mut RateLimiter,
+        rate_limiter: &mut Option<RateLimiter>,
         peer_id: PeerId,
         request_id: Id,
         req: RequestType<E>,
@@ -127,23 +134,25 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
             }
         }
 
-        match limiter.allows(&peer_id, &req) {
-            Ok(()) => {}
-            Err(e) => {
-                let protocol = req.versioned_protocol();
-                match e {
-                    RateLimitedErr::TooLarge => {
-                        // this should never happen with default parameters. Let's just send the request.
-                        // Log a crit since this is a config issue.
-                        crit!(
-                           log,
-                            "Self rate limiting error for a batch that will never fit. Sending request anyway. Check configuration parameters.";
-                            "protocol" => %req.versioned_protocol().protocol()
-                        );
-                    }
-                    RateLimitedErr::TooSoon(wait_time) => {
-                        debug!(log, "Self rate limiting"; "protocol" => %protocol.protocol(), "wait_time_ms" => wait_time.as_millis(), "peer_id" => %peer_id);
-                        return Err((QueuedRequest { req, request_id }, wait_time));
+        if let Some(limiter) = rate_limiter.as_mut() {
+            match limiter.allows(&peer_id, &req) {
+                Ok(()) => {}
+                Err(e) => {
+                    let protocol = req.versioned_protocol();
+                    match e {
+                        RateLimitedErr::TooLarge => {
+                            // this should never happen with default parameters. Let's just send the request.
+                            // Log a crit since this is a config issue.
+                            crit!(
+                               log,
+                                "Self rate limiting error for a batch that will never fit. Sending request anyway. Check configuration parameters.";
+                                "protocol" => %req.versioned_protocol().protocol()
+                            );
+                        }
+                        RateLimitedErr::TooSoon(wait_time) => {
+                            debug!(log, "Self rate limiting"; "protocol" => %protocol.protocol(), "wait_time_ms" => wait_time.as_millis(), "peer_id" => %peer_id);
+                            return Err((QueuedRequest { req, request_id }, wait_time));
+                        }
                     }
                 }
             }
@@ -170,7 +179,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
             while let Some(QueuedRequest { req, request_id }) = queued_requests.pop_front() {
                 match Self::try_send_request(
                     &mut self.active_requests,
-                    &mut self.limiter,
+                    &mut self.rate_limiter,
                     peer_id,
                     request_id,
                     req,
@@ -228,8 +237,11 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
             let (peer_id, protocol) = expired.into_inner();
             self.next_peer_request_ready(peer_id, protocol);
         }
+
         // Prune the rate limiter.
-        let _ = self.limiter.poll_unpin(cx);
+        if let Some(limiter) = self.rate_limiter.as_mut() {
+            let _ = limiter.poll_unpin(cx);
+        }
 
         // Finally return any queued events.
         if !self.ready_requests.is_empty() {
@@ -260,7 +272,7 @@ mod tests {
             ..Default::default()
         });
         let mut limiter: SelfRateLimiter<RequestId, MainnetEthSpec> =
-            SelfRateLimiter::new(config, log).unwrap();
+            SelfRateLimiter::new(Some(config), log).unwrap();
         let peer_id = PeerId::random();
 
         for i in 1..=5u32 {

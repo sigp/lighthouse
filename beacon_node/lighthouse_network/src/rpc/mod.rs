@@ -161,7 +161,7 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
     /// Rate limiter for our responses.
     response_limiter: Option<ResponseLimiter<E>>,
     /// Rate limiter for our own requests.
-    outbound_request_limiter: Option<SelfRateLimiter<Id, E>>,
+    outbound_request_limiter: SelfRateLimiter<Id, E>,
     /// Active inbound requests that are awaiting a response.
     active_inbound_requests: HashMap<RequestId, Request<E>>,
     /// Queue of events to be processed.
@@ -193,9 +193,9 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             ResponseLimiter::new(config, log.clone())
         });
 
-        let outbound_request_limiter = outbound_rate_limiter_config.map(|config| {
-            SelfRateLimiter::new(config, log.clone()).expect("Configuration parameters are valid")
-        });
+        let outbound_request_limiter: SelfRateLimiter<Id, E> =
+            SelfRateLimiter::new(outbound_rate_limiter_config, log.clone())
+                .expect("Configuration parameters are valid");
 
         RPC {
             response_limiter,
@@ -256,23 +256,16 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     ///
     /// The peer must be connected for this to succeed.
     pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: RequestType<E>) {
-        let event = if let Some(self_limiter) = self.outbound_request_limiter.as_mut() {
-            match self_limiter.allows(peer_id, request_id, req) {
-                Ok(event) => event,
-                Err(_e) => {
-                    // Request is logged and queued internally in the self rate limiter.
-                    return;
-                }
+        match self
+            .outbound_request_limiter
+            .allows(peer_id, request_id, req)
+        {
+            Ok(event) => self.events.push(event),
+            Err(_e) => {
+                // Request is logged and queued internally in the self rate limiter.
+                return;
             }
-        } else {
-            ToSwarm::NotifyHandler {
-                peer_id,
-                handler: NotifyHandler::Any,
-                event: RPCSend::Request(request_id, req),
-            }
-        };
-
-        self.events.push(event);
+        }
     }
 
     /// Lighthouse wishes to disconnect from this peer by sending a Goodbye message. This
@@ -412,20 +405,19 @@ where
             if remaining_established > 0 {
                 return;
             }
+
             // Get a list of pending requests from the self rate limiter
-            if let Some(limiter) = self.outbound_request_limiter.as_mut() {
-                for (id, proto) in limiter.peer_disconnected(peer_id) {
-                    let error_msg = ToSwarm::GenerateEvent(RPCMessage {
-                        peer_id,
-                        conn_id: connection_id,
-                        message: Err(HandlerErr::Outbound {
-                            id,
-                            proto,
-                            error: RPCError::Disconnected,
-                        }),
-                    });
-                    self.events.push(error_msg);
-                }
+            for (id, proto) in self.outbound_request_limiter.peer_disconnected(peer_id) {
+                let error_msg = ToSwarm::GenerateEvent(RPCMessage {
+                    peer_id,
+                    conn_id: connection_id,
+                    message: Err(HandlerErr::Outbound {
+                        id,
+                        proto,
+                        error: RPCError::Disconnected,
+                    }),
+                });
+                self.events.push(error_msg);
             }
 
             self.active_inbound_requests
@@ -584,10 +576,8 @@ where
             }
         }
 
-        if let Some(self_limiter) = self.outbound_request_limiter.as_mut() {
-            if let Poll::Ready(event) = self_limiter.poll_ready(cx) {
-                self.events.push(event)
-            }
+        if let Poll::Ready(event) = self.outbound_request_limiter.poll_ready(cx) {
+            self.events.push(event)
         }
 
         if !self.events.is_empty() {
