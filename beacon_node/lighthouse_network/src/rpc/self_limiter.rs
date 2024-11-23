@@ -4,18 +4,18 @@ use std::{
     time::Duration,
 };
 
+use super::{
+    config::OutboundRateLimiterConfig,
+    rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr},
+    BehaviourAction, Protocol, RPCSend, ReqId, RequestType, MAX_CONCURRENT_REQUESTS,
+};
+use crate::rpc::rate_limiter::RateLimiterItem;
 use futures::FutureExt;
 use libp2p::{swarm::NotifyHandler, PeerId};
 use slog::{crit, debug, Logger};
 use smallvec::SmallVec;
 use tokio_util::time::DelayQueue;
 use types::EthSpec;
-
-use super::{
-    config::OutboundRateLimiterConfig,
-    rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr},
-    BehaviourAction, Protocol, RPCSend, ReqId, RequestType,
-};
 
 /// A request that was rate limited or waiting on rate limited requests for the same peer and
 /// protocol.
@@ -25,6 +25,8 @@ struct QueuedRequest<Id: ReqId, E: EthSpec> {
 }
 
 pub(crate) struct SelfRateLimiter<Id: ReqId, E: EthSpec> {
+    /// Active requests that are awaiting a response.
+    active_requests: HashMap<PeerId, HashMap<Protocol, usize>>,
     /// Requests queued for sending per peer. These requests are stored when the self rate
     /// limiter rejects them. Rate limiting is based on a Peer and Protocol basis, therefore
     /// are stored in the same way.
@@ -55,6 +57,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         let limiter = RateLimiter::new_with_config(config.0)?;
 
         Ok(SelfRateLimiter {
+            active_requests: Default::default(),
             delayed_requests: Default::default(),
             next_peer_request: Default::default(),
             limiter,
@@ -75,11 +78,18 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         let protocol = req.versioned_protocol().protocol();
         // First check that there are not already other requests waiting to be sent.
         if let Some(queued_requests) = self.delayed_requests.get_mut(&(peer_id, protocol)) {
+            debug!(self.log, "Self rate limiting since there are already other requests waiting to be sent"; "protocol" => %req.protocol(), "peer_id" => %peer_id);
             queued_requests.push_back(QueuedRequest { req, request_id });
-
             return Err(Error::PendingRequests);
         }
-        match Self::try_send_request(&mut self.limiter, peer_id, request_id, req, &self.log) {
+        match Self::try_send_request(
+            &mut self.active_requests,
+            &mut self.limiter,
+            peer_id,
+            request_id,
+            req,
+            &self.log,
+        ) {
             Err((rate_limited_req, wait_time)) => {
                 let key = (peer_id, protocol);
                 self.next_peer_request.insert(key, wait_time);
@@ -98,18 +108,27 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
     /// request, the [`ToSwarm`] that should be emitted is returned. If the request
     /// should be delayed, it's returned with the duration to wait.
     fn try_send_request(
+        active_requests: &mut HashMap<PeerId, HashMap<Protocol, usize>>,
         limiter: &mut RateLimiter,
         peer_id: PeerId,
         request_id: Id,
         req: RequestType<E>,
         log: &Logger,
     ) -> Result<BehaviourAction<Id, E>, (QueuedRequest<Id, E>, Duration)> {
+        if let Some(active_request) = active_requests.get(&peer_id) {
+            if let Some(count) = active_request.get(&req.protocol()) {
+                if *count >= MAX_CONCURRENT_REQUESTS {
+                    debug!(log, "Self rate limiting due to the number of concurrent requests"; "protocol" => %req.protocol(), "peer_id" => %peer_id);
+                    return Err((
+                        QueuedRequest { req, request_id },
+                        Duration::from_millis(100),
+                    ));
+                }
+            }
+        }
+
         match limiter.allows(&peer_id, &req) {
-            Ok(()) => Ok(BehaviourAction::NotifyHandler {
-                peer_id,
-                handler: NotifyHandler::Any,
-                event: RPCSend::Request(request_id, req),
-            }),
+            Ok(()) => {}
             Err(e) => {
                 let protocol = req.versioned_protocol();
                 match e {
@@ -121,19 +140,26 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
                             "Self rate limiting error for a batch that will never fit. Sending request anyway. Check configuration parameters.";
                             "protocol" => %req.versioned_protocol().protocol()
                         );
-                        Ok(BehaviourAction::NotifyHandler {
-                            peer_id,
-                            handler: NotifyHandler::Any,
-                            event: RPCSend::Request(request_id, req),
-                        })
                     }
                     RateLimitedErr::TooSoon(wait_time) => {
                         debug!(log, "Self rate limiting"; "protocol" => %protocol.protocol(), "wait_time_ms" => wait_time.as_millis(), "peer_id" => %peer_id);
-                        Err((QueuedRequest { req, request_id }, wait_time))
+                        return Err((QueuedRequest { req, request_id }, wait_time));
                     }
                 }
             }
         }
+
+        *active_requests
+            .entry(peer_id)
+            .or_default()
+            .entry(req.protocol())
+            .or_default() += 1;
+
+        Ok(BehaviourAction::NotifyHandler {
+            peer_id,
+            handler: NotifyHandler::Any,
+            event: RPCSend::Request(request_id, req),
+        })
     }
 
     /// When a peer and protocol are allowed to send a next request, this function checks the
@@ -142,8 +168,14 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         if let Entry::Occupied(mut entry) = self.delayed_requests.entry((peer_id, protocol)) {
             let queued_requests = entry.get_mut();
             while let Some(QueuedRequest { req, request_id }) = queued_requests.pop_front() {
-                match Self::try_send_request(&mut self.limiter, peer_id, request_id, req, &self.log)
-                {
+                match Self::try_send_request(
+                    &mut self.active_requests,
+                    &mut self.limiter,
+                    peer_id,
+                    request_id,
+                    req,
+                    &self.log,
+                ) {
                     Err((rate_limited_req, wait_time)) => {
                         let key = (peer_id, protocol);
                         self.next_peer_request.insert(key, wait_time);
@@ -165,6 +197,8 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
     /// Informs the limiter that a peer has disconnected. This removes any pending requests and
     /// returns their IDs.
     pub fn peer_disconnected(&mut self, peer_id: PeerId) -> Vec<(Id, Protocol)> {
+        // TODO: remove the peer from active requests.
+
         // It's not ideal to iterate this map, but the key is (PeerId, Protocol) and this map
         // should never really be large. So we iterate for simplicity
         let mut failed_requests = Vec::new();
