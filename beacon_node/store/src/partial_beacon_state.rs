@@ -1,18 +1,20 @@
 use crate::chunked_vector::{
-    load_variable_list_from_db, load_vector_from_db, BlockRoots, HistoricalRoots,
-    HistoricalSummaries, RandaoMixes, StateRoots,
+    load_variable_list_from_db, load_vector_from_db, BlockRootsChunked, HistoricalRoots,
+    HistoricalSummaries, RandaoMixes, StateRootsChunked,
 };
-use crate::{get_key_for_col, DBColumn, Error, KeyValueStore, KeyValueStoreOp};
-use ssz::{Decode, DecodeError, Encode};
+use crate::{Error, KeyValueStore};
+use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use types::historical_summary::HistoricalSummary;
 use types::superstruct;
 use types::*;
 
-/// Lightweight variant of the `BeaconState` that is stored in the database.
+/// DEPRECATED Lightweight variant of the `BeaconState` that is stored in the database.
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
+///
+/// This can be deleted once schema versions prior to V22 are no longer supported.
 #[superstruct(
     variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
@@ -142,163 +144,7 @@ where
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
 }
 
-/// Implement the conversion function from BeaconState -> PartialBeaconState.
-macro_rules! impl_from_state_forgetful {
-    ($s:ident, $outer:ident, $variant_name:ident, $struct_name:ident, [$($extra_fields:ident),*], [$($extra_fields_opt:ident),*]) => {
-        PartialBeaconState::$variant_name($struct_name {
-            // Versioning
-            genesis_time: $s.genesis_time,
-            genesis_validators_root: $s.genesis_validators_root,
-            slot: $s.slot,
-            fork: $s.fork,
-
-            // History
-            latest_block_header: $s.latest_block_header.clone(),
-            block_roots: None,
-            state_roots: None,
-            historical_roots: None,
-
-            // Eth1
-            eth1_data: $s.eth1_data.clone(),
-            eth1_data_votes: $s.eth1_data_votes.clone(),
-            eth1_deposit_index: $s.eth1_deposit_index,
-
-            // Validator registry
-            validators: $s.validators.clone(),
-            balances: $s.balances.clone(),
-
-            // Shuffling
-            latest_randao_value: *$outer
-                .get_randao_mix($outer.current_epoch())
-                .expect("randao at current epoch is OK"),
-            randao_mixes: None,
-
-            // Slashings
-            slashings: $s.slashings.clone(),
-
-            // Finality
-            justification_bits: $s.justification_bits.clone(),
-            previous_justified_checkpoint: $s.previous_justified_checkpoint,
-            current_justified_checkpoint: $s.current_justified_checkpoint,
-            finalized_checkpoint: $s.finalized_checkpoint,
-
-            // Variant-specific fields
-            $(
-                $extra_fields: $s.$extra_fields.clone()
-            ),*,
-
-            // Variant-specific optional
-            $(
-                $extra_fields_opt: None
-            ),*
-        })
-    }
-}
-
 impl<E: EthSpec> PartialBeaconState<E> {
-    /// Convert a `BeaconState` to a `PartialBeaconState`, while dropping the optional fields.
-    pub fn from_state_forgetful(outer: &BeaconState<E>) -> Self {
-        match outer {
-            BeaconState::Base(s) => impl_from_state_forgetful!(
-                s,
-                outer,
-                Base,
-                PartialBeaconStateBase,
-                [previous_epoch_attestations, current_epoch_attestations],
-                []
-            ),
-            BeaconState::Altair(s) => impl_from_state_forgetful!(
-                s,
-                outer,
-                Altair,
-                PartialBeaconStateAltair,
-                [
-                    previous_epoch_participation,
-                    current_epoch_participation,
-                    current_sync_committee,
-                    next_sync_committee,
-                    inactivity_scores
-                ],
-                []
-            ),
-            BeaconState::Bellatrix(s) => impl_from_state_forgetful!(
-                s,
-                outer,
-                Bellatrix,
-                PartialBeaconStateBellatrix,
-                [
-                    previous_epoch_participation,
-                    current_epoch_participation,
-                    current_sync_committee,
-                    next_sync_committee,
-                    inactivity_scores,
-                    latest_execution_payload_header
-                ],
-                []
-            ),
-            BeaconState::Capella(s) => impl_from_state_forgetful!(
-                s,
-                outer,
-                Capella,
-                PartialBeaconStateCapella,
-                [
-                    previous_epoch_participation,
-                    current_epoch_participation,
-                    current_sync_committee,
-                    next_sync_committee,
-                    inactivity_scores,
-                    latest_execution_payload_header,
-                    next_withdrawal_index,
-                    next_withdrawal_validator_index
-                ],
-                [historical_summaries]
-            ),
-            BeaconState::Deneb(s) => impl_from_state_forgetful!(
-                s,
-                outer,
-                Deneb,
-                PartialBeaconStateDeneb,
-                [
-                    previous_epoch_participation,
-                    current_epoch_participation,
-                    current_sync_committee,
-                    next_sync_committee,
-                    inactivity_scores,
-                    latest_execution_payload_header,
-                    next_withdrawal_index,
-                    next_withdrawal_validator_index
-                ],
-                [historical_summaries]
-            ),
-            BeaconState::Electra(s) => impl_from_state_forgetful!(
-                s,
-                outer,
-                Electra,
-                PartialBeaconStateElectra,
-                [
-                    previous_epoch_participation,
-                    current_epoch_participation,
-                    current_sync_committee,
-                    next_sync_committee,
-                    inactivity_scores,
-                    latest_execution_payload_header,
-                    next_withdrawal_index,
-                    next_withdrawal_validator_index,
-                    deposit_requests_start_index,
-                    deposit_balance_to_consume,
-                    exit_balance_to_consume,
-                    earliest_exit_epoch,
-                    consolidation_balance_to_consume,
-                    earliest_consolidation_epoch,
-                    pending_balance_deposits,
-                    pending_partial_withdrawals,
-                    pending_consolidations
-                ],
-                [historical_summaries]
-            ),
-        }
-    }
-
     /// SSZ decode.
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
         // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
@@ -321,19 +167,13 @@ impl<E: EthSpec> PartialBeaconState<E> {
         ))
     }
 
-    /// Prepare the partial state for storage in the KV database.
-    pub fn as_kv_store_op(&self, state_root: Hash256) -> KeyValueStoreOp {
-        let db_key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_slice());
-        KeyValueStoreOp::PutKeyValue(db_key, self.as_ssz_bytes())
-    }
-
     pub fn load_block_roots<S: KeyValueStore<E>>(
         &mut self,
         store: &S,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         if self.block_roots().is_none() {
-            *self.block_roots_mut() = Some(load_vector_from_db::<BlockRoots, E, _>(
+            *self.block_roots_mut() = Some(load_vector_from_db::<BlockRootsChunked, E, _>(
                 store,
                 self.slot(),
                 spec,
@@ -348,7 +188,7 @@ impl<E: EthSpec> PartialBeaconState<E> {
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         if self.state_roots().is_none() {
-            *self.state_roots_mut() = Some(load_vector_from_db::<StateRoots, E, _>(
+            *self.state_roots_mut() = Some(load_vector_from_db::<StateRootsChunked, E, _>(
                 store,
                 self.slot(),
                 spec,

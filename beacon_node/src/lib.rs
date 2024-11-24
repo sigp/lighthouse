@@ -9,7 +9,7 @@ use beacon_chain::{
 use clap::ArgMatches;
 pub use cli::cli_app;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
-pub use config::{get_config, get_data_dir, get_slots_per_restore_point, set_network_config};
+pub use config::{get_config, get_data_dir, set_network_config};
 use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
 use slasher::{DatabaseBackendOverride, Slasher};
@@ -140,7 +140,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let builder = builder
             .beacon_chain_builder(client_genesis, client_config.clone())
             .await?;
-        let builder = if client_config.sync_eth1_chain && !client_config.dummy_eth1_backend {
+        let builder = if client_config.sync_eth1_chain {
             info!(
                 log,
                 "Block production enabled";
@@ -150,13 +150,6 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             builder
                 .caching_eth1_backend(client_config.eth1.clone())
                 .await?
-        } else if client_config.dummy_eth1_backend {
-            warn!(
-                log,
-                "Block production impaired";
-                "reason" => "dummy eth1 backend is enabled"
-            );
-            builder.dummy_eth1_backend()?
         } else {
             info!(
                 log,

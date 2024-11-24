@@ -15,7 +15,6 @@ tempfile = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true }
 url = { workspace = true }
-validator_client = { workspace = true }
 slot_clock = { workspace = true }
 futures = { workspace = true }
 task_executor = { workspace = true }
@@ -28,3 +27,6 @@ serde_json = { workspace = true }
 zip = { workspace = true }
 parking_lot = { workspace = true }
 logging = { workspace = true }
+initialized_validators = { workspace = true }
+slashing_protection = { workspace = true }
+validator_store = { workspace = true }

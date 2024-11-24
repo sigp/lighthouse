@@ -13,7 +13,7 @@ use std::slice::SliceIndex;
 /// ## Example
 ///
 /// ```
-/// use ssz_types::{RuntimeVariableList};
+/// use types::{RuntimeVariableList};
 ///
 /// let base: Vec<u64> = vec![1, 2, 3, 4];
 ///
