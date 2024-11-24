@@ -38,6 +38,7 @@ use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
@@ -466,6 +467,8 @@ impl<E: EthSpec> Network<E> {
             let config = libp2p::swarm::Config::with_executor(Executor(executor))
                 .with_notify_handler_buffer_size(NonZeroUsize::new(7).expect("Not zero"))
                 .with_per_connection_event_buffer_size(4)
+                .with_idle_connection_timeout(Duration::from_secs(1)) // Other clients can timeout
+                // during negotiation
                 .with_dial_concurrency_factor(NonZeroU8::new(1).unwrap());
 
             let builder = SwarmBuilder::with_existing_identity(local_keypair)
