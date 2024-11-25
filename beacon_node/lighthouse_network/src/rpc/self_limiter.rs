@@ -24,6 +24,9 @@ struct QueuedRequest<Id: ReqId, E: EthSpec> {
     request_id: Id,
 }
 
+/// The number of milliseconds requests delayed due to the concurrent request limit stay in the queue.
+const WAIT_TIME_DUE_TO_CONCURRENT_REQUESTS: u64 = 100;
+
 pub(crate) struct SelfRateLimiter<Id: ReqId, E: EthSpec> {
     /// Active requests that are awaiting a response.
     active_requests: HashMap<PeerId, HashMap<Protocol, usize>>,
@@ -128,7 +131,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
                     debug!(log, "Self rate limiting due to the number of concurrent requests"; "protocol" => %req.protocol(), "peer_id" => %peer_id);
                     return Err((
                         QueuedRequest { req, request_id },
-                        Duration::from_millis(100),
+                        Duration::from_millis(WAIT_TIME_DUE_TO_CONCURRENT_REQUESTS),
                     ));
                 }
             }
@@ -229,6 +232,19 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         failed_requests
     }
 
+    /// Informs the limiter that a response has been received.
+    pub fn response_received(&mut self, peer_id: &PeerId, protocol: Protocol) {
+        if let Some(active_requests) = self.active_requests.get_mut(peer_id) {
+            if let Entry::Occupied(mut entry) = active_requests.entry(protocol) {
+                if *entry.get() > 1 {
+                    *entry.get_mut() -= 1;
+                } else {
+                    entry.remove();
+                }
+            }
+        }
+    }
+
     pub fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<BehaviourAction<Id, E>> {
         // First check the requests that were self rate limited, since those might add events to
         // the queue. Also do this before rate limiter pruning to avoid removing and
@@ -257,7 +273,7 @@ mod tests {
     use crate::rpc::config::{OutboundRateLimiterConfig, RateLimiterConfig};
     use crate::rpc::rate_limiter::Quota;
     use crate::rpc::self_limiter::SelfRateLimiter;
-    use crate::rpc::{Ping, Protocol, RequestType};
+    use crate::rpc::{BehaviourAction, Ping, Protocol, RPCSend, RequestType};
     use crate::service::api_types::{AppRequestId, RequestId, SyncRequestId};
     use libp2p::PeerId;
     use std::time::Duration;
@@ -329,6 +345,82 @@ mod tests {
             }
 
             assert_eq!(limiter.ready_requests.len(), 1);
+        }
+    }
+
+    /// Test that `next_peer_request_ready` correctly maintains the queue.
+    #[tokio::test]
+    async fn test_next_peer_request_ready_concurrent_requests() {
+        let log = logging::test_logger();
+        let mut limiter: SelfRateLimiter<RequestId, MainnetEthSpec> =
+            SelfRateLimiter::new(None, log).unwrap();
+        let peer_id = PeerId::random();
+
+        for i in 1..=5u32 {
+            let result = limiter.allows(
+                peer_id,
+                RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
+                    id: i,
+                })),
+                RequestType::Ping(Ping { data: i as u64 }),
+            );
+
+            // Check that the limiter allows the first two requests.
+            if i <= 2 {
+                assert!(result.is_ok());
+            } else {
+                assert!(result.is_err());
+            }
+        }
+
+        let queue = limiter
+            .delayed_requests
+            .get(&(peer_id, Protocol::Ping))
+            .unwrap();
+        assert_eq!(3, queue.len());
+
+        // The delayed requests remain even after the next_peer_request_ready call because the responses have not been received.
+        limiter.next_peer_request_ready(peer_id, Protocol::Ping);
+        let queue = limiter
+            .delayed_requests
+            .get(&(peer_id, Protocol::Ping))
+            .unwrap();
+        assert_eq!(3, queue.len());
+
+        limiter.response_received(&peer_id, Protocol::Ping);
+        limiter.next_peer_request_ready(peer_id, Protocol::Ping);
+
+        let queue = limiter
+            .delayed_requests
+            .get(&(peer_id, Protocol::Ping))
+            .unwrap();
+        assert_eq!(2, queue.len());
+
+        limiter.response_received(&peer_id, Protocol::Ping);
+        limiter.response_received(&peer_id, Protocol::Ping);
+        limiter.next_peer_request_ready(peer_id, Protocol::Ping);
+
+        let queue = limiter.delayed_requests.get(&(peer_id, Protocol::Ping));
+        assert!(queue.is_none());
+
+        // Check that the three delayed requests have moved to ready_requests.
+        let mut it = limiter.ready_requests.iter();
+        for i in 3..=5u32 {
+            let BehaviourAction::NotifyHandler {
+                peer_id: _,
+                handler: _,
+                event: RPCSend::Request(request_id, _),
+            } = it.next().unwrap()
+            else {
+                unreachable!()
+            };
+
+            assert!(matches!(
+                request_id,
+                RequestId::Application(AppRequestId::Sync(SyncRequestId::RangeBlockAndBlobs {
+                    id
+                })) if *id == i
+            ));
         }
     }
 }

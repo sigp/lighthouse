@@ -540,6 +540,21 @@ where
                 }));
             }
             HandlerEvent::Ok(rpc) => {
+                // Inform the limiter that a response has been received.
+                match &rpc {
+                    RPCReceived::Request(_) => unreachable!(),
+                    RPCReceived::Response(id, response) => {
+                        if response.protocol().terminator().is_none() {
+                            self.outbound_request_limiter
+                                .response_received(&peer_id, response.protocol());
+                        }
+                    }
+                    RPCReceived::EndOfStream(id, response_termination) => {
+                        self.outbound_request_limiter
+                            .response_received(&peer_id, response_termination.protocol());
+                    }
+                }
+
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                     peer_id,
                     conn_id,
