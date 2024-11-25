@@ -204,9 +204,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .get_beacon_committees_at_slot(attestation.data.slot)
                     .unwrap_or_else(|_| vec![]);
 
-                let Ok(attestation) = attestation.to_attestation(&committees) else {
-                    todo!()
-                };
+                let attestation = attestation.to_attestation(&committees)?;
+
                 self.clone().process_gossip_attestation(
                     message_id.clone(),
                     peer_id,

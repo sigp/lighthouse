@@ -96,7 +96,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         // Define a closure for processing individual attestations.
-        let Ok(result) = self.chain.with_committee_cache(
+        let result = self.chain.with_committee_cache(
             single_attestation.data.target.root,
             single_attestation
                 .data
@@ -117,13 +117,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     seen_timestamp,
                 ))
             },
-        ) else {
-            // TODO(single-attestation) raising a try send error here is problematic...
-            // is logging an error sufficient?
-            todo!()
-        };
+        );
 
-        result
+        match result {
+            Ok(result) => result,
+            Err(e) => {
+                warn!(self.log, "Failed to send SingleAttestation"; "error" => ?e);
+                Ok(())
+            }
+        }
     }
 
     /// Create a new `Work` event for some unaggregated attestation.
