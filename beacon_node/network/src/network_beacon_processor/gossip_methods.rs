@@ -2221,9 +2221,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // network.
                 let seen_clock = &self.chain.slot_clock.freeze_at(seen_timestamp);
                 let hindsight_verification =
-                    attestation_verification::verify_propagation_slot_range(
+                    attestation_verification::verify_attestation_propagation_slot_range(
                         seen_clock,
-                        failed_att.attestation(),
+                        failed_att.attestation().data().slot,
                         &self.chain.spec,
                     );
 
@@ -3120,9 +3120,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
     ) {
-        let is_timely = attestation_verification::verify_propagation_slot_range(
+        let is_timely = attestation_verification::verify_attestation_propagation_slot_range(
             &self.chain.slot_clock,
-            attestation,
+            attestation.data().slot,
             &self.chain.spec,
         )
         .is_ok();

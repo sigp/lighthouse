@@ -1,4 +1,5 @@
 //! Identifies each shard by an integer identifier.
+use crate::attestation::SingleAttestation;
 use crate::{AttestationRef, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
 use alloy_primitives::{bytes::Buf, U256};
 use safe_arith::{ArithError, SafeArith};
@@ -35,6 +36,21 @@ pub fn subnet_id_to_string(i: u64) -> &'static str {
 impl SubnetId {
     pub fn new(id: u64) -> Self {
         id.into()
+    }
+
+    /// Compute the subnet for a `SingleAttestation` where each slot in the
+    /// attestation epoch contains `committee_count_per_slot` committees.
+    pub fn compute_subnet_for_single_attestation<E: EthSpec>(
+        single_attestation: &SingleAttestation,
+        committee_count_per_slot: u64,
+        spec: &ChainSpec,
+    ) -> Result<SubnetId, ArithError> {
+        Self::compute_subnet::<E>(
+            single_attestation.data.slot,
+            single_attestation.committee_index,
+            committee_count_per_slot,
+            spec,
+        )
     }
 
     /// Compute the subnet for an attestation where each slot in the

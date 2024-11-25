@@ -50,7 +50,7 @@ use tokio::sync::{
     mpsc::{Sender, UnboundedSender},
     oneshot,
 };
-use types::{Attestation, EthSpec};
+use types::{attestation::SingleAttestation, Attestation, EthSpec};
 
 // Error variants are only used in `Debug` and considered `dead_code` by the compiler.
 #[derive(Debug)]
@@ -69,6 +69,16 @@ enum PublishAttestationResult {
     AlreadyKnown,
     Reprocessing(oneshot::Receiver<Result<(), Error>>),
     Failure(Error),
+}
+
+fn verify_and_publish_single_attestation<T: BeaconChainTypes>(
+    chain: &Arc<BeaconChain<T>>,
+    attestation: &SingleAttestation,
+    seen_timestamp: Duration,
+    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    log: &Logger,
+) -> Result<(), Error> {
+    todo!()
 }
 
 fn verify_and_publish_attestation<T: BeaconChainTypes>(
@@ -163,6 +173,29 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
     } else {
         Ok(())
     }
+}
+
+pub async fn publish_single_attestations<T: BeaconChainTypes>(
+    task_spawner: TaskSpawner<T::EthSpec>,
+    chain: Arc<BeaconChain<T>>,
+    attestations: Vec<SingleAttestation>,
+    network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+    reprocess_send: Option<Sender<ReprocessQueueMessage>>,
+    log: Logger,
+) -> Result<(), warp::Rejection> {
+    let attestations = attestations
+        .into_iter()
+        .map(|a| a.to_attestation())
+        .collect();
+    publish_attestations(
+        task_spawner,
+        chain,
+        attestations,
+        network_tx,
+        reprocess_send,
+        log,
+    )
+    .await
 }
 
 pub async fn publish_attestations<T: BeaconChainTypes>(

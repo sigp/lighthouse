@@ -370,6 +370,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 return None;
             }
 
+            // TODO(single-attestation) need a branch to SingleATtestation::EmptyForSigning
             let mut attestation = match Attestation::<E>::empty_for_signing(
                 duty.committee_index,
                 duty.committee_length as usize,

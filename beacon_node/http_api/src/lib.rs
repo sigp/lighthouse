@@ -45,9 +45,9 @@ use builder_states::get_next_withdrawals;
 use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
-    self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceNode,
-    LightClientUpdatesQuery, PublishBlockRequest, ValidatorBalancesRequestBody, ValidatorId,
-    ValidatorStatus, ValidatorsRequestBody,
+    self as api_types, attestation::SingleAttestation, BroadcastValidation, EndpointVersion,
+    ForkChoice, ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest,
+    ValidatorBalancesRequestBody, ValidatorId, ValidatorStatus, ValidatorsRequestBody,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
@@ -1832,7 +1832,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone());
 
     // POST beacon/pool/attestations
-    let post_beacon_pool_attestations = beacon_pool_path_any
+    let post_beacon_pool_attestations = eth_v1
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
@@ -1844,10 +1844,42 @@ pub fn serve<T: BeaconChainTypes>(
             // V1 and V2 are identical except V2 has a consensus version header in the request.
             // We only require this header for SSZ deserialization, which isn't supported for
             // this endpoint presently.
-            |_endpoint_version: EndpointVersion,
-             task_spawner: TaskSpawner<T::EthSpec>,
+            |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              attestations: Vec<Attestation<T::EthSpec>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
+             log: Logger| async move {
+                let result = crate::publish_attestations::publish_attestations(
+                    task_spawner,
+                    chain,
+                    attestations,
+                    network_tx,
+                    reprocess_tx,
+                    log,
+                )
+                .await
+                .map(|()| warp::reply::json(&()));
+                convert_rejection(result).await
+            },
+        );
+
+    // POST beacon/pool/attestations
+    let post_beacon_pool_attestations = eth_v2
+        .clone()
+        .and(warp::path("attestations"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(network_tx_filter.clone())
+        .and(reprocess_send_filter)
+        .and(log_filter.clone())
+        .then(
+            // V1 and V2 are identical except V2 has a consensus version header in the request.
+            // We only require this header for SSZ deserialization, which isn't supported for
+            // this endpoint presently.
+            |task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             attestations: Vec<SingleAttestation>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
              log: Logger| async move {

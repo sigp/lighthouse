@@ -7,12 +7,12 @@ use ssz::DecodeError;
 use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, AggregateSignature, AttesterSlashingRef, BeaconBlockRef, BeaconState,
-    BeaconStateError, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256,
-    InconsistentFork, IndexedAttestation, IndexedAttestationRef, ProposerSlashing, PublicKey,
-    PublicKeyBytes, Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit,
-    SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
+    attestation::SingleAttestation, AbstractExecPayload, AggregateSignature, AttesterSlashingRef,
+    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, DepositData, Domain, Epoch, EthSpec,
+    Fork, Hash256, InconsistentFork, IndexedAttestation, IndexedAttestationRef, ProposerSlashing,
+    PublicKey, PublicKeyBytes, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBeaconBlockHeader, SignedBlsToExecutionChange, SignedContributionAndProof, SignedRoot,
+    SignedVoluntaryExit, SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -296,6 +296,29 @@ where
     let message = indexed_attestation.data().signing_root(domain);
 
     Ok(SignatureSet::multiple_pubkeys(signature, pubkeys, message))
+}
+
+pub fn single_attestation_signature_set_from_pubkeys<'a>(
+    pubkey: Cow<'a, PublicKey>,
+    single_attestation: &'a SingleAttestation,
+    fork: &Fork,
+    genesis_validators_root: Hash256,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>> {
+    let domain = spec.get_domain(
+        single_attestation.data.target.epoch,
+        Domain::BeaconAttester,
+        fork,
+        genesis_validators_root,
+    );
+
+    let message = single_attestation.data.signing_root(domain);
+
+    Ok(SignatureSet::single_pubkey(
+        &single_attestation.signature,
+        pubkey,
+        message,
+    ))
 }
 
 /// Returns the signature set for the given `indexed_attestation` but pubkeys are supplied directly

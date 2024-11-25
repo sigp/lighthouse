@@ -409,7 +409,7 @@ impl<E: EthSpec> AttestationElectra<E> {
             .ok_or(Error::InvalidAggregationBit)?;
 
         Ok(SingleAttestation {
-            committee_index: committee_index as usize,
+            committee_index,
             attester_index,
             data: self.data.clone(),
             signature: self.signature.clone(),
@@ -606,7 +606,7 @@ impl<E: EthSpec> ForkVersionDeserialize for Vec<Attestation<E>> {
     PartialEq,
 )]
 pub struct SingleAttestation {
-    pub committee_index: usize,
+    pub committee_index: u64,
     pub attester_index: usize,
     pub data: AttestationData,
     pub signature: AggregateSignature,
@@ -616,7 +616,7 @@ impl SingleAttestation {
     /// Produces a `SingleAttestation` with empty signature and empty attester index.
     /// ONLY USE IN ELECTRA
     pub fn empty_for_signing(
-        committee_index: usize,
+        committee_index: u64,
         slot: Slot,
         beacon_block_root: Hash256,
         source: Checkpoint,
@@ -646,7 +646,7 @@ impl SingleAttestation {
         committees: &[BeaconCommittee],
     ) -> Result<Attestation<E>, Error> {
         let beacon_committee = committees
-            .get(self.committee_index)
+            .get(self.committee_index as usize)
             .ok_or(Error::InvalidAggregationBit)?;
         let aggregation_bits = beacon_committee
             .committee
@@ -668,7 +668,7 @@ impl SingleAttestation {
 
         let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
         committee_bits
-            .set(self.committee_index, true)
+            .set(self.committee_index as usize, true)
             .map_err(|_| Error::InvalidCommitteeIndex)?;
 
         let mut aggregation_bits = BitList::with_capacity(beacon_committee.committee.len())
