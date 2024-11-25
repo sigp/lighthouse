@@ -1,6 +1,6 @@
 use crate::{
-    test_utils::TestRandom, Address, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec,
-    FixedBytesExtended, ForkName, Hash256, PublicKeyBytes,
+    test_utils::TestRandom, Address, BeaconState, ChainSpec, Checkpoint, DepositData, Epoch,
+    EthSpec, FixedBytesExtended, ForkName, Hash256, PublicKeyBytes,
 };
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -15,6 +15,7 @@ use tree_hash_derive::TreeHash;
     Debug,
     Clone,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Encode,
@@ -35,6 +36,34 @@ pub struct Validator {
 }
 
 impl Validator {
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn from_deposit(
+        deposit_data: &DepositData,
+        amount: u64,
+        fork_name: ForkName,
+        spec: &ChainSpec,
+    ) -> Self {
+        let mut validator = Validator {
+            pubkey: deposit_data.pubkey,
+            withdrawal_credentials: deposit_data.withdrawal_credentials,
+            activation_eligibility_epoch: spec.far_future_epoch,
+            activation_epoch: spec.far_future_epoch,
+            exit_epoch: spec.far_future_epoch,
+            withdrawable_epoch: spec.far_future_epoch,
+            effective_balance: 0,
+            slashed: false,
+        };
+
+        let max_effective_balance = validator.get_max_effective_balance(spec, fork_name);
+        // safe math is unnecessary here since the spec.effecive_balance_increment is never <= 0
+        validator.effective_balance = std::cmp::min(
+            amount - (amount % spec.effective_balance_increment),
+            max_effective_balance,
+        );
+
+        validator
+    }
+
     /// Returns `true` if the validator is considered active at some epoch.
     pub fn is_active_at(&self, epoch: Epoch) -> bool {
         self.activation_epoch <= epoch && epoch < self.exit_epoch
@@ -236,7 +265,7 @@ impl Validator {
         spec: &ChainSpec,
         current_fork: ForkName,
     ) -> bool {
-        let max_effective_balance = self.get_validator_max_effective_balance(spec, current_fork);
+        let max_effective_balance = self.get_max_effective_balance(spec, current_fork);
         let has_max_effective_balance = self.effective_balance == max_effective_balance;
         let has_excess_balance = balance > max_effective_balance;
         self.has_execution_withdrawal_credential(spec)
@@ -251,11 +280,7 @@ impl Validator {
     }
 
     /// Returns the max effective balance for a validator in gwei.
-    pub fn get_validator_max_effective_balance(
-        &self,
-        spec: &ChainSpec,
-        current_fork: ForkName,
-    ) -> u64 {
+    pub fn get_max_effective_balance(&self, spec: &ChainSpec, current_fork: ForkName) -> u64 {
         if current_fork >= ForkName::Electra {
             if self.has_compounding_withdrawal_credential(spec) {
                 spec.max_effective_balance_electra
@@ -273,7 +298,7 @@ impl Validator {
         spec: &ChainSpec,
         current_fork: ForkName,
     ) -> u64 {
-        let max_effective_balance = self.get_validator_max_effective_balance(spec, current_fork);
+        let max_effective_balance = self.get_max_effective_balance(spec, current_fork);
         std::cmp::min(validator_balance, max_effective_balance)
     }
 }

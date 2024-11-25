@@ -87,6 +87,24 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("blob-publication-batches")
+                .long("blob-publication-batches")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .help("Number of batches that the node splits blobs or data columns into during publication. This doesn't apply if the node is the block proposer. Used in PeerDAS only.")
+                .display_order(0)
+                .hide(true)
+        )
+        .arg(
+            Arg::new("blob-publication-batch-interval")
+                .long("blob-publication-batch-interval")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .help("The delay in milliseconds applied by the node between sending each blob or data column batch. This doesn't apply if the node is the block proposer.")
+                .display_order(0)
+                .hide(true)
+        )
+        .arg(
             Arg::new("subscribe-all-subnets")
                 .long("subscribe-all-subnets")
                 .action(ArgAction::SetTrue)
@@ -402,15 +420,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("self-limiter")
-            .long("self-limiter")
-            .help("This flag is deprecated and has no effect.")
-            .hide(true)
-            .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-            .display_order(0)
-        )
-        .arg(
             Arg::new("disable-self-limiter")
                 .long("disable-self-limiter")
                 .help(
@@ -526,16 +535,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("http-spec-fork")
-                .long("http-spec-fork")
-                .requires("enable_http")
-                .value_name("FORK")
-                .help("This flag is deprecated and has no effect.")
-                .hide(true)
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
             Arg::new("http-enable-tls")
                 .long("http-enable-tls")
                 .help("Serves the RESTful HTTP API server over TLS. This feature is currently \
@@ -562,16 +561,6 @@ pub fn cli_app() -> Command {
                 .help("The path of the private key to be used when serving the HTTP API server \
                     over TLS. Must not be password-protected.")
                 .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("http-allow-sync-stalled")
-                .long("http-allow-sync-stalled")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .requires("enable_http")
-                .help("This flag is deprecated and has no effect.")
-                .hide(true)
                 .display_order(0)
         )
         .arg(
@@ -659,7 +648,15 @@ pub fn cli_app() -> Command {
             .action(ArgAction::Set)
             .display_order(0)
         )
-
+        .arg(
+            Arg::new("idontwant-message-size-threshold")
+                .long("idontwant-message-size-threshold")
+                .help("Specifies the minimum message size for which IDONTWANT messages are sent. \
+                This an optimization strategy to not send IDONTWANT messages for smaller messages.")
+                .action(ArgAction::Set)
+                .hide(true)
+                .display_order(0)
+        )
         /*
          * Monitoring metrics
          */
@@ -696,8 +693,7 @@ pub fn cli_app() -> Command {
             Arg::new("staking")
                 .long("staking")
                 .help("Standard option for a staking beacon node. This will enable the HTTP server \
-                       on localhost:5052 and import deposit logs from the execution node. This is \
-                       equivalent to `--http` on merge-ready networks, or `--http --eth1` pre-merge")
+                       on localhost:5052 and import deposit logs from the execution node.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
@@ -709,21 +705,21 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("eth1")
                 .long("eth1")
-                .help("If present the node will connect to an eth1 node. This is required for \
-                       block production, you must use this flag if you wish to serve a validator.")
+                .help("DEPRECATED")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("dummy-eth1")
                 .long("dummy-eth1")
+                .help("DEPRECATED")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .conflicts_with("eth1")
-                .help("If present, uses an eth1 backend that generates static dummy data.\
-                      Identical to the method used at the 2019 Canada interop.")
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("eth1-purge-cache")
@@ -759,9 +755,23 @@ pub fn cli_app() -> Command {
             Arg::new("slots-per-restore-point")
                 .long("slots-per-restore-point")
                 .value_name("SLOT_COUNT")
-                .help("Specifies how often a freezer DB restore point should be stored. \
-                       Cannot be changed after initialization. \
-                       [default: 8192 (mainnet) or 64 (minimal)]")
+                .help("DEPRECATED. This flag has no effect.")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("hierarchy-exponents")
+                .long("hierarchy-exponents")
+                .value_name("EXPONENTS")
+                .help("Specifies the frequency for storing full state snapshots and hierarchical \
+                        diffs in the freezer DB. Accepts a comma-separated list of ascending \
+                        exponents. Each exponent defines an interval for storing diffs to the layer \
+                        above. The last exponent defines the interval for full snapshots. \
+                        For example, a config of '4,8,12' would store a full snapshot every \
+                        4096 (2^12) slots, first-level diffs every 256 (2^8) slots, and second-level \
+                        diffs every 16 (2^4) slots. \
+                        Cannot be changed after initialization. \
+                        [default: 5,9,11,13,16,18,21]")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -789,8 +799,21 @@ pub fn cli_app() -> Command {
             Arg::new("historic-state-cache-size")
                 .long("historic-state-cache-size")
                 .value_name("SIZE")
-                .help("Specifies how many states from the freezer database should cache in memory")
+                .help("Specifies how many states from the freezer database should be cached in \
+                       memory")
                 .default_value("1")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("hdiff-buffer-cache-size")
+                .long("hdiff-buffer-cache-size")
+                .value_name("SIZE")
+                .help("Number of hierarchical diff (hdiff) buffers to cache in memory. Each buffer \
+                       is around the size of a BeaconState so you should be cautious about setting \
+                       this value too high. This flag is irrelevant for most nodes, which run with \
+                       state pruning enabled.")
+                .default_value("16")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -814,6 +837,7 @@ pub fn cli_app() -> Command {
                 .help("Server endpoint for an execution layer JWT-authenticated HTTP \
                        JSON-RPC connection. Uses the same endpoint to populate the \
                        deposit cache.")
+                .required(true)
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -1008,7 +1032,6 @@ pub fn cli_app() -> Command {
                 .default_value("0")
                 .display_order(0)
         )
-
         /*
          * Misc.
          */
@@ -1284,14 +1307,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("disable-lock-timeouts")
-                .long("disable-lock-timeouts")
-                .help("This flag is deprecated and has no effect.")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
             Arg::new("disable-proposer-reorgs")
                 .long("disable-proposer-reorgs")
                 .help("Do not attempt to reorg late blocks from other validators when proposing.")
@@ -1473,6 +1488,7 @@ pub fn cli_app() -> Command {
                       Useful if you intend to run a non-validating beacon node.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
+                .conflicts_with("staking")
                 .display_order(0)
         )
         .arg(
@@ -1504,14 +1520,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("always-prefer-builder-payload")
-            .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-            .long("always-prefer-builder-payload")
-            .help("This flag is deprecated and has no effect.")
-            .display_order(0)
-        )
-        .arg(
             Arg::new("invalid-gossip-verified-blocks-path")
             .action(ArgAction::Set)
             .long("invalid-gossip-verified-blocks-path")
@@ -1521,14 +1529,6 @@ pub fn cli_app() -> Command {
                     developers. This directory is not pruned, users should be careful to avoid \
                     filling up their disks.")
             .display_order(0)
-        )
-        .arg(
-            Arg::new("progressive-balances")
-                .long("progressive-balances")
-                .value_name("MODE")
-                .help("Deprecated. This optimisation is now the default and cannot be disabled.")
-                .action(ArgAction::Set)
-                .display_order(0)
         )
         .arg(
             Arg::new("beacon-processor-max-workers")
@@ -1589,14 +1589,6 @@ pub fn cli_app() -> Command {
                 .hide(true)
                 .default_value("64")
                 .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("disable-duplicate-warn-logs")
-                .long("disable-duplicate-warn-logs")
-                .help("This flag is deprecated and has no effect.")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
         .group(ArgGroup::new("enable_http").args(["http", "gui", "staking"]).multiple(true))

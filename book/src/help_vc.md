@@ -118,14 +118,6 @@ Options:
           specify nodes that are used to send beacon block proposals. A failure
           will revert back to the standard beacon nodes specified in
           --beacon-nodes.
-      --safe-slots-to-import-optimistically <INTEGER>
-          Used to coordinate manual overrides of the
-          SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY parameter. This flag should only
-          be used if the user has a clear understanding that the broad Ethereum
-          community has elected to override this parameter in the event of an
-          attack at the PoS transition block. Incorrect use of this flag can
-          cause your node to possibly accept an invalid chain or sync more
-          slowly. Be extremely careful with this flag.
       --secrets-dir <SECRETS_DIRECTORY>
           The directory which contains the password to unlock the validator
           voting keypairs. Each password should be contained in a file where the
@@ -140,27 +132,6 @@ Options:
           Path to directory containing eth2_testnet specs. Defaults to a
           hard-coded Lighthouse testnet. Only effective if there is no existing
           database.
-      --terminal-block-hash-epoch-override <EPOCH>
-          Used to coordinate manual overrides to the
-          TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH parameter. This flag should only
-          be used if the user has a clear understanding that the broad Ethereum
-          community has elected to override the terminal PoW block. Incorrect
-          use of this flag will cause your node to experience a consensus
-          failure. Be extremely careful with this flag.
-      --terminal-block-hash-override <TERMINAL_BLOCK_HASH>
-          Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH
-          parameter. This flag should only be used if the user has a clear
-          understanding that the broad Ethereum community has elected to
-          override the terminal PoW block. Incorrect use of this flag will cause
-          your node to experience a consensus failure. Be extremely careful with
-          this flag.
-      --terminal-total-difficulty-override <INTEGER>
-          Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY
-          parameter. Accepts a 256-bit decimal integer (not a hex value). This
-          flag should only be used if the user has a clear understanding that
-          the broad Ethereum community has elected to override the terminal
-          difficulty. Incorrect use of this flag will cause your node to
-          experience a consensus failure. Be extremely careful with this flag.
       --validator-registration-batch-size <INTEGER>
           Defines the number of validators per validator/register_validator
           request sent to the BN. This value can be reduced to avoid timeouts
@@ -210,12 +181,6 @@ Flags:
           If present, do not configure the system allocator. Providing this flag
           will generally increase memory usage, it should only be provided when
           debugging specific memory allocation issues.
-      --disable-run-on-all
-          DEPRECATED. Use --broadcast. By default, Lighthouse publishes
-          attestation, sync committee subscriptions and proposer preparation
-          messages to all beacon nodes provided in the `--beacon-nodes flag`.
-          This option changes that behaviour such that these api calls only go
-          out to the first available and synced beacon node
       --disable-slashing-protection-web3signer
           Disable Lighthouse's slashing protection for all web3signer keys. This
           can reduce the I/O burden on the VC but is only safe if slashing
@@ -280,8 +245,6 @@ Flags:
       --prefer-builder-proposals
           If this flag is set, Lighthouse will always prefer blocks constructed
           by builders, regardless of payload value.
-      --produce-block-v3
-          This flag is deprecated and is no longer in use.
       --stdin-inputs
           If present, read all user inputs from stdin instead of tty.
       --unencrypted-http-transport

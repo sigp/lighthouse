@@ -21,10 +21,12 @@ use std::string::ToString;
 use std::time::Duration;
 use tempfile::TempDir;
 use types::non_zero_usize::new_non_zero_usize;
-use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, Hash256, MainnetEthSpec};
+use types::{Address, Checkpoint, Epoch, Hash256, MainnetEthSpec};
 use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
-const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
+const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
+const DEFAULT_EXECUTION_JWT_SECRET_KEY: &str =
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 // These dummy ports should ONLY be used for `enr-xxx-port` flags that do not bind.
 const DUMMY_ENR_TCP_PORT: u16 = 7777;
@@ -52,6 +54,18 @@ struct CommandLineTest {
 }
 impl CommandLineTest {
     fn new() -> CommandLineTest {
+        let mut base_cmd = base_cmd();
+
+        base_cmd
+            .arg("--execution-endpoint")
+            .arg(DEFAULT_EXECUTION_ENDPOINT)
+            .arg("--execution-jwt-secret-key")
+            .arg(DEFAULT_EXECUTION_JWT_SECRET_KEY);
+        CommandLineTest { cmd: base_cmd }
+    }
+
+    // Required for testing different JWT authentication methods.
+    fn new_with_no_execution_endpoint() -> CommandLineTest {
         let base_cmd = base_cmd();
         CommandLineTest { cmd: base_cmd }
     }
@@ -104,7 +118,7 @@ fn staking_flag() {
             assert!(config.sync_eth1_chain);
             assert_eq!(
                 config.eth1.endpoint.get_endpoint().to_string(),
-                DEFAULT_ETH1_ENDPOINT
+                DEFAULT_EXECUTION_ENDPOINT
             );
         });
 }
@@ -157,13 +171,6 @@ fn max_skip_slots_flag() {
         .flag("max-skip-slots", Some("10"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.chain.import_max_skip_slots, Some(10)));
-}
-
-#[test]
-fn disable_lock_timeouts_flag() {
-    CommandLineTest::new()
-        .flag("disable-lock-timeouts", None)
-        .run_with_zero_port();
 }
 
 #[test]
@@ -260,7 +267,7 @@ fn always_prepare_payload_default() {
 #[test]
 fn always_prepare_payload_override() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag("always-prepare-payload", None)
         .flag(
             "suggested-fee-recipient",
@@ -389,13 +396,14 @@ fn genesis_backfill_with_historic_flag() {
 }
 
 // Tests for Eth1 flags.
+// DEPRECATED but should not crash
 #[test]
 fn dummy_eth1_flag() {
     CommandLineTest::new()
         .flag("dummy-eth1", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.dummy_eth1_backend));
+        .run_with_zero_port();
 }
+// DEPRECATED but should not crash
 #[test]
 fn eth1_flag() {
     CommandLineTest::new()
@@ -466,7 +474,7 @@ fn run_bellatrix_execution_endpoints_flag_test(flag: &str) {
 
     // this is way better but intersperse is still a nightly feature :/
     // let endpoint_arg: String = urls.into_iter().intersperse(",").collect();
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag(flag, Some(&endpoint_arg))
         .flag("execution-jwt", Some(&jwts_arg))
         .run_with_zero_port()
@@ -487,7 +495,7 @@ fn run_bellatrix_execution_endpoints_flag_test(flag: &str) {
 #[test]
 fn run_execution_jwt_secret_key_is_persisted() {
     let jwt_secret_key = "0x3cbc11b0d8fa16f3344eacfd6ff6430b9d30734450e8adcf5400f88d327dcb33";
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag("execution-endpoint", Some("http://localhost:8551/"))
         .flag("execution-jwt-secret-key", Some(jwt_secret_key))
         .run_with_zero_port()
@@ -508,7 +516,7 @@ fn run_execution_jwt_secret_key_is_persisted() {
 #[test]
 fn execution_timeout_multiplier_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag("execution-endpoint", Some("http://meow.cats"))
         .flag(
             "execution-jwt",
@@ -535,7 +543,7 @@ fn bellatrix_jwt_secrets_flag() {
     let mut file = File::create(dir.path().join("jwtsecrets")).expect("Unable to create file");
     file.write_all(b"0x3cbc11b0d8fa16f3344eacfd6ff6430b9d30734450e8adcf5400f88d327dcb33")
         .expect("Unable to write to file");
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag("execution-endpoints", Some("http://localhost:8551/"))
         .flag(
             "jwt-secrets",
@@ -557,7 +565,7 @@ fn bellatrix_jwt_secrets_flag() {
 #[test]
 fn bellatrix_fee_recipient_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag("execution-endpoint", Some("http://meow.cats"))
         .flag(
             "execution-jwt",
@@ -598,7 +606,7 @@ fn run_payload_builder_flag_test_with_config<F: Fn(&Config)>(
     f: F,
 ) {
     let dir = TempDir::new().expect("Unable to create temporary directory");
-    let mut test = CommandLineTest::new();
+    let mut test = CommandLineTest::new_with_no_execution_endpoint();
     test.flag("execution-endpoint", Some("http://meow.cats"))
         .flag(
             "execution-jwt",
@@ -720,7 +728,7 @@ fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_fl
     let jwt_file = "jwt-file";
     let id = "bn-1";
     let version = "Lighthouse-v2.1.3";
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag("execution-endpoint", Some(execution_endpoint))
         .flag(jwt_flag, dir.path().join(jwt_file).as_os_str().to_str())
         .flag(jwt_id_flag, Some(id))
@@ -749,16 +757,14 @@ fn jwt_optional_flags() {
 fn jwt_optional_alias_flags() {
     run_jwt_optional_flags_test("jwt-secrets", "jwt-id", "jwt-version");
 }
+// DEPRECATED. This flag is deprecated but should not cause a crash.
 #[test]
 fn terminal_total_difficulty_override_flag() {
-    use beacon_node::beacon_chain::types::Uint256;
     CommandLineTest::new()
         .flag("terminal-total-difficulty-override", Some("1337424242"))
-        .run_with_zero_port()
-        .with_spec::<MainnetEthSpec, _>(|spec| {
-            assert_eq!(spec.terminal_total_difficulty, Uint256::from(1337424242))
-        });
+        .run_with_zero_port();
 }
+// DEPRECATED. This flag is deprecated but should not cause a crash.
 #[test]
 fn terminal_block_hash_and_activation_epoch_override_flags() {
     CommandLineTest::new()
@@ -767,43 +773,14 @@ fn terminal_block_hash_and_activation_epoch_override_flags() {
             "terminal-block-hash-override",
             Some("0x4242424242424242424242424242424242424242424242424242424242424242"),
         )
-        .run_with_zero_port()
-        .with_spec::<MainnetEthSpec, _>(|spec| {
-            assert_eq!(
-                spec.terminal_block_hash,
-                ExecutionBlockHash::from_str(
-                    "0x4242424242424242424242424242424242424242424242424242424242424242"
-                )
-                .unwrap()
-            );
-            assert_eq!(spec.terminal_block_hash_activation_epoch, 1337);
-        });
-}
-#[test]
-#[should_panic]
-fn terminal_block_hash_missing_activation_epoch() {
-    CommandLineTest::new()
-        .flag(
-            "terminal-block-hash-override",
-            Some("0x4242424242424242424242424242424242424242424242424242424242424242"),
-        )
         .run_with_zero_port();
 }
-#[test]
-#[should_panic]
-fn epoch_override_missing_terminal_block_hash() {
-    CommandLineTest::new()
-        .flag("terminal-block-hash-epoch-override", Some("1337"))
-        .run_with_zero_port();
-}
+// DEPRECATED. This flag is deprecated but should not cause a crash.
 #[test]
 fn safe_slots_to_import_optimistically_flag() {
     CommandLineTest::new()
         .flag("safe-slots-to-import-optimistically", Some("421337"))
-        .run_with_zero_port()
-        .with_spec::<MainnetEthSpec, _>(|spec| {
-            assert_eq!(spec.safe_slots_to_import_optimistically, 421337)
-        });
+        .run_with_zero_port();
 }
 
 // Tests for Network flags.
@@ -838,6 +815,27 @@ fn network_enable_sampling_flag() {
         .run_with_zero_port()
         .with_config(|config| assert!(config.chain.enable_sampling));
 }
+#[test]
+fn blob_publication_batches() {
+    CommandLineTest::new()
+        .flag("blob-publication-batches", Some("3"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.blob_publication_batches, 3));
+}
+
+#[test]
+fn blob_publication_batch_interval() {
+    CommandLineTest::new()
+        .flag("blob-publication-batch-interval", Some("400"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.blob_publication_batch_interval,
+                Duration::from_millis(400)
+            )
+        });
+}
+
 #[test]
 fn network_enable_sampling_flag_default() {
     CommandLineTest::new()
@@ -1612,19 +1610,6 @@ fn http_port_flag() {
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_port, port1));
 }
-#[test]
-fn empty_self_limiter_flag() {
-    // Test that empty rate limiter is accepted using the default rate limiting configurations.
-    CommandLineTest::new()
-        .flag("self-limiter", None)
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.network.outbound_rate_limiter_config,
-                Some(lighthouse_network::rpc::config::OutboundRateLimiterConfig::default())
-            )
-        });
-}
 
 #[test]
 fn empty_inbound_rate_limiter_flag() {
@@ -1668,14 +1653,6 @@ fn http_allow_origin_all_flag() {
 }
 
 #[test]
-fn http_allow_sync_stalled_flag() {
-    CommandLineTest::new()
-        .flag("http", None)
-        .flag("http-allow-sync-stalled", None)
-        .run_with_zero_port();
-}
-
-#[test]
 fn http_enable_beacon_processor() {
     CommandLineTest::new()
         .flag("http", None)
@@ -1711,22 +1688,6 @@ fn http_tls_flags() {
             assert_eq!(tls_config.cert, Path::new("tests/tls/cert.pem"));
             assert_eq!(tls_config.key, Path::new("tests/tls/key.rsa"));
         });
-}
-
-#[test]
-fn http_spec_fork_default() {
-    CommandLineTest::new()
-        .flag("http", None)
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.spec_fork_name, None));
-}
-
-#[test]
-fn http_spec_fork_override() {
-    CommandLineTest::new()
-        .flag("http", None)
-        .flag("http-spec-fork", Some("altair"))
-        .run_with_zero_port();
 }
 
 // Tests for Metrics flags.
@@ -1859,45 +1820,12 @@ fn validator_monitor_metrics_threshold_custom() {
 }
 
 // Tests for Store flags.
+// DEPRECATED but should still be accepted.
 #[test]
 fn slots_per_restore_point_flag() {
     CommandLineTest::new()
         .flag("slots-per-restore-point", Some("64"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.slots_per_restore_point, 64));
-}
-#[test]
-fn slots_per_restore_point_update_prev_default() {
-    use beacon_node::beacon_chain::store::config::{
-        DEFAULT_SLOTS_PER_RESTORE_POINT, PREV_DEFAULT_SLOTS_PER_RESTORE_POINT,
-    };
-
-    CommandLineTest::new()
-        .flag("slots-per-restore-point", Some("2048"))
-        .run_with_zero_port()
-        .with_config_and_dir(|config, dir| {
-            // Check that 2048 is the previous default.
-            assert_eq!(
-                config.store.slots_per_restore_point,
-                PREV_DEFAULT_SLOTS_PER_RESTORE_POINT
-            );
-
-            // Restart the BN with the same datadir and the new default SPRP. It should
-            // allow this.
-            CommandLineTest::new()
-                .flag("datadir", Some(&dir.path().display().to_string()))
-                .flag("zero-ports", None)
-                .run_with_no_datadir()
-                .with_config(|config| {
-                    // The dumped config will have the new default 8192 value, but the fact that
-                    // the BN started and ran (with the same datadir) means that the override
-                    // was successful.
-                    assert_eq!(
-                        config.store.slots_per_restore_point,
-                        DEFAULT_SLOTS_PER_RESTORE_POINT
-                    );
-                });
-        })
+        .run_with_zero_port();
 }
 
 #[test]
@@ -1941,6 +1869,27 @@ fn historic_state_cache_size_default() {
             assert_eq!(
                 config.store.historic_state_cache_size,
                 DEFAULT_HISTORIC_STATE_CACHE_SIZE
+            );
+        });
+}
+#[test]
+fn hdiff_buffer_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("hdiff-buffer-cache-size", Some("1"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.hdiff_buffer_cache_size.get(), 1);
+        });
+}
+#[test]
+fn hdiff_buffer_cache_size_default() {
+    use beacon_node::beacon_chain::store::config::DEFAULT_HDIFF_BUFFER_CACHE_SIZE;
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.store.hdiff_buffer_cache_size,
+                DEFAULT_HDIFF_BUFFER_CACHE_SIZE
             );
         });
 }
@@ -2505,13 +2454,13 @@ fn logfile_format_flag() {
 fn sync_eth1_chain_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.sync_eth1_chain, false));
+        .with_config(|config| assert_eq!(config.sync_eth1_chain, true));
 }
 
 #[test]
 fn sync_eth1_chain_execution_endpoints_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag("execution-endpoints", Some("http://localhost:8551/"))
         .flag(
             "execution-jwt",
@@ -2524,7 +2473,7 @@ fn sync_eth1_chain_execution_endpoints_flag() {
 #[test]
 fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
-    CommandLineTest::new()
+    CommandLineTest::new_with_no_execution_endpoint()
         .flag("disable-deposit-contract-sync", None)
         .flag("execution-endpoints", Some("http://localhost:8551/"))
         .flag(
@@ -2533,6 +2482,21 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
         )
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.sync_eth1_chain, false));
+}
+
+#[test]
+#[should_panic]
+fn disable_deposit_contract_sync_conflicts_with_staking() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new_with_no_execution_endpoint()
+        .flag("disable-deposit-contract-sync", None)
+        .flag("staking", None)
+        .flag("execution-endpoints", Some("http://localhost:8551/"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .run_with_zero_port();
 }
 
 #[test]
@@ -2629,14 +2593,6 @@ fn invalid_gossip_verified_blocks_path() {
                 Some(PathBuf::from(path))
             )
         });
-}
-
-#[test]
-fn progressive_balances_checked() {
-    // Flag is deprecated but supplying it should not crash until we remove it completely.
-    CommandLineTest::new()
-        .flag("progressive-balances", Some("checked"))
-        .run_with_zero_port();
 }
 
 #[test]

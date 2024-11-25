@@ -396,11 +396,10 @@ mod ssz_static {
             .run();
         SszStaticHandler::<LightClientBootstrapDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
             .run();
-        // TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
-        // SszStaticHandler::<LightClientBootstrapElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only()
-        //     .run();
-        // SszStaticHandler::<LightClientBootstrapElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only()
-        //     .run();
+        SszStaticHandler::<LightClientBootstrapElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only()
+            .run();
+        SszStaticHandler::<LightClientBootstrapElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only()
+            .run();
     }
 
     // LightClientHeader has no internal indicator of which fork it is for, so we test it separately.
@@ -476,13 +475,12 @@ mod ssz_static {
         SszStaticHandler::<LightClientFinalityUpdateDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only(
         )
             .run();
-        // TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
-        // SszStaticHandler::<LightClientFinalityUpdateElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
-        // )
-        //     .run();
-        // SszStaticHandler::<LightClientFinalityUpdateElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
-        // )
-        //     .run();
+        SszStaticHandler::<LightClientFinalityUpdateElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
+        )
+            .run();
+        SszStaticHandler::<LightClientFinalityUpdateElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
+        )
+            .run();
     }
 
     // LightClientUpdate has no internal indicator of which fork it is for, so we test it separately.
@@ -506,13 +504,12 @@ mod ssz_static {
             .run();
         SszStaticHandler::<LightClientUpdateDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
             .run();
-        // TODO(electra) re-enable once https://github.com/sigp/lighthouse/issues/6002 is resolved
-        // SszStaticHandler::<LightClientUpdateElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
-        // )
-        // .run();
-        // SszStaticHandler::<LightClientUpdateElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
-        // )
-        // .run();
+        SszStaticHandler::<LightClientUpdateElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only(
+        )
+        .run();
+        SszStaticHandler::<LightClientUpdateElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only(
+        )
+        .run();
     }
 
     #[test]
@@ -679,6 +676,14 @@ mod ssz_static {
         SszStaticHandler::<PendingPartialWithdrawal, MinimalEthSpec>::electra_and_later().run();
         SszStaticHandler::<PendingPartialWithdrawal, MainnetEthSpec>::electra_and_later().run();
     }
+
+    #[test]
+    fn execution_requests() {
+        SszStaticHandler::<ExecutionRequests<MainnetEthSpec>, MainnetEthSpec>::electra_and_later()
+            .run();
+        SszStaticHandler::<ExecutionRequests<MinimalEthSpec>, MinimalEthSpec>::electra_and_later()
+            .run();
+    }
 }
 
 #[test]
@@ -819,12 +824,6 @@ fn fork_choice_on_block() {
 }
 
 #[test]
-fn fork_choice_on_merge_block() {
-    ForkChoiceHandler::<MinimalEthSpec>::new("on_merge_block").run();
-    ForkChoiceHandler::<MainnetEthSpec>::new("on_merge_block").run();
-}
-
-#[test]
 fn fork_choice_ex_ante() {
     ForkChoiceHandler::<MinimalEthSpec>::new("ex_ante").run();
     ForkChoiceHandler::<MainnetEthSpec>::new("ex_ante").run();
@@ -920,8 +919,13 @@ fn kzg_recover_cells_and_proofs() {
 }
 
 #[test]
-fn merkle_proof_validity() {
-    MerkleProofValidityHandler::<MainnetEthSpec>::default().run();
+fn beacon_state_merkle_proof_validity() {
+    BeaconStateMerkleProofValidityHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
+fn beacon_block_body_merkle_proof_validity() {
+    BeaconBlockBodyMerkleProofValidityHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]

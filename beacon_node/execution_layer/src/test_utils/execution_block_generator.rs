@@ -652,10 +652,6 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     withdrawals: pa.withdrawals.clone().into(),
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
-                    // TODO(electra): consider how to test these fields below
-                    deposit_requests: vec![].into(),
-                    withdrawal_requests: vec![].into(),
-                    consolidation_requests: vec![].into(),
                 }),
                 _ => unreachable!(),
             },

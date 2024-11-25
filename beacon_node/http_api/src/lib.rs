@@ -146,7 +146,6 @@ pub struct Config {
     pub listen_port: u16,
     pub allow_origin: Option<String>,
     pub tls_config: Option<TlsConfig>,
-    pub spec_fork_name: Option<ForkName>,
     pub data_dir: PathBuf,
     pub sse_capacity_multiplier: usize,
     pub enable_beacon_processor: bool,
@@ -164,7 +163,6 @@ impl Default for Config {
             listen_port: 5052,
             allow_origin: None,
             tls_config: None,
-            spec_fork_name: None,
             data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
             sse_capacity_multiplier: 1,
             enable_beacon_processor: true,
@@ -2643,7 +2641,6 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // GET config/spec
-    let spec_fork_name = ctx.config.spec_fork_name;
     let get_config_spec = config_path
         .and(warp::path("spec"))
         .and(warp::path::end())
@@ -2653,7 +2650,7 @@ pub fn serve<T: BeaconChainTypes>(
             move |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     let config_and_preset =
-                        ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec, spec_fork_name);
+                        ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec, None);
                     Ok(api_types::GenericResponse::from(config_and_preset))
                 })
             },
@@ -2696,24 +2693,37 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
+        .and(log_filter.clone())
         .then(
             |endpoint_version: EndpointVersion,
              state_id: StateId,
              accept_header: Option<api_types::Accept>,
              task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>| {
+             chain: Arc<BeaconChain<T>>,
+             log: Logger| {
                 task_spawner.blocking_response_task(Priority::P1, move || match accept_header {
                     Some(api_types::Accept::Ssz) => {
                         // We can ignore the optimistic status for the "fork" since it's a
                         // specification constant that doesn't change across competing heads of the
                         // beacon chain.
+                        let t = std::time::Instant::now();
                         let (state, _execution_optimistic, _finalized) = state_id.state(&chain)?;
                         let fork_name = state
                             .fork_name(&chain.spec)
                             .map_err(inconsistent_fork_rejection)?;
+                        let timer = metrics::start_timer(&metrics::HTTP_API_STATE_SSZ_ENCODE_TIMES);
+                        let response_bytes = state.as_ssz_bytes();
+                        drop(timer);
+                        debug!(
+                            log,
+                            "HTTP state load";
+                            "total_time_ms" => t.elapsed().as_millis(),
+                            "target_slot" => state.slot()
+                        );
+
                         Response::builder()
                             .status(200)
-                            .body(state.as_ssz_bytes().into())
+                            .body(response_bytes.into())
                             .map(|res: Response<Body>| add_ssz_content_type_header(res))
                             .map(|resp: warp::reply::Response| {
                                 add_consensus_version_header(resp, fork_name)

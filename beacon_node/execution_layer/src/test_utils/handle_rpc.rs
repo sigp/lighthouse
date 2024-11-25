@@ -373,6 +373,8 @@ pub async fn handle_rpc<E: EthSpec>(
                                 ))?
                                 .into(),
                             should_override_builder: false,
+                            // TODO(electra): add EL requests in mock el
+                            requests: Default::default(),
                         })
                         .unwrap()
                     }
@@ -561,60 +563,11 @@ pub async fn handle_rpc<E: EthSpec>(
 
                 match maybe_payload {
                     Some(payload) => {
-                        assert!(
-                            !payload.fork_name().electra_enabled(),
-                            "payload bodies V1 is not supported for Electra blocks"
-                        );
-                        let payload_body = ExecutionPayloadBodyV1 {
+                        let payload_body: ExecutionPayloadBodyV1<E> = ExecutionPayloadBodyV1 {
                             transactions: payload.transactions().clone(),
                             withdrawals: payload.withdrawals().ok().cloned(),
                         };
-                        let json_payload_body = JsonExecutionPayloadBody::V1(
-                            JsonExecutionPayloadBodyV1::<E>::from(payload_body),
-                        );
-                        response.push(Some(json_payload_body));
-                    }
-                    None => response.push(None),
-                }
-            }
-
-            Ok(serde_json::to_value(response).unwrap())
-        }
-        ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V2 => {
-            #[derive(Deserialize)]
-            #[serde(transparent)]
-            struct Quantity(#[serde(with = "serde_utils::u64_hex_be")] pub u64);
-
-            let start = get_param::<Quantity>(params, 0)
-                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
-                .0;
-            let count = get_param::<Quantity>(params, 1)
-                .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
-                .0;
-
-            let mut response = vec![];
-            for block_num in start..(start + count) {
-                let maybe_payload = ctx
-                    .execution_block_generator
-                    .read()
-                    .execution_payload_by_number(block_num);
-
-                match maybe_payload {
-                    Some(payload) => {
-                        // TODO(electra): add testing for:
-                        // deposit_requests
-                        // withdrawal_requests
-                        // consolidation_requests
-                        let payload_body = ExecutionPayloadBodyV2 {
-                            transactions: payload.transactions().clone(),
-                            withdrawals: payload.withdrawals().ok().cloned(),
-                            deposit_requests: payload.deposit_requests().ok().cloned(),
-                            withdrawal_requests: payload.withdrawal_requests().ok().cloned(),
-                            consolidation_requests: payload.consolidation_requests().ok().cloned(),
-                        };
-                        let json_payload_body = JsonExecutionPayloadBody::V2(
-                            JsonExecutionPayloadBodyV2::<E>::from(payload_body),
-                        );
+                        let json_payload_body = JsonExecutionPayloadBodyV1::from(payload_body);
                         response.push(Some(json_payload_body));
                     }
                     None => response.push(None),

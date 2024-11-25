@@ -1,0 +1,17 @@
+[package]
+name = "signing_method"
+version = "0.1.0"
+edition = { workspace = true }
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+
+[dependencies]
+eth2_keystore = { workspace = true }
+lockfile = { workspace = true }
+parking_lot = { workspace = true }
+reqwest = { workspace = true }
+task_executor = { workspace = true }
+types = { workspace = true }
+url = { workspace = true }
+validator_metrics = { workspace = true }
+serde = { workspace = true }
+ethereum_serde_utils = { workspace = true }

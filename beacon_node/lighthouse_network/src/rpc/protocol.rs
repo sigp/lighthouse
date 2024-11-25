@@ -18,10 +18,11 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockElectra,
-    BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, ForkContext, ForkName,
-    LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
+    BlobSidecar, ChainSpec, DataColumnSidecar, EmptyBlock, EthSpec, EthSpecId, ForkContext,
+    ForkName, LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
     LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
-    LightClientOptimisticUpdateAltair, MainnetEthSpec, Signature, SignedBeaconBlock,
+    LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, MinimalEthSpec,
+    Signature, SignedBeaconBlock,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -104,6 +105,20 @@ pub static SIGNED_BEACON_BLOCK_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|| {
     + ssz::BYTES_PER_LENGTH_OFFSET
 }); // Length offset for the blob commitments field.
 
+pub static BLOB_SIDECAR_SIZE: LazyLock<usize> =
+    LazyLock::new(BlobSidecar::<MainnetEthSpec>::max_size);
+
+pub static BLOB_SIDECAR_SIZE_MINIMAL: LazyLock<usize> =
+    LazyLock::new(BlobSidecar::<MinimalEthSpec>::max_size);
+
+pub static DATA_COLUMNS_SIDECAR_MIN: LazyLock<usize> = LazyLock::new(|| {
+    DataColumnSidecar::<MainnetEthSpec>::empty()
+        .as_ssz_bytes()
+        .len()
+});
+pub static DATA_COLUMNS_SIDECAR_MAX: LazyLock<usize> =
+    LazyLock::new(DataColumnSidecar::<MainnetEthSpec>::max_size);
+
 pub static ERROR_TYPE_MIN: LazyLock<usize> = LazyLock::new(|| {
     VariableList::<u8, MaxErrorLen>::from(Vec::<u8>::new())
         .as_ssz_bytes()
@@ -142,6 +157,13 @@ pub static LIGHT_CLIENT_BOOTSTRAP_DENEB_MAX: LazyLock<usize> =
 pub static LIGHT_CLIENT_BOOTSTRAP_ELECTRA_MAX: LazyLock<usize> = LazyLock::new(|| {
     LightClientBootstrap::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra)
 });
+
+pub static LIGHT_CLIENT_UPDATES_BY_RANGE_CAPELLA_MAX: LazyLock<usize> =
+    LazyLock::new(|| LightClientUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Capella));
+pub static LIGHT_CLIENT_UPDATES_BY_RANGE_DENEB_MAX: LazyLock<usize> =
+    LazyLock::new(|| LightClientUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Deneb));
+pub static LIGHT_CLIENT_UPDATES_BY_RANGE_ELECTRA_MAX: LazyLock<usize> =
+    LazyLock::new(|| LightClientUpdate::<MainnetEthSpec>::ssz_max_len_for_fork(ForkName::Electra));
 
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
@@ -187,6 +209,26 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and bellatrix blocks
             *SIGNED_BEACON_BLOCK_ELECTRA_MAX, // Electra block is larger than Deneb block
         ),
+    }
+}
+
+fn rpc_light_client_updates_by_range_limits_by_fork(current_fork: ForkName) -> RpcLimits {
+    let altair_fixed_len = LightClientFinalityUpdateAltair::<MainnetEthSpec>::ssz_fixed_len();
+
+    match &current_fork {
+        ForkName::Base => RpcLimits::new(0, 0),
+        ForkName::Altair | ForkName::Bellatrix => {
+            RpcLimits::new(altair_fixed_len, altair_fixed_len)
+        }
+        ForkName::Capella => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_CAPELLA_MAX)
+        }
+        ForkName::Deneb => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_DENEB_MAX)
+        }
+        ForkName::Electra => {
+            RpcLimits::new(altair_fixed_len, *LIGHT_CLIENT_UPDATES_BY_RANGE_ELECTRA_MAX)
+        }
     }
 }
 
@@ -286,6 +328,9 @@ pub enum Protocol {
     /// The `LightClientFinalityUpdate` protocol name.
     #[strum(serialize = "light_client_finality_update")]
     LightClientFinalityUpdate,
+    /// The `LightClientUpdatesByRange` protocol name
+    #[strum(serialize = "light_client_updates_by_range")]
+    LightClientUpdatesByRange,
 }
 
 impl Protocol {
@@ -304,6 +349,7 @@ impl Protocol {
             Protocol::LightClientBootstrap => None,
             Protocol::LightClientOptimisticUpdate => None,
             Protocol::LightClientFinalityUpdate => None,
+            Protocol::LightClientUpdatesByRange => None,
         }
     }
 }
@@ -334,6 +380,7 @@ pub enum SupportedProtocol {
     LightClientBootstrapV1,
     LightClientOptimisticUpdateV1,
     LightClientFinalityUpdateV1,
+    LightClientUpdatesByRangeV1,
 }
 
 impl SupportedProtocol {
@@ -356,6 +403,7 @@ impl SupportedProtocol {
             SupportedProtocol::LightClientBootstrapV1 => "1",
             SupportedProtocol::LightClientOptimisticUpdateV1 => "1",
             SupportedProtocol::LightClientFinalityUpdateV1 => "1",
+            SupportedProtocol::LightClientUpdatesByRangeV1 => "1",
         }
     }
 
@@ -380,6 +428,7 @@ impl SupportedProtocol {
                 Protocol::LightClientOptimisticUpdate
             }
             SupportedProtocol::LightClientFinalityUpdateV1 => Protocol::LightClientFinalityUpdate,
+            SupportedProtocol::LightClientUpdatesByRangeV1 => Protocol::LightClientUpdatesByRange,
         }
     }
 
@@ -542,6 +591,10 @@ impl ProtocolId {
             ),
             Protocol::LightClientOptimisticUpdate => RpcLimits::new(0, 0),
             Protocol::LightClientFinalityUpdate => RpcLimits::new(0, 0),
+            Protocol::LightClientUpdatesByRange => RpcLimits::new(
+                LightClientUpdatesByRangeRequest::ssz_min_len(),
+                LightClientUpdatesByRangeRequest::ssz_max_len(),
+            ),
             Protocol::MetaData => RpcLimits::new(0, 0), // Metadata requests are empty
         }
     }
@@ -558,8 +611,8 @@ impl ProtocolId {
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
-            Protocol::DataColumnsByRoot => rpc_data_column_limits::<E>(),
-            Protocol::DataColumnsByRange => rpc_data_column_limits::<E>(),
+            Protocol::DataColumnsByRoot => rpc_data_column_limits(),
+            Protocol::DataColumnsByRange => rpc_data_column_limits(),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -577,6 +630,9 @@ impl ProtocolId {
             Protocol::LightClientFinalityUpdate => {
                 rpc_light_client_finality_update_limits_by_fork(fork_context.current_fork())
             }
+            Protocol::LightClientUpdatesByRange => {
+                rpc_light_client_updates_by_range_limits_by_fork(fork_context.current_fork())
+            }
         }
     }
 
@@ -592,7 +648,8 @@ impl ProtocolId {
             | SupportedProtocol::DataColumnsByRangeV1
             | SupportedProtocol::LightClientBootstrapV1
             | SupportedProtocol::LightClientOptimisticUpdateV1
-            | SupportedProtocol::LightClientFinalityUpdateV1 => true,
+            | SupportedProtocol::LightClientFinalityUpdateV1
+            | SupportedProtocol::LightClientUpdatesByRangeV1 => true,
             SupportedProtocol::StatusV1
             | SupportedProtocol::BlocksByRootV1
             | SupportedProtocol::BlocksByRangeV1
@@ -625,17 +682,18 @@ impl ProtocolId {
 }
 
 pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
-    RpcLimits::new(
-        BlobSidecar::<E>::empty().as_ssz_bytes().len(),
-        BlobSidecar::<E>::max_size(),
-    )
+    match E::spec_name() {
+        EthSpecId::Minimal => {
+            RpcLimits::new(*BLOB_SIDECAR_SIZE_MINIMAL, *BLOB_SIDECAR_SIZE_MINIMAL)
+        }
+        EthSpecId::Mainnet | EthSpecId::Gnosis => {
+            RpcLimits::new(*BLOB_SIDECAR_SIZE, *BLOB_SIDECAR_SIZE)
+        }
+    }
 }
 
-pub fn rpc_data_column_limits<E: EthSpec>() -> RpcLimits {
-    RpcLimits::new(
-        DataColumnSidecar::<E>::empty().as_ssz_bytes().len(),
-        DataColumnSidecar::<E>::max_size(),
-    )
+pub fn rpc_data_column_limits() -> RpcLimits {
+    RpcLimits::new(*DATA_COLUMNS_SIDECAR_MIN, *DATA_COLUMNS_SIDECAR_MAX)
 }
 
 /* Inbound upgrade */
@@ -723,6 +781,7 @@ pub enum RequestType<E: EthSpec> {
     LightClientBootstrap(LightClientBootstrapRequest),
     LightClientOptimisticUpdate,
     LightClientFinalityUpdate,
+    LightClientUpdatesByRange(LightClientUpdatesByRangeRequest),
     Ping(Ping),
     MetaData(MetadataRequest<E>),
 }
@@ -747,6 +806,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientBootstrap(_) => 1,
             RequestType::LightClientOptimisticUpdate => 1,
             RequestType::LightClientFinalityUpdate => 1,
+            RequestType::LightClientUpdatesByRange(req) => req.count,
         }
     }
 
@@ -780,6 +840,9 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientFinalityUpdate => {
                 SupportedProtocol::LightClientFinalityUpdateV1
             }
+            RequestType::LightClientUpdatesByRange(_) => {
+                SupportedProtocol::LightClientUpdatesByRangeV1
+            }
         }
     }
 
@@ -802,6 +865,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientBootstrap(_) => unreachable!(),
             RequestType::LightClientFinalityUpdate => unreachable!(),
             RequestType::LightClientOptimisticUpdate => unreachable!(),
+            RequestType::LightClientUpdatesByRange(_) => unreachable!(),
         }
     }
 
@@ -861,6 +925,10 @@ impl<E: EthSpec> RequestType<E> {
                 SupportedProtocol::LightClientFinalityUpdateV1,
                 Encoding::SSZSnappy,
             )],
+            RequestType::LightClientUpdatesByRange(_) => vec![ProtocolId::new(
+                SupportedProtocol::LightClientUpdatesByRangeV1,
+                Encoding::SSZSnappy,
+            )],
         }
     }
 
@@ -879,6 +947,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientBootstrap(_) => true,
             RequestType::LightClientOptimisticUpdate => true,
             RequestType::LightClientFinalityUpdate => true,
+            RequestType::LightClientUpdatesByRange(_) => true,
         }
     }
 }
@@ -996,6 +1065,9 @@ impl<E: EthSpec> std::fmt::Display for RequestType<E> {
             }
             RequestType::LightClientFinalityUpdate => {
                 write!(f, "Light client finality update request")
+            }
+            RequestType::LightClientUpdatesByRange(_) => {
+                write!(f, "Light client updates by range request")
             }
         }
     }
