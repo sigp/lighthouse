@@ -126,7 +126,7 @@ delay_map = "0.3"
 derivative = "2"
 dirs = "3"
 either = "1.9"
-rust_eth_kzg = "0.5.1"
+rust_eth_kzg = "=0.5.1" # pinned for now while a perf regression is investigated
 discv5 = { version = "0.9", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"
