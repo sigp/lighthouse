@@ -126,7 +126,14 @@ delay_map = "0.4"
 derivative = "2"
 dirs = "3"
 either = "1.9"
-rust_eth_kzg = "0.5.1"
+ # TODO: rust_eth_kzg is pinned for now while a perf regression is investigated
+ # The crate_crypto_* dependencies can be removed from this file completely once we update
+rust_eth_kzg = "=0.5.1"
+crate_crypto_internal_eth_kzg_bls12_381 = "=0.5.1"
+crate_crypto_internal_eth_kzg_erasure_codes = "=0.5.1"
+crate_crypto_internal_eth_kzg_maybe_rayon = "=0.5.1"
+crate_crypto_internal_eth_kzg_polynomial = "=0.5.1"
+crate_crypto_kzg_multi_open_fk20 = "=0.5.1"
 discv5 = { version = "0.9", features = ["libp2p"] }
 env_logger = "0.9"
 error-chain = "0.12"
