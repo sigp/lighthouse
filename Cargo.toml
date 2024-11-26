@@ -122,7 +122,7 @@ clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 c-kzg = { version = "1", default-features = false }
 compare_fields_derive = { path = "common/compare_fields_derive" }
 criterion = "0.5"
-delay_map = "0.3"
+delay_map = "0.4"
 derivative = "2"
 dirs = "3"
 either = "1.9"
