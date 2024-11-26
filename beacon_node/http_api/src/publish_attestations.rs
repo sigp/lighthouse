@@ -50,7 +50,7 @@ use tokio::sync::{
     mpsc::{Sender, UnboundedSender},
     oneshot,
 };
-use types::{attestation::SingleAttestation, Attestation};
+use types::{attestation::SingleAttestation, Attestation, EthSpec};
 
 // Error variants are only used in `Debug` and considered `dead_code` by the compiler.
 #[derive(Debug)]
@@ -86,7 +86,7 @@ fn verify_and_publish_single_attestation<T: BeaconChainTypes>(
         .send(NetworkMessage::Publish {
             messages: vec![PubsubMessage::SingleAttestation(Box::new((
                 attestation.subnet_id,
-                attestation.single_attestation,
+                attestation.single_attestation.clone(),
             )))],
         })
         .map_err(|_| Error::Publication)?;
@@ -95,33 +95,76 @@ fn verify_and_publish_single_attestation<T: BeaconChainTypes>(
     chain
         .validator_monitor
         .read()
-        .register_api_single_attestation(seen_timestamp, &attestation.single_attestation, &chain.slot_clock);
-
-    let fc_result = chain.apply_attestation_to_fork_choice(&attestation);
-    let naive_aggregation_result = chain.add_to_naive_aggregation_pool(&attestation);
-
-    if let Err(e) = &fc_result {
-        warn!(
-            log,
-            "Attestation invalid for fork choice";
-            "err" => ?e,
+        .register_api_single_attestation(
+            seen_timestamp,
+            &attestation.single_attestation,
+            &chain.slot_clock,
         );
-    }
-    if let Err(e) = &naive_aggregation_result {
-        warn!(
-            log,
-            "Attestation invalid for aggregation";
-            "err" => ?e
-        );
-    }
 
-    if let Err(e) = fc_result {
-        Err(Error::ForkChoice(e))
-    } else if let Err(e) = naive_aggregation_result {
-        Err(Error::AggregationPool(e))
-    } else {
-        Ok(())
-    }
+    let attestation_epoch = attestation
+        .single_attestation
+        .data
+        .slot
+        .epoch(T::EthSpec::slots_per_epoch());
+
+    // TODO(single-attestation) UNWRAP
+    chain
+        .with_committee_cache(
+            attestation.single_attestation.data.target.root,
+            attestation_epoch,
+            |committee_cache, _| {
+                let fc_result =
+                    chain.apply_single_attestation_to_fork_choice(&attestation.single_attestation);
+
+                let beacon_committees = committee_cache
+                    .get_beacon_committees_at_slot(attestation.single_attestation.data.slot)
+                    .unwrap_or_else(|_| vec![]);
+
+                let Ok(attestation) = attestation
+                    .single_attestation
+                    .to_attestation(&beacon_committees)
+                else {
+                    warn!(
+                        log,
+                        "Attestation invalid for fork choice";
+                    );
+                    // TODO(single-attestation) better log message, better error type
+                    todo!()
+                    //return Err(Error::Publication)
+                };
+
+                let naive_aggregation_result =
+                    chain.add_to_naive_aggregation_pool(attestation.to_ref());
+
+                if let Err(e) = &fc_result {
+                    warn!(
+                        log,
+                        "Attestation invalid for fork choice";
+                        "err" => ?e,
+                    );
+                }
+                if let Err(e) = &naive_aggregation_result {
+                    warn!(
+                        log,
+                        "Attestation invalid for aggregation";
+                        "err" => ?e
+                    );
+                }
+
+                if let Err(_e) = &fc_result {
+                    todo!()
+                    //Err(Error::ForkChoice(e))
+                } else if let Err(_e) = naive_aggregation_result {
+                    todo!()
+                    //Err(Error::AggregationPool(e))
+                } else {
+                    Ok(())
+                }
+            },
+        )
+        .unwrap();
+
+    Ok(())
 }
 
 fn verify_and_publish_attestation<T: BeaconChainTypes>(
@@ -164,7 +207,7 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
         );
 
     let fc_result = chain.apply_attestation_to_fork_choice(&attestation);
-    let naive_aggregation_result = chain.add_to_naive_aggregation_pool(&attestation);
+    let naive_aggregation_result = chain.add_to_naive_aggregation_pool(attestation.attestation());
 
     if let Err(e) = &fc_result {
         warn!(
@@ -378,7 +421,6 @@ pub async fn publish_single_attestations<T: BeaconChainTypes>(
         ))
     }
 }
-
 
 pub async fn publish_attestations<T: BeaconChainTypes>(
     task_spawner: TaskSpawner<T::EthSpec>,

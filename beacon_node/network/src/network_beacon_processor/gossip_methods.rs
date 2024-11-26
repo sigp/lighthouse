@@ -402,7 +402,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 if let Err(e) = self
                     .chain
-                    .add_to_naive_aggregation_pool(&verified_attestation)
+                    .add_to_naive_aggregation_pool(verified_attestation.attestation())
                 {
                     debug!(
                         self.log,

@@ -2249,11 +2249,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// and no error is returned.
     pub fn add_to_naive_aggregation_pool(
         &self,
-        unaggregated_attestation: &impl VerifiedAttestation<T>,
+        attestation: AttestationRef<T::EthSpec>,
     ) -> Result<(), AttestationError> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_AGG_POOL);
-
-        let attestation = unaggregated_attestation.attestation();
 
         match self.naive_aggregation_pool.write().insert(attestation) {
             Ok(outcome) => trace!(
