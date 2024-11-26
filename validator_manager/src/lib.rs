@@ -9,6 +9,7 @@ use types::EthSpec;
 pub mod common;
 pub mod create_validators;
 pub mod delete_validators;
+pub mod exit_validators;
 pub mod import_validators;
 pub mod list_validators;
 pub mod move_validators;
@@ -61,6 +62,7 @@ pub fn cli_app() -> Command {
         .subcommand(move_validators::cli_app())
         .subcommand(list_validators::cli_app())
         .subcommand(delete_validators::cli_app())
+        .subcommand(exit_validators::cli_app())
 }
 
 /// Run the account manager, returning an error if the operation did not succeed.
@@ -93,6 +95,9 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), 
                     }
                     Some((delete_validators::CMD, matches)) => {
                         delete_validators::cli_run(matches, dump_config).await
+                    }
+                    Some((exit_validators::CMD, matches)) => {
+                        exit_validators::cli_run(matches, dump_config).await
                     }
                     Some(("", _)) => Err("No command supplied. See --help.".to_string()),
                     Some((unknown, _)) => Err(format!(

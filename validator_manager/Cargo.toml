@@ -26,3 +26,6 @@ derivative = { workspace = true }
 tempfile = { workspace = true }
 regex = { workspace = true }
 validator_http_api = { workspace = true }
+http_api = { workspace = true }
+beacon_chain = { workspace = true }
+
