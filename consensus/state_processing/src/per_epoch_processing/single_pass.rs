@@ -360,7 +360,10 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         *state.pending_deposits_mut()? = new_balance_deposits;
         *state.deposit_balance_to_consume_mut()? = ctxt.deposit_balance_to_consume;
 
-        // Apply the new deposits to the state
+        // `new_validator_deposits` may contain multiple deposits with the same pubkey where
+        // the first deposit creates the new validator and the others are topups.
+        // Each item in the vec is a (pubkey, validator_index)
+        let mut added_validators = Vec::new();
         for deposit in ctxt.new_validator_deposits.into_iter() {
             let deposit_data = DepositData {
                 pubkey: deposit.pubkey,
@@ -369,10 +372,60 @@ pub fn process_epoch_single_pass<E: EthSpec>(
                 signature: deposit.signature,
             };
             if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
-                state.add_validator_to_registry(
-                    deposit_data.pubkey,
-                    deposit_data.withdrawal_credentials,
-                    deposit_data.amount,
+                // If a validator with the same pubkey has already been added, do not add a new
+                // validator, just update the balance.
+                // Note: updating the `effective_balance` for the new validator is done after
+                // adding them to the state.
+                if let Some((_, validator_index)) = added_validators
+                    .iter()
+                    .find(|(pubkey, _)| *pubkey == deposit_data.pubkey)
+                {
+                    let balance = state.get_balance_mut(*validator_index)?;
+                    balance.safe_add_assign(deposit_data.amount)?;
+                } else {
+                    // Apply the new deposit to the state
+                    state.add_validator_to_registry(
+                        deposit_data.pubkey,
+                        deposit_data.withdrawal_credentials,
+                        deposit_data.amount,
+                        spec,
+                    )?;
+                    added_validators
+                        .push((deposit_data.pubkey, state.validators().len().safe_sub(1)?));
+                }
+            }
+        }
+        if conf.effective_balance_updates {
+            // Re-process effective balance updates for validators affected by top-up of new validators.
+            let (
+                validators,
+                balances,
+                _,
+                current_epoch_participation,
+                _,
+                progressive_balances,
+                _,
+                _,
+            ) = state.mutable_validator_fields()?;
+            for (_, validator_index) in added_validators.iter() {
+                let balance = *balances
+                    .get(*validator_index)
+                    .ok_or(BeaconStateError::UnknownValidator(*validator_index))?;
+                let mut validator = validators
+                    .get_cow(*validator_index)
+                    .ok_or(BeaconStateError::UnknownValidator(*validator_index))?;
+                let validator_current_epoch_participation = *current_epoch_participation
+                    .get(*validator_index)
+                    .ok_or(BeaconStateError::UnknownValidator(*validator_index))?;
+                process_single_effective_balance_update(
+                    *validator_index,
+                    balance,
+                    &mut validator,
+                    validator_current_epoch_participation,
+                    &mut next_epoch_cache,
+                    progressive_balances,
+                    effective_balances_ctxt,
+                    state_ctxt,
                     spec,
                 )?;
             }
