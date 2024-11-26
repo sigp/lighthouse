@@ -25,4 +25,6 @@ validator_metrics = { workspace = true }
 env_logger = { workspace = true }
 eth2_config = { workspace = true }
 mockito = { workspace = true }
+validator_client = { workspace = true }
+validator_services = { workspace = true }
 logging = { workspace = true }

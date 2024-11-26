@@ -891,7 +891,9 @@ dependencies = [
  "strum",
  "tokio",
  "types",
+ "validator_client",
  "validator_metrics",
+ "validator_services",
 ]
 
 [[package]]
