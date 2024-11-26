@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,11 +25,11 @@ type S = TestingSlotClock;
 type E = MainnetEthSpec;
 
 pub struct ValidatorTestRig {
-    pub(crate) validator_store: Arc<ValidatorStore<S, E>>,
-    pub(crate) runtime_context: RuntimeContext<E>,
-    pub(crate) slot_clock: S,
-    pub(crate) spec: Arc<ChainSpec>,
-    pub(crate) logger: Logger,
+    pub validator_store: Arc<ValidatorStore<S, E>>,
+    pub runtime_context: RuntimeContext<E>,
+    pub slot_clock: S,
+    pub spec: Arc<ChainSpec>,
+    pub logger: Logger,
 }
 
 impl ValidatorTestRig {

@@ -885,14 +885,12 @@ dependencies = [
  "itertools 0.10.5",
  "logging",
  "mockito",
- "node_test_rig",
  "serde",
  "slog",
  "slot_clock",
  "strum",
  "tokio",
  "types",
- "validator_client",
  "validator_metrics",
 ]
 
@@ -9381,6 +9379,7 @@ dependencies = [
  "metrics",
  "mockito",
  "monitoring_api",
+ "node_test_rig",
  "parking_lot 0.12.3",
  "regex",
  "reqwest",
