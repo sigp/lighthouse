@@ -17,7 +17,7 @@ use types::{
     consts::bellatrix::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
     AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
     Epoch, EthSpec, ExecPayload, ExecutionBlockHash, FixedBytesExtended, Hash256,
-    IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
+    IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot, AttestationData
 };
 
 #[derive(Debug)]
@@ -239,13 +239,13 @@ pub struct QueuedAttestation {
     target_epoch: Epoch,
 }
 
-impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
-    fn from(a: IndexedAttestationRef<'a, E>) -> Self {
+impl QueuedAttestation {
+    fn new(data: AttestationData, attesting_indices: Vec<u64>) -> Self {
         Self {
-            slot: a.data().slot,
-            attesting_indices: a.attesting_indices_to_vec(),
-            block_root: a.data().beacon_block_root,
-            target_epoch: a.data().target.epoch,
+            slot: data.slot,
+            attesting_indices,
+            block_root: data.beacon_block_root,
+            target_epoch: data.target.epoch,
         }
     }
 }
@@ -948,7 +948,8 @@ where
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#validate_on_attestation
     fn validate_on_attestation(
         &self,
-        indexed_attestation: IndexedAttestationRef<E>,
+        attestation_data: &AttestationData,
+        attesting_indices: &[u64],
         is_from_block: AttestationFromBlock,
     ) -> Result<(), InvalidAttestation> {
         // There is no point in processing an attestation with an empty bitfield. Reject
@@ -956,20 +957,20 @@ where
         //
         // This is not in the specification, however it should be transparent to other nodes. We
         // return early here to avoid wasting precious resources verifying the rest of it.
-        if indexed_attestation.attesting_indices_is_empty() {
+        if attesting_indices.is_empty() {
             return Err(InvalidAttestation::EmptyAggregationBitfield);
         }
 
-        let target = indexed_attestation.data().target;
+        let target = attestation_data.target;
 
         if matches!(is_from_block, AttestationFromBlock::False) {
             self.validate_target_epoch_against_current_time(target.epoch)?;
         }
 
-        if target.epoch != indexed_attestation.data().slot.epoch(E::slots_per_epoch()) {
+        if target.epoch != attestation_data.slot.epoch(E::slots_per_epoch()) {
             return Err(InvalidAttestation::BadTargetEpoch {
                 target: target.epoch,
-                slot: indexed_attestation.data().slot,
+                slot: attestation_data.slot,
             });
         }
 
@@ -991,9 +992,9 @@ where
         // attestation and do not delay consideration for later.
         let block = self
             .proto_array
-            .get_block(&indexed_attestation.data().beacon_block_root)
+            .get_block(&attestation_data.beacon_block_root)
             .ok_or(InvalidAttestation::UnknownHeadBlock {
-                beacon_block_root: indexed_attestation.data().beacon_block_root,
+                beacon_block_root: attestation_data.beacon_block_root,
             })?;
 
         // If an attestation points to a block that is from an earlier slot than the attestation,
@@ -1001,7 +1002,7 @@ where
         // is from a prior epoch to the attestation, then the target root must be equal to the root
         // of the block that is being attested to.
         let expected_target = if target.epoch > block.slot.epoch(E::slots_per_epoch()) {
-            indexed_attestation.data().beacon_block_root
+            attestation_data.beacon_block_root
         } else {
             block.target_root
         };
@@ -1015,10 +1016,10 @@ where
 
         // Attestations must not be for blocks in the future. If this is the case, the attestation
         // should not be considered.
-        if block.slot > indexed_attestation.data().slot {
+        if block.slot > attestation_data.slot {
             return Err(InvalidAttestation::AttestsToFutureBlock {
                 block: block.slot,
-                attestation: indexed_attestation.data().slot,
+                attestation: attestation_data.slot,
             });
         }
 
@@ -1045,7 +1046,8 @@ where
     pub fn on_attestation(
         &mut self,
         system_time_current_slot: Slot,
-        attestation: IndexedAttestationRef<E>,
+        attestation_data: AttestationData,
+        attesting_indices: Vec<u64>,
         is_from_block: AttestationFromBlock,
     ) -> Result<(), Error<T::Error>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_ON_ATTESTATION_TIMES);
@@ -1065,18 +1067,18 @@ where
         // (1) becomes weird once we hit finality and fork choice drops the genesis block. (2) is
         // fine because votes to the genesis block are not useful; all validators implicitly attest
         // to genesis just by being present in the chain.
-        if attestation.data().beacon_block_root == Hash256::zero() {
+        if attestation_data.beacon_block_root == Hash256::zero() {
             return Ok(());
         }
 
-        self.validate_on_attestation(attestation, is_from_block)?;
+        self.validate_on_attestation(&attestation_data, &attesting_indices, is_from_block)?;
 
-        if attestation.data().slot < self.fc_store.get_current_slot() {
-            for validator_index in attestation.attesting_indices_iter() {
+        if attestation_data.slot < self.fc_store.get_current_slot() {
+            for validator_index in attesting_indices.iter() {
                 self.proto_array.process_attestation(
                     *validator_index as usize,
-                    attestation.data().beacon_block_root,
-                    attestation.data().target.epoch,
+                    attestation_data.beacon_block_root,
+                    attestation_data.target.epoch,
                 )?;
             }
         } else {
@@ -1087,7 +1089,7 @@ where
             // Delay consideration in the fork choice until their slot is in the past.
             // ```
             self.queued_attestations
-                .push(QueuedAttestation::from(attestation));
+                .push(QueuedAttestation::new(attestation_data, attesting_indices));
         }
 
         Ok(())

@@ -60,6 +60,7 @@ use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_B
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
+use crate::single_attestation_verification::SingleAttestationVerification;
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
@@ -72,6 +73,7 @@ use crate::{
     kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
     BeaconSnapshot, CachedHead,
 };
+use attestation::SingleAttestation;
 use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes};
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
@@ -2042,6 +2044,35 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )
     }
 
+    /// Accepts some `SingleAttestation` from the network and attempts to verify it, returning `Ok(_)` if
+    /// it is valid to be (re)broadcast on the gossip network.
+    pub fn verify_single_attestation_for_gossip(
+        &self,
+        single_attestation: &SingleAttestation,
+        subnet_id: Option<SubnetId>,
+    ) -> Result<SingleAttestationVerification, AttestationError> {
+        metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
+        let _timer =
+            metrics::start_timer(&metrics::UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
+
+        let verify_attestation =
+            SingleAttestationVerification::verify(single_attestation, subnet_id, self)?;
+
+        // This method is called for API and gossip attestations, so this covers all unaggregated attestation events
+        if let Some(event_handler) = self.event_handler.as_ref() {
+            if event_handler.has_single_attestation_subscribers() {
+                // TODO(single-attestation) we should also emit the old attestation event?
+                event_handler.register(EventKind::SingleAttestation(Box::new(
+                    verify_attestation.single_attestation.clone(),
+                )));
+            }
+        }
+
+        metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
+
+        Ok(verify_attestation)
+    }
+
     /// Performs the same validation as `Self::verify_aggregated_attestation_for_gossip`, but for
     /// multiple attestations using batch BLS verification. Batch verification can provide
     /// significant CPU-time savings compared to individual verification.
@@ -2169,6 +2200,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    /// Accepts a `SingleATtestation` object and attempts to verify it in the context of fork
+    /// choice. If it is valid it is applied to `self.fork_choice`.
+    pub fn apply_single_attestation_to_fork_choice(
+        &self,
+        single_attestation: &SingleAttestation,
+    ) -> Result<(), Error> {
+        self.canonical_head
+            .fork_choice_write_lock()
+            .on_attestation(
+                self.slot()?,
+                single_attestation.data.clone(),
+                vec![single_attestation.attester_index as u64],
+                AttestationFromBlock::False,
+            )
+            .map_err(Into::into)
+    }
+
     /// Accepts some attestation-type object and attempts to verify it in the context of fork
     /// choice. If it is valid it is applied to `self.fork_choice`.
     ///
@@ -2184,7 +2232,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_write_lock()
             .on_attestation(
                 self.slot()?,
-                verified.indexed_attestation().to_ref(),
+                verified.indexed_attestation().data().clone(),
+                verified.indexed_attestation().attesting_indices_to_vec(),
                 AttestationFromBlock::False,
             )
             .map_err(Into::into)

@@ -22,7 +22,7 @@ use beacon_chain::{
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use operation_pool::ReceivedPreCapella;
 use slog::{crit, debug, error, info, trace, warn, Logger};
-use slot_clock::SlotClock;
+use slot_clock::{ManualSlotClock, SlotClock};
 use ssz::Encode;
 use std::fs;
 use std::io::Write;
@@ -2221,7 +2221,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // network.
                 let seen_clock = &self.chain.slot_clock.freeze_at(seen_timestamp);
                 let hindsight_verification =
-                    attestation_verification::verify_attestation_propagation_slot_range(
+                    attestation_verification::verify_attestation_propagation_slot_range::<
+                        ManualSlotClock,
+                        T::EthSpec,
+                    >(
                         seen_clock,
                         failed_att.attestation().data().slot,
                         &self.chain.spec,
@@ -3120,7 +3123,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
     ) {
-        let is_timely = attestation_verification::verify_attestation_propagation_slot_range(
+        let is_timely = attestation_verification::verify_attestation_propagation_slot_range::<
+            T::SlotClock,
+            T::EthSpec,
+        >(
             &self.chain.slot_clock,
             attestation.data().slot,
             &self.chain.spec,

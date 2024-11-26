@@ -17,7 +17,7 @@ use std::str::{from_utf8, FromStr};
 use std::sync::Arc;
 use std::time::Duration;
 use types::beacon_block_body::KzgCommitments;
-pub use types::*;
+pub use types::{attestation::SingleAttestation, *};
 
 #[cfg(feature = "lighthouse")]
 use crate::lighthouse::BlockReward;
@@ -1127,6 +1127,7 @@ pub enum EventKind<E: EthSpec> {
     AttesterSlashing(Box<AttesterSlashing<E>>),
     BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
     BlockGossip(Box<BlockGossip>),
+    SingleAttestation(Box<SingleAttestation>),
 }
 
 impl<E: EthSpec> EventKind<E> {
@@ -1150,6 +1151,7 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::AttesterSlashing(_) => "attester_slashing",
             EventKind::BlsToExecutionChange(_) => "bls_to_execution_change",
             EventKind::BlockGossip(_) => "block_gossip",
+            EventKind::SingleAttestation(_) => "single_attestation",
         }
     }
 
@@ -1269,6 +1271,7 @@ pub enum EventTopic {
     Block,
     BlobSidecar,
     Attestation,
+    SingleAttestation,
     VoluntaryExit,
     FinalizedCheckpoint,
     ChainReorg,
@@ -1320,6 +1323,7 @@ impl fmt::Display for EventTopic {
             EventTopic::Block => write!(f, "block"),
             EventTopic::BlobSidecar => write!(f, "blob_sidecar"),
             EventTopic::Attestation => write!(f, "attestation"),
+            EventTopic::SingleAttestation => write!(f, "single_attestation"),
             EventTopic::VoluntaryExit => write!(f, "voluntary_exit"),
             EventTopic::FinalizedCheckpoint => write!(f, "finalized_checkpoint"),
             EventTopic::ChainReorg => write!(f, "chain_reorg"),

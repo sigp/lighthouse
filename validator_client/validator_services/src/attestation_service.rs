@@ -458,9 +458,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     &[validator_metrics::ATTESTATIONS_HTTP_POST],
                 );
                 if fork_name.electra_enabled() {
-                    beacon_node
-                        .post_beacon_pool_attestations_v2(attestations, fork_name)
-                        .await
+                    // TODO(single-attestation) post single attestation
+
+                    // beacon_node
+                    //     .post_beacon_pool_attestations_v2::<E>(todo!(), fork_name)
+                    //     .await
+                    todo!()
                 } else {
                     beacon_node
                         .post_beacon_pool_attestations_v1(attestations)

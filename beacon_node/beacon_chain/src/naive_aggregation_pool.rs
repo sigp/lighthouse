@@ -252,6 +252,9 @@ impl<E: EthSpec> AggregateMap for AggregatedAttestationMap<E> {
         let attestation_key_root = attestation_key.tree_hash_root();
 
         if let Some(existing_attestation) = self.map.get_mut(&attestation_key_root) {
+            // TODO(single-attestation) for single attestaiton, we need the aggregation bits which means we need access
+            // to the shuffling to set the correct aggregation bits...
+            
             if existing_attestation
                 .get_aggregation_bit(aggregation_bit)
                 .map_err(|_| Error::InconsistentBitfieldLengths)?

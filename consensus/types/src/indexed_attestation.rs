@@ -107,6 +107,13 @@ impl<E: EthSpec> IndexedAttestation<E> {
         }
     }
 
+    pub fn attesting_indices(&self) -> Vec<u64> {
+        match self {
+            IndexedAttestation::Base(att) => att.attesting_indices.to_vec(),
+            IndexedAttestation::Electra(att) => att.attesting_indices.to_vec(),
+        }
+    }
+
     pub fn attesting_indices_first(&self) -> Option<&u64> {
         match self {
             IndexedAttestation::Base(att) => att.attesting_indices.first(),

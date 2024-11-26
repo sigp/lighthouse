@@ -1655,7 +1655,8 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
             match fork_choice.on_attestation(
                 current_slot,
-                indexed_attestation,
+                indexed_attestation.data().clone(),
+                indexed_attestation.attesting_indices_to_vec(),
                 AttestationFromBlock::True,
             ) {
                 Ok(()) => Ok(()),

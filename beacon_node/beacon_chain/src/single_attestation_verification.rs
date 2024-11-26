@@ -12,20 +12,26 @@ use eth2::types::attestation::SingleAttestation;
 use state_processing::signature_sets::single_attestation_signature_set_from_pubkeys;
 use types::{EthSpec, SubnetId};
 
-pub struct SingleAttestationVerification(SingleAttestation);
+pub struct SingleAttestationVerification {
+    pub single_attestation: SingleAttestation,
+    pub subnet_id: SubnetId,
+}
 
 impl SingleAttestationVerification {
     pub fn verify_early_checks<T: BeaconChainTypes>(
-        &self,
+        single_attestation: &SingleAttestation,
         chain: &BeaconChain<T>,
     ) -> Result<(), Error> {
-        let attestation_epoch = self.0.data.slot.epoch(T::EthSpec::slots_per_epoch());
+        let attestation_epoch = single_attestation
+            .data
+            .slot
+            .epoch(T::EthSpec::slots_per_epoch());
 
         // Check the attestation's epoch matches its target.
-        if attestation_epoch != self.0.data.target.epoch {
+        if attestation_epoch != single_attestation.data.target.epoch {
             return Err(Error::InvalidTargetEpoch {
-                slot: self.0.data.slot,
-                epoch: self.0.data.target.epoch,
+                slot: single_attestation.data.slot,
+                epoch: single_attestation.data.target.epoch,
             });
         }
 
@@ -34,13 +40,15 @@ impl SingleAttestationVerification {
         // We do not queue future attestations for later processing.
         verify_attestation_propagation_slot_range::<T::SlotClock, T::EthSpec>(
             &chain.slot_clock,
-            self.0.data.slot,
+            single_attestation.data.slot,
             &chain.spec,
         )?;
 
         // Sanity check to ensure the attestation index is set to zero post Electra.
-        if self.0.data.index != 0 {
-            return Err(Error::CommitteeIndexNonZero(self.0.data.index as usize));
+        if single_attestation.data.index != 0 {
+            return Err(Error::CommitteeIndexNonZero(
+                single_attestation.data.index as usize,
+            ));
         }
 
         // Attestations must be for a known block. If the block is unknown, we simply drop the
@@ -49,16 +57,16 @@ impl SingleAttestationVerification {
         // Enforce a maximum skip distance for unaggregated attestations.
         let head_block = verify_head_block_is_known(
             chain,
-            self.0.data.beacon_block_root,
-            self.0.data.slot,
+            single_attestation.data.beacon_block_root,
+            single_attestation.data.slot,
             chain.config.import_max_skip_slots,
         )?;
 
         // Check the attestation target root is consistent with the head root.
         verify_attestation_target_root::<T::EthSpec>(
             &head_block,
-            self.0.data.target.root,
-            self.0.data.slot,
+            single_attestation.data.target.root,
+            single_attestation.data.slot,
         )?;
 
         Ok(())
@@ -66,27 +74,33 @@ impl SingleAttestationVerification {
 
     /// Run the checks that apply to the indexed attestation before the signature is checked.
     pub fn verify_middle_checks<T: BeaconChainTypes>(
-        &self,
+        single_attestation: &SingleAttestation,
         subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
     ) -> Result<(u64, SubnetId), Error> {
-        let attestation_epoch = self.0.data.slot.epoch(T::EthSpec::slots_per_epoch());
+        let attestation_epoch = single_attestation
+            .data
+            .slot
+            .epoch(T::EthSpec::slots_per_epoch());
 
         let committees_per_slot = chain.with_committee_cache(
-            self.0.data.target.root,
+            single_attestation.data.target.root,
             attestation_epoch,
             |committee_cache, _| {
                 let beacon_committee = committee_cache
-                    .get_beacon_committee(self.0.data.slot, self.0.attester_index as u64)
+                    .get_beacon_committee(
+                        single_attestation.data.slot,
+                        single_attestation.attester_index as u64,
+                    )
                     .ok_or(Error::NoCommitteeForSlotAndIndex {
-                        slot: self.0.data.slot,
-                        index: self.0.committee_index,
+                        slot: single_attestation.data.slot,
+                        index: single_attestation.committee_index,
                     })
                     .map_err(|_| BeaconChainError::AttestationCommitteeIndexNotSet)?;
 
                 if !beacon_committee
                     .committee
-                    .contains(&(self.0.committee_index as usize))
+                    .contains(&(single_attestation.committee_index as usize))
                 {
                     // TODO(single-attestation) return a error
                     todo!()
@@ -96,7 +110,7 @@ impl SingleAttestationVerification {
         )?;
 
         let expected_subnet_id = SubnetId::compute_subnet_for_single_attestation::<T::EthSpec>(
-            &self.0,
+            single_attestation,
             committees_per_slot,
             &chain.spec,
         )
@@ -119,63 +133,97 @@ impl SingleAttestationVerification {
         if chain
             .observed_gossip_attesters
             .read()
-            .validator_has_been_observed(self.0.data.target.epoch, self.0.attester_index as usize)
+            .validator_has_been_observed(
+                single_attestation.data.target.epoch,
+                single_attestation.attester_index,
+            )
             .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {
-                validator_index: self.0.attester_index as u64,
-                epoch: self.0.data.target.epoch,
+                validator_index: single_attestation.attester_index as u64,
+                epoch: single_attestation.data.target.epoch,
             });
         }
 
-        Ok((self.0.attester_index as u64, expected_subnet_id))
+        Ok((single_attestation.attester_index as u64, expected_subnet_id))
     }
 
     /// Verify the attestation, producing extra information about whether it might be slashable.
     pub fn verify_slashable<'a, T: BeaconChainTypes>(
-        &'a self,
+        single_attestation: &'a SingleAttestation,
         subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
-    ) -> Result<(), SingleAttestationSlashInfo<'a, Error>> {
-        if let Err(e) = self.verify_early_checks(chain) {
-            return Err(SingleAttestationSlashInfo::SignatureNotChecked(&self.0, e));
+    ) -> Result<Self, SingleAttestationSlashInfo<'a, Error>> {
+        if let Err(e) = Self::verify_early_checks(single_attestation, chain) {
+            return Err(SingleAttestationSlashInfo::SignatureNotChecked(
+                single_attestation,
+                e,
+            ));
         }
 
-        if let Err(e) = self.verify_signature(chain) {
+        if let Err(e) = Self::verify_signature(single_attestation, chain) {
             return Err(SingleAttestationSlashInfo::SignatureInvalid(e));
         }
 
         // TODO(single-attestation) what to do with these?
-        let (validator_index, expected_subnet_id) =
-            match self.verify_middle_checks(subnet_id, chain) {
+        let (_validator_index, expected_subnet_id) =
+            match Self::verify_middle_checks(single_attestation, subnet_id, chain) {
                 Ok(t) => t,
-                Err(e) => return Err(SingleAttestationSlashInfo::SignatureValid(&self.0, e)),
+                Err(e) => {
+                    return Err(SingleAttestationSlashInfo::SignatureValid(
+                        single_attestation,
+                        e,
+                    ))
+                }
             };
 
-        if let Err(e) = self.verify_late_checks(chain) {
-            return Err(SingleAttestationSlashInfo::SignatureValid(&self.0, e));
+        if let Err(e) = Self::verify_late_checks(single_attestation, chain) {
+            return Err(SingleAttestationSlashInfo::SignatureValid(
+                single_attestation,
+                e,
+            ));
         }
 
-        Ok(())
+        Ok(SingleAttestationVerification {
+            single_attestation: single_attestation.clone(),
+            subnet_id: expected_subnet_id,
+        })
+    }
+
+    pub fn verify<T: BeaconChainTypes>(
+        single_attestation: &SingleAttestation,
+        subnet_id: Option<SubnetId>,
+        chain: &BeaconChain<T>,
+    ) -> Result<Self, Error> {
+        Self::verify_slashable(single_attestation, subnet_id, chain)
+            .inspect(|_verified_unaggregated| {
+                if let Some(_slasher) = chain.slasher.as_ref() {
+                    // TODO(single-attestation) add to the slasher queue
+                    // slasher.accept_attestation(verified_unaggregated.indexed_attestation.clone());
+                }
+            })
+            .map_err(|slash_info| process_slash_info(slash_info, chain))
     }
 
     pub fn verify_signature<T: BeaconChainTypes>(
-        &self,
+        single_attestation: &SingleAttestation,
         chain: &BeaconChain<T>,
     ) -> Result<(), Error> {
         let signature_setup_timer =
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES);
         let pubkey_cache = chain.validator_pubkey_cache.read();
         let pubkey = pubkey_cache
-            .get(self.0.attester_index)
+            .get(single_attestation.attester_index)
             .map(Cow::Borrowed)
             .ok_or(Error::InvalidSignature)?;
 
-        let fork = chain.spec.fork_at_epoch(self.0.data.target.epoch);
+        let fork = chain
+            .spec
+            .fork_at_epoch(single_attestation.data.target.epoch);
 
         let signature_set = single_attestation_signature_set_from_pubkeys(
             pubkey,
-            &self.0,
+            single_attestation,
             &fork,
             chain.genesis_validators_root,
             &chain.spec,
@@ -194,7 +242,10 @@ impl SingleAttestationVerification {
     }
 
     /// Run the checks that apply after the signature has been checked.
-    fn verify_late_checks<T: BeaconChainTypes>(&self, chain: &BeaconChain<T>) -> Result<(), Error> {
+    fn verify_late_checks<T: BeaconChainTypes>(
+        single_attestation: &SingleAttestation,
+        chain: &BeaconChain<T>,
+    ) -> Result<(), Error> {
         // Now that the attestation has been fully verified, store that we have received a valid
         // attestation from this validator.
         //
@@ -204,12 +255,15 @@ impl SingleAttestationVerification {
         if chain
             .observed_gossip_attesters
             .write()
-            .observe_validator(self.0.data.target.epoch, self.0.attester_index)
+            .observe_validator(
+                single_attestation.data.target.epoch,
+                single_attestation.attester_index,
+            )
             .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {
-                validator_index: self.0.attester_index as u64,
-                epoch: self.0.data.target.epoch,
+                validator_index: single_attestation.attester_index as u64,
+                epoch: single_attestation.data.target.epoch,
             });
         }
         Ok(())
@@ -224,4 +278,68 @@ pub enum SingleAttestationSlashInfo<'a, TErr> {
     SignatureInvalid(TErr),
     /// The signature is valid but the attestation is invalid in some other way.
     SignatureValid(&'a SingleAttestation, TErr),
+}
+
+/// After processing an attestation normally, optionally process it further for the slasher.
+///
+/// This maps an `AttestationSlashInfo` error back into a regular `Error`, performing signature
+/// checks on attestations that failed verification for other reasons.
+///
+/// No substantial extra work will be done if there is no slasher configured.
+fn process_slash_info<T: BeaconChainTypes>(
+    _slash_info: SingleAttestationSlashInfo<Error>,
+    _chain: &BeaconChain<T>,
+) -> Error {
+    todo!()
+    // use AttestationSlashInfo::*;
+
+    // if let Some(slasher) = chain.slasher.as_ref() {
+    //     let (indexed_attestation, check_signature, err) = match slash_info {
+    //         SignatureNotChecked(attestation, err) => {
+    //             if let Error::UnknownHeadBlock { .. } = err {
+    //                 if attestation.data().beacon_block_root == attestation.data().target.root {
+    //                     return err;
+    //                 }
+    //             }
+    //             match obtain_indexed_attestation_and_committees_per_slot(chain, attestation) {
+    //                 Ok((indexed, _)) => (indexed, true, err),
+    //                 Err(e) => {
+    //                     debug!(
+    //                         chain.log,
+    //                         "Unable to obtain indexed form of attestation for slasher";
+    //                         "attestation_root" => format!("{:?}", attestation.tree_hash_root()),
+    //                         "error" => format!("{:?}", e)
+    //                     );
+    //                     return err;
+    //                 }
+    //             }
+    //         }
+    //         SignatureNotCheckedIndexed(indexed, err) => (indexed, true, err),
+    //         SignatureInvalid(e) => return e,
+    //         SignatureValid(indexed, err) => (indexed, false, err),
+    //     };
+
+    //     if check_signature {
+    //         if let Err(e) = verify_attestation_signature(chain, &indexed_attestation) {
+    //             debug!(
+    //                 chain.log,
+    //                 "Signature verification for slasher failed";
+    //                 "error" => format!("{:?}", e),
+    //             );
+    //             return err;
+    //         }
+    //     }
+
+    //     // Supply to slasher.
+    //     slasher.accept_attestation(indexed_attestation);
+
+    //     err
+    // } else {
+    //     match slash_info {
+    //         SignatureNotChecked(_, e)
+    //         | SignatureNotCheckedIndexed(_, e)
+    //         | SignatureInvalid(e)
+    //         | SignatureValid(_, e) => e,
+    //     }
+    // }
 }

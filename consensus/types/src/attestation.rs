@@ -636,9 +636,9 @@ impl SingleAttestation {
         }
     }
 
-    pub fn add_signature(&mut self, signature: &AggregateSignature, committee_position: usize) {
+    pub fn add_signature(&mut self, signature: &Signature, committee_position: usize) {
         self.attester_index = committee_position;
-        self.signature = signature.clone();
+        self.signature.add_assign(signature);
     }
 
     pub fn to_attestation<E: EthSpec>(
@@ -682,6 +682,29 @@ impl SingleAttestation {
             data: self.data.clone(),
             signature: self.signature.clone(),
         }))
+    }
+
+    /// Signs `self`, setting the `committee_position`'th bit of `aggregation_bits` to `true`.
+    ///
+    /// Returns an `AlreadySigned` error if the `committee_position`'th bit is already `true`.
+    pub fn sign(
+        &mut self,
+        secret_key: &SecretKey,
+        committee_position: usize,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) {
+        let domain = spec.get_domain(
+            self.data.target.epoch,
+            Domain::BeaconAttester,
+            fork,
+            genesis_validators_root,
+        );
+
+        let message = self.data.signing_root(domain);
+
+        self.add_signature(&secret_key.sign(message), committee_position);
     }
 }
 

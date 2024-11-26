@@ -25,10 +25,10 @@ use types::consts::altair::{
     TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX,
 };
 use types::{
-    Attestation, AttestationData, AttesterSlashingRef, BeaconBlockRef, BeaconState,
-    BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
-    IndexedAttestationRef, ProposerSlashing, PublicKeyBytes, SignedAggregateAndProof,
-    SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
+    attestation::SingleAttestation, Attestation, AttestationData, AttesterSlashingRef,
+    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256,
+    IndexedAttestation, IndexedAttestationRef, ProposerSlashing, PublicKeyBytes,
+    SignedAggregateAndProof, SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
 };
 
 /// Used for Prometheus labels.
@@ -1207,7 +1207,8 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         self.register_unaggregated_attestation(
             "gossip",
             seen_timestamp,
-            indexed_attestation,
+            indexed_attestation.data(),
+            indexed_attestation.attesting_indices(),
             slot_clock,
         )
     }
@@ -1222,7 +1223,24 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         self.register_unaggregated_attestation(
             "api",
             seen_timestamp,
-            indexed_attestation,
+            indexed_attestation.data(),
+            indexed_attestation.attesting_indices(),
+            slot_clock,
+        )
+    }
+
+    /// Register an attestation seen on the HTTP API.
+    pub fn register_api_single_attestation<S: SlotClock>(
+        &self,
+        seen_timestamp: Duration,
+        single_attestation: &SingleAttestation,
+        slot_clock: &S,
+    ) {
+        self.register_unaggregated_attestation(
+            "api",
+            seen_timestamp,
+            &single_attestation.data,
+            vec![single_attestation.attester_index as u64],
             slot_clock,
         )
     }
@@ -1231,10 +1249,10 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         &self,
         src: &str,
         seen_timestamp: Duration,
-        indexed_attestation: &IndexedAttestation<E>,
+        data: &AttestationData,
+        attesting_indices: Vec<u64>,
         slot_clock: &S,
     ) {
-        let data = indexed_attestation.data();
         let epoch = data.slot.epoch(E::slots_per_epoch());
         let delay = get_message_delay_ms(
             seen_timestamp,
@@ -1243,7 +1261,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             slot_clock,
         );
 
-        indexed_attestation.attesting_indices_iter().for_each(|i| {
+        attesting_indices.iter().for_each(|i| {
             if let Some(validator) = self.get_validator(*i) {
                 let id = &validator.id;
 

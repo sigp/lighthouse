@@ -1825,6 +1825,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone());
 
+    let beacon_pool_path_v2 = eth_v2
+        .and(warp::path("beacon"))
+        .and(warp::path("pool"))
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone());
+
     let beacon_pool_path_any = any_version
         .and(warp::path("beacon"))
         .and(warp::path("pool"))
@@ -1832,13 +1838,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone());
 
     // POST beacon/pool/attestations
-    let post_beacon_pool_attestations = eth_v1
+    let post_beacon_pool_attestations_v1 = beacon_pool_path
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
         .and(warp_utils::json::json())
         .and(network_tx_filter.clone())
-        .and(reprocess_send_filter)
+        .and(reprocess_send_filter.clone())
         .and(log_filter.clone())
         .then(
             // V1 and V2 are identical except V2 has a consensus version header in the request.
@@ -1865,7 +1871,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // POST beacon/pool/attestations
-    let post_beacon_pool_attestations = eth_v2
+    let post_beacon_pool_attestations_v2 = beacon_pool_path_v2
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
@@ -1883,7 +1889,7 @@ pub fn serve<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              reprocess_tx: Option<Sender<ReprocessQueueMessage>>,
              log: Logger| async move {
-                let result = crate::publish_attestations::publish_attestations(
+                let result = crate::publish_attestations::publish_single_attestations(
                     task_spawner,
                     chain,
                     attestations,
@@ -4537,6 +4543,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::Attestation => {
                                     event_handler.subscribe_attestation()
                                 }
+                                api_types::EventTopic::SingleAttestation => {
+                                    event_handler.subscribe_single_attestation()
+                                }
                                 api_types::EventTopic::VoluntaryExit => {
                                     event_handler.subscribe_exit()
                                 }
@@ -4763,7 +4772,8 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_blinded_blocks)
                     .uor(post_beacon_blocks_v2)
                     .uor(post_beacon_blinded_blocks_v2)
-                    .uor(post_beacon_pool_attestations)
+                    .uor(post_beacon_pool_attestations_v1)
+                    .uor(post_beacon_pool_attestations_v2)
                     .uor(post_beacon_pool_attester_slashings)
                     .uor(post_beacon_pool_proposer_slashings)
                     .uor(post_beacon_pool_voluntary_exits)
